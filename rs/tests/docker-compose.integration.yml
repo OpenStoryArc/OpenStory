@@ -1,0 +1,101 @@
+# Integration test compose: Open Story + Claude Code + Verifier.
+#
+# Used by test_claude_integration.rs (Rust) and `just test-claude`.
+# For deployment, use the root docker-compose.integration.yml instead.
+#
+# Event capture uses the file watcher path: Claude writes JSONL transcripts
+# to a shared volume, Open Story watches it. Open Story runs as root to
+# read Claude's 600-mode transcript files.
+#
+# Usage:
+#   ANTHROPIC_API_KEY=sk-ant-... docker compose -f rs/tests/docker-compose.integration.yml \
+#     up --build --abort-on-container-exit
+
+services:
+  open-story:
+    image: open-story:test
+    user: "0:0"  # Root — required to read Claude's 600-mode transcript files
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+    ports:
+      - "3002"
+    volumes:
+      - os-data:/data
+      - claude-transcripts:/watch:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  claude-runner:
+    build:
+      context: ../..
+      dockerfile: rs/tests/Dockerfile.claude-runner
+    depends_on:
+      open-story:
+        condition: service_healthy
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ${FIXTURE_DIR:-./rs/tests/fixtures/test-repo}:/test-repo
+      - claude-transcripts:/home/claude/.claude/projects
+
+  # Verifier runs after Claude finishes — checks that events arrived
+  verifier:
+    image: python:3.12-slim
+    depends_on:
+      claude-runner:
+        condition: service_completed_successfully
+    entrypoint: python3
+    command:
+      - "-c"
+      - |
+        import json, time, urllib.request, sys
+
+        BASE = "http://open-story:3002"
+
+        def fetch(path):
+            req = urllib.request.Request(f"{BASE}{path}")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+
+        print("==> Waiting for events to settle...")
+        time.sleep(5)
+
+        print("==> Checking sessions...")
+        sessions = fetch("/api/sessions")
+        count = len(sessions)
+        print(f"Sessions found: {count}")
+
+        if count == 0:
+            print("FAIL: No sessions captured")
+            sys.exit(1)
+
+        print(f"PASS: {count} session(s) captured")
+
+        sid = sessions[0]["session_id"]
+        events = fetch(f"/api/sessions/{sid}/events")
+        print(f"PASS: Session {sid} has {len(events)} events")
+
+        subtypes = [e.get("subtype", "") for e in events]
+        has_tool = any("tool" in s for s in subtypes)
+        if has_tool:
+            print(f"PASS: Found tool events in subtypes")
+        else:
+            print(f"WARN: No tool events found (subtypes: {subtypes[:10]})")
+
+        sys.exit(0)
+
+volumes:
+  os-data:
+  claude-transcripts:

@@ -1,0 +1,51 @@
+[workspace]
+members = [".", "bus", "cli", "core", "patterns", "semantic", "server", "store", "views"]
+
+[package]
+name = "open-story"
+version = "0.1.0"
+edition = "2021"
+authors = ["Max Glassie"]
+license = "Apache-2.0"
+description = "Real-time visibility into AI coding agent behavior — observe, never interfere"
+repository = "https://github.com/OpenStoryArc/OpenStory"
+keywords = ["ai", "agent", "observability", "cloudevents", "dashboard"]
+categories = ["development-tools", "visualization"]
+
+[dependencies]
+anyhow = "1"
+open-story-core = { path = "core" }
+open-story-bus = { path = "bus" }
+open-story-patterns = { path = "patterns" }
+open-story-server = { path = "server" }
+open-story-store = { path = "store" }
+open-story-semantic = { path = "semantic" }
+open-story-views = { path = "views" }
+axum = { version = "0.8", features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+notify = "7"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+
+[features]
+default = []
+onnx = ["open-story-semantic/onnx"]
+
+[dev-dependencies]
+filetime = "0.2"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+testcontainers = { version = "0.27", features = ["http_wait", "docker-compose"] }
+reqwest = { version = "0.12", features = ["json"] }
+urlencoding = "2"
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+kube = { version = "0.98", features = ["client", "runtime"] }
+k8s-openapi = { version = "0.24", features = ["latest"] }

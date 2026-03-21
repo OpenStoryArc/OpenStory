@@ -1,0 +1,21 @@
+[package]
+name = "open-story-cli"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "CLI for open-story — real-time AI agent observability"
+repository = "https://github.com/OpenStoryArc/OpenStory"
+
+[[bin]]
+name = "open-story"
+path = "src/main.rs"
+
+[dependencies]
+open-story = { path = "..", features = ["onnx"] }
+open-story-bus = { path = "../bus" }
+open-story-semantic = { path = "../semantic", features = ["onnx", "qdrant"] }
+open-story-store = { path = "../store" }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }

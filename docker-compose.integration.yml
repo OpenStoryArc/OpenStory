@@ -1,0 +1,125 @@
+# Open Story + Claude Code — deployment composition.
+#
+# Runs Open Story alongside Claude Code in containers, with events
+# accessible externally via HTTP API and WebSocket. Designed for
+# deploying on an OpenClaw machine where Claude agents do real work.
+#
+# === Setup ===
+#
+# 1. Create a secrets file (NEVER commit this):
+#      printf 'sk-ant-your-key-here' > .anthropic_api_key
+#      chmod 600 .anthropic_api_key
+#
+# 2. (Optional) Generate an API token for Open Story:
+#      openssl rand -hex 32 > .open_story_token
+#      chmod 600 .open_story_token
+#
+# 3. Build the images:
+#      docker build -t open-story:test ./rs
+#      docker build -t claude-runner:test -f rs/tests/Dockerfile.claude-runner .
+#
+# 4. Start the stack:
+#      docker compose -f docker-compose.integration.yml up -d
+#
+# === Accessing events ===
+#
+#   # List sessions (from host or external machine)
+#   curl http://<host>:3002/api/sessions
+#
+#   # WebSocket live stream
+#   wscat -c ws://<host>:3002/ws
+#
+#   # With API token auth:
+#   curl -H "Authorization: Bearer $(cat .open_story_token)" http://<host>:3002/api/sessions
+#
+# === Architecture ===
+#
+#   claude-runner ──transcript files──► open-story (file watcher)
+#                 ──HTTP hooks───────►     :3002
+#                                           │
+#                                           ├── GET  /api/sessions (REST)
+#                                           ├── GET  /api/sessions/{id}/events
+#                                           ├── WS   /ws (live stream)
+#                                           └── POST /hooks (event ingestion)
+#
+# Event capture works via TWO paths:
+#   1. File watcher: Claude writes JSONL transcripts to ~/.claude/projects/,
+#      shared via the claude-transcripts volume. Open Story watches it.
+#   2. HTTP hooks: Claude sends PostToolUse/Stop/SubagentStop to open-story:3002.
+#
+# Open Story runs as root to read Claude's transcript files (created with
+# mode 600 by Claude Code). This is safe because it only reads the
+# transcript volume (mounted :ro) and writes to its own data volume.
+
+services:
+  open-story:
+    image: open-story:test
+    user: "0:0"  # Root — required to read Claude's 600-mode transcript files
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+    ports:
+      - "${OPEN_STORY_PORT:-3002}:3002"
+    volumes:
+      - os-data:/data
+      - claude-transcripts:/watch:ro
+    environment:
+      # API token — protect external access. Empty = no auth.
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      # Allow external connections (set to your dashboard URL)
+      - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
+      - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  claude-runner:
+    build:
+      context: .
+      dockerfile: rs/tests/Dockerfile.claude-runner
+    depends_on:
+      open-story:
+        condition: service_healthy
+    environment:
+      # API key loaded from secrets file — never in env directly
+      - ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic_api_key
+    secrets:
+      - anthropic_api_key
+    volumes:
+      - claude-work:/work
+      - claude-transcripts:/home/claude/.claude/projects
+    working_dir: /work
+    # Override CMD with your actual task:
+    #   docker compose -f docker-compose.integration.yml run claude-runner \
+    #     "Your prompt here"
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        # Load API key from Docker secret
+        if [ -f /run/secrets/anthropic_api_key ]; then
+          export ANTHROPIC_API_KEY=$(cat /run/secrets/anthropic_api_key)
+        fi
+        exec claude -p --dangerously-skip-permissions --output-format json "$@"
+      - "--"
+      - "${CLAUDE_PROMPT:-Read all files in this directory and summarize what you find.}"
+
+secrets:
+  anthropic_api_key:
+    file: ${ANTHROPIC_API_KEY_FILE:-.anthropic_api_key}
+
+volumes:
+  os-data:
+  claude-work:
+  claude-transcripts:

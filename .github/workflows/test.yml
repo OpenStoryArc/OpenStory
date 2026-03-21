@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rs
+      - name: Build
+        working-directory: rs
+        run: cargo build --workspace --exclude open-story-cli
+      - name: Test all crates
+        working-directory: rs
+        run: cargo test --workspace --exclude open-story-cli
+      - name: Clippy
+        working-directory: rs
+        run: cargo clippy --workspace --exclude open-story-cli -- -D warnings
+
+  ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install
+        working-directory: ui
+        run: npm ci
+      - name: TypeScript check
+        working-directory: ui
+        run: npx tsc --noEmit
+      - name: Test
+        working-directory: ui
+        run: npm test
+      - name: Build
+        working-directory: ui
+        run: npm run build

@@ -1,0 +1,20 @@
+{"type":"user","uuid":"u-001","parentUuid":"p-001","sessionId":"synth-session","cwd":"/home/user/project","version":"2.1.68","gitBranch":"main","timestamp":"2025-01-05T17:00:00.000Z","message":{"role":"user","content":"Hello Claude"}}
+{"type":"assistant","uuid":"u-002","parentUuid":"u-001","sessionId":"synth-session","cwd":"/home/user/project","version":"2.1.68","gitBranch":"main","timestamp":"2025-01-05T17:00:01.000Z","message":{"role":"assistant","model":"claude-opus-4-6","content":[{"type":"text","text":"Hello! How can I help?"}],"usage":{"input_tokens":10,"output_tokens":5},"stop_reason":"end_turn","id":"msg_001"}}
+{"type":"assistant","uuid":"u-003","parentUuid":"u-001","sessionId":"synth-session","timestamp":"2025-01-05T17:00:02.000Z","message":{"role":"assistant","model":"claude-opus-4-6","content":[{"type":"thinking","thinking":"Let me think..."},{"type":"tool_use","id":"tu_1","name":"Read","input":{"path":"/foo"}}]}}
+{"type":"user","uuid":"u-004","parentUuid":"u-003","sessionId":"synth-session","timestamp":"2025-01-05T17:00:03.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"file contents here"}]}}
+{"type":"progress","uuid":"u-005","sessionId":"synth-session","timestamp":"2025-01-05T17:00:04.000Z","data":{"type":"bash_progress","output":"$ ls\nfile1.txt"}}
+{"type":"progress","uuid":"u-006","sessionId":"synth-session","timestamp":"2025-01-05T17:00:05.000Z","data":{"type":"agent_progress","agent_id":"a1"}}
+{"type":"progress","uuid":"u-007","sessionId":"synth-session","timestamp":"2025-01-05T17:00:06.000Z","data":{"type":"hook_progress","hookEvent":"SessionStart"}}
+{"type":"system","uuid":"u-008","sessionId":"synth-session","timestamp":"2025-01-05T17:00:07.000Z","subtype":"turn_duration","durationMs":5000}
+{"type":"system","uuid":"u-009","sessionId":"synth-session","timestamp":"2025-01-05T17:00:08.000Z","subtype":"stop_hook_summary","hookCount":2,"preventedContinuation":false}
+{"type":"system","uuid":"u-010","sessionId":"synth-session","timestamp":"2025-01-05T17:00:09.000Z","subtype":"api_error"}
+{"type":"system","uuid":"u-011","sessionId":"synth-session","timestamp":"2025-01-05T17:00:10.000Z","subtype":"compact_boundary"}
+{"type":"file-history-snapshot","uuid":"u-012","timestamp":"2025-01-05T17:00:11.000Z","messageId":"msg-snap","snapshot":{"trackedFileBackups":{},"timestamp":"2025-01-05T16:55:00Z"}}
+{"type":"queue-operation","uuid":"u-013","sessionId":"synth-session","timestamp":"2025-01-05T17:00:12.000Z","operation":"enqueue","content":"do something"}
+{"type":"queue-operation","uuid":"u-014","sessionId":"synth-session","timestamp":"2025-01-05T17:00:13.000Z","operation":"dequeue"}
+{"type":"user","uuid":"u-015","sessionId":"synth-session","userType":"external","timestamp":"2025-01-05T17:00:14.000Z","message":{"role":"user","content":"external user msg"}}
+{"type":"assistant","uuid":"u-016","sessionId":"synth-session","timestamp":"2025-01-05T17:00:15.000Z","message":{"role":"assistant","content":"just a string, not array"}}
+{"type":"assistant","uuid":"u-017","sessionId":"synth-session","timestamp":"2025-01-05T17:00:16.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"deep thought only"}]}}
+{"type":"progress","uuid":"u-018","sessionId":"synth-session","timestamp":"2025-01-05T17:00:17.000Z","data":{"type":"new_future_type"}}
+{"type":"completely_unknown","uuid":"u-019","data":{}}
+{"type":"user","sessionId":"synth-session","timestamp":"2025-01-05T17:00:19.000Z","message":{"role":"user","content":"no uuid entry"}}

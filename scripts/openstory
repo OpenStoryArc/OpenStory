@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# openstory — launch Open Story for local development
+#
+# Usage:
+#   openstory .          Start server + UI watching the current directory
+#   openstory            Start server + UI with default watch dir (~/.claude/projects/)
+#   openstory serve      Just the Rust server (no UI)
+#   openstory dev        Just the Vite UI dev server
+#   openstory test       Run all tests
+#   openstory stop       Kill server + UI processes
+#
+# Install:
+#   cp scripts/openstory ~/.local/bin/openstory
+#   chmod +x ~/.local/bin/openstory
+#   # Edit OPEN_STORY_ROOT below to match your checkout location
+#
+# The server watches for Claude Code transcript files and serves the dashboard.
+# Default: http://localhost:5173 (UI) / http://localhost:3002 (API)
+
+set -e
+
+# ── Configuration ──────────────────────────────────────────────────
+# Set this to where you cloned the Open Story repo
+OPEN_STORY_ROOT="${OPEN_STORY_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# ───────────────────────────────────────────────────────────────────
+
+# Ensure the project exists
+if [ ! -d "$OPEN_STORY_ROOT/rs" ]; then
+  echo "Error: Open Story not found at $OPEN_STORY_ROOT" >&2
+  echo "Set OPEN_STORY_ROOT or edit this script." >&2
+  exit 1
+fi
+
+cmd="${1:---up}"
+
+case "$cmd" in
+  .|./|/*)
+    # openstory . OR openstory /some/path — watch a specific directory
+    watch_dir="$(realpath "${1}")"
+    if [ ! -d "$watch_dir" ]; then
+      echo "Error: Directory not found: $1" >&2
+      exit 1
+    fi
+    echo "Open Story — watching: $watch_dir"
+    echo "Dashboard: http://localhost:5173"
+    echo ""
+    cd "$OPEN_STORY_ROOT"
+    just kill-port 3002 2>/dev/null || true
+    just kill-port 5173 2>/dev/null || true
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    cargo build --manifest-path rs/cli/Cargo.toml
+    # Platform-dependent ONNX Runtime library name
+    case "$(uname -s)" in
+      Darwin*) _ort_lib="libonnxruntime.dylib" ;;
+      MINGW*|MSYS*|CYGWIN*) _ort_lib="onnxruntime.dll" ;;
+      *) _ort_lib="libonnxruntime.so" ;;
+    esac
+    ORT_DYLIB_PATH="data/models/$_ort_lib" \
+      cargo run --manifest-path rs/cli/Cargo.toml -- serve --watch-dir "$watch_dir" &
+    sleep 2
+    cd ui && npm run dev &
+    wait
+    ;;
+
+  --up|up)
+    # Default: start everything with default watch dir
+    echo "Open Story — default watch dir"
+    echo "Dashboard: http://localhost:5173"
+    echo ""
+    cd "$OPEN_STORY_ROOT" && just up
+    ;;
+
+  serve)
+    shift
+    cd "$OPEN_STORY_ROOT" && just serve "$@"
+    ;;
+
+  dev)
+    cd "$OPEN_STORY_ROOT" && just dev
+    ;;
+
+  test)
+    cd "$OPEN_STORY_ROOT" && just test
+    ;;
+
+  stop)
+    cd "$OPEN_STORY_ROOT"
+    just kill-port 3002 2>/dev/null || true
+    just kill-port 5173 2>/dev/null || true
+    echo "Stopped."
+    ;;
+
+  -h|--help|help)
+    sed -n '2,16s/^# //p' "$0"
+    ;;
+
+  *)
+    # Pass through to just
+    cd "$OPEN_STORY_ROOT" && just "$@"
+    ;;
+esac

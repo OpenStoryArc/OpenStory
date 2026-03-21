@@ -1,0 +1,37 @@
+# Test compose for split deployment: publisher + NATS + consumer
+#
+# Used by test_split_deployment.rs integration tests.
+# FIXTURE_DIR is set by the test harness to point at test fixtures.
+
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["--jetstream", "--store_dir", "/data/jetstream"]
+    ports:
+      - "4222"
+    volumes:
+      - nats-data:/data
+
+  publisher:
+    image: open-story:test
+    command: ["serve", "--role", "publisher", "--host", "0.0.0.0", "--port", "3002", "--nats-url", "nats://nats:4222", "--watch-dir", "/watch"]
+    ports:
+      - "3002"
+    volumes:
+      - ${FIXTURE_DIR:-.}:/watch:ro
+    depends_on:
+      - nats
+
+  consumer:
+    image: open-story:test
+    command: ["serve", "--role", "consumer", "--host", "0.0.0.0", "--port", "3002", "--nats-url", "nats://nats:4222", "--data-dir", "/data"]
+    ports:
+      - "3002"
+    volumes:
+      - consumer-data:/data
+    depends_on:
+      - nats
+
+volumes:
+  nats-data:
+  consumer-data:

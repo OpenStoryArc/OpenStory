@@ -1,0 +1,206 @@
+//! File system watcher using the `notify` crate.
+//!
+//! Recursively watches a directory for JSONL file modifications.
+//! Maintains per-file TranscriptState for incremental reading.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::{Duration, SystemTime};
+
+use anyhow::Result;
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use walkdir::WalkDir;
+
+/// Default time window for backfill — only process recent files (24 hours).
+const BACKFILL_WINDOW: Duration = Duration::from_secs(24 * 3600);
+
+use crate::cloud_event::CloudEvent;
+use crate::output::emit_events;
+use crate::paths::{project_id_from_path, session_id_from_path};
+use crate::reader::read_new_lines;
+use crate::translate::TranscriptState;
+
+/// Process a single file: read new lines, return events.
+fn process_file_raw(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+) -> Result<Vec<CloudEvent>> {
+    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return Ok(vec![]);
+    }
+
+    let canonical = path.to_path_buf();
+    let state = states
+        .entry(canonical.clone())
+        .or_insert_with(|| TranscriptState::new(session_id_from_path(path)));
+
+    read_new_lines(path, state)
+}
+
+/// Process a single file: read new lines, emit events.
+fn process_file(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    output_file: Option<&Path>,
+    stdout: bool,
+) -> Result<Vec<CloudEvent>> {
+    let events = process_file_raw(path, states)?;
+    if !events.is_empty() {
+        emit_events(&events, output_file, stdout)?;
+    }
+    Ok(events)
+}
+
+/// Backfill: process all existing JSONL files in the watch directory.
+pub fn backfill(
+    watch_dir: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    output_file: Option<&Path>,
+    stdout: bool,
+) -> Result<u64> {
+    let mut total = 0u64;
+    for entry in WalkDir::new(watch_dir)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            let events = process_file(path, states, output_file, stdout)?;
+            total += events.len() as u64;
+        }
+    }
+    Ok(total)
+}
+
+/// Watch a directory with a callback for each batch of events.
+///
+/// This blocks the current thread. The callback receives `(session_id, project_id, events)`.
+pub fn watch_with_callback<F>(
+    watch_dir: &Path,
+    do_backfill: bool,
+    mut on_events: F,
+) -> Result<()>
+where
+    F: FnMut(&str, Option<&str>, Vec<CloudEvent>),
+{
+    let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
+
+    if do_backfill {
+        let now = SystemTime::now();
+        let mut total = 0u64;
+        let mut skipped = 0u64;
+        for entry in WalkDir::new(watch_dir)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            // Skip files older than BACKFILL_WINDOW
+            let dominated = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|mtime| {
+                    now.duration_since(mtime)
+                        .unwrap_or(Duration::ZERO)
+                        <= BACKFILL_WINDOW
+                })
+                .unwrap_or(false);
+            if !dominated {
+                skipped += 1;
+                continue;
+            }
+            let events = process_file_raw(path, &mut states)?;
+            if !events.is_empty() {
+                total += events.len() as u64;
+                let sid = session_id_from_path(path);
+                let pid = project_id_from_path(path, watch_dir);
+                on_events(&sid, pid.as_deref(), events);
+            }
+        }
+        eprintln!("Backfilled {} events from recent files (skipped {} old)", total, skipped);
+    }
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+
+    let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+    watcher.watch(watch_dir, RecursiveMode::Recursive)?;
+
+    eprintln!("Watching {} for JSONL changes...", watch_dir.display());
+
+    for res in rx {
+        match res {
+            Ok(event) => {
+                if matches!(
+                    event.kind,
+                    EventKind::Modify(_) | EventKind::Create(_)
+                ) {
+                    for path in &event.paths {
+                        match process_file_raw(path, &mut states) {
+                            Ok(events) if !events.is_empty() => {
+                                let sid = session_id_from_path(path);
+                                let pid = project_id_from_path(path, watch_dir);
+                                on_events(&sid, pid.as_deref(), events);
+                            }
+                            Ok(_) => {}
+                            Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("Watch error: {}", e),
+        }
+    }
+
+    Ok(())
+}
+
+/// Watch a directory for JSONL file changes and emit CloudEvents.
+///
+/// This blocks the current thread. Use Ctrl+C or drop the watcher to stop.
+pub fn watch_directory(
+    watch_dir: &Path,
+    output_file: Option<&Path>,
+    stdout: bool,
+    do_backfill: bool,
+) -> Result<()> {
+    let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
+
+    if do_backfill {
+        let count = backfill(watch_dir, &mut states, output_file, stdout)?;
+        eprintln!("Backfilled {} events from existing files", count);
+    }
+
+    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+
+    let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+    watcher.watch(watch_dir, RecursiveMode::Recursive)?;
+
+    eprintln!("Watching {} for JSONL changes...", watch_dir.display());
+
+    for res in rx {
+        match res {
+            Ok(event) => {
+                if matches!(
+                    event.kind,
+                    EventKind::Modify(_) | EventKind::Create(_)
+                ) {
+                    for path in &event.paths {
+                        if let Err(e) = process_file(path, &mut states, output_file, stdout) {
+                            eprintln!("Error processing {}: {}", path.display(), e);
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("Watch error: {}", e),
+        }
+    }
+
+    Ok(())
+}
+

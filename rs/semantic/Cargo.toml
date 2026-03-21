@@ -1,0 +1,30 @@
+[package]
+name = "open-story-semantic"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Semantic search trait, text extraction, and embedding for open-story"
+
+[features]
+default = []
+onnx = ["ort", "tokenizers", "ndarray"]
+qdrant = ["qdrant-client"]
+
+[dependencies]
+open-story-views = { path = "../views" }
+anyhow = "1"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time"] }
+
+# Optional: ONNX embedding (Phase 3)
+ort = { version = "2.0.0-rc.12", optional = true, features = ["load-dynamic"] }
+tokenizers = { version = "0.22", optional = true }
+ndarray = { version = "0.17", optional = true }
+
+# Optional: Qdrant vector store (Phase 4)
+qdrant-client = { version = "1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
