@@ -1,0 +1,7 @@
+node_modules/
+test-results/
+playwright-report/
+fixtures/tmp/
+fixtures/seed-data/plans/
+.container-state.json
+e2e/fixtures/seed-data/open-story.db*

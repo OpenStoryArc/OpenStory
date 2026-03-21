@@ -1,0 +1,98 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "NATS Messages (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(gnatsd_varz_in_msgs[5m])",
+          "legendFormat": "in msgs/s"
+        },
+        {
+          "expr": "rate(gnatsd_varz_out_msgs[5m])",
+          "legendFormat": "out msgs/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "title": "NATS Bytes (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "rate(gnatsd_varz_in_bytes[5m])",
+          "legendFormat": "in bytes/s"
+        },
+        {
+          "expr": "rate(gnatsd_varz_out_bytes[5m])",
+          "legendFormat": "out bytes/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "Bps" }
+      }
+    },
+    {
+      "title": "NATS Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "gnatsd_varz_connections" }
+      ]
+    },
+    {
+      "title": "NATS Subscriptions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        { "expr": "gnatsd_varz_subscriptions" }
+      ]
+    },
+    {
+      "title": "JetStream Streams",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "gnatsd_varz_jetstream_stats_streams" }
+      ]
+    },
+    {
+      "title": "JetStream Consumers",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        { "expr": "gnatsd_varz_jetstream_stats_consumers" }
+      ]
+    },
+    {
+      "title": "JetStream Store Bytes",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "gnatsd_varz_jetstream_stats_store_bytes",
+          "legendFormat": "store bytes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["open-story", "nats"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Open Story — NATS JetStream",
+  "uid": "open-story-nats"
+}

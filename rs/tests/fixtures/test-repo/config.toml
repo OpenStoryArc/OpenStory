@@ -1,0 +1,7 @@
+[project]
+name = "test-project"
+version = "0.1.0"
+
+[settings]
+debug = true
+max_retries = 3

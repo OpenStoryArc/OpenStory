@@ -1,0 +1,123 @@
+# OpenClaw deployment: Claude + listener (publisher) + NATS + consumer
+#
+# Full split deployment with Claude Code agent producing events
+# and Open Story observing via both file watcher and HTTP hooks.
+#
+# === Setup ===
+#
+# 1. Create a secrets file (NEVER commit this):
+#      printf 'sk-ant-your-key-here' > .anthropic_api_key
+#      chmod 600 .anthropic_api_key
+#
+# 2. Build the images:
+#      docker build -t open-story:test ./rs
+#      docker build -t claude-runner:test -f rs/tests/Dockerfile.claude-runner .
+#
+# 3. Start the stack:
+#      docker compose -f docker-compose.openclaw.yml up -d
+#
+# === Architecture ===
+#
+#   claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API)
+#                 ──HTTP hooks──►     :3002                          :3002
+#                                                                      │
+#                                                          Dashboard / API clients
+
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["--jetstream", "--store_dir", "/data/jetstream"]
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+
+  listener:
+    image: open-story:test
+    user: "0:0"
+    command:
+      - "serve"
+      - "--role"
+      - "publisher"
+      - "--nats-url"
+      - "nats://nats:4222"
+      - "--watch-dir"
+      - "/watch"
+      - "--host"
+      - "0.0.0.0"
+    depends_on:
+      - nats
+    volumes:
+      - claude-transcripts:/watch:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  consumer:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--role"
+      - "consumer"
+      - "--nats-url"
+      - "nats://nats:4222"
+      - "--host"
+      - "0.0.0.0"
+      - "--data-dir"
+      - "/data"
+    ports:
+      - "${OPEN_STORY_PORT:-3002}:3002"
+    volumes:
+      - os-data:/data
+    depends_on:
+      - nats
+    environment:
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
+      - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  claude-runner:
+    build:
+      context: .
+      dockerfile: rs/tests/Dockerfile.claude-runner
+    depends_on:
+      listener:
+        condition: service_healthy
+    environment:
+      - ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic_api_key
+    secrets:
+      - anthropic_api_key
+    volumes:
+      - claude-work:/work
+      - claude-transcripts:/home/claude/.claude/projects
+    working_dir: /work
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        if [ -f /run/secrets/anthropic_api_key ]; then
+          export ANTHROPIC_API_KEY=$(cat /run/secrets/anthropic_api_key)
+        fi
+        exec claude -p --dangerously-skip-permissions --output-format json "$@"
+      - "--"
+      - "${CLAUDE_PROMPT:-Read all files in this directory and summarize what you find.}"
+
+secrets:
+  anthropic_api_key:
+    file: ${ANTHROPIC_API_KEY_FILE:-.anthropic_api_key}
+
+volumes:
+  nats-data:
+  os-data:
+  claude-work:
+  claude-transcripts:

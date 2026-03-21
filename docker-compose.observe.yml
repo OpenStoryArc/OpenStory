@@ -1,0 +1,45 @@
+# Observability stack overlay — extends docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.observe.yml up
+#   (or: just observe)
+#
+# Adds Prometheus, Grafana, and NATS exporter for monitoring the pipeline.
+
+services:
+  # Override: enable metrics on the server
+  server:
+    environment:
+      - OPEN_STORY_METRICS=true
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observe/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - server
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=openstory
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./observe/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observe/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:latest
+    command: ["-varz", "http://nats:8222"]
+    ports:
+      - "7777:7777"
+    depends_on:
+      - nats

@@ -1,0 +1,83 @@
+# Split deployment: listener (publisher) + NATS + consumer
+#
+# The listener watches transcript files and publishes to NATS.
+# The consumer subscribes, ingests, and serves the API.
+#
+# Usage:
+#   docker compose -f docker-compose.split.yml up
+#
+# Hook configuration for Claude Code (~/.claude/settings.json):
+#   { "hooks": { "PostToolUse": [{ "hooks": [{ "type": "http",
+#     "url": "http://localhost:3003/hooks", "timeout": 5 }] }] } }
+
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["--jetstream", "--store_dir", "/data/jetstream"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+
+  listener:
+    image: open-story:test
+    user: "0:0"  # Root — required to read Claude's 600-mode transcript files
+    command:
+      - "serve"
+      - "--role"
+      - "publisher"
+      - "--nats-url"
+      - "nats://nats:4222"
+      - "--watch-dir"
+      - "/watch"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+    ports:
+      - "${LISTENER_PORT:-3003}:3002"
+    volumes:
+      - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
+    depends_on:
+      - nats
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  consumer:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--role"
+      - "consumer"
+      - "--nats-url"
+      - "nats://nats:4222"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+    ports:
+      - "${CONSUMER_PORT:-3002}:3002"
+    volumes:
+      - os-data:/data
+    depends_on:
+      - nats
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  nats-data:
+  os-data:

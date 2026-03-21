@@ -1,0 +1,16 @@
+# Prometheus configuration for open-story observability stack.
+# Scrapes the open-story server /metrics endpoint and NATS exporter.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "open-story"
+    static_configs:
+      - targets: ["server:3002"]
+    metrics_path: /metrics
+
+  - job_name: "nats"
+    static_configs:
+      - targets: ["nats-exporter:7777"]

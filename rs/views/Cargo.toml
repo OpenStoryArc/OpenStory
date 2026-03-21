@@ -1,0 +1,16 @@
+[package]
+name = "open-story-views"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "CloudEvent to ViewRecord transform layer for open-story"
+repository = "https://github.com/OpenStoryArc/OpenStory"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+pulldown-cmark = "0.12"
+
+[dev-dependencies]
+serde_json = "1"

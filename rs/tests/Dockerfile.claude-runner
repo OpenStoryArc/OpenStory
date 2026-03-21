@@ -1,0 +1,45 @@
+# Claude Code runner for integration testing and deployment.
+#
+# Installs Claude Code CLI, configures hooks to point at the Open Story
+# container, and runs a headless task against a mounted workspace.
+#
+# Build:
+#   docker build -t claude-runner:test -f rs/tests/Dockerfile.claude-runner .
+#
+# API key handling:
+#   - Test compose: ANTHROPIC_API_KEY env var (set by test harness)
+#   - Deployment compose: Docker secret at /run/secrets/anthropic_api_key
+#   The entrypoint script checks both, preferring the secret.
+
+FROM node:22-slim
+
+# Claude Code needs git for repo operations
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create non-root user (node:22-slim already has GID 1000 as 'node')
+RUN useradd --uid 1001 --gid node --create-home claude
+
+# Configure hooks to point at the open-story container
+# (service name 'open-story' resolves via Docker Compose networking)
+RUN mkdir -p /home/claude/.claude && \
+    chown -R claude:node /home/claude/.claude
+
+COPY rs/tests/fixtures/claude-runner-settings.json /home/claude/.claude/settings.json
+
+# Working directory for the test task
+RUN mkdir -p /test-repo && chown claude:node /test-repo
+WORKDIR /test-repo
+
+# Entrypoint script: load API key from secret or env, then run Claude
+COPY rs/tests/fixtures/claude-entrypoint.sh /usr/local/bin/claude-entrypoint.sh
+RUN chmod +x /usr/local/bin/claude-entrypoint.sh
+
+USER claude
+
+ENTRYPOINT ["/usr/local/bin/claude-entrypoint.sh"]
+CMD ["Read all files in this directory. Create a file called integration_result.txt with the text 'Claude integration test passed'. List what you found."]

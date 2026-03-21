@@ -1,0 +1,44 @@
+# Rust
+rs/target/
+
+# Node
+node_modules/
+ui/dist/
+
+# Data
+data/
+rs/data/
+
+# Claude local settings
+.claude/
+
+# IDE
+.vscode/
+.idea/
+.copilot/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# OS artifacts
+.DS_Store
+nul
+*.swp
+*.heapsnapshot
+
+# Coverage
+coverage/
+rs/target/llvm-cov-target/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Secrets (NEVER commit these)
+.anthropic_api_key
+.open_story_token
+*.secret
+
+# Generated history
+history/
