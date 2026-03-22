@@ -31,8 +31,10 @@ These principles flow from the soul above. They are the rules that shape every d
 - When work is complete, remove the entry from `BACKLOG.md`. Completed work lives in git history.
 
 ### Branch strategy
-- `master` is the stable trunk. Commit directly to master during active development.
-- Use feature branches for large multi-commit changes or when multiple agents are working simultaneously.
+- `master` is protected. All changes go through pull requests with review.
+- Create a feature branch for every change, no matter how small.
+- PRs require 1 approving review before merge.
+- CI status checks will be required once the GitHub Actions pipeline is validated.
 - Commits should be atomic — one logical change per commit.
 - Run tests before pushing.
 
