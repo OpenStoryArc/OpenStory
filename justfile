@@ -64,13 +64,17 @@ kill-port port:
 up:
     #!/usr/bin/env bash
     set -e
-    # Kill any lingering open-story processes (prevents Windows file lock on exe)
-    taskkill //F //IM open-story.exe 2>/dev/null || true
+    # Kill any lingering open-story processes
+    if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+      taskkill //F //IM open-story.exe 2>/dev/null || true
+    else
+      pkill -f 'open-story.*serve' 2>/dev/null || true
+    fi
     just kill-port 3002
     just kill-port 5173
-    trap 'kill $(jobs -p) 2>/dev/null; taskkill //F //IM open-story.exe 2>/dev/null' EXIT
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
     cargo build --manifest-path rs/cli/Cargo.toml
-    ORT_DYLIB_PATH=data/models/{{ort_lib}} cargo run --manifest-path rs/cli/Cargo.toml -- serve &
+    cargo run --manifest-path rs/cli/Cargo.toml -- serve &
     sleep 2
     cd ui && npm run dev &
     wait
