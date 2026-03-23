@@ -12,14 +12,14 @@ import {
 } from "@/lib/event-graph";
 import type { WireRecord } from "@/types/wire-record";
 
-function makeRecord(id: string, overrides: Partial<WireRecord> = {}): WireRecord {
+function makeRecord(id: string, overrides: Omit<Partial<WireRecord>, "payload"> & { payload?: unknown } = {}): WireRecord {
   return {
     id,
     seq: 1,
     session_id: "s1",
     timestamp: "2026-01-01T00:00:00Z",
     record_type: "assistant_message",
-    payload: { text: "test" },
+    payload: { model: "test", content: [{ type: "text", text: "test" }] },
     agent_id: null,
     is_sidechain: false,
     depth: 0,
@@ -27,29 +27,29 @@ function makeRecord(id: string, overrides: Partial<WireRecord> = {}): WireRecord
     truncated: false,
     payload_bytes: 100,
     ...overrides,
-  } as WireRecord;
+  } as unknown as WireRecord;
 }
 
 function toolCall(id: string, name: string, input: Record<string, unknown> = {}, typed?: Record<string, unknown>): WireRecord {
-  const payload: Record<string, unknown> = { name, raw_input: input };
+  const payload: Record<string, unknown> = { call_id: `call-${id}`, name, input: {}, raw_input: input };
   if (typed) payload.typed_input = typed;
-  return makeRecord(id, { record_type: "tool_call", payload }) as WireRecord;
+  return makeRecord(id, { record_type: "tool_call", payload });
 }
 
 function userMsg(id: string, text: string, ts: string = "2026-01-01T00:00:00Z"): WireRecord {
-  return makeRecord(id, { record_type: "user_message", payload: { text }, timestamp: ts }) as WireRecord;
+  return makeRecord(id, { record_type: "user_message", payload: { text }, timestamp: ts });
 }
 
 function assistantMsg(id: string, text: string): WireRecord {
-  return makeRecord(id, { record_type: "assistant_message", payload: { text } }) as WireRecord;
+  return makeRecord(id, { record_type: "assistant_message", payload: { text } });
 }
 
 function toolResult(id: string, output: string = "ok", isError: boolean = false): WireRecord {
-  return makeRecord(id, { record_type: "tool_result", payload: { output, is_error: isError } }) as WireRecord;
+  return makeRecord(id, { record_type: "tool_result", payload: { call_id: `call-${id}`, output, is_error: isError } });
 }
 
 function errorRecord(id: string, text: string = "boom"): WireRecord {
-  return makeRecord(id, { record_type: "error", payload: { text } }) as WireRecord;
+  return makeRecord(id, { record_type: "error", payload: { code: "ERR_TEST", message: text } });
 }
 
 // ── extractFilePath — boundary table ──────────────────────
@@ -333,8 +333,8 @@ describe("buildEventGraph", () => {
   it("agent index groups by agent_id", () => {
     const withAgent = [
       ...records.slice(0, 5),
-      makeRecord("a1", { record_type: "tool_call", agent_id: "sub1", payload: { name: "Read" } }),
-      makeRecord("a2", { record_type: "tool_call", agent_id: "sub1", payload: { name: "Edit" } }),
+      makeRecord("a1", { record_type: "tool_call", agent_id: "sub1", payload: { call_id: "c-a1", name: "Read", input: {}, raw_input: {} } }),
+      makeRecord("a2", { record_type: "tool_call", agent_id: "sub1", payload: { call_id: "c-a2", name: "Edit", input: {}, raw_input: {} } }),
     ];
     scenario(
       () => withAgent,

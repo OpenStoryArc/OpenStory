@@ -11,9 +11,27 @@
 
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { enrichedReducer, getFilterCounts, EMPTY_ENRICHED_STATE } from "@/streams/sessions";
+import { enrichedReducer, getFilterCounts, EMPTY_ENRICHED_STATE, toPatternView } from "@/streams/sessions";
 import type { EnrichedAction, EnrichedSessionState } from "@/streams/sessions";
-import { synthBatch, synthInitialState, synthEnrichedStream } from "../fixtures/synth";
+import { synthInitialState, synthEnrichedStream } from "../fixtures/synth";
+import type { EnrichedMessage } from "@/types/websocket";
+
+/** Convert an EnrichedMessage (wire format) to an EnrichedAction (reducer input). */
+function toAction(msg: EnrichedMessage): EnrichedAction {
+  return {
+    kind: "enriched",
+    session_id: msg.session_id,
+    records: msg.records,
+    ephemeral: msg.ephemeral,
+    filter_deltas: msg.filter_deltas,
+    patterns: msg.patterns ? msg.patterns.map(toPatternView) : undefined,
+    session_label: msg.session_label,
+    session_branch: msg.session_branch,
+    agent_labels: msg.agent_labels,
+    total_input_tokens: msg.total_input_tokens,
+    total_output_tokens: msg.total_output_tokens,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Helper: time a function, return result + elapsed ms
@@ -108,7 +126,7 @@ describe("enrichedReducer — incremental append performance", () => {
     let state: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     const { ms } = timed(() => {
       for (const msg of stream) {
-        state = enrichedReducer(state, msg);
+        state = enrichedReducer(state, toAction(msg));
       }
     });
 
@@ -129,7 +147,7 @@ describe("enrichedReducer — incremental append performance", () => {
     let state: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     const { ms } = timed(() => {
       for (const msg of stream) {
-        state = enrichedReducer(state, msg);
+        state = enrichedReducer(state, toAction(msg));
       }
     });
 
@@ -143,14 +161,14 @@ describe("enrichedReducer — incremental append performance", () => {
     const stream1K = synthEnrichedStream({ batches: 1_000, recordsPerBatch: 1, sessions: 1, seed: 600 });
     let state1K: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     const { ms: ms1K } = timed(() => {
-      for (const msg of stream1K) state1K = enrichedReducer(state1K, msg);
+      for (const msg of stream1K) state1K = enrichedReducer(state1K, toAction(msg));
     });
 
     // 10K measurement
     const stream10K = synthEnrichedStream({ batches: 10_000, recordsPerBatch: 1, sessions: 1, seed: 700 });
     let state10K: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     const { ms: ms10K } = timed(() => {
-      for (const msg of stream10K) state10K = enrichedReducer(state10K, msg);
+      for (const msg of stream10K) state10K = enrichedReducer(state10K, toAction(msg));
     });
 
     const perItem1K = ms1K / 1_000;
@@ -222,7 +240,7 @@ describe("enrichedReducer — correctness at scale", () => {
 
     let state: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     for (const msg of stream) {
-      state = enrichedReducer(state, msg);
+      state = enrichedReducer(state, toAction(msg));
     }
 
     expect(state.records).toHaveLength(5_000);
@@ -241,7 +259,7 @@ describe("enrichedReducer — correctness at scale", () => {
 
     let state: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     for (const msg of stream) {
-      state = enrichedReducer(state, msg);
+      state = enrichedReducer(state, toAction(msg));
     }
 
     // Every record should be in the tree index
@@ -263,7 +281,7 @@ describe("enrichedReducer — correctness at scale", () => {
 
     let state: EnrichedSessionState = EMPTY_ENRICHED_STATE;
     for (const msg of stream) {
-      state = enrichedReducer(state, msg);
+      state = enrichedReducer(state, toAction(msg));
     }
 
     // Total records = 500

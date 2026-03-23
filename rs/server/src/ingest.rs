@@ -223,7 +223,7 @@ pub fn ingest_events(
                             session_id: session_id.to_string(),
                             record: vr.clone(),
                         };
-                        if let Err(_) = tx.try_send(req) {
+                        if tx.try_send(req).is_err() {
                             // Channel full or closed — log once and move on.
                             // Embedding must never block ingest.
                         }

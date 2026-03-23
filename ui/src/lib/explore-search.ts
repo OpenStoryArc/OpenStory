@@ -2,7 +2,6 @@
  *  Searches across WireRecord payload fields — text, tool names, file paths, commands. */
 
 import type { WireRecord } from "@/types/wire-record";
-import type { ToolCall, ToolResult } from "@/types/view-record";
 
 /** Filter records to those matching a search query (case-insensitive). */
 export function searchRecords(records: readonly WireRecord[], query: string): WireRecord[] {

@@ -10,7 +10,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Observable } from "rxjs";
 import { useObservable } from "@/hooks/use-observable";
 import type { EnrichedSessionState } from "@/streams/sessions";
-import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
 import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/timeline";
 import { compactTime } from "@/lib/time";

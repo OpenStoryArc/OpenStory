@@ -79,7 +79,7 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
     }
 
     // Collect all detected patterns from in-memory cache (authoritative for live state)
-    for (_, patterns) in &state.store.detected_patterns {
+    for patterns in state.store.detected_patterns.values() {
         all_patterns.extend(patterns.iter().cloned());
     }
 

@@ -10,7 +10,7 @@
 
 import type { WireRecord } from "@/types/wire-record";
 import type { RecordType, ToolCall, ToolResult, UserMessage, AssistantMessage, Reasoning, ErrorRecord, SystemEvent, TurnEnd } from "@/types/view-record";
-import type { WsMessage, EnrichedInitialStateMessage, EnrichedMessage } from "@/types/websocket";
+import type { EnrichedInitialStateMessage, EnrichedMessage } from "@/types/websocket";
 import { TIMELINE_FILTERS } from "@/lib/timeline-filters";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -343,7 +343,6 @@ export function synthInitialState(
   config: SynthConfig,
 ): EnrichedInitialStateMessage {
   const records = synthBatch(config);
-  const sessions = config.sessions ?? 1;
 
   // Build per-session filter counts from the generated records
   const filterCounts: Record<string, Record<string, number>> = {};

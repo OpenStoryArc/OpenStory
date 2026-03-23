@@ -17,7 +17,7 @@ describe("navigation types", () => {
 
   it("CrossLink carries sessionId and optional eventId", () => {
     scenario(
-      () => ({ sessionId: "abc-123" }) satisfies CrossLink,
+      () => ({ sessionId: "abc-123" }) as CrossLink,
       (link) => link,
       (link) => {
         expect(link.sessionId).toBe("abc-123");

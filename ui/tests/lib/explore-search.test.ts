@@ -3,7 +3,7 @@ import { scenario } from "../bdd";
 import { searchRecords, highlightMatch, type HighlightSegment } from "@/lib/explore-search";
 import type { WireRecord } from "@/types/wire-record";
 
-function makeRecord(overrides: Partial<WireRecord>): WireRecord {
+function makeRecord(overrides: Omit<Partial<WireRecord>, "payload"> & { payload?: unknown } = {}): WireRecord {
   return {
     id: "test-id",
     seq: 1,
@@ -18,7 +18,7 @@ function makeRecord(overrides: Partial<WireRecord>): WireRecord {
     truncated: false,
     payload_bytes: 100,
     ...overrides,
-  } as WireRecord;
+  } as unknown as WireRecord;
 }
 
 // ── searchRecords ──────────────────────

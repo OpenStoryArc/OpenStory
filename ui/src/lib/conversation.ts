@@ -3,7 +3,38 @@
 import type {
   ConversationEntry,
   ToolRoundtripEntry,
+  UserMessage,
+  AssistantMessage,
+  Reasoning,
+  ContentBlock,
 } from "@/types/view-record";
+
+/** Extract text from a UserMessage content field. */
+function userMessageText(msg: UserMessage): string | null {
+  if (typeof msg.content === "string") return msg.content;
+  if (Array.isArray(msg.content)) {
+    const texts = msg.content
+      .filter((b: ContentBlock) => b.type === "text" && b.text)
+      .map((b: ContentBlock) => b.text!);
+    return texts.length > 0 ? texts.join("\n") : null;
+  }
+  return null;
+}
+
+/** Extract text from an AssistantMessage content field. */
+function assistantMessageText(msg: AssistantMessage): string | null {
+  const texts = msg.content
+    .filter((b: ContentBlock) => b.type === "text" && b.text)
+    .map((b: ContentBlock) => b.text!);
+  return texts.length > 0 ? texts.join("\n") : null;
+}
+
+/** Extract text from a Reasoning payload. */
+function reasoningText(msg: Reasoning): string | null {
+  if (msg.content) return msg.content;
+  if (msg.summary.length > 0) return msg.summary.join("\n");
+  return null;
+}
 
 /** A logical turn: user prompt → thinking → tool calls → response. */
 export interface ConversationTurn {
@@ -37,7 +68,7 @@ export function groupIntoTurns(entries: readonly ConversationEntry[]): Conversat
         // Start a new turn (flush previous if exists)
         if (hasTurn) turns.push({ ...current, toolCalls: [...current.toolCalls] });
         current = {
-          prompt: entry.payload.text ?? null,
+          prompt: userMessageText(entry.payload) ?? null,
           promptTimestamp: entry.timestamp,
           thinking: null,
           toolCalls: [],
@@ -53,9 +84,12 @@ export function groupIntoTurns(entries: readonly ConversationEntry[]): Conversat
           current = { prompt: null, promptTimestamp: null, thinking: null, toolCalls: [], response: null, responseTimestamp: null };
           hasTurn = true;
         }
-        current.thinking = current.thinking
-          ? current.thinking + "\n" + entry.payload.text
-          : entry.payload.text;
+        {
+          const text = reasoningText(entry.payload);
+          current.thinking = current.thinking
+            ? current.thinking + "\n" + (text ?? "")
+            : text;
+        }
         break;
 
       case "tool_roundtrip":
@@ -72,7 +106,7 @@ export function groupIntoTurns(entries: readonly ConversationEntry[]): Conversat
           hasTurn = true;
         }
         // Last assistant message wins as the response
-        current.response = entry.payload.text ?? null;
+        current.response = assistantMessageText(entry.payload) ?? null;
         current.responseTimestamp = entry.timestamp;
         break;
 
