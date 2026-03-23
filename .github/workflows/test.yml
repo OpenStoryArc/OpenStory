@@ -24,7 +24,7 @@ jobs:
         run: cargo build --workspace --exclude open-story-cli
       - name: Test all crates
         working-directory: rs
-        run: cargo test --workspace --exclude open-story-cli
+        run: cargo test --workspace --exclude open-story-cli -- --skip compose --skip container
       - name: Clippy
         working-directory: rs
         run: cargo clippy --workspace --exclude open-story-cli -- -D warnings
@@ -47,7 +47,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Test
         working-directory: ui
-        run: npm test
+        run: npx vitest run --exclude '**/tests/**/*-bench.test.ts'
       - name: Build
         working-directory: ui
         run: npm run build

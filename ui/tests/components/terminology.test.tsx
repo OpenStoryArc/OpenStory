@@ -35,8 +35,9 @@ describe("filter display labels — no jargon", () => {
   it("should have a label for every filter in FILTER_GROUPS", () => {
     const allFilters = FILTER_GROUPS.flatMap((g) => g.filters);
     for (const f of allFilters) {
-      expect(FILTER_LABELS[f]).toBeDefined();
-      expect(FILTER_LABELS[f].length).toBeGreaterThan(0);
+      const label = FILTER_LABELS[f];
+      expect(label).toBeDefined();
+      expect(label!.length).toBeGreaterThan(0);
     }
   });
 });
@@ -49,8 +50,9 @@ describe("filter tooltips — every filter has a description", () => {
   it("should have a tooltip for every filter in FILTER_GROUPS", () => {
     const allFilters = FILTER_GROUPS.flatMap((g) => g.filters);
     for (const f of allFilters) {
-      expect(FILTER_TOOLTIPS[f]).toBeDefined();
-      expect(FILTER_TOOLTIPS[f].length).toBeGreaterThan(10);
+      const tooltip = FILTER_TOOLTIPS[f];
+      expect(tooltip).toBeDefined();
+      expect(tooltip!.length).toBeGreaterThan(10);
     }
   });
 
@@ -79,15 +81,17 @@ describe("pattern labels and tooltips", () => {
 
   it("should have a display label for every pattern type", () => {
     for (const p of EXPECTED_PATTERNS) {
-      expect(PATTERN_LABELS[p]).toBeDefined();
-      expect(PATTERN_LABELS[p].length).toBeGreaterThan(0);
+      const label = PATTERN_LABELS[p];
+      expect(label).toBeDefined();
+      expect(label!.length).toBeGreaterThan(0);
     }
   });
 
   it("should have a tooltip for every pattern type", () => {
     for (const p of EXPECTED_PATTERNS) {
-      expect(PATTERN_TOOLTIPS[p]).toBeDefined();
-      expect(PATTERN_TOOLTIPS[p].length).toBeGreaterThan(10);
+      const tooltip = PATTERN_TOOLTIPS[p];
+      expect(tooltip).toBeDefined();
+      expect(tooltip!.length).toBeGreaterThan(10);
     }
   });
 

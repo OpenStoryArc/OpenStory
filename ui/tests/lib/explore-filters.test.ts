@@ -3,14 +3,14 @@ import { scenario } from "../bdd";
 import { computeExploreCounts, applyExploreFilter, filterNoise } from "@/lib/explore-filters";
 import type { WireRecord } from "@/types/wire-record";
 
-function makeRecord(overrides: Partial<WireRecord>): WireRecord {
+function makeRecord(overrides: Omit<Partial<WireRecord>, "payload"> & { payload?: unknown } = {}): WireRecord {
   return {
     id: "test-id",
     seq: 1,
     session_id: "s1",
     timestamp: "2026-01-01T00:00:00Z",
     record_type: "assistant_message",
-    payload: { text: "hello" },
+    payload: { model: "test", content: [{ type: "text", text: "hello" }] },
     agent_id: null,
     is_sidechain: false,
     depth: 0,
@@ -18,7 +18,7 @@ function makeRecord(overrides: Partial<WireRecord>): WireRecord {
     truncated: false,
     payload_bytes: 100,
     ...overrides,
-  } as WireRecord;
+  } as unknown as WireRecord;
 }
 
 // ── computeExploreCounts ──────────────────────

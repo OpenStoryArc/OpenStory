@@ -410,7 +410,7 @@ impl EventStore for SqliteStore {
     }
 
     fn query_session_efficiency(&self) -> Vec<crate::queries::SessionEfficiency> {
-        self.with_connection(|conn| crate::queries::session_efficiency(conn))
+        self.with_connection(crate::queries::session_efficiency)
     }
 
     fn query_project_context(&self, project_id: &str, limit: usize) -> Vec<crate::queries::ProjectSession> {

@@ -14,16 +14,16 @@ import type { CloudEvent } from "@/types/cloud-event";
 // Helper: minimal CloudEvent factory
 // ---------------------------------------------------------------------------
 
-function makeEvent(overrides: Partial<CloudEvent> & { type: string }): CloudEvent {
+function makeEvent(overrides: Omit<Partial<CloudEvent>, "data" | "type"> & { type: string; data?: Record<string, unknown> }): CloudEvent {
   return {
     id: "test-id",
     source: "test",
     specversion: "1.0",
     time: "2026-01-01T00:00:00Z",
     datacontenttype: "application/json",
-    data: { seq: 1, ts: 0, parent_seq: null },
+    data: { seq: 1, ts: 0, parent_seq: null, ...(overrides.data ?? {}) },
     ...overrides,
-  } as CloudEvent;
+  } as unknown as CloudEvent;
 }
 
 // ---------------------------------------------------------------------------

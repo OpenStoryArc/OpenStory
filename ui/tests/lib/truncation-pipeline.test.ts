@@ -14,14 +14,14 @@ import { scenario } from "../bdd";
 import { toTimelineRows } from "@/lib/timeline";
 import type { WireRecord } from "@/types/wire-record";
 
-function makeRecord(id: string, overrides: Partial<WireRecord> = {}): WireRecord {
+function makeRecord(id: string, overrides: Omit<Partial<WireRecord>, "payload"> & { payload?: unknown } = {}): WireRecord {
   return {
     id,
     seq: 1,
     session_id: "s1",
     timestamp: "2026-01-01T00:00:00Z",
     record_type: "assistant_message",
-    payload: { text: "test" },
+    payload: { model: "test", content: [{ type: "text", text: "test" }] },
     agent_id: null,
     is_sidechain: false,
     depth: 0,
@@ -29,7 +29,7 @@ function makeRecord(id: string, overrides: Partial<WireRecord> = {}): WireRecord
     truncated: false,
     payload_bytes: 100,
     ...overrides,
-  } as WireRecord;
+  } as unknown as WireRecord;
 }
 
 // ── Stage 1: toTimelineRows summary truncation ──────────────────────

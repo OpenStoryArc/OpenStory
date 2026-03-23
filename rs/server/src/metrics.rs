@@ -26,10 +26,7 @@ pub mod names {
 /// Returns `None` if the recorder was already installed (e.g., in tests).
 pub fn init_recorder() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
     let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
-    match builder.install_recorder() {
-        Ok(handle) => Some(handle),
-        Err(_) => None,
-    }
+    builder.install_recorder().ok()
 }
 
 /// Record an event ingestion (counter increment by subtype).

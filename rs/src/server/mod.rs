@@ -38,6 +38,7 @@ pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_rec
 /// - `Full`: watcher + consumer + API (default, current behavior)
 /// - `Publisher`: watcher + hooks server, publishes to NATS, no local store/ingest
 /// - `Consumer`: subscribes from NATS, runs ingest + API, no watcher
+#[allow(clippy::too_many_arguments)]
 pub async fn run_server(
     host: &str,
     port: u16,

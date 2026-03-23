@@ -362,6 +362,7 @@ pub fn session_efficiency(conn: &Connection) -> Vec<SessionEfficiency> {
         )
         .unwrap();
 
+    #[allow(clippy::type_complexity)]
     let sessions: Vec<(String, Option<String>, u64, Option<String>, Option<String>)> = stmt
         .query_map([], |row| {
             Ok((
@@ -632,6 +633,7 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
 
     let mut stmt = conn.prepare(&session_sql).unwrap();
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    #[allow(clippy::type_complexity)]
     let sessions: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
         .query_map(param_refs.as_slice(), |row| {
             Ok((
@@ -954,9 +956,23 @@ mod tests {
     #[test]
     fn project_pulse_aggregates_by_project() {
         let conn = setup_test_db();
-        insert_session(&conn, "s1", "proj-a", "session 1", 100);
-        insert_session(&conn, "s2", "proj-a", "session 2", 50);
-        insert_session(&conn, "s3", "proj-b", "session 3", 30);
+        // Use recent timestamps so the 30-day filter includes them
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO sessions (id, project_id, project_name, label, event_count, first_event, last_event)
+             VALUES ('s1', 'proj-a', 'proj-a', 'session 1', 100, ?1, ?1)",
+            [&now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_id, project_name, label, event_count, first_event, last_event)
+             VALUES ('s2', 'proj-a', 'proj-a', 'session 2', 50, ?1, ?1)",
+            [&now],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id, project_id, project_name, label, event_count, first_event, last_event)
+             VALUES ('s3', 'proj-b', 'proj-b', 'session 3', 30, ?1, ?1)",
+            [&now],
+        ).unwrap();
 
         let pulse = project_pulse(&conn, 30);
         assert_eq!(pulse.len(), 2);

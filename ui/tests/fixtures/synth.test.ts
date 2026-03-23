@@ -10,14 +10,11 @@
 
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import type { WireRecord } from "@/types/wire-record";
-import type { RecordType } from "@/types/view-record";
 import {
   synth,
   synthBatch,
   synthInitialState,
   synthEnrichedStream,
-  type SynthConfig,
 } from "./synth";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -306,7 +303,7 @@ describe("synthEnrichedStream() — enriched message batches", () => {
         for (const m of msgs) {
           expect(m.kind).toBe("enriched");
           if ("records" in m) {
-            expect((m as { records: unknown[] }).records).toHaveLength(5);
+            expect((m as unknown as { records: unknown[] }).records).toHaveLength(5);
           }
         }
       },

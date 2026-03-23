@@ -10,7 +10,6 @@ import {
   dayLabel,
   isAgentSession,
   buildSessionHierarchy,
-  type ParentSession,
 } from "@/lib/explore";
 import type { SessionSummary } from "@/types/session";
 
