@@ -70,6 +70,8 @@ pub struct Config {
     pub data_dir: String,
     /// Directory to watch for Claude Code transcript files.
     pub watch_dir: String,
+    /// Directory to watch for pi-mono session files. Empty = disabled.
+    pub pi_watch_dir: String,
 
     // ── bus ──
     /// NATS server URL for event bus.
@@ -140,6 +142,7 @@ impl Default for Config {
             allowed_origins: Vec::new(),
             data_dir: "./data".to_string(),
             watch_dir: String::new(), // resolved at runtime
+            pi_watch_dir: String::new(), // disabled by default
             nats_url: "nats://localhost:4222".to_string(),
             max_initial_records: 2000,
             boot_window_hours: 24,
@@ -350,6 +353,7 @@ mod tests {
             allowed_origins: vec!["http://localhost:5173".into()],
             data_dir: "/tmp/data".into(),
             watch_dir: "/tmp/watch".into(),
+            pi_watch_dir: String::new(),
             nats_url: "nats://custom:4222".into(),
             max_initial_records: 100,
             boot_window_hours: 48,

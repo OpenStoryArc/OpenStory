@@ -1,0 +1,78 @@
+# OpenClaw + Open Story integration test stack.
+#
+# Validates that Open Story correctly observes OpenClaw agent sessions.
+# OpenClaw writes pi-mono JSONL to a shared volume; Open Story watches it.
+#
+# Requires:
+#   docker build -t openclaw:test ~/projects/openclaw
+#   docker build -t open-story:test ./rs
+#   ANTHROPIC_API_KEY set in environment
+
+services:
+  openclaw:
+    image: openclaw:test
+    user: "0:0"
+    environment:
+      - ANTHROPIC_API_KEY
+      - HOME=/home/node
+    volumes:
+      - openclaw-state:/home/node/.openclaw
+    ports:
+      - "18789"
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
+        cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
+        {"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        OCEOF
+        exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+
+  open-story:
+    image: open-story:test
+    user: "0:0"
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+    environment:
+      - OPEN_STORY_PI_WATCH_DIR=/pi-watch
+    ports:
+      - "3002"
+    volumes:
+      - os-data:/data
+      - empty-watch:/watch
+      - openclaw-state:/pi-watch:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      openclaw:
+        condition: service_healthy
+
+volumes:
+  openclaw-state:
+  os-data:
+  empty-watch:

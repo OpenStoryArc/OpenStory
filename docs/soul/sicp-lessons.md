@@ -26,7 +26,7 @@ This sounds obvious. It's not. The discipline is harder than it appears, because
 
 The deeper lesson is that **abstraction barriers define contracts, and contracts enable independent change.** Each layer promises a set of operations. As long as the promise holds, the layers above and below can evolve independently. This is the mechanism that makes large systems possible.
 
-**In this project:** The translate layer is an abstraction barrier. Everything above it (server, store, patterns, UI) sees CloudEvents. Everything below it (file watcher, hooks endpoint, raw JSON) deals with source-specific formats. When Claude Code changes its transcript format — and it will — only the translate layer changes. The barrier holds.
+**In this project:** The translate layer is an abstraction barrier. Everything above it (server, store, patterns, UI) sees CloudEvents. Everything below it (file watcher, hooks endpoint, raw JSON) deals with source-specific formats. When a coding agent changes its transcript format — or when a new agent is added — only the translate layer changes. The barrier holds. This was validated when pi-mono was integrated: a new translator was added, the views layer learned to branch on the `agent` field, and nothing else in the pipeline changed.
 
 ### The environment model and closures
 

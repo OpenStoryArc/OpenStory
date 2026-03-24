@@ -52,6 +52,7 @@ pub async fn run_server(
     let role = config.role;
     let is_consumer = matches!(role, Role::Consumer | Role::Full);
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
+    let pi_watch_dir = config.pi_watch_dir.clone();
 
     let state = create_state(data_dir, watch_dir, bus.clone(), semantic_store.clone(), config)?;
 
@@ -241,6 +242,57 @@ pub async fn run_server(
                     eprintln!("Watcher error: {}", e);
                 }
             });
+        }
+    }
+
+    // ── Pi-mono watcher (optional second watch directory) ──
+    if is_publisher && !pi_watch_dir.is_empty() {
+        let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
+        if pi_dir.exists() {
+            if bus.is_active() {
+                let watcher_bus = bus.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                        let batch = IngestBatch {
+                            session_id: session_id.to_string(),
+                            project_id: project_id.unwrap_or("").to_string(),
+                            events: events.to_vec(),
+                        };
+                        let subject = format!("events.session.{session_id}");
+                        let rt = tokio::runtime::Handle::current();
+                        if let Err(e) = rt.block_on(watcher_bus.publish(&subject, &batch)) {
+                            eprintln!("Pi-mono bus publish error: {e}");
+                        }
+                    }) {
+                        eprintln!("Pi-mono watcher error: {}", e);
+                    }
+                });
+            } else {
+                let watcher_state = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                        let summary = event_type_summary(&events);
+                        let rt = tokio::runtime::Handle::current();
+                        let result = rt.block_on(async {
+                            let mut s = watcher_state.write().await;
+                            let result = ingest_events(&mut s, session_id, &events, project_id);
+                            for change in &result.changes {
+                                let _ = s.broadcast_tx.send(change.clone());
+                            }
+                            result
+                        });
+                        if result.count > 0 {
+                            log_event("pi-watch", &format!(
+                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                short_id(session_id), result.count, summary
+                            ));
+                        }
+                    }) {
+                        eprintln!("Pi-mono watcher error: {}", e);
+                    }
+                });
+            }
+            eprintln!("  \x1b[2mPi watch dir:\x1b[0m   {}", pi_watch_dir);
         }
     }
 

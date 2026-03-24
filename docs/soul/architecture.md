@@ -8,9 +8,9 @@ Events flow one direction through a series of independent actors:
 Source → Translate → Ingest → Persist → Broadcast → Render
 ```
 
-**Source**: File watcher (notify crate) monitors transcript directories. HTTP hooks receive events from Claude Code in near-real-time.
+**Source**: File watchers (notify crate) monitor coding agent transcript directories. Each supported agent has a configurable watch directory (`watch_dir` for Claude Code, `pi_watch_dir` for pi-mono). HTTP hooks provide near-real-time event delivery for agents that support them (currently Claude Code).
 
-**Translate**: Raw JSON transcripts are normalized into CloudEvent 1.0 format. UUID-based deduplication prevents double-processing.
+**Translate**: The reader auto-detects the transcript format on the first JSONL line and dispatches to the correct per-agent translator. Each translator extracts metadata in the coding agent's native field names — no normalization, no mutation of raw data. Every CloudEvent carries an `agent` field (e.g., `"claude-code"`, `"pi-mono"`) so downstream code can branch on format. UUID-based deduplication prevents double-processing.
 
 **Ingest**: Events are validated, deduplicated again by event ID, and routed to persistence and broadcast.
 
@@ -95,10 +95,10 @@ The rendering pipeline:
 
 ```
 rs/
-  core/       — CloudEvent types, translate, reader, paths
+  core/       — CloudEvent types, per-agent translators, reader, paths
   bus/        — NATS JetStream event bus abstraction
   store/      — SQLite persistence, projections, queries, plans
-  views/      — CloudEvent to ViewRecord transform, WireRecord truncation
+  views/      — CloudEvent to ViewRecord transform (branches on agent type), WireRecord truncation
   patterns/   — Streaming pattern detection (5 detectors)
   server/     — HTTP/WS server, API routes, hooks, ingest
   src/        — Orchestration library (watcher + server wiring)

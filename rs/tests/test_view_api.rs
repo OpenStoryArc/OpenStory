@@ -36,6 +36,7 @@ fn make_tool_use_event(session_id: &str, tool: &str, args: serde_json::Value, ca
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -60,6 +61,7 @@ fn make_tool_result_event(session_id: &str, call_id: &str, output: &str) -> Clou
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -77,6 +79,7 @@ fn make_user_prompt_event(session_id: &str, text: &str) -> CloudEvent {
             }
         }),
         Some("message.user.prompt".into()),
+        None,
         None,
         None,
         None,

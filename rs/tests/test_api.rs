@@ -252,7 +252,7 @@ fn make_rich_event(event_type: &str, session_id: &str, subtype: Option<&str>) ->
         event_type.to_string(),
         serde_json::json!({"text": "test", "tool": "Read"}),
         subtype.map(|s| s.to_string()),
-        None, None, None, None,
+        None, None, None, None, None,
     )
 }
 
@@ -459,6 +459,7 @@ async fn test_session_plans_includes_subagent_plans() {
             Some("message.assistant.tool_use".to_string()),
             Some("evt-sub-plan-1".to_string()),
             Some("2025-01-17T00:00:00Z".to_string()),
+            None,
             None,
             None,
         );
@@ -696,7 +697,7 @@ fn make_error_event(session_id: &str, id: &str) -> open_story::cloud_event::Clou
         serde_json::json!({"text": "something failed", "message": "something failed"}),
         Some("system.error".to_string()),
         Some(id.to_string()),
-        None, None, None,
+        None, None, None, None,
     )
 }
 

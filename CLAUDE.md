@@ -103,6 +103,7 @@ These mistakes have been made and corrected. Don't repeat them:
 - **Don't build before looking at data.** We built a tree abstraction, then discovered the data is a linked list. Write a script, check the shape, then build.
 - **Don't merge live and stored data into one view.** WebSocket data is ephemeral. REST data is durable. Merging creates a view that's partially both and fully neither. Keep views honest about their data source.
 - **Don't add abstractions for problems that don't exist.** We wrote a lazy-loading list for 2000 records that render in milliseconds. Three clear lines beat a clever helper.
+- **Don't mutate `raw` or normalize agent-specific fields.** We tried normalizing pi-mono's `toolCall` → `tool_use` and `input` → `input_tokens` in the translator so the views layer wouldn't need changes. This broke functional purity (the translator's output no longer contained its input data) and data sovereignty (`raw` should be what the agent actually wrote). The fix: translators leave `raw` untouched, set an `agent` discriminator, and the views layer branches on agent type. Format-awareness belongs at the rendering boundary, not in the pure translation layer.
 
 Full list with context: `docs/soul/patterns.md`
 
@@ -112,7 +113,7 @@ Full list with context: `docs/soul/patterns.md`
 
 ```
 rs/           — Rust workspace (9 crates)
-  core/       — open-story-core: CloudEvent types, translate, reader, paths
+  core/       — open-story-core: CloudEvent types, per-agent translators, reader, paths
   bus/        — open-story-bus: NATS JetStream event bus abstraction
   store/      — open-story-store: persistence, analysis, projection
   views/      — open-story-views: CloudEvent → ViewRecord BFF transform
@@ -174,7 +175,9 @@ just observe         # Start full stack + Prometheus + Grafana
 
 ## Architecture
 
-**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads) → `translate.rs` (JSON → CloudEvent 1.0) → `server/ingest.rs` (ingest, persist, broadcast)
+**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads, auto-detects format) → `translate.rs` / `translate_pi.rs` (agent-specific JSON → CloudEvent 1.0) → `server/ingest.rs` (ingest, persist, broadcast)
+
+**Multi-agent support:** Open Story observes multiple coding agents simultaneously. Each agent has its own translator and watch directory. The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) lets the views layer parse format-specific fields. Raw data is never mutated — each agent's native structure is preserved.
 
 **Ingest fan-out** — events flow through a single `ingest_events()` orchestration point, then fan out to multiple sinks:
 ```
@@ -192,7 +195,7 @@ All sinks are optional and non-blocking. The system works with any subset active
 - `router.rs` — `build_router()` (all HTTP/WS routes)
 - `api.rs` — REST endpoints (`/api/sessions`, `/api/search`, `/api/agent/search`, etc.)
 - `ws.rs` — WebSocket broadcast for live updates
-- `hooks.rs` — `POST /hooks` endpoint for Claude Code HTTP hooks
+- `hooks.rs` — `POST /hooks` endpoint for coding agent HTTP hooks (currently Claude Code)
 - `config.rs` — Config struct + TOML loading
 - `auth.rs` — Bearer token authentication middleware
 - `metrics.rs` — Prometheus metrics endpoint
@@ -216,20 +219,26 @@ All sinks are optional and non-blocking. The system works with any subset active
 - `worker.rs` — background embedding (tokio task, bounded channel, batched upserts)
 - `backfill.rs` — batch-embed existing events from SQLite
 
-**Event type:** All events use `type: "io.arc.event"` with hierarchical `subtype` for classification:
+**Event type:** All events use `type: "io.arc.event"` with hierarchical `subtype` for classification and an `agent` field identifying the source platform:
 - `message.user.prompt`, `message.user.tool_result`
 - `message.assistant.text`, `message.assistant.tool_use`, `message.assistant.thinking`
 - `system.turn.complete`, `system.error`, `system.compact`, `system.hook`
+- `system.session_start`, `system.model_change` (pi-mono specific)
 - `progress.bash`, `progress.agent`, `progress.hook`
 - `file.snapshot`
 - `queue.enqueue`, `queue.dequeue`
 
+**Agent field:** CloudEvents carry `agent: "claude-code"` or `agent: "pi-mono"` to identify the source. The views layer branches on this to parse format-specific content (e.g., `toolCall` vs `tool_use` blocks, `input` vs `input_tokens` in token usage). Raw data is never normalized — each agent's native field names are preserved.
+
 ## Key Conventions
 
-- CloudEvents spec 1.0 for all events
+- CloudEvents spec 1.0 for all events, with `agent` extension attribute
 - UUID-based dedup at translate layer + event ID dedup at ingest layer
+- Format auto-detection: first JSONL line determines which coding agent produced the file
+- Raw data is never mutated — each agent's native structure preserved in `data.raw`
 - Server port: 3002 (default)
-- Watch dir: `~/.claude/projects/` (default)
+- Watch dir (Claude Code): `~/.claude/projects/` (default, `watch_dir` config)
+- Watch dir (pi-mono): `~/.pi/agent/sessions/` (optional, `pi_watch_dir` config or `OPEN_STORY_PI_WATCH_DIR` env)
 - Data dir: `./data` (JSONL persistence + plans)
 
 ## Configuration
@@ -248,7 +257,8 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `db_key` | `""` (unencrypted) | SQLCipher encryption key for the database |
 | `allowed_origins` | `[]` (localhost) | CORS allowed origins |
 | `data_dir` | `./data` | Directory for SQLite DB, JSONL, plans |
-| `watch_dir` | `~/.claude/projects/` | Transcript watch directory |
+| `watch_dir` | `~/.claude/projects/` | Coding agent transcript watch directory (Claude Code default) |
+| `pi_watch_dir` | `""` (disabled) | Pi-mono session watch directory (e.g., `~/.pi/agent/sessions/`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
 | `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
@@ -266,7 +276,7 @@ See `rs/server/src/config.rs` for the full Config struct and defaults.
 
 ## Hooks Setup
 
-Open Story works best with Claude Code HTTP hooks configured. The hooks provide near-real-time event delivery (vs. the file watcher which polls). See README.md for setup instructions, or add this to `~/.claude/settings.json`:
+Open Story supports HTTP hooks for near-real-time event delivery (vs. the file watcher which polls). Currently Claude Code is the only agent with hook support. See README.md for setup instructions, or add this to `~/.claude/settings.json`:
 
 ```json
 {

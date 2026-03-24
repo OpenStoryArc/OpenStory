@@ -25,6 +25,7 @@ fn test_event(source: &str) -> CloudEvent {
         None,
         None,
         None,
+        None,
     )
 }
 
