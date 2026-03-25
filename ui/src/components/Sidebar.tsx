@@ -199,6 +199,59 @@ export const Sidebar = memo(function Sidebar({
     [sessions, selectedSession],
   );
 
+  // Keyboard navigation: up/down through sessions, right to timeline, enter to select
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
+  const [sidebarFocused, setSidebarFocused] = useState(false);
+  const highlightedRef = useRef(highlightedIndex);
+  highlightedRef.current = highlightedIndex;
+  const sessionListRef = useRef<HTMLDivElement>(null);
+
+  // Clear highlight when sessions change
+  useEffect(() => { setHighlightedIndex(null); }, [sessions]);
+
+  useEffect(() => {
+    const el = sessionListRef.current;
+    if (!el) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const timeline = document.querySelector<HTMLElement>('[data-focus-zone="timeline"]');
+        timeline?.focus();
+        return;
+      }
+      if (e.key === "Enter" && highlightedRef.current !== null) {
+        e.preventDefault();
+        const s = sessions[highlightedRef.current];
+        if (s) {
+          onSelectSession(s.id);
+          onFocusAgent(null);
+        }
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const current = highlightedRef.current;
+      let next: number;
+      if (current === null) {
+        next = e.key === "ArrowDown" ? 0 : sessions.length - 1;
+      } else {
+        next = e.key === "ArrowDown"
+          ? Math.min(current + 1, sessions.length - 1)
+          : Math.max(current - 1, 0);
+      }
+      setHighlightedIndex(next);
+      // Scroll highlighted session into view
+      requestAnimationFrame(() => {
+        const btn = el.querySelector(`[data-sidebar-index="${next}"]`);
+        btn?.scrollIntoView({ block: "nearest" });
+      });
+    };
+
+    el.addEventListener("keydown", onKeyDown);
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, [sessions, onSelectSession, onFocusAgent]);
+
   // --- Horizontal resize (sidebar width) ---
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const hDrag = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: 0 });
@@ -277,25 +330,29 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {sessions.map((s) => {
+      <div className="flex-1 overflow-y-auto min-h-0 outline-none" ref={sessionListRef} tabIndex={0} data-focus-zone="sidebar" onFocus={() => setSidebarFocused(true)} onBlur={() => setSidebarFocused(false)}>
+        {sessions.map((s, i) => {
           const color = sessionColor(s.id);
           const isSelected = s.id === selectedSession;
+          const isHighlighted = highlightedIndex === i;
           return (
             <button
               key={s.id}
               data-testid={`session-${s.id.slice(0, 8)}`}
+              data-sidebar-index={i}
               onClick={() => {
                 if (!isSelected) {
                   onSelectSession(s.id);
                   onFocusAgent(null);
                 }
+                setHighlightedIndex(i);
+                sessionListRef.current?.focus();
               }}
               className={`w-full text-left px-3 py-2 border-b border-[#2f3348] transition-colors relative ${
                 isSelected
                   ? "bg-[#24283b] border-l-2"
                   : "hover:bg-[#1e2030] cursor-pointer"
-              }`}
+              }${sidebarFocused && isHighlighted ? " ring-1 ring-inset ring-[#7aa2f7]" : ""}`}
               style={isSelected ? { borderLeftColor: color } : undefined}
             >
               {/* Deselect button (only on selected session) */}

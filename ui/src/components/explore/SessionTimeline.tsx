@@ -9,6 +9,7 @@ import { buildEventGraph, applyFacets, fileFacets, toolFacets, planFacets, type 
 import { TurnOutline } from "./TurnOutline";
 import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
+import { nextCardIndex } from "@/lib/keyboard-nav";
 
 interface SessionTimelineProps {
   sessionId: string;
@@ -101,6 +102,62 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
   const hasFacets = selectedTurn != null || selectedFile != null || selectedTool != null || selectedPlan != null;
 
+  // Keyboard navigation
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const [eventsFocused, setEventsFocused] = useState(false);
+  const exploreSidebarRef = useRef<HTMLDivElement>(null);
+
+  // Clear selection on facet/data changes
+  useEffect(() => { setSelectedIndex(null); }, [rows]);
+
+  // Event list keyboard handler: up/down to navigate, left to jump to sidebar
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        exploreSidebarRef.current?.focus();
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const direction = e.key === "ArrowDown" ? "down" : "up";
+      const next = nextCardIndex(rows, selectedIndexRef.current, direction);
+      if (next === null || next === selectedIndexRef.current) return;
+      setSelectedIndex(next);
+      requestAnimationFrame(() => {
+        const row = rows[next];
+        if (!row) return;
+        const card = el.querySelector(`[data-event-id="${CSS.escape(row.id)}"]`);
+        card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    };
+
+    el.addEventListener("keydown", onKeyDown);
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, [rows]);
+
+  // Explore sidebar keyboard handler: right arrow to jump to event list
+  useEffect(() => {
+    const el = exploreSidebarRef.current;
+    if (!el) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        scrollContainerRef.current?.focus();
+        return;
+      }
+    };
+
+    el.addEventListener("keydown", onKeyDown);
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -129,12 +186,17 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!scrollToEventId || rows.length === 0) return;
-    // Expand the target event
+    // Expand the target event and select it
     setExpandedIds((prev) => new Set([...prev, scrollToEventId]));
-    // Defer scroll to next frame so DOM has updated
+    const targetIndex = rows.findIndex((r) => r.id === scrollToEventId);
+    if (targetIndex >= 0) setSelectedIndex(targetIndex);
+    // Double-rAF: first frame expands the card, second frame scrolls after layout
     requestAnimationFrame(() => {
-      const el = scrollContainerRef.current?.querySelector(`[data-event-id="${CSS.escape(scrollToEventId)}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      requestAnimationFrame(() => {
+        const el = scrollContainerRef.current?.querySelector(`[data-event-id="${CSS.escape(scrollToEventId)}"]`);
+        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrollContainerRef.current?.focus();
+      });
     });
   }, [scrollToEventId, rows]);
 
@@ -145,7 +207,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   return (
     <div className="flex min-h-0" data-testid="session-timeline">
       {/* Navigation sidebar: turns + facets */}
-      <div className="w-52 shrink-0 border-r border-[#2f3348] overflow-y-auto bg-[#1a1b26]">
+      <div className="w-52 shrink-0 border-r border-[#2f3348] overflow-y-auto bg-[#1a1b26] outline-none" ref={exploreSidebarRef} tabIndex={0}>
         <TurnOutline
           turns={graph.turns}
           selectedTurn={selectedTurn}
@@ -165,7 +227,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       </div>
 
       {/* Event cards */}
-      <div className="flex-1 min-w-0 overflow-y-auto" ref={scrollContainerRef}>
+      <div className="flex-1 min-w-0 overflow-y-auto outline-none" ref={scrollContainerRef} tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#2f3348] text-[10px] text-[#565f89]">
           <span>
@@ -195,12 +257,13 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
               No events match the selected filters
             </div>
           ) : (
-            rows.map((row) => (
+            rows.map((row, i) => (
               <div key={row.id} data-event-id={row.id}>
                 <EventCardRow
                   row={row}
                   compact={!expandedIds.has(row.id)}
-                  onClick={() => toggleExpand(row.id)}
+                  selected={eventsFocused && selectedIndex === i}
+                  onClick={() => { toggleExpand(row.id); setSelectedIndex(i); scrollContainerRef.current?.focus(); }}
                 />
               </div>
             ))

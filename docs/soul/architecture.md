@@ -91,6 +91,20 @@ The rendering pipeline:
 3. `CardBody` reads full text from the ViewRecord payload, bypassing summary truncation
 4. Compact mode shows the summary. Expanded mode shows full content.
 
+## Keyboard navigation
+
+The dashboard supports spatial keyboard navigation across panels. The pure navigation logic lives in `ui/src/lib/keyboard-nav.ts` — a single function `nextCardIndex()` that computes the next card index given direction and row data, skipping turn dividers. No side effects.
+
+**Live tab**: Arrow keys move within the focused panel (sidebar sessions or timeline events). Left/right arrows switch focus between panels. Enter in the sidebar selects a session; Enter in the timeline opens the selected card in Explore (deep-links to the exact event). Only the focused panel shows its selection ring — both panels remember position but defer to focus for visibility.
+
+**Explore tab**: Same left/right spatial navigation between the turns/facets sidebar and the event list. Up/down moves between events. Click to select and expand/collapse.
+
+**Design decisions:**
+- Focus tracking via `onFocus`/`onBlur` state, not global focus management — each panel is self-contained
+- `requestAnimationFrame`-gated scrolling prevents layout thrashing from rapid key presses
+- No side effects inside React state updaters — compute next index first, then set state and scroll separately
+- `data-focus-zone` attributes for cross-panel focus switching via DOM query
+
 ## Crate structure
 
 ```

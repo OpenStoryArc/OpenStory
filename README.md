@@ -207,6 +207,36 @@ curl http://localhost:3002/api/sessions
 claude
 ```
 
+## Keyboard Navigation
+
+The dashboard supports full keyboard navigation across panels.
+
+### Live tab
+
+| Key | Sidebar (sessions) | Timeline (events) |
+|-----|--------------------|--------------------|
+| `↑` / `↓` | Move between sessions | Move between event cards (skips turn dividers) |
+| `→` | Jump focus to timeline | — |
+| `←` | — | Jump focus to sidebar |
+| `Enter` | Select highlighted session | Open selected card in Explore |
+| Click | Select session + start keyboard nav | Select card + start keyboard nav |
+
+Only the focused panel shows the selection ring. Your position is remembered when switching between panels.
+
+### Explore tab
+
+| Key | Sidebar (turns/facets) | Event list |
+|-----|------------------------|------------|
+| `↑` / `↓` | — | Move between event cards |
+| `→` | Jump focus to event list | — |
+| `←` | — | Jump focus to sidebar |
+| Click | — | Select card + expand/collapse |
+
+### Cross-linking
+
+- **Explore ↗** button on each Live card deep-links directly to that event in the Explore view
+- **Enter** on a selected Live card does the same thing via keyboard
+
 ## CLI Reference
 
 ```

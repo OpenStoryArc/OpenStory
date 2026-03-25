@@ -98,6 +98,25 @@ function fullOutput(record: ViewRecord): string | null {
   return (payload.output as string | undefined) ?? null;
 }
 
+/** Try to extract text from a JSON content-block array (e.g. [{"text":"..."}]).
+ *  Returns the extracted text if it matches, or null if it's not that shape. */
+function extractContentBlockText(text: string): string | null {
+  if (!text.startsWith("[{")) return null;
+  try {
+    const blocks = JSON.parse(text) as unknown;
+    if (!Array.isArray(blocks)) return null;
+    const texts: string[] = [];
+    for (const block of blocks) {
+      if (typeof block === "object" && block !== null && "text" in block && typeof (block as { text: unknown }).text === "string") {
+        texts.push((block as { text: string }).text);
+      }
+    }
+    return texts.length > 0 ? texts.join("\n\n") : null;
+  } catch {
+    return null;
+  }
+}
+
 export function CardBody({ row }: { row: TimelineRow }) {
   const vr = row.record as ViewRecord;
 
@@ -193,6 +212,40 @@ export function CardBody({ row }: { row: TimelineRow }) {
       );
     }
 
+    // Detect JSON content-block arrays and render as markdown
+    const extracted = extractContentBlockText(text);
+    if (extracted && !isError) {
+      return (
+        <div className="flex items-start gap-1.5">
+          <span className="text-[#9ece6a] shrink-0 mt-0.5">{"\u2713"}</span>
+          <div className="text-sm text-[#a9b1d6] leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere] min-w-0">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || "");
+                  const codeText = String(children).replace(/\n$/, "");
+                  if (match) {
+                    return (
+                      <SyntaxHighlighter language={match[1]} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+                        {codeText}
+                      </SyntaxHighlighter>
+                    );
+                  }
+                  return <code className="bg-[#1a1b26] px-1 py-0.5 rounded text-xs break-all" {...props}>{children}</code>;
+                },
+                pre({ children }) {
+                  return <>{children}</>;
+                },
+              }}
+            >
+              {extracted}
+            </ReactMarkdown>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-start gap-1.5">
         <span className={isError ? "text-[#f7768e] shrink-0 mt-0.5" : "text-[#9ece6a] shrink-0 mt-0.5"}>
@@ -265,11 +318,13 @@ interface EventCardRowProps {
   row: TimelineRow;
   /** Compact mode: one-line header only. Full mode: header + CardBody. Default: full. */
   compact?: boolean;
+  /** Keyboard navigation selection indicator. */
+  selected?: boolean;
   /** Called when the row is clicked (for expand/collapse). */
   onClick?: () => void;
 }
 
-export function EventCardRow({ row, compact = false, onClick }: EventCardRowProps) {
+export function EventCardRow({ row, compact = false, selected = false, onClick }: EventCardRowProps) {
   if (row.category === "turn") {
     return (
       <div className="flex items-center px-4 py-2">
@@ -284,7 +339,7 @@ export function EventCardRow({ row, compact = false, onClick }: EventCardRowProp
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868] ${onClick ? "cursor-pointer" : ""}`}
+      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868] ${onClick ? "cursor-pointer" : ""}${selected ? " ring-1 ring-[#7aa2f7]" : ""}`}
       onClick={onClick}
     >
       <div className={compact ? "px-3 py-1.5" : "px-3 py-2"}>
