@@ -11,11 +11,11 @@ Claude will read the referenced files and explain them. Ask questions at any sto
 
 ## The Big Picture
 
-Open Story is a **real-time observer** for AI coding agents. It watches what Claude Code does — every tool call, every file edit, every decision — and surfaces it in a live dashboard. It never interferes with the agent. It just watches.
+Open Story is a **real-time observer** for AI coding agents. It watches what coding agents do — every tool call, every file edit, every decision — and surfaces it in a live dashboard. It never interferes with the agent. It just watches.
 
 ```
 ┌──────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
-│ Claude Code      │     │ Open Story   │     │  WebSocket   │     │  React    │
+│ Coding Agent     │     │ Open Story   │     │  WebSocket   │     │  React    │
 │ (writes JSONL    │────▶│  (Rust)      │────▶│  broadcast   │────▶│  Dashboard│
 │  transcripts)    │     │              │     │              │     │           │
 │                  │─────▶  POST /hooks │     │              │     │           │
@@ -23,8 +23,8 @@ Open Story is a **real-time observer** for AI coding agents. It watches what Cla
 ```
 
 Two ingest paths feed the same pipeline:
-1. **File watcher** — watches `~/.claude/projects/` for JSONL transcript file changes
-2. **HTTP hooks** — Claude Code POSTs events directly via configured hooks
+1. **File watchers** — monitor configured directories for JSONL transcript changes (one per agent)
+2. **HTTP hooks** — coding agents POST events directly via configured hooks (currently Claude Code)
 
 Both converge at `ingest_events()`, which transforms, persists, and broadcasts to the dashboard.
 
@@ -74,21 +74,23 @@ Incremental JSONL reader. Reads from the byte offset where it left off, parses e
 
 ---
 
-## Stop 4: The Translator
+## Stop 4: The Translator(s)
 
-**File:** `rs/core/src/translate.rs` (re-exported via `rs/src/translate.rs`)
+**File:** `rs/core/src/translate.rs` — Claude Code transcript → CloudEvents
+**File:** `rs/core/src/translate_pi.rs` — Pi-mono session → CloudEvents
 
-This is where raw Claude Code transcript JSON becomes **CloudEvents 1.0**. The key function is `translate_line()`.
+Each agent has its own translator. The reader (`reader.rs`) auto-detects the format on the first JSONL line and dispatches to the correct one. Both produce CloudEvents with the same subtype hierarchy, but preserve each agent's native field names in the extracted metadata and in `raw`.
 
-Important: `extract_envelope()` normalizes all camelCase transcript keys to snake_case here. From this point onward, the entire system uses snake_case consistently.
+Every CloudEvent carries an `agent` field (`"claude-code"` or `"pi-mono"`) so downstream code knows the source format. Raw data is never mutated — it's an untouched archive of the original transcript line.
 
 **File:** `rs/core/src/cloud_event.rs`
 
-The CloudEvent struct — the universal event format used internally.
+The CloudEvent struct — the universal event format used internally. Includes the `agent` extension attribute.
 
 **Questions to explore:**
 - What subtypes exist? (e.g., `message.user.prompt`, `message.assistant.tool_use`)
-- What fields does `extract_envelope()` normalize?
+- How does format detection work in `reader.rs`?
+- How do the two translators differ in field extraction?
 - Why CloudEvents and not a custom format?
 
 ---
@@ -233,7 +235,7 @@ The `handle_socket()` function uses `tokio::select!` to multiplex between receiv
 
 **File:** `rs/server/src/hooks.rs`
 
-The `/hooks` endpoint receives Claude Code HTTP hooks. These provide near-real-time events (vs. the file watcher which polls on file changes).
+The `/hooks` endpoint receives HTTP hooks from coding agents. These provide near-real-time events (vs. the file watcher which polls on file changes). Currently Claude Code is the only agent with hook support.
 
 **Questions to explore:**
 - What's in the initial state message?
@@ -282,7 +284,7 @@ REST endpoints read from in-memory state and SQLite (no heavy computation on req
 | | `GET /api/agent/search` | Agent-optimized search |
 | **Search** | `GET /api/search` | Full-text + semantic event search |
 | **Other** | `GET /api/tool-schemas` | Tool schema definitions |
-| | `POST /hooks` | Claude Code HTTP hook receiver |
+| | `POST /hooks` | Coding agent HTTP hook receiver |
 | | `GET /ws` | WebSocket live event stream |
 
 **Questions to explore:**

@@ -100,6 +100,10 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         .unwrap_or(false);
 
     let raw = data.get("raw").unwrap_or(&Value::Null);
+    let agent = event
+        .get("agent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("claude-code");
 
     // Build records, then stamp agent identity onto each one
     let mut records = match subtype {
@@ -124,11 +128,11 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            extract_tool_results(raw, &id, seq, &session_id, &time)
+            extract_tool_results(raw, data, agent, &id, seq, &session_id, &time)
         }
 
         s if s.starts_with("message.assistant.tool_use") => {
-            extract_tool_calls(raw, data, &id, seq, &session_id, &time)
+            extract_tool_calls(raw, data, agent, &id, seq, &session_id, &time)
         }
 
         s if s.starts_with("message.assistant.thinking") => {
@@ -158,10 +162,22 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 })),
             }];
 
-            // Emit TokenUsage record if token_usage data is present
+            // Emit TokenUsage record if token_usage data is present.
+            // Field names differ by agent: Claude Code uses input_tokens/output_tokens,
+            // pi-mono uses input/output.
             if let Some(usage) = data.get("token_usage") {
-                let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64());
-                let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64());
+                let (input_tokens, output_tokens, total_tokens) = match agent {
+                    "pi-mono" => (
+                        usage.get("input").and_then(|v| v.as_u64()),
+                        usage.get("output").and_then(|v| v.as_u64()),
+                        usage.get("totalTokens").and_then(|v| v.as_u64()),
+                    ),
+                    _ => (
+                        usage.get("input_tokens").and_then(|v| v.as_u64()),
+                        usage.get("output_tokens").and_then(|v| v.as_u64()),
+                        usage.get("total_tokens").and_then(|v| v.as_u64()),
+                    ),
+                };
                 if input_tokens.is_some() || output_tokens.is_some() {
                     records.push(ViewRecord {
                         id: format!("{id}:usage"),
@@ -173,7 +189,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                         body: RecordBody::TokenUsage(TokenUsage {
                             input_tokens,
                             output_tokens,
-                            total_tokens: usage.get("total_tokens").and_then(|v| v.as_u64()),
+                            total_tokens,
                             scope: TokenScope::Turn,
                         }),
                     });
@@ -265,9 +281,14 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
 }
 
 /// Extract tool_use content blocks into individual ToolCall ViewRecords.
+///
+/// Branches on `agent` to parse format-specific content blocks:
+/// - Claude Code: `type: "tool_use"`, fields: `id`, `name`, `input`
+/// - Pi-mono: `type: "toolCall"`, fields: `id`, `name`, `arguments`
 fn extract_tool_calls(
     raw: &Value,
     data: &Value,
+    agent: &str,
     id: &str,
     seq: u64,
     session_id: &str,
@@ -306,15 +327,21 @@ fn extract_tool_calls(
         }
     };
 
+    // Tool call block type and input field name differ by agent
+    let (tool_type, input_key) = match agent {
+        "pi-mono" => ("toolCall", "arguments"),
+        _ => ("tool_use", "input"),
+    };
+
     let mut records = Vec::new();
     let mut idx = 0;
     for block in blocks {
         let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
         match block_type {
-            "tool_use" => {
+            t if t == tool_type => {
                 let call_id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                let input = block.get(input_key).cloned().unwrap_or(Value::Object(Default::default()));
                 let typed = tool_input::parse_tool_input(&name, input.clone());
                 let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
                 records.push(ViewRecord {
@@ -359,50 +386,56 @@ fn extract_tool_calls(
     records
 }
 
-/// Extract tool_result content blocks into ToolResult ViewRecords.
+/// Extract tool result into ToolResult ViewRecords.
+///
+/// Branches on `agent`:
+/// - Claude Code: content blocks with `type: "tool_result"`, `tool_use_id`, `content`, `is_error`
+/// - Pi-mono: message-level `toolCallId`, `toolName`, `isError`; content is text blocks
 fn extract_tool_results(
     raw: &Value,
+    data: &Value,
+    agent: &str,
     id: &str,
     seq: u64,
     session_id: &str,
     time: &str,
 ) -> Vec<ViewRecord> {
-    let content = raw
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .unwrap_or(&Value::Null);
-
-    let blocks = match content.as_array() {
-        Some(arr) => arr,
-        None => return vec![],
-    };
-
-    let mut records = Vec::new();
-    let mut idx = 0;
-    for block in blocks {
-        if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-            let call_id = block
-                .get("tool_use_id")
+    match agent {
+        "pi-mono" => {
+            // Pi-mono: tool result info is on the message itself, not in content blocks
+            let message = raw.get("message").unwrap_or(&Value::Null);
+            let call_id = message
+                .get("toolCallId")
+                .or_else(|| data.get("tool_call_id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let output = block
-                .get("content")
-                .and_then(|v| {
-                    if v.is_string() {
-                        v.as_str().map(|s| s.to_string())
-                    } else {
-                        Some(v.to_string())
-                    }
-                });
-            let is_error = block
-                .get("is_error")
+            let is_error = message
+                .get("isError")
+                .or_else(|| data.get("is_error"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
-            records.push(ViewRecord {
-                id: record_id,
-                seq: seq + idx as u64,
+            // Extract text from content blocks
+            let output = message
+                .get("content")
+                .and_then(|c| c.as_array())
+                .map(|blocks| {
+                    blocks
+                        .iter()
+                        .filter_map(|b| {
+                            if b.get("type").and_then(|v| v.as_str()) == Some("text") {
+                                b.get("text").and_then(|v| v.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<&str>>()
+                        .join("\n")
+                });
+
+            vec![ViewRecord {
+                id: id.to_string(),
+                seq,
                 session_id: session_id.to_string(),
                 timestamp: time.to_string(),
                 agent_id: None,
@@ -412,11 +445,62 @@ fn extract_tool_results(
                     output,
                     is_error,
                 }),
-            });
-            idx += 1;
+            }]
+        }
+        _ => {
+            // Claude Code: content blocks with type "tool_result"
+            let content = raw
+                .get("message")
+                .and_then(|m| m.get("content"))
+                .unwrap_or(&Value::Null);
+
+            let blocks = match content.as_array() {
+                Some(arr) => arr,
+                None => return vec![],
+            };
+
+            let mut records = Vec::new();
+            let mut idx = 0;
+            for block in blocks {
+                if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                    let call_id = block
+                        .get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let output = block
+                        .get("content")
+                        .and_then(|v| {
+                            if v.is_string() {
+                                v.as_str().map(|s| s.to_string())
+                            } else {
+                                Some(v.to_string())
+                            }
+                        });
+                    let is_error = block
+                        .get("is_error")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                    records.push(ViewRecord {
+                        id: record_id,
+                        seq: seq + idx as u64,
+                        session_id: session_id.to_string(),
+                        timestamp: time.to_string(),
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolResult(ToolResult {
+                            call_id,
+                            output,
+                            is_error,
+                        }),
+                    });
+                    idx += 1;
+                }
+            }
+            records
         }
     }
-    records
 }
 
 /// Extract thinking content blocks into Reasoning ViewRecords.

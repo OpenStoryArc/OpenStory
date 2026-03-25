@@ -46,6 +46,7 @@ fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -73,6 +74,7 @@ fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) ->
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -92,6 +94,7 @@ fn user_prompt(session_id: &str, id: &str) -> CloudEvent {
         }),
         Some("message.user.prompt".to_string()),
         Some(id.to_string()),
+        None,
         None,
         None,
         None,
@@ -164,7 +167,7 @@ fn it_should_detect_test_cycle_during_ingest() {
             }),
             Some("message.assistant.tool_use".to_string()),
             Some("e3".to_string()),
-            None, None, None,
+            None, None, None, None,
         ),
         bash_tool_use("sess-1", "e4", "cargo test"),
         tool_result_event("sess-1", "e5", "toolu_e4", "test result: ok. 54 passed"),

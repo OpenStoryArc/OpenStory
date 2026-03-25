@@ -145,7 +145,7 @@ fn compose_cmd(compose_file: &Path, project_name: &str) -> Command {
 }
 
 /// Generate a short random suffix for unique project names.
-fn rand_suffix() -> String {
+pub fn rand_suffix() -> String {
     use std::time::SystemTime;
     let t = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

@@ -155,6 +155,14 @@ test-degrade: docker-build
 test-configs: docker-build
     cargo test --manifest-path rs/Cargo.toml -p open-story --test test_config_search --test test_config_full --test test_config_degrade -- --ignored --nocapture --test-threads=1
 
+# Build the OpenClaw test image (required before openclaw integration tests)
+docker-build-openclaw:
+    cd ~/projects/openclaw && docker build -t openclaw:test .
+
+# Run OpenClaw integration tests (requires API key + both Docker images)
+test-openclaw: docker-build docker-build-openclaw
+    ANTHROPIC_API_KEY=$$(cat .anthropic_api_key 2>/dev/null || echo $$ANTHROPIC_API_KEY) cargo test --manifest-path rs/Cargo.toml -p open-story --test test_openclaw_integration -- --ignored --nocapture --test-threads=1
+
 # Run all Docker-based tests (container + compose + configs)
 test-docker: docker-build
     cargo test --manifest-path rs/Cargo.toml -p open-story --test test_container --test test_compose

@@ -81,6 +81,16 @@ A 2KB truncation threshold was set without measuring payloads. Analysis showed i
 
 A field called `parent_uuid` suggests a tree. In practice, it creates a sequential chain where each event points to the previous one. Check the actual data shape — depth distributions, branching factors, real examples.
 
+### Mutating raw or normalizing agent-specific fields
+
+When integrating pi-mono, we initially mutated the `raw` field in the translator — renaming `toolCall` → `tool_use`, restructuring `toolResult` content blocks, normalizing `input` → `input_tokens` — so the views layer could parse it without changes. This violated two principles at once.
+
+**Functional purity:** The translator is supposed to be a pure function — data in, CloudEvent out. Mutating `raw` introduced a hidden side effect: the output no longer contained the input data. The translator was secretly rewriting history. A pure translator extracts and transforms; it doesn't alter the source.
+
+**Data sovereignty:** `raw` is the user's data. It's what the agent actually wrote. Reshaping it to fit a different agent's conventions destroys the original signal. If pi-mono says `toolCall`, that's what `raw` should contain. The data is yours, in open formats — that means the *actual* format, not a translation of it.
+
+The fix was structural: add an `agent` discriminator field to CloudEvents (`"claude-code"`, `"pi-mono"`), let each translator preserve native field names, and move format-awareness to the views layer where it belongs. The views layer is the place that understands how to *render* different formats — it's not a pure function, it's a transform that produces UI-ready records, and it's the right place to branch on agent type.
+
 ### Inline data analysis
 
 Running ad-hoc Python one-liners in the shell produces results that vanish, can't be reviewed, and break on Windows. Write scripts with test flags, argparse, and clear output. Scripts are artifacts — they tell the story of how you learned what you know.

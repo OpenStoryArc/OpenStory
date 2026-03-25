@@ -34,12 +34,22 @@ fn is_known_type(transcript_type: &str) -> bool {
     )
 }
 
+/// Transcript format — detected once per file, then locked.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TranscriptFormat {
+    #[default]
+    Unknown,
+    ClaudeCode,
+    PiMono,
+}
+
 /// Mutable state for one transcript file's translation session.
 pub struct TranscriptState {
     pub session_id: String,
     pub byte_offset: u64,
     pub line_count: u64,
     pub seen_uuids: HashSet<String>,
+    pub format: TranscriptFormat,
     seq: u64,
 }
 
@@ -50,6 +60,7 @@ impl TranscriptState {
             byte_offset: 0,
             line_count: 0,
             seen_uuids: HashSet::new(),
+            format: TranscriptFormat::Unknown,
             seq: 0,
         }
     }
@@ -414,5 +425,6 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         timestamp,
         None,
         None,
+        Some("claude-code".to_string()),
     )]
 }

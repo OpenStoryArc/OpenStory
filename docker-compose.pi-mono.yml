@@ -1,0 +1,94 @@
+# Pi-mono + Open Story integration deployment.
+#
+# Runs pi-mono coding agent alongside Open Story, with session
+# events flowing from pi-mono's JSONL files to Open Story's dashboard.
+#
+# === Setup ===
+#
+# 1. Create a secrets file (NEVER commit this):
+#      printf 'sk-ant-your-key-here' > .anthropic_api_key
+#      chmod 600 .anthropic_api_key
+#
+# 2. Build the Open Story image:
+#      docker build -t open-story:test ./rs
+#
+# 3. Start the stack:
+#      docker compose -f docker-compose.pi-mono.yml up -d
+#
+# === Architecture ===
+#
+#   pi-runner ──session JSONL──► open-story (file watcher)
+#                                    :3002
+#                                      │
+#                          Dashboard / API clients
+#
+# Pi-mono writes session JSONL files to ~/.pi/agent/sessions/.
+# Open Story watches that directory via the pi_watch_dir config.
+
+services:
+  open-story:
+    image: open-story:test
+    user: "0:0"  # Root — required to read pi-mono's session files
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"  # Claude Code transcripts (if any)
+    ports:
+      - "${OPEN_STORY_PORT:-3002}:3002"
+    volumes:
+      - os-data:/data
+      - claude-transcripts:/watch:ro
+      - pi-sessions:/pi-watch:ro
+    environment:
+      - OPEN_STORY_PI_WATCH_DIR=/pi-watch
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  pi-runner:
+    image: node:20-slim
+    depends_on:
+      open-story:
+        condition: service_healthy
+    environment:
+      - ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic_api_key
+    secrets:
+      - anthropic_api_key
+    volumes:
+      - pi-work:/work
+      - pi-sessions:/home/node/.pi/agent/sessions
+      - ./:/pi-mono:ro  # Mount pi-mono source for npm link
+    working_dir: /work
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        # Load API key from Docker secret
+        if [ -f /run/secrets/anthropic_api_key ]; then
+          export ANTHROPIC_API_KEY=$(cat /run/secrets/anthropic_api_key)
+        fi
+        # Pi-mono would be installed/linked here
+        echo "Pi-mono runner ready. Override this command with your prompt."
+        sleep infinity
+
+secrets:
+  anthropic_api_key:
+    file: ${ANTHROPIC_API_KEY_FILE:-.anthropic_api_key}
+
+volumes:
+  os-data:
+  pi-work:
+  pi-sessions:
+  claude-transcripts:

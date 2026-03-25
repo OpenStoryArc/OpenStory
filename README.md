@@ -3,13 +3,13 @@
 [![CI](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Open Story gives you full visibility into what your AI coding agent is doing — in real time. It watches Claude Code sessions, translates transcript events into typed records via a [CloudEvents 1.0](https://cloudevents.io/) pipeline, and serves a live dashboard. Your data stays local, in open formats, fully portable.
+Open Story gives you full visibility into what your AI coding agents are doing — in real time. It watches coding agent sessions (Claude Code, pi-mono, and more), translates transcript events into typed records via a [CloudEvents 1.0](https://cloudevents.io/) pipeline, and serves a live dashboard. Your data stays local, in open formats, fully portable.
 
-Real-time observability dashboard for Claude Code sessions. Watches JSONL transcript files, translates them into typed ViewRecords, and serves a live web dashboard.
+Real-time observability dashboard for AI coding agent sessions. Watches JSONL transcript files from multiple agents, auto-detects the format, translates them into typed ViewRecords, and serves a live web dashboard.
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
-│  Claude Code     │────▶│  Transcript  │────▶│  Translate   │────▶│  Server   │
+│  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│  Server   │
 │  (JSONL files)   │     │  Watcher     │     │  (CloudEvent)│     │  (Axum)   │
 └─────────────────┘     └──────────────┘     └──────────────┘     └─────┬─────┘
         │                                                               │
@@ -41,7 +41,7 @@ See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, an
 
 Two ingestion paths work in parallel:
 - **File watcher** — polls `~/.claude/projects/` for new/changed `.jsonl` files (background discovery)
-- **HTTP hooks** — Claude Code POSTs to `/hooks` on each event (near-real-time delivery)
+- **HTTP hooks** — coding agents POST to `/hooks` on each event (near-real-time delivery, currently Claude Code)
 
 Both produce `io.arc.event` CloudEvents with typed subtypes. The server transforms these into typed ViewRecords before broadcasting to the UI. Deduplication ensures no duplicates.
 
@@ -94,6 +94,20 @@ npm run dev
 ```
 
 The server starts on `http://localhost:3002` and watches `~/.claude/projects/` for transcript files. The UI dev server runs on `http://localhost:5173` and proxies API requests to the server.
+
+### Watch pi-mono sessions (optional)
+
+Open Story can observe multiple coding agents simultaneously. To add pi-mono alongside Claude Code, set the watch directory:
+
+```bash
+# Via environment variable
+OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions just up
+
+# Or add to data/config.toml
+# pi_watch_dir = "/Users/you/.pi/agent/sessions"
+```
+
+Both watchers run simultaneously — sessions from all configured coding agents appear in the same dashboard. Format detection is automatic (per-file, based on the first JSONL line). Each event carries an `agent` field identifying its source.
 
 ### Enable semantic search (optional)
 
@@ -263,7 +277,7 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | DELETE | `/api/sessions/{id}` | Delete a session |
 | GET | `/api/sessions/{id}/export` | Export session as JSONL |
 | GET | `/ws` | WebSocket for live event streaming |
-| POST | `/hooks` | Claude Code hook receiver |
+| POST | `/hooks` | Coding agent hook receiver |
 
 ## Project Layout
 

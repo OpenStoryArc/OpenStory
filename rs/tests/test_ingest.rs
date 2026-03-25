@@ -208,6 +208,7 @@ async fn ingest_extracts_and_saves_plan_from_exit_plan_mode() {
         None,
         None,
         None,
+        None,
     );
 
     let mut s = state.write().await;
@@ -237,6 +238,7 @@ async fn ingest_extracts_plan_from_legacy_tool_call() {
         }),
         None,
         Some("legacy-plan-001".to_string()),
+        None,
         None,
         None,
         None,

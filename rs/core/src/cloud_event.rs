@@ -20,6 +20,10 @@ pub struct CloudEvent {
     pub subject: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataschema: Option<String>,
+    /// Agent platform that produced this event (e.g., "claude-code", "pi-mono").
+    /// CloudEvent extension attribute — not part of the spec, but allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 impl CloudEvent {
@@ -33,6 +37,7 @@ impl CloudEvent {
         time: Option<String>,
         subject: Option<String>,
         dataschema: Option<String>,
+        agent: Option<String>,
     ) -> Self {
         Self {
             specversion: "1.0".to_string(),
@@ -45,6 +50,7 @@ impl CloudEvent {
             subtype,
             subject,
             dataschema,
+            agent,
         }
     }
 }
@@ -77,6 +83,7 @@ mod tests {
                 time.map(|s| s.into()),
                 subject.map(|s| s.into()),
                 schema.map(|s| s.into()),
+                None,
             );
 
             assert_eq!(ce.specversion, "1.0", "{desc}: specversion");
@@ -107,7 +114,7 @@ mod tests {
     fn test_serialization_skips_none_fields() {
         let ce = CloudEvent::new(
             "src".into(), "io.arc.event".into(), json!({}),
-            None, None, None, None, None,
+            None, None, None, None, None, None,
         );
         let serialized = serde_json::to_string(&ce).unwrap();
         assert!(!serialized.contains("subtype"), "subtype=None should be skipped");
@@ -121,6 +128,7 @@ mod tests {
             "src".into(), "io.arc.event".into(), json!({}),
             Some("test.sub".into()), None, None,
             Some("test-subject".into()), Some("https://schema".into()),
+            None,
         );
         let serialized = serde_json::to_string(&ce).unwrap();
         assert!(serialized.contains("\"subtype\":\"test.sub\""));
@@ -130,8 +138,8 @@ mod tests {
 
     #[test]
     fn test_auto_generated_ids_are_unique() {
-        let ce1 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None);
-        let ce2 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None);
+        let ce1 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None, None);
+        let ce2 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None, None);
         assert_ne!(ce1.id, ce2.id, "auto-generated IDs should be unique");
     }
 }

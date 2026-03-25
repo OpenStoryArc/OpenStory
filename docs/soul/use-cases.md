@@ -120,7 +120,9 @@ server (all above + axum, tokio)  ← all effects live here
 
 An agent adding a feature to `views/` literally cannot import I/O libraries without modifying Cargo.toml. The compiler enforces the abstraction barrier.
 
-**What to verify:** Can you implement your feature in `views/` or `patterns/` without adding an I/O dependency? If yes, you're in the right place. If you need network, filesystem, or database access, the feature belongs in `server/` or `store/`.
+**Lesson from pi-mono integration:** When adding pi-mono support, we initially mutated the `raw` field inside the translator — renaming `toolCall` → `tool_use`, restructuring content blocks — so the views layer wouldn't need changes. This broke purity: the translator's output no longer contained its input data. A pure translator *extracts and transforms*; it doesn't alter the source. The fix: translators leave `raw` untouched, set an `agent` discriminator on the CloudEvent, and the views layer branches on `agent` to parse each format. Format-awareness moved to where it belongs — the rendering boundary.
+
+**What to verify:** Can you implement your feature in `views/` or `patterns/` without adding an I/O dependency? If yes, you're in the right place. If you need network, filesystem, or database access, the feature belongs in `server/` or `store/`. If you're tempted to mutate input data to make downstream code simpler, reconsider — add a discriminator and let downstream handle the branching.
 
 ---
 
@@ -208,3 +210,41 @@ Also: `scripts/tree_prototype.py` proved that transcript data is a linked list (
 The `scripts/` directory contains 20+ Python scripts, each a saved investigation: `query_store.py` (database queries), `analyze_payloads.py` (payload size distribution), `timeline_prototype.py` (visualization prototype), `subagent_enrichment_spec.py` (enrichment design). Each has a `__main__` block, clear output, and tells a story of inquiry.
 
 **What to verify:** For new features, check `scripts/` first — is there already a prototype or analysis script? If not, and the feature involves data model decisions or UI design, write a script first. Validate on real data. The prototype is the spec.
+
+---
+
+## 10. Multi-agent observation (principles 1, 4, 5, 6, 7 in practice)
+
+**Where to look:**
+- Format detection: `rs/core/src/reader.rs` (lines 70-76)
+- Pi-mono translator: `rs/core/src/translate_pi.rs`
+- Agent-aware views: `rs/views/src/from_cloud_event.rs` (`extract_tool_calls`, `extract_tool_results`)
+- Prototype: `scripts/translate_pi_mono.py`
+- Config: `rs/server/src/config.rs` (`pi_watch_dir` field)
+- Second watcher: `rs/src/server/mod.rs` (pi-mono watcher block)
+
+Open Story observes multiple coding agents simultaneously. This feature exercises nearly every principle:
+
+**Observe, never interfere (1):** The pi-mono watcher is read-only, just like the Claude Code watcher. It reads JSONL session files and never writes back. Two independent watchers, same unidirectional pipeline.
+
+**Functional-first (4):** Each translator is a pure function — JSONL line in, CloudEvent out. `raw` is `line.clone()` always. We initially broke this by mutating `raw` to normalize pi-mono's field names into Claude Code's shape. The mutation was a hidden side effect that destroyed the original data. The fix: leave `raw` untouched, add an `agent` discriminator, and move format-awareness to the views layer.
+
+**Reactive and event-driven (5):** Both watchers feed the same `ingest_events()` pipeline. Events from different agents flow through the same broadcast channel, same WebSocket, same UI. No polling, no special-casing at the transport level.
+
+**Open standards, user-owned data (6):** Each agent's data stays in its native format inside `raw`. Pi-mono says `toolCall` and `arguments` — that's what's persisted. Claude Code says `tool_use` and `input` — that's what's persisted. The user's data is honest about its source.
+
+**Minimal, honest code (7):** Format differences are handled by two simple branches in `extract_tool_calls` and `extract_tool_results`, keyed on the `agent` field. No abstraction layer, no format registry, no plugin system. A match statement.
+
+**Abstraction barrier (SICP):** The translate layer proved its value as an abstraction barrier. Everything above it (ingest, store, patterns, projections, broadcast, UI) sees CloudEvents. Everything below it (file watchers, raw JSONL) deals with agent-specific formats. When pi-mono was added, a new translator was created and the views layer learned to branch on `agent` — nothing else in the pipeline changed. The barrier held. See `docs/soul/sicp-lessons.md` for the theoretical foundation.
+
+**Lessons learned:**
+- We initially mutated `raw` in the pi-mono translator to reshape content blocks into Claude Code's format. This broke functional purity — the translator's output no longer contained its input data. It also violated data sovereignty — `raw` should preserve exactly what the agent wrote. The fix: add the `agent` discriminator and let the views layer handle format differences.
+- We also normalized pi-mono's field names (`input` → `input_tokens`, `toolCall` → `tool_use`) to avoid changing the views layer. This distorts agent-specific data and creates false assumptions about compatibility. Different agents have legitimately different structures. Preserve them.
+
+**Configuration:**
+- `watch_dir` — Claude Code transcripts (default `~/.claude/projects/`)
+- `pi_watch_dir` — Pi-mono sessions (default empty, set via `data/config.toml` or `OPEN_STORY_PI_WATCH_DIR` env var)
+
+Both watchers run concurrently, feeding the same ingest pipeline.
+
+**What to verify:** When adding a new agent format, follow this pattern: write a prototype script in `scripts/`, create a translator in `rs/core/src/`, add format detection in `reader.rs`, and add agent-specific branches in `from_cloud_event.rs`. Never mutate `raw`. Never normalize agent-specific field names. The `agent` field is the discriminator.

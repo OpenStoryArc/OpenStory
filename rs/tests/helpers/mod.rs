@@ -7,6 +7,8 @@ pub mod container;
 #[allow(dead_code)]
 pub mod k8s;
 #[allow(dead_code)]
+pub mod openclaw;
+#[allow(dead_code)]
 pub mod synth;
 
 use std::collections::HashMap;
@@ -62,6 +64,7 @@ pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
         None, // auto-generates timestamp
         None,
         None,
+        None,
     )
 }
 
@@ -73,6 +76,7 @@ pub fn make_event_with_id(event_type: &str, session_id: &str, id: &str) -> Cloud
         json!({"text": "test content"}),
         None,
         Some(id.to_string()),
+        None,
         None,
         None,
         None,
@@ -105,6 +109,7 @@ pub fn make_event_with_large_payload(session_id: &str, id: &str, size: usize) ->
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -131,6 +136,7 @@ pub fn make_user_prompt(session_id: &str, id: &str) -> CloudEvent {
         }),
         Some("message.user.prompt".to_string()),
         Some(id.to_string()),
+        None,
         None,
         None,
         None,
@@ -175,6 +181,7 @@ pub fn make_tool_use(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -209,6 +216,7 @@ pub fn make_tool_result(
         data,
         Some("message.user.tool_result".to_string()),
         Some(id.to_string()),
+        None,
         None,
         None,
         None,
@@ -247,6 +255,7 @@ pub fn make_assistant_text(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -266,6 +275,7 @@ pub fn make_progress_event(session_id: &str, id: &str, parent_id: Option<&str>) 
         data,
         Some("progress.bash".to_string()),
         Some(id.to_string()),
+        None,
         None,
         None,
         None,

@@ -12,9 +12,14 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::translate::{translate_line, TranscriptState};
+use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
+use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
 /// Read new complete lines from a transcript file, translate to CloudEvents.
+///
+/// Auto-detects the transcript format (Claude Code vs pi-mono) on the first
+/// line and locks the format for the file's lifetime. Dispatches to the
+/// appropriate translator.
 ///
 /// Updates `state.byte_offset` and `state.line_count` in place.
 /// Partial lines (no trailing `\n`) are left unconsumed.
@@ -67,7 +72,20 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             Err(_) => continue,
         };
 
-        events.extend(translate_line(&obj, state));
+        // Detect format once per file, then lock
+        if state.format == TranscriptFormat::Unknown {
+            state.format = if is_pi_mono_format(&obj) {
+                TranscriptFormat::PiMono
+            } else {
+                TranscriptFormat::ClaudeCode
+            };
+        }
+
+        let new_events = match state.format {
+            TranscriptFormat::PiMono => translate_pi_line(&obj, state),
+            _ => translate_line(&obj, state),
+        };
+        events.extend(new_events);
     }
 
     Ok(events)

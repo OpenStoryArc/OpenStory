@@ -544,6 +544,7 @@ mod tests {
             Some("2025-01-13T00:00:00Z".to_string()),
             None,
             None,
+            None,
         )
     }
 
@@ -632,6 +633,7 @@ mod tests {
             Some("2025-01-13T00:00:00Z".to_string()),
             None,
             None,
+            None,
         );
 
         ingest_events(&mut state, "sess-cwd", &[event], None);
@@ -688,6 +690,7 @@ mod tests {
             Some("2025-01-13T00:00:00Z".to_string()),
             None,
             None,
+            None,
         );
 
         let result = ingest_events(&mut state, "sess-eph", &[event], None);
@@ -739,6 +742,7 @@ mod tests {
             Some("2025-01-13T00:00:00Z".to_string()),
             None,
             None,
+            None,
         );
 
         ingest_events(&mut state, "sess-plan", &[event], None);
@@ -775,6 +779,7 @@ mod tests {
             Some("message.user.tool_result".to_string()),
             Some("evt-trunc-1".to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
+            None,
             None,
             None,
         );
@@ -816,6 +821,7 @@ mod tests {
             Some("2025-01-17T00:00:00Z".to_string()),
             None,
             None,
+            None,
         );
 
         ingest_events(&mut state, "agent-456", &[event], None);
@@ -854,6 +860,7 @@ mod tests {
             Some("message.user.prompt".to_string()),
             Some("evt-normal-1".to_string()),
             Some("2025-01-17T00:00:00Z".to_string()),
+            None,
             None,
             None,
         );

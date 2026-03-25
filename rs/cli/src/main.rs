@@ -254,6 +254,13 @@ async fn main() -> Result<()> {
                 config.watch_dir = default_watch_dir().to_string_lossy().to_string();
             }
 
+            // Pi-mono watch dir from env var (config.toml also works)
+            if config.pi_watch_dir.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_PI_WATCH_DIR") {
+                    config.pi_watch_dir = v;
+                }
+            }
+
             let host = config.host.clone();
             let port = config.port;
             let nats_url = config.nats_url.clone();
