@@ -90,7 +90,13 @@ These principles flow from the soul above. They are the rules that shape every d
 
 **Why this matters:** Scripts tell a story. When another agent, a collaborator, or a curious reader opens `scripts/`, they should see a trail of inquiry — what questions were asked, how the data was explored, what was discovered. Raw shell one-liners vanish. Scripts endure.
 
-**Agent self-awareness:** Agents working on this project can query the live event store to understand session characteristics, tool usage patterns, and detected behaviors. Use `scripts/query_store.py` to inspect the SQLite database. If a question can be answered by data, write a query — don't guess.
+**Agent self-awareness:** Agents working on this project can query the live event store to understand session characteristics, tool usage patterns, and detected behaviors. If a question can be answered by data, write a query — don't guess.
+
+**Dogfood OpenStory:** When looking up session data, events, or past work, use the OpenStory REST API (`http://localhost:3002/api/`) first — not raw file grep. We eat our own cooking. Key endpoints:
+- `GET /api/sessions` — list all sessions
+- `GET /api/sessions/{id}/records` — get all events for a session
+- `GET /api/search?q=...` — search across events
+This is how we verify the product works and catch rendering/data issues in real use.
 
 **Maintaining scripts:** When the data model changes (new tables, renamed fields, new event subtypes), update the scripts that query it. Scripts with `--test` flags should be run as part of validation. A broken script is a broken understanding.
 

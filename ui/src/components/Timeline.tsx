@@ -20,6 +20,7 @@ import { shouldClearFocus } from "@/lib/focus";
 import { emptyStateMessage } from "@/lib/empty-state";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { subtreeIds } from "@/lib/subtree";
+import { nextCardIndex } from "@/lib/keyboard-nav";
 import { buildPatternIndex } from "@/lib/pattern-index";
 import { extractTurnPhases } from "@/lib/turn-phases";
 import { TurnPhaseBar } from "@/components/TurnPhaseBar";
@@ -124,14 +125,16 @@ interface RowProps {
   row: TimelineRow;
   isFocusRoot: boolean;
   isHighlighted: boolean;
+  isSelected: boolean;
   patterns: readonly PatternView[];
   turnSummary: TurnSummary | null;
   sessionLabel: string | null;
   onPatternClick: (pattern: PatternView) => void;
-  onExploreLink?: (sessionId: string) => void;
+  onSelect?: () => void;
+  onExploreLink?: (sessionId: string, eventId: string) => void;
 }
 
-const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHighlighted, patterns, turnSummary, sessionLabel, onPatternClick, onExploreLink }: RowProps) {
+const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHighlighted, isSelected, patterns, turnSummary, sessionLabel, onPatternClick, onSelect, onExploreLink }: RowProps) {
   const catColor = CATEGORY_COLORS[row.category];
 
   // Turn divider
@@ -156,11 +159,13 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
 
   const highlight = isHighlighted ? " bg-[#7aa2f714]" : "";
   const focusBorder = isFocusRoot ? " ring-1 ring-[#e0af68]" : "";
+  const selectedBorder = isSelected ? " ring-1 ring-[#7aa2f7]" : "";
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868]${highlight}${focusBorder}`}
+      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
+      onClick={onSelect}
     >
       <div className="px-3 py-2">
         <div className="flex gap-3">
@@ -205,7 +210,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 </span>
                 {onExploreLink && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); onExploreLink(row.sessionId); }}
+                    onClick={(e) => { e.stopPropagation(); onExploreLink(row.sessionId, row.id); }}
                     className="text-[11px] px-1.5 py-0.5 rounded text-[#565f89] hover:text-[#7aa2f7] hover:bg-[#7aa2f710] transition-colors"
                     title="Open full session in Explore"
                     data-testid="explore-link"
@@ -218,6 +223,12 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
 
             {/* Body — the card IS the content */}
             <CardBody row={row} />
+
+            {/* Full IDs — always visible for cross-referencing */}
+            <div className="mt-1 text-[9px] text-[#565f89] font-mono leading-tight">
+              <div>event: {row.id}</div>
+              <div>session: {row.sessionId}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -290,6 +301,8 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
   const connectionStatus = useConnectionStatus();
   const [activeFilter, setActiveFilter] = useState("all");
   const [focusRootId, setFocusRootId] = useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [timelineFocused, setTimelineFocused] = useState(false);
 
   // Build subtree membership set using treeIndex from state (null when not focused)
   const subtreeSet = useMemo(() => {
@@ -391,8 +404,8 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
     );
   }, []);
 
-  const handleExploreLink = useCallback((sessionId: string) => {
-    onExploreLink?.({ sessionId });
+  const handleExploreLink = useCallback((sessionId: string, eventId: string) => {
+    onExploreLink?.({ sessionId, eventId });
   }, [onExploreLink]);
 
   // Count unique sessions from records
@@ -453,6 +466,61 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Clear selection when rows change (filter, session switch, new data)
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    if (rowsRef.current !== rows) {
+      setSelectedIndex(null);
+      rowsRef.current = rows;
+    }
+  }, [rows]);
+
+  // Keyboard navigation: up/down arrows move between event cards.
+  // Uses a ref to avoid side effects inside the state updater,
+  // and rAF to batch the scroll with the next paint frame.
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const navRafRef = useRef(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const sidebar = document.querySelector<HTMLElement>('[data-focus-zone="sidebar"]');
+        sidebar?.focus();
+        return;
+      }
+      if (e.key === "Enter" && selectedIndexRef.current !== null && onExploreLink) {
+        e.preventDefault();
+        const row = rows[selectedIndexRef.current];
+        if (row && row.category !== "turn") {
+          onExploreLink({ sessionId: row.sessionId, eventId: row.id });
+        }
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const direction = e.key === "ArrowDown" ? "down" : "up";
+      const next = nextCardIndex(rows, selectedIndexRef.current, direction);
+      if (next === null || next === selectedIndexRef.current) return;
+      setSelectedIndex(next);
+      setAutoScroll(false);
+      cancelAnimationFrame(navRafRef.current);
+      navRafRef.current = requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(next, { align: "center" });
+      });
+    };
+
+    el.addEventListener("keydown", onKeyDown);
+    return () => {
+      el.removeEventListener("keydown", onKeyDown);
+      cancelAnimationFrame(navRafRef.current);
+    };
+  }, [rows, virtualizer, onExploreLink]);
 
   return (
     <div className="flex flex-col h-full" data-testid="timeline">
@@ -548,7 +616,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
       />
 
       {/* Event feed */}
-      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div ref={scrollRef} className="flex-1 overflow-auto outline-none" tabIndex={0} data-focus-zone="timeline" onFocus={() => setTimelineFocused(true)} onBlur={() => setTimelineFocused(false)}>
         {rows.length === 0 ? (
           (() => {
             const msg = emptyStateMessage({
@@ -595,10 +663,12 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
                     row={row}
                     isFocusRoot={focusRootId === row.id}
                     isHighlighted={highlightedEventIds.has(row.id)}
+                    isSelected={timelineFocused && selectedIndex === virtualRow.index}
                     patterns={patternIndex.get(row.id) ?? []}
                     turnSummary={row.category === "turn" ? (turnSummaries.get(row.id) ?? null) : null}
                     sessionLabel={state.sessionLabels[row.sessionId]?.label ?? null}
                     onPatternClick={handlePatternClick}
+                    onSelect={() => { setSelectedIndex(virtualRow.index); scrollRef.current?.focus(); }}
                     onExploreLink={onExploreLink ? handleExploreLink : undefined}
                   />
                 </div>

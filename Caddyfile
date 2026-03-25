@@ -1,0 +1,58 @@
+# Reverse proxy for Open Story + OpenClaw.
+#
+# Uses Tailscale TLS certs. Set CADDY_HOSTNAME to your Tailscale MagicDNS name.
+# Example: CADDY_HOSTNAME=my-vps.tailnet-name.ts.net
+#
+# Generate certs: tailscale cert $CADDY_HOSTNAME
+# Certs land at: /var/lib/tailscale/certs/
+
+{$CADDY_HOSTNAME} {
+	tls /var/lib/tailscale/certs/{$CADDY_HOSTNAME}.crt /var/lib/tailscale/certs/{$CADDY_HOSTNAME}.key
+
+	# OpenClaw gateway (web UI + API)
+	handle /openclaw/* {
+		uri strip_prefix /openclaw
+		reverse_proxy localhost:18789
+	}
+
+	# Open Story API
+	handle /api/* {
+		reverse_proxy localhost:3002
+	}
+
+	# Open Story WebSocket
+	handle /ws {
+		reverse_proxy localhost:3002
+	}
+
+	# Open Story hooks (for Claude Code HTTP hooks if needed)
+	handle /hooks {
+		reverse_proxy localhost:3002
+	}
+
+	# Health + metrics
+	handle /health {
+		reverse_proxy localhost:3002
+	}
+	handle /metrics {
+		reverse_proxy localhost:3002
+	}
+
+	# Everything else — UI static files served by Open Story
+	handle {
+		reverse_proxy localhost:3002
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

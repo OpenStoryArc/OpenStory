@@ -235,3 +235,20 @@ coverage-ui:
 build:
     cargo build --manifest-path rs/cli/Cargo.toml --release
     cd ui && npm run build
+
+# Build the production Docker image (server + UI)
+prod-build:
+    docker build -f Dockerfile.prod -t open-story:prod .
+
+# Start the production stack (OpenClaw + Open Story + Telegram bot)
+prod-up: prod-build
+    docker compose -f docker-compose.prod.yml up -d
+
+# Stop the production stack
+prod-down:
+    docker compose -f docker-compose.prod.yml down
+
+# Run production deployment tests (bot unit tests + bot image build)
+prod-test:
+    cd telegram-bot && python bot.py --test
+    docker build -t telegram-bot:test ./telegram-bot
