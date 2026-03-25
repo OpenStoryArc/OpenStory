@@ -1,0 +1,99 @@
+# Production deployment: OpenClaw + Open Story + Telegram bot.
+#
+# Prerequisites:
+#   docker build -f Dockerfile.prod -t open-story:prod .
+#   docker build -t openclaw:latest ~/projects/openclaw
+#
+# Create a .env file with:
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   OPEN_STORY_API_TOKEN=<random-hex>
+#   TELEGRAM_BOT_TOKEN=<from-botfather>
+#   TELEGRAM_ALLOWED_USER_ID=<your-telegram-user-id>
+#
+# Start:
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  openclaw:
+    image: openclaw:latest
+    user: "0:0"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HOME=/home/node
+    volumes:
+      - openclaw-state:/home/node/.openclaw
+      - openclaw-workspace:/home/node/.openclaw/workspace
+    ports:
+      - "127.0.0.1:18789:18789"
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
+        cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
+        {"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        OCEOF
+        exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured
+    healthcheck:
+      test: ["CMD", "node", "-e",
+        "fetch('http://127.0.0.1:18789/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+  open-story:
+    image: open-story:prod
+    user: "0:0"
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - os-data:/data
+      - openclaw-state:/pi-watch:ro
+    environment:
+      - OPEN_STORY_PI_WATCH_DIR=/pi-watch
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
+      - OPEN_STORY_METRICS_ENABLED=true
+      - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      openclaw:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID}
+      - OPENCLAW_GATEWAY_URL=http://openclaw:18789
+      - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-main}
+    depends_on:
+      openclaw:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  os-data:
+  openclaw-state:
+  openclaw-workspace:
