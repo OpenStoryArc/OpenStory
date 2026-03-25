@@ -247,3 +247,8 @@ prod-up: prod-build
 # Stop the production stack
 prod-down:
     docker compose -f docker-compose.prod.yml down
+
+# Run production deployment tests (bot unit tests + bot image build)
+prod-test:
+    cd telegram-bot && python bot.py --test
+    docker build -t telegram-bot:test ./telegram-bot

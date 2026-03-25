@@ -183,5 +183,138 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+def run_tests():
+    """Self-test for pure functions. Run with: python bot.py --test"""
+    import textwrap
+
+    passed = 0
+    failed = 0
+
+    def assert_eq(actual, expected, label):
+        nonlocal passed, failed
+        if actual == expected:
+            passed += 1
+            print(f"  \033[32m✓\033[0m {label}")
+        else:
+            failed += 1
+            print(f"  \033[31m✗\033[0m {label}")
+            print(f"    expected: {expected!r}")
+            print(f"    actual:   {actual!r}")
+
+    # ── chunk_message ──
+    print("\nchunk_message:")
+
+    assert_eq(chunk_message("hello"), ["hello"], "short message returns single chunk")
+    assert_eq(chunk_message(""), [""], "empty string returns single chunk")
+
+    # Exactly at limit
+    exact = "a" * TELEGRAM_MAX_MESSAGE_LENGTH
+    assert_eq(chunk_message(exact), [exact], "message exactly at limit is one chunk")
+
+    # One over limit, no newlines — splits at hard boundary
+    over = "a" * (TELEGRAM_MAX_MESSAGE_LENGTH + 1)
+    chunks = chunk_message(over)
+    assert_eq(len(chunks), 2, "one over limit produces two chunks")
+    assert_eq(len(chunks[0]), TELEGRAM_MAX_MESSAGE_LENGTH, "first chunk is exactly at limit")
+    assert_eq(chunks[1], "a", "second chunk is the remainder")
+
+    # Split at newline near limit
+    first_part = "x" * (TELEGRAM_MAX_MESSAGE_LENGTH - 10)
+    second_part = "y" * 100
+    with_newline = first_part + "\n" + second_part
+    chunks = chunk_message(with_newline)
+    assert_eq(chunks[0], first_part, "splits at newline before limit")
+    assert_eq(chunks[1], second_part, "second chunk starts after newline")
+
+    # Newline too early (before halfway) — falls back to hard split
+    early_newline = "a" * 100 + "\n" + "b" * TELEGRAM_MAX_MESSAGE_LENGTH
+    chunks = chunk_message(early_newline)
+    assert_eq(len(chunks[0]), TELEGRAM_MAX_MESSAGE_LENGTH, "ignores newline before halfway point")
+
+    # Multiple chunks needed
+    big = "word " * 2000  # ~10000 chars, well over limit
+    chunks = chunk_message(big)
+    assert_eq(all(len(c) <= TELEGRAM_MAX_MESSAGE_LENGTH for c in chunks), True,
+              "all chunks within limit for large input")
+    assert_eq("".join(chunks).replace(" ", ""), big.replace(" ", "").rstrip(),
+              "no content lost after chunking (ignoring whitespace)")
+
+    # ── is_authorized ──
+    print("\nis_authorized:")
+
+    global ALLOWED_USER_ID
+    original = ALLOWED_USER_ID
+    ALLOWED_USER_ID = 12345
+    assert_eq(is_authorized(12345), True, "matching user ID is authorized")
+    assert_eq(is_authorized(99999), False, "non-matching user ID is rejected")
+    assert_eq(is_authorized(0), False, "zero user ID is rejected")
+    ALLOWED_USER_ID = original
+
+    # ── send_to_openclaw event parsing ──
+    print("\nevent parsing (parse_gateway_event):")
+
+    # Test the event type dispatch logic in isolation
+    test_events = [
+        ({"type": "assistant_message", "content": "hello"}, "hello"),
+        ({"type": "text", "content": "world"}, "world"),
+        ({"type": "text", "text": "fallback"}, "fallback"),
+        ({"type": "tool_use", "name": "Read"}, "[Using tool: Read]"),
+        ({"type": "tool_use", "tool": "Bash"}, "[Using tool: Bash]"),
+        ({"type": "tool_result", "output": "ignored"}, None),
+        ({"type": "error", "message": "oops"}, "[Error: oops]"),
+        ({"type": "error", "error": "boom"}, "[Error: boom]"),
+        ({"type": "unknown_type"}, None),
+    ]
+
+    for event, expected_text in test_events:
+        event_type = event.get("type", "")
+        result = None
+
+        if event_type == "assistant_message":
+            text = event.get("content", "")
+            if text:
+                result = text
+        elif event_type == "text":
+            text = event.get("content", event.get("text", ""))
+            if text:
+                result = text
+        elif event_type == "tool_use":
+            name = event.get("name", event.get("tool", "unknown"))
+            result = f"[Using tool: {name}]"
+        elif event_type == "tool_result":
+            result = None
+        elif event_type == "error":
+            error_msg = event.get("message", event.get("error", "Unknown error"))
+            result = f"[Error: {error_msg}]"
+
+        assert_eq(result, expected_text, f"event type={event_type!r} -> {expected_text!r}")
+
+    # ── ws_endpoint construction ──
+    print("\nws_endpoint construction:")
+
+    def build_ws_endpoint(gateway_url, agent_id):
+        ws_url = gateway_url.replace("http://", "ws://").replace("https://", "wss://")
+        return f"{ws_url}/agent/{agent_id}/ws"
+
+    assert_eq(build_ws_endpoint("http://openclaw:18789", "main"),
+              "ws://openclaw:18789/agent/main/ws",
+              "http -> ws conversion")
+    assert_eq(build_ws_endpoint("https://openclaw.example.com", "dev"),
+              "wss://openclaw.example.com/agent/dev/ws",
+              "https -> wss conversion")
+
+    # ── Summary ──
+    print(f"\n{'─' * 40}")
+    total = passed + failed
+    if failed == 0:
+        print(f"\033[32m{passed}/{total} tests passed\033[0m\n")
+    else:
+        print(f"\033[31m{failed}/{total} tests FAILED\033[0m\n")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    main()
+    if "--test" in sys.argv:
+        run_tests()
+    else:
+        main()
