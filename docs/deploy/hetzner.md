@@ -38,103 +38,33 @@ Caddy reverse proxy + Tailscale VPN (no public exposure)
 3. Add Server:
    - **Location**: Ashburn, VA (or nearest to you)
    - **Image**: Debian 12
-   - **Type**: CX22 (2 vCPU, 4GB RAM, 40GB SSD) — ~$5/mo
+   - **Type**: CCX33 (8 dedicated vCPU, 32GB RAM, 240GB SSD) — ~$55/mo. Or CCX43 (16 vCPU, 64GB) for more power.
    - **SSH Key**: Add your public key
    - **Name**: `openstory` (or whatever you like)
 4. Note the server's IPv4 address
 
-## Step 2: Harden the Server
+## Step 2: Run the setup script
 
-SSH in as root:
+The setup script installs everything: Docker, Tailscale, Caddy, Rust, Node, dev tools, firewall, deploy user.
 
 ```bash
 ssh root@<server-ip>
+# Copy the script (or paste it):
+scp scripts/deploy-vps.sh root@<server-ip>:
+bash deploy-vps.sh
 ```
 
-Create a non-root user:
+This takes ~5 min and handles Steps 2-5 from the original manual process.
+
+After it finishes:
 
 ```bash
-adduser deploy
-usermod -aG sudo deploy
-
-# Copy SSH keys
-mkdir -p /home/deploy/.ssh
-cp ~/.ssh/authorized_keys /home/deploy/.ssh/
-chown -R deploy:deploy /home/deploy/.ssh
-chmod 700 /home/deploy/.ssh
-chmod 600 /home/deploy/.ssh/authorized_keys
+# Still as root:
+tailscale up          # Authorize in browser
+tailscale cert <hostname>.ts.net
 ```
 
-Lock down SSH:
-
-```bash
-sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-systemctl restart sshd
-```
-
-Firewall (allow SSH only — Tailscale handles the rest):
-
-```bash
-apt-get update && apt-get install -y ufw
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw enable
-```
-
-## Step 3: Install Docker
-
-```bash
-apt-get install -y ca-certificates curl gnupg
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg \
-  | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
-  > /etc/apt/sources.list.d/docker.list
-
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-usermod -aG docker deploy
-```
-
-## Step 4: Install Tailscale
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-tailscale up
-```
-
-Follow the auth URL to add this VPS to your tailnet. Also install Tailscale on your phone and laptop.
-
-Get your MagicDNS hostname:
-
-```bash
-tailscale status
-# Example output: "openstory" — full hostname: openstory.your-tailnet.ts.net
-```
-
-Generate TLS certs:
-
-```bash
-tailscale cert openstory.your-tailnet.ts.net
-# Certs at: /var/lib/tailscale/certs/
-```
-
-## Step 5: Install Caddy
-
-```bash
-apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-  | tee /etc/apt/sources.list.d/caddy-stable.list
-apt-get update && apt-get install -y caddy
-```
-
-## Step 6: Create Telegram Bot
+## Step 3: Create Telegram Bot
 
 1. Open Telegram, message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot`
@@ -146,7 +76,7 @@ Get your Telegram user ID:
 1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
 2. It replies with your user ID (a number like `123456789`)
 
-## Step 7: Deploy the Stack
+## Step 4: Deploy the Stack
 
 Switch to the deploy user and set up the project:
 
@@ -174,15 +104,12 @@ EOF
 chmod 600 .env
 ```
 
-Build the images:
+Build both images in parallel (use tmux or background jobs):
 
 ```bash
-# Open Story (server + UI)
-docker build -f Dockerfile.prod -t open-story:prod .
-
-# OpenClaw (from your local checkout)
-# If openclaw source is at ~/projects/openclaw:
-docker build -t openclaw:latest ~/projects/openclaw
+docker build -t openclaw:latest ~/openclaw &
+docker build -f Dockerfile.prod -t open-story:prod . &
+wait
 ```
 
 Start the stack:
@@ -191,7 +118,7 @@ Start the stack:
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-## Step 8: Configure Caddy
+## Step 5: Configure Caddy
 
 As root:
 
@@ -217,7 +144,7 @@ CRON
 chmod +x /etc/cron.monthly/tailscale-cert
 ```
 
-## Step 9: Verify
+## Step 6: Verify
 
 From your phone or laptop (on the same Tailscale network):
 
@@ -278,11 +205,11 @@ docker stats
 
 | Item | Monthly Cost |
 |------|-------------|
-| Hetzner CX22 | ~$5 |
+| Hetzner CCX33 (32GB) | ~$55 |
 | Tailscale | Free (personal) |
 | Telegram bot | Free |
 | Anthropic API | Usage-based (~$0.30-6.75/session) |
-| **Total hosting** | **~$5/mo** + API usage |
+| **Total hosting** | **~$55/mo** + API usage |
 
 ## Troubleshooting
 
