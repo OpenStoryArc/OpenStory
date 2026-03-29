@@ -35,7 +35,7 @@ services:
       - |
         mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
         OCEOF
         exec node openclaw.mjs gateway --bind lan --port 18789 --allow-unconfigured
     healthcheck:
@@ -88,6 +88,7 @@ services:
       - TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID}
       - OPENCLAW_GATEWAY_URL=http://openclaw:18789
       - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-main}
+      - OPENCLAW_AUTH_TOKEN=${OPENCLAW_AUTH_TOKEN:-}
     depends_on:
       openclaw:
         condition: service_healthy
