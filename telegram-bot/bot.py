@@ -5,7 +5,7 @@ via its OpenAI-compatible HTTP API, and sends the agent's responses back.
 
 Environment variables:
     TELEGRAM_BOT_TOKEN       - Bot token from BotFather (required)
-    TELEGRAM_ALLOWED_USER_ID - Telegram user ID allowed to use the bot (required)
+    TELEGRAM_ALLOWED_USER_IDS - Comma-separated Telegram user IDs allowed to use the bot (required)
     OPENCLAW_GATEWAY_URL     - OpenClaw gateway URL (default: http://openclaw:18789)
     OPENCLAW_AGENT_ID        - Agent ID to message (default: main)
     OPENCLAW_AUTH_TOKEN       - Gateway auth token (required)
@@ -34,7 +34,11 @@ logging.basicConfig(
 logger = logging.getLogger("openclaw-telegram")
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-ALLOWED_USER_ID = int(os.environ.get("TELEGRAM_ALLOWED_USER_ID", "0"))
+def _parse_allowed_ids():
+    raw = os.environ.get("TELEGRAM_ALLOWED_USER_IDS", os.environ.get("TELEGRAM_ALLOWED_USER_ID", ""))
+    return {int(x.strip()) for x in raw.split(",") if x.strip()}
+
+ALLOWED_USER_IDS = _parse_allowed_ids()
 GATEWAY_URL = os.environ.get("OPENCLAW_GATEWAY_URL", "http://openclaw:18789")
 AGENT_ID = os.environ.get("OPENCLAW_AGENT_ID", "main")
 AUTH_TOKEN = os.environ.get("OPENCLAW_AUTH_TOKEN", "")
@@ -46,15 +50,15 @@ def check_config():
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN is required")
         sys.exit(1)
-    if ALLOWED_USER_ID == 0:
-        logger.error("TELEGRAM_ALLOWED_USER_ID is required")
+    if not ALLOWED_USER_IDS:
+        logger.error("TELEGRAM_ALLOWED_USER_IDS is required (comma-separated user IDs)")
         sys.exit(1)
     if not AUTH_TOKEN:
         logger.warning("OPENCLAW_AUTH_TOKEN not set — requests will likely fail auth")
 
 
 def is_authorized(user_id: int) -> bool:
-    return user_id == ALLOWED_USER_ID
+    return user_id in ALLOWED_USER_IDS
 
 
 def chunk_message(text: str) -> list[str]:
@@ -145,7 +149,7 @@ def main():
     logger.info(f"Starting OpenClaw Telegram bridge (HTTP mode)")
     logger.info(f"  Gateway: {GATEWAY_URL}")
     logger.info(f"  Agent: {AGENT_ID}")
-    logger.info(f"  Allowed user: {ALLOWED_USER_ID}")
+    logger.info(f"  Allowed users: {ALLOWED_USER_IDS}")
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_command))
@@ -191,13 +195,14 @@ def run_tests():
     assert_eq(chunks[1], second_part, "second chunk starts after newline")
 
     print("\nis_authorized:")
-    global ALLOWED_USER_ID
-    original = ALLOWED_USER_ID
-    ALLOWED_USER_ID = 12345
-    assert_eq(is_authorized(12345), True, "matching user ID is authorized")
+    global ALLOWED_USER_IDS
+    original = ALLOWED_USER_IDS
+    ALLOWED_USER_IDS = {12345, 67890}
+    assert_eq(is_authorized(12345), True, "first allowed user is authorized")
+    assert_eq(is_authorized(67890), True, "second allowed user is authorized")
     assert_eq(is_authorized(99999), False, "non-matching user ID is rejected")
     assert_eq(is_authorized(0), False, "zero user ID is rejected")
-    ALLOWED_USER_ID = original
+    ALLOWED_USER_IDS = original
 
     print(f"\n{'─' * 40}")
     total = passed + failed

@@ -24,6 +24,7 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - HOME=/home/node
       - NODE_OPTIONS=--max-old-space-size=2048
+      - OPEN_STORY_API_URL=http://open-story:3002
     volumes:
       - openclaw-state:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
@@ -85,7 +86,7 @@ services:
       context: ./telegram-bot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-${TELEGRAM_ALLOWED_USER_ID:-}}
       - OPENCLAW_GATEWAY_URL=http://openclaw:18789
       - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-main}
       - OPENCLAW_AUTH_TOKEN=${OPENCLAW_AUTH_TOKEN:-}
