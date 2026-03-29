@@ -8,9 +8,9 @@ Deploy a personal coding agent you can message from Telegram, with real-time obs
 Telegram (phone/laptop)
   |
   v
-Telegram Bot (Python bridge)
+Telegram Bot (Python, HTTP bridge)
   |
-  v
+  v  POST /v1/chat/completions
 OpenClaw gateway (:18789)     -- coding agent, writes JSONL sessions
   |
   v (shared Docker volume)
@@ -20,219 +20,206 @@ Open Story server (:3002)     -- observes, stores, broadcasts
   +-- REST API
   +-- WebSocket (live stream)
 
-Caddy reverse proxy + Tailscale VPN (no public exposure)
+Caddy reverse proxy on Tailscale IP (HTTP, private network)
 ```
 
 ## Prerequisites
 
 - Hetzner Cloud account
-- Tailscale account (free tier is fine)
+- Tailscale account (free tier works — no TLS certs on free tier)
 - Telegram account
 - Anthropic API key
-- SSH key pair
+- SSH key pair (`ssh-keygen -t ed25519` if you don't have one)
 
 ## Step 1: Create the VPS
 
 1. Log into [Hetzner Cloud Console](https://console.hetzner.cloud)
 2. Create a new project (or use existing)
 3. Add Server:
-   - **Location**: Ashburn, VA (or nearest to you)
-   - **Image**: Debian 12
-   - **Type**: CX22 (2 vCPU, 4GB RAM, 40GB SSD) — ~$5/mo
-   - **SSH Key**: Add your public key
+   - **Location**: Any (US Ashburn/West, or nearest to you)
+   - **Image**: Debian 13 (or 12)
+   - **Type**: CX32 (4 vCPU, 8GB RAM) minimum. CX42 (8 vCPU, 16GB) recommended for coding on the box.
+   - **SSH Key**: Add your public key (paste output of `cat ~/.ssh/id_ed25519.pub`)
    - **Name**: `openstory` (or whatever you like)
 4. Note the server's IPv4 address
 
-## Step 2: Harden the Server
+**Important**: You must add your SSH key during server creation. If you skip this, Hetzner emails a root password instead and you'll need to set one up manually.
 
-SSH in as root:
+## Step 2: Run the setup script
+
+From your local machine:
 
 ```bash
-ssh root@<server-ip>
+scp scripts/deploy-vps.sh root@<server-ip>:
+ssh root@<server-ip> bash deploy-vps.sh
 ```
 
-Create a non-root user:
+This takes ~5 min and installs: Docker, Tailscale, Caddy, Rust, Node, dev tools, firewall, deploy user with your SSH key.
+
+**Note**: The script does NOT lock down SSH. Do that manually after confirming you can SSH in as the deploy user.
+
+## Step 3: Set up Tailscale
+
+Still as root on the server:
 
 ```bash
-adduser deploy
-usermod -aG sudo deploy
-
-# Copy SSH keys
-mkdir -p /home/deploy/.ssh
-cp ~/.ssh/authorized_keys /home/deploy/.ssh/
-chown -R deploy:deploy /home/deploy/.ssh
-chmod 700 /home/deploy/.ssh
-chmod 600 /home/deploy/.ssh/authorized_keys
-```
-
-Lock down SSH:
-
-```bash
-sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-systemctl restart sshd
-```
-
-Firewall (allow SSH only — Tailscale handles the rest):
-
-```bash
-apt-get update && apt-get install -y ufw
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw enable
-```
-
-## Step 3: Install Docker
-
-```bash
-apt-get install -y ca-certificates curl gnupg
-install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg \
-  | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
-  > /etc/apt/sources.list.d/docker.list
-
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-usermod -aG docker deploy
-```
-
-## Step 4: Install Tailscale
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
 tailscale up
 ```
 
-Follow the auth URL to add this VPS to your tailnet. Also install Tailscale on your phone and laptop.
+Open the URL it prints in your browser to authorize the device. Install Tailscale on your phone/laptop too so they're on the same private network.
 
-Get your MagicDNS hostname:
-
-```bash
-tailscale status
-# Example output: "openstory" — full hostname: openstory.your-tailnet.ts.net
-```
-
-Generate TLS certs:
+Get the Tailscale IP (you'll need this for Caddy):
 
 ```bash
-tailscale cert openstory.your-tailnet.ts.net
-# Certs at: /var/lib/tailscale/certs/
+tailscale ip -4
 ```
 
-## Step 5: Install Caddy
+**Note**: Tailscale free tier does NOT support TLS certs. We use plain HTTP over the encrypted Tailscale network instead.
 
-```bash
-apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-  | tee /etc/apt/sources.list.d/caddy-stable.list
-apt-get update && apt-get install -y caddy
-```
-
-## Step 6: Create Telegram Bot
+## Step 4: Create Telegram Bot
 
 1. Open Telegram, message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot`
-3. Choose a name (e.g., "My OpenClaw Agent")
-4. Choose a username (e.g., `my_openclaw_bot`)
-5. Save the **bot token** BotFather gives you
+3. Choose a name and username (username must end in `bot`)
+4. Save the **bot token** BotFather gives you
 
 Get your Telegram user ID:
 1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
 2. It replies with your user ID (a number like `123456789`)
 
-## Step 7: Deploy the Stack
+To allow multiple users, collect each person's user ID the same way.
 
-Switch to the deploy user and set up the project:
+## Step 5: Clone repos and configure
 
-```bash
-su - deploy
-mkdir -p ~/openstory && cd ~/openstory
-```
-
-Clone the repo (or copy the compose files):
+SSH in as the deploy user:
 
 ```bash
+ssh deploy@<server-ip>
+cd ~/openstory
 git clone https://github.com/OpenStoryArc/OpenStory.git .
+git checkout fix/deployment-updates
+git clone https://github.com/openclaw/openclaw.git ~/openclaw
 ```
 
-Create `.env` with your secrets:
+Create `.env` using nano (heredocs break over SSH — use nano):
 
 ```bash
-cat > .env << 'EOF'
+nano .env
+```
+
+Paste these lines with your real values (no quotes, no leading spaces, no line wrapping):
+
+```
 ANTHROPIC_API_KEY=sk-ant-your-key-here
-OPEN_STORY_API_TOKEN=change-me-to-a-random-string
-OPEN_STORY_ALLOWED_ORIGINS=https://openstory.your-tailnet.ts.net
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-TELEGRAM_ALLOWED_USER_ID=123456789
-EOF
+OPEN_STORY_API_TOKEN=
+TELEGRAM_BOT_TOKEN=123456:ABC-your-token-here
+TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
+OPENCLAW_AUTH_TOKEN=pick-any-random-secret-string
+```
+
+Save with `Ctrl+O`, enter, `Ctrl+X`. Then:
+
+```bash
 chmod 600 .env
 ```
 
-Build the images:
+### .env reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
+| `OPEN_STORY_API_TOKEN` | No | Leave empty to disable auth (safe on private network) |
+| `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
+| `TELEGRAM_ALLOWED_USER_IDS` | Yes | Comma-separated Telegram user IDs |
+| `OPENCLAW_AUTH_TOKEN` | Yes | Shared secret between OpenClaw and the Telegram bot |
+
+## Step 6: Build images
+
+Install the Docker BuildKit plugin (required for OpenClaw):
 
 ```bash
-# Open Story (server + UI)
-docker build -f Dockerfile.prod -t open-story:prod .
-
-# OpenClaw (from your local checkout)
-# If openclaw source is at ~/projects/openclaw:
-docker build -t openclaw:latest ~/projects/openclaw
+sudo apt-get install -y docker-buildx-plugin
 ```
 
-Start the stack:
+Build both images (OpenClaw takes ~4 min, Open Story takes ~10 min):
+
+```bash
+docker build -t openclaw:latest ~/openclaw
+docker build -f Dockerfile.prod -t open-story:prod .
+```
+
+**Warning**: Docker builds create millions of temporary files that consume filesystem inodes. If you see "no space left on device" errors but `df -h` shows free space, check `df -i /` for inode exhaustion. Fix with `docker system prune -a --force`.
+
+## Step 7: Launch the stack
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+Verify all three containers are healthy:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+```
+
+You should see `openclaw`, `open-story`, and `telegram-bot` all running.
+
 ## Step 8: Configure Caddy
 
-As root:
+As root (or with sudo), edit the Caddy config:
 
 ```bash
-cp /home/deploy/openstory/Caddyfile /etc/caddy/Caddyfile
+sudo nano /etc/caddy/Caddyfile
 ```
 
-Set the hostname environment variable:
+Replace the entire contents with (use your Tailscale IP from Step 3):
 
-```bash
-echo 'CADDY_HOSTNAME=openstory.your-tailnet.ts.net' >> /etc/default/caddy
-systemctl restart caddy
+```
+http://<tailscale-ip> {
+    reverse_proxy localhost:3002
+}
 ```
 
-Set up monthly cert renewal:
+Save and restart:
 
 ```bash
-cat > /etc/cron.monthly/tailscale-cert << 'CRON'
-#!/bin/sh
-tailscale cert openstory.your-tailnet.ts.net
-systemctl reload caddy
-CRON
-chmod +x /etc/cron.monthly/tailscale-cert
+sudo systemctl restart caddy
 ```
 
 ## Step 9: Verify
 
-From your phone or laptop (on the same Tailscale network):
+**Telegram**: Send a message to your bot from your phone. You should get a response from the coding agent.
 
-**Telegram**: Send a message to your bot. You should get a response from the coding agent.
-
-**Dashboard**: Open `https://openstory.your-tailnet.ts.net/` in a browser. You should see the agent's session appear.
+**Dashboard**: From any device on your Tailscale network, open `http://<tailscale-ip>` in a browser. You should see the agent's session appear in real time.
 
 **API**:
 
 ```bash
-curl -H "Authorization: Bearer <your-api-token>" \
-  https://openstory.your-tailnet.ts.net/api/sessions
+curl http://<tailscale-ip>/api/sessions
 ```
 
-**WebSocket**: Connect to `wss://openstory.your-tailnet.ts.net/ws` for live event streaming.
+## Step 10: Give OpenClaw access to Open Story
+
+The agent can query its own session history via the Open Story API. On the server:
+
+```bash
+docker exec openstory-openclaw-1 sh -c 'cat > /home/node/.openclaw/workspace/TOOLS.md << TOOLEOF
+# Open Story API
+
+Open Story watches everything you do. Query your history:
+
+  curl http://open-story:3002/api/sessions
+  curl http://open-story:3002/api/sessions/{id}/records
+TOOLEOF'
+```
+
+Or just tell the bot: "There's an Open Story server at http://open-story:3002 — try curling /api/sessions"
+
+For full docs, have the agent clone the repo into its workspace:
+
+```
+Clone https://github.com/OpenStoryArc/OpenStory.git into /home/node/.openclaw/workspace/openstory and read CLAUDE.md
+```
 
 ## Operations
 
@@ -241,11 +228,12 @@ curl -H "Authorization: Bearer <your-api-token>" \
 ```bash
 cd ~/openstory
 docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml logs -f openclaw
 docker compose -f docker-compose.prod.yml logs -f open-story
 docker compose -f docker-compose.prod.yml logs -f telegram-bot
 ```
 
-### Update
+### Update Open Story
 
 ```bash
 cd ~/openstory
@@ -254,10 +242,19 @@ docker build -f Dockerfile.prod -t open-story:prod .
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+### Update OpenClaw
+
+```bash
+cd ~/openclaw
+git pull
+docker build -t openclaw:latest .
+cd ~/openstory
+docker compose -f docker-compose.prod.yml up -d
+```
+
 ### Backup
 
 ```bash
-# Copy the data volume (SQLite + JSONL)
 docker compose -f docker-compose.prod.yml exec open-story \
   tar czf - /data > backup-$(date +%Y%m%d).tar.gz
 ```
@@ -268,28 +265,50 @@ docker compose -f docker-compose.prod.yml exec open-story \
 docker compose -f docker-compose.prod.yml restart
 ```
 
-### Resource monitoring
+### Check resources
 
 ```bash
-docker stats
+docker stats        # container CPU/memory
+df -h               # disk space
+df -i /             # inodes (if builds are failing)
+```
+
+### Add a Telegram user
+
+Edit `.env`, add their user ID to the comma-separated list:
+
+```
+TELEGRAM_ALLOWED_USER_IDS=123456789,987654321,111222333
+```
+
+Then restart the bot:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --no-deps telegram-bot
 ```
 
 ## Cost Summary
 
 | Item | Monthly Cost |
 |------|-------------|
-| Hetzner CX22 | ~$5 |
+| Hetzner CX42 (16GB) | ~$16 |
 | Tailscale | Free (personal) |
 | Telegram bot | Free |
 | Anthropic API | Usage-based (~$0.30-6.75/session) |
-| **Total hosting** | **~$5/mo** + API usage |
+| **Total hosting** | **~$16/mo** + API usage |
 
 ## Troubleshooting
 
-**Bot not responding**: Check `docker compose logs telegram-bot`. Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_ID` in `.env`.
+**Bot not responding**: `docker compose logs telegram-bot`. Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS` in `.env`. Verify `OPENCLAW_AUTH_TOKEN` matches in both the bot env and the OpenClaw config.
 
-**Open Story not showing sessions**: Check that OpenClaw is writing JSONL files. Run `docker compose exec openclaw find /home/node/.openclaw -name "*.jsonl"`. Verify `OPEN_STORY_PI_WATCH_DIR` is set.
+**OpenClaw unhealthy / 100% CPU**: Check `docker logs openstory-openclaw-1`. If empty, the entrypoint may be wrong — must use `openclaw.mjs` not `dist/index.js`. Also check inodes: `df -i /`.
 
-**Can't reach dashboard**: Verify Tailscale is connected on both devices (`tailscale status`). Check Caddy logs (`journalctl -u caddy`).
+**"No space left on device" but disk has space**: Inode exhaustion. Run `df -i /`. Fix with `docker system prune -a --force`. A runaway OpenClaw container can create millions of files in its state volume — `docker volume rm openstory_openclaw-state` to clear (loses agent memory).
 
-**TLS errors**: Regenerate certs with `tailscale cert <hostname>` and `systemctl reload caddy`.
+**Open Story not showing sessions**: `docker compose logs open-story`. Verify OpenClaw is writing JSONL: `docker compose exec openclaw find /home/node/.openclaw -name "*.jsonl"`.
+
+**Can't reach dashboard**: Verify Tailscale is connected on both devices (`tailscale status`). Check Caddy config points to your Tailscale IP. Check `journalctl -u caddy`.
+
+**401 on API/WebSocket**: `OPEN_STORY_API_TOKEN` is set but the UI doesn't send it. Either clear the token (safe on private Tailscale network) or use bearer auth for API calls: `curl -H "Authorization: Bearer <token>" http://...`.
+
+**OpenClaw auth token changes on restart**: Pin the token in the compose config via `OPENCLAW_AUTH_TOKEN` in `.env`. The compose file writes it into the OpenClaw config JSON on startup.

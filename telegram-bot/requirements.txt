@@ -1,2 +1,2 @@
 python-telegram-bot==21.10
-websockets==14.2
+httpx>=0.27

@@ -1,5 +1,8 @@
 # Production deployment: OpenClaw + Open Story + Telegram bot.
 #
+# Sized for Hetzner CX32 (4 vCPU, 8GB RAM) or larger.
+# Memory limits leave ~2GB for OS, Docker, Caddy, SSH sessions.
+#
 # Prerequisites:
 #   docker build -f Dockerfile.prod -t open-story:prod .
 #   docker build -t openclaw:latest ~/projects/openclaw
@@ -20,6 +23,8 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - HOME=/home/node
+      - NODE_OPTIONS=--max-old-space-size=2048
+      - OPEN_STORY_API_URL=http://open-story:3002
     volumes:
       - openclaw-state:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
@@ -31,9 +36,9 @@ services:
       - |
         mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
         OCEOF
-        exec node dist/index.js gateway --bind lan --port 18789 --allow-unconfigured
+        exec node openclaw.mjs gateway --bind lan --port 18789 --allow-unconfigured
     healthcheck:
       test: ["CMD", "node", "-e",
         "fetch('http://127.0.0.1:18789/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -45,7 +50,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1536M
+          memory: 3G
 
   open-story:
     image: open-story:prod
@@ -74,16 +79,17 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1536M
+          memory: 2G
 
   telegram-bot:
     build:
       context: ./telegram-bot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_ALLOWED_USER_ID=${TELEGRAM_ALLOWED_USER_ID}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-${TELEGRAM_ALLOWED_USER_ID:-}}
       - OPENCLAW_GATEWAY_URL=http://openclaw:18789
       - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-main}
+      - OPENCLAW_AUTH_TOKEN=${OPENCLAW_AUTH_TOKEN:-}
     depends_on:
       openclaw:
         condition: service_healthy
