@@ -94,3 +94,19 @@ The fix was structural: add an `agent` discriminator field to CloudEvents (`"cla
 ### Inline data analysis
 
 Running ad-hoc Python one-liners in the shell produces results that vanish, can't be reviewed, and break on Windows. Write scripts with test flags, argparse, and clear output. Scripts are artifacts — they tell the story of how you learned what you know.
+
+### Locking down SSH before verifying alternative access
+
+A deploy script disabled root SSH login and password auth before confirming the deploy user could SSH in with keys. Result: locked out of the server entirely, requiring Hetzner web console rescue. Never automate SSH lockdown — do it manually as the last step after verifying key-based access works.
+
+### Docker inode exhaustion
+
+Docker builds (especially Node.js projects with large `node_modules`) create millions of tiny files that exhaust filesystem inodes. A runaway OpenClaw container created 9.1 million files in a Docker volume, consuming every inode on a 150GB disk that showed 82GB free. `df -h` looks fine but `df -i` shows 100% usage. Always check inodes when "no space left on device" doesn't match disk usage. Fix with `docker system prune -a --force` and `docker volume rm` for corrupted volumes.
+
+### Wrong entrypoint in compose overrides
+
+The compose file ran `node dist/index.js` but the actual OpenClaw entrypoint is `node openclaw.mjs`. The result: 100% CPU spin, no logs, no port listening, healthcheck failures — a completely silent failure. When overriding a Dockerfile's CMD in compose, verify the entrypoint matches what the Dockerfile actually uses.
+
+### Heredocs over SSH
+
+Copy-pasting heredoc commands (`cat > file << 'EOF'`) over SSH consistently produces corrupted files — `EOF` markers included as content, leading spaces, line wrapping breaking values. Use `nano` for interactive editing or `printf` for non-interactive file creation on remote servers.
