@@ -13,6 +13,7 @@ use serde_json::Value;
 use open_story_patterns::PatternEvent;
 
 use crate::event_store::{EventStore, SessionRow};
+use crate::queries::FtsSearchResult;
 
 /// SQLite-backed event store. Default persistence layer.
 ///
@@ -133,6 +134,14 @@ impl SqliteStore {
             );",
         )?;
 
+        // FTS5 full-text search index.
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+                event_id UNINDEXED, session_id UNINDEXED, record_type UNINDEXED, content,
+                tokenize='porter unicode61'
+            );",
+        )?;
+
         // Migration: add custom_label column for existing databases.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN custom_label TEXT");
 
@@ -154,6 +163,89 @@ impl SqliteStore {
     {
         let conn = self.conn.lock().unwrap();
         f(&conn)
+    }
+
+    /// Index a record in FTS5 for full-text search.
+    pub fn index_fts(
+        &self,
+        event_id: &str,
+        session_id: &str,
+        record_type: &str,
+        text: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO events_fts(event_id, session_id, record_type, content) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![event_id, session_id, record_type, text],
+        )?;
+        Ok(())
+    }
+
+    /// Full-text search across indexed events.
+    pub fn search_fts(
+        &self,
+        query: &str,
+        limit: usize,
+        session_filter: Option<&str>,
+    ) -> Result<Vec<FtsSearchResult>> {
+        if query.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        if let Some(sid) = session_filter {
+            let mut stmt = conn.prepare(
+                "SELECT event_id, session_id, record_type,
+                        snippet(events_fts, 3, '<b>', '</b>', '...', 32),
+                        rank
+                 FROM events_fts
+                 WHERE events_fts MATCH ?1 AND session_id = ?2
+                 ORDER BY rank
+                 LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![query, sid, limit as i64], |row| {
+                Ok(FtsSearchResult {
+                    event_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    record_type: row.get(2)?,
+                    snippet: row.get(3)?,
+                    rank: row.get(4)?,
+                })
+            })?;
+            let results: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+            Ok(results)
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT event_id, session_id, record_type,
+                        snippet(events_fts, 3, '<b>', '</b>', '...', 32),
+                        rank
+                 FROM events_fts
+                 WHERE events_fts MATCH ?1
+                 ORDER BY rank
+                 LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![query, limit as i64], |row| {
+                Ok(FtsSearchResult {
+                    event_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    record_type: row.get(2)?,
+                    snippet: row.get(3)?,
+                    rank: row.get(4)?,
+                })
+            })?;
+            let results: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+            Ok(results)
+        }
+    }
+
+    /// Count of records in the FTS5 index (used for backfill check).
+    pub fn fts_count(&self) -> Result<u64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM events_fts",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as u64)
     }
 
     /// Check if a table exists (for tests).
@@ -437,6 +529,8 @@ impl EventStore for SqliteStore {
 
     fn delete_session(&self, session_id: &str) -> Result<u64> {
         let conn = self.conn.lock().unwrap();
+        // Delete FTS5 entries before events (contentless table has no cascade triggers)
+        conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [session_id])?;
         let events_deleted: u64 = conn.execute(
             "DELETE FROM events WHERE session_id = ?1",
             [session_id],
@@ -463,12 +557,25 @@ impl EventStore for SqliteStore {
 
         let mut total = 0u64;
         for sid in &session_ids {
+            conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [sid])?;
             total += conn.execute("DELETE FROM events WHERE session_id = ?1", [sid])? as u64;
             conn.execute("DELETE FROM patterns WHERE session_id = ?1", [sid])?;
             conn.execute("DELETE FROM plans WHERE session_id = ?1", [sid])?;
             conn.execute("DELETE FROM sessions WHERE id = ?1", [sid])?;
         }
         Ok(total)
+    }
+
+    fn index_fts(&self, event_id: &str, session_id: &str, record_type: &str, text: &str) -> Result<()> {
+        SqliteStore::index_fts(self, event_id, session_id, record_type, text)
+    }
+
+    fn search_fts(&self, query: &str, limit: usize, session_filter: Option<&str>) -> Result<Vec<crate::queries::FtsSearchResult>> {
+        SqliteStore::search_fts(self, query, limit, session_filter)
+    }
+
+    fn fts_count(&self) -> Result<u64> {
+        SqliteStore::fts_count(self)
     }
 }
 
@@ -972,5 +1079,116 @@ mod tests {
         let store2 = SqliteStore::new(tmp.path()).unwrap();
         let events = store2.session_events("sess-ek").unwrap();
         assert_eq!(events.len(), 1);
+    }
+
+    // ── FTS5 full-text search tests ──
+
+    #[test]
+    fn fts5_index_and_search() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "fix the authentication bug").unwrap();
+        store.index_fts("evt-2", "sess-1", "assistant_message", "I will fix the login flow").unwrap();
+
+        let results = store.search_fts("authentication", 10, None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].event_id, "evt-1");
+        assert_eq!(results[0].session_id, "sess-1");
+        assert_eq!(results[0].record_type, "user_message");
+    }
+
+    #[test]
+    fn fts5_porter_stemming() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "debugging the test failures").unwrap();
+
+        // "debug" should match "debugging" via porter stemmer
+        let results = store.search_fts("debug", 10, None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].event_id, "evt-1");
+    }
+
+    #[test]
+    fn fts5_session_filter() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "deploy the application").unwrap();
+        store.index_fts("evt-2", "sess-2", "user_message", "deploy the database").unwrap();
+
+        let results = store.search_fts("deploy", 10, Some("sess-1")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].session_id, "sess-1");
+    }
+
+    #[test]
+    fn fts5_empty_query_returns_empty() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "hello world").unwrap();
+
+        let results = store.search_fts("", 10, None).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn fts5_no_match_returns_empty() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "hello world").unwrap();
+
+        let results = store.search_fts("nonexistent", 10, None).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn fts5_delete_session_removes_entries() {
+        let store = SqliteStore::in_memory().unwrap();
+        store.insert_event("sess-fts", &test_event("evt-fts1", "2025-01-14T00:00:00Z")).unwrap();
+        store.index_fts("evt-fts1", "sess-fts", "user_message", "search test content").unwrap();
+        store.upsert_session(&SessionRow {
+            id: "sess-fts".into(), project_id: None, project_name: None,
+            label: None, custom_label: None, branch: None, event_count: 1,
+            first_event: None, last_event: None,
+        }).unwrap();
+
+        // Verify it's searchable
+        assert_eq!(store.search_fts("search", 10, None).unwrap().len(), 1);
+
+        // Delete session
+        store.delete_session("sess-fts").unwrap();
+
+        // Verify FTS entries are gone
+        assert!(store.search_fts("search", 10, None).unwrap().is_empty());
+        assert_eq!(store.fts_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn fts5_rank_ordering() {
+        let store = SqliteStore::in_memory().unwrap();
+        // evt-2 has "rust" twice, should rank higher
+        store.index_fts("evt-1", "sess-1", "user_message", "learn rust programming").unwrap();
+        store.index_fts("evt-2", "sess-1", "assistant_message", "rust is great for rust projects").unwrap();
+
+        let results = store.search_fts("rust", 10, None).unwrap();
+        assert_eq!(results.len(), 2);
+        // FTS5 rank is negative (more negative = more relevant), so first result should be more relevant
+        assert!(results[0].rank <= results[1].rank);
+    }
+
+    #[test]
+    fn fts5_count() {
+        let store = SqliteStore::in_memory().unwrap();
+        assert_eq!(store.fts_count().unwrap(), 0);
+
+        store.index_fts("evt-1", "sess-1", "user_message", "hello").unwrap();
+        store.index_fts("evt-2", "sess-1", "user_message", "world").unwrap();
+        assert_eq!(store.fts_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn fts5_limit_respected() {
+        let store = SqliteStore::in_memory().unwrap();
+        for i in 0..10 {
+            store.index_fts(&format!("evt-{i}"), "sess-1", "user_message", "common search term").unwrap();
+        }
+
+        let results = store.search_fts("common", 3, None).unwrap();
+        assert_eq!(results.len(), 3);
     }
 }

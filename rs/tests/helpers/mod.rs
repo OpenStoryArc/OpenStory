@@ -23,7 +23,6 @@ use tokio::sync::{broadcast, RwLock};
 use open_story::cloud_event::CloudEvent;
 use open_story::server::{build_router, AppState, Config, SharedState};
 use open_story_bus::noop_bus::NoopBus;
-use open_story_semantic::NoopSemanticStore;
 use open_story_store::state::StoreState;
 
 /// Create an isolated AppState backed by a temp directory.
@@ -39,9 +38,6 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
         transcript_states: HashMap::new(),
         broadcast_tx,
         bus: Arc::new(NoopBus),
-        semantic_store: Arc::new(NoopSemanticStore),
-        embedding_tx: None,
-        embedder: None,
         config: Config::default(),
         watch_dir,
     }))

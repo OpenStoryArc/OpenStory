@@ -96,13 +96,6 @@ pub struct Config {
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
-    // ── semantic search ──
-    /// Enable semantic search (requires Qdrant). Default: false.
-    pub semantic_enabled: bool,
-    /// Qdrant gRPC endpoint URL.
-    pub qdrant_url: String,
-    /// Path to the ONNX embedding model file.
-    pub embedding_model_path: String,
 }
 
 /// Auto-detect the appropriate bind address.
@@ -151,9 +144,6 @@ impl Default for Config {
             broadcast_channel_size: 256,
             metrics_enabled: false,
             retention_days: 0,
-            semantic_enabled: false,
-            qdrant_url: "http://localhost:6334".to_string(),
-            embedding_model_path: String::new(),
         }
     }
 }
@@ -288,9 +278,6 @@ mod tests {
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
         assert!(!config.metrics_enabled);
-        assert!(!config.semantic_enabled);
-        assert_eq!(config.qdrant_url, "http://localhost:6334");
-        assert_eq!(config.embedding_model_path, "");
     }
 
     #[test]
@@ -362,9 +349,6 @@ mod tests {
             broadcast_channel_size: 512,
             metrics_enabled: true,
             retention_days: 90,
-            semantic_enabled: true,
-            qdrant_url: "http://qdrant:6334".into(),
-            embedding_model_path: "/models/all-MiniLM-L6-v2.onnx".into(),
         };
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
@@ -374,9 +358,6 @@ mod tests {
         assert_eq!(parsed.api_token, "test-token");
         assert_eq!(parsed.allowed_origins, vec!["http://localhost:5173"]);
         assert!(parsed.metrics_enabled);
-        assert!(parsed.semantic_enabled);
-        assert_eq!(parsed.qdrant_url, "http://qdrant:6334");
-        assert_eq!(parsed.embedding_model_path, "/models/all-MiniLM-L6-v2.onnx");
     }
 
     #[test]

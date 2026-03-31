@@ -12,7 +12,6 @@ use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
 
 use open_story_core::cloud_event::CloudEvent;
 use open_story_patterns::FeedContext;
-use open_story_semantic::worker::EmbedRequest;
 use open_story_store::analysis;
 use open_story_store::projection;
 
@@ -215,18 +214,12 @@ pub fn ingest_events(
                 }
             }
 
-            // Send embeddable records to the embedding worker (non-blocking)
-            if let Some(tx) = &state.embedding_tx {
-                if !ephemeral {
-                    for vr in &view_records {
-                        let req = EmbedRequest {
-                            session_id: session_id.to_string(),
-                            record: vr.clone(),
-                        };
-                        if tx.try_send(req).is_err() {
-                            // Channel full or closed — log once and move on.
-                            // Embedding must never block ingest.
-                        }
+            // Index in FTS5 for full-text search (durable events only)
+            if !ephemeral {
+                for vr in &view_records {
+                    if let Some(text) = open_story_store::extract::extract_text(vr) {
+                        let record_type = open_story_store::extract::record_type_str(&vr.body);
+                        let _ = state.store.event_store.index_fts(&vr.id, session_id, record_type, &text);
                     }
                 }
             }
@@ -362,6 +355,9 @@ pub fn replay_boot_sessions(state: &mut AppState) {
     let mut total_events = 0;
     let mut total_patterns = 0;
 
+    // One-time FTS5 backfill: if the index is empty, populate it during replay
+    let fts_needs_backfill = state.store.event_store.fts_count().unwrap_or(0) == 0;
+
     for sid in &session_ids {
         let events = state.store.event_store
             .session_events(sid)
@@ -415,10 +411,20 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                 }
             }
 
-            // Feed to pattern pipeline (skip ephemeral)
+            // FTS5 backfill: index during replay if the index was empty at boot
             let subtype = val.get("subtype").and_then(|v| v.as_str());
             let ephemeral = projection::is_ephemeral(subtype);
 
+            if fts_needs_backfill && !ephemeral {
+                for vr in &view_records {
+                    if let Some(text) = open_story_store::extract::extract_text(vr) {
+                        let record_type = open_story_store::extract::record_type_str(&vr.body);
+                        let _ = state.store.event_store.index_fts(&vr.id, sid, record_type, &text);
+                    }
+                }
+            }
+
+            // Feed to pattern pipeline (skip ephemeral)
             if !ephemeral && !view_records.is_empty() {
                 let proj = state.store.projections.get(sid).unwrap();
                 let pipeline = state
@@ -479,13 +485,20 @@ pub fn replay_boot_sessions(state: &mut AppState) {
     }
 
     if total_events > 0 {
+        let fts_note = if fts_needs_backfill {
+            let fts_count = state.store.event_store.fts_count().unwrap_or(0);
+            format!(", FTS5 backfill: {fts_count} indexed")
+        } else {
+            String::new()
+        };
         crate::logging::log_event(
             "boot",
             &format!(
-                "replayed {} events across {} sessions ({} patterns detected)",
+                "replayed {} events across {} sessions ({} patterns detected{})",
                 total_events,
                 session_ids.len(),
                 total_patterns,
+                fts_note,
             ),
         );
     }
@@ -495,7 +508,6 @@ pub fn replay_boot_sessions(state: &mut AppState) {
 mod tests {
     use super::*;
     use open_story_bus::noop_bus::NoopBus;
-    use open_story_semantic::NoopSemanticStore;
     use open_story_store::state::StoreState;
 
     // Pure function tests (is_plan_event, extract_plan_content, to_wire_record)
@@ -518,9 +530,6 @@ mod tests {
             transcript_states: HashMap::new(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
-            semantic_store: Arc::new(NoopSemanticStore),
-            embedding_tx: None,
-            embedder: None,
             config: crate::config::Config::default(),
             watch_dir,
         }

@@ -9,15 +9,6 @@ services:
       - nats-data:/data
     restart: unless-stopped
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
-    volumes:
-      - qdrant-data:/qdrant/storage
-    restart: unless-stopped
-
   server:
     build:
       context: ./rs
@@ -29,8 +20,6 @@ services:
       - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
     environment:
       - NATS_URL=nats://nats:4222
-      - SEMANTIC_ENABLED=false
-      - QDRANT_URL=http://qdrant:6334
     depends_on:
       - nats
     restart: unless-stopped
@@ -50,4 +39,3 @@ services:
 
 volumes:
   nats-data:
-  qdrant-data:

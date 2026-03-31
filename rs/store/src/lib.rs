@@ -12,6 +12,7 @@
 
 pub mod analysis;
 pub mod event_store;
+pub mod extract;
 pub mod ingest;
 pub mod jsonl_store;
 pub mod persistence;

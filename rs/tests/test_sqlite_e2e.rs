@@ -16,7 +16,6 @@ use serde_json::Value;
 
 use open_story::server::{create_state, ingest_events, replay_boot_sessions, Config};
 use open_story_bus::noop_bus::NoopBus;
-use open_story_semantic::NoopSemanticStore;
 use helpers::{body_json, send_request, synth};
 
 use std::sync::Arc;
@@ -34,7 +33,7 @@ async fn synthetic_data_survives_full_lifecycle() {
     std::fs::create_dir_all(&watch_dir).unwrap();
 
     // ── Step 1: Boot empty, then ingest events through the pipeline ──
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
 
     let sessions = ["sess-alpha", "sess-beta", "sess-gamma"];
     let events_per_session = 15;
@@ -105,7 +104,7 @@ async fn synthetic_data_survives_full_lifecycle() {
     }
 
     // Second boot — should load from SQLite
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
 
     // ── Step 4: API still serves data after restart ──
     let req = Request::get("/api/sessions/sess-alpha/events")
@@ -150,7 +149,7 @@ async fn patterns_survive_restart() {
     // Generate enough events to trigger pattern detection (200 per session)
     synth::generate_fixture_dir(&data_dir, 1, 200, 0);
 
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
     {
         let mut s = state.write().await;
         replay_boot_sessions(&mut s);
@@ -182,7 +181,7 @@ async fn patterns_survive_restart() {
         }
     }
 
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
 
     // Patterns should still be in SQLite after restart
     let req = Request::get("/api/sessions/perf-sess-000/patterns")
@@ -206,7 +205,7 @@ async fn live_ingest_persists_to_sqlite() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::create_dir_all(&watch_dir).unwrap();
 
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
 
     // Ingest events programmatically (simulating watcher/hooks)
     {
@@ -233,7 +232,7 @@ async fn live_ingest_persists_to_sqlite() {
 
     // Restart — should find events in SQLite
     drop(state);
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
 
     let req = Request::get("/api/sessions/live-session/events")
         .body(Body::empty()).unwrap();

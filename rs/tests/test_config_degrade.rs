@@ -1,7 +1,7 @@
 //! Graceful degradation tests — verify behavior when components are missing.
 //!
-//! Tests every trait boundary's fallback: what happens when Qdrant, NATS,
-//! or auth tokens are absent?
+//! Tests trait boundary fallbacks: what happens when NATS or auth tokens are absent?
+//! Search always works via FTS5 (no external dependencies).
 //!
 //! Prerequisites:
 //!   docker build -t open-story:test ./rs
@@ -21,13 +21,12 @@ fn fixtures_dir() -> PathBuf {
 }
 use serde_json::Value;
 
-// ── SemanticStore boundary ────────────────────────────────────────────
+// ── FTS5 search always available ─────────────────────────────────────
 
-/// Server without Qdrant: search returns 503, not 500.
+/// Search works in minimal config (no external dependencies needed).
 #[tokio::test]
 #[ignore]
-async fn degrade_no_qdrant_search_503() {
-    // Minimal config — no Qdrant
+async fn degrade_search_works_without_external_deps() {
     let container = start_open_story(&fixtures_dir()).await;
 
     let resp = reqwest::get(format!("{}/api/search?q=test", container.base_url()))
@@ -36,18 +35,15 @@ async fn degrade_no_qdrant_search_503() {
 
     assert_eq!(
         resp.status(),
-        503,
-        "search without Qdrant should return 503, not 500"
+        200,
+        "FTS5 search should always be available"
     );
-
-    let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["error"], "semantic search not available");
 }
 
-/// Server without Qdrant: agent search also returns 503.
+/// Agent search works in minimal config.
 #[tokio::test]
 #[ignore]
-async fn degrade_no_qdrant_agent_search_503() {
+async fn degrade_agent_search_works_without_external_deps() {
     let container = start_open_story(&fixtures_dir()).await;
 
     let resp = reqwest::get(format!(
@@ -57,7 +53,7 @@ async fn degrade_no_qdrant_agent_search_503() {
     .await
     .unwrap();
 
-    assert_eq!(resp.status(), 503);
+    assert_eq!(resp.status(), 200);
 }
 
 // ── Bus boundary ──────────────────────────────────────────────────────
@@ -91,7 +87,7 @@ async fn degrade_no_nats_hooks_still_work() {
     );
 }
 
-// ── All non-search APIs work without Qdrant ───────────────────────────
+// ── All APIs work in minimal config ──────────────────────────────────
 
 /// Every /api/ endpoint except search works in Minimal config.
 #[tokio::test]

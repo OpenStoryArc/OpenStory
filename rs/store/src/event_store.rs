@@ -169,6 +169,23 @@ pub trait EventStore: Send + Sync {
     fn query_daily_token_usage(&self, _days: Option<u32>) -> Vec<queries::DailyTokenUsage> {
         Vec::new()
     }
+
+    // ── FTS5 full-text search (default: not supported on JSONL fallback) ──
+
+    /// Index a record in FTS5.
+    fn index_fts(&self, _event_id: &str, _session_id: &str, _record_type: &str, _text: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Full-text search across indexed events.
+    fn search_fts(&self, _query: &str, _limit: usize, _session_filter: Option<&str>) -> anyhow::Result<Vec<queries::FtsSearchResult>> {
+        Ok(vec![])
+    }
+
+    /// Count of records in the FTS5 index.
+    fn fts_count(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
 }
 
 #[cfg(test)]

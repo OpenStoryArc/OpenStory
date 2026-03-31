@@ -9,7 +9,6 @@ use anyhow::Result;
 use tokio::sync::{broadcast as tokio_broadcast, RwLock};
 
 use open_story_bus::Bus;
-use open_story_semantic::SemanticStore;
 use open_story_store::state::StoreState;
 
 use open_story_store::analysis::{self, extract_cwd_from_events};
@@ -35,15 +34,6 @@ pub struct AppState {
     // ── bus ── event bus for publishing
     pub bus: Arc<dyn Bus>,
 
-    // ── semantic search ── optional vector search backend
-    pub semantic_store: Arc<dyn SemanticStore>,
-
-    // ── embedding worker ── sends records to background embedder
-    pub embedding_tx: Option<tokio::sync::mpsc::Sender<open_story_semantic::worker::EmbedRequest>>,
-
-    // ── embedder ── for generating query embeddings (search endpoint)
-    pub embedder: Option<Arc<dyn open_story_semantic::embedder::Embedder>>,
-
     // ── configuration ──
     pub config: Config,
     pub watch_dir: PathBuf,
@@ -56,7 +46,7 @@ pub type SharedState = Arc<RwLock<AppState>>;
 /// Boot priority:
 /// 1. SQLite has sessions → load from DB (instant boot)
 /// 2. SQLite empty → load recent JSONL sessions (boot_window_hours), populate SQLite
-pub fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, semantic_store: Arc<dyn SemanticStore>, config: Config) -> Result<SharedState> {
+pub fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, config: Config) -> Result<SharedState> {
     let db_key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
     let mut store = StoreState::new_with_key(data_dir, db_key)?;
 
@@ -111,9 +101,6 @@ pub fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, semant
         transcript_states: HashMap::new(),
         broadcast_tx,
         bus,
-        semantic_store,
-        embedding_tx: None, // Set by run_server when worker is spawned
-        embedder: None,     // Set by run_server when embedder is loaded
         config,
         watch_dir: watch_dir.to_path_buf(),
     })))
@@ -244,7 +231,6 @@ fn boot_from_jsonl(store: &mut StoreState, config: &Config) {
 mod tests {
     use super::*;
     use open_story_bus::noop_bus::NoopBus;
-    use open_story_semantic::NoopSemanticStore;
 
     #[test]
     fn create_state_returns_empty_state_for_empty_dir() {
@@ -254,7 +240,7 @@ mod tests {
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::create_dir_all(&watch_dir).unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
         assert!(s.store.event_store.list_sessions().unwrap().is_empty());
         assert!(s.store.seen_event_ids.is_empty());
@@ -283,7 +269,7 @@ mod tests {
         )
         .unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
         assert!(!s.store.event_store.session_events("test-session").unwrap().is_empty());
         assert!(s.store.seen_event_ids.contains("evt-boot-1"));
@@ -300,7 +286,7 @@ mod tests {
         std::fs::create_dir_all(watch_dir.join("my-project")).unwrap();
         std::fs::create_dir_all(watch_dir.join("other-project")).unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
         assert_eq!(s.store.watch_dir_entries.len(), 2);
         assert!(s.store.watch_dir_entries.contains(&"my-project".to_string()));
@@ -344,7 +330,7 @@ mod tests {
         )
         .unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         assert!(!s.store.event_store.session_events("sess-plan-bf").unwrap().is_empty());
@@ -389,7 +375,7 @@ mod tests {
         );
         std::fs::write(data_dir.join("sess-dedup.jsonl"), events).unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         assert!(s.store.seen_event_ids.contains("dedup-a"));
@@ -436,7 +422,7 @@ mod tests {
         }
         // No JSONL files exist — boot must come from SQLite
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         assert!(
@@ -493,7 +479,7 @@ mod tests {
             }).unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         assert!(
@@ -528,7 +514,7 @@ mod tests {
         ).unwrap();
 
         // First boot: loads from JSONL, populates SQLite via dual-write in replay
-        let state1 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state1 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         {
             let mut s = state1.blocking_write();
             // Run replay to populate SQLite (normally called after create_state)
@@ -540,7 +526,7 @@ mod tests {
         std::fs::remove_file(data_dir.join("restart-session.jsonl")).unwrap();
 
         // Second boot: JSONL is gone, should still load from SQLite
-        let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state2.blocking_read();
 
         assert!(
@@ -594,7 +580,7 @@ mod tests {
             }).unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         // SQLite had data → boot_from_sqlite was used
@@ -641,7 +627,7 @@ mod tests {
             }).unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Arc::new(NoopSemanticStore), Config::default()).unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).unwrap();
         let s = state.blocking_read();
 
         // EventStore should serve all 5 events
