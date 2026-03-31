@@ -94,9 +94,6 @@ Watch agents from a phone via Tailscale mesh VPN. Open Story serves on `0.0.0.0`
 ### Pi-Mono Assistant Message Rendering
 The dashboard renders some pi-mono `assistant_message` events as blank cards. The data is present in the API (verified via `curl`), but the UI's content block extraction doesn't handle all pi-mono response formats correctly. The pi-mono format uses `content: [{text: "..."}]` arrays where Claude Code uses plain strings. The views layer branches on `agent` field but some assistant message structures still fall through. Fix in the views crate (`from_cloud_event.rs`) and/or the UI's `EventCard` component.
 
-### SQLite FTS5 Full-Text Search
-Replace the Qdrant + ONNX semantic search with SQLite FTS5 for zero-infrastructure full-text search. Add an `events_fts` virtual table (contentless, porter stemming), populate during ingest using the existing `extract_text()` from the semantic crate, and wire into `/api/search` as the default search backend. Qdrant remains optional for users who want vector search. See the plan file at `.claude/plans/calm-singing-meadow.md` for the full design.
-
 ### Pi-Mono Skipped Entry Types
 The pi-mono translator (`translate_pi.rs`) skips 6 entry types: `thinking_level_change`, `branch_summary`, `label`, `custom`, `custom_message`, `session_info`. Real sessions produce `thinking_level_change` frequently. The others are defined in pi-mono's type system but rarely seen. Add match arms to translate these into `system.*` subtypes. The views layer's existing `system.*` catch-all handles them as SystemEvent records, so no views changes needed.
 

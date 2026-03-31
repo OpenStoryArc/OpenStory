@@ -22,7 +22,6 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
-use open_story_semantic::SemanticStore;
 use open_story_server::logging::{event_type_summary, log_event, short_id};
 
 pub use broadcast::BroadcastMessage;
@@ -38,7 +37,6 @@ pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_rec
 /// - `Full`: watcher + consumer + API (default, current behavior)
 /// - `Publisher`: watcher + hooks server, publishes to NATS, no local store/ingest
 /// - `Consumer`: subscribes from NATS, runs ingest + API, no watcher
-#[allow(clippy::too_many_arguments)]
 pub async fn run_server(
     host: &str,
     port: u16,
@@ -46,7 +44,6 @@ pub async fn run_server(
     static_dir: Option<&Path>,
     watch_dir: &Path,
     bus: Arc<dyn Bus>,
-    semantic_store: Arc<dyn SemanticStore>,
     config: Config,
 ) -> Result<()> {
     let role = config.role;
@@ -54,7 +51,7 @@ pub async fn run_server(
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
 
-    let state = create_state(data_dir, watch_dir, bus.clone(), semantic_store.clone(), config)?;
+    let state = create_state(data_dir, watch_dir, bus.clone(), config)?;
 
     // ── Banner ──
     {
@@ -71,46 +68,6 @@ pub async fn run_server(
             let session_count = s.store.event_store.list_sessions().unwrap_or_default().len();
             eprintln!("  \x1b[2mSessions loaded:\x1b[0m {session_count}");
             eprintln!("  \x1b[2mData dir:\x1b[0m       {}", data_dir.display());
-
-            // Spawn embedding worker if semantic store is active
-            if semantic_store.is_active() {
-                let embedder: Arc<dyn open_story_semantic::embedder::Embedder> = {
-                    #[cfg(feature = "onnx")]
-                    {
-                        let model_path = &s.config.embedding_model_path;
-                        if !model_path.is_empty() {
-                            let model_dir = std::path::Path::new(model_path);
-                            let model_dir = if model_dir.is_file() {
-                                model_dir.parent().unwrap_or(model_dir)
-                            } else {
-                                model_dir
-                            };
-                            match open_story_semantic::embedder::OnnxEmbedder::new(model_dir) {
-                                Ok(e) => {
-                                    eprintln!("  \x1b[2mEmbedding model:\x1b[0m {}", model_dir.display());
-                                    Arc::new(e)
-                                }
-                                Err(e) => {
-                                    eprintln!("  \x1b[33mONNX model failed: {e}\x1b[0m");
-                                    Arc::new(open_story_semantic::embedder::NoopEmbedder::default())
-                                }
-                            }
-                        } else {
-                            eprintln!("  \x1b[33mNo embedding_model_path set\x1b[0m");
-                            Arc::new(open_story_semantic::embedder::NoopEmbedder::default())
-                        }
-                    }
-                    #[cfg(not(feature = "onnx"))]
-                    {
-                        eprintln!("  \x1b[33mONNX feature not enabled — using noop embedder\x1b[0m");
-                        Arc::new(open_story_semantic::embedder::NoopEmbedder::default())
-                    }
-                };
-                let tx = open_story_semantic::worker::spawn_worker(embedder.clone(), semantic_store.clone());
-                s.embedding_tx = Some(tx);
-                s.embedder = Some(embedder);
-                eprintln!("  \x1b[2mSemantic search:\x1b[0m enabled");
-            }
 
             // Replay boot-loaded sessions through projections + pattern pipelines
             replay_boot_sessions(&mut s);

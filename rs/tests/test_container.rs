@@ -135,6 +135,83 @@ async fn container_returns_view_records() {
     );
 }
 
+/// GET /api/search returns FTS5 results for indexed events.
+#[tokio::test]
+async fn container_fts5_search_returns_results() {
+    let fixture_dir = fixtures_dir();
+    let server = start_open_story(&fixture_dir).await;
+
+    server.wait_for_sessions().await;
+
+    // "Hello" appears in the synthetic.jsonl fixture as a user message
+    let resp = reqwest::get(format!("{}/api/search?q=Hello", server.base_url()))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let results: Vec<Value> = resp.json().await.unwrap();
+    assert!(
+        !results.is_empty(),
+        "FTS5 search for 'Hello' should return results from fixture data"
+    );
+
+    // Results should have the expected structure
+    let first = &results[0];
+    assert!(first.get("event_id").is_some(), "result should have event_id");
+    assert!(first.get("session_id").is_some(), "result should have session_id");
+    assert!(first.get("record_type").is_some(), "result should have record_type");
+    assert!(first.get("snippet").is_some(), "result should have snippet");
+    assert!(first.get("rank").is_some(), "result should have rank");
+}
+
+/// GET /api/agent/search returns session-grouped FTS5 results.
+#[tokio::test]
+async fn container_agent_search_returns_grouped_results() {
+    let fixture_dir = fixtures_dir();
+    let server = start_open_story(&fixture_dir).await;
+
+    server.wait_for_sessions().await;
+
+    let resp = reqwest::get(format!(
+        "{}/api/agent/search?q=Hello&limit=5",
+        server.base_url()
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = resp.json().await.unwrap();
+    assert!(body.get("query").is_some(), "response should have 'query' field");
+    assert!(body.get("results").is_some(), "response should have 'results' field");
+    assert!(
+        body.get("total_events_searched").is_some(),
+        "response should have 'total_events_searched' field"
+    );
+
+    let results = body["results"].as_array().unwrap();
+    if !results.is_empty() {
+        let first = &results[0];
+        assert!(first.get("session_id").is_some(), "session result should have session_id");
+        assert!(first.get("matching_events").is_some(), "session result should have matching_events");
+        assert!(first.get("synopsis_url").is_some(), "session result should have synopsis_url");
+    }
+}
+
+/// GET /api/search with empty query returns 400.
+#[tokio::test]
+async fn container_search_empty_query_returns_400() {
+    let fixture_dir = fixtures_dir();
+    let server = start_open_story(&fixture_dir).await;
+
+    let resp = reqwest::get(format!("{}/api/search?q=", server.base_url()))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 400);
+}
+
 /// POST /hooks accepts hook events and returns 202.
 #[tokio::test]
 async fn container_accepts_hook_post() {

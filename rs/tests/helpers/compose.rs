@@ -11,13 +11,11 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 pub enum TestConfig {
-    /// Server only — no NATS, no Qdrant
+    /// Server only — no NATS
     Minimal,
     /// Server + NATS (existing docker-compose.test.yml)
     Bus,
-    /// Server + Qdrant (docker-compose.search.yml)
-    Search,
-    /// Server + NATS + Qdrant (docker-compose.full.yml)
+    /// Server + NATS (docker-compose.full.yml)
     Full,
     /// Split: publisher + NATS + consumer (docker-compose.split.yml)
     Split,
@@ -30,7 +28,6 @@ pub struct TestStack {
     pub project_name: String,
     pub server_port: u16,
     pub publisher_port: Option<u16>,
-    pub qdrant_rest_port: Option<u16>,
 }
 
 #[allow(dead_code)]
@@ -90,17 +87,6 @@ impl TestStack {
             .unwrap_or(false)
     }
 
-    /// Get the number of points in the Qdrant collection (via REST API).
-    pub async fn qdrant_point_count(&self) -> Option<u64> {
-        let port = self.qdrant_rest_port?;
-        let url = format!(
-            "http://localhost:{port}/collections/open_story_events"
-        );
-        let resp = reqwest::get(&url).await.ok()?;
-        let body: serde_json::Value = resp.json().await.ok()?;
-        body.pointer("/result/points_count")
-            .and_then(|v| v.as_u64())
-    }
 }
 
 impl Drop for TestStack {
@@ -117,7 +103,6 @@ fn compose_file(config: TestConfig) -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let filename = match config {
         TestConfig::Minimal | TestConfig::Bus => "docker-compose.test.yml",
-        TestConfig::Search => "docker-compose.search.yml",
         TestConfig::Full => "docker-compose.full.yml",
         TestConfig::Split => "docker-compose.split.yml",
     };
@@ -200,7 +185,6 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         match config {
             TestConfig::Minimal => "min",
             TestConfig::Bus => "bus",
-            TestConfig::Search => "srch",
             TestConfig::Full => "full",
             TestConfig::Split => "split",
         },
@@ -243,14 +227,6 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         _ => None,
     };
 
-    let qdrant_rest_port = match config {
-        TestConfig::Search | TestConfig::Full => {
-            Some(get_host_port(&project_name, "qdrant", 6333)
-                .expect("failed to get qdrant REST port"))
-        }
-        _ => None,
-    };
-
     // Wait for HTTP readiness
     let health_path = match config {
         TestConfig::Split => "/health",
@@ -269,6 +245,5 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         project_name,
         server_port,
         publisher_port,
-        qdrant_rest_port,
     }
 }

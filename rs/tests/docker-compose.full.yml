@@ -7,12 +7,6 @@ services:
     volumes:
       - nats-data:/data
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.2
-    ports:
-      - "6333"
-      - "6334"
-
   server:
     image: open-story:test
     command:
@@ -27,16 +21,12 @@ services:
       - "/watch"
       - "--nats-url"
       - "nats://nats:4222"
-      - "--semantic-enabled"
-      - "--qdrant-url"
-      - "http://qdrant:6334"
     ports:
       - "3002"
     volumes:
       - ${FIXTURE_DIR:-.}:/watch:ro
     depends_on:
       - nats
-      - qdrant
 
 volumes:
   nats-data:

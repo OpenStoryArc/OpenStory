@@ -11,9 +11,8 @@ name = "open-story"
 path = "src/main.rs"
 
 [dependencies]
-open-story = { path = "..", features = ["onnx"] }
+open-story = { path = ".." }
 open-story-bus = { path = "../bus" }
-open-story-semantic = { path = "../semantic", features = ["onnx", "qdrant"] }
 open-story-store = { path = "../store" }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }

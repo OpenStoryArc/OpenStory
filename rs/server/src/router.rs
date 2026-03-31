@@ -189,7 +189,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .route("/api/agent/project-context", axum::routing::get(crate::api::get_agent_project_context))
         .route("/api/agent/recent-files", axum::routing::get(crate::api::get_agent_recent_files))
         .route("/api/agent/search", axum::routing::get(crate::api::agent_search))
-        // ── Semantic search ──
+        // ── Search ──
         .route("/api/search", axum::routing::get(crate::api::search_events))
         // ── Core routes ──
         .route("/ws", axum::routing::get(crate::ws::ws_handler))
@@ -258,7 +258,6 @@ mod tests {
         use std::sync::Arc;
         use tokio::sync::{broadcast, RwLock};
         use open_story_bus::noop_bus::NoopBus;
-        use open_story_semantic::NoopSemanticStore;
         use open_story_store::state::StoreState;
 
         let tmp = tempfile::tempdir().unwrap();
@@ -272,9 +271,6 @@ mod tests {
             transcript_states: HashMap::new(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
-            semantic_store: Arc::new(NoopSemanticStore),
-            embedding_tx: None,
-            embedder: None,
             config: Config::default(),
             watch_dir,
         }))

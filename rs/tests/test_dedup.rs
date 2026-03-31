@@ -72,7 +72,7 @@ async fn test_seen_ids_loaded_from_persistence() {
     }
 
     // Phase 2: create new state from same directory — IDs should be loaded
-    let state2 = open_story::server::create_state(data_dir.path(), data_dir.path(), Arc::new(NoopBus), Arc::new(open_story_semantic::NoopSemanticStore), open_story::server::Config::default()).unwrap();
+    let state2 = open_story::server::create_state(data_dir.path(), data_dir.path(), Arc::new(NoopBus), open_story::server::Config::default()).unwrap();
     let mut s2 = state2.write().await;
 
     // These events already exist in persistence — should be deduplicated

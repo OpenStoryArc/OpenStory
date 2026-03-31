@@ -786,8 +786,8 @@ pub async fn get_agent_tools() -> Json<Value> {
             }
         },
         {
-            "name": "semantic_search",
-            "description": "Search past sessions by meaning. Find how previous agents approached similar problems, what files they changed, and what strategies worked. Returns sessions ranked by relevance with matching event snippets. Use synopsis and tool_journey on the returned session IDs for deeper investigation.",
+            "name": "search",
+            "description": "Full-text search across past sessions. Find how previous agents approached similar problems, what files they changed, and what strategies worked. Returns sessions ranked by relevance with matching event snippets. Use synopsis and tool_journey on the returned session IDs for deeper investigation.",
             "endpoint": "/api/agent/search",
             "method": "GET",
             "parameters": {
@@ -804,7 +804,7 @@ pub async fn get_agent_tools() -> Json<Value> {
     ]))
 }
 
-// ── Semantic search endpoint ─────────────────────────────────────────
+// ── FTS5 search endpoint ────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
@@ -820,7 +820,7 @@ fn default_search_limit() -> usize {
 
 /// GET /api/search?q=<query>&limit=20&session_id=<optional>
 ///
-/// Semantic search over embedded events. Returns 503 if semantic store is inactive.
+/// Full-text search over indexed events using SQLite FTS5.
 pub async fn search_events(
     State(state): State<SharedState>,
     Query(query): Query<SearchQuery>,
@@ -838,42 +838,8 @@ pub async fn search_events(
     log_event("api", &format!("GET /api/search?q={}", &q[..q.len().min(50)]));
 
     let s = state.read().await;
-    if !s.semantic_store.is_active() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "semantic search not available"})),
-        ));
-    }
-
-    let embedder = match &s.embedder {
-        Some(e) => e.clone(),
-        None => {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error": "embedding model not loaded"})),
-            ));
-        }
-    };
-
-    // Generate query embedding
-    let query_embedding = match embedder.embed(&q) {
-        Ok(emb) => emb,
-        Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("embedding failed: {e}")})),
-            ));
-        }
-    };
-
-    let semantic_store = s.semantic_store.clone();
-    let limit = query.limit;
-    let session_filter = query.session_id.clone();
-    drop(s); // Release read lock before async search
-
-    let results = semantic_store
-        .search(&query_embedding, limit, session_filter.as_deref())
-        .await
+    let results = s.store.event_store
+        .search_fts(&q, query.limit, query.session_id.as_deref())
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -884,7 +850,7 @@ pub async fn search_events(
     Ok(Json(serde_json::to_value(results).unwrap_or(json!([]))))
 }
 
-// ── Agentic semantic search endpoint ─────────────────────────────────
+// ── Agentic search endpoint ──────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct AgentSearchQuery {
@@ -906,12 +872,9 @@ fn default_agent_search_days() -> u32 {
 
 /// GET /api/agent/search?q=<query>&project=<optional>&days=30&limit=5
 ///
-/// Session-grouped semantic search for agents. Returns sessions ranked by
+/// Session-grouped full-text search for agents. Returns sessions ranked by
 /// relevance with matching event snippets and pointers to synopsis/journey
 /// endpoints for deeper investigation.
-///
-/// Returns 503 if semantic search is not configured.
-/// Returns 400 if query is missing or empty.
 pub async fn agent_search(
     State(state): State<SharedState>,
     Query(query): Query<AgentSearchQuery>,
@@ -936,39 +899,19 @@ pub async fn agent_search(
     );
 
     let s = state.read().await;
-    if !s.semantic_store.is_active() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"error": "semantic search not available"})),
-        ));
-    }
-
-    let embedder = match &s.embedder {
-        Some(e) => e.clone(),
-        None => {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error": "embedding model not loaded"})),
-            ));
-        }
-    };
-
-    // Generate query embedding
-    let query_embedding = match embedder.embed(&q) {
-        Ok(emb) => emb,
-        Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("embedding failed: {e}")})),
-            ));
-        }
-    };
 
     // Search with a higher event limit — we'll group by session
-    let event_limit = query.limit * 10; // fetch more events to ensure coverage
-    let semantic_store = s.semantic_store.clone();
+    let event_limit = query.limit * 10;
+    let results = s.store.event_store
+        .search_fts(&q, event_limit, None)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("search failed: {e}")})),
+            )
+        })?;
 
-    // Collect project filter info for post-filtering
+    // Collect project filter info
     let project_filter = query.project.clone();
     let session_projects = s.store.session_projects.clone();
     let session_project_names = s.store.session_project_names.clone();
@@ -983,20 +926,9 @@ pub async fn agent_search(
         }
         session_event_counts.insert(sid.clone(), proj.event_count());
     }
-    drop(s); // Release read lock
 
-    let results = semantic_store
-        .search(&query_embedding, event_limit, None)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("search failed: {e}")})),
-            )
-        })?;
-
-    // Group results by session, compute session-level relevance
-    let mut session_groups: std::collections::HashMap<String, Vec<&open_story_semantic::SearchResult>> =
+    // Group results by session
+    let mut session_groups: std::collections::HashMap<String, Vec<&open_story_store::queries::FtsSearchResult>> =
         std::collections::HashMap::new();
     for result in &results {
         session_groups
@@ -1017,18 +949,18 @@ pub async fn agent_search(
                 }
             }
 
-            // Session-level relevance = max event score (best match wins)
-            let max_score = events.iter().map(|e| e.score).fold(0.0f32, f32::max);
+            // Session-level relevance = min rank (FTS5 rank is negative, more negative = more relevant)
+            let best_rank = events.iter().map(|e| e.rank).fold(0.0f64, f64::min);
 
             let matching_events: Vec<Value> = events
                 .iter()
-                .take(3) // Top 3 matching events per session
+                .take(3)
                 .map(|e| {
                     json!({
                         "event_id": e.event_id,
-                        "score": e.score,
-                        "snippet": e.text_snippet,
-                        "record_type": e.metadata.record_type,
+                        "rank": e.rank,
+                        "snippet": e.snippet,
+                        "record_type": e.record_type,
                     })
                 })
                 .collect();
@@ -1044,7 +976,7 @@ pub async fn agent_search(
                 "project_id": project_id,
                 "project_name": project_name,
                 "event_count": event_count,
-                "relevance_score": max_score,
+                "relevance_rank": best_rank,
                 "matching_events": matching_events,
                 "synopsis_url": format!("/api/sessions/{sid}/synopsis"),
                 "tool_journey_url": format!("/api/sessions/{sid}/tool-journey"),
@@ -1052,14 +984,13 @@ pub async fn agent_search(
         })
         .collect();
 
-    // Sort by relevance score descending
+    // Sort by rank (more negative = more relevant, so ascending sort)
     session_results.sort_by(|a, b| {
-        let score_a = a["relevance_score"].as_f64().unwrap_or(0.0);
-        let score_b = b["relevance_score"].as_f64().unwrap_or(0.0);
-        score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        let rank_a = a["relevance_rank"].as_f64().unwrap_or(0.0);
+        let rank_b = b["relevance_rank"].as_f64().unwrap_or(0.0);
+        rank_a.partial_cmp(&rank_b).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Limit to requested count
     session_results.truncate(query.limit);
 
     Ok(Json(json!({

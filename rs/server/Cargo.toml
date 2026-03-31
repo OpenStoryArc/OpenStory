@@ -10,7 +10,6 @@ open-story-core = { path = "../core" }
 open-story-bus = { path = "../bus" }
 open-story-patterns = { path = "../patterns" }
 open-story-store = { path = "../store" }
-open-story-semantic = { path = "../semantic" }
 open-story-views = { path = "../views" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }

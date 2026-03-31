@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bus", "cli", "core", "patterns", "semantic", "server", "store", "views"]
+members = [".", "bus", "cli", "core", "patterns", "server", "store", "views"]
 
 [package]
 name = "open-story"
@@ -19,7 +19,6 @@ open-story-bus = { path = "bus" }
 open-story-patterns = { path = "patterns" }
 open-story-server = { path = "server" }
 open-story-store = { path = "store" }
-open-story-semantic = { path = "semantic" }
 open-story-views = { path = "views" }
 axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -35,7 +34,6 @@ walkdir = "2"
 
 [features]
 default = []
-onnx = ["open-story-semantic/onnx"]
 
 [dev-dependencies]
 filetime = "0.2"

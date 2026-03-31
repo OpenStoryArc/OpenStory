@@ -1,4 +1,4 @@
-//! Full configuration tests — server + NATS + Qdrant.
+//! Full configuration tests — server + NATS.
 //!
 //! Tests that all three components work together end-to-end.
 //!
@@ -28,13 +28,6 @@ async fn full_all_services_healthy() {
 
     // Server responds
     assert!(stack.is_healthy().await, "server should be healthy");
-
-    // Qdrant responds
-    let qdrant_port = stack.qdrant_rest_port.expect("qdrant port");
-    let resp = reqwest::get(format!("http://localhost:{qdrant_port}/healthz"))
-        .await
-        .expect("qdrant health failed");
-    assert_eq!(resp.status(), 200);
 
     // NATS is implicitly healthy if server started (it depends_on nats)
 }
@@ -210,7 +203,7 @@ async fn full_agent_workflow() {
         .await
         .unwrap();
     assert!(
-        tools.iter().any(|t| t["name"] == "semantic_search"),
-        "agent should see semantic_search tool"
+        tools.iter().any(|t| t["name"] == "search"),
+        "agent should see search tool"
     );
 }

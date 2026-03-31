@@ -9,6 +9,18 @@
 use rusqlite::Connection;
 use serde::Serialize;
 
+// ── FTS5 Search ────────────────────────────────────────────────────
+
+/// Result from a full-text search query.
+#[derive(Debug, Clone, Serialize)]
+pub struct FtsSearchResult {
+    pub event_id: String,
+    pub session_id: String,
+    pub record_type: String,
+    pub snippet: String,
+    pub rank: f64,
+}
+
 // ── Session Narrative Queries ───────────────────────────────────────
 
 /// Synopsis of a session: goal, journey, outcome.

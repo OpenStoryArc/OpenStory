@@ -543,7 +543,7 @@ async fn test_list_sessions_includes_label_branch_and_tokens() {
     );
 }
 
-// ── Semantic search endpoint tests ──────────────────────────────────
+// ── FTS5 search endpoint tests ──────────────────────────────────────
 
 #[tokio::test]
 async fn test_search_without_q_param_returns_400() {
@@ -588,7 +588,7 @@ async fn test_search_with_whitespace_only_q_returns_400() {
 }
 
 #[tokio::test]
-async fn test_search_with_noop_store_returns_503() {
+async fn test_search_with_empty_store_returns_empty() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
@@ -597,10 +597,10 @@ async fn test_search_with_noop_store_returns_503() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 503);
+    assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert_eq!(body["error"], "semantic search not available");
+    assert!(body.as_array().unwrap().is_empty());
 }
 
 // ── Agentic search endpoint tests ───────────────────────────────────
@@ -635,7 +635,7 @@ async fn test_agent_search_with_empty_q_returns_400() {
 }
 
 #[tokio::test]
-async fn test_agent_search_with_noop_store_returns_503() {
+async fn test_agent_search_with_empty_store_returns_empty() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
@@ -644,10 +644,10 @@ async fn test_agent_search_with_noop_store_returns_503() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 503);
+    assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert_eq!(body["error"], "semantic search not available");
+    assert!(body["results"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -655,17 +655,16 @@ async fn test_agent_search_accepts_project_and_days_params() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    // Should still 503 (noop store) but the params should parse without error
     let req = Request::get("/api/agent/search?q=test&project=my-project&days=7&limit=3")
         .body(Body::empty())
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 503, "should fail on noop store, not on param parsing");
+    assert_eq!(resp.status(), 200, "FTS5 search should always be available");
 }
 
 #[tokio::test]
-async fn test_agent_tools_includes_semantic_search() {
+async fn test_agent_tools_includes_search() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
@@ -678,10 +677,10 @@ async fn test_agent_tools_includes_semantic_search() {
 
     let body = body_json(resp).await;
     let tools = body.as_array().unwrap();
-    let search_tool = tools.iter().find(|t| t["name"] == "semantic_search");
+    let search_tool = tools.iter().find(|t| t["name"] == "search");
     assert!(
         search_tool.is_some(),
-        "agent tools should include semantic_search"
+        "agent tools should include search"
     );
     let tool = search_tool.unwrap();
     assert_eq!(tool["endpoint"], "/api/agent/search");

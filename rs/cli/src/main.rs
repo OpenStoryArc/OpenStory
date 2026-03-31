@@ -20,7 +20,6 @@ use open_story::watcher;
 use open_story_bus::Bus;
 use open_story_bus::nats_bus::NatsBus;
 use open_story_bus::noop_bus::NoopBus;
-use open_story_semantic::NoopSemanticStore;
 use open_story_store::sqlite_store::SqliteStore;
 
 #[derive(Parser, Debug)]
@@ -90,18 +89,6 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_METRICS")]
         metrics: bool,
 
-        /// Enable semantic search (requires Qdrant)
-        #[arg(long, env = "OPEN_STORY_SEMANTIC_ENABLED")]
-        semantic_enabled: bool,
-
-        /// Qdrant gRPC endpoint URL
-        #[arg(long, env = "OPEN_STORY_QDRANT_URL")]
-        qdrant_url: Option<String>,
-
-        /// Path to the ONNX embedding model directory
-        #[arg(long, env = "OPEN_STORY_EMBEDDING_MODEL_PATH")]
-        embedding_model_path: Option<String>,
-
         /// Write a default config.toml to the data directory and exit
         #[arg(long)]
         init_config: bool,
@@ -168,12 +155,6 @@ enum Command {
         format: String,
     },
 
-    /// Backfill semantic embeddings for all existing events
-    Backfill {
-        /// Directory for persisted session data
-        #[arg(long, env = "OPEN_STORY_DATA_DIR", default_value = "./data")]
-        data_dir: PathBuf,
-    },
 }
 
 fn default_watch_dir() -> PathBuf {
@@ -205,18 +186,15 @@ async fn main() -> Result<()> {
                 Some(Command::Serve {
                     role, host, port, data_dir, static_dir, watch_dir, nats_url,
                     max_initial_records, boot_window_hours, truncation_threshold,
-                    stale_threshold_secs, api_token, db_key, metrics,
-                    semantic_enabled, qdrant_url, embedding_model_path, init_config,
+                    stale_threshold_secs, api_token, db_key, metrics, init_config,
                 }) => ((role, host, port, data_dir, watch_dir, nats_url,
                         max_initial_records, boot_window_hours, truncation_threshold,
-                        stale_threshold_secs, api_token, db_key, metrics,
-                        semantic_enabled, qdrant_url, embedding_model_path, init_config), static_dir),
-                _ => ((Role::Full, None, None, None, None, None, None, None, None, None, None, None, false, false, None, None, false), None),
+                        stale_threshold_secs, api_token, db_key, metrics, init_config), static_dir),
+                _ => ((Role::Full, None, None, None, None, None, None, None, None, None, None, None, false, false), None),
             };
             let (cli_role, cli_host, cli_port, cli_data_dir, cli_watch_dir, cli_nats_url,
                  cli_max_records, cli_boot_hours, cli_trunc, cli_stale, cli_api_token,
-                 cli_db_key, cli_metrics, cli_semantic_enabled, cli_qdrant_url,
-                 cli_embedding_model_path, init_config) = cli_overrides;
+                 cli_db_key, cli_metrics, init_config) = cli_overrides;
 
             // Resolve data_dir first (needed to find config.toml)
             let data_dir = cli_data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -245,9 +223,6 @@ async fn main() -> Result<()> {
             if let Some(v) = cli_api_token { config.api_token = v; }
             if let Some(v) = cli_db_key { config.db_key = v; }
             if cli_metrics { config.metrics_enabled = true; }
-            if cli_semantic_enabled { config.semantic_enabled = true; }
-            if let Some(v) = cli_qdrant_url { config.qdrant_url = v; }
-            if let Some(v) = cli_embedding_model_path { config.embedding_model_path = v; }
 
             // Resolve watch_dir default if not set
             if config.watch_dir.is_empty() {
@@ -293,27 +268,7 @@ async fn main() -> Result<()> {
                 }
             };
 
-            // Semantic search: connect to Qdrant if enabled, else NoopSemanticStore
-            let semantic_store: Arc<dyn open_story_semantic::SemanticStore> = if config.semantic_enabled {
-                match open_story_semantic::qdrant_store::QdrantStore::new(
-                    &config.qdrant_url,
-                    open_story_semantic::embedder::EMBEDDING_DIM as u64,
-                ).await {
-                    Ok(store) => {
-                        eprintln!("  \x1b[2mQdrant:\x1b[0m          {}", config.qdrant_url);
-                        Arc::new(store)
-                    }
-                    Err(e) => {
-                        eprintln!("  \x1b[33mQdrant unavailable ({e})\x1b[0m");
-                        eprintln!("  \x1b[33mSemantic search disabled\x1b[0m");
-                        Arc::new(NoopSemanticStore)
-                    }
-                }
-            } else {
-                Arc::new(NoopSemanticStore)
-            };
-
-            server::run_server(&host, port, &data_dir, static_dir.as_deref(), &watch_dir, bus, semantic_store, config).await
+            server::run_server(&host, port, &data_dir, static_dir.as_deref(), &watch_dir, bus, config).await
         }
         Some(Command::Watch {
             watch_dir,
@@ -397,68 +352,6 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            Ok(())
-        }
-
-        Some(Command::Backfill { data_dir }) => {
-            use open_story_semantic::backfill::backfill;
-            use open_story_semantic::embedder::{OnnxEmbedder, EMBEDDING_DIM};
-            use open_story_store::event_store::EventStore;
-
-            let config = Config::from_file(&data_dir.join("config.toml"));
-
-            let store = SqliteStore::new(&data_dir)?;
-            let session_ids: Vec<String> = store
-                .list_sessions()?
-                .iter()
-                .map(|r| r.id.clone())
-                .collect();
-
-            if session_ids.is_empty() {
-                eprintln!("No sessions found in {}", data_dir.display());
-                return Ok(());
-            }
-
-            // Load ONNX embedder
-            let model_path = if config.embedding_model_path.is_empty() {
-                data_dir.join("models")
-            } else {
-                let p = std::path::PathBuf::from(&config.embedding_model_path);
-                if p.is_file() { p.parent().unwrap().to_path_buf() } else { p }
-            };
-            let embedder = OnnxEmbedder::new(&model_path)?;
-            eprintln!("Loaded embedding model from {}", model_path.display());
-
-            // Connect to Qdrant
-            let qdrant_url = if config.qdrant_url.is_empty() {
-                "http://localhost:6334".to_string()
-            } else {
-                config.qdrant_url.clone()
-            };
-            let semantic_store = open_story_semantic::qdrant_store::QdrantStore::new(
-                &qdrant_url,
-                EMBEDDING_DIM as u64,
-            ).await?;
-            eprintln!("Connected to Qdrant at {}", qdrant_url);
-
-            eprintln!("Backfilling {} sessions from {}", session_ids.len(), data_dir.display());
-
-            let stats = backfill(
-                &session_ids,
-                |sid| store.session_events(sid).unwrap_or_default(),
-                &embedder,
-                &semantic_store,
-            )
-            .await?;
-
-            eprintln!(
-                "\nBackfill complete: {} sessions, {} events scanned, {} chunks embedded, {} skipped, {} errors",
-                stats.sessions_processed,
-                stats.events_scanned,
-                stats.chunks_embedded,
-                stats.chunks_skipped,
-                stats.errors,
-            );
             Ok(())
         }
 

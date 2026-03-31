@@ -12,19 +12,17 @@ COPY bus/Cargo.toml bus/Cargo.toml
 COPY cli/Cargo.toml cli/Cargo.toml
 COPY core/Cargo.toml core/Cargo.toml
 COPY patterns/Cargo.toml patterns/Cargo.toml
-COPY semantic/Cargo.toml semantic/Cargo.toml
 COPY server/Cargo.toml server/Cargo.toml
 COPY store/Cargo.toml store/Cargo.toml
 COPY views/Cargo.toml views/Cargo.toml
 
 # Create dummy sources to cache dependency builds
-RUN mkdir -p src bus/src cli/src core/src patterns/src semantic/src server/src store/src views/src && \
+RUN mkdir -p src bus/src cli/src core/src patterns/src server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
     echo "fn main() {}" > cli/src/main.rs && \
     echo "pub fn dummy() {}" > core/src/lib.rs && \
     echo "pub fn dummy() {}" > patterns/src/lib.rs && \
-    echo "pub fn dummy() {}" > semantic/src/lib.rs && \
     echo "pub fn dummy() {}" > server/src/lib.rs && \
     echo "pub fn dummy() {}" > store/src/lib.rs && \
     echo "pub fn dummy() {}" > views/src/lib.rs && \
@@ -36,11 +34,10 @@ COPY bus/src/ bus/src/
 COPY cli/src/ cli/src/
 COPY core/src/ core/src/
 COPY patterns/src/ patterns/src/
-COPY semantic/src/ semantic/src/
 COPY server/src/ server/src/
 COPY store/src/ store/src/
 COPY views/src/ views/src/
-RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs patterns/src/lib.rs semantic/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && cargo build --release -p open-story-cli
+RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs patterns/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && cargo build --release -p open-story-cli
 
 FROM debian:bookworm-slim
 
