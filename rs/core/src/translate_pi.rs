@@ -13,6 +13,7 @@
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
+use crate::event_data::EventData;
 use crate::translate::{TranscriptState, IO_ARC_EVENT};
 
 /// Returns true if the entry type is one we know how to translate.
@@ -330,29 +331,13 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
         _ => return vec![],
     };
 
+    // Build typed data payload
     // Raw is always the untouched original line — never mutated.
-    // The views layer uses the `agent` field to parse format-specific content.
-    let raw = line.clone();
-
-    // Build data payload
-    let mut data = serde_json::Map::new();
-    data.insert("raw".to_string(), raw);
-    data.insert(
-        "seq".to_string(),
-        Value::Number(state.next_seq().into()),
-    );
-    data.insert(
-        "session_id".to_string(),
-        Value::String(state.session_id.clone()),
-    );
+    let mut data = EventData::new(line.clone(), state.next_seq(), state.session_id.clone());
     // Merge envelope
-    for (k, v) in envelope {
-        data.insert(k, v);
-    }
+    data.merge(envelope);
     // Merge extras
-    for (k, v) in extras {
-        data.insert(k, v);
-    }
+    data.merge(extras);
 
     let timestamp = line
         .get("timestamp")
@@ -362,7 +347,7 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
     vec![CloudEvent::new(
         source,
         IO_ARC_EVENT.to_string(),
-        Value::Object(data),
+        data,
         subtype,
         entry_id,
         timestamp,
@@ -544,7 +529,7 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["text"], "hello world");
+        assert_eq!(events[0].data.text.as_deref(), Some("hello world"));
     }
 
     #[test]
@@ -564,10 +549,10 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["tool"], "read");
-        assert_eq!(events[0].data["args"]["path"], "/config.toml");
-        assert_eq!(events[0].data["model"], "claude-sonnet-4-5");
-        assert_eq!(events[0].data["stop_reason"], "toolUse");
+        assert_eq!(events[0].data.tool.as_deref(), Some("read"));
+        assert_eq!(events[0].data.args.as_ref().unwrap()["path"], "/config.toml");
+        assert_eq!(events[0].data.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(events[0].data.stop_reason.as_deref(), Some("toolUse"));
     }
 
     #[test]
@@ -592,7 +577,7 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        let usage = &events[0].data["token_usage"];
+        let usage = events[0].data.token_usage.as_ref().unwrap();
         // Native pi-mono keys — no normalization
         assert_eq!(usage["input"], 150, "native pi-mono key: input");
         assert_eq!(usage["output"], 75, "native pi-mono key: output");
@@ -619,7 +604,7 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        let raw_content = &events[0].data["raw"]["message"]["content"];
+        let raw_content = &events[0].data.raw["message"]["content"];
         // Raw preserves pi-mono's native format — toolCall, not tool_use
         assert_eq!(raw_content[0]["type"], "toolCall", "raw should preserve toolCall type");
         assert_eq!(raw_content[0]["arguments"]["path"], "/foo", "raw should preserve arguments key");
@@ -638,9 +623,9 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["tool_name"], "read");
-        assert_eq!(events[0].data["tool_call_id"], "tc-1");
-        assert_eq!(events[0].data["is_error"], false);
+        assert_eq!(events[0].data.extra["tool_name"], "read");
+        assert_eq!(events[0].data.extra["tool_call_id"], "tc-1");
+        assert_eq!(events[0].data.extra["is_error"], false);
     }
 
     #[test]
@@ -657,7 +642,7 @@ mod tests {
         });
         let events = translate_pi_line(&line, &mut state());
         // Raw preserves pi-mono's native format — not normalized
-        let raw_msg = &events[0].data["raw"]["message"];
+        let raw_msg = &events[0].data.raw["message"];
         assert_eq!(raw_msg["role"], "toolResult", "raw should preserve toolResult role");
         assert_eq!(raw_msg["toolCallId"], "tc-1", "raw should preserve toolCallId");
         assert_eq!(raw_msg["toolName"], "read", "raw should preserve toolName");
@@ -675,11 +660,11 @@ mod tests {
             "version": 3,
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["provider"], "anthropic");
-        assert_eq!(events[0].data["model"], "claude-sonnet-4-5");
-        assert_eq!(events[0].data["thinking_level"], "off");
-        assert_eq!(events[0].data["version"], 3);
-        assert_eq!(events[0].data["cwd"], "/work/project");
+        assert_eq!(events[0].data.extra["provider"], "anthropic");
+        assert_eq!(events[0].data.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(events[0].data.extra["thinking_level"], "off");
+        assert_eq!(events[0].data.extra["version"], 3);
+        assert_eq!(events[0].data.cwd.as_deref(), Some("/work/project"));
     }
 
     #[test]
@@ -693,10 +678,10 @@ mod tests {
             "tokensBefore": 50000,
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["summary"], "did stuff");
-        assert_eq!(events[0].data["tokens_before"], 50000);
-        assert_eq!(events[0].data["first_kept_entry_id"], "msg-3");
-        assert_eq!(events[0].data["parent_uuid"], "msg-5");
+        assert_eq!(events[0].data.extra["summary"], "did stuff");
+        assert_eq!(events[0].data.extra["tokens_before"], 50000);
+        assert_eq!(events[0].data.extra["first_kept_entry_id"], "msg-3");
+        assert_eq!(events[0].data.parent_uuid.as_deref(), Some("msg-5"));
     }
 
     #[test]
@@ -707,8 +692,8 @@ mod tests {
             "provider": "openai", "modelId": "gpt-4o",
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["provider"], "openai");
-        assert_eq!(events[0].data["model"], "gpt-4o");
+        assert_eq!(events[0].data.extra["provider"], "openai");
+        assert_eq!(events[0].data.model.as_deref(), Some("gpt-4o"));
     }
 
     #[test]
@@ -727,9 +712,9 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data["command"], "cargo test");
-        assert_eq!(events[0].data["exit_code"], 0);
-        assert_eq!(events[0].data["output"], "42 passed");
+        assert_eq!(events[0].data.extra["command"], "cargo test");
+        assert_eq!(events[0].data.extra["exit_code"], 0);
+        assert_eq!(events[0].data.extra["output"], "42 passed");
     }
 
     // ── Edge cases ───────────────────────────────────────────
@@ -824,8 +809,8 @@ mod tests {
         });
         let e1 = translate_pi_line(&line1, &mut s);
         let e2 = translate_pi_line(&line2, &mut s);
-        assert_eq!(e1[0].data["seq"], 1);
-        assert_eq!(e2[0].data["seq"], 2);
+        assert_eq!(e1[0].data.seq, 1);
+        assert_eq!(e2[0].data.seq, 2);
     }
 
     #[test]

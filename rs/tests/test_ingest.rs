@@ -7,6 +7,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
+use open_story::event_data::EventData;
 use open_story::server::{ingest_events, is_plan_event};
 
 // ─── is_plan_event ───────────────────────────────────────────────────────────
@@ -196,13 +197,13 @@ async fn ingest_extracts_and_saves_plan_from_exit_plan_mode() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
+    let mut plan_data = EventData::new(json!({}), 0, "sess-plan".to_string());
+    plan_data.tool = Some("ExitPlanMode".to_string());
+    plan_data.args = Some(json!({ "plan": "# Architecture Plan\n\nUse actor model." }));
     let plan_event = CloudEvent::new(
         "arc://transcript/sess-plan".to_string(),
         "io.arc.event".to_string(),
-        json!({
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Architecture Plan\n\nUse actor model." }
-        }),
+        plan_data,
         Some("message.assistant.tool_use".to_string()),
         Some("plan-evt-001".to_string()),
         None,
@@ -229,13 +230,13 @@ async fn ingest_extracts_plan_from_legacy_tool_call() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
+    let mut legacy_data = EventData::new(json!({}), 0, "sess-legacy".to_string());
+    legacy_data.tool = Some("ExitPlanMode".to_string());
+    legacy_data.args = Some(json!({ "plan": "# Legacy Plan\n\nStep 1." }));
     let plan_event = CloudEvent::new(
         "arc://hook/sess-legacy".to_string(),
         "io.arc.tool.call".to_string(),
-        json!({
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Legacy Plan\n\nStep 1." }
-        }),
+        legacy_data,
         None,
         Some("legacy-plan-001".to_string()),
         None,

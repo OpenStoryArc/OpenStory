@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
+use crate::event_data::EventData;
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -398,28 +399,19 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         _ => serde_json::Map::new(),
     };
 
-    // Build data payload
-    let mut data = serde_json::Map::new();
-    data.insert("raw".to_string(), line.clone());
-    data.insert("seq".to_string(), Value::Number(state.next_seq().into()));
-    // Filename-derived session_id as fallback; envelope's session_id (from the
-    // real sessionId field in the transcript) overwrites this when present.
-    data.insert("session_id".to_string(), Value::String(state.session_id.clone()));
+    // Build typed data payload
+    let mut data = EventData::new(line.clone(), state.next_seq(), state.session_id.clone());
     // Merge envelope (may override session_id for sidechain files)
-    for (k, v) in envelope {
-        data.insert(k, v);
-    }
+    data.merge(envelope);
     // Merge extras
-    for (k, v) in extras {
-        data.insert(k, v);
-    }
+    data.merge(extras);
 
     let timestamp = line.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     vec![CloudEvent::new(
         source,
         IO_ARC_EVENT.to_string(),
-        Value::Object(data),
+        data,
         subtype,
         uuid,
         timestamp,

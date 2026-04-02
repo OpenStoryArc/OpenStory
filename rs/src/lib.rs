@@ -1,6 +1,7 @@
 //! Open Story library — re-exports for integration tests.
 
 pub mod cloud_event;
+pub mod event_data;
 pub mod output;
 pub mod paths;
 pub mod patterns;
