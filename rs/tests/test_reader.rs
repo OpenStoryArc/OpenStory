@@ -48,7 +48,7 @@ fn test_incremental_read_only_new_lines() {
 
     let events2 = read_new_lines(&path, &mut s).unwrap();
     assert_eq!(events2.len(), 1);
-    assert_eq!(events2[0].data["raw"]["message"]["content"], "second");
+    assert_eq!(events2[0].data.raw["message"]["content"], "second");
 }
 
 #[test]
@@ -98,13 +98,13 @@ fn test_seq_numbers_continuous_across_reads() {
 
     let mut s = state();
     let events1 = read_new_lines(&path, &mut s).unwrap();
-    assert_eq!(events1[0].data["seq"], 1);
+    assert_eq!(events1[0].data.seq, 1);
 
     let mut f = fs::OpenOptions::new().append(true).open(&path).unwrap();
     writeln!(f, "{}", json!({"type": "user", "message": {"role": "user", "content": "b"}})).unwrap();
 
     let events2 = read_new_lines(&path, &mut s).unwrap();
-    assert_eq!(events2[0].data["seq"], 2);
+    assert_eq!(events2[0].data.seq, 2);
 }
 
 #[test]

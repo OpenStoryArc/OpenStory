@@ -9,6 +9,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
+use open_story::event_data::EventData;
 use open_story::server::{ingest_events, BroadcastMessage};
 use open_story::server::ws::build_initial_state;
 
@@ -20,27 +21,28 @@ use axum::http::Request;
 
 /// Create a CloudEvent for a Bash tool_use with a specific command.
 fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
+    let mut data = EventData::new(
+        json!({
+            "type": "assistant",
+            "message": {
+                "model": "claude-4",
+                "content": [{
+                    "type": "tool_use",
+                    "id": format!("toolu_{id}"),
+                    "name": "Bash",
+                    "input": {"command": command}
+                }]
+            }
+        }),
+        1,
+        session_id.to_string(),
+    );
+    data.tool = Some("Bash".to_string());
+    data.args = Some(json!({"command": command}));
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
-        json!({
-            "seq": 1,
-            "session_id": session_id,
-            "tool": "Bash",
-            "args": {"command": command},
-            "raw": {
-                "type": "assistant",
-                "message": {
-                    "model": "claude-4",
-                    "content": [{
-                        "type": "tool_use",
-                        "id": format!("toolu_{id}"),
-                        "name": "Bash",
-                        "input": {"command": command}
-                    }]
-                }
-            }
-        }),
+        data,
         Some("message.assistant.tool_use".to_string()),
         Some(id.to_string()),
         None,
@@ -52,23 +54,24 @@ fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
 
 /// Create a tool_result CloudEvent.
 fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) -> CloudEvent {
+    let data = EventData::new(
+        json!({
+            "type": "user",
+            "message": {
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": call_id,
+                    "content": output
+                }]
+            }
+        }),
+        2,
+        session_id.to_string(),
+    );
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
-        json!({
-            "seq": 2,
-            "session_id": session_id,
-            "raw": {
-                "type": "user",
-                "message": {
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": call_id,
-                        "content": output
-                    }]
-                }
-            }
-        }),
+        data,
         Some("message.user.tool_result".to_string()),
         Some(id.to_string()),
         None,
@@ -80,18 +83,19 @@ fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) ->
 
 /// Create a user_message CloudEvent.
 fn user_prompt(session_id: &str, id: &str) -> CloudEvent {
+    let mut data = EventData::new(
+        json!({
+            "type": "user",
+            "message": {"content": [{"type": "text", "text": "next task"}]}
+        }),
+        3,
+        session_id.to_string(),
+    );
+    data.text = Some("next task".to_string());
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
-        json!({
-            "seq": 3,
-            "session_id": session_id,
-            "text": "next task",
-            "raw": {
-                "type": "user",
-                "message": {"content": [{"type": "text", "text": "next task"}]}
-            }
-        }),
+        data,
         Some("message.user.prompt".to_string()),
         Some(id.to_string()),
         None,
@@ -144,15 +148,9 @@ fn it_should_detect_test_cycle_during_ingest() {
         bash_tool_use("sess-1", "e1", "cargo test"),
         tool_result_event("sess-1", "e2", "toolu_e1", "FAILED 3 tests"),
         // An Edit tool call
-        CloudEvent::new(
-            "arc://transcript/sess-1".into(),
-            "io.arc.event".to_string(),
-            json!({
-                "seq": 3,
-                "session_id": "sess-1",
-                "tool": "Edit",
-                "args": {"file_path": "/fix.rs", "old_string": "a", "new_string": "b"},
-                "raw": {
+        {
+            let mut edit_data = EventData::new(
+                json!({
                     "type": "assistant",
                     "message": {
                         "model": "claude-4",
@@ -163,12 +161,21 @@ fn it_should_detect_test_cycle_during_ingest() {
                             "input": {"file_path": "/fix.rs", "old_string": "a", "new_string": "b"}
                         }]
                     }
-                }
-            }),
-            Some("message.assistant.tool_use".to_string()),
-            Some("e3".to_string()),
-            None, None, None, None,
-        ),
+                }),
+                3,
+                "sess-1".to_string(),
+            );
+            edit_data.tool = Some("Edit".to_string());
+            edit_data.args = Some(json!({"file_path": "/fix.rs", "old_string": "a", "new_string": "b"}));
+            CloudEvent::new(
+                "arc://transcript/sess-1".into(),
+                "io.arc.event".to_string(),
+                edit_data,
+                Some("message.assistant.tool_use".to_string()),
+                Some("e3".to_string()),
+                None, None, None, None,
+            )
+        },
         bash_tool_use("sess-1", "e4", "cargo test"),
         tool_result_event("sess-1", "e5", "toolu_e4", "test result: ok. 54 passed"),
     ];

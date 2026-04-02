@@ -88,7 +88,7 @@ fn real_fixture_progress_events_carry_agent_id() {
             for ce in &cloud_events {
                 // Verify the agentId made it into CloudEvent.data
                 assert!(
-                    ce.data.get("agent_id").is_some(),
+                    ce.data.extra.get("agent_id").is_some(),
                     "progress event with nested data.agentId should have agent_id in CloudEvent.data"
                 );
 
@@ -136,8 +136,8 @@ fn synthetic_subagent_event_round_trips() {
 
     // Verify CloudEvent.data carries the fields
     let ce = &cloud_events[0];
-    assert_eq!(ce.data["is_sidechain"], true);
-    assert_eq!(ce.data["agent_id"], "agent-explore-abc");
+    assert_eq!(ce.data.extra.get("is_sidechain"), Some(&serde_json::json!(true)));
+    assert_eq!(ce.data.extra.get("agent_id").and_then(|v| v.as_str()), Some("agent-explore-abc"));
 
     // Convert to ViewRecords
     let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
