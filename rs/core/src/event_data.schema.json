@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openstory.arc/schemas/event-data/v2",
+  "title": "EventData",
+  "description": "Monadic event payload with three layers: Foundation (raw + seq + session_id) is always present. The agent_payload is the lift — None if unknown agent, Some(typed) if recognized. Each payload contains meta (about the payload: tag, version, timestamp) and content (what happened). SICP 2.4: dispatch on type with tagged data.",
+
+  "type": "object",
+  "required": ["raw", "seq", "session_id"],
+
+  "properties": {
+
+    "raw": {
+      "description": "Original transcript line, never mutated. The foundation. Everything else is derived from this.",
+      "type": "object"
+    },
+    "seq": {
+      "description": "Sequence number within the translation session.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "session_id": {
+      "description": "Session identifier.",
+      "type": "string"
+    },
+
+    "agent_payload": {
+      "description": "The monadic lift. None (absent) = unknown agent or parse failure — you still have raw. Some = the translator successfully extracted typed fields. Dispatch on meta.agent to determine which variant.",
+      "oneOf": [
+        { "$ref": "#/$defs/claude_code_payload" },
+        { "$ref": "#/$defs/pi_mono_payload" }
+      ]
+    }
+  },
+
+  "additionalProperties": false,
+
+  "$defs": {
+
+    "payload_meta": {
+      "description": "The tag. Determined by format auto-detection, not from the transcript. Just enough to dispatch.",
+      "type": "object",
+      "required": ["agent"],
+      "properties": {
+        "agent": { "type": "string", "description": "Discriminant for dispatch. 'claude-code' or 'pi-mono'. This is the SICP type tag." }
+      },
+      "additionalProperties": false
+    },
+
+    "claude_code_payload": {
+      "description": "Typed extraction for Claude Code events. Foundation → Meta → Content.",
+      "type": "object",
+      "required": ["meta"],
+      "properties": {
+
+        "meta": {
+          "allOf": [{ "$ref": "#/$defs/payload_meta" }],
+          "properties": {
+            "agent": { "const": "claude-code" }
+          }
+        },
+
+        "uuid":               { "type": "string", "description": "Event UUID from transcript." },
+        "parent_uuid":        { "type": "string", "description": "Parent event UUID — conversation tree." },
+        "cwd":                { "type": "string", "description": "Working directory." },
+        "timestamp":          { "type": "string", "description": "Event timestamp from transcript." },
+        "version":            { "type": "string", "description": "Transcript format version (string)." },
+        "slug":               { "type": "string", "description": "Session slug." },
+        "message_id":         { "type": "string", "description": "Claude Code message ID." },
+        "git_branch":         { "type": "string", "description": "Active git branch." },
+        "is_sidechain":       { "type": "boolean", "description": "Whether this event is from a subagent." },
+        "agent_id":           { "type": "string", "description": "Subagent ID if is_sidechain." },
+        "text":               { "type": "string", "description": "Message or error text." },
+        "model":              { "type": "string", "description": "Model ID (e.g. claude-opus-4-6)." },
+        "stop_reason":        { "type": ["string", "null"], "description": "end_turn, tool_use, etc. Often null." },
+        "tool":               { "type": "string", "description": "Tool name (Read, Edit, Bash, etc.)." },
+        "args":               { "type": "object", "description": "Tool call arguments — shape varies by tool.", "additionalProperties": true },
+        "content_types":      { "type": "array", "items": { "type": "string" }, "description": "Block types in message (text, tool_use, thinking, etc.)." },
+        "token_usage": {
+          "type": "object",
+          "description": "Claude Code token usage. Rich caching and inference metadata.",
+          "properties": {
+            "input_tokens":                 { "type": "integer" },
+            "output_tokens":                { "type": "integer" },
+            "cache_read_input_tokens":      { "type": "integer" },
+            "cache_creation_input_tokens":  { "type": "integer" },
+            "cache_creation": {
+              "type": "object",
+              "description": "Cache creation breakdown by TTL bucket.",
+              "properties": {
+                "ephemeral_1h_input_tokens": { "type": "integer" },
+                "ephemeral_5m_input_tokens": { "type": "integer" }
+              },
+              "additionalProperties": true
+            },
+            "service_tier":                 { "type": "string" },
+            "inference_geo":                { "type": "string" },
+            "speed":                        { "type": "string" },
+            "server_tool_use": {
+              "type": "object",
+              "description": "Server-side tool use counts.",
+              "properties": {
+                "web_fetch_requests": { "type": "integer" },
+                "web_search_requests": { "type": "integer" }
+              },
+              "additionalProperties": true
+            },
+            "iterations":                   { "type": "array", "items": {} }
+          },
+          "required": ["input_tokens", "output_tokens"],
+          "additionalProperties": true
+        },
+        "user_type":             { "type": "string", "description": "User message type (human, tool_result, etc.)." },
+        "progress_type":         { "type": "string", "description": "Progress event type." },
+        "parent_tool_use_id":    { "type": "string", "description": "Tool use ID this result responds to." },
+        "operation":             { "type": "string", "description": "Operation type (e.g. for progress events)." },
+        "hook_count":            { "type": "integer", "description": "Number of hooks executed." },
+        "prevented_continuation": { "type": "boolean", "description": "Whether a hook prevented continuation." },
+        "duration_ms":           { "type": "number", "description": "Duration in milliseconds (e.g. turn duration)." }
+      },
+      "additionalProperties": true
+    },
+
+    "pi_mono_payload": {
+      "description": "Typed extraction for pi-mono (OpenClaw) events. Foundation → Meta → Content.",
+      "type": "object",
+      "required": ["meta"],
+      "properties": {
+
+        "meta": {
+          "allOf": [{ "$ref": "#/$defs/payload_meta" }],
+          "properties": {
+            "agent": { "const": "pi-mono" }
+          }
+        },
+
+        "uuid":            { "type": "string", "description": "Event UUID." },
+        "parent_uuid":     { "type": "string", "description": "Parent event UUID." },
+        "cwd":             { "type": "string", "description": "Working directory." },
+        "timestamp":       { "type": "string", "description": "Event timestamp from transcript." },
+        "version":         { "type": "integer", "description": "Session format version (integer for pi-mono)." },
+        "provider":        { "type": "string", "description": "LLM provider (anthropic, openai, etc.)." },
+        "thinking_level":  { "type": "string", "description": "Thinking level (off, medium, high)." },
+        "model_id":        { "type": "string", "description": "Pi-mono modelId field." },
+        "text":            { "type": "string", "description": "Message text." },
+        "model":           { "type": "string", "description": "Model ID (e.g. claude-sonnet-4-5, gpt-4o)." },
+        "stop_reason":     { "type": "string", "description": "stopReason from pi-mono (toolUse, endTurn)." },
+        "tool":            { "type": "string", "description": "Tool name." },
+        "args":            { "type": "object", "description": "Tool arguments.", "additionalProperties": true },
+        "content_types":   { "type": "array", "items": { "type": "string" }, "description": "Block types." },
+        "token_usage": {
+          "type": "object",
+          "description": "Pi-mono token usage. Includes cache and cost data.",
+          "properties": {
+            "input":       { "type": "integer" },
+            "output":      { "type": "integer" },
+            "totalTokens": { "type": "integer" },
+            "cacheRead":   { "type": "integer" },
+            "cacheWrite":  { "type": "integer" },
+            "cost": {
+              "type": "object",
+              "description": "Actual dollar amounts.",
+              "properties": {
+                "input":  { "type": "number" },
+                "output": { "type": "number" },
+                "total":  { "type": "number" }
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": ["input", "output"],
+          "additionalProperties": true
+        },
+        "tool_call_id":        { "type": "string", "description": "ID of the tool call this result responds to." },
+        "tool_name":           { "type": "string", "description": "Name of tool in result context." },
+        "is_error":            { "type": "boolean", "description": "Whether tool result is an error." },
+        "command":             { "type": "string", "description": "Bash command (from bashExecution role)." },
+        "exit_code":           { "type": "integer", "description": "Bash exit code." },
+        "output":              { "type": "string", "description": "Bash command output." },
+        "summary":             { "type": "string", "description": "Compaction summary text." },
+        "tokens_before":       { "type": "integer", "description": "Token count before compaction." },
+        "first_kept_entry_id": { "type": "string", "description": "First entry ID kept after compaction." }
+      },
+      "additionalProperties": true
+    }
+  }
+}
