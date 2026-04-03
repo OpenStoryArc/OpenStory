@@ -7,7 +7,7 @@ description = "Event bus trait and NATS implementation for open-story — archit
 
 [dependencies]
 open-story-core = { path = "../core" }
-async-nats = "0.38"
+async-nats = "0.47"
 async-trait = "0.1"
 anyhow = "1"
 futures = "0.3"
