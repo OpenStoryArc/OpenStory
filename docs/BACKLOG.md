@@ -12,8 +12,8 @@ Surface token usage (input, output, cache reads/writes) per session with estimat
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
-### Workspace Impact Summary
-Aggregate file and code changes from a session into a high-level impact view: files created/modified/deleted, lines added/removed, git commits made. Derived from Edit/Write/Bash tool calls already captured in events.
+### Domain Events & Workspace Impact
+Deterministic "what changed in the world" events derived from tool_call + tool_result pairs: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. A `ToolOutcome` enum on the payload, derived in the translate layer. Subsumes the original Workspace Impact Summary — domain events ARE the data layer for file/code change tracking. Full design with Rust code: `docs/design-domain-events.md` (Part 1). Prototyped and tested in TypeScript (20 tests) at `claurst/scheme/prototype/domain.ts`.
 
 ### Agent Behavior Patterns
 Cross-session analytics revealing longitudinal trends: tool preferences, session duration, token consumption over time, error rates by task type. Answers questions like "I spend 60% of tokens on test-writing" by aggregating over persisted event data.
@@ -59,6 +59,9 @@ Server-side `?format=csv` query parameter across analytics endpoints (sessions, 
 ---
 
 ## UI
+
+### Story Tab — Narrative Session View
+A new tab alongside Live and Explore showing sessions as narrative structure rather than event streams. Turns grouped by `turn_end` records, each with five layers: sentence (natural language summary), diagram (grammatical tree), domain facts (badge strip), domain events (deterministic fact list), and phases (eval-apply structure). Same data as Live/Explore, different lens — for understanding what happened and why, not debugging what the machine did. Depends on domain events (above). Full design: `docs/design-domain-events.md` (Part 2). Prototyped with 58 TypeScript tests and HTML visualization at `claurst/scheme/prototype/`.
 
 ### Card-Based Live Event Feed
 Redesign event timeline from table rows to visually distinct cards grouped by event type (prompts, tools, results, thinking) with color-coded badges and automatic entrance animations.
@@ -117,6 +120,9 @@ K8s manifests (NATS StatefulSet + consumer Deployment + agent sidecars), integra
 
 ### OpenClaw Skill Integration
 CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversational session recall via OpenClaw. Includes SessionSummary reducer, digest format for hourly heartbeat, and portable SKILL.md.
+
+### OpenClaw Watchdog via OpenStory
+Cron job or systemd timer on the server that queries the OpenStory API to detect when OpenClaw is stuck — consecutive zero-token error responses, or no successful completion in N minutes. When detected, automatically `docker restart openclaw`. This is the dogfood approach: OpenStory's own data powers the health check instead of generic Docker healthchecks that can't distinguish "running but spinning on rate limits" from "working normally." Could be a simple Python script in `scripts/` querying `http://open-story:3002/api/sessions`.
 
 ### Starter Configuration
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
