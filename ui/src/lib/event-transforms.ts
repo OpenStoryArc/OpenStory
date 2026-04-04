@@ -1,6 +1,11 @@
 import type { CloudEvent } from "@/types/cloud-event";
 import { isGitCommand, gitCommandRisk, gitCommandSummary, GIT_RISK_COLORS } from "@/lib/git-commands";
 
+/** Shorthand: get the agent payload from an event (may be undefined). */
+function payload(event: CloudEvent) {
+  return event.data?.agent_payload;
+}
+
 /** Color mapping for subtypes and legacy types (Tokyonight palette) */
 const SUBTYPE_COLORS: Record<string, string> = {
   // Unified subtypes
@@ -44,9 +49,10 @@ const LEGACY_TYPE_COLORS: Record<string, string> = {
 
 /** Check if an event is a git bash event */
 export function isGitBashEvent(event: CloudEvent): boolean {
-  const tool = (event.data?.tool as string) ?? "";
+  const ap = payload(event);
+  const tool = (ap?.tool as string) ?? "";
   if (tool !== "Bash") return false;
-  const cmd = ((event.data?.args as Record<string, unknown>)?.command as string) ?? "";
+  const cmd = ((ap?.args as Record<string, unknown>)?.command as string) ?? "";
   if (!isGitCommand(cmd)) return false;
 
   // Unified format
@@ -60,7 +66,8 @@ export function isGitBashEvent(event: CloudEvent): boolean {
 export function eventColor(event: CloudEvent): string {
   // Git command risk color override
   if (isGitBashEvent(event)) {
-    const cmd = ((event.data?.args as Record<string, unknown>)?.command as string) ?? "";
+    const ap = payload(event);
+    const cmd = ((ap?.args as Record<string, unknown>)?.command as string) ?? "";
     const risk = gitCommandRisk(cmd);
     return GIT_RISK_COLORS[risk];
   }
@@ -78,11 +85,12 @@ export const TYPE_COLORS: Record<string, string> = {
 
 /** Extract text content from a transcript event's raw message */
 function extractTranscriptText(event: CloudEvent): string {
-  // New format: top-level data.text
-  if (event.data.text && typeof event.data.text === "string") {
-    return event.data.text;
+  // Monadic format: agent_payload.text
+  const ap = payload(event);
+  if (ap?.text && typeof ap.text === "string") {
+    return ap.text;
   }
-  // Legacy: dig into raw
+  // Fallback: dig into raw
   const raw = event.data.raw;
   if (!raw) return "";
   const message = raw.message;
@@ -101,11 +109,12 @@ function extractTranscriptText(event: CloudEvent): string {
 
 /** Extract tool names from an event */
 function extractTranscriptToolNames(event: CloudEvent): string[] {
-  // New format: top-level data.tool
-  if (event.data.tool && typeof event.data.tool === "string") {
-    return [event.data.tool as string];
+  // Monadic format: agent_payload.tool
+  const ap = payload(event);
+  if (ap?.tool && typeof ap.tool === "string") {
+    return [ap.tool as string];
   }
-  // Legacy: dig into raw content blocks
+  // Fallback: dig into raw content blocks
   const raw = event.data.raw;
   if (!raw) return [];
   const content = raw.message?.content;
@@ -122,29 +131,31 @@ export function eventSummary(event: CloudEvent): string {
     return arcEventSummary(event);
   }
 
+  const ap = payload(event);
+
   // Legacy event types
   switch (event.type) {
     case "io.arc.session.start":
-      return `Session started${event.data.model ? ` (${event.data.model})` : ""}`;
+      return `Session started${ap?.model ? ` (${ap.model})` : ""}`;
     case "io.arc.session.end":
-      return `Session ended: ${event.data.reason ?? "unknown"}`;
+      return `Session ended: ${(ap as Record<string, unknown>)?.reason ?? "unknown"}`;
     case "io.arc.prompt.submit":
-      return truncate(event.data.text ?? "", 120);
+      return truncate((ap?.text as string) ?? "", 120);
     case "io.arc.response.complete":
-      return truncate(event.data.last_assistant_message ?? "", 120);
+      return truncate(((ap as Record<string, unknown>)?.last_assistant_message as string) ?? "", 120);
     case "io.arc.tool.call": {
-      const tool = event.subtype ?? event.data.tool ?? "unknown";
+      const tool = event.subtype ?? ap?.tool ?? "unknown";
       const detail = toolCallDetail(event);
-      return detail ? `${tool}: ${detail}` : tool;
+      return detail ? `${tool}: ${detail}` : String(tool);
     }
     case "io.arc.tool.result": {
-      const tool = event.data.tool ?? "unknown";
-      return `${tool} result (${truncate(event.data.result ?? "", 80)})`;
+      const tool = ap?.tool ?? "unknown";
+      return `${tool} result (${truncate(((ap as Record<string, unknown>)?.result as string) ?? "", 80)})`;
     }
     case "io.arc.file.edit":
-      return `${event.data.operation ?? "edit"}: ${basename(event.data.path ?? "")}`;
+      return `${ap?.operation ?? "edit"}: ${basename(((ap as Record<string, unknown>)?.path as string) ?? "")}`;
     case "io.arc.error":
-      return truncate(event.data.message ?? "Error", 120);
+      return truncate(((ap as Record<string, unknown>)?.message as string) ?? "Error", 120);
 
     // Legacy transcript-style events
     case "io.arc.transcript.user": {
@@ -163,17 +174,17 @@ export function eventSummary(event: CloudEvent): string {
     }
     case "io.arc.transcript.system": {
       if (event.subtype === "turn_duration") {
-        const ms = event.data.duration_ms;
-        return ms != null ? `Turn completed (${formatDurationCompact(ms)})` : "Turn completed";
+        const ms = ap?.duration_ms;
+        return ms != null ? `Turn completed (${formatDurationCompact(ms as number)})` : "Turn completed";
       }
       return event.subtype ?? "System";
     }
     case "io.arc.transcript.progress":
-      return event.subtype ?? event.data.progress_type ?? "Progress";
+      return event.subtype ?? (ap?.progress_type as string) ?? "Progress";
     case "io.arc.transcript.snapshot":
       return "File history snapshot";
     case "io.arc.transcript.queue":
-      return event.data.operation ?? event.subtype ?? "Queue operation";
+      return (ap?.operation as string) ?? event.subtype ?? "Queue operation";
 
     default:
       return event.type;
@@ -183,6 +194,7 @@ export function eventSummary(event: CloudEvent): string {
 /** Summary for unified io.arc.event type */
 function arcEventSummary(event: CloudEvent): string {
   const sub = event.subtype ?? "";
+  const ap = payload(event);
 
   if (sub === "message.user.prompt") {
     const text = extractTranscriptText(event);
@@ -207,11 +219,11 @@ function arcEventSummary(event: CloudEvent): string {
     return text ? truncate(text, 120) : "Assistant response";
   }
   if (sub === "system.turn.complete") {
-    const ms = event.data.duration_ms;
+    const ms = ap?.duration_ms;
     return ms != null ? `Turn completed (${formatDurationCompact(ms as number)})` : "Turn completed";
   }
   if (sub === "system.error") {
-    return truncate((event.data.message as string) ?? "Error", 120);
+    return truncate(((ap as Record<string, unknown>)?.message as string) ?? "Error", 120);
   }
   if (sub === "system.hook") {
     return "Hook summary";
@@ -226,10 +238,10 @@ function arcEventSummary(event: CloudEvent): string {
     return "File history snapshot";
   }
   if (sub === "file.edit") {
-    return `${event.data.operation ?? "edit"}: ${basename((event.data.path as string) ?? "")}`;
+    return `${ap?.operation ?? "edit"}: ${basename(((ap as Record<string, unknown>)?.path as string) ?? "")}`;
   }
   if (sub.startsWith("queue.")) {
-    return event.data.operation ?? sub.split(".").pop() ?? "Queue operation";
+    return (ap?.operation as string) ?? sub.split(".").pop() ?? "Queue operation";
   }
 
   return sub || event.type;
@@ -246,7 +258,7 @@ function formatDurationCompact(ms: number): string {
 
 /** Extract a compact detail string for tool calls */
 function toolCallDetail(event: CloudEvent): string {
-  const args = event.data.args;
+  const args = payload(event)?.args;
   if (!args) return "";
 
   // Common patterns
@@ -257,9 +269,9 @@ function toolCallDetail(event: CloudEvent): string {
     if (isGitCommand(cmd)) return truncate(gitCommandSummary(cmd), 80);
     return truncate(shortenCommand(cmd), 80);
   }
-  if (typeof args["pattern"] === "string") return truncate(args["pattern"], 60);
-  if (typeof args["query"] === "string") return truncate(args["query"], 60);
-  if (typeof args["url"] === "string") return truncate(args["url"], 80);
+  if (typeof args["pattern"] === "string") return truncate(args["pattern"] as string, 60);
+  if (typeof args["query"] === "string") return truncate(args["query"] as string, 60);
+  if (typeof args["url"] === "string") return truncate(args["url"] as string, 80);
 
   return "";
 }

@@ -144,7 +144,7 @@ pub fn ingest_events(
             }
 
             // BFF transform: CloudEvent → typed ViewRecords for the UI
-            let view_records = from_cloud_event(&val);
+            let view_records = from_cloud_event(ce);
 
             // Capture full payloads for truncated records (lazy-load endpoint)
             for vr in &view_records {
@@ -393,8 +393,11 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                 .or_insert_with(|| projection::SessionProjection::new(sid));
             proj.append(val);
 
-            // BFF transform
-            let view_records = from_cloud_event(val);
+            // BFF transform — deserialize stored JSON to typed CloudEvent
+            let view_records = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
+                Ok(ce) => from_cloud_event(&ce),
+                Err(_) => vec![],
+            };
 
             // Capture full payloads for truncated records
             for vr in &view_records {

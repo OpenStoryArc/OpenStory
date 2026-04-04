@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use open_story_core::cloud_event::CloudEvent;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::{MessageContent, RecordBody};
 use open_story_views::view_record::ViewRecord;
@@ -236,9 +237,12 @@ impl SessionProjection {
             self.parents.insert(event_id.clone(), parent_uuid.clone());
         }
 
-        // 3. Transform to ViewRecords
+        // 3. Transform to ViewRecords (deserialize to typed CloudEvent)
         self.event_count += 1;
-        let view_records = from_cloud_event(event);
+        let view_records = match serde_json::from_value::<CloudEvent>(event.clone()) {
+            Ok(ce) => from_cloud_event(&ce),
+            Err(_) => vec![],
+        };
         if view_records.is_empty() {
             return AppendResult::empty();
         }

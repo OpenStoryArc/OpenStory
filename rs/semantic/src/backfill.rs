@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 
+use open_story_core::cloud_event::CloudEvent;
 use open_story_views::from_cloud_event::from_cloud_event;
 
 use crate::embedder::Embedder;
@@ -50,7 +51,11 @@ where
         for event in &events {
             stats.events_scanned += 1;
 
-            let view_records = from_cloud_event(event);
+            let ce = match serde_json::from_value::<CloudEvent>(event.clone()) {
+                Ok(ce) => ce,
+                Err(_) => continue,
+            };
+            let view_records = from_cloud_event(&ce);
             for vr in &view_records {
                 let text = match extract_text(vr) {
                     Some(t) => t,

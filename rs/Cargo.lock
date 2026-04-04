@@ -2384,6 +2384,7 @@ name = "open-story-views"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "open-story-core",
  "pulldown-cmark",
  "serde",
  "serde_json",

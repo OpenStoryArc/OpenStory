@@ -29,8 +29,7 @@ fn real_fixture_preserves_is_sidechain_through_pipeline() {
         let cloud_events = translate_line(&value, &mut state);
 
         for ce in &cloud_events {
-            let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-            let view_records = from_cloud_event(&ce_value);
+            let view_records = from_cloud_event(ce);
 
             for vr in &view_records {
                 total_view_records += 1;
@@ -98,8 +97,7 @@ fn real_fixture_progress_events_carry_agent_id() {
                 );
 
                 // Convert to ViewRecords and verify agent_id is set
-                let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-                let view_records = from_cloud_event(&ce_value);
+                let view_records = from_cloud_event(ce);
                 for vr in &view_records {
                     assert!(
                         vr.agent_id.is_some(),
@@ -150,8 +148,7 @@ fn synthetic_subagent_event_round_trips() {
     }
 
     // Convert to ViewRecords
-    let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-    let view_records = from_cloud_event(&ce_value);
+    let view_records = from_cloud_event(ce);
     assert_eq!(view_records.len(), 1);
 
     let vr = &view_records[0];
