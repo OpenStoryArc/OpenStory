@@ -1,117 +1,397 @@
-//! Typed payload for CloudEvent.data — open schema with named common fields.
+//! Monadic event payload: Foundation + Option<AgentPayload>.
 //!
-//! Agent-specific and unknown fields land in `extra` via `#[serde(flatten)]`,
-//! so the JSON shape is identical to the old `Value::Object(Map)` format.
-//! New fields from evolving agent protocols are captured automatically.
+//! Three layers (SICP 2.4 — dispatch on type with tagged data):
+//!
+//!   Foundation:  raw, seq, session_id — always present, never mutated.
+//!   The lift:    agent_payload — None if unknown agent, Some if recognized.
+//!   The tag:     meta.agent inside the payload — self-describing dispatch.
+//!
+//! The translator reads the raw transcript, determines the agent (auto-detect),
+//! extracts typed fields into the payload, and wraps it in Some. If extraction
+//! fails or the agent is unknown, agent_payload is None — you still have raw.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Typed event data payload with open schema.
-///
-/// Common fields shared by all agents are named. Everything else
-/// (agent-specific keys, future additions) flows into `extra`.
-/// Serialization produces the same flat JSON as the old untyped Map.
+// ── Foundation ─────────────────────────────────────────────────────
+
+/// The event data envelope. Foundation is always present.
+/// The agent_payload is the monadic lift — absent means "couldn't type it."
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventData {
-    // ── Always present ──────────────────────────────
-    /// Original transcript line, never mutated.
+    /// Original transcript line, never mutated. The foundation.
     pub raw: Value,
     /// Sequence number within the translation session.
     pub seq: u64,
     /// Session identifier.
     pub session_id: String,
+    /// The lift: typed agent-specific payload. None = unknown agent or parse failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_payload: Option<AgentPayload>,
+}
 
-    // ── Common optional fields (both agents) ────────
+impl EventData {
+    /// Create foundation-only EventData (no payload yet).
+    pub fn new(raw: Value, seq: u64, session_id: String) -> Self {
+        Self {
+            raw,
+            seq,
+            session_id,
+            agent_payload: None,
+        }
+    }
+
+    /// Create EventData with a typed agent payload.
+    pub fn with_payload(raw: Value, seq: u64, session_id: String, payload: AgentPayload) -> Self {
+        Self {
+            raw,
+            seq,
+            session_id,
+            agent_payload: Some(payload),
+        }
+    }
+}
+
+// ── The Tag ────────────────────────────────────────────────────────
+
+/// Payload metadata — just the tag. Determined by format auto-detection,
+/// not from the transcript. Enough to dispatch, nothing more.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PayloadMeta {
+    /// SICP type tag: "claude-code" or "pi-mono".
+    pub agent: String,
+}
+
+// ── The Lift: Agent Payload ────────────────────────────────────────
+
+/// Tagged union of agent-specific payloads.
+/// Dispatch on `meta.agent` to determine variant.
+///
+/// Serializes as: `{ "meta": { "agent": "claude-code" }, "text": "...", ... }`
+/// The tag is inside the payload, making it self-describing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "_variant")]
+pub enum AgentPayload {
+    #[serde(rename = "claude-code")]
+    ClaudeCode(ClaudeCodePayload),
+    #[serde(rename = "pi-mono")]
+    PiMono(PiMonoPayload),
+}
+
+// ── Claude Code Payload ────────────────────────────────────────────
+
+/// Typed extraction for Claude Code events.
+/// All fields translated from the agent transcript — no interpretation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeCodePayload {
+    /// The tag.
+    pub meta: PayloadMeta,
+
+    // ── Identity & tree ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_uuid: Option<String>,
+
+    // ── Context ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+
+    // ── Message content ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_types: Option<Vec<String>>,
+
+    // ── Tool use ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+
+    // ── Token usage (Claude Code shape) ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<Value>,
+
+    // ── Session & agent identity ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_sidechain: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_type: Option<String>,
+
+    // ── Progress & hooks ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_use_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prevented_continuation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
+
+    // ── Open schema catch-all ──
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+impl ClaudeCodePayload {
+    pub fn new() -> Self {
+        Self {
+            meta: PayloadMeta {
+                agent: "claude-code".to_string(),
+            },
+            uuid: None,
+            parent_uuid: None,
+            cwd: None,
+            timestamp: None,
+            version: None,
+            text: None,
+            model: None,
+            stop_reason: None,
+            content_types: None,
+            tool: None,
+            args: None,
+            token_usage: None,
+            slug: None,
+            message_id: None,
+            git_branch: None,
+            is_sidechain: None,
+            agent_id: None,
+            user_type: None,
+            progress_type: None,
+            parent_tool_use_id: None,
+            operation: None,
+            hook_count: None,
+            prevented_continuation: None,
+            duration_ms: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+}
+
+// ── Pi-Mono Payload ────────────────────────────────────────────────
+
+/// Typed extraction for pi-mono (OpenClaw) events.
+/// All fields translated from the agent transcript — no interpretation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiMonoPayload {
+    /// The tag.
+    pub meta: PayloadMeta,
+
+    // ── Identity & tree ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_uuid: Option<String>,
+
+    // ── Context ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Value>,
+
+    // ── Message content ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
-    /// Token usage — stays as Value because internal keys differ by agent
-    /// (Claude Code: `input_tokens`, pi-mono: `input`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_usage: Option<Value>,
+    pub content_types: Option<Vec<String>>,
+
+    // ── Tool use ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_types: Option<Vec<String>>,
 
-    // ── Open schema catch-all ───────────────────────
-    /// Agent-specific fields, new fields, anything not matched above.
-    /// `#[serde(flatten)]` keeps the JSON shape flat — no nesting.
+    // ── Token usage (pi-mono shape) ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<Value>,
+
+    // ── Pi-mono specific ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+
+    // ── Tool result fields ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+
+    // ── Bash execution ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+
+    // ── Compaction ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_before: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_kept_entry_id: Option<String>,
+
+    // ── Open schema catch-all ──
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
 }
 
-impl EventData {
-    /// Create a new EventData with the three required fields.
-    pub fn new(raw: Value, seq: u64, session_id: String) -> Self {
+impl PiMonoPayload {
+    pub fn new() -> Self {
         Self {
-            raw,
-            seq,
-            session_id,
+            meta: PayloadMeta {
+                agent: "pi-mono".to_string(),
+            },
             uuid: None,
             parent_uuid: None,
             cwd: None,
+            timestamp: None,
+            version: None,
             text: None,
             model: None,
             stop_reason: None,
-            token_usage: None,
+            content_types: None,
             tool: None,
             args: None,
-            content_types: None,
+            token_usage: None,
+            provider: None,
+            thinking_level: None,
+            model_id: None,
+            tool_call_id: None,
+            tool_name: None,
+            is_error: None,
+            command: None,
+            exit_code: None,
+            output: None,
+            summary: None,
+            tokens_before: None,
+            first_kept_entry_id: None,
             extra: serde_json::Map::new(),
         }
     }
+}
 
-    /// Merge a map of key-value pairs, routing known keys to named fields
-    /// and unknown keys to `extra`.
-    pub fn merge(&mut self, map: serde_json::Map<String, Value>) {
-        for (k, v) in map {
-            match k.as_str() {
-                "raw" => self.raw = v,
-                "seq" => {
-                    if let Some(n) = v.as_u64() {
-                        self.seq = n;
-                    }
-                }
-                "session_id" => {
-                    if let Some(s) = v.as_str() {
-                        self.session_id = s.to_string();
-                    }
-                }
-                "uuid" => self.uuid = v.as_str().map(|s| s.to_string()),
-                "parent_uuid" => self.parent_uuid = v.as_str().map(|s| s.to_string()),
-                "cwd" => self.cwd = v.as_str().map(|s| s.to_string()),
-                "text" => self.text = v.as_str().map(|s| s.to_string()),
-                "model" => self.model = v.as_str().map(|s| s.to_string()),
-                "stop_reason" => self.stop_reason = v.as_str().map(|s| s.to_string()),
-                "token_usage" => self.token_usage = Some(v),
-                "tool" => self.tool = v.as_str().map(|s| s.to_string()),
-                "args" => self.args = Some(v),
-                "content_types" => {
-                    if let Value::Array(arr) = &v {
-                        let strings: Vec<String> = arr
-                            .iter()
-                            .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                            .collect();
-                        self.content_types = Some(strings);
-                    }
-                }
-                _ => {
-                    self.extra.insert(k, v);
-                }
-            }
+// ── Convenience accessors ──────────────────────────────────────────
+
+impl AgentPayload {
+    /// Get the agent tag string.
+    pub fn agent(&self) -> &str {
+        match self {
+            AgentPayload::ClaudeCode(p) => &p.meta.agent,
+            AgentPayload::PiMono(p) => &p.meta.agent,
+        }
+    }
+
+    /// Get text from either payload variant.
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.text.as_deref(),
+            AgentPayload::PiMono(p) => p.text.as_deref(),
+        }
+    }
+
+    /// Get model from either payload variant.
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.model.as_deref(),
+            AgentPayload::PiMono(p) => p.model.as_deref(),
+        }
+    }
+
+    /// Get tool name from either payload variant.
+    pub fn tool(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.tool.as_deref(),
+            AgentPayload::PiMono(p) => p.tool.as_deref(),
+        }
+    }
+
+    /// Get tool args from either payload variant.
+    pub fn args(&self) -> Option<&Value> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.args.as_ref(),
+            AgentPayload::PiMono(p) => p.args.as_ref(),
+        }
+    }
+
+    /// Get token usage from either payload variant.
+    pub fn token_usage(&self) -> Option<&Value> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.token_usage.as_ref(),
+            AgentPayload::PiMono(p) => p.token_usage.as_ref(),
+        }
+    }
+
+    /// Get uuid from either payload variant.
+    pub fn uuid(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.uuid.as_deref(),
+            AgentPayload::PiMono(p) => p.uuid.as_deref(),
+        }
+    }
+
+    /// Get parent_uuid from either payload variant.
+    pub fn parent_uuid(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.parent_uuid.as_deref(),
+            AgentPayload::PiMono(p) => p.parent_uuid.as_deref(),
+        }
+    }
+
+    /// Get cwd from either payload variant.
+    pub fn cwd(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.cwd.as_deref(),
+            AgentPayload::PiMono(p) => p.cwd.as_deref(),
+        }
+    }
+
+    /// Get stop_reason as a string from either variant.
+    pub fn stop_reason_str(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.stop_reason.as_ref().and_then(|v| v.as_str()),
+            AgentPayload::PiMono(p) => p.stop_reason.as_deref(),
+        }
+    }
+
+    /// Get content_types from either variant.
+    pub fn content_types(&self) -> Option<&[String]> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.content_types.as_deref(),
+            AgentPayload::PiMono(p) => p.content_types.as_deref(),
         }
     }
 }
@@ -122,111 +402,177 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_round_trip_matches_old_value_format() {
-        // Build the same data the old way (Value::Object(Map))
-        let mut old_map = serde_json::Map::new();
-        old_map.insert("raw".to_string(), json!({"message": "hello"}));
-        old_map.insert("seq".to_string(), json!(1));
-        old_map.insert("session_id".to_string(), json!("sess-123"));
-        old_map.insert("model".to_string(), json!("claude-opus-4-6"));
-        old_map.insert("text".to_string(), json!("Hello world"));
-        old_map.insert("agent_id".to_string(), json!("agent-abc")); // goes to extra
-
-        // Build the new way
-        let mut data = EventData::new(json!({"message": "hello"}), 1, "sess-123".to_string());
-        data.model = Some("claude-opus-4-6".to_string());
-        data.text = Some("Hello world".to_string());
-        data.extra
-            .insert("agent_id".to_string(), json!("agent-abc"));
-
-        // Serialize both and compare
-        let old_json = serde_json::to_value(Value::Object(old_map)).unwrap();
-        let new_json = serde_json::to_value(&data).unwrap();
-        assert_eq!(old_json, new_json, "Serialization must produce identical JSON");
-    }
-
-    #[test]
-    fn test_deserialize_old_format_json() {
-        let old_json = json!({
-            "raw": {"message": "hello"},
-            "seq": 5,
-            "session_id": "sess-456",
-            "uuid": "u-001",
-            "model": "claude-opus-4-6",
-            "token_usage": {"input_tokens": 100},
-            "agent_id": "agent-xyz",
-            "is_sidechain": false
-        });
-
-        let data: EventData = serde_json::from_value(old_json).unwrap();
-        assert_eq!(data.seq, 5);
-        assert_eq!(data.session_id, "sess-456");
-        assert_eq!(data.uuid, Some("u-001".to_string()));
-        assert_eq!(data.model, Some("claude-opus-4-6".to_string()));
-        assert!(data.token_usage.is_some());
-        // Agent-specific fields land in extra
-        assert_eq!(data.extra.get("agent_id"), Some(&json!("agent-xyz")));
-        assert_eq!(data.extra.get("is_sidechain"), Some(&json!(false)));
-    }
-
-    #[test]
-    fn test_unknown_fields_captured_in_extra() {
-        let json_with_new_fields = json!({
-            "raw": {},
-            "seq": 1,
-            "session_id": "s",
-            "some_future_field": "surprise!",
-            "another_new_thing": 42
-        });
-
-        let data: EventData = serde_json::from_value(json_with_new_fields).unwrap();
-        assert_eq!(
-            data.extra.get("some_future_field"),
-            Some(&json!("surprise!"))
-        );
-        assert_eq!(data.extra.get("another_new_thing"), Some(&json!(42)));
-    }
-
-    #[test]
-    fn test_merge_routes_known_and_unknown_keys() {
-        let mut data = EventData::new(json!({}), 1, "s".to_string());
-        let mut map = serde_json::Map::new();
-        map.insert("model".to_string(), json!("gpt-4"));
-        map.insert("text".to_string(), json!("hi"));
-        map.insert("agent_id".to_string(), json!("a-1"));
-        map.insert("token_usage".to_string(), json!({"input": 50}));
-
-        data.merge(map);
-
-        assert_eq!(data.model, Some("gpt-4".to_string()));
-        assert_eq!(data.text, Some("hi".to_string()));
-        assert_eq!(data.token_usage, Some(json!({"input": 50})));
-        assert_eq!(data.extra.get("agent_id"), Some(&json!("a-1")));
-    }
-
-    #[test]
-    fn test_merge_envelope_overrides_session_id() {
-        let mut data = EventData::new(json!({}), 1, "file-session".to_string());
-        let mut envelope = serde_json::Map::new();
-        envelope.insert("session_id".to_string(), json!("real-session"));
-        envelope.insert("uuid".to_string(), json!("u-001"));
-
-        data.merge(envelope);
-
-        assert_eq!(data.session_id, "real-session");
-        assert_eq!(data.uuid, Some("u-001".to_string()));
-    }
-
-    #[test]
-    fn test_new_creates_minimal_valid_data() {
-        let data = EventData::new(json!({"line": 1}), 0, "test".to_string());
-        assert_eq!(data.seq, 0);
-        assert!(data.model.is_none());
-        assert!(data.extra.is_empty());
-
-        // Serializes without optional fields
+    fn test_foundation_only_serialization() {
+        let data = EventData::new(json!({"type": "user"}), 1, "sess-1".to_string());
         let json = serde_json::to_value(&data).unwrap();
-        assert!(!json.as_object().unwrap().contains_key("model"));
-        assert!(!json.as_object().unwrap().contains_key("text"));
+
+        assert_eq!(json["raw"], json!({"type": "user"}));
+        assert_eq!(json["seq"], 1);
+        assert_eq!(json["session_id"], "sess-1");
+        // No agent_payload key when None
+        assert!(!json.as_object().unwrap().contains_key("agent_payload"));
+    }
+
+    #[test]
+    fn test_claude_code_payload_serialization() {
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("hello".to_string());
+        payload.tool = Some("Bash".to_string());
+        payload.is_sidechain = Some(false);
+        payload.token_usage = Some(json!({"input_tokens": 100, "output_tokens": 50}));
+
+        let data = EventData::with_payload(
+            json!({"type": "assistant"}),
+            1,
+            "sess-1".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+
+        let json = serde_json::to_value(&data).unwrap();
+        let ap = &json["agent_payload"];
+
+        // Meta tag is present
+        assert_eq!(ap["meta"]["agent"], "claude-code");
+        // Content fields
+        assert_eq!(ap["text"], "hello");
+        assert_eq!(ap["tool"], "Bash");
+        assert_eq!(ap["is_sidechain"], false);
+        assert_eq!(ap["token_usage"]["input_tokens"], 100);
+        // Foundation stays at top level
+        assert_eq!(json["seq"], 1);
+        assert_eq!(json["session_id"], "sess-1");
+    }
+
+    #[test]
+    fn test_pi_mono_payload_serialization() {
+        let mut payload = PiMonoPayload::new();
+        payload.text = Some("reading config".to_string());
+        payload.tool = Some("read".to_string());
+        payload.provider = Some("anthropic".to_string());
+        payload.token_usage = Some(json!({"input": 150, "output": 75, "cacheRead": 0}));
+
+        let data = EventData::with_payload(
+            json!({"type": "message"}),
+            2,
+            "sess-2".to_string(),
+            AgentPayload::PiMono(payload),
+        );
+
+        let json = serde_json::to_value(&data).unwrap();
+        let ap = &json["agent_payload"];
+
+        assert_eq!(ap["meta"]["agent"], "pi-mono");
+        assert_eq!(ap["text"], "reading config");
+        assert_eq!(ap["provider"], "anthropic");
+        assert_eq!(ap["token_usage"]["cacheRead"], 0);
+    }
+
+    #[test]
+    fn test_round_trip_claude_code() {
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("test".to_string());
+        payload.model = Some("claude-opus-4-6".to_string());
+        payload.git_branch = Some("main".to_string());
+        payload.extra.insert("custom_field".to_string(), json!(42));
+
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "s".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+
+        let serialized = serde_json::to_value(&data).unwrap();
+        let deserialized: EventData = serde_json::from_value(serialized.clone()).unwrap();
+
+        let reserialized = serde_json::to_value(&deserialized).unwrap();
+        assert_eq!(serialized, reserialized, "Round-trip must preserve JSON shape");
+    }
+
+    #[test]
+    fn test_round_trip_pi_mono() {
+        let mut payload = PiMonoPayload::new();
+        payload.text = Some("hi".to_string());
+        payload.provider = Some("openai".to_string());
+        payload.thinking_level = Some("high".to_string());
+
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "s".to_string(),
+            AgentPayload::PiMono(payload),
+        );
+
+        let serialized = serde_json::to_value(&data).unwrap();
+        let deserialized: EventData = serde_json::from_value(serialized.clone()).unwrap();
+
+        let reserialized = serde_json::to_value(&deserialized).unwrap();
+        assert_eq!(serialized, reserialized, "Round-trip must preserve JSON shape");
+    }
+
+    #[test]
+    fn test_convenience_accessors() {
+        let mut cc = ClaudeCodePayload::new();
+        cc.text = Some("hello".to_string());
+        cc.tool = Some("Read".to_string());
+        cc.model = Some("opus".to_string());
+
+        let ap = AgentPayload::ClaudeCode(cc);
+        assert_eq!(ap.agent(), "claude-code");
+        assert_eq!(ap.text(), Some("hello"));
+        assert_eq!(ap.tool(), Some("Read"));
+        assert_eq!(ap.model(), Some("opus"));
+
+        let mut pm = PiMonoPayload::new();
+        pm.text = Some("hi".to_string());
+        pm.provider = Some("anthropic".to_string());
+
+        let ap2 = AgentPayload::PiMono(pm);
+        assert_eq!(ap2.agent(), "pi-mono");
+        assert_eq!(ap2.text(), Some("hi"));
+        assert_eq!(ap2.tool(), None);
+    }
+
+    #[test]
+    fn test_none_payload_fields_omitted() {
+        let payload = ClaudeCodePayload::new();
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "s".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+
+        let json = serde_json::to_value(&data).unwrap();
+        let ap = json["agent_payload"].as_object().unwrap();
+
+        // Meta is always present
+        assert!(ap.contains_key("meta"));
+        // None fields are skipped
+        assert!(!ap.contains_key("text"));
+        assert!(!ap.contains_key("tool"));
+        assert!(!ap.contains_key("model"));
+        assert!(!ap.contains_key("is_sidechain"));
+    }
+
+    #[test]
+    fn test_extra_fields_serialize_flat() {
+        let mut payload = ClaudeCodePayload::new();
+        payload.extra.insert("future_field".to_string(), json!("surprise"));
+        payload.extra.insert("another".to_string(), json!(99));
+
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "s".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+
+        let json = serde_json::to_value(&data).unwrap();
+        let ap = &json["agent_payload"];
+
+        // Extra fields are flat in the payload, not nested under "extra"
+        assert_eq!(ap["future_field"], "surprise");
+        assert_eq!(ap["another"], 99);
     }
 }

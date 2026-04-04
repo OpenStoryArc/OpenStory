@@ -13,7 +13,7 @@
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::event_data::EventData;
+use crate::event_data::{AgentPayload, EventData, PiMonoPayload};
 use crate::translate::{TranscriptState, IO_ARC_EVENT};
 
 /// Returns true if the entry type is one we know how to translate.
@@ -33,31 +33,23 @@ fn is_pi_known_type(entry_type: &str) -> bool {
     )
 }
 
-/// Extract common envelope fields from a pi-mono entry.
-/// Maps pi-mono field names to Open Story's snake_case convention.
-fn extract_pi_envelope(line: &Value) -> serde_json::Map<String, Value> {
-    let mut map = serde_json::Map::new();
+/// Extract envelope fields from a pi-mono entry into a PiMonoPayload.
+/// Maps pi-mono field names (id → uuid, parentId → parent_uuid, cwd).
+fn apply_pi_envelope(payload: &mut PiMonoPayload, line: &Value) {
     if let Value::Object(obj) = line {
         // id → uuid (for dedup compatibility)
-        if let Some(v) = obj.get("id") {
-            if !v.is_null() {
-                map.insert("uuid".to_string(), v.clone());
-            }
+        if let Some(v) = obj.get("id").and_then(|v| v.as_str()) {
+            payload.uuid = Some(v.to_string());
         }
         // parentId → parent_uuid
-        if let Some(v) = obj.get("parentId") {
-            if !v.is_null() {
-                map.insert("parent_uuid".to_string(), v.clone());
-            }
+        if let Some(v) = obj.get("parentId").and_then(|v| v.as_str()) {
+            payload.parent_uuid = Some(v.to_string());
         }
         // cwd (from session header)
-        if let Some(v) = obj.get("cwd") {
-            if !v.is_null() {
-                map.insert("cwd".to_string(), v.clone());
-            }
+        if let Some(v) = obj.get("cwd").and_then(|v| v.as_str()) {
+            payload.cwd = Some(v.to_string());
         }
     }
-    map
 }
 
 /// Determine assistant subtype from content blocks.
@@ -154,8 +146,11 @@ pub fn is_pi_mono_format(line: &Value) -> bool {
     )
 }
 
-/// Extract message-specific fields. Returns (subtype, extras_map).
-fn extract_message(line: &Value) -> Option<(String, serde_json::Map<String, Value>)> {
+/// Extract message-specific fields into the payload. Returns subtype on success.
+fn apply_message_fields(
+    payload: &mut PiMonoPayload,
+    line: &Value,
+) -> Option<String> {
     let message = line.get("message")?;
     let role = message.get("role").and_then(|v| v.as_str())?;
     let content = message
@@ -163,76 +158,76 @@ fn extract_message(line: &Value) -> Option<(String, serde_json::Map<String, Valu
         .cloned()
         .unwrap_or(Value::Array(vec![]));
 
-    let mut extras = serde_json::Map::new();
-
     let subtype = match role {
         "user" => {
             if let Some(text) = extract_text_from_content(&content) {
-                extras.insert("text".to_string(), Value::String(text));
+                payload.text = Some(text);
             }
             "message.user.prompt".to_string()
         }
         "assistant" => {
             let st = determine_pi_assistant_subtype(&content);
             if let Some(text) = extract_text_from_content(&content) {
-                extras.insert("text".to_string(), Value::String(text));
+                payload.text = Some(text);
             }
             if st == "message.assistant.tool_use" {
                 if let Some((tool_name, tool_args)) = extract_first_tool_from_content(&content) {
-                    extras.insert("tool".to_string(), Value::String(tool_name));
-                    extras.insert("args".to_string(), tool_args);
+                    payload.tool = Some(tool_name);
+                    payload.args = Some(tool_args);
                 }
             }
-            if let Some(v) = message.get("model") {
-                extras.insert("model".to_string(), v.clone());
+            if let Some(v) = message.get("model").and_then(|v| v.as_str()) {
+                payload.model = Some(v.to_string());
             }
-            if let Some(v) = message.get("stopReason") {
-                extras.insert("stop_reason".to_string(), v.clone());
+            if let Some(v) = message.get("stopReason").and_then(|v| v.as_str()) {
+                payload.stop_reason = Some(v.to_string());
             }
             if let Some(v) = message.get("usage") {
                 // Pass through pi-mono's native usage keys (input, output, totalTokens, etc.)
                 // The views layer branches on agent to parse format-specific fields.
-                extras.insert("token_usage".to_string(), v.clone());
+                payload.token_usage = Some(v.clone());
             }
             // Content types for downstream
-            let content_types: Vec<Value> = if let Value::Array(ref blocks) = content {
+            let content_types: Vec<String> = if let Value::Array(ref blocks) = content {
                 blocks
                     .iter()
-                    .filter_map(|b| b.get("type").cloned())
+                    .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect()
             } else {
                 vec![]
             };
-            extras.insert("content_types".to_string(), Value::Array(content_types));
+            if !content_types.is_empty() {
+                payload.content_types = Some(content_types);
+            }
             st.to_string()
         }
         "toolResult" => {
-            if let Some(v) = message.get("toolCallId") {
-                extras.insert("tool_call_id".to_string(), v.clone());
+            if let Some(v) = message.get("toolCallId").and_then(|v| v.as_str()) {
+                payload.tool_call_id = Some(v.to_string());
             }
-            if let Some(v) = message.get("toolName") {
-                extras.insert("tool_name".to_string(), v.clone());
+            if let Some(v) = message.get("toolName").and_then(|v| v.as_str()) {
+                payload.tool_name = Some(v.to_string());
             }
-            if let Some(v) = message.get("isError") {
-                extras.insert("is_error".to_string(), v.clone());
+            if let Some(v) = message.get("isError").and_then(|v| v.as_bool()) {
+                payload.is_error = Some(v);
             }
             "message.user.tool_result".to_string()
         }
         "bashExecution" => {
-            if let Some(v) = message.get("command") {
-                extras.insert("command".to_string(), v.clone());
+            if let Some(v) = message.get("command").and_then(|v| v.as_str()) {
+                payload.command = Some(v.to_string());
             }
             if let Some(v) = message.get("exitCode") {
-                extras.insert("exit_code".to_string(), v.clone());
+                payload.exit_code = Some(v.clone());
             }
-            if let Some(v) = message.get("output") {
-                extras.insert("output".to_string(), v.clone());
+            if let Some(v) = message.get("output").and_then(|v| v.as_str()) {
+                payload.output = Some(v.to_string());
             }
             "progress.bash".to_string()
         }
         "compactionSummary" => {
-            if let Some(v) = message.get("summary") {
-                extras.insert("summary".to_string(), v.clone());
+            if let Some(v) = message.get("summary").and_then(|v| v.as_str()) {
+                payload.summary = Some(v.to_string());
             }
             "system.compact".to_string()
         }
@@ -241,7 +236,7 @@ fn extract_message(line: &Value) -> Option<(String, serde_json::Map<String, Valu
         _ => return None,
     };
 
-    Some((subtype, extras))
+    Some(subtype)
 }
 
 /// Pure function: translate one pi-mono JSONL line into CloudEvent(s).
@@ -268,60 +263,53 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
     }
 
     let source = format!("pi://session/{}", state.session_id);
-    let envelope = extract_pi_envelope(line);
-    let subtype: Option<String>;
+    let mut payload = PiMonoPayload::new();
 
-    let extras: serde_json::Map<String, Value> = match entry_type {
+    // Apply envelope fields (id → uuid, parentId → parent_uuid, cwd)
+    apply_pi_envelope(&mut payload, line);
+
+    let subtype: Option<String> = match entry_type {
         "session" => {
-            subtype = Some("system.session_start".to_string());
-            let mut map = serde_json::Map::new();
-            if let Some(v) = line.get("provider") {
-                map.insert("provider".to_string(), v.clone());
+            if let Some(v) = line.get("provider").and_then(|v| v.as_str()) {
+                payload.provider = Some(v.to_string());
             }
-            if let Some(v) = line.get("modelId") {
-                map.insert("model".to_string(), v.clone());
+            if let Some(v) = line.get("modelId").and_then(|v| v.as_str()) {
+                payload.model = Some(v.to_string());
             }
-            if let Some(v) = line.get("thinkingLevel") {
-                map.insert("thinking_level".to_string(), v.clone());
+            if let Some(v) = line.get("thinkingLevel").and_then(|v| v.as_str()) {
+                payload.thinking_level = Some(v.to_string());
             }
             if let Some(v) = line.get("version") {
-                map.insert("version".to_string(), v.clone());
+                payload.version = Some(v.clone());
             }
-            map
+            Some("system.session_start".to_string())
         }
         "message" => {
-            match extract_message(line) {
-                Some((st, extras)) => {
-                    subtype = Some(st);
-                    extras
-                }
+            match apply_message_fields(&mut payload, line) {
+                Some(st) => Some(st),
                 None => return vec![], // Unknown or skipped role
             }
         }
         "compaction" => {
-            subtype = Some("system.compact".to_string());
-            let mut map = serde_json::Map::new();
-            if let Some(v) = line.get("summary") {
-                map.insert("summary".to_string(), v.clone());
+            if let Some(v) = line.get("summary").and_then(|v| v.as_str()) {
+                payload.summary = Some(v.to_string());
             }
-            if let Some(v) = line.get("tokensBefore") {
-                map.insert("tokens_before".to_string(), v.clone());
+            if let Some(v) = line.get("tokensBefore").and_then(|v| v.as_u64()) {
+                payload.tokens_before = Some(v);
             }
-            if let Some(v) = line.get("firstKeptEntryId") {
-                map.insert("first_kept_entry_id".to_string(), v.clone());
+            if let Some(v) = line.get("firstKeptEntryId").and_then(|v| v.as_str()) {
+                payload.first_kept_entry_id = Some(v.to_string());
             }
-            map
+            Some("system.compact".to_string())
         }
         "model_change" => {
-            subtype = Some("system.model_change".to_string());
-            let mut map = serde_json::Map::new();
-            if let Some(v) = line.get("provider") {
-                map.insert("provider".to_string(), v.clone());
+            if let Some(v) = line.get("provider").and_then(|v| v.as_str()) {
+                payload.provider = Some(v.to_string());
             }
-            if let Some(v) = line.get("modelId") {
-                map.insert("model".to_string(), v.clone());
+            if let Some(v) = line.get("modelId").and_then(|v| v.as_str()) {
+                payload.model = Some(v.to_string());
             }
-            map
+            Some("system.model_change".to_string())
         }
         // Spike: skip these entry types
         "thinking_level_change" | "branch_summary" | "label" | "custom" | "custom_message"
@@ -331,13 +319,13 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
         _ => return vec![],
     };
 
-    // Build typed data payload
-    // Raw is always the untouched original line — never mutated.
-    let mut data = EventData::new(line.clone(), state.next_seq(), state.session_id.clone());
-    // Merge envelope
-    data.merge(envelope);
-    // Merge extras
-    data.merge(extras);
+    // Build EventData with typed payload
+    let data = EventData::with_payload(
+        line.clone(),
+        state.next_seq(),
+        state.session_id.clone(),
+        AgentPayload::PiMono(payload),
+    );
 
     let timestamp = line
         .get("timestamp")
@@ -347,7 +335,7 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
     vec![CloudEvent::new(
         source,
         IO_ARC_EVENT.to_string(),
-        data,
+        serde_json::to_value(&data).expect("EventData serialization cannot fail"),
         subtype,
         entry_id,
         timestamp,
@@ -364,6 +352,21 @@ mod tests {
 
     fn state() -> TranscriptState {
         TranscriptState::new("test-session".to_string())
+    }
+
+    /// Helper: extract PiMonoPayload from event data, panicking if not present.
+    fn pi_payload(event: &CloudEvent) -> PiMonoPayload {
+        let event_data: EventData =
+            serde_json::from_value(event.data.clone()).expect("data should deserialize to EventData");
+        match event_data.agent_payload.expect("agent_payload should be Some") {
+            AgentPayload::PiMono(pm) => pm,
+            _ => panic!("expected PiMono payload"),
+        }
+    }
+
+    /// Helper: extract EventData from event.
+    fn event_data(event: &CloudEvent) -> EventData {
+        serde_json::from_value(event.data.clone()).expect("data should deserialize to EventData")
     }
 
     // ── Boundary table: subtype mapping ──────────────────────
@@ -529,7 +532,8 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.text.as_deref(), Some("hello world"));
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.text.as_deref(), Some("hello world"));
     }
 
     #[test]
@@ -549,14 +553,15 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.tool.as_deref(), Some("read"));
-        assert_eq!(events[0].data.args.as_ref().unwrap()["path"], "/config.toml");
-        assert_eq!(events[0].data.model.as_deref(), Some("claude-sonnet-4-5"));
-        assert_eq!(events[0].data.stop_reason.as_deref(), Some("toolUse"));
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.tool.as_deref(), Some("read"));
+        assert_eq!(pm.args.as_ref().unwrap()["path"], "/config.toml");
+        assert_eq!(pm.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(pm.stop_reason.as_deref(), Some("toolUse"));
     }
 
     #[test]
-    fn test_token_usage_normalized_to_claude_code_keys() {
+    fn test_token_usage_preserved_native() {
         let line = json!({
             "type": "message",
             "timestamp": "2025-01-01T00:00:00Z",
@@ -577,7 +582,8 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        let usage = events[0].data.token_usage.as_ref().unwrap();
+        let pm = pi_payload(&events[0]);
+        let usage = pm.token_usage.as_ref().expect("token_usage should be set");
         // Native pi-mono keys — no normalization
         assert_eq!(usage["input"], 150, "native pi-mono key: input");
         assert_eq!(usage["output"], 75, "native pi-mono key: output");
@@ -604,7 +610,8 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        let raw_content = &events[0].data.raw["message"]["content"];
+        let ed = event_data(&events[0]);
+        let raw_content = &ed.raw["message"]["content"];
         // Raw preserves pi-mono's native format — toolCall, not tool_use
         assert_eq!(raw_content[0]["type"], "toolCall", "raw should preserve toolCall type");
         assert_eq!(raw_content[0]["arguments"]["path"], "/foo", "raw should preserve arguments key");
@@ -623,9 +630,10 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.extra["tool_name"], "read");
-        assert_eq!(events[0].data.extra["tool_call_id"], "tc-1");
-        assert_eq!(events[0].data.extra["is_error"], false);
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.tool_name.as_deref(), Some("read"));
+        assert_eq!(pm.tool_call_id.as_deref(), Some("tc-1"));
+        assert_eq!(pm.is_error, Some(false));
     }
 
     #[test]
@@ -641,8 +649,9 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
+        let ed = event_data(&events[0]);
         // Raw preserves pi-mono's native format — not normalized
-        let raw_msg = &events[0].data.raw["message"];
+        let raw_msg = &ed.raw["message"];
         assert_eq!(raw_msg["role"], "toolResult", "raw should preserve toolResult role");
         assert_eq!(raw_msg["toolCallId"], "tc-1", "raw should preserve toolCallId");
         assert_eq!(raw_msg["toolName"], "read", "raw should preserve toolName");
@@ -660,11 +669,12 @@ mod tests {
             "version": 3,
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.extra["provider"], "anthropic");
-        assert_eq!(events[0].data.model.as_deref(), Some("claude-sonnet-4-5"));
-        assert_eq!(events[0].data.extra["thinking_level"], "off");
-        assert_eq!(events[0].data.extra["version"], 3);
-        assert_eq!(events[0].data.cwd.as_deref(), Some("/work/project"));
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.provider.as_deref(), Some("anthropic"));
+        assert_eq!(pm.model.as_deref(), Some("claude-sonnet-4-5"));
+        assert_eq!(pm.thinking_level.as_deref(), Some("off"));
+        assert_eq!(pm.version, Some(json!(3)));
+        assert_eq!(pm.cwd.as_deref(), Some("/work/project"));
     }
 
     #[test]
@@ -678,10 +688,11 @@ mod tests {
             "tokensBefore": 50000,
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.extra["summary"], "did stuff");
-        assert_eq!(events[0].data.extra["tokens_before"], 50000);
-        assert_eq!(events[0].data.extra["first_kept_entry_id"], "msg-3");
-        assert_eq!(events[0].data.parent_uuid.as_deref(), Some("msg-5"));
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.summary.as_deref(), Some("did stuff"));
+        assert_eq!(pm.tokens_before, Some(50000));
+        assert_eq!(pm.first_kept_entry_id.as_deref(), Some("msg-3"));
+        assert_eq!(pm.parent_uuid.as_deref(), Some("msg-5"));
     }
 
     #[test]
@@ -692,8 +703,9 @@ mod tests {
             "provider": "openai", "modelId": "gpt-4o",
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.extra["provider"], "openai");
-        assert_eq!(events[0].data.model.as_deref(), Some("gpt-4o"));
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.provider.as_deref(), Some("openai"));
+        assert_eq!(pm.model.as_deref(), Some("gpt-4o"));
     }
 
     #[test]
@@ -712,9 +724,10 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events[0].data.extra["command"], "cargo test");
-        assert_eq!(events[0].data.extra["exit_code"], 0);
-        assert_eq!(events[0].data.extra["output"], "42 passed");
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.command.as_deref(), Some("cargo test"));
+        assert_eq!(pm.exit_code, Some(json!(0)));
+        assert_eq!(pm.output.as_deref(), Some("42 passed"));
     }
 
     // ── Edge cases ───────────────────────────────────────────
@@ -809,8 +822,10 @@ mod tests {
         });
         let e1 = translate_pi_line(&line1, &mut s);
         let e2 = translate_pi_line(&line2, &mut s);
-        assert_eq!(e1[0].data.seq, 1);
-        assert_eq!(e2[0].data.seq, 2);
+        let ed1 = event_data(&e1[0]);
+        let ed2 = event_data(&e2[0]);
+        assert_eq!(ed1.seq, 1);
+        assert_eq!(ed2.seq, 2);
     }
 
     #[test]
@@ -833,6 +848,31 @@ mod tests {
         });
         let events = translate_pi_line(&line, &mut state());
         assert_eq!(events[0].source, "pi://session/test-session");
+    }
+
+    #[test]
+    fn test_payload_meta_agent_tag() {
+        let line = json!({
+            "type": "message",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {"role": "user", "content": "hello", "timestamp": 1},
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let pm = pi_payload(&events[0]);
+        assert_eq!(pm.meta.agent, "pi-mono");
+    }
+
+    #[test]
+    fn test_event_data_has_raw_and_session_id() {
+        let line = json!({
+            "type": "message",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {"role": "user", "content": "hello", "timestamp": 1},
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let ed = event_data(&events[0]);
+        assert_eq!(ed.session_id, "test-session");
+        assert_eq!(ed.raw["type"], "message");
     }
 
     // ── Format detection ─────────────────────────────────────
