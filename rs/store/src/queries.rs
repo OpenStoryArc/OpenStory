@@ -114,7 +114,7 @@ pub fn session_synopsis(conn: &Connection, session_id: &str) -> Option<SessionSy
 fn session_top_tools(conn: &Connection, session_id: &str, limit: usize) -> Vec<ToolCount> {
     let mut stmt = conn
         .prepare(
-            "SELECT json_extract(payload, '$.data.tool') as tool, COUNT(*) as cnt
+            "SELECT json_extract(payload, '$.data.agent_payload.tool') as tool, COUNT(*) as cnt
              FROM events
              WHERE session_id = ?1 AND subtype = 'message.assistant.tool_use'
                AND tool IS NOT NULL
@@ -148,12 +148,12 @@ pub struct ToolStep {
 pub fn tool_journey(conn: &Connection, session_id: &str) -> Vec<ToolStep> {
     let mut stmt = conn
         .prepare(
-            "SELECT json_extract(payload, '$.data.tool') as tool,
+            "SELECT json_extract(payload, '$.data.agent_payload.tool') as tool,
                     COALESCE(
-                        json_extract(payload, '$.data.args.file_path'),
-                        json_extract(payload, '$.data.args.file'),
-                        json_extract(payload, '$.data.args.path'),
-                        json_extract(payload, '$.data.args.command')
+                        json_extract(payload, '$.data.agent_payload.args.file_path'),
+                        json_extract(payload, '$.data.agent_payload.args.file'),
+                        json_extract(payload, '$.data.agent_payload.args.path'),
+                        json_extract(payload, '$.data.agent_payload.args.command')
                     ) as target,
                     timestamp
              FROM events
@@ -192,11 +192,11 @@ pub fn file_impact(conn: &Connection, session_id: &str) -> Vec<FileImpact> {
                     COUNT(*) as cnt
              FROM (
                  SELECT COALESCE(
-                            json_extract(payload, '$.data.args.file_path'),
-                            json_extract(payload, '$.data.args.file'),
-                            json_extract(payload, '$.data.args.path')
+                            json_extract(payload, '$.data.agent_payload.args.file_path'),
+                            json_extract(payload, '$.data.agent_payload.args.file'),
+                            json_extract(payload, '$.data.agent_payload.args.path')
                         ) as target,
-                        json_extract(payload, '$.data.tool') as tool
+                        json_extract(payload, '$.data.agent_payload.tool') as tool
                  FROM events
                  WHERE session_id = ?1 AND subtype = 'message.assistant.tool_use'
                    AND target IS NOT NULL
@@ -249,7 +249,7 @@ pub fn session_errors(conn: &Connection, session_id: &str) -> Vec<SessionError> 
     let mut stmt = conn
         .prepare(
             "SELECT timestamp,
-                    COALESCE(json_extract(payload, '$.data.text'), json_extract(payload, '$.data.raw.message.content'))
+                    COALESCE(json_extract(payload, '$.data.agent_payload.text'), json_extract(payload, '$.data.raw.message.content'))
              FROM events
              WHERE session_id = ?1 AND subtype = 'system.error'
              ORDER BY timestamp ASC",
@@ -329,7 +329,7 @@ pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
     let mut stmt = conn
         .prepare(
             "SELECT strftime('%Y-W%W', timestamp) as week,
-                    json_extract(payload, '$.data.tool') as tool,
+                    json_extract(payload, '$.data.agent_payload.tool') as tool,
                     COUNT(*) as cnt
              FROM events
              WHERE subtype = 'message.assistant.tool_use'
@@ -477,15 +477,15 @@ pub fn recent_files(conn: &Connection, project_id: &str, session_limit: usize) -
     let mut stmt = conn
         .prepare(
             "SELECT DISTINCT COALESCE(
-                        json_extract(e.payload, '$.data.args.file_path'),
-                        json_extract(e.payload, '$.data.args.file'),
-                        json_extract(e.payload, '$.data.args.path')
+                        json_extract(e.payload, '$.data.agent_payload.args.file_path'),
+                        json_extract(e.payload, '$.data.agent_payload.args.file'),
+                        json_extract(e.payload, '$.data.agent_payload.args.path')
                     ) as target
              FROM events e
              JOIN sessions s ON e.session_id = s.id
              WHERE s.project_id = ?1
                AND e.subtype IN ('message.assistant.tool_use')
-               AND json_extract(e.payload, '$.data.tool') IN ('Edit', 'Write', 'NotebookEdit')
+               AND json_extract(e.payload, '$.data.agent_payload.tool') IN ('Edit', 'Write', 'NotebookEdit')
                AND target IS NOT NULL
              ORDER BY e.timestamp DESC
              LIMIT ?2",

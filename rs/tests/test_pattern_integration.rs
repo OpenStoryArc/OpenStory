@@ -9,7 +9,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
-use open_story::event_data::EventData;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::{ingest_events, BroadcastMessage};
 use open_story::server::ws::build_initial_state;
 
@@ -21,7 +21,10 @@ use axum::http::Request;
 
 /// Create a CloudEvent for a Bash tool_use with a specific command.
 fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.tool = Some("Bash".to_string());
+    payload.args = Some(json!({"command": command}));
+    let data = EventData::with_payload(
         json!({
             "type": "assistant",
             "message": {
@@ -36,9 +39,8 @@ fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
         }),
         1,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.tool = Some("Bash".to_string());
-    data.args = Some(json!({"command": command}));
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -54,7 +56,7 @@ fn bash_tool_use(session_id: &str, id: &str, command: &str) -> CloudEvent {
 
 /// Create a tool_result CloudEvent.
 fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) -> CloudEvent {
-    let data = EventData::new(
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {
@@ -67,6 +69,7 @@ fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) ->
         }),
         2,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(ClaudeCodePayload::new()),
     );
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
@@ -83,15 +86,17 @@ fn tool_result_event(session_id: &str, id: &str, call_id: &str, output: &str) ->
 
 /// Create a user_message CloudEvent.
 fn user_prompt(session_id: &str, id: &str) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("next task".to_string());
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {"content": [{"type": "text", "text": "next task"}]}
         }),
         3,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.text = Some("next task".to_string());
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -149,7 +154,10 @@ fn it_should_detect_test_cycle_during_ingest() {
         tool_result_event("sess-1", "e2", "toolu_e1", "FAILED 3 tests"),
         // An Edit tool call
         {
-            let mut edit_data = EventData::new(
+            let mut edit_payload = ClaudeCodePayload::new();
+            edit_payload.tool = Some("Edit".to_string());
+            edit_payload.args = Some(json!({"file_path": "/fix.rs", "old_string": "a", "new_string": "b"}));
+            let edit_data = EventData::with_payload(
                 json!({
                     "type": "assistant",
                     "message": {
@@ -164,9 +172,8 @@ fn it_should_detect_test_cycle_during_ingest() {
                 }),
                 3,
                 "sess-1".to_string(),
+                AgentPayload::ClaudeCode(edit_payload),
             );
-            edit_data.tool = Some("Edit".to_string());
-            edit_data.args = Some(json!({"file_path": "/fix.rs", "old_string": "a", "new_string": "b"}));
             CloudEvent::new(
                 "arc://transcript/sess-1".into(),
                 "io.arc.event".to_string(),

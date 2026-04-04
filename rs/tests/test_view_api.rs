@@ -10,11 +10,14 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
-use open_story::event_data::EventData;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::ingest_events;
 
 fn make_tool_use_event(session_id: &str, tool: &str, args: serde_json::Value, call_id: &str) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.tool = Some(tool.to_string());
+    payload.args = Some(args.clone());
+    let data = EventData::with_payload(
         json!({
             "type": "assistant",
             "message": {
@@ -26,9 +29,8 @@ fn make_tool_use_event(session_id: &str, tool: &str, args: serde_json::Value, ca
         }),
         1,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.tool = Some(tool.to_string());
-    data.args = Some(args);
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".into(),
@@ -43,7 +45,7 @@ fn make_tool_use_event(session_id: &str, tool: &str, args: serde_json::Value, ca
 }
 
 fn make_tool_result_event(session_id: &str, call_id: &str, output: &str) -> CloudEvent {
-    let data = EventData::new(
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {
@@ -54,6 +56,7 @@ fn make_tool_result_event(session_id: &str, call_id: &str, output: &str) -> Clou
         }),
         2,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(ClaudeCodePayload::new()),
     );
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
@@ -69,15 +72,17 @@ fn make_tool_result_event(session_id: &str, call_id: &str, output: &str) -> Clou
 }
 
 fn make_user_prompt_event(session_id: &str, text: &str) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some(text.to_string());
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {"content": [{"type": "text", "text": text}]}
         }),
         0,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.text = Some(text.to_string());
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".into(),

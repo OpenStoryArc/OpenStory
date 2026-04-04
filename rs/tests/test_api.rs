@@ -7,7 +7,7 @@ use axum::http::Request;
 use helpers::{body_json, make_event, send_request, test_state};
 use tempfile::TempDir;
 
-use open_story::event_data::EventData;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::ingest_events;
 
 #[tokio::test]
@@ -248,9 +248,15 @@ async fn test_cors_rejects_unknown_origin() {
 // ── Activity endpoint ──────────────────────────────────────────────
 
 fn make_rich_event(event_type: &str, session_id: &str, subtype: Option<&str>) -> open_story::cloud_event::CloudEvent {
-    let mut data = EventData::new(serde_json::json!({}), 0, session_id.to_string());
-    data.text = Some("test".to_string());
-    data.tool = Some("Read".to_string());
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test".to_string());
+    payload.tool = Some("Read".to_string());
+    let data = EventData::with_payload(
+        serde_json::json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     open_story::cloud_event::CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         event_type.to_string(),
@@ -439,7 +445,10 @@ async fn test_session_plans_includes_subagent_plans() {
         // Ingest an ExitPlanMode event into the subagent session.
         // The event's data.session_id = "parent-sess" (the parent),
         // but we're ingesting under "agent-sub" (the subagent).
-        let mut plan_data = EventData::new(
+        let mut plan_payload = ClaudeCodePayload::new();
+        plan_payload.tool = Some("ExitPlanMode".to_string());
+        plan_payload.args = Some(serde_json::json!({ "plan": "# Subagent Plan\n\nDo the thing." }));
+        let plan_data = EventData::with_payload(
             serde_json::json!({
                 "type": "assistant",
                 "message": {
@@ -454,9 +463,8 @@ async fn test_session_plans_includes_subagent_plans() {
             }),
             1,
             "parent-sess".to_string(),
+            AgentPayload::ClaudeCode(plan_payload),
         );
-        plan_data.tool = Some("ExitPlanMode".to_string());
-        plan_data.args = Some(serde_json::json!({ "plan": "# Subagent Plan\n\nDo the thing." }));
         let plan_event = open_story::cloud_event::CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
@@ -695,9 +703,14 @@ async fn test_agent_tools_includes_search() {
 // ── Session lifecycle endpoints ─────────────────────────────────────
 
 fn make_error_event(session_id: &str, id: &str) -> open_story::cloud_event::CloudEvent {
-    let mut data = EventData::new(serde_json::json!({}), 0, session_id.to_string());
-    data.text = Some("something failed".to_string());
-    data.extra.insert("message".to_string(), serde_json::json!("something failed"));
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("something failed".to_string());
+    let data = EventData::with_payload(
+        serde_json::json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     open_story::cloud_event::CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),

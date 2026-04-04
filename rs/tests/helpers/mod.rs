@@ -21,7 +21,7 @@ use tempfile::TempDir;
 use tokio::sync::{broadcast, RwLock};
 
 use open_story::cloud_event::CloudEvent;
-use open_story::event_data::EventData;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::{build_router, AppState, Config, SharedState};
 use open_story_bus::noop_bus::NoopBus;
 use open_story_store::state::StoreState;
@@ -52,8 +52,14 @@ pub fn test_router(state: SharedState) -> Router {
 
 /// Create a minimal valid CloudEvent.
 pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
-    let mut data = EventData::new(json!({}), 0, session_id.to_string());
-    data.text = Some("test content".to_string());
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test content".to_string());
+    let data = EventData::with_payload(
+        json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         event_type.to_string(),
@@ -69,8 +75,14 @@ pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
 
 /// Create a CloudEvent with a specific ID (for dedup testing).
 pub fn make_event_with_id(event_type: &str, session_id: &str, id: &str) -> CloudEvent {
-    let mut data = EventData::new(json!({}), 0, session_id.to_string());
-    data.text = Some("test content".to_string());
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test content".to_string());
+    let data = EventData::with_payload(
+        json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         event_type.to_string(),
@@ -88,7 +100,7 @@ pub fn make_event_with_id(event_type: &str, session_id: &str, id: &str) -> Cloud
 /// Uses the unified format (io.arc.event + message.user.tool_result).
 pub fn make_event_with_large_payload(session_id: &str, id: &str, size: usize) -> CloudEvent {
     let content = "x".repeat(size);
-    let mut data = EventData::new(
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {
@@ -101,9 +113,8 @@ pub fn make_event_with_large_payload(session_id: &str, id: &str, size: usize) ->
         }),
         1,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(ClaudeCodePayload::new()),
     );
-    // No extra fields needed — raw carries the payload
-    let _ = &data; // suppress unused warning
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -126,15 +137,17 @@ pub async fn body_text(response: axum::http::Response<axum::body::Body>) -> Stri
 
 /// Create a CloudEvent that from_cloud_event turns into a UserMessage.
 pub fn make_user_prompt(session_id: &str, id: &str) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test prompt".to_string());
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {"content": [{"type": "text", "text": "test prompt"}]}
         }),
         1,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.text = Some("test prompt".to_string());
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -156,7 +169,13 @@ pub fn make_tool_use(
     tool_name: &str,
     command: &str,
 ) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.tool = Some(tool_name.to_string());
+    payload.args = Some(json!({"command": command}));
+    if let Some(pid) = parent_id {
+        payload.parent_uuid = Some(pid.to_string());
+    }
+    let data = EventData::with_payload(
         json!({
             "type": "assistant",
             "message": {
@@ -171,12 +190,8 @@ pub fn make_tool_use(
         }),
         2,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.tool = Some(tool_name.to_string());
-    data.args = Some(json!({"command": command}));
-    if let Some(pid) = parent_id {
-        data.parent_uuid = Some(pid.to_string());
-    }
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -198,7 +213,11 @@ pub fn make_tool_result(
     call_id: &str,
     output: &str,
 ) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    if let Some(pid) = parent_id {
+        payload.parent_uuid = Some(pid.to_string());
+    }
+    let data = EventData::with_payload(
         json!({
             "type": "user",
             "message": {
@@ -211,10 +230,8 @@ pub fn make_tool_result(
         }),
         3,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    if let Some(pid) = parent_id {
-        data.parent_uuid = Some(pid.to_string());
-    }
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -235,7 +252,13 @@ pub fn make_assistant_text(
     parent_id: Option<&str>,
     text: &str,
 ) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some(text.to_string());
+    payload.model = Some("claude-4".to_string());
+    if let Some(pid) = parent_id {
+        payload.parent_uuid = Some(pid.to_string());
+    }
+    let data = EventData::with_payload(
         json!({
             "type": "assistant",
             "message": {
@@ -245,12 +268,8 @@ pub fn make_assistant_text(
         }),
         4,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    data.text = Some(text.to_string());
-    data.model = Some("claude-4".to_string());
-    if let Some(pid) = parent_id {
-        data.parent_uuid = Some(pid.to_string());
-    }
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
@@ -266,14 +285,16 @@ pub fn make_assistant_text(
 
 /// Create a progress CloudEvent (ephemeral — doesn't produce meaningful ViewRecords).
 pub fn make_progress_event(session_id: &str, id: &str, parent_id: Option<&str>) -> CloudEvent {
-    let mut data = EventData::new(
+    let mut payload = ClaudeCodePayload::new();
+    if let Some(pid) = parent_id {
+        payload.parent_uuid = Some(pid.to_string());
+    }
+    let data = EventData::with_payload(
         json!({"type": "progress", "subtype": "bash"}),
         5,
         session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
     );
-    if let Some(pid) = parent_id {
-        data.parent_uuid = Some(pid.to_string());
-    }
     CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),

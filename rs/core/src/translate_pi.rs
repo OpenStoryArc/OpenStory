@@ -335,7 +335,7 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
     vec![CloudEvent::new(
         source,
         IO_ARC_EVENT.to_string(),
-        serde_json::to_value(&data).expect("EventData serialization cannot fail"),
+        data,
         subtype,
         entry_id,
         timestamp,
@@ -356,17 +356,15 @@ mod tests {
 
     /// Helper: extract PiMonoPayload from event data, panicking if not present.
     fn pi_payload(event: &CloudEvent) -> PiMonoPayload {
-        let event_data: EventData =
-            serde_json::from_value(event.data.clone()).expect("data should deserialize to EventData");
-        match event_data.agent_payload.expect("agent_payload should be Some") {
-            AgentPayload::PiMono(pm) => pm,
+        match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+            AgentPayload::PiMono(pm) => pm.clone(),
             _ => panic!("expected PiMono payload"),
         }
     }
 
     /// Helper: extract EventData from event.
-    fn event_data(event: &CloudEvent) -> EventData {
-        serde_json::from_value(event.data.clone()).expect("data should deserialize to EventData")
+    fn event_data(event: &CloudEvent) -> &EventData {
+        &event.data
     }
 
     // ── Boundary table: subtype mapping ──────────────────────

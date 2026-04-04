@@ -214,9 +214,9 @@ mod projection_labels {
     fn it_should_extract_branch_from_event_data() {
         let mut proj = SessionProjection::new("test-session");
 
-        // Event with git_branch in data bag
+        // Event with git_branch in agent_payload
         let mut event = to_value(&make_user_prompt("test-session", "evt-1"));
-        event["data"]["git_branch"] = json!("feature/login-fix");
+        event["data"]["agent_payload"]["git_branch"] = json!("feature/login-fix");
         let result = proj.append(&event);
 
         assert!(result.label_changed);
@@ -229,8 +229,8 @@ mod projection_labels {
 
         let long_prompt = "a".repeat(100);
         let mut event = to_value(&make_user_prompt("test-session", "evt-1"));
-        // Override the prompt text with a long string
-        event["data"]["text"] = json!(long_prompt);
+        // Override the prompt text with a long string in agent_payload
+        event["data"]["agent_payload"]["text"] = json!(long_prompt);
         event["data"]["raw"]["message"]["content"] = json!([{"type": "text", "text": long_prompt}]);
         proj.append(&event);
 

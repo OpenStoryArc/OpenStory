@@ -128,7 +128,8 @@ pub fn ingest_events(
             if is_plan_event(&val) {
                 let plan_content = extract_plan_content(&val).or_else(|| {
                     val.get("data")
-                        .and_then(|d| d.get("args"))
+                        .and_then(|d| d.get("agent_payload"))
+                        .and_then(|ap| ap.get("args"))
                         .and_then(|a| a.get("plan"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())

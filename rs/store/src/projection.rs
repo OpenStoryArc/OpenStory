@@ -220,10 +220,11 @@ impl SessionProjection {
             return AppendResult::empty();
         }
 
-        // 2. Extract parent_uuid, compute depth
+        // 2. Extract parent_uuid (now under agent_payload), compute depth
         let parent_uuid = event
             .get("data")
-            .and_then(|d| d.get("parent_uuid"))
+            .and_then(|d| d.get("agent_payload"))
+            .and_then(|ap| ap.get("parent_uuid"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let depth = match &parent_uuid {
@@ -289,7 +290,8 @@ impl SessionProjection {
         if self.branch.is_none() {
             if let Some(branch) = event
                 .get("data")
-                .and_then(|d| d.get("git_branch"))
+                .and_then(|d| d.get("agent_payload"))
+                .and_then(|ap| ap.get("git_branch"))
                 .and_then(|v| v.as_str())
             {
                 if !branch.is_empty() {

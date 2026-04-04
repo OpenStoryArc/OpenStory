@@ -5,9 +5,18 @@
 
 use std::io::Write;
 
+use open_story::event_data::AgentPayload;
 use open_story::reader::read_new_lines;
 use open_story::translate::{TranscriptFormat, TranscriptState};
 use tempfile::NamedTempFile;
+
+/// Helper: extract PiMonoPayload from event, panicking if not present.
+fn pi_payload(event: &open_story::cloud_event::CloudEvent) -> &open_story::event_data::PiMonoPayload {
+    match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+        AgentPayload::PiMono(pm) => pm,
+        _ => panic!("expected PiMono payload"),
+    }
+}
 
 /// Read the pi-mono fixture and verify end-to-end translation.
 #[test]
@@ -126,19 +135,19 @@ fn reader_pi_mono_field_extraction() {
     let events = read_new_lines(&fixture, &mut state).expect("read");
 
     // Session header (index 0)
-    assert_eq!(events[0].data.extra.get("provider").and_then(|v| v.as_str()), Some("anthropic"));
-    assert_eq!(events[0].data.model.as_deref(), Some("claude-sonnet-4-5"));
-    assert_eq!(events[0].data.cwd.as_deref(), Some("/work/my-project"));
+    let p0 = pi_payload(&events[0]);
+    assert_eq!(p0.provider.as_deref(), Some("anthropic"));
+    assert_eq!(p0.model.as_deref(), Some("claude-sonnet-4-5"));
+    assert_eq!(p0.cwd.as_deref(), Some("/work/my-project"));
 
     // User message text (index 1)
-    assert_eq!(
-        events[1].data.text.as_deref(),
-        Some("Read the config file and explain it")
-    );
+    let p1 = pi_payload(&events[1]);
+    assert_eq!(p1.text.as_deref(), Some("Read the config file and explain it"));
 
     // Tool use (index 2)
-    assert_eq!(events[2].data.tool.as_deref(), Some("read"));
-    assert_eq!(events[2].data.args.as_ref().unwrap()["path"], "/work/config.toml");
+    let p2 = pi_payload(&events[2]);
+    assert_eq!(p2.tool.as_deref(), Some("read"));
+    assert_eq!(p2.args.as_ref().unwrap()["path"], "/work/config.toml");
     // Raw is untouched — preserves pi-mono's native toolCall type
     assert_eq!(
         events[2].data.raw["message"]["content"][1]["type"],
@@ -148,20 +157,21 @@ fn reader_pi_mono_field_extraction() {
     assert_eq!(events[2].agent.as_deref(), Some("pi-mono"));
 
     // Tool result (index 3)
-    assert_eq!(events[3].data.extra.get("tool_name").and_then(|v| v.as_str()), Some("read"));
-    assert_eq!(events[3].data.extra.get("is_error"), Some(&serde_json::json!(false)));
+    let p3 = pi_payload(&events[3]);
+    assert_eq!(p3.tool_name.as_deref(), Some("read"));
+    assert_eq!(p3.is_error, Some(false));
 
     // Model change (index 5)
-    assert_eq!(events[5].data.extra.get("provider").and_then(|v| v.as_str()), Some("openai"));
-    assert_eq!(events[5].data.model.as_deref(), Some("gpt-4o"));
+    let p5 = pi_payload(&events[5]);
+    assert_eq!(p5.provider.as_deref(), Some("openai"));
+    assert_eq!(p5.model.as_deref(), Some("gpt-4o"));
 
     // Bash execution (index 7)
-    assert_eq!(events[7].data.extra.get("command").and_then(|v| v.as_str()), Some("cargo test"));
-    assert_eq!(events[7].data.extra.get("exit_code"), Some(&serde_json::json!(0)));
+    let p7 = pi_payload(&events[7]);
+    assert_eq!(p7.command.as_deref(), Some("cargo test"));
+    assert_eq!(p7.exit_code, Some(serde_json::json!(0)));
 
     // Compaction (index 8)
-    assert_eq!(
-        events[8].data.extra.get("summary").and_then(|v| v.as_str()),
-        Some("Read config file and explained TOML structure")
-    );
+    let p8 = pi_payload(&events[8]);
+    assert_eq!(p8.summary.as_deref(), Some("Read config file and explained TOML structure"));
 }

@@ -89,12 +89,16 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         .unwrap_or("")
         .to_string();
 
-    // Extract subagent identity from CloudEvent data (Story 037)
-    let agent_id = data
+    // Agent payload contains agent-specific fields (text, tool, args, model, etc.)
+    // Foundation fields (raw, seq, session_id) stay on data.
+    let payload = data.get("agent_payload").unwrap_or(&Value::Null);
+
+    // Extract subagent identity from payload (Story 037)
+    let agent_id = payload
         .get("agent_id")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let is_sidechain = data
+    let is_sidechain = payload
         .get("is_sidechain")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
@@ -108,7 +112,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
     // Build records, then stamp agent identity onto each one
     let mut records = match subtype {
         s if s.starts_with("message.user.prompt") => {
-            let text = data
+            let text = payload
                 .get("text")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -128,11 +132,11 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            extract_tool_results(raw, data, agent, &id, seq, &session_id, &time)
+            extract_tool_results(raw, payload, agent, &id, seq, &session_id, &time)
         }
 
         s if s.starts_with("message.assistant.tool_use") => {
-            extract_tool_calls(raw, data, agent, &id, seq, &session_id, &time)
+            extract_tool_calls(raw, payload, agent, &id, seq, &session_id, &time)
         }
 
         s if s.starts_with("message.assistant.thinking") => {
@@ -140,7 +144,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant") => {
-            let model = data
+            let model = payload
                 .get("model")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
@@ -156,7 +160,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
                     model,
                     content,
-                    stop_reason: data.get("stop_reason").and_then(|v| v.as_str()).map(|s| s.into()),
+                    stop_reason: payload.get("stop_reason").and_then(|v| v.as_str()).map(|s| s.into()),
                     end_turn: None,
                     phase: None,
                 })),
@@ -165,7 +169,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
             // Emit TokenUsage record if token_usage data is present.
             // Field names differ by agent: Claude Code uses input_tokens/output_tokens,
             // pi-mono uses input/output.
-            if let Some(usage) = data.get("token_usage") {
+            if let Some(usage) = payload.get("token_usage") {
                 let (input_tokens, output_tokens, total_tokens) = match agent {
                     "pi-mono" => (
                         usage.get("input").and_then(|v| v.as_u64()),
@@ -200,7 +204,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         "system.turn.complete" => {
-            let duration_ms = data
+            let duration_ms = payload
                 .get("duration_ms")
                 .and_then(|v| v.as_u64());
             vec![ViewRecord {
@@ -228,8 +232,8 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 is_sidechain: false,
                 body: RecordBody::SystemEvent(SystemEvent {
                     subtype: subtype.to_string(),
-                    message: data.get("text").and_then(|v| v.as_str()).map(|s| s.into()),
-                    duration_ms: data.get("duration_ms").and_then(|v| v.as_u64()),
+                    message: payload.get("text").and_then(|v| v.as_str()).map(|s| s.into()),
+                    duration_ms: payload.get("duration_ms").and_then(|v| v.as_u64()),
                 }),
             }]
         }
