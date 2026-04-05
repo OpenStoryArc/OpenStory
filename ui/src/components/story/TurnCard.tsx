@@ -87,7 +87,7 @@ export function TurnCard({ pattern }: TurnCardProps) {
 
           {/* Human phase */}
           {human?.content && (
-            <PhaseBlock label="human" color="#7dcfff">
+            <PhaseBlock label="actor" color="#7dcfff">
               <ExpandableText text={human.content} />
             </PhaseBlock>
           )}
