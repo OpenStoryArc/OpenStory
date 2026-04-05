@@ -85,329 +85,417 @@ pub struct ApplyRecord {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PendingTurn — accumulator for turn-in-progress
+// Accumulator — the state threaded through the fold
 // ═══════════════════════════════════════════════════════════════════
+//
+// In the Scheme prototype, the environment is a list of messages.
+// Here, the Accumulator is the full state of the eval-apply observer:
+// what turn we're in, what we've seen so far, what we're waiting for.
+//
+// The fold function `step()` takes (Accumulator, CloudEvent) and returns
+// a StepResult: either Continue (new accumulator) or TurnComplete
+// (new accumulator + completed turn + pattern events).
 
-/// Turn being assembled from the event stream. Not yet complete.
-#[derive(Debug, Default)]
-struct PendingTurn {
-    human: Option<HumanInput>,
-    thinking: Option<ThinkingRecord>,
-    eval: Option<EvalOutput>,
-    applies: Vec<ApplyRecord>,
-    /// Tool name + input for the current tool_use, awaiting its result.
-    pending_tool: Option<(String, String, bool)>, // (name, input_summary, is_agent)
-    event_ids: Vec<String>,
-    start_ts: Option<String>,
-    env_size_at_start: u32,
-    duration_ms: Option<f64>,
+/// A pending tool dispatch awaiting its result.
+#[derive(Debug, Clone)]
+pub struct PendingApply {
+    pub tool_name: String,
+    pub input_summary: String,
+    pub is_agent: bool,
 }
 
-/// Internal state machine.
-#[derive(Debug, Default, PartialEq)]
-enum State {
+/// The accumulator threaded through the pure fold.
+/// All state the fold needs lives here — nothing in ambient `self`.
+#[derive(Debug, Clone)]
+pub struct Accumulator {
+    pub phase: Phase,
+    pub turn_number: u32,
+    pub scope_depth: u32,
+    pub env_size: u32,
+    pub session_id: String,
+    /// Turn being assembled.
+    pub pending_human: Option<HumanInput>,
+    pub pending_thinking: Option<ThinkingRecord>,
+    pub pending_eval: Option<EvalOutput>,
+    pub completed_applies: Vec<ApplyRecord>,
+    pub pending_applies: Vec<PendingApply>,
+    pub event_ids: Vec<String>,
+    pub start_ts: Option<String>,
+    pub env_size_at_start: u32,
+}
+
+/// Phase of the state machine.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Phase {
     #[default]
     Idle,
-    /// Saw an AssistantMessage (eval happened). Waiting for tool_call or turn_end.
     SawEval,
-    /// Saw tool dispatches (apply phase). Waiting for results.
     SawApply,
-    /// All tool results received. Next eval or turn boundary expected.
     ResultsReady,
 }
 
-/// Eval-apply structural detector.
-///
-/// Emits phases: eval, apply, turn_end, scope_open, scope_close, compact.
-/// Each emission carries turn number, scope depth, and environment size.
-pub struct EvalApplyDetector {
-    state: State,
-    turn_number: u32,
+impl Default for Accumulator {
+    fn default() -> Self {
+        Self {
+            phase: Phase::Idle,
+            turn_number: 0,
+            scope_depth: 0,
+            env_size: 0,
+            session_id: String::new(),
+            pending_human: None,
+            pending_thinking: None,
+            pending_eval: None,
+            completed_applies: Vec::new(),
+            pending_applies: Vec::new(),
+            event_ids: Vec::new(),
+            start_ts: None,
+            env_size_at_start: 0,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// StepResult — the output of the pure fold
+// ═══════════════════════════════════════════════════════════════════
+
+/// The result of one fold step.
+/// Either we continue accumulating, or a turn is complete.
+pub enum StepResult {
+    /// The fold continues — no turn boundary yet.
+    Continue {
+        acc: Accumulator,
+        patterns: Vec<PatternEvent>,
+    },
+    /// A coalgebra step completed — a turn crystallized.
+    TurnComplete {
+        acc: Accumulator,
+        turn: StructuralTurn,
+        patterns: Vec<PatternEvent>,
+    },
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// step() — the pure fold function
+// ═══════════════════════════════════════════════════════════════════
+//
+// (Accumulator, CloudEvent) → StepResult
+//
+// This is `agent-step` from 04-eval-apply.scm, adapted for observation.
+// The Scheme version takes (env, model, tools) → Either<Outcome, NewEnv>.
+// Ours takes (accumulator, event) → Either<Continue, TurnComplete>.
+//
+// Pure: same accumulator + same event = same result. Always.
+
+/// One step of the eval-apply fold.
+/// Pure function: no side effects, no I/O, no ambient state.
+pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
+    let id = event.id.as_str();
+    let ts = event.time.as_str();
+    let subtype = event.subtype.as_deref().unwrap_or("");
+    let ap = event.data.agent_payload.as_ref();
+    let mut patterns = Vec::new();
+
+    // Track session
+    if acc.session_id.is_empty() {
+        acc.session_id = event.data.session_id.clone();
+    }
+
+    // Track event IDs and timestamps
+    acc.event_ids.push(id.to_string());
+    if acc.start_ts.is_none() {
+        acc.start_ts = Some(ts.to_string());
+        acc.env_size_at_start = acc.env_size;
+    }
+
+    match subtype {
+        // ── Thinking: reasoning before responding ──
+        "message.assistant.thinking" => {
+            let summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            acc.pending_thinking = Some(ThinkingRecord { summary });
+        }
+
+        // ── Human prompt: the input to eval ──
+        s if s.starts_with("message.user.prompt") => {
+            acc.env_size += 1;
+            let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            acc.pending_human = Some(HumanInput {
+                content,
+                timestamp: ts.to_string(),
+            });
+        }
+
+        // ── Tool result: apply phase complete ──
+        "message.user.tool_result" => {
+            acc.env_size += 1;
+            // Resolve the first pending apply with this result
+            if let Some(pending) = acc.pending_applies.first().cloned() {
+                acc.pending_applies.remove(0);
+                let output_summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+                let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
+                acc.completed_applies.push(ApplyRecord {
+                    tool_name: pending.tool_name,
+                    input_summary: pending.input_summary,
+                    output_summary,
+                    is_error: false, // TODO: read from payload when available
+                    is_agent: pending.is_agent,
+                    tool_outcome,
+                });
+            }
+            if acc.pending_applies.is_empty() {
+                acc.phase = Phase::ResultsReady;
+            }
+        }
+
+        // ── Assistant message: eval phase ──
+        s if s.starts_with("message.assistant") => {
+            acc.turn_number += 1;
+            acc.env_size += 1;
+            patterns.push(make_pattern(
+                "eval",
+                &acc.session_id,
+                ts,
+                &[id],
+                acc.turn_number,
+                acc.scope_depth,
+                acc.env_size,
+            ));
+            acc.phase = Phase::SawEval;
+
+            // Capture eval content
+            let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            let stop_reason = ap.and_then(|p| p.stop_reason_str()).map(|s| s.to_string());
+            let decision = if subtype == "message.assistant.tool_use" {
+                "tool_use".to_string()
+            } else {
+                "text_only".to_string()
+            };
+            acc.pending_eval = Some(EvalOutput {
+                content,
+                timestamp: ts.to_string(),
+                stop_reason,
+                decision,
+            });
+
+            // Track tool calls — push ALL tool_use blocks to pending_applies
+            if subtype == "message.assistant.tool_use" {
+                if let Some(tool_name) = ap.and_then(|p| p.tool()) {
+                    let tool_input = ap
+                        .and_then(|p| p.args())
+                        .map(|v| summarize_tool_input(tool_name, v))
+                        .unwrap_or_default();
+                    let is_agent = tool_name == "Agent";
+                    acc.pending_applies.push(PendingApply {
+                        tool_name: tool_name.to_string(),
+                        input_summary: tool_input,
+                        is_agent,
+                    });
+                    patterns.push(make_pattern(
+                        "apply",
+                        &acc.session_id,
+                        ts,
+                        &[id],
+                        acc.turn_number,
+                        acc.scope_depth,
+                        acc.env_size,
+                    ));
+                    acc.phase = Phase::SawApply;
+                }
+            }
+        }
+
+        // ── Turn complete: coalgebra step done ──
+        "system.turn.complete" => {
+            let is_terminal = acc.phase != Phase::ResultsReady && acc.phase != Phase::SawApply;
+            let stop_reason = if is_terminal { "end_turn" } else { "tool_use" };
+
+            // Extract duration from payload
+            let duration_ms = ap.and_then(|p| match p {
+                open_story_core::event_data::AgentPayload::ClaudeCode(cc) => cc.duration_ms,
+                _ => None,
+            });
+
+            let env_delta = acc.env_size.saturating_sub(acc.env_size_at_start);
+            let event_ids = std::mem::take(&mut acc.event_ids);
+            let start = acc.start_ts.take().unwrap_or_else(|| ts.to_string());
+
+            // Emit turn_end pattern
+            let stop_str = if is_terminal {
+                "end_turn → TERMINATE"
+            } else {
+                "tool_use → CONTINUE"
+            };
+            patterns.push(PatternEvent {
+                pattern_type: "eval_apply.turn_end".to_string(),
+                session_id: acc.session_id.clone(),
+                event_ids: event_ids.clone(),
+                started_at: start.clone(),
+                ended_at: ts.to_string(),
+                summary: format!(
+                    "Turn {} (depth {}): {} | env: {} messages",
+                    acc.turn_number, acc.scope_depth, stop_str, acc.env_size,
+                ),
+                metadata: serde_json::json!({
+                    "phase": "turn_end",
+                    "turn": acc.turn_number,
+                    "scope_depth": acc.scope_depth,
+                    "env_size": acc.env_size,
+                    "stop_reason": stop_str,
+                }),
+            });
+
+            // Crystallize the turn
+            let turn = StructuralTurn {
+                turn_number: acc.turn_number,
+                scope_depth: acc.scope_depth,
+                human: acc.pending_human.take(),
+                thinking: acc.pending_thinking.take(),
+                eval: acc.pending_eval.take(),
+                applies: std::mem::take(&mut acc.completed_applies),
+                env_size: acc.env_size,
+                env_delta,
+                stop_reason: stop_reason.to_string(),
+                is_terminal,
+                timestamp: start,
+                duration_ms,
+                event_ids,
+            };
+
+            // Reset for next turn
+            acc.pending_applies.clear();
+            acc.phase = Phase::Idle;
+
+            return StepResult::TurnComplete {
+                acc,
+                turn,
+                patterns,
+            };
+        }
+
+        // ── Compaction: GC ──
+        "system.compact" => {
+            patterns.push(make_pattern(
+                "compact",
+                &acc.session_id,
+                ts,
+                &[id],
+                acc.turn_number,
+                acc.scope_depth,
+                acc.env_size,
+            ));
+        }
+
+        _ => {}
+    }
+
+    StepResult::Continue { acc, patterns }
+}
+
+/// Build a PatternEvent. Pure helper — no self.
+fn make_pattern(
+    phase: &str,
+    session_id: &str,
+    ts: &str,
+    ids: &[&str],
+    turn: u32,
     scope_depth: u32,
     env_size: u32,
-    pending_applies: u32,
-    current_turn_ids: Vec<String>,
-    current_turn_start: Option<String>,
-    session_id: String,
-    /// Turn being assembled from CloudEvents.
-    pending_turn: PendingTurn,
+) -> PatternEvent {
+    let summary = match phase {
+        "eval" => format!("Turn {turn}: eval (model examines environment, produces expression)"),
+        "apply" => format!("Turn {turn}: apply (tool dispatch)"),
+        "compact" => format!("GC: context compaction (env was {env_size} messages)"),
+        "scope_open" => format!("Compound procedure: nested eval-apply at depth {scope_depth}"),
+        "scope_close" => format!("Scope closed, returning to depth {scope_depth}"),
+        _ => format!("eval_apply.{phase}"),
+    };
+    PatternEvent {
+        pattern_type: format!("eval_apply.{phase}"),
+        session_id: session_id.to_string(),
+        event_ids: ids.iter().map(|s| s.to_string()).collect(),
+        started_at: ts.to_string(),
+        ended_at: ts.to_string(),
+        summary,
+        metadata: serde_json::json!({
+            "phase": phase,
+            "turn": turn,
+            "scope_depth": scope_depth,
+            "env_size": env_size,
+        }),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EvalApplyDetector — the actor that drives the fold
+// ═══════════════════════════════════════════════════════════════════
+//
+// This is infrastructure, not logic. It holds the accumulator,
+// calls step(), and manages the output buffers. The actual
+// eval-apply logic is in step() above.
+
+/// Eval-apply structural detector.
+/// The actor that drives the `step()` fold over CloudEvents.
+pub struct EvalApplyDetector {
+    acc: Accumulator,
     /// Completed turns ready for downstream consumers.
     completed_turns: Vec<StructuralTurn>,
+    // Legacy ViewRecord support fields
+    legacy_turn_ids: Vec<String>,
+    legacy_turn_start: Option<String>,
 }
 
 impl EvalApplyDetector {
     pub fn new() -> Self {
         Self {
-            state: State::Idle,
-            turn_number: 0,
-            scope_depth: 0,
-            env_size: 0,
-            pending_applies: 0,
-            current_turn_ids: Vec::new(),
-            current_turn_start: None,
-            session_id: String::new(),
-            pending_turn: PendingTurn::default(),
+            acc: Accumulator::default(),
             completed_turns: Vec::new(),
-        }
-    }
-
-    fn emit(&self, phase: &str, ts: &str, ids: &[&str]) -> PatternEvent {
-        PatternEvent {
-            pattern_type: format!("eval_apply.{phase}"),
-            session_id: self.session_id.clone(),
-            event_ids: ids.iter().map(|s| s.to_string()).collect(),
-            started_at: ts.to_string(),
-            ended_at: ts.to_string(),
-            summary: self.phase_summary(phase),
-            metadata: serde_json::json!({
-                "phase": phase,
-                "turn": self.turn_number,
-                "scope_depth": self.scope_depth,
-                "env_size": self.env_size,
-            }),
-        }
-    }
-
-    fn emit_turn_end(&self, start: &str, end: &str, ids: &[String]) -> PatternEvent {
-        let stop = if self.state == State::ResultsReady || self.state == State::SawApply {
-            "tool_use → CONTINUE"
-        } else {
-            "end_turn → TERMINATE"
-        };
-        PatternEvent {
-            pattern_type: "eval_apply.turn_end".to_string(),
-            session_id: self.session_id.clone(),
-            event_ids: ids.to_vec(),
-            started_at: start.to_string(),
-            ended_at: end.to_string(),
-            summary: format!(
-                "Turn {} (depth {}): {} | env: {} messages",
-                self.turn_number, self.scope_depth, stop, self.env_size,
-            ),
-            metadata: serde_json::json!({
-                "phase": "turn_end",
-                "turn": self.turn_number,
-                "scope_depth": self.scope_depth,
-                "env_size": self.env_size,
-                "stop_reason": stop,
-            }),
-        }
-    }
-
-    fn phase_summary(&self, phase: &str) -> String {
-        match phase {
-            "eval" => format!(
-                "Turn {}: eval (model examines environment, produces expression)",
-                self.turn_number
-            ),
-            "apply" => format!("Turn {}: apply (tool dispatch)", self.turn_number),
-            "scope_open" => format!(
-                "Compound procedure: nested eval-apply at depth {}",
-                self.scope_depth
-            ),
-            "scope_close" => format!(
-                "Scope closed, returning to depth {}",
-                self.scope_depth
-            ),
-            "compact" => format!(
-                "GC: context compaction (env was {} messages)",
-                self.env_size
-            ),
-            _ => format!("eval_apply.{phase}"),
+            legacy_turn_ids: Vec::new(),
+            legacy_turn_start: None,
         }
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // CloudEvent path — primary input for the layered pipeline
+    // CloudEvent path — delegates to the pure step() function
     // ═══════════════════════════════════════════════════════════════
 
-    /// Feed a CloudEvent. Returns PatternEvents and accumulates toward StructuralTurns.
-    /// Call `take_completed_turns()` after to collect any completed turns.
+    /// Feed a CloudEvent. The actor calls step(), handles the result.
     pub fn feed_cloud_event(&mut self, event: &CloudEvent) -> Vec<PatternEvent> {
-        let id = event.id.as_str();
-        let ts = event.time.as_str();
-        let subtype = event.subtype.as_deref().unwrap_or("");
-        let ap = event.data.agent_payload.as_ref();
-        let mut events = Vec::new();
-
-        // Track session ID
-        if self.session_id.is_empty() {
-            self.session_id = event.data.session_id.clone();
+        let result = step(self.acc.clone(), event);
+        match result {
+            StepResult::Continue { acc, patterns } => {
+                self.acc = acc;
+                patterns
+            }
+            StepResult::TurnComplete { acc, turn, patterns } => {
+                self.acc = acc;
+                self.completed_turns.push(turn);
+                patterns
+            }
         }
-
-        // Track turn event IDs and timestamps
-        self.current_turn_ids.push(id.to_string());
-        self.pending_turn.event_ids.push(id.to_string());
-        if self.current_turn_start.is_none() {
-            self.current_turn_start = Some(ts.to_string());
-        }
-        if self.pending_turn.start_ts.is_none() {
-            self.pending_turn.start_ts = Some(ts.to_string());
-            self.pending_turn.env_size_at_start = self.env_size;
-        }
-
-        match subtype {
-            // ── Thinking: reasoning before responding ──
-            "message.assistant.thinking" => {
-                let summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-                self.pending_turn.thinking = Some(ThinkingRecord { summary });
-            }
-
-            // ── Human prompt: the input to eval ──
-            s if s.starts_with("message.user.prompt") => {
-                self.env_size += 1;
-                let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-                self.pending_turn.human = Some(HumanInput {
-                    content,
-                    timestamp: ts.to_string(),
-                });
-            }
-
-            // ── Tool result: apply phase complete ──
-            "message.user.tool_result" => {
-                self.env_size += 1;
-                if self.pending_applies > 0 {
-                    self.pending_applies -= 1;
-                }
-                // Resolve pending tool with its result
-                if let Some((name, input_summary, is_agent)) = self.pending_turn.pending_tool.take() {
-                    let output_summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-                    let is_error = false; // TODO: extract from payload
-                    let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
-                    self.pending_turn.applies.push(ApplyRecord {
-                        tool_name: name,
-                        input_summary,
-                        output_summary,
-                        is_error,
-                        is_agent,
-                        tool_outcome,
-                    });
-                }
-                if self.pending_applies == 0 {
-                    self.state = State::ResultsReady;
-                }
-            }
-
-            // ── Assistant message: eval phase ──
-            s if s.starts_with("message.assistant") => {
-                self.turn_number += 1;
-                self.env_size += 1;
-                self.pending_applies = 0;
-                events.push(self.emit("eval", ts, &[id]));
-                self.state = State::SawEval;
-
-                // Capture eval content
-                let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-                let stop_reason = ap.and_then(|p| p.stop_reason_str()).map(|s| s.to_string());
-                let decision = if subtype == "message.assistant.tool_use" {
-                    "tool_use".to_string()
-                } else {
-                    "text_only".to_string()
-                };
-                self.pending_turn.eval = Some(EvalOutput {
-                    content,
-                    timestamp: ts.to_string(),
-                    stop_reason,
-                    decision,
-                });
-
-                // If this is a tool_use message, track tool calls from the payload
-                if subtype == "message.assistant.tool_use" {
-                    if let Some(tool_name) = ap.and_then(|p| p.tool()) {
-                        let tool_input = ap
-                            .and_then(|p| p.args())
-                            .map(|v| summarize_tool_input(tool_name, v))
-                            .unwrap_or_default();
-                        let is_agent = tool_name == "Agent";
-                        self.pending_turn.pending_tool = Some((
-                            tool_name.to_string(),
-                            tool_input,
-                            is_agent,
-                        ));
-                        self.pending_applies += 1;
-                        events.push(self.emit("apply", ts, &[id]));
-                        self.state = State::SawApply;
-                    }
-                }
-            }
-
-            // ── Turn complete: coalgebra step done ──
-            "system.turn.complete" => {
-                let is_terminal = self.state != State::ResultsReady && self.state != State::SawApply;
-                let stop_reason = if is_terminal { "end_turn" } else { "tool_use" };
-                let turn_ids = std::mem::take(&mut self.current_turn_ids);
-                let start = self.current_turn_start
-                    .take()
-                    .unwrap_or_else(|| ts.to_string());
-                events.push(self.emit_turn_end(&start, ts, &turn_ids));
-
-                // Extract duration from payload
-                let duration_ms = ap
-                    .and_then(|p| match p {
-                        open_story_core::event_data::AgentPayload::ClaudeCode(cc) => cc.duration_ms,
-                        _ => None,
-                    });
-
-                // Yield completed StructuralTurn
-                let mut pending = std::mem::take(&mut self.pending_turn);
-                let env_delta = self.env_size.saturating_sub(pending.env_size_at_start);
-                // Use duration from pending if captured, otherwise from this event
-                let final_duration = pending.duration_ms.or(duration_ms);
-
-                self.completed_turns.push(StructuralTurn {
-                    turn_number: self.turn_number,
-                    scope_depth: self.scope_depth,
-                    human: pending.human,
-                    thinking: pending.thinking,
-                    eval: pending.eval,
-                    applies: pending.applies,
-                    env_size: self.env_size,
-                    env_delta,
-                    stop_reason: stop_reason.to_string(),
-                    is_terminal,
-                    timestamp: pending.start_ts.unwrap_or_else(|| ts.to_string()),
-                    duration_ms: final_duration,
-                    event_ids: pending.event_ids,
-                });
-
-                self.state = State::Idle;
-            }
-
-            // ── Compaction: GC ──
-            "system.compact" => {
-                events.push(self.emit("compact", ts, &[id]));
-            }
-
-            _ => {}
-        }
-
-        events
     }
 
-    /// Take completed StructuralTurns. Call after feed_cloud_event().
+    /// Take completed StructuralTurns.
     pub fn take_completed_turns(&mut self) -> Vec<StructuralTurn> {
         std::mem::take(&mut self.completed_turns)
     }
 
     /// Flush: yield any in-progress turn as incomplete.
     pub fn flush_turns(&mut self) -> Vec<StructuralTurn> {
-        if self.pending_turn.eval.is_some() || self.pending_turn.human.is_some() {
-            let pending = std::mem::take(&mut self.pending_turn);
-            let env_delta = self.env_size.saturating_sub(pending.env_size_at_start);
+        if self.acc.pending_eval.is_some() || self.acc.pending_human.is_some() {
+            let env_delta = self.acc.env_size.saturating_sub(self.acc.env_size_at_start);
             let turn = StructuralTurn {
-                turn_number: self.turn_number,
-                scope_depth: self.scope_depth,
-                human: pending.human,
-                thinking: pending.thinking,
-                eval: pending.eval,
-                applies: pending.applies,
-                env_size: self.env_size,
+                turn_number: self.acc.turn_number,
+                scope_depth: self.acc.scope_depth,
+                human: self.acc.pending_human.take(),
+                thinking: self.acc.pending_thinking.take(),
+                eval: self.acc.pending_eval.take(),
+                applies: std::mem::take(&mut self.acc.completed_applies),
+                env_size: self.acc.env_size,
                 env_delta,
                 stop_reason: "end_turn".to_string(),
                 is_terminal: true,
-                timestamp: pending.start_ts.unwrap_or_default(),
-                duration_ms: pending.duration_ms,
-                event_ids: pending.event_ids,
+                timestamp: self.acc.start_ts.take().unwrap_or_default(),
+                duration_ms: None,
+                event_ids: std::mem::take(&mut self.acc.event_ids),
             };
             vec![turn]
         } else {
@@ -465,79 +553,92 @@ impl Detector for EvalApplyDetector {
         "eval_apply"
     }
 
+    /// Legacy ViewRecord path. Uses acc fields directly for backward compat.
     fn feed(&mut self, ctx: &FeedContext) -> Vec<PatternEvent> {
         let record = ctx.record;
         let id = record.id.as_str();
         let ts = record.timestamp.as_str();
         let mut events = Vec::new();
 
-        // Track session ID
-        if self.session_id.is_empty() {
-            self.session_id = record.session_id.clone();
+        if self.acc.session_id.is_empty() {
+            self.acc.session_id = record.session_id.clone();
         }
 
-        // Track scope changes via depth (Agent tool nesting)
+        // Track scope changes via depth
         let depth = ctx.depth as u32;
-        if depth > self.scope_depth {
-            self.scope_depth = depth;
-            events.push(self.emit("scope_open", ts, &[id]));
-        } else if depth < self.scope_depth {
-            self.scope_depth = depth;
-            events.push(self.emit("scope_close", ts, &[id]));
+        if depth > self.acc.scope_depth {
+            self.acc.scope_depth = depth;
+            events.push(make_pattern("scope_open", &self.acc.session_id, ts, &[id],
+                self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
+        } else if depth < self.acc.scope_depth {
+            self.acc.scope_depth = depth;
+            events.push(make_pattern("scope_close", &self.acc.session_id, ts, &[id],
+                self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
         }
 
-        // Track turn event IDs
-        self.current_turn_ids.push(id.to_string());
-        if self.current_turn_start.is_none() {
-            self.current_turn_start = Some(ts.to_string());
+        self.legacy_turn_ids.push(id.to_string());
+        if self.legacy_turn_start.is_none() {
+            self.legacy_turn_start = Some(ts.to_string());
         }
 
         match &record.body {
-            // ── EVAL: model produced a response ──
             RecordBody::AssistantMessage(_) => {
-                self.turn_number += 1;
-                self.env_size += 1;
-                self.pending_applies = 0;
-                events.push(self.emit("eval", ts, &[id]));
-                self.state = State::SawEval;
+                self.acc.turn_number += 1;
+                self.acc.env_size += 1;
+                events.push(make_pattern("eval", &self.acc.session_id, ts, &[id],
+                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
+                self.acc.phase = Phase::SawEval;
             }
 
-            // ── APPLY: tool dispatched ──
             RecordBody::ToolCall(_) => {
-                self.pending_applies += 1;
-                events.push(self.emit("apply", ts, &[id]));
-                self.state = State::SawApply;
+                events.push(make_pattern("apply", &self.acc.session_id, ts, &[id],
+                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
+                self.acc.phase = Phase::SawApply;
             }
 
-            // ── Tool result received ──
             RecordBody::ToolResult(_) => {
-                self.env_size += 1;
-                if self.pending_applies > 0 {
-                    self.pending_applies -= 1;
-                }
-                if self.pending_applies == 0 {
-                    self.state = State::ResultsReady;
-                }
+                self.acc.env_size += 1;
+                self.acc.phase = Phase::ResultsReady;
             }
 
-            // ── User message: grows environment ──
             RecordBody::UserMessage(_) => {
-                self.env_size += 1;
+                self.acc.env_size += 1;
             }
 
-            // ── Turn boundary: coalgebra step complete ──
             RecordBody::TurnEnd(_) => {
-                let turn_ids = std::mem::take(&mut self.current_turn_ids);
-                let start = self.current_turn_start
+                let turn_ids = std::mem::take(&mut self.legacy_turn_ids);
+                let start = self.legacy_turn_start
                     .take()
                     .unwrap_or_else(|| ts.to_string());
-                events.push(self.emit_turn_end(&start, ts, &turn_ids));
-                self.state = State::Idle;
+                let stop_str = if self.acc.phase == Phase::ResultsReady || self.acc.phase == Phase::SawApply {
+                    "tool_use → CONTINUE"
+                } else {
+                    "end_turn → TERMINATE"
+                };
+                events.push(PatternEvent {
+                    pattern_type: "eval_apply.turn_end".to_string(),
+                    session_id: self.acc.session_id.clone(),
+                    event_ids: turn_ids,
+                    started_at: start,
+                    ended_at: ts.to_string(),
+                    summary: format!(
+                        "Turn {} (depth {}): {} | env: {} messages",
+                        self.acc.turn_number, self.acc.scope_depth, stop_str, self.acc.env_size,
+                    ),
+                    metadata: serde_json::json!({
+                        "phase": "turn_end",
+                        "turn": self.acc.turn_number,
+                        "scope_depth": self.acc.scope_depth,
+                        "env_size": self.acc.env_size,
+                        "stop_reason": stop_str,
+                    }),
+                });
+                self.acc.phase = Phase::Idle;
             }
 
-            // ── Compaction: GC fired ──
             RecordBody::ContextCompaction(_) => {
-                events.push(self.emit("compact", ts, &[id]));
+                events.push(make_pattern("compact", &self.acc.session_id, ts, &[id],
+                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
             }
 
             _ => {}
@@ -547,10 +648,28 @@ impl Detector for EvalApplyDetector {
     }
 
     fn flush(&mut self) -> Vec<PatternEvent> {
-        if !self.current_turn_ids.is_empty() {
-            let ids = std::mem::take(&mut self.current_turn_ids);
-            let start = self.current_turn_start.take().unwrap_or_default();
-            vec![self.emit_turn_end(&start, &start, &ids)]
+        if !self.legacy_turn_ids.is_empty() {
+            let ids = std::mem::take(&mut self.legacy_turn_ids);
+            let start = self.legacy_turn_start.take().unwrap_or_default();
+            let stop_str = "end_turn → TERMINATE";
+            vec![PatternEvent {
+                pattern_type: "eval_apply.turn_end".to_string(),
+                session_id: self.acc.session_id.clone(),
+                event_ids: ids,
+                started_at: start.clone(),
+                ended_at: start,
+                summary: format!(
+                    "Turn {} (depth {}): {} | env: {} messages",
+                    self.acc.turn_number, self.acc.scope_depth, stop_str, self.acc.env_size,
+                ),
+                metadata: serde_json::json!({
+                    "phase": "turn_end",
+                    "turn": self.acc.turn_number,
+                    "scope_depth": self.acc.scope_depth,
+                    "env_size": self.acc.env_size,
+                    "stop_reason": stop_str,
+                }),
+            }]
         } else {
             vec![]
         }
