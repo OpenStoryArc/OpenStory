@@ -101,6 +101,7 @@ export function App() {
         <StoryView
           patterns={state.patterns}
           sessionLabels={state.sessionLabels}
+          agentLabels={state.agentLabels}
           selectedSession={storySession}
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
         />

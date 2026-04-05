@@ -26,6 +26,7 @@ import type { PatternView } from "@/types/wire-record";
 interface StoryViewProps {
   patterns: readonly PatternView[];
   sessionLabels: Readonly<Record<string, { label: string | null }>>;
+  agentLabels: Readonly<Record<string, string>>;
   selectedSession: string | null;
   onSelectSession: (sid: string | null) => void;
 }
@@ -38,7 +39,7 @@ const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = 
   { key: "error", label: "Error", color: "#f7768e" },
 ];
 
-export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSession }: StoryViewProps) {
+export function StoryView({ patterns, sessionLabels, agentLabels, selectedSession, onSelectSession }: StoryViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -73,7 +74,7 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
     return counts;
   }, [allSentences]);
 
-  // Sessions with stories — derive labels properly
+  // Sessions with stories — derive labels, separate main from agents
   const sessionsWithStories = useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of patterns) {
@@ -83,20 +84,19 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
     }
     return Array.from(counts.entries()).map(([sid, count]) => {
       const raw = sessionLabels[sid]?.label;
-      const label = raw && raw !== sid ? raw : null;
-      const short = sid.startsWith("agent-") ? sid.slice(0, 14) : sid.slice(0, 8);
-      return {
-        id: sid,
-        label: label ? (label.length > 40 ? label.slice(0, 37) + "..." : label) : short,
-        count,
-        isAgent: sid.startsWith("agent-"),
-      };
+      const isAgent = sid.startsWith("agent-");
+      const agentDesc = agentLabels[sid];
+      const label = agentDesc
+        ? (agentDesc.length > 35 ? agentDesc.slice(0, 32) + "..." : agentDesc)
+        : raw && raw !== sid
+          ? (raw.length > 40 ? raw.slice(0, 37) + "..." : raw)
+          : (isAgent ? sid.slice(6, 18) : sid.slice(0, 8));
+      return { id: sid, label, count, isAgent };
     }).sort((a, b) => {
-      // Main sessions first, then agents. Within each group, by count desc.
       if (a.isAgent !== b.isAgent) return a.isAgent ? 1 : -1;
       return b.count - a.count;
     });
-  }, [patterns, sessionLabels]);
+  }, [patterns, sessionLabels, agentLabels]);
 
   // Auto-scroll
   useEffect(() => {
