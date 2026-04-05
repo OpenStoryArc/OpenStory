@@ -694,8 +694,8 @@ mod pipeline {
         let r2 = assistant_text("b");
         pipeline.feed(&make_ctx(&r2, 0, None));
 
-        let r = pipeline.flush();
+        let (patterns, _turns) = pipeline.flush();
         // At least TurnPhaseDetector should flush
-        assert!(!r.is_empty());
+        assert!(!patterns.is_empty());
     }
 }

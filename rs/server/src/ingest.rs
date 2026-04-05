@@ -497,12 +497,16 @@ pub fn replay_boot_sessions(state: &mut AppState) {
             total_events += 1;
         }
 
-        // Flush remaining patterns from each session's pipeline
+        // Flush remaining patterns and turns from each session's pipeline
         if let Some(pipeline) = state.store.pattern_pipelines.get_mut(sid) {
-            let flushed = pipeline.flush();
-            if !flushed.is_empty() {
-                total_patterns += flushed.len();
-                for pe in &flushed {
+            let (flushed_patterns, flushed_turns) = pipeline.flush();
+            // Persist flushed turns
+            for turn in &flushed_turns {
+                let _ = state.store.event_store.insert_turn(sid, turn);
+            }
+            if !flushed_patterns.is_empty() {
+                total_patterns += flushed_patterns.len();
+                for pe in &flushed_patterns {
                     let _ = state.store.event_store.insert_pattern(sid, pe);
                 }
                 state
@@ -510,7 +514,7 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                     .detected_patterns
                     .entry(sid.clone())
                     .or_default()
-                    .extend(flushed);
+                    .extend(flushed_patterns);
             }
         }
 

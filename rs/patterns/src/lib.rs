@@ -185,7 +185,8 @@ impl PatternPipeline {
     }
 
     /// Flush all detectors across both phases.
-    pub fn flush(&mut self) -> Vec<PatternEvent> {
+    /// Returns (PatternEvents, flushed StructuralTurns).
+    pub fn flush(&mut self) -> (Vec<PatternEvent>, Vec<StructuralTurn>) {
         let mut emitted = Vec::new();
 
         // Flush eval-apply (PatternEvents)
@@ -206,7 +207,7 @@ impl PatternPipeline {
         for d in &mut self.record_detectors {
             emitted.extend(d.flush());
         }
-        emitted
+        (emitted, turns)
     }
 }
 
