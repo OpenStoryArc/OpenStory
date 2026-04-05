@@ -157,47 +157,56 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
 
       {/* Sidebar — hidden on mobile unless toggled */}
       <div className={`
-        ${sidebarOpen ? "fixed inset-0 z-40 w-72" : "hidden"} md:relative md:block md:w-64
+        ${sidebarOpen ? "fixed inset-0 z-40 w-72" : "hidden"} md:relative md:block md:w-80
         bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto p-2 flex-shrink-0
       `}>
-        <div className="text-xs text-[#565f89] uppercase tracking-wide px-2 py-1 mb-1">
-          Sessions
+        <div className="flex items-center justify-between px-2 py-1 mb-1">
+          <span className="text-xs text-[#565f89] uppercase tracking-wide">Sessions</span>
+          <span className="text-xs text-[#565f89]">{sessionsWithStories.filter(s => !s.isAgent).length}</span>
         </div>
-        <button
-          onClick={() => { onSelectSession(null); setSidebarOpen(false); }}
-          className={`w-full text-left px-2 py-1.5 rounded text-sm mb-1 ${
-            !selectedSession ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
-          }`}
-        >
-          All ({allSentences.length} turns)
-        </button>
-        {sessionsWithStories.filter(s => !s.isAgent).map(s => (
-          <button
-            key={s.id}
-            onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
-            className={`w-full text-left px-2 py-1.5 rounded text-sm truncate ${
-              selectedSession === s.id ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
-            }`}
-            title={s.id}
-          >
-            {s.label} <span className="text-[10px] opacity-60">({s.count})</span>
-          </button>
-        ))}
+
+        {/* Main sessions */}
+        {sessionsWithStories.filter(s => !s.isAgent).map(s => {
+          const isActive = selectedSession === s.id;
+          return (
+            <button
+              key={s.id}
+              onClick={() => { onSelectSession(isActive ? null : s.id); setSidebarOpen(false); }}
+              className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
+                isActive ? "bg-[#24283b] border border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
+              }`}
+              title={s.id}
+            >
+              <div className="text-sm text-[#c0caf5] truncate">{s.label}</div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7]">
+                  {s.id.slice(0, 8)}
+                </span>
+                <span className="text-[10px] text-[#565f89]">
+                  {s.count} turns
+                </span>
+              </div>
+            </button>
+          );
+        })}
+
+        {/* Sub-agents */}
         {sessionsWithStories.some(s => s.isAgent) && (
           <>
-            <div className="text-[10px] text-[#565f89] uppercase tracking-wide px-2 py-1 mt-3 mb-1">
-              Sub-agents
+            <div className="flex items-center justify-between px-2 py-1 mt-3 mb-1">
+              <span className="text-[10px] text-[#565f89] uppercase tracking-wide">Agents</span>
+              <span className="text-[10px] text-[#565f89]">{sessionsWithStories.filter(s => s.isAgent).length}</span>
             </div>
             {sessionsWithStories.filter(s => s.isAgent).map(s => (
               <button
                 key={s.id}
                 onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
-                className={`w-full text-left px-2 py-1 rounded text-xs truncate ${
-                  selectedSession === s.id ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#24283b]"
+                className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 ${
+                  selectedSession === s.id ? "bg-[#24283b] border border-[#3b4261] text-[#c0caf5]" : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
                 }`}
                 title={s.id}
               >
-                {s.label} <span className="text-[10px] opacity-60">({s.count})</span>
+                {s.label} <span className="opacity-60">({s.count})</span>
               </button>
             ))}
           </>
