@@ -450,6 +450,7 @@ pub struct EvalApplyDetector {
     // Legacy ViewRecord support fields
     legacy_turn_ids: Vec<String>,
     legacy_turn_start: Option<String>,
+    legacy_scope_depth: u32,
 }
 
 impl EvalApplyDetector {
@@ -459,6 +460,7 @@ impl EvalApplyDetector {
             completed_turns: Vec::new(),
             legacy_turn_ids: Vec::new(),
             legacy_turn_start: None,
+            legacy_scope_depth: 0,
         }
     }
 
@@ -574,16 +576,18 @@ impl Detector for EvalApplyDetector {
             self.acc.session_id = record.session_id.clone();
         }
 
-        // Track scope changes via depth
+        // Track scope changes via depth — use local var, don't mutate shared acc
+        // (ctx.depth is ViewRecord tree depth, not Agent tool scope depth)
         let depth = ctx.depth as u32;
-        if depth > self.acc.scope_depth {
-            self.acc.scope_depth = depth;
+        let prev_depth = self.legacy_scope_depth;
+        if depth > prev_depth {
+            self.legacy_scope_depth = depth;
             events.push(make_pattern("scope_open", &self.acc.session_id, ts, &[id],
-                self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
-        } else if depth < self.acc.scope_depth {
-            self.acc.scope_depth = depth;
+                self.acc.turn_number, depth, self.acc.env_size));
+        } else if depth < prev_depth {
+            self.legacy_scope_depth = depth;
             events.push(make_pattern("scope_close", &self.acc.session_id, ts, &[id],
-                self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
+                self.acc.turn_number, depth, self.acc.env_size));
         }
 
         self.legacy_turn_ids.push(id.to_string());
