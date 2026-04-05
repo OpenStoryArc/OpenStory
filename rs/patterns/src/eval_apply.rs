@@ -447,10 +447,14 @@ pub struct EvalApplyDetector {
     acc: Accumulator,
     /// Completed turns ready for downstream consumers.
     completed_turns: Vec<StructuralTurn>,
-    // Legacy ViewRecord support fields
+    // Legacy ViewRecord support — separate state, does NOT touch acc
     legacy_turn_ids: Vec<String>,
     legacy_turn_start: Option<String>,
     legacy_scope_depth: u32,
+    legacy_turn_number: u32,
+    legacy_env_size: u32,
+    legacy_phase: Phase,
+    legacy_session_id: String,
 }
 
 impl EvalApplyDetector {
@@ -461,6 +465,10 @@ impl EvalApplyDetector {
             legacy_turn_ids: Vec::new(),
             legacy_turn_start: None,
             legacy_scope_depth: 0,
+            legacy_turn_number: 0,
+            legacy_env_size: 0,
+            legacy_phase: Phase::Idle,
+            legacy_session_id: String::new(),
         }
     }
 
@@ -565,29 +573,26 @@ impl Detector for EvalApplyDetector {
         "eval_apply"
     }
 
-    /// Legacy ViewRecord path. Uses acc fields directly for backward compat.
+    /// Legacy ViewRecord path. Uses its OWN state — does NOT touch self.acc.
     fn feed(&mut self, ctx: &FeedContext) -> Vec<PatternEvent> {
         let record = ctx.record;
         let id = record.id.as_str();
         let ts = record.timestamp.as_str();
         let mut events = Vec::new();
 
-        if self.acc.session_id.is_empty() {
-            self.acc.session_id = record.session_id.clone();
+        if self.legacy_session_id.is_empty() {
+            self.legacy_session_id = record.session_id.clone();
         }
 
-        // Track scope changes via depth — use local var, don't mutate shared acc
-        // (ctx.depth is ViewRecord tree depth, not Agent tool scope depth)
         let depth = ctx.depth as u32;
-        let prev_depth = self.legacy_scope_depth;
-        if depth > prev_depth {
+        if depth > self.legacy_scope_depth {
             self.legacy_scope_depth = depth;
-            events.push(make_pattern("scope_open", &self.acc.session_id, ts, &[id],
-                self.acc.turn_number, depth, self.acc.env_size));
-        } else if depth < prev_depth {
+            events.push(make_pattern("scope_open", &self.legacy_session_id, ts, &[id],
+                self.legacy_turn_number, depth, self.legacy_env_size));
+        } else if depth < self.legacy_scope_depth {
             self.legacy_scope_depth = depth;
-            events.push(make_pattern("scope_close", &self.acc.session_id, ts, &[id],
-                self.acc.turn_number, depth, self.acc.env_size));
+            events.push(make_pattern("scope_close", &self.legacy_session_id, ts, &[id],
+                self.legacy_turn_number, depth, self.legacy_env_size));
         }
 
         self.legacy_turn_ids.push(id.to_string());
@@ -597,67 +602,54 @@ impl Detector for EvalApplyDetector {
 
         match &record.body {
             RecordBody::AssistantMessage(_) => {
-                self.acc.turn_number += 1;
-                self.acc.env_size += 1;
-                events.push(make_pattern("eval", &self.acc.session_id, ts, &[id],
-                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
-                self.acc.phase = Phase::SawEval;
+                self.legacy_turn_number += 1;
+                self.legacy_env_size += 1;
+                events.push(make_pattern("eval", &self.legacy_session_id, ts, &[id],
+                    self.legacy_turn_number, self.legacy_scope_depth, self.legacy_env_size));
+                self.legacy_phase = Phase::SawEval;
             }
-
             RecordBody::ToolCall(_) => {
-                events.push(make_pattern("apply", &self.acc.session_id, ts, &[id],
-                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
-                self.acc.phase = Phase::SawApply;
+                events.push(make_pattern("apply", &self.legacy_session_id, ts, &[id],
+                    self.legacy_turn_number, self.legacy_scope_depth, self.legacy_env_size));
+                self.legacy_phase = Phase::SawApply;
             }
-
             RecordBody::ToolResult(_) => {
-                self.acc.env_size += 1;
-                self.acc.phase = Phase::ResultsReady;
+                self.legacy_env_size += 1;
+                self.legacy_phase = Phase::ResultsReady;
             }
-
             RecordBody::UserMessage(_) => {
-                self.acc.env_size += 1;
+                self.legacy_env_size += 1;
             }
-
             RecordBody::TurnEnd(_) => {
                 let turn_ids = std::mem::take(&mut self.legacy_turn_ids);
-                let start = self.legacy_turn_start
-                    .take()
-                    .unwrap_or_else(|| ts.to_string());
-                let stop_str = if self.acc.phase == Phase::ResultsReady || self.acc.phase == Phase::SawApply {
+                let start = self.legacy_turn_start.take().unwrap_or_else(|| ts.to_string());
+                let stop_str = if self.legacy_phase == Phase::ResultsReady || self.legacy_phase == Phase::SawApply {
                     "tool_use → CONTINUE"
                 } else {
                     "end_turn → TERMINATE"
                 };
                 events.push(PatternEvent {
                     pattern_type: "eval_apply.turn_end".to_string(),
-                    session_id: self.acc.session_id.clone(),
+                    session_id: self.legacy_session_id.clone(),
                     event_ids: turn_ids,
                     started_at: start,
                     ended_at: ts.to_string(),
-                    summary: format!(
-                        "Turn {} (depth {}): {} | env: {} messages",
-                        self.acc.turn_number, self.acc.scope_depth, stop_str, self.acc.env_size,
-                    ),
+                    summary: format!("Turn {} (depth {}): {} | env: {} messages",
+                        self.legacy_turn_number, self.legacy_scope_depth, stop_str, self.legacy_env_size),
                     metadata: serde_json::json!({
-                        "phase": "turn_end",
-                        "turn": self.acc.turn_number,
-                        "scope_depth": self.acc.scope_depth,
-                        "env_size": self.acc.env_size,
+                        "phase": "turn_end", "turn": self.legacy_turn_number,
+                        "scope_depth": self.legacy_scope_depth, "env_size": self.legacy_env_size,
                         "stop_reason": stop_str,
                     }),
                 });
-                self.acc.phase = Phase::Idle;
+                self.legacy_phase = Phase::Idle;
             }
-
             RecordBody::ContextCompaction(_) => {
-                events.push(make_pattern("compact", &self.acc.session_id, ts, &[id],
-                    self.acc.turn_number, self.acc.scope_depth, self.acc.env_size));
+                events.push(make_pattern("compact", &self.legacy_session_id, ts, &[id],
+                    self.legacy_turn_number, self.legacy_scope_depth, self.legacy_env_size));
             }
-
             _ => {}
         }
-
         events
     }
 
@@ -665,23 +657,17 @@ impl Detector for EvalApplyDetector {
         if !self.legacy_turn_ids.is_empty() {
             let ids = std::mem::take(&mut self.legacy_turn_ids);
             let start = self.legacy_turn_start.take().unwrap_or_default();
-            let stop_str = "end_turn → TERMINATE";
             vec![PatternEvent {
                 pattern_type: "eval_apply.turn_end".to_string(),
-                session_id: self.acc.session_id.clone(),
+                session_id: self.legacy_session_id.clone(),
                 event_ids: ids,
                 started_at: start.clone(),
                 ended_at: start,
-                summary: format!(
-                    "Turn {} (depth {}): {} | env: {} messages",
-                    self.acc.turn_number, self.acc.scope_depth, stop_str, self.acc.env_size,
-                ),
+                summary: format!("Turn {} | env: {} messages",
+                    self.legacy_turn_number, self.legacy_env_size),
                 metadata: serde_json::json!({
-                    "phase": "turn_end",
-                    "turn": self.acc.turn_number,
-                    "scope_depth": self.acc.scope_depth,
-                    "env_size": self.acc.env_size,
-                    "stop_reason": stop_str,
+                    "phase": "turn_end", "turn": self.legacy_turn_number,
+                    "scope_depth": self.legacy_scope_depth, "env_size": self.legacy_env_size,
                 }),
             }]
         } else {
