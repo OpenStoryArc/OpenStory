@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::event_data::{AgentPayload, ClaudeCodePayload, EventData};
+use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData};
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -44,6 +44,14 @@ pub enum TranscriptFormat {
     PiMono,
 }
 
+/// A pending tool call: name + input, keyed by tool_use_id.
+/// Used to derive ToolOutcome when the tool_result arrives.
+#[derive(Debug, Clone)]
+struct PendingToolCall {
+    name: String,
+    input: Value,
+}
+
 /// Mutable state for one transcript file's translation session.
 pub struct TranscriptState {
     pub session_id: String,
@@ -52,6 +60,8 @@ pub struct TranscriptState {
     pub seen_uuids: HashSet<String>,
     pub format: TranscriptFormat,
     seq: u64,
+    /// tool_use_id → (tool_name, tool_input) for domain event derivation.
+    pending_tool_calls: std::collections::HashMap<String, PendingToolCall>,
 }
 
 impl TranscriptState {
@@ -63,6 +73,7 @@ impl TranscriptState {
             seen_uuids: HashSet::new(),
             format: TranscriptFormat::Unknown,
             seq: 0,
+            pending_tool_calls: std::collections::HashMap::new(),
         }
     }
 
@@ -328,6 +339,24 @@ fn extract_first_tool_from_content(content: &Value) -> Option<(String, Value)> {
     None
 }
 
+/// Extract all tool_use blocks from content: (tool_use_id, name, input).
+fn extract_all_tool_uses(content: &Value) -> Vec<(String, String, Value)> {
+    let mut result = Vec::new();
+    if let Value::Array(blocks) = content {
+        for block in blocks {
+            if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                if !id.is_empty() {
+                    result.push((id, name, input));
+                }
+            }
+        }
+    }
+    result
+}
+
 /// Pure function: translate one parsed transcript JSON line into CloudEvent(s).
 ///
 /// Returns zero events for unknown types or duplicate UUIDs.
@@ -366,6 +395,49 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         "file-history-snapshot" => Some("file.snapshot".to_string()),
         _ => None,
     };
+
+    // ── Domain event tracking ──
+    // Track tool_use blocks from assistant messages for later outcome derivation.
+    if entry_type == "assistant" {
+        let message = line.get("message").unwrap_or(&Value::Null);
+        let content = message.get("content").unwrap_or(&Value::Null);
+        for (tool_use_id, name, input) in extract_all_tool_uses(content) {
+            state.pending_tool_calls.insert(
+                tool_use_id,
+                PendingToolCall { name, input },
+            );
+        }
+    }
+
+    // Derive tool_outcome for tool_result events by correlating with pending tool calls.
+    if subtype.as_deref() == Some("message.user.tool_result") {
+        let message = line.get("message").unwrap_or(&Value::Null);
+        let content = message.get("content").unwrap_or(&Value::Null);
+        if let Value::Array(blocks) = content {
+            for block in blocks {
+                if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                    let tool_use_id = block.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("");
+                    if let Some(pending) = state.pending_tool_calls.remove(tool_use_id) {
+                        let result_output = block
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let is_error = block
+                            .get("is_error")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        payload.tool_outcome = derive_tool_outcome(
+                            &pending.name,
+                            &pending.input,
+                            result_output,
+                            is_error,
+                        );
+                        break; // First result wins for the payload-level field
+                    }
+                }
+            }
+        }
+    }
 
     // Session ID from envelope overrides filename-derived one (for sidechain files)
     let session_id = line

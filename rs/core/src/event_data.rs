@@ -13,6 +13,142 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// ── Domain Events ─────────────────────────────────────────────────
+//
+// What changed in the world. Derived deterministically from tool_call
+// + tool_result pairs. Same input → same output. No heuristics.
+//
+// Maps to: 03-tools.scm (tool dispatch returns typed results)
+// Prototype: docs/research/eval-apply-prototype/domain.ts
+
+/// What a tool call changed in the world.
+/// Deterministic projection: tool name + input + result → ToolOutcome.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum ToolOutcome {
+    /// Write tool + "created successfully" in result
+    FileCreated { path: String },
+    /// Write tool + "updated successfully", or any Edit tool
+    FileModified { path: String },
+    /// Read tool (successful)
+    FileRead { path: String },
+    /// Write/Edit tool with is_error
+    FileWriteFailed { path: String, reason: String },
+    /// Read tool with is_error
+    FileReadFailed { path: String, reason: String },
+    /// Grep, Glob, WebSearch, WebFetch
+    SearchPerformed { pattern: String, source: String },
+    /// Bash tool
+    CommandExecuted { command: String, succeeded: bool },
+    /// Agent tool
+    SubAgentSpawned { description: String },
+}
+
+/// Derive the domain event from a tool call + result pair.
+/// Pure function: same input → same output. No heuristics.
+///
+/// Maps to: prototype `toDomainEvent()` in `domain.ts`
+/// Scheme parallel: 03-tools.scm — tool dispatch returns typed results
+pub fn derive_tool_outcome(
+    tool_name: &str,
+    tool_input: &Value,
+    result_output: &str,
+    is_error: bool,
+) -> Option<ToolOutcome> {
+    match tool_name {
+        "Write" => {
+            let path = tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if is_error {
+                Some(ToolOutcome::FileWriteFailed {
+                    path,
+                    reason: result_output.to_string(),
+                })
+            } else if result_output.contains("created successfully") {
+                Some(ToolOutcome::FileCreated { path })
+            } else {
+                Some(ToolOutcome::FileModified { path })
+            }
+        }
+        "Edit" => {
+            let path = tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if is_error {
+                Some(ToolOutcome::FileWriteFailed {
+                    path,
+                    reason: result_output.to_string(),
+                })
+            } else {
+                Some(ToolOutcome::FileModified { path })
+            }
+        }
+        "Read" => {
+            let path = tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if is_error {
+                Some(ToolOutcome::FileReadFailed {
+                    path,
+                    reason: result_output.to_string(),
+                })
+            } else {
+                Some(ToolOutcome::FileRead { path })
+            }
+        }
+        "Grep" | "Glob" => {
+            let pattern = tool_input
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ToolOutcome::SearchPerformed {
+                pattern,
+                source: "filesystem".to_string(),
+            })
+        }
+        "WebSearch" | "WebFetch" => {
+            let query = tool_input
+                .get("query")
+                .or_else(|| tool_input.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ToolOutcome::SearchPerformed {
+                pattern: query,
+                source: "web".to_string(),
+            })
+        }
+        "Bash" => {
+            let command = tool_input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ToolOutcome::CommandExecuted {
+                command,
+                succeeded: !is_error,
+            })
+        }
+        "Agent" => {
+            let description = tool_input
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(ToolOutcome::SubAgentSpawned { description })
+        }
+        _ => None, // Unknown tool — no domain event
+    }
+}
+
 // ── Foundation ─────────────────────────────────────────────────────
 
 /// The event data envelope. Foundation is always present.
@@ -117,6 +253,10 @@ pub struct ClaudeCodePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Value>,
 
+    // ── Domain event: what this tool call changed in the world ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_outcome: Option<ToolOutcome>,
+
     // ── Token usage (Claude Code shape) ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<Value>,
@@ -171,6 +311,7 @@ impl ClaudeCodePayload {
             content_types: None,
             tool: None,
             args: None,
+            tool_outcome: None,
             token_usage: None,
             slug: None,
             message_id: None,
@@ -227,6 +368,10 @@ pub struct PiMonoPayload {
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Value>,
+
+    // ── Domain event: what this tool call changed in the world ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_outcome: Option<ToolOutcome>,
 
     // ── Token usage (pi-mono shape) ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -286,6 +431,7 @@ impl PiMonoPayload {
             content_types: None,
             tool: None,
             args: None,
+            tool_outcome: None,
             token_usage: None,
             provider: None,
             thinking_level: None,
@@ -392,6 +538,14 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.content_types.as_deref(),
             AgentPayload::PiMono(p) => p.content_types.as_deref(),
+        }
+    }
+
+    /// Get tool_outcome from either variant.
+    pub fn tool_outcome(&self) -> Option<&ToolOutcome> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.tool_outcome.as_ref(),
+            AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
         }
     }
 }
@@ -553,6 +707,279 @@ mod tests {
         assert!(!ap.contains_key("tool"));
         assert!(!ap.contains_key("model"));
         assert!(!ap.contains_key("is_sidechain"));
+    }
+
+    // ── derive_tool_outcome tests ──────────────────────────────────
+    // Maps 1:1 to prototype domain-test.ts (20 tests).
+    // Scheme parallel: 03-tools.scm — tool dispatch returns typed results.
+
+    mod derive_tool_outcome_tests {
+        use super::*;
+        use crate::event_data::derive_tool_outcome;
+
+        #[test]
+        fn write_created_successfully_produces_file_created() {
+            let outcome = derive_tool_outcome(
+                "Write",
+                &json!({"file_path": "/scheme/01-types.scm"}),
+                "File created successfully at: /scheme/01-types.scm",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileCreated {
+                    path: "/scheme/01-types.scm".to_string()
+                })
+            );
+        }
+
+        #[test]
+        fn write_without_created_produces_file_modified() {
+            let outcome = derive_tool_outcome(
+                "Write",
+                &json!({"file_path": "/README.md"}),
+                "The file has been updated successfully.",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileModified {
+                    path: "/README.md".to_string()
+                })
+            );
+        }
+
+        #[test]
+        fn write_error_produces_file_write_failed() {
+            let outcome = derive_tool_outcome(
+                "Write",
+                &json!({"file_path": "/readonly.txt"}),
+                "Permission denied",
+                true,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileWriteFailed {
+                    path: "/readonly.txt".to_string(),
+                    reason: "Permission denied".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn edit_produces_file_modified() {
+            let outcome = derive_tool_outcome(
+                "Edit",
+                &json!({"file_path": "/src/main.rs", "old_string": "a", "new_string": "b"}),
+                "The file has been updated successfully.",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileModified {
+                    path: "/src/main.rs".to_string()
+                })
+            );
+        }
+
+        #[test]
+        fn edit_error_produces_file_write_failed() {
+            let outcome = derive_tool_outcome(
+                "Edit",
+                &json!({"file_path": "/src/main.rs"}),
+                "old_string not found in file",
+                true,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileWriteFailed {
+                    path: "/src/main.rs".to_string(),
+                    reason: "old_string not found in file".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn read_produces_file_read() {
+            let outcome = derive_tool_outcome(
+                "Read",
+                &json!({"file_path": "/Cargo.toml"}),
+                "[package]\nname = \"open-story\"",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileRead {
+                    path: "/Cargo.toml".to_string()
+                })
+            );
+        }
+
+        #[test]
+        fn read_error_produces_file_read_failed() {
+            let outcome = derive_tool_outcome(
+                "Read",
+                &json!({"file_path": "/nonexistent.rs"}),
+                "File not found: /nonexistent.rs",
+                true,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::FileReadFailed {
+                    path: "/nonexistent.rs".to_string(),
+                    reason: "File not found: /nonexistent.rs".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn grep_produces_search_performed() {
+            let outcome = derive_tool_outcome(
+                "Grep",
+                &json!({"pattern": "TODO"}),
+                "src/main.rs:2: // TODO: fix this",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::SearchPerformed {
+                    pattern: "TODO".to_string(),
+                    source: "filesystem".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn glob_produces_search_performed() {
+            let outcome = derive_tool_outcome(
+                "Glob",
+                &json!({"pattern": "**/*.rs"}),
+                "src/main.rs\nsrc/lib.rs",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::SearchPerformed {
+                    pattern: "**/*.rs".to_string(),
+                    source: "filesystem".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn web_search_produces_search_performed() {
+            let outcome = derive_tool_outcome(
+                "WebSearch",
+                &json!({"query": "rust async patterns"}),
+                "Results...",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::SearchPerformed {
+                    pattern: "rust async patterns".to_string(),
+                    source: "web".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn web_fetch_uses_url_as_pattern() {
+            let outcome = derive_tool_outcome(
+                "WebFetch",
+                &json!({"url": "https://example.com/docs"}),
+                "<html>...</html>",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::SearchPerformed {
+                    pattern: "https://example.com/docs".to_string(),
+                    source: "web".to_string(),
+                })
+            );
+        }
+
+        #[test]
+        fn bash_success_produces_command_executed() {
+            let outcome = derive_tool_outcome(
+                "Bash",
+                &json!({"command": "cargo test"}),
+                "test result: ok. 5 passed",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::CommandExecuted {
+                    command: "cargo test".to_string(),
+                    succeeded: true,
+                })
+            );
+        }
+
+        #[test]
+        fn bash_error_produces_command_failed() {
+            let outcome = derive_tool_outcome(
+                "Bash",
+                &json!({"command": "cargo test"}),
+                "test result: FAILED",
+                true,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::CommandExecuted {
+                    command: "cargo test".to_string(),
+                    succeeded: false,
+                })
+            );
+        }
+
+        #[test]
+        fn agent_produces_sub_agent_spawned() {
+            let outcome = derive_tool_outcome(
+                "Agent",
+                &json!({"description": "research task", "prompt": "Find all TODO items"}),
+                "Found 3 TODOs...",
+                false,
+            );
+            assert_eq!(
+                outcome,
+                Some(ToolOutcome::SubAgentSpawned {
+                    description: "research task".to_string()
+                })
+            );
+        }
+
+        #[test]
+        fn unknown_tool_produces_none() {
+            let outcome = derive_tool_outcome("FutureTool", &json!({}), "ok", false);
+            assert!(outcome.is_none());
+        }
+
+        #[test]
+        fn tool_outcome_serializes_with_type_tag() {
+            let outcome = ToolOutcome::FileCreated {
+                path: "/test.rs".to_string(),
+            };
+            let json = serde_json::to_value(&outcome).unwrap();
+            assert_eq!(json["type"], "FileCreated");
+            assert_eq!(json["path"], "/test.rs");
+        }
+
+        #[test]
+        fn tool_outcome_round_trips() {
+            let outcomes = vec![
+                ToolOutcome::FileCreated { path: "/a.rs".to_string() },
+                ToolOutcome::FileModified { path: "/b.rs".to_string() },
+                ToolOutcome::CommandExecuted { command: "ls".to_string(), succeeded: true },
+                ToolOutcome::SearchPerformed { pattern: "TODO".to_string(), source: "filesystem".to_string() },
+            ];
+            for outcome in outcomes {
+                let json = serde_json::to_value(&outcome).unwrap();
+                let round_tripped: ToolOutcome = serde_json::from_value(json).unwrap();
+                assert_eq!(outcome, round_tripped);
+            }
+        }
     }
 
     #[test]

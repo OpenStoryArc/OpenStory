@@ -938,3 +938,124 @@ fn test_progress_nested_agent_id_is_snake_case() {
     assert!(p.extra.get("agentId").is_none());
     assert!(p.extra.get("parentToolUseID").is_none());
 }
+
+// ── Tool outcome derivation (domain events) ───────────────
+
+/// When an assistant message with tool_use is followed by a user message
+/// with tool_result, the tool_outcome should be derived on the result event.
+#[test]
+fn test_tool_outcome_derived_from_assistant_tool_use_and_user_tool_result() {
+    let mut s = state();
+
+    // Step 1: Assistant requests a Bash tool
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-tool-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Let me check."},
+                {"type": "tool_use", "id": "toolu_abc", "name": "Bash", "input": {"command": "cargo test"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    let _assistant_events = translate_line(&assistant_line, &mut s);
+
+    // Step 2: User sends back the tool result
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-tool-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_abc", "content": "test result: ok. 5 passed"},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert!(p.tool_outcome.is_some(), "tool_outcome should be derived");
+    assert_eq!(
+        p.tool_outcome,
+        Some(open_story::event_data::ToolOutcome::CommandExecuted {
+            command: "cargo test".to_string(),
+            succeeded: true,
+        })
+    );
+}
+
+/// When assistant uses Write tool and result says "created successfully",
+/// the tool_outcome should be FileCreated.
+#[test]
+fn test_tool_outcome_write_creates_file() {
+    let mut s = state();
+
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-write",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_write", "name": "Write", "input": {"file_path": "/new.rs"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-write-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_write", "content": "File created successfully at: /new.rs"},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert_eq!(
+        p.tool_outcome,
+        Some(open_story::event_data::ToolOutcome::FileCreated {
+            path: "/new.rs".to_string(),
+        })
+    );
+}
+
+/// When there's no preceding tool_use, tool_outcome should be None.
+#[test]
+fn test_tool_outcome_none_without_preceding_tool_use() {
+    let mut s = state();
+
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-orphan-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_unknown", "content": "something"},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert!(p.tool_outcome.is_none(), "should be None without matching tool_use");
+}
+
+/// Plain user prompt messages should not have tool_outcome.
+#[test]
+fn test_tool_outcome_absent_on_plain_user_message() {
+    let mut s = state();
+    let line = base_entry(json!({
+        "type": "user",
+        "message": {"role": "user", "content": "Hello Claude"},
+    }));
+    let events = translate_line(&line, &mut s);
+    let p = cc_payload(&events[0]);
+    assert!(p.tool_outcome.is_none());
+}

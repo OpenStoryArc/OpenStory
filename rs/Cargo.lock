@@ -2324,6 +2324,7 @@ dependencies = [
 name = "open-story-patterns"
 version = "0.1.0"
 dependencies = [
+ "open-story-core",
  "open-story-views",
  "serde",
  "serde_json",

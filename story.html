@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open Story - Sentences</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1a1b26; color: #c0caf5;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+    font-size: 13px; line-height: 1.6;
+    padding: 24px; max-width: 960px; margin: 0 auto;
+  }
+  h1 { color: #7aa2f7; font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: #565f89; font-size: 12px; margin-bottom: 20px; }
+  select { background: #24283b; color: #c0caf5; border: 1px solid #3b4261; padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 12px; margin-bottom: 16px; }
+
+  .sentence-card {
+    margin-bottom: 8px; border-radius: 8px; background: #1f2335;
+    border: 1px solid #2a2e42; overflow: hidden;
+  }
+  .sentence-card:hover { border-color: #3b4261; }
+
+  .sentence-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 14px; background: #24283b;
+  }
+  .turn-num { color: #7aa2f7; font-weight: bold; font-size: 12px; }
+  .badge { font-size: 9px; padding: 2px 7px; border-radius: 3px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+  .badge.answered { background: #9ece6a18; color: #9ece6a; border: 1px solid #9ece6a33; }
+  .badge.continued { background: #e0af6818; color: #e0af68; border: 1px solid #e0af6833; }
+
+  .sentence-body { padding: 10px 14px; }
+
+  .one-liner { color: #c0caf5; font-size: 13px; font-style: italic; margin-bottom: 8px; }
+
+  .diagram { margin: 4px 0 8px; font-size: 11px; cursor: pointer; }
+  .diagram-hint { color: #565f89; font-size: 10px; padding: 2px 0; }
+  .diagram-hint:hover { color: #7aa2f7; }
+  .diagram-body { display: none; padding: 8px 12px; background: #1a1b26; border-radius: 4px; margin-top: 4px; }
+  .diagram.open .diagram-body { display: block; }
+  .diagram.open .diagram-hint { display: none; }
+  .diagram-subject { color: #7aa2f7; font-weight: bold; }
+  .diagram-line { color: #3b4261; }
+  .diagram-verb { color: #9ece6a; font-weight: bold; }
+  .diagram-object { color: #c0caf5; }
+  .diagram-clause { padding-left: 20px; margin: 2px 0; }
+  .diagram-branch { color: #3b4261; }
+  .diagram-predicate { margin-top: 4px; padding-left: 20px; color: #9ece6a; }
+  .diagram-count { color: #565f89; font-size: 10px; }
+
+  .stats-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; padding: 12px 16px; background: #24283b; border-radius: 8px; }
+  .stat { color: #a9b1d6; font-size: 12px; }
+  .stat b { color: #c0caf5; }
+
+  .loading { color: #565f89; font-style: italic; padding: 40px; text-align: center; }
+  .error { color: #f7768e; padding: 20px; }
+</style>
+</head>
+<body>
+
+<h1>The Metacircular Evaluator, Observed</h1>
+<div class="subtitle">Each turn is one step of the coalgebra. Each sentence is a summary of what happened.</div>
+
+<select id="session-select"><option value="">Loading sessions...</option></select>
+
+<div id="stats" class="stats-bar" style="display:none"></div>
+<div id="sentences"></div>
+
+<script>
+const API = 'http://localhost:3002';
+
+const ROLE_COLORS = {
+  Preparatory: '#7dcfff', Creative: '#9ece6a', Verificatory: '#e0af68',
+  Delegatory: '#bb9af7', Interactive: '#565f89'
+};
+
+async function loadSessions() {
+  const res = await fetch(`${API}/api/sessions`);
+  const sessions = await res.json();
+  const sel = document.getElementById('session-select');
+  sel.innerHTML = '<option value="">Select a session...</option>';
+  for (const s of sessions.slice(0, 30)) {
+    const label = (s.first_prompt || s.session_id).slice(0, 60);
+    const opt = document.createElement('option');
+    opt.value = s.session_id;
+    opt.textContent = `${label} (${s.event_count} events)`;
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', () => {
+    if (sel.value) loadSentences(sel.value);
+  });
+}
+
+async function loadSentences(sessionId) {
+  const el = document.getElementById('sentences');
+  el.innerHTML = '<div class="loading">Loading sentences...</div>';
+
+  const res = await fetch(`${API}/api/sessions/${sessionId}/patterns?type=turn.sentence`);
+  const data = await res.json();
+  const patterns = data.patterns || [];
+
+  if (patterns.length === 0) {
+    el.innerHTML = '<div class="loading">No sentences found for this session.</div>';
+    document.getElementById('stats').style.display = 'none';
+    return;
+  }
+
+  // Stats
+  const statsEl = document.getElementById('stats');
+  statsEl.style.display = 'flex';
+  const verbs = {};
+  for (const p of patterns) {
+    const v = p.metadata?.verb || '?';
+    verbs[v] = (verbs[v] || 0) + 1;
+  }
+  const verbStr = Object.entries(verbs).sort((a,b) => b[1]-a[1])
+    .map(([v,c]) => `<b>${c}</b> ${esc(v)}`).join(' &middot; ');
+  statsEl.innerHTML = `
+    <div class="stat"><b>${patterns.length}</b> turns</div>
+    <div class="stat">Verbs: ${verbStr}</div>
+  `;
+
+  // Render sentences
+  el.innerHTML = patterns.map((p, i) => renderSentence(p, i)).join('\n');
+}
+
+function renderSentence(pattern, index) {
+  const m = pattern.metadata || {};
+  const predicate = m.predicate || 'answered';
+  const badgeCls = predicate === 'continued' ? 'continued' : 'answered';
+  const turn = m.turn || (index + 1);
+
+  // Diagram
+  let diagramHtml = '';
+  const subs = m.subordinates || [];
+  if (subs.length > 0 || m.adverbial) {
+    let clauses = '';
+    for (const sub of subs) {
+      const color = ROLE_COLORS[sub.role] || '#565f89';
+      clauses += `
+        <div class="diagram-clause">
+          <span class="diagram-branch">\u251c\u2500\u2500</span>
+          <span style="color: ${color}">${esc(sub.verb)}</span>
+          <span class="diagram-object">${esc(sub.object)}</span>
+          <span class="diagram-count">(${sub.tool_calls})</span>
+        </div>`;
+    }
+    if (m.adverbial) {
+      clauses += `
+        <div class="diagram-clause">
+          <span class="diagram-branch">\u2514\u2500\u2500</span>
+          <span style="color: #f7768e">because</span>
+          <span class="diagram-object">${esc(m.adverbial)}</span>
+        </div>`;
+    }
+    diagramHtml = `
+      <div class="diagram" onclick="this.classList.toggle('open')">
+        <div class="diagram-hint">\u25b6 diagram</div>
+        <div class="diagram-body">
+          <div>
+            <span class="diagram-subject">${esc(m.subject || 'Claude')}</span>
+            <span class="diagram-line">\u2500\u2500\u2500\u2500</span>
+            <span class="diagram-verb">${esc(m.verb || '')}</span>
+            <span class="diagram-line">\u2500\u2500\u2500\u2500</span>
+            <span class="diagram-object">${esc(m.object || '')}</span>
+          </div>
+          ${clauses}
+          <div class="diagram-predicate">\u2192 ${esc(predicate)}</div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="sentence-card">
+      <div class="sentence-header">
+        <span class="turn-num">Turn ${turn}</span>
+        <span class="badge ${badgeCls}">${predicate}</span>
+      </div>
+      <div class="sentence-body">
+        <div class="one-liner">${esc(pattern.summary)}</div>
+        ${diagramHtml}
+      </div>
+    </div>`;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+loadSessions();
+</script>
+</body>
+</html>

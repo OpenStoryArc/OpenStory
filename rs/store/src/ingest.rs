@@ -409,6 +409,7 @@ mod tests {
                 call_id: "toolu_big".to_string(),
                 output: Some(large_output),
                 is_error: false,
+                tool_outcome: None,
             }),
         };
 
@@ -433,6 +434,7 @@ mod tests {
                 call_id: "toolu_sm".to_string(),
                 output: Some("small output".to_string()),
                 is_error: false,
+                tool_outcome: None,
             }),
         };
 

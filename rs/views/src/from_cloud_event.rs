@@ -117,7 +117,8 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
             let payload_value = ap
                 .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
                 .unwrap_or(Value::Null);
-            extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time)
+            let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
+            extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time, tool_outcome)
         }
 
         s if s.starts_with("message.assistant.tool_use") => {
@@ -427,6 +428,7 @@ fn extract_tool_results(
     seq: u64,
     session_id: &str,
     time: &str,
+    tool_outcome: Option<open_story_core::event_data::ToolOutcome>,
 ) -> Vec<ViewRecord> {
     match agent {
         "pi-mono" => {
@@ -472,6 +474,7 @@ fn extract_tool_results(
                     call_id,
                     output,
                     is_error,
+                    tool_outcome: tool_outcome.clone(),
                 }),
             }]
         }
@@ -510,6 +513,8 @@ fn extract_tool_results(
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                    // tool_outcome applies to the first result (payload-level field)
+                    let outcome = if idx == 0 { tool_outcome.clone() } else { None };
                     records.push(ViewRecord {
                         id: record_id,
                         seq: seq + idx as u64,
@@ -521,6 +526,7 @@ fn extract_tool_results(
                             call_id,
                             output,
                             is_error,
+                            tool_outcome: outcome,
                         }),
                     });
                     idx += 1;
