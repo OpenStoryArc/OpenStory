@@ -73,14 +73,29 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
     return counts;
   }, [allSentences]);
 
-  // Sessions with stories
+  // Sessions with stories — derive labels properly
   const sessionsWithStories = useMemo(() => {
-    const sids = new Set(patterns.filter(p => p.type === "turn.sentence").map(p => p.session_id));
-    return Array.from(sids).map(sid => ({
-      id: sid,
-      label: sessionLabels[sid]?.label ?? sid.slice(0, 12),
-      count: patterns.filter(p => p.type === "turn.sentence" && p.session_id === sid).length,
-    })).sort((a, b) => b.count - a.count);
+    const counts = new Map<string, number>();
+    for (const p of patterns) {
+      if (p.type === "turn.sentence") {
+        counts.set(p.session_id, (counts.get(p.session_id) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries()).map(([sid, count]) => {
+      const raw = sessionLabels[sid]?.label;
+      const label = raw && raw !== sid ? raw : null;
+      const short = sid.startsWith("agent-") ? sid.slice(0, 14) : sid.slice(0, 8);
+      return {
+        id: sid,
+        label: label ? (label.length > 40 ? label.slice(0, 37) + "..." : label) : short,
+        count,
+        isAgent: sid.startsWith("agent-"),
+      };
+    }).sort((a, b) => {
+      // Main sessions first, then agents. Within each group, by count desc.
+      if (a.isAgent !== b.isAgent) return a.isAgent ? 1 : -1;
+      return b.count - a.count;
+    });
   }, [patterns, sessionLabels]);
 
   // Auto-scroll
@@ -150,23 +165,43 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
         </div>
         <button
           onClick={() => { onSelectSession(null); setSidebarOpen(false); }}
-          className={`w-full text-left px-2 py-1.5 rounded text-sm ${
+          className={`w-full text-left px-2 py-1.5 rounded text-sm mb-1 ${
             !selectedSession ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
           }`}
         >
-          All sessions ({allSentences.length})
+          All ({allSentences.length} turns)
         </button>
-        {sessionsWithStories.map(s => (
+        {sessionsWithStories.filter(s => !s.isAgent).map(s => (
           <button
             key={s.id}
             onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
             className={`w-full text-left px-2 py-1.5 rounded text-sm truncate ${
               selectedSession === s.id ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
             }`}
+            title={s.id}
           >
             {s.label} <span className="text-[10px] opacity-60">({s.count})</span>
           </button>
         ))}
+        {sessionsWithStories.some(s => s.isAgent) && (
+          <>
+            <div className="text-[10px] text-[#565f89] uppercase tracking-wide px-2 py-1 mt-3 mb-1">
+              Sub-agents
+            </div>
+            {sessionsWithStories.filter(s => s.isAgent).map(s => (
+              <button
+                key={s.id}
+                onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
+                className={`w-full text-left px-2 py-1 rounded text-xs truncate ${
+                  selectedSession === s.id ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#24283b]"
+                }`}
+                title={s.id}
+              >
+                {s.label} <span className="text-[10px] opacity-60">({s.count})</span>
+              </button>
+            ))}
+          </>
+        )}
 
         {/* Sparklines */}
         {sentences.length > 2 && (
