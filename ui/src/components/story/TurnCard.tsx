@@ -36,18 +36,15 @@ export function TurnCard({ pattern }: TurnCardProps) {
   const applies = (m.applies as Apply[]) ?? [];
 
   const depthIndent = Math.min(scopeDepth * 16, 48);
-  const [collapsed, setCollapsed] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   return (
     <div
       className="mb-2 rounded-lg bg-[#1f2335] border border-[#2a2e42] overflow-hidden hover:border-[#3b4261] transition-colors"
       style={{ marginLeft: `${depthIndent}px` }}
     >
-      {/* Header — click to collapse/expand, large touch target */}
-      <div
-        className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b] cursor-pointer select-none"
-        onClick={() => setCollapsed(!collapsed)}
-      >
+      {/* Header */}
+      <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
         <div className="flex items-center gap-2.5">
           <span className="text-[#7aa2f7] font-bold text-xs font-mono">Turn {turn}</span>
           {scopeDepth > 0 && (
@@ -63,60 +60,69 @@ export function TurnCard({ pattern }: TurnCardProps) {
         </span>
       </div>
 
-      {/* Body */}
-      {!collapsed && (
-        <div className="px-3.5 py-2.5 space-y-1">
-          {/* Sentence one-liner */}
-          <p className="text-[13px] italic text-[#c0caf5] border-b border-[#2a2e42] pb-2">
-            {pattern.label}
-          </p>
+      {/* Always visible: sentence + diagram + domain badges */}
+      <div className="px-3.5 py-2.5 space-y-1">
+        {/* Sentence one-liner */}
+        <p className="text-[13px] italic text-[#c0caf5]">
+          {pattern.label}
+        </p>
 
-          {/* Sentence diagram — click to expand */}
-          {(subordinates.length > 0 || adverbial) && (
-            <DiagramToggle
-              verb={verb}
-              object={object}
-              adverbial={adverbial}
-              subordinates={subordinates}
-              predicate={predicate}
-            />
-          )}
+        {/* Sentence diagram — click to expand */}
+        {(subordinates.length > 0 || adverbial) && (
+          <DiagramToggle
+            verb={verb}
+            object={object}
+            adverbial={adverbial}
+            subordinates={subordinates}
+            predicate={predicate}
+          />
+        )}
 
-          {/* Domain event strip — aggregated */}
-          {applies.length > 0 && <DomainStrip applies={applies} />}
+        {/* Domain event strip — aggregated */}
+        {applies.length > 0 && <DomainStrip applies={applies} />}
 
-          {/* Human phase */}
-          {human?.content && (
-            <PhaseBlock label="actor" color="#7dcfff">
-              <ExpandableText text={human.content} />
-            </PhaseBlock>
-          )}
+        {/* Detail toggle */}
+        {(human || thinking || eval_ || applies.length > 0) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
+            className="text-[10px] py-1 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
+          >
+            {detailOpen ? "▼ hide detail" : "▶ show detail"}
+          </button>
+        )}
 
-          {/* Thinking phase */}
-          {thinking?.summary && (
-            <PhaseBlock label="thinking" color="#bb9af7">
-              <ExpandableText text={thinking.summary} maxLines={2} />
-            </PhaseBlock>
-          )}
+        {/* Detail: actor, thinking, eval, applies */}
+        {detailOpen && (
+          <div className="space-y-1 border-t border-[#2a2e42] pt-2 mt-1">
+            {human?.content && (
+              <PhaseBlock label="actor" color="#7dcfff">
+                <ExpandableText text={human.content} />
+              </PhaseBlock>
+            )}
 
-          {/* Eval phase */}
-          {eval_ && (
-            <PhaseBlock label="eval" color="#9ece6a">
-              <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
-                eval_.decision === "text_only"
-                  ? "bg-[#9ece6a22] text-[#9ece6a]"
-                  : "bg-[#e0af6822] text-[#e0af68]"
-              }`}>
-                {eval_.decision === "text_only" ? "text" : "tool use"}
-              </span>
-              <ExpandableText text={eval_.content || "(empty)"} />
-            </PhaseBlock>
-          )}
+            {thinking?.summary && (
+              <PhaseBlock label="thinking" color="#bb9af7">
+                <ExpandableText text={thinking.summary} maxLines={2} />
+              </PhaseBlock>
+            )}
 
-          {/* Apply phases — show first 2, collapse rest */}
-          <ApplyList applies={applies} />
-        </div>
-      )}
+            {eval_ && (
+              <PhaseBlock label="eval" color="#9ece6a">
+                <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
+                  eval_.decision === "text_only"
+                    ? "bg-[#9ece6a22] text-[#9ece6a]"
+                    : "bg-[#e0af6822] text-[#e0af68]"
+                }`}>
+                  {eval_.decision === "text_only" ? "text" : "tool use"}
+                </span>
+                <ExpandableText text={eval_.content || "(empty)"} />
+              </PhaseBlock>
+            )}
+
+            <ApplyList applies={applies} />
+          </div>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="flex justify-between px-3.5 py-1.5 text-[11px] text-[#565f89]">
