@@ -519,6 +519,7 @@ impl TurnDetector for SentenceDetector {
             ended_at: turn.timestamp.clone(),
             summary: sentence.one_liner.clone(),
             metadata: serde_json::json!({
+                // Sentence grammar
                 "turn": turn.turn_number,
                 "subject": sentence.subject,
                 "verb": sentence.verb,
@@ -533,6 +534,34 @@ impl TurnDetector for SentenceDetector {
                         "tool_calls": s.tool_calls,
                     })
                 }).collect::<Vec<_>>(),
+                // Full turn data for live rendering
+                "scope_depth": turn.scope_depth,
+                "human": turn.human.as_ref().map(|h| serde_json::json!({
+                    "content": h.content,
+                    "timestamp": h.timestamp,
+                })),
+                "thinking": turn.thinking.as_ref().map(|t| serde_json::json!({
+                    "summary": t.summary,
+                })),
+                "eval": turn.eval.as_ref().map(|e| serde_json::json!({
+                    "content": e.content,
+                    "timestamp": e.timestamp,
+                    "decision": e.decision,
+                    "stop_reason": e.stop_reason,
+                })),
+                "applies": turn.applies.iter().map(|a| serde_json::json!({
+                    "tool_name": a.tool_name,
+                    "input_summary": a.input_summary,
+                    "output_summary": a.output_summary,
+                    "is_error": a.is_error,
+                    "is_agent": a.is_agent,
+                    "tool_outcome": a.tool_outcome,
+                })).collect::<Vec<_>>(),
+                "env_size": turn.env_size,
+                "env_delta": turn.env_delta,
+                "stop_reason": turn.stop_reason,
+                "is_terminal": turn.is_terminal,
+                "duration_ms": turn.duration_ms,
             }),
         }]
     }

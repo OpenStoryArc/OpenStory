@@ -13,9 +13,9 @@ describe("extractTurnPhases", () => {
 
   it("should extract only turn.phase patterns", () => {
     const patterns: PatternView[] = [
-      { type: "turn.phase", label: "conversation (3 events)", events: ["e1", "e2", "e3"] },
-      { type: "git.workflow", label: "Git: status → commit", events: ["e4", "e5"] },
-      { type: "turn.phase", label: "implementation (5 events)", events: ["e4", "e5", "e6", "e7", "e8"] },
+      { type: "turn.phase", label: "conversation (3 events)", session_id: "", events: ["e1", "e2", "e3"] },
+      { type: "git.workflow", label: "Git: status → commit", session_id: "", events: ["e4", "e5"] },
+      { type: "turn.phase", label: "implementation (5 events)", session_id: "", events: ["e4", "e5", "e6", "e7", "e8"] },
     ];
     const segments = extractTurnPhases(patterns);
     expect(segments).toHaveLength(2);
@@ -27,9 +27,9 @@ describe("extractTurnPhases", () => {
 
   it("should parse phase name from label", () => {
     const patterns: PatternView[] = [
-      { type: "turn.phase", label: "exploration (10 events)", events: Array(10).fill("e") },
-      { type: "turn.phase", label: "implementation+testing (7 events)", events: Array(7).fill("e") },
-      { type: "turn.phase", label: "delegation (2 events)", events: Array(2).fill("e") },
+      { type: "turn.phase", label: "exploration (10 events)", session_id: "", events: Array(10).fill("e") },
+      { type: "turn.phase", label: "implementation+testing (7 events)", session_id: "", events: Array(7).fill("e") },
+      { type: "turn.phase", label: "delegation (2 events)", session_id: "", events: Array(2).fill("e") },
     ];
     const segments = extractTurnPhases(patterns);
     expect(segments.map(s => s.phase)).toEqual(["exploration", "implementation+testing", "delegation"]);
@@ -37,7 +37,7 @@ describe("extractTurnPhases", () => {
 
   it("should handle label without parenthetical", () => {
     const patterns: PatternView[] = [
-      { type: "turn.phase", label: "conversation", events: ["e1"] },
+      { type: "turn.phase", label: "conversation", session_id: "", events: ["e1"] },
     ];
     const segments = extractTurnPhases(patterns);
     expect(segments[0]!.phase).toBe("conversation");
