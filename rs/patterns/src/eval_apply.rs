@@ -232,11 +232,18 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 acc.pending_applies.remove(0);
                 let output_summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
                 let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
+                // Derive is_error from tool_outcome — the outcome already encodes success/failure
+                let is_error = match &tool_outcome {
+                    Some(ToolOutcome::FileWriteFailed { .. }) => true,
+                    Some(ToolOutcome::FileReadFailed { .. }) => true,
+                    Some(ToolOutcome::CommandExecuted { succeeded, .. }) => !succeeded,
+                    _ => false,
+                };
                 acc.completed_applies.push(ApplyRecord {
                     tool_name: pending.tool_name,
                     input_summary: pending.input_summary,
                     output_summary,
-                    is_error: false, // TODO: read from payload when available
+                    is_error,
                     is_agent: pending.is_agent,
                     tool_outcome,
                 });
