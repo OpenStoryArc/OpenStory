@@ -45,13 +45,15 @@ export function TurnCard({ pattern }: TurnCardProps) {
     >
       {/* Header */}
       <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
-        <div className="flex items-center gap-2.5">
-          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7]">
-            {pattern.session_id.slice(0, 8)}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7] shrink-0">
+            {pattern.session_id}
           </span>
-          <span className="text-[#7aa2f7] font-bold text-xs font-mono">Turn {turn}</span>
-          {scopeDepth > 0 && (
-            <span className="text-[10px] text-[#565f89]">depth {scopeDepth}</span>
+          <span className="text-[#7aa2f7] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
+          {pattern.events.length > 0 && (
+            <span className="text-[9px] font-mono text-[#3b4261] truncate" title={pattern.events[0]}>
+              {pattern.events[0]?.slice(0, 8)}
+            </span>
           )}
         </div>
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
