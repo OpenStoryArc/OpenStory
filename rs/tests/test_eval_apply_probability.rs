@@ -114,6 +114,14 @@ fn pure_text_produces_terminal_turn_with_no_applies() {
     );
     assert!(turn.eval.is_some(), "pure_text should capture eval content");
 
+    // Enrichment assertions
+    assert_eq!(turn.stop_reason, "end_turn", "pure_text stop_reason");
+    assert!(turn.env_delta > 0, "pure_text should have env_delta > 0");
+    assert_eq!(
+        turn.eval.as_ref().unwrap().decision, "text_only",
+        "pure_text eval.decision should be text_only"
+    );
+
     // Should emit eval pattern
     assert!(
         patterns.iter().any(|p| p.pattern_type == "eval_apply.eval"),
@@ -146,6 +154,13 @@ fn single_tool_produces_turn_with_one_apply() {
     assert!(
         !turn.applies[0].tool_name.is_empty(),
         "apply should have a tool name"
+    );
+
+    // Enrichment assertions
+    assert!(!turn.stop_reason.is_empty(), "should have stop_reason");
+    assert!(
+        !turn.applies[0].input_summary.is_empty(),
+        "apply should have input_summary"
     );
 
     // Should emit both eval and apply patterns
@@ -181,13 +196,18 @@ fn multi_tool_produces_turn_with_multiple_applies() {
         turn.applies.len()
     );
 
-    // Each apply should have a tool name
+    // Each apply should have a tool name and input summary
     for (i, apply) in turn.applies.iter().enumerate() {
         assert!(
             !apply.tool_name.is_empty(),
             "apply[{i}] should have a tool name"
         );
+        // input_summary should be populated for real data
+        // (may be empty for some tools, but most have it)
     }
+
+    // Enrichment: env_delta should reflect messages added
+    assert!(turn.env_delta > 0, "multi_tool env_delta should be > 0");
 
     // Should emit multiple apply patterns
     let apply_count = patterns
@@ -227,6 +247,12 @@ fn tool_then_text_has_eval_content_from_text_message() {
     assert!(
         !turn.applies.is_empty(),
         "tool_then_text should have applies"
+    );
+
+    // Enrichment: duration_ms should be captured from system.turn.complete
+    assert!(
+        turn.duration_ms.is_some(),
+        "tool_then_text should have duration_ms from system.turn.complete"
     );
 }
 

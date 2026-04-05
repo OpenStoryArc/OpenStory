@@ -131,6 +131,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::get_patterns),
         )
         .route(
+            "/api/sessions/{session_id}/turns",
+            axum::routing::get(crate::api::get_turns),
+        )
+        .route(
             "/api/sessions/{session_id}/plans",
             axum::routing::get(crate::api::get_session_plans),
         )

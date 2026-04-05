@@ -155,8 +155,8 @@ impl PatternPipeline {
     }
 
     /// Phase 1: Feed a CloudEvent to eval-apply, collect turns, feed to turn detectors.
-    /// Returns all PatternEvents from both phases.
-    pub fn feed_event(&mut self, event: &CloudEvent) -> Vec<PatternEvent> {
+    /// Returns (PatternEvents, completed StructuralTurns).
+    pub fn feed_event(&mut self, event: &CloudEvent) -> (Vec<PatternEvent>, Vec<StructuralTurn>) {
         let mut emitted = Vec::new();
 
         // Phase 1: eval-apply consumes the CloudEvent
@@ -170,7 +170,7 @@ impl PatternPipeline {
             }
         }
 
-        emitted
+        (emitted, turns)
     }
 
     /// Legacy: Feed one ViewRecord to record-based detectors.

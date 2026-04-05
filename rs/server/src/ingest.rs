@@ -177,7 +177,13 @@ pub fn ingest_events(
                     .or_default();
 
                 // Phase 1: CloudEvent → eval-apply → structural turns → sentence
-                detected_patterns.extend(pipeline.feed_event(ce));
+                let (patterns, turns) = pipeline.feed_event(ce);
+                detected_patterns.extend(patterns);
+
+                // Persist completed structural turns
+                for turn in &turns {
+                    let _ = state.store.event_store.insert_turn(session_id, turn);
+                }
 
                 // Phase 2: ViewRecords → legacy record detectors (TestCycle, GitFlow, etc.)
                 for vr in &view_records {
@@ -444,7 +450,11 @@ pub fn replay_boot_sessions(state: &mut AppState) {
 
                 // Phase 1: CloudEvent → eval-apply → structural turns → sentence
                 if let Ok(ce) = serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
-                    let detected = pipeline.feed_event(&ce);
+                    let (detected, turns) = pipeline.feed_event(&ce);
+                    // Persist completed structural turns
+                    for turn in &turns {
+                        let _ = state.store.event_store.insert_turn(sid, turn);
+                    }
                     if !detected.is_empty() {
                         total_patterns += detected.len();
                         for pe in &detected {

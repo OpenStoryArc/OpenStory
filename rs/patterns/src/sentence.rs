@@ -560,11 +560,15 @@ mod tests {
             turn_number: 1,
             scope_depth: 0,
             human: None,
+            thinking: None,
             eval: None,
             applies: vec![],
             env_size: 5,
+            env_delta: 3,
+            stop_reason: "end_turn".to_string(),
             is_terminal: true,
             timestamp: "2026-04-03T01:00:00Z".to_string(),
+            duration_ms: None,
             event_ids: vec![],
         };
         overrides(&mut turn);
@@ -657,6 +661,7 @@ mod tests {
                 content: "A coalgebra is the dual of an algebra.".to_string(),
                 timestamp: String::new(),
                 stop_reason: Some("end_turn".to_string()),
+                decision: "text_only".to_string(),
             });
         });
         let s = build_sentence(&turn);
@@ -684,6 +689,7 @@ mod tests {
                 content: "Here are the types...".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.applies = vec![apply("Read", "/src/core/lib.rs")];
         });
@@ -707,6 +713,7 @@ mod tests {
                 content: "Let me write the code".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.is_terminal = false;
             t.applies = vec![
@@ -743,6 +750,7 @@ mod tests {
                 content: "Let me explore".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.applies = vec![apply("Agent", "Explore claurst project")];
         });
@@ -765,6 +773,7 @@ mod tests {
                 content: "Fixed".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.applies = vec![
                 apply("Read", "main.rs"),
@@ -793,6 +802,7 @@ mod tests {
                 content: "Here are the files.".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.applies = vec![apply("Bash", "ls")];
         });
@@ -809,6 +819,7 @@ mod tests {
                 content: "Continuing...".to_string(),
                 timestamp: String::new(),
                 stop_reason: None,
+                decision: "tool_use".to_string(),
             });
             t.applies = vec![apply("Bash", "git status")];
         });
@@ -828,6 +839,7 @@ mod tests {
                 content: "Yeah, it is the dual of an algebra.".to_string(),
                 timestamp: String::new(),
                 stop_reason: Some("end_turn".to_string()),
+                decision: "text_only".to_string(),
             });
             t.applies = vec![];
         });

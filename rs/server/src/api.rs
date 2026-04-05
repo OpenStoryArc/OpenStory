@@ -392,6 +392,20 @@ pub async fn get_patterns(
     Json(json!({ "patterns": result }))
 }
 
+pub async fn get_turns(
+    State(state): State<SharedState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Json<Value> {
+    log_event("api", &format!("GET /api/sessions/{}/turns", short_id(&session_id)));
+    let s = state.read().await;
+    let turns = s
+        .store
+        .event_store
+        .session_turns(&session_id)
+        .unwrap_or_default();
+    Json(json!({ "turns": turns }))
+}
+
 pub async fn list_plans(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let plans: Vec<Value> = s

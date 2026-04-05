@@ -39,11 +39,15 @@ pub struct StructuralTurn {
     pub turn_number: u32,
     pub scope_depth: u32,
     pub human: Option<HumanInput>,
+    pub thinking: Option<ThinkingRecord>,
     pub eval: Option<EvalOutput>,
     pub applies: Vec<ApplyRecord>,
     pub env_size: u32,
+    pub env_delta: u32,
+    pub stop_reason: String,
     pub is_terminal: bool,
     pub timestamp: String,
+    pub duration_ms: Option<f64>,
     pub event_ids: Vec<String>,
 }
 
@@ -54,12 +58,19 @@ pub struct HumanInput {
     pub timestamp: String,
 }
 
+/// The model's reasoning (thinking phase).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThinkingRecord {
+    pub summary: String,
+}
+
 /// The model's response (eval phase output).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvalOutput {
     pub content: String,
     pub timestamp: String,
     pub stop_reason: Option<String>,
+    pub decision: String,
 }
 
 /// One tool dispatch (apply phase).
@@ -81,12 +92,15 @@ pub struct ApplyRecord {
 #[derive(Debug, Default)]
 struct PendingTurn {
     human: Option<HumanInput>,
+    thinking: Option<ThinkingRecord>,
     eval: Option<EvalOutput>,
     applies: Vec<ApplyRecord>,
     /// Tool name + input for the current tool_use, awaiting its result.
     pending_tool: Option<(String, String, bool)>, // (name, input_summary, is_agent)
     event_ids: Vec<String>,
     start_ts: Option<String>,
+    env_size_at_start: u32,
+    duration_ms: Option<f64>,
 }
 
 /// Internal state machine.
@@ -229,9 +243,16 @@ impl EvalApplyDetector {
         }
         if self.pending_turn.start_ts.is_none() {
             self.pending_turn.start_ts = Some(ts.to_string());
+            self.pending_turn.env_size_at_start = self.env_size;
         }
 
         match subtype {
+            // ── Thinking: reasoning before responding ──
+            "message.assistant.thinking" => {
+                let summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+                self.pending_turn.thinking = Some(ThinkingRecord { summary });
+            }
+
             // ── Human prompt: the input to eval ──
             s if s.starts_with("message.user.prompt") => {
                 self.env_size += 1;
@@ -278,10 +299,16 @@ impl EvalApplyDetector {
                 // Capture eval content
                 let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
                 let stop_reason = ap.and_then(|p| p.stop_reason_str()).map(|s| s.to_string());
+                let decision = if subtype == "message.assistant.tool_use" {
+                    "tool_use".to_string()
+                } else {
+                    "text_only".to_string()
+                };
                 self.pending_turn.eval = Some(EvalOutput {
                     content,
                     timestamp: ts.to_string(),
                     stop_reason,
+                    decision,
                 });
 
                 // If this is a tool_use message, track tool calls from the payload
@@ -307,23 +334,39 @@ impl EvalApplyDetector {
             // ── Turn complete: coalgebra step done ──
             "system.turn.complete" => {
                 let is_terminal = self.state != State::ResultsReady && self.state != State::SawApply;
+                let stop_reason = if is_terminal { "end_turn" } else { "tool_use" };
                 let turn_ids = std::mem::take(&mut self.current_turn_ids);
                 let start = self.current_turn_start
                     .take()
                     .unwrap_or_else(|| ts.to_string());
                 events.push(self.emit_turn_end(&start, ts, &turn_ids));
 
+                // Extract duration from payload
+                let duration_ms = ap
+                    .and_then(|p| match p {
+                        open_story_core::event_data::AgentPayload::ClaudeCode(cc) => cc.duration_ms,
+                        _ => None,
+                    });
+
                 // Yield completed StructuralTurn
-                let pending = std::mem::take(&mut self.pending_turn);
+                let mut pending = std::mem::take(&mut self.pending_turn);
+                let env_delta = self.env_size.saturating_sub(pending.env_size_at_start);
+                // Use duration from pending if captured, otherwise from this event
+                let final_duration = pending.duration_ms.or(duration_ms);
+
                 self.completed_turns.push(StructuralTurn {
                     turn_number: self.turn_number,
                     scope_depth: self.scope_depth,
                     human: pending.human,
+                    thinking: pending.thinking,
                     eval: pending.eval,
                     applies: pending.applies,
                     env_size: self.env_size,
+                    env_delta,
+                    stop_reason: stop_reason.to_string(),
                     is_terminal,
                     timestamp: pending.start_ts.unwrap_or_else(|| ts.to_string()),
+                    duration_ms: final_duration,
                     event_ids: pending.event_ids,
                 });
 
@@ -350,15 +393,20 @@ impl EvalApplyDetector {
     pub fn flush_turns(&mut self) -> Vec<StructuralTurn> {
         if self.pending_turn.eval.is_some() || self.pending_turn.human.is_some() {
             let pending = std::mem::take(&mut self.pending_turn);
+            let env_delta = self.env_size.saturating_sub(pending.env_size_at_start);
             let turn = StructuralTurn {
                 turn_number: self.turn_number,
                 scope_depth: self.scope_depth,
                 human: pending.human,
+                thinking: pending.thinking,
                 eval: pending.eval,
                 applies: pending.applies,
                 env_size: self.env_size,
-                is_terminal: true, // incomplete turns are terminal by default
+                env_delta,
+                stop_reason: "end_turn".to_string(),
+                is_terminal: true,
                 timestamp: pending.start_ts.unwrap_or_default(),
+                duration_ms: pending.duration_ms,
                 event_ids: pending.event_ids,
             };
             vec![turn]
