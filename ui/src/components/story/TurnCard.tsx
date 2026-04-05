@@ -60,40 +60,35 @@ export function TurnCard({ pattern }: TurnCardProps) {
         </span>
       </div>
 
-      {/* Always visible: sentence + diagram + domain badges */}
+      {/* Always visible: diagram */}
       <div className="px-3.5 py-2.5 space-y-1">
-        {/* Sentence one-liner */}
-        <p className="text-[13px] italic text-[#c0caf5]">
-          {pattern.label}
-        </p>
+        {/* Diagram — always shown */}
+        <DiagramInline
+          verb={verb}
+          object={object}
+          adverbial={adverbial}
+          subordinates={subordinates}
+          predicate={predicate}
+        />
 
-        {/* Sentence diagram — click to expand */}
-        {(subordinates.length > 0 || adverbial) && (
-          <DiagramToggle
-            verb={verb}
-            object={object}
-            adverbial={adverbial}
-            subordinates={subordinates}
-            predicate={predicate}
-          />
-        )}
+        {/* Detail toggle — everything else */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
+          className="text-[10px] py-1 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
+        >
+          {detailOpen ? "▼ hide detail" : "▶ detail"}
+        </button>
 
-        {/* Domain event strip — aggregated */}
-        {applies.length > 0 && <DomainStrip applies={applies} />}
-
-        {/* Detail toggle */}
-        {(human || thinking || eval_ || applies.length > 0) && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
-            className="text-[10px] py-1 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
-          >
-            {detailOpen ? "▼ hide detail" : "▶ show detail"}
-          </button>
-        )}
-
-        {/* Detail: actor, thinking, eval, applies */}
         {detailOpen && (
           <div className="space-y-1 border-t border-[#2a2e42] pt-2 mt-1">
+            {/* Sentence one-liner */}
+            <p className="text-[12px] italic text-[#a9b1d6] pb-1">
+              {pattern.label}
+            </p>
+
+            {/* Domain badges */}
+            {applies.length > 0 && <DomainStrip applies={applies} />}
+
             {human?.content && (
               <PhaseBlock label="actor" color="#7dcfff">
                 <ExpandableText text={human.content} />
@@ -144,6 +139,40 @@ export function TurnCard({ pattern }: TurnCardProps) {
 // Sentence diagram (click to expand)
 // ─────────────────────────────────────────────
 
+function DiagramInline({ verb, object, adverbial, subordinates, predicate }: {
+  verb: string; object: string; adverbial: string | null;
+  subordinates: Array<{ role: string; verb: string; object: string; tool_calls: number }>;
+  predicate: string;
+}) {
+  return (
+    <div className="px-1 py-1 bg-[#1a1b26] rounded text-[11px] font-mono">
+      <div>
+        <span className="text-[#7aa2f7] font-bold">Claude</span>
+        <span className="text-[#3b4261]"> ──── </span>
+        <span className="text-[#9ece6a] font-bold">{verb}</span>
+        <span className="text-[#3b4261]"> ──── </span>
+        <span className="text-[#c0caf5]">{object}</span>
+      </div>
+      {subordinates.map((sub, i) => (
+        <div key={i} className="pl-5 my-0.5">
+          <span className="text-[#3b4261]">├──</span>{" "}
+          <span style={{ color: ROLE_COLORS[sub.role] ?? "#565f89" }}>{sub.verb}</span>{" "}
+          <span className="text-[#c0caf5]">{sub.object}</span>{" "}
+          <span className="text-[#565f89]">({sub.tool_calls})</span>
+        </div>
+      ))}
+      {adverbial && (
+        <div className="pl-5 my-0.5">
+          <span className="text-[#3b4261]">└──</span>{" "}
+          <span className="text-[#f7768e]">because</span>{" "}
+          <span className="text-[#c0caf5]">{adverbial}</span>
+        </div>
+      )}
+      <div className="pl-5 mt-1 text-[#9ece6a]">→ {predicate}</div>
+    </div>
+  );
+}
+
 const ROLE_COLORS: Record<string, string> = {
   Preparatory: "#7dcfff",
   Creative: "#9ece6a",
@@ -152,51 +181,6 @@ const ROLE_COLORS: Record<string, string> = {
   Interactive: "#565f89",
 };
 
-function DiagramToggle({ verb, object, adverbial, subordinates, predicate }: {
-  verb: string; object: string; adverbial: string | null;
-  subordinates: Array<{ role: string; verb: string; object: string; tool_calls: number }>;
-  predicate: string;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="my-1">
-      <button
-        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
-        className="text-[11px] py-1 px-2 -ml-2 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
-      >
-        {open ? "▼" : "▶"} diagram
-      </button>
-      {open && (
-        <div className="mt-1 px-3 py-2 bg-[#1a1b26] rounded text-[11px] font-mono">
-          <div>
-            <span className="text-[#7aa2f7] font-bold">Claude</span>
-            <span className="text-[#3b4261]"> ──── </span>
-            <span className="text-[#9ece6a] font-bold">{verb}</span>
-            <span className="text-[#3b4261]"> ──── </span>
-            <span className="text-[#c0caf5]">{object}</span>
-          </div>
-          {subordinates.map((sub, i) => (
-            <div key={i} className="pl-5 my-0.5">
-              <span className="text-[#3b4261]">├──</span>{" "}
-              <span style={{ color: ROLE_COLORS[sub.role] ?? "#565f89" }}>{sub.verb}</span>{" "}
-              <span className="text-[#c0caf5]">{sub.object}</span>{" "}
-              <span className="text-[#565f89]">({sub.tool_calls})</span>
-            </div>
-          ))}
-          {adverbial && (
-            <div className="pl-5 my-0.5">
-              <span className="text-[#3b4261]">└──</span>{" "}
-              <span className="text-[#f7768e]">because</span>{" "}
-              <span className="text-[#c0caf5]">{adverbial}</span>
-            </div>
-          )}
-          <div className="pl-5 mt-1 text-[#9ece6a]">→ {predicate}</div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────
 // Apply list — show first 2, collapse rest
