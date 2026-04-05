@@ -127,15 +127,29 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
     }
   }, [focusIndex]);
 
+  // Mobile sidebar toggle
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   return (
-    <div className="flex flex-1 min-h-0">
-      {/* Sidebar */}
-      <div className="w-64 bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto p-2 flex-shrink-0">
+    <div className="flex flex-1 min-h-0 relative">
+      {/* Mobile sidebar toggle */}
+      <button
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        className="md:hidden fixed bottom-4 left-4 z-50 w-10 h-10 rounded-full bg-[#7aa2f7] text-[#1a1b26] flex items-center justify-center shadow-lg text-lg"
+      >
+        {sidebarOpen ? "×" : "☰"}
+      </button>
+
+      {/* Sidebar — hidden on mobile unless toggled */}
+      <div className={`
+        ${sidebarOpen ? "fixed inset-0 z-40 w-72" : "hidden"} md:relative md:block md:w-64
+        bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto p-2 flex-shrink-0
+      `}>
         <div className="text-xs text-[#565f89] uppercase tracking-wide px-2 py-1 mb-1">
           Sessions
         </div>
         <button
-          onClick={() => onSelectSession(null)}
+          onClick={() => { onSelectSession(null); setSidebarOpen(false); }}
           className={`w-full text-left px-2 py-1.5 rounded text-sm ${
             !selectedSession ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
           }`}
@@ -145,7 +159,7 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
         {sessionsWithStories.map(s => (
           <button
             key={s.id}
-            onClick={() => onSelectSession(s.id)}
+            onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
             className={`w-full text-left px-2 py-1.5 rounded text-sm truncate ${
               selectedSession === s.id ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#a9b1d6] hover:bg-[#24283b]"
             }`}
@@ -225,7 +239,7 @@ export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSe
         {/* Turn cards */}
         <div
           ref={feedRef}
-          className="flex-1 overflow-y-auto p-4 max-w-4xl"
+          className="flex-1 overflow-y-auto p-2 sm:p-4 max-w-4xl"
           onScroll={(e) => {
             const el = e.currentTarget;
             const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;

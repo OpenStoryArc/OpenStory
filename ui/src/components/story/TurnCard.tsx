@@ -43,9 +43,9 @@ export function TurnCard({ pattern }: TurnCardProps) {
       className="mb-2 rounded-lg bg-[#1f2335] border border-[#2a2e42] overflow-hidden hover:border-[#3b4261] transition-colors"
       style={{ marginLeft: `${depthIndent}px` }}
     >
-      {/* Header — click to collapse/expand */}
+      {/* Header — click to collapse/expand, large touch target */}
       <div
-        className="flex justify-between items-center px-3.5 py-2 bg-[#24283b] cursor-pointer select-none"
+        className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b] cursor-pointer select-none"
         onClick={() => setCollapsed(!collapsed)}
       >
         <div className="flex items-center gap-2.5">
@@ -156,8 +156,8 @@ function DiagramToggle({ verb, object, adverbial, subordinates, predicate }: {
   return (
     <div className="my-1">
       <button
-        onClick={() => setOpen(!open)}
-        className="text-[10px] text-[#565f89] hover:text-[#7aa2f7] transition-colors"
+        onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        className="text-[11px] py-1 px-2 -ml-2 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
       >
         {open ? "▼" : "▶"} diagram
       </button>
@@ -229,7 +229,7 @@ function ApplyList({ applies }: { applies: Apply[] }) {
       ))}
       {hidden.length > 0 && (
         <button
-          onClick={() => setExpanded(true)}
+          onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
           className="w-full text-left py-1.5 px-2.5 my-1 rounded-r bg-[#24283b] border-l-[3px] border-[#e0af68] text-[11px] text-[#a9b1d6] hover:bg-[#2a3050] transition-colors"
         >
           ▶ ... and {hidden.length} more: <span className="text-[#e0af68]">{groupSummary}</span>
@@ -254,15 +254,20 @@ function ApplyBlock({ apply }: { apply: Apply }) {
           {apply.tool_outcome && <OutcomeBadge outcome={apply.tool_outcome} />}
         </span>
       </div>
-      <div
-        className="text-[12px] text-[#a9b1d6] mt-0.5 whitespace-pre-wrap break-words cursor-pointer"
-        onClick={() => apply.output_summary && setShowOutput(!showOutput)}
-      >
+      <div className="text-[12px] text-[#a9b1d6] mt-0.5 whitespace-pre-wrap break-words">
         {apply.input_summary || "(no input)"}
       </div>
+      {apply.output_summary && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowOutput(!showOutput); }}
+          className="text-[10px] py-0.5 text-[#565f89] hover:text-[#7aa2f7] transition-colors mt-0.5"
+        >
+          {showOutput ? "▼ hide output" : "▶ show output"}
+        </button>
+      )}
       {showOutput && apply.output_summary && (
-        <div className="text-[11px] text-[#565f89] mt-1 whitespace-pre-wrap break-words max-h-40 overflow-y-auto border-t border-[#2a2e42] pt-1">
-          → {apply.output_summary}
+        <div className="text-[11px] text-[#565f89] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
+          <Markdown remarkPlugins={[remarkGfm]}>{apply.output_summary}</Markdown>
         </div>
       )}
       {apply.is_agent && (
@@ -351,7 +356,7 @@ function ExpandableText({ text, maxLines = 3 }: { text: string; maxLines?: numbe
       </div>
       {isLong && (
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
           className="text-[10px] text-[#565f89] hover:text-[#7aa2f7] mt-0.5 transition-colors"
         >
           {expanded ? "▲ collapse" : "▼ expand"}
