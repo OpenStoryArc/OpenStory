@@ -8,6 +8,7 @@ import { Timeline } from "@/components/Timeline";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
+import { StoryView } from "@/components/story/StoryView";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
@@ -34,6 +35,7 @@ export function App() {
   // Derive view state from route
   const viewMode = route.view;
   const selectedSession = route.view === "live" ? (route.sessionId ?? null) : null;
+  const storySession = route.view === "story" ? (route.sessionId ?? null) : null;
 
   const handleSelectSession = useCallback((sid: string | null) => {
     setFocusAgentId(null);
@@ -91,6 +93,17 @@ export function App() {
         <ExploreView
           route={route}
           onNavigate={navigate}
+        />
+      )}
+
+      {/* Story tab */}
+      {viewMode === "story" && (
+        <StoryView
+          patterns={state.patterns}
+          sessionLabels={state.sessionLabels}
+          agentLabels={state.agentLabels}
+          selectedSession={storySession}
+          onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
         />
       )}
     </div>

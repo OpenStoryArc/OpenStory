@@ -14,15 +14,34 @@ import type { CloudEvent } from "@/types/cloud-event";
 // Helper: minimal CloudEvent factory
 // ---------------------------------------------------------------------------
 
+/** Build a test CloudEvent with monadic EventData structure.
+ *  Agent-specific fields (tool, args, text, model, duration_ms, etc.)
+ *  go under data.agent_payload. Foundation fields (raw, seq, session_id) stay on data.
+ */
 function makeEvent(overrides: Omit<Partial<CloudEvent>, "data" | "type"> & { type: string; data?: Record<string, unknown> }): CloudEvent {
+  const { data: rawData, ...restOverrides } = overrides;
+  const { raw, seq, session_id, ...agentFields } = rawData ?? {};
+  // Only create agent_payload if there are agent-specific fields
+  const hasAgentFields = Object.keys(agentFields).length > 0;
   return {
     id: "test-id",
     source: "test",
     specversion: "1.0",
     time: "2026-01-01T00:00:00Z",
     datacontenttype: "application/json",
-    data: { seq: 1, ts: 0, parent_seq: null, ...(overrides.data ?? {}) },
-    ...overrides,
+    data: {
+      raw: raw ?? {},
+      seq: seq ?? 1,
+      session_id: session_id ?? "test",
+      ...(hasAgentFields ? {
+        agent_payload: {
+          _variant: "claude-code",
+          meta: { agent: "claude-code" },
+          ...agentFields,
+        },
+      } : {}),
+    },
+    ...restOverrides,
   } as unknown as CloudEvent;
 }
 

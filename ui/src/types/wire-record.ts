@@ -24,6 +24,7 @@ export interface WireRecord {
 export interface PatternView {
   readonly type: string;
   readonly label: string;
+  readonly session_id: string;
   readonly events: readonly string[];
   readonly metadata?: Readonly<Record<string, unknown>>;
 }

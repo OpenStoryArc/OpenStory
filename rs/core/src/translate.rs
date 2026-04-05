@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
+use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData};
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -43,6 +44,14 @@ pub enum TranscriptFormat {
     PiMono,
 }
 
+/// A pending tool call: name + input, keyed by tool_use_id.
+/// Used to derive ToolOutcome when the tool_result arrives.
+#[derive(Debug, Clone)]
+struct PendingToolCall {
+    name: String,
+    input: Value,
+}
+
 /// Mutable state for one transcript file's translation session.
 pub struct TranscriptState {
     pub session_id: String,
@@ -51,6 +60,8 @@ pub struct TranscriptState {
     pub seen_uuids: HashSet<String>,
     pub format: TranscriptFormat,
     seq: u64,
+    /// tool_use_id → (tool_name, tool_input) for domain event derivation.
+    pending_tool_calls: std::collections::HashMap<String, PendingToolCall>,
 }
 
 impl TranscriptState {
@@ -62,6 +73,7 @@ impl TranscriptState {
             seen_uuids: HashSet::new(),
             format: TranscriptFormat::Unknown,
             seq: 0,
+            pending_tool_calls: std::collections::HashMap::new(),
         }
     }
 
@@ -71,56 +83,58 @@ impl TranscriptState {
     }
 }
 
-/// Extract common envelope fields present on most transcript entries.
+/// Extract common envelope fields from a Claude Code transcript line into a payload.
 ///
 /// Raw transcripts use camelCase (Claude Code's convention). We normalize to
-/// snake_case at extraction time so the CloudEvent data bag is purely snake_case
-/// from here on.
-fn extract_envelope(line: &Value) -> serde_json::Map<String, Value> {
-    // (raw_camelCase_key, output_snake_case_key)
-    let keys: &[(&str, &str)] = &[
-        ("uuid", "uuid"),
-        ("parentUuid", "parent_uuid"),
-        ("sessionId", "session_id"),
-        ("cwd", "cwd"),
-        ("version", "version"),
-        ("gitBranch", "git_branch"),
-        ("slug", "slug"),
-        ("timestamp", "timestamp"),
-        // Subagent identity fields (Story 037)
-        ("agentId", "agent_id"),
-        ("parentToolUseID", "parent_tool_use_id"),
-        ("isSidechain", "is_sidechain"),
-    ];
-    let mut map = serde_json::Map::new();
+/// snake_case at extraction time so the payload is purely snake_case from here on.
+fn apply_envelope(payload: &mut ClaudeCodePayload, line: &Value) {
     if let Value::Object(obj) = line {
-        for &(raw_key, out_key) in keys {
-            if let Some(v) = obj.get(raw_key) {
-                if !v.is_null() {
-                    map.insert(out_key.to_string(), v.clone());
-                }
-            }
+        if let Some(v) = obj.get("uuid").and_then(|v| v.as_str()) {
+            payload.uuid = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("parentUuid").and_then(|v| v.as_str()) {
+            payload.parent_uuid = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("cwd").and_then(|v| v.as_str()) {
+            payload.cwd = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("version").and_then(|v| v.as_str()) {
+            payload.version = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("gitBranch").and_then(|v| v.as_str()) {
+            payload.git_branch = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("slug").and_then(|v| v.as_str()) {
+            payload.slug = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("timestamp").and_then(|v| v.as_str()) {
+            payload.timestamp = Some(v.to_string());
+        }
+        // Subagent identity fields
+        if let Some(v) = obj.get("agentId").and_then(|v| v.as_str()) {
+            payload.agent_id = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("parentToolUseID").and_then(|v| v.as_str()) {
+            payload.parent_tool_use_id = Some(v.to_string());
+        }
+        if let Some(v) = obj.get("isSidechain").and_then(|v| v.as_bool()) {
+            payload.is_sidechain = Some(v);
         }
         // Progress events carry agentId + parentToolUseID nested inside data.*
         // Extract them when the top-level keys are absent.
         if let Some(Value::Object(data)) = obj.get("data") {
-            if !map.contains_key("agent_id") {
-                if let Some(v) = data.get("agentId") {
-                    if !v.is_null() {
-                        map.insert("agent_id".to_string(), v.clone());
-                    }
+            if payload.agent_id.is_none() {
+                if let Some(v) = data.get("agentId").and_then(|v| v.as_str()) {
+                    payload.agent_id = Some(v.to_string());
                 }
             }
-            if !map.contains_key("parent_tool_use_id") {
-                if let Some(v) = data.get("parentToolUseID") {
-                    if !v.is_null() {
-                        map.insert("parent_tool_use_id".to_string(), v.clone());
-                    }
+            if payload.parent_tool_use_id.is_none() {
+                if let Some(v) = data.get("parentToolUseID").and_then(|v| v.as_str()) {
+                    payload.parent_tool_use_id = Some(v.to_string());
                 }
             }
         }
     }
-    map
 }
 
 /// Determine assistant subtype from content blocks (hierarchical).
@@ -147,44 +161,62 @@ fn determine_assistant_subtype(content: &Value) -> &'static str {
     "message.assistant.text"
 }
 
-/// Extract assistant-specific fields.
-fn extract_assistant(line: &Value) -> serde_json::Map<String, Value> {
+/// Apply assistant-specific fields to the payload. Returns subtype.
+fn apply_assistant_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
     let message = line.get("message").cloned().unwrap_or(Value::Object(Default::default()));
     let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
 
     // Normalize string content to array
-    let content_arr = if content.is_string() {
-        vec![serde_json::json!({"type": "text", "text": content.as_str().unwrap_or("")})]
-    } else if let Value::Array(ref arr) = content {
-        arr.clone()
+    let content_normalized = if content.is_string() {
+        Value::Array(vec![serde_json::json!({"type": "text", "text": content.as_str().unwrap_or("")})])
     } else {
-        vec![]
+        content.clone()
     };
 
-    let content_types: Vec<Value> = content_arr
-        .iter()
-        .filter_map(|b| b.get("type").cloned())
-        .collect();
+    let subtype = determine_assistant_subtype(&content_normalized);
 
-    let mut map = serde_json::Map::new();
-    if let Some(v) = message.get("model") {
-        map.insert("model".to_string(), v.clone());
+    // Content types for downstream
+    if let Value::Array(ref blocks) = content_normalized {
+        let types: Vec<String> = blocks
+            .iter()
+            .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        if !types.is_empty() {
+            payload.content_types = Some(types);
+        }
+    }
+
+    if let Some(v) = message.get("model").and_then(|v| v.as_str()) {
+        payload.model = Some(v.to_string());
     }
     if let Some(v) = message.get("stop_reason") {
-        map.insert("stop_reason".to_string(), v.clone());
+        payload.stop_reason = Some(v.clone());
     }
     if let Some(v) = message.get("usage") {
-        map.insert("token_usage".to_string(), v.clone());
+        payload.token_usage = Some(v.clone());
     }
-    if let Some(v) = message.get("id") {
-        map.insert("message_id".to_string(), v.clone());
+    if let Some(v) = message.get("id").and_then(|v| v.as_str()) {
+        payload.message_id = Some(v.to_string());
     }
-    map.insert("content_types".to_string(), Value::Array(content_types));
-    map
+
+    // Extract text to top level
+    if let Some(text) = extract_text_from_content(&content_normalized) {
+        payload.text = Some(text);
+    }
+
+    // Extract tool info for tool_use subtypes
+    if subtype == "message.assistant.tool_use" {
+        if let Some((tool_name, tool_args)) = extract_first_tool_from_content(&content_normalized) {
+            payload.tool = Some(tool_name);
+            payload.args = Some(tool_args);
+        }
+    }
+
+    subtype.to_string()
 }
 
-/// Extract user-specific fields. Returns (subtype, extras_map).
-fn extract_user(line: &Value) -> (String, serde_json::Map<String, Value>) {
+/// Apply user-specific fields to the payload. Returns subtype.
+fn apply_user_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
     let message = line.get("message").cloned().unwrap_or(Value::Object(Default::default()));
     let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
 
@@ -198,23 +230,22 @@ fn extract_user(line: &Value) -> (String, serde_json::Map<String, Value>) {
         }
     }
 
-    let mut map = serde_json::Map::new();
-    if let Some(v) = line.get("userType") {
-        map.insert("user_type".to_string(), v.clone());
+    if let Some(v) = line.get("userType").and_then(|v| v.as_str()) {
+        payload.user_type = Some(v.to_string());
     }
 
     // Extract text to top level for prompt messages
     if subtype == "message.user.prompt" {
         if let Some(text) = extract_text_from_content(&content) {
-            map.insert("text".to_string(), Value::String(text));
+            payload.text = Some(text);
         }
     }
 
-    (subtype, map)
+    subtype
 }
 
-/// Extract progress-specific fields. Returns (subtype, extras_map).
-fn extract_progress(line: &Value) -> (String, serde_json::Map<String, Value>) {
+/// Apply progress-specific fields to the payload. Returns subtype.
+fn apply_progress_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
     let data = line.get("data").cloned().unwrap_or(Value::Object(Default::default()));
     let progress_type = data
         .get("type")
@@ -229,59 +260,49 @@ fn extract_progress(line: &Value) -> (String, serde_json::Map<String, Value>) {
         other => format!("progress.{other}"),
     };
 
-    let mut map = serde_json::Map::new();
-    map.insert("progress_type".to_string(), Value::String(progress_type));
-    (subtype, map)
+    payload.progress_type = Some(progress_type);
+    subtype
 }
 
-/// Extract system-specific fields. Returns (subtype, extras_map).
-fn extract_system(line: &Value) -> (String, serde_json::Map<String, Value>) {
+/// Apply system-specific fields to the payload. Returns subtype.
+fn apply_system_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
     let raw_subtype = line
         .get("subtype")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    let mut map = serde_json::Map::new();
-
-    // Map raw system subtypes to hierarchical subtypes
-    let subtype = match raw_subtype {
+    match raw_subtype {
         "turn_duration" => {
-            if let Some(v) = line.get("durationMs") {
-                map.insert("duration_ms".to_string(), v.clone());
+            if let Some(v) = line.get("durationMs").and_then(|v| v.as_f64()) {
+                payload.duration_ms = Some(v);
             }
             "system.turn.complete".to_string()
         }
         "stop_hook_summary" => {
-            if let Some(v) = line.get("hookCount") {
-                map.insert("hook_count".to_string(), v.clone());
+            if let Some(v) = line.get("hookCount").and_then(|v| v.as_u64()) {
+                payload.hook_count = Some(v);
             }
-            if let Some(v) = line.get("preventedContinuation") {
-                map.insert("prevented_continuation".to_string(), v.clone());
+            if let Some(v) = line.get("preventedContinuation").and_then(|v| v.as_bool()) {
+                payload.prevented_continuation = Some(v);
             }
             "system.hook".to_string()
         }
-        s if s.contains("error") => {
-            "system.error".to_string()
-        }
-        "compact_boundary" => {
-            "system.compact".to_string()
-        }
+        s if s.contains("error") => "system.error".to_string(),
+        "compact_boundary" => "system.compact".to_string(),
         other => format!("system.{other}"),
-    };
-    (subtype, map)
+    }
 }
 
-/// Extract queue-operation-specific fields. Returns (subtype, extras_map).
-fn extract_queue(line: &Value) -> (String, serde_json::Map<String, Value>) {
+/// Apply queue-operation-specific fields to the payload. Returns subtype.
+fn apply_queue_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
     let operation = line
         .get("operation")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let mut map = serde_json::Map::new();
-    map.insert("operation".to_string(), Value::String(operation.clone()));
-    (format!("queue.{operation}"), map)
+    payload.operation = Some(operation.clone());
+    format!("queue.{operation}")
 }
 
 /// Extract text from message content (string or array of blocks).
@@ -318,6 +339,24 @@ fn extract_first_tool_from_content(content: &Value) -> Option<(String, Value)> {
     None
 }
 
+/// Extract all tool_use blocks from content: (tool_use_id, name, input).
+fn extract_all_tool_uses(content: &Value) -> Vec<(String, String, Value)> {
+    let mut result = Vec::new();
+    if let Value::Array(blocks) = content {
+        for block in blocks {
+            if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                if !id.is_empty() {
+                    result.push((id, name, input));
+                }
+            }
+        }
+    }
+    result
+}
+
 /// Pure function: translate one parsed transcript JSON line into CloudEvent(s).
 ///
 /// Returns zero events for unknown types or duplicate UUIDs.
@@ -342,84 +381,85 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
     }
 
     let source = format!("arc://transcript/{}", state.session_id);
-    let envelope = extract_envelope(line);
-    let mut subtype: Option<String> = None;
+    let mut payload = ClaudeCodePayload::new();
 
-    let extras: serde_json::Map<String, Value> = match entry_type {
-        "assistant" => {
-            let mut extras = extract_assistant(line);
-            let message = line.get("message").cloned().unwrap_or(Value::Object(Default::default()));
-            let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
-            let ast = determine_assistant_subtype(&content);
-            subtype = Some(ast.to_string());
+    // Apply envelope fields (camelCase → snake_case typed fields)
+    apply_envelope(&mut payload, line);
 
-            // Extract text to top level
-            let content_normalized = if content.is_string() {
-                Value::Array(vec![serde_json::json!({"type": "text", "text": content.as_str().unwrap_or("")})])
-            } else {
-                content.clone()
-            };
-            if let Some(text) = extract_text_from_content(&content_normalized) {
-                extras.insert("text".to_string(), Value::String(text));
-            }
-            // Extract tool info to top level for tool_use subtypes
-            if ast == "message.assistant.tool_use" {
-                if let Some((tool_name, tool_args)) = extract_first_tool_from_content(&content) {
-                    extras.insert("tool".to_string(), Value::String(tool_name));
-                    extras.insert("args".to_string(), tool_args);
-                }
-            }
-            extras
-        }
-        "user" => {
-            let (st, extras) = extract_user(line);
-            subtype = Some(st);
-            extras
-        }
-        "progress" => {
-            let (st, extras) = extract_progress(line);
-            subtype = Some(st);
-            extras
-        }
-        "system" => {
-            let (st, extras) = extract_system(line);
-            subtype = Some(st);
-            extras
-        }
-        "queue-operation" => {
-            let (st, extras) = extract_queue(line);
-            subtype = Some(st);
-            extras
-        }
-        "file-history-snapshot" => {
-            subtype = Some("file.snapshot".to_string());
-            serde_json::Map::new()
-        }
-        _ => serde_json::Map::new(),
+    let subtype: Option<String> = match entry_type {
+        "assistant" => Some(apply_assistant_fields(&mut payload, line)),
+        "user" => Some(apply_user_fields(&mut payload, line)),
+        "progress" => Some(apply_progress_fields(&mut payload, line)),
+        "system" => Some(apply_system_fields(&mut payload, line)),
+        "queue-operation" => Some(apply_queue_fields(&mut payload, line)),
+        "file-history-snapshot" => Some("file.snapshot".to_string()),
+        _ => None,
     };
 
-    // Build data payload
-    let mut data = serde_json::Map::new();
-    data.insert("raw".to_string(), line.clone());
-    data.insert("seq".to_string(), Value::Number(state.next_seq().into()));
-    // Filename-derived session_id as fallback; envelope's session_id (from the
-    // real sessionId field in the transcript) overwrites this when present.
-    data.insert("session_id".to_string(), Value::String(state.session_id.clone()));
-    // Merge envelope (may override session_id for sidechain files)
-    for (k, v) in envelope {
-        data.insert(k, v);
+    // ── Domain event tracking ──
+    // Track tool_use blocks from assistant messages for later outcome derivation.
+    if entry_type == "assistant" {
+        let message = line.get("message").unwrap_or(&Value::Null);
+        let content = message.get("content").unwrap_or(&Value::Null);
+        for (tool_use_id, name, input) in extract_all_tool_uses(content) {
+            state.pending_tool_calls.insert(
+                tool_use_id,
+                PendingToolCall { name, input },
+            );
+        }
     }
-    // Merge extras
-    for (k, v) in extras {
-        data.insert(k, v);
+
+    // Derive tool_outcome for tool_result events by correlating with pending tool calls.
+    if subtype.as_deref() == Some("message.user.tool_result") {
+        let message = line.get("message").unwrap_or(&Value::Null);
+        let content = message.get("content").unwrap_or(&Value::Null);
+        if let Value::Array(blocks) = content {
+            for block in blocks {
+                if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                    let tool_use_id = block.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("");
+                    if let Some(pending) = state.pending_tool_calls.remove(tool_use_id) {
+                        let result_output = block
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let is_error = block
+                            .get("is_error")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+                        payload.tool_outcome = derive_tool_outcome(
+                            &pending.name,
+                            &pending.input,
+                            result_output,
+                            is_error,
+                        );
+                        break; // First result wins for the payload-level field
+                    }
+                }
+            }
+        }
     }
+
+    // Session ID from envelope overrides filename-derived one (for sidechain files)
+    let session_id = line
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| state.session_id.clone());
+
+    // Build EventData with typed payload
+    let data = EventData::with_payload(
+        line.clone(),
+        state.next_seq(),
+        session_id,
+        AgentPayload::ClaudeCode(payload),
+    );
 
     let timestamp = line.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     vec![CloudEvent::new(
         source,
         IO_ARC_EVENT.to_string(),
-        Value::Object(data),
+        data,
         subtype,
         uuid,
         timestamp,

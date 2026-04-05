@@ -98,6 +98,7 @@ fn tool_result(id: &str, call_id: &str, output: &str) -> ViewRecord {
             call_id: call_id.into(),
             output: Some(output.into()),
             is_error: false,
+            tool_outcome: None,
         }),
     }
 }
@@ -114,6 +115,7 @@ fn error_result(id: &str, call_id: &str, output: &str) -> ViewRecord {
             call_id: call_id.into(),
             output: Some(output.into()),
             is_error: true,
+            tool_outcome: None,
         }),
     }
 }
@@ -692,8 +694,8 @@ mod pipeline {
         let r2 = assistant_text("b");
         pipeline.feed(&make_ctx(&r2, 0, None));
 
-        let r = pipeline.flush();
+        let (patterns, _turns) = pipeline.flush();
         // At least TurnPhaseDetector should flush
-        assert!(!r.is_empty());
+        assert!(!patterns.is_empty());
     }
 }

@@ -10,7 +10,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde_json::Value;
 
-use open_story_patterns::PatternEvent;
+use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::event_store::{EventStore, SessionRow};
 use crate::queries::FtsSearchResult;
@@ -125,6 +125,15 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_patterns_session ON patterns(session_id);
             CREATE INDEX IF NOT EXISTS idx_patterns_type ON patterns(type);
+
+            CREATE TABLE IF NOT EXISTS turns (
+                id          TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                turn_number INTEGER NOT NULL,
+                data        TEXT NOT NULL,
+                timestamp   TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
 
             CREATE TABLE IF NOT EXISTS plans (
                 id          TEXT PRIMARY KEY,
@@ -442,6 +451,34 @@ impl EventStore for SqliteStore {
         }
 
         Ok(patterns)
+    }
+
+    fn insert_turn(&self, session_id: &str, turn: &StructuralTurn) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("turn:{}:{}", session_id, turn.turn_number);
+        let data = serde_json::to_string(turn)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO turns (id, session_id, turn_number, data, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![id, session_id, turn.turn_number, data, turn.timestamp],
+        )?;
+        Ok(())
+    }
+
+    fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number",
+        )?;
+        let turns = stmt
+            .query_map([session_id], |row| {
+                let data: String = row.get(0)?;
+                Ok(data)
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(|data| serde_json::from_str::<StructuralTurn>(&data).ok())
+            .collect();
+        Ok(turns)
     }
 
     fn upsert_plan(

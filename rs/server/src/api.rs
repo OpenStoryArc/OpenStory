@@ -218,9 +218,8 @@ pub async fn get_view_records(
 
     let view_records: Vec<Value> = events
         .iter()
-        .flat_map(|event| {
-            open_story_views::from_cloud_event::from_cloud_event(event)
-        })
+        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .filter_map(|vr| serde_json::to_value(vr).ok())
         .collect();
 
@@ -246,9 +245,8 @@ pub async fn get_conversation(
 
     let view_records: Vec<_> = events
         .iter()
-        .flat_map(|event| {
-            open_story_views::from_cloud_event::from_cloud_event(event)
-        })
+        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .collect();
 
     let paired = open_story_views::pair::pair_records(&view_records);
@@ -286,9 +284,8 @@ pub async fn get_file_changes(
 
     let view_records: Vec<_> = events
         .iter()
-        .flat_map(|event| {
-            open_story_views::from_cloud_event::from_cloud_event(event)
-        })
+        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .collect();
 
     let edits: Vec<Value> = open_story_views::filter::file_edits(&view_records)
@@ -393,6 +390,20 @@ pub async fn get_patterns(
         .session_patterns(&session_id, query.pattern_type.as_deref())
         .unwrap_or_default();
     Json(json!({ "patterns": result }))
+}
+
+pub async fn get_turns(
+    State(state): State<SharedState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Json<Value> {
+    log_event("api", &format!("GET /api/sessions/{}/turns", short_id(&session_id)));
+    let s = state.read().await;
+    let turns = s
+        .store
+        .event_store
+        .session_turns(&session_id)
+        .unwrap_or_default();
+    Json(json!({ "turns": turns }))
 }
 
 pub async fn list_plans(State(state): State<SharedState>) -> Json<Value> {

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::tool_input::{self, ToolInput};
+use open_story_core::event_data::ToolOutcome;
 
 // ---------------------------------------------------------------------------
 // RecordBody — discriminated union of all record types
@@ -157,6 +158,10 @@ pub struct ToolResult {
     pub output: Option<String>,
     #[serde(default)]
     pub is_error: bool,
+    /// Domain event: what this tool call changed in the world.
+    /// Derived from the tool_call + result pair in the translate layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_outcome: Option<ToolOutcome>,
 }
 
 // ---------------------------------------------------------------------------

@@ -41,48 +41,83 @@ export interface EventMeta {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Monadic EventData: foundation + optional typed agent payload. */
 export interface EventData {
+  // ── Foundation (always present) ──
+  readonly raw: Record<string, any>;
   readonly seq: number;
-  readonly ts: number;
-  readonly parent_seq: number | null;
-  readonly meta?: EventMeta;
-  // session.start
-  readonly command?: readonly string[];
-  readonly pid?: number | null;
-  readonly source?: string;
-  readonly model?: string;
-  readonly agent_type?: string;
-  // prompt.submit / message.user.prompt
+  readonly session_id: string;
+  // ── The lift: agent-specific payload, absent for unknown agents ──
+  readonly agent_payload?: AgentPayload;
+  // forward-compat
+  [key: string]: unknown;
+}
+
+/** Tagged union of agent-specific payloads. Dispatch on meta.agent. */
+export type AgentPayload = ClaudeCodePayload | PiMonoPayload;
+
+interface PayloadMeta {
+  readonly agent: string;
+}
+
+export interface ClaudeCodePayload {
+  readonly _variant: "claude-code";
+  readonly meta: PayloadMeta;
+  readonly uuid?: string;
+  readonly parent_uuid?: string;
+  readonly cwd?: string;
+  readonly timestamp?: string;
+  readonly version?: string;
   readonly text?: string;
-  // tool.call / message.assistant.tool_use
+  readonly model?: string;
+  readonly stop_reason?: any;
+  readonly content_types?: readonly string[];
   readonly tool?: string;
   readonly args?: Record<string, unknown>;
-  readonly tool_use_id?: string;
-  // tool.result
-  readonly result?: string;
-  readonly tool_input?: Record<string, unknown>;
-  readonly tool_response?: Record<string, unknown>;
-  // file.edit
-  readonly path?: string;
-  readonly operation?: string;
-  // response.complete
-  readonly last_assistant_message?: string;
-  readonly stop_hook_active?: boolean;
-  // error
-  readonly message?: string;
-  readonly is_interrupt?: boolean;
-  // session.end / system.turn.complete
-  readonly reason?: string;
-  readonly duration_ms?: number;
-  // transcript-style fields
-  readonly raw?: Record<string, any>;
-  readonly content_types?: readonly string[];
+  readonly token_usage?: Record<string, any>;
+  readonly slug?: string;
+  readonly message_id?: string;
+  readonly git_branch?: string;
+  readonly is_sidechain?: boolean;
+  readonly agent_id?: string;
   readonly user_type?: string;
   readonly progress_type?: string;
-  // transcript envelope (snake_case — converted from camelCase at translate layer)
+  readonly parent_tool_use_id?: string;
+  readonly operation?: string;
+  readonly hook_count?: number;
+  readonly prevented_continuation?: boolean;
+  readonly duration_ms?: number;
+  [key: string]: unknown;
+}
+
+export interface PiMonoPayload {
+  readonly _variant: "pi-mono";
+  readonly meta: PayloadMeta;
+  readonly uuid?: string;
+  readonly parent_uuid?: string;
   readonly cwd?: string;
-  readonly session_id?: string;
-  // forward-compat: allow unknown fields
+  readonly timestamp?: string;
+  readonly version?: any;
+  readonly text?: string;
+  readonly model?: string;
+  readonly stop_reason?: string;
+  readonly content_types?: readonly string[];
+  readonly tool?: string;
+  readonly args?: Record<string, unknown>;
+  readonly token_usage?: Record<string, any>;
+  readonly provider?: string;
+  readonly thinking_level?: string;
+  readonly model_id?: string;
+  readonly tool_call_id?: string;
+  readonly tool_name?: string;
+  readonly is_error?: boolean;
+  readonly command?: string;
+  readonly exit_code?: any;
+  readonly output?: string;
+  readonly summary?: string;
+  readonly tokens_before?: number;
+  readonly first_kept_entry_id?: string;
   [key: string]: unknown;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -10,6 +10,7 @@ interface TabBarProps {
 const TABS: { mode: ViewMode; label: string }[] = [
   { mode: "live", label: "Live" },
   { mode: "explore", label: "Explore" },
+  { mode: "story", label: "Story" },
 ];
 
 export function TabBar({ active, onSwitch }: TabBarProps) {

@@ -8,6 +8,7 @@
 //! - `paths` — path utilities for session/project ID extraction
 
 pub mod cloud_event;
+pub mod event_data;
 pub mod output;
 pub mod paths;
 pub mod reader;

@@ -7,6 +7,7 @@ description = "CloudEvent to ViewRecord transform layer for open-story"
 repository = "https://github.com/OpenStoryArc/OpenStory"
 
 [dependencies]
+open-story-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }

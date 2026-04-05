@@ -253,7 +253,7 @@ describe("enrichedReducer — patterns", () => {
       () => ({
         state: EMPTY_STATE,
         action: makeEnrichedMessage({
-          patterns: [{ type: "git.workflow", label: "Git: commit flow", events: ["e1", "e2", "e3"] }],
+          patterns: [{ type: "git.workflow", label: "Git: commit flow", session_id: "", events: ["e1", "e2", "e3"] }],
         }),
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -269,10 +269,10 @@ describe("enrichedReducer — patterns", () => {
       () => ({
         state: {
           ...EMPTY_STATE,
-          patterns: [{ type: "test.cycle", label: "Test cycle", events: ["e1"] }],
+          patterns: [{ type: "test.cycle", label: "Test cycle", session_id: "", events: ["e1"] }],
         },
         action: makeEnrichedMessage({
-          patterns: [{ type: "git.workflow", label: "Git flow", events: ["e2", "e3"] }],
+          patterns: [{ type: "git.workflow", label: "Git flow", session_id: "", events: ["e2", "e3"] }],
         }),
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -404,7 +404,7 @@ describe("enrichedReducer — combined records + ephemeral + patterns + deltas",
         action: makeEnrichedMessage({
           records: [makeWireRecord({ id: "durable-1", depth: 0 })],
           ephemeral: [makeWireRecord({ id: "progress-1", record_type: "system_event" })],
-          patterns: [{ type: "test.cycle", label: "Test", events: ["e1"] }],
+          patterns: [{ type: "test.cycle", label: "Test", session_id: "", events: ["e1"] }],
           filter_deltas: { all: 1, tools: 1 },
         }),
       }),

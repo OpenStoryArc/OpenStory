@@ -14,7 +14,7 @@ describe("buildPatternIndex", () => {
 
   it("should map each event_id to its pattern", () => {
     const patterns: PatternView[] = [
-      { type: "git.workflow", label: "Git: status → commit", events: ["e1", "e2", "e3"] },
+      { type: "git.workflow", label: "Git: status → commit", session_id: "", events: ["e1", "e2", "e3"] },
     ];
     const index = buildPatternIndex(patterns);
 
@@ -25,8 +25,8 @@ describe("buildPatternIndex", () => {
   });
 
   it("should handle multiple patterns sharing an event", () => {
-    const p1: PatternView = { type: "test.cycle", label: "Test PASS", events: ["e1", "e2", "e3"] };
-    const p2: PatternView = { type: "error.recovery", label: "Recovered", events: ["e2", "e3", "e4"] };
+    const p1: PatternView = { type: "test.cycle", label: "Test PASS", session_id: "", events: ["e1", "e2", "e3"] };
+    const p2: PatternView = { type: "error.recovery", label: "Recovered", session_id: "", events: ["e2", "e3", "e4"] };
     const index = buildPatternIndex([p1, p2]);
 
     expect(index.get("e1")).toEqual([p1]);
@@ -37,7 +37,7 @@ describe("buildPatternIndex", () => {
 
   it("should handle patterns with no events", () => {
     const patterns: PatternView[] = [
-      { type: "turn.phase", label: "conversation", events: [] },
+      { type: "turn.phase", label: "conversation", session_id: "", events: [] },
     ];
     const index = buildPatternIndex(patterns);
     expect(index.size).toBe(0);

@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use open_story_core::cloud_event::CloudEvent;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::{MessageContent, RecordBody};
 use open_story_views::view_record::ViewRecord;
@@ -220,10 +221,11 @@ impl SessionProjection {
             return AppendResult::empty();
         }
 
-        // 2. Extract parent_uuid, compute depth
+        // 2. Extract parent_uuid (now under agent_payload), compute depth
         let parent_uuid = event
             .get("data")
-            .and_then(|d| d.get("parent_uuid"))
+            .and_then(|d| d.get("agent_payload"))
+            .and_then(|ap| ap.get("parent_uuid"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let depth = match &parent_uuid {
@@ -235,9 +237,12 @@ impl SessionProjection {
             self.parents.insert(event_id.clone(), parent_uuid.clone());
         }
 
-        // 3. Transform to ViewRecords
+        // 3. Transform to ViewRecords (deserialize to typed CloudEvent)
         self.event_count += 1;
-        let view_records = from_cloud_event(event);
+        let view_records = match serde_json::from_value::<CloudEvent>(event.clone()) {
+            Ok(ce) => from_cloud_event(&ce),
+            Err(_) => vec![],
+        };
         if view_records.is_empty() {
             return AppendResult::empty();
         }
@@ -289,7 +294,8 @@ impl SessionProjection {
         if self.branch.is_none() {
             if let Some(branch) = event
                 .get("data")
-                .and_then(|d| d.get("git_branch"))
+                .and_then(|d| d.get("agent_payload"))
+                .and_then(|ap| ap.get("git_branch"))
                 .and_then(|v| v.as_str())
             {
                 if !branch.is_empty() {

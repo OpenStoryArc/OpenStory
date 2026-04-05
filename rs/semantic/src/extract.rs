@@ -262,6 +262,7 @@ mod tests {
                 call_id: "toolu_1".into(),
                 output: Some("test result: ok. 5 passed".into()),
                 is_error: false,
+                tool_outcome: None,
             }));
             assert_eq!(
                 extract_text(&vr),
@@ -275,6 +276,7 @@ mod tests {
                 call_id: "toolu_1".into(),
                 output: Some("compilation failed".into()),
                 is_error: true,
+                tool_outcome: None,
             }));
             assert_eq!(
                 extract_text(&vr),
@@ -289,6 +291,7 @@ mod tests {
                 call_id: "toolu_1".into(),
                 output: Some(long_output),
                 is_error: false,
+                tool_outcome: None,
             }));
             let text = extract_text(&vr).unwrap();
             assert_eq!(text.len(), 2000);
@@ -300,6 +303,7 @@ mod tests {
                 call_id: "toolu_1".into(),
                 output: Some(String::new()),
                 is_error: false,
+                tool_outcome: None,
             }));
             assert_eq!(extract_text(&vr), None);
         }
@@ -310,6 +314,7 @@ mod tests {
                 call_id: "toolu_1".into(),
                 output: None,
                 is_error: false,
+                tool_outcome: None,
             }));
             assert_eq!(extract_text(&vr), None);
         }

@@ -42,8 +42,8 @@ fn test_synthetic_fixture_all_types() {
         assert_eq!(e.event_type, "io.arc.event");
         assert!(!e.time.is_empty());
         assert_eq!(e.datacontenttype, "application/json");
-        assert!(e.data.is_object());
-        assert!(e.data.get("raw").is_some(), "data.raw must be present");
+        // EventData is always a struct; raw is always present
+        assert!(!e.data.raw.is_null(), "data.raw must be present");
     }
 }
 
@@ -62,8 +62,8 @@ fn assert_real_session(filename: &str, label: &str) {
         assert_eq!(e.specversion, "1.0");
         assert!(e.source.starts_with("arc://transcript/"));
         assert_eq!(e.event_type, "io.arc.event");
-        assert!(e.data.is_object());
-        assert!(e.data.get("raw").is_some());
+        // EventData is always a struct (object-like); raw is always present
+        assert!(!e.data.raw.is_null());
     }
 
     let subtypes: std::collections::HashSet<Option<&str>> = events.iter().map(|e| e.subtype.as_deref()).collect();
@@ -127,7 +127,7 @@ fn test_local_corpus() {
         // Every event must be valid
         for e in &events {
             assert_eq!(e.specversion, "1.0");
-            assert!(e.data.is_object());
+            // EventData is always a valid struct
         }
     }
 
