@@ -51,11 +51,15 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
     return selectedSession ? filtered.filter(p => p.session_id === selectedSession) : filtered;
   }, [patterns, selectedSession]);
 
-  // Apply category filter
-  const sentences = useMemo(
-    () => filterSentences(allSentences, activeFilters),
-    [allSentences, activeFilters],
-  );
+  // Apply category filter, then sort by turn number within session
+  const sentences = useMemo(() => {
+    const filtered = filterSentences(allSentences, activeFilters);
+    return filtered.sort((a, b) => {
+      const ta = (a.metadata?.turn as number) ?? 0;
+      const tb = (b.metadata?.turn as number) ?? 0;
+      return ta - tb;
+    });
+  }, [allSentences, activeFilters]);
 
   // Stats
   const verbs = useMemo(() => verbDistribution(sentences), [sentences]);
