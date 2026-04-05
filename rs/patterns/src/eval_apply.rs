@@ -36,6 +36,7 @@ use crate::{Detector, FeedContext, PatternEvent};
 /// One step of the eval-apply coalgebra, fully resolved.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructuralTurn {
+    pub session_id: String,
     pub turn_number: u32,
     pub scope_depth: u32,
     pub human: Option<HumanInput>,
@@ -352,6 +353,7 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
             // Crystallize the turn
             let turn = StructuralTurn {
+                session_id: acc.session_id.clone(),
                 turn_number: acc.turn_number,
                 scope_depth: acc.scope_depth,
                 human: acc.pending_human.take(),
@@ -490,6 +492,7 @@ impl EvalApplyDetector {
         if self.acc.pending_eval.is_some() || self.acc.pending_human.is_some() {
             let env_delta = self.acc.env_size.saturating_sub(self.acc.env_size_at_start);
             let turn = StructuralTurn {
+                session_id: self.acc.session_id.clone(),
                 turn_number: self.acc.turn_number,
                 scope_depth: self.acc.scope_depth,
                 human: self.acc.pending_human.take(),

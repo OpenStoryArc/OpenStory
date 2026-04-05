@@ -490,30 +490,21 @@ fn ext_to_language(ext: &str) -> &str {
 // SentenceDetector — TurnDetector implementation
 // ═══════════════════════════════════════════════════════════════════
 
-pub struct SentenceDetector {
-    session_id: String,
-}
+pub struct SentenceDetector;
 
 impl SentenceDetector {
     pub fn new() -> Self {
-        Self {
-            session_id: String::new(),
-        }
+        Self
     }
 }
 
 impl TurnDetector for SentenceDetector {
     fn feed_turn(&mut self, turn: &StructuralTurn) -> Vec<PatternEvent> {
-        if self.session_id.is_empty() && !turn.event_ids.is_empty() {
-            // Derive session_id from turn context
-            self.session_id = "unknown".to_string();
-        }
-
         let sentence = build_sentence(turn);
 
         vec![PatternEvent {
             pattern_type: "turn.sentence".to_string(),
-            session_id: self.session_id.clone(),
+            session_id: turn.session_id.clone(),
             event_ids: turn.event_ids.clone(),
             started_at: turn.timestamp.clone(),
             ended_at: turn.timestamp.clone(),
@@ -586,6 +577,7 @@ mod tests {
 
     fn make_turn(overrides: impl FnOnce(&mut StructuralTurn)) -> StructuralTurn {
         let mut turn = StructuralTurn {
+            session_id: "test-session".to_string(),
             turn_number: 1,
             scope_depth: 0,
             human: None,
