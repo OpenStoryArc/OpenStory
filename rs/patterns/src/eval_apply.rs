@@ -255,7 +255,6 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
         // ── Assistant message: eval phase ──
         s if s.starts_with("message.assistant") => {
-            acc.turn_number += 1;
             acc.env_size += 1;
             patterns.push(make_pattern(
                 "eval",
@@ -312,6 +311,7 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
         // ── Turn complete: coalgebra step done ──
         "system.turn.complete" => {
+            acc.turn_number += 1;
             let is_terminal = acc.phase != Phase::ResultsReady && acc.phase != Phase::SawApply;
             let stop_reason = if is_terminal { "end_turn" } else { "tool_use" };
 
