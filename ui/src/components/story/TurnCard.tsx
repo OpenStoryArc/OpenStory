@@ -55,18 +55,20 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
       <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           {pattern.session_id.startsWith("agent-") ? (
-            <span
-              className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#ff9e6418] text-[#ff9e64] border border-[#ff9e6433] shrink-0"
-              title={pattern.session_id}
-            >
-              agent {pattern.session_id.slice(6, 14)}
+            <span className="inline-flex items-center gap-1 shrink-0">
+              <span
+                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#ff9e6418] text-[#ff9e64] border border-[#ff9e6433]"
+                title={`Agent ID: ${pattern.session_id.slice(6)}`}
+              >
+                sub {pattern.session_id.slice(6, 18)}
+              </span>
             </span>
           ) : (
             <span
-              className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7] shrink-0"
-              title={pattern.session_id}
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#7aa2f718] text-[#7aa2f7] border border-[#7aa2f733] shrink-0"
+              title={`Session: ${pattern.session_id}`}
             >
-              {pattern.session_id.slice(0, 8)}
+              main {pattern.session_id.slice(0, 8)}
             </span>
           )}
           <span className="text-[#7aa2f7] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
