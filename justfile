@@ -141,8 +141,8 @@ token-usage *ARGS:
 backfill:
     ORT_DYLIB_PATH=data/models/{{ort_lib}} cargo run --manifest-path rs/cli/Cargo.toml -- backfill --data-dir ./data
 
-# Start NATS (JetStream) via Docker for local dev with the bus
-nats:
+# Start NATS (JetStream) via Docker (alternative to native nats-server)
+nats-docker:
     docker run --rm -p 4222:4222 -p 8222:8222 nats:2-alpine --jetstream
 
 # Start everything with Docker Compose (NATS + server + UI)
