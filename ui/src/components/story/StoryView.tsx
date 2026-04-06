@@ -186,7 +186,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
               key={s.id}
               onClick={() => { onSelectSession(isActive ? null : s.id); }}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
-                isActive ? "bg-[#24283b] border border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
+                isActive ? "bg-[#24283b] border-l-2 border-l-[#7aa2f7] border-y border-r border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
               }`}
               title={s.id}
             >

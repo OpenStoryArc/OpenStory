@@ -106,12 +106,12 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
         {/* Domain badges — always visible */}
         {applies.length > 0 && <DomainStrip applies={applies} />}
 
-        {/* Detail toggle — everything else */}
+        {/* Detail toggle — eval-apply phases */}
         <button
           onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
-          className="text-[10px] py-1 text-[#565f89] hover:text-[#7aa2f7] transition-colors"
+          className="text-[11px] py-1.5 px-2 -mx-1 rounded text-[#565f89] hover:text-[#7aa2f7] hover:bg-[#24283b] transition-colors cursor-pointer"
         >
-          {detailOpen ? "▼ hide detail" : "▶ detail"}
+          {detailOpen ? "▼ hide eval-apply" : "▶ eval-apply detail"}
         </button>
 
         {detailOpen && (
