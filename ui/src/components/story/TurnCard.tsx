@@ -7,10 +7,11 @@
  * Ported from render-html.ts prototype.
  */
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PatternView } from "@/types/wire-record";
+import { extractDomainFacts, type FactKind } from "@/lib/domain-facts";
 
 interface TurnCardProps {
   pattern: PatternView;
@@ -278,34 +279,52 @@ function ApplyBlock({ apply }: { apply: Apply }) {
 // Domain event strip — aggregated
 // ─────────────────────────────────────────────
 
-function DomainStrip({ applies }: { applies: Apply[] }) {
-  const counts = { created: 0, modified: 0, read: 0, cmdOk: 0, cmdFail: 0, search: 0, agent: 0 };
-  for (const a of applies) {
-    const o = a.tool_outcome;
-    if (!o) continue;
-    switch (o.type) {
-      case "FileCreated": counts.created++; break;
-      case "FileModified": counts.modified++; break;
-      case "FileRead": counts.read++; break;
-      case "CommandExecuted": o.succeeded ? counts.cmdOk++ : counts.cmdFail++; break;
-      case "SearchPerformed": counts.search++; break;
-      case "SubAgentSpawned": counts.agent++; break;
-    }
-  }
+const FACT_STYLES: Record<FactKind, { icon: string; color: string; bg: string }> = {
+  created:      { icon: "+", color: "#9ece6a", bg: "#9ece6a18" },
+  modified:     { icon: "~", color: "#e0af68", bg: "#e0af6818" },
+  read:         { icon: "⊳", color: "#7dcfff", bg: "#7dcfff18" },
+  command_ok:   { icon: "$", color: "#9ece6a", bg: "#9ece6a18" },
+  command_fail: { icon: "✗", color: "#f7768e", bg: "#f7768e18" },
+  search:       { icon: "⌕", color: "#bb9af7", bg: "#bb9af718" },
+  agent:        { icon: "⊕", color: "#ff9e64", bg: "#ff9e6418" },
+  error:        { icon: "✗", color: "#f7768e", bg: "#f7768e18" },
+};
 
-  const facts: React.ReactElement[] = [];
-  if (counts.created > 0) facts.push(<span key="c" className="badge bg-[#9ece6a18] text-[#9ece6a]">+{counts.created} created</span>);
-  if (counts.modified > 0) facts.push(<span key="m" className="badge bg-[#e0af6818] text-[#e0af68]">~{counts.modified} modified</span>);
-  if (counts.read > 0) facts.push(<span key="r" className="badge bg-[#7dcfff18] text-[#7dcfff]">{counts.read} read</span>);
-  if (counts.cmdOk > 0) facts.push(<span key="ok" className="badge bg-[#9ece6a18] text-[#9ece6a]">{counts.cmdOk} cmd ok</span>);
-  if (counts.cmdFail > 0) facts.push(<span key="f" className="badge bg-[#f7768e18] text-[#f7768e]">{counts.cmdFail} cmd failed</span>);
-  if (counts.search > 0) facts.push(<span key="s" className="badge bg-[#bb9af718] text-[#bb9af7]">{counts.search} searches</span>);
-  if (counts.agent > 0) facts.push(<span key="a" className="badge bg-[#ff9e6418] text-[#ff9e64]">{counts.agent} sub-agents</span>);
+function DomainStrip({ applies }: { applies: Apply[] }) {
+  const facts = useMemo(() => extractDomainFacts(applies as any), [applies]);
+  const [expanded, setExpanded] = useState(false);
 
   if (facts.length === 0) return null;
+
+  const visible = expanded ? facts : facts.slice(0, 6);
+  const hidden = expanded ? 0 : facts.length - 6;
+
   return (
-    <div className="flex flex-wrap gap-1.5 py-1 [&_.badge]:inline-block [&_.badge]:px-1.5 [&_.badge]:py-0.5 [&_.badge]:rounded [&_.badge]:text-[10px]">
-      {facts}
+    <div className="py-1">
+      <div className="flex flex-wrap gap-1">
+        {visible.map((fact, i) => {
+          const style = FACT_STYLES[fact.kind];
+          return (
+            <span
+              key={`${fact.kind}-${i}`}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px]"
+              style={{ backgroundColor: style.bg, color: style.color }}
+              title={fact.detail}
+            >
+              <span>{style.icon}</span>
+              {fact.label}
+            </span>
+          );
+        })}
+        {hidden > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+            className="text-[10px] text-[#565f89] hover:text-[#7aa2f7] px-1"
+          >
+            +{hidden} more
+          </button>
+        )}
+      </div>
     </div>
   );
 }
