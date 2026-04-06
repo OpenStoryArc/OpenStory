@@ -52,7 +52,7 @@ impl BroadcastConsumer {
         &mut self,
         session_id: &str,
         events: &[CloudEvent],
-        projection: &SessionProjection,
+        _projection: &SessionProjection,
     ) -> Vec<ViewRecord> {
         let mut all_records = Vec::new();
 

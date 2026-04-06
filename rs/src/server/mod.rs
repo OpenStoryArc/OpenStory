@@ -22,6 +22,9 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
+// Consumer actor implementations ready but not yet wired as independent NATS consumers.
+// See rs/server/src/consumers/ for the implementations.
+#[allow(unused_imports)]
 use open_story_server::consumers;
 use open_story_server::logging::{event_type_summary, log_event, short_id};
 

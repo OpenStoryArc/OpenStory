@@ -21,15 +21,18 @@ use open_story_store::projection::SessionProjection;
 pub struct ProjectionsConsumer {
     /// Materialized view per session.
     projections: HashMap<String, SessionProjection>,
-    /// Session → project_id mapping.
+    /// Session → project_id mapping (used when wired as independent consumer).
+    #[allow(dead_code)]
     session_projects: HashMap<String, String>,
-    /// Session → display name mapping.
+    /// Session → display name mapping (used when wired as independent consumer).
+    #[allow(dead_code)]
     session_project_names: HashMap<String, String>,
     /// Subagent → parent session mapping.
     subagent_parents: HashMap<String, String>,
     /// Parent → child session list.
     session_children: HashMap<String, Vec<String>>,
-    /// Agent ID → description label.
+    /// Agent ID → description label (used when wired as independent consumer).
+    #[allow(dead_code)]
     agent_labels: HashMap<String, String>,
 }
 
