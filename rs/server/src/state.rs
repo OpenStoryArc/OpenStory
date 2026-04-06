@@ -41,11 +41,16 @@ pub struct AppState {
 
 pub type SharedState = Arc<RwLock<AppState>>;
 
-/// Create the application state. Boots from SQLite if available, else JSONL.
+/// Create the application state. Boots from SQLite if available.
 ///
 /// Boot priority:
-/// 1. SQLite has sessions → load from DB (instant boot)
-/// 2. SQLite empty → load recent JSONL sessions (boot_window_hours), populate SQLite
+/// 1. SQLite has sessions → load from DB (instant boot, data already translated)
+/// 2. SQLite empty → start empty, watcher backfill handles JSONL → translate → NATS → consumers
+///
+/// The JSONL boot path was removed because it bypassed translate_line(), storing
+/// raw Claude Code JSON in SQLite as if they were CloudEvents. This caused
+/// agent_payload, tool_outcome, and agent_id to be missing on boot-loaded data.
+/// Now all events go through one path: JSONL → translate → NATS → consumers.
 pub fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, config: Config) -> Result<SharedState> {
     let db_key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
     let mut store = StoreState::new_with_key(data_dir, db_key)?;
@@ -68,13 +73,13 @@ pub fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, config
         Vec::new()
     };
 
-    // Try boot from SQLite first
+    // Boot from SQLite if it has data (restart case — data already translated)
     let sqlite_sessions = store.event_store.list_sessions().unwrap_or_default();
     if !sqlite_sessions.is_empty() {
         boot_from_sqlite(&mut store, &sqlite_sessions);
-    } else {
-        boot_from_jsonl(&mut store, &config);
     }
+    // If SQLite is empty (first boot), watcher backfill handles everything.
+    // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
 
     // Derive project_id and project_name from cwd for all loaded sessions
     let boot_session_ids: Vec<String> = store.event_store
