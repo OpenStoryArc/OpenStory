@@ -12,8 +12,8 @@ Surface token usage (input, output, cache reads/writes) per session with estimat
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
-### Domain Events & Workspace Impact
-Deterministic "what changed in the world" events derived from tool_call + tool_result pairs: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. A `ToolOutcome` enum on the payload, derived in the translate layer. Subsumes the original Workspace Impact Summary — domain events ARE the data layer for file/code change tracking. Full design with Rust code: `docs/design-domain-events.md` (Part 1). Prototyped and tested in TypeScript (20 tests) at `claurst/scheme/prototype/domain.ts`.
+### Domain Events & Workspace Impact — SHIPPED
+`ToolOutcome` enum implemented in the translate layer: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. Domain fact badges visible on every Story card. `SubAgentSpawned` carries `agent_id` for parent-child linking. Remaining: `ToolOutcome` for pi-mono (`translate_pi.rs`).
 
 ### Agent Behavior Patterns
 Cross-session analytics revealing longitudinal trends: tool preferences, session duration, token consumption over time, error rates by task type. Answers questions like "I spend 60% of tokens on test-writing" by aggregating over persisted event data.
@@ -60,8 +60,8 @@ Server-side `?format=csv` query parameter across analytics endpoints (sessions, 
 
 ## UI
 
-### Story Tab — Narrative Session View
-A new tab alongside Live and Explore showing sessions as narrative structure rather than event streams. Turns grouped by `turn_end` records, each with five layers: sentence (natural language summary), diagram (grammatical tree), domain facts (badge strip), domain events (deterministic fact list), and phases (eval-apply structure). Same data as Live/Explore, different lens — for understanding what happened and why, not debugging what the machine did. Depends on domain events (above). Full design: `docs/design-domain-events.md` (Part 2). Prototyped with 58 TypeScript tests and HTML visualization at `claurst/scheme/prototype/`.
+### Story Tab — Narrative Session View — PARTIALLY SHIPPED
+Five-layer turn cards with sentence diagram, domain fact badges, syntax-highlighted code output, eval-apply phase detail, main/sub agent badges. Recursive CycleCard for inline subagent expansion (fetches records, derives eval-apply cycles client-side). Collapsible sidebar with session selection. Remaining: sidebar replication from Live tab, Rust-side cycle detector (`turn.cycle` pattern), scoped SSE (per-client NATS subscriptions on WebSocket).
 
 ### Card-Based Live Event Feed
 Redesign event timeline from table rows to visually distinct cards grouped by event type (prompts, tools, results, thinking) with color-coded badges and automatic entrance animations.
@@ -75,8 +75,8 @@ Render the causal event tree (parent_uuid relationships) as a collapsible, inter
 ### Event Graph Navigation
 Faceted navigation for Explore: turn outline + file/tool/agent facets, with intersection queries to answer "what happened in turn 3 to file auth.rs?" The FacetPanel component exists; this wires it to real queries.
 
-### Syntax Highlighting
-Integrate Shiki for VS Code-quality syntax highlighting in code blocks across the dashboard (bash, JSON, rust, etc.), with lazy loading and language detection.
+### Syntax Highlighting — SHIPPED
+Implemented via `react-syntax-highlighter` (Prism + VS Code Dark+) with `detectLanguage()` from file path extensions. Available in Story tab tool output expand and RecordDetail in Live tab.
 
 ### Timeline Rendering Performance
 Fix virtualizer layout shifts when rows expand to show detail inline. Expanded rows should push subsequent rows down without overlap.
@@ -126,6 +126,18 @@ Cron job or systemd timer on the server that queries the OpenStory API to detect
 
 ### Starter Configuration
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
+
+### Eval-Apply Cycle Detector (Rust)
+Add `turn.cycle` as a new pattern type alongside `turn.sentence`. Each eval-apply cycle (model evaluates → dispatches tools → gets results) becomes a detectable pattern. Currently cycles are derived client-side via `extractCycles()` in `ui/src/lib/eval-apply.ts`. Moving to Rust enables real-time cycle streaming via the patterns consumer. Key insight from data: main agents and subagents have identical cycle structure — subagents just lack `turn.complete` markers.
+
+### Scoped Server-Sent Events
+Per-client NATS subscriptions on WebSocket. Currently all events broadcast to all clients. With hierarchical subjects, the UI could subscribe to `events.{project}.{session}.>` and get only one session's events (main + subagents). Reduces bandwidth, enables multiple tabs watching different sessions.
+
+### Remove Hooks
+With NATS as the transport, hooks are redundant with the file watcher. Both read the same JSONL and produce the same CloudEvents. The dedup logic exists solely because they race. Removing hooks eliminates dedup, the HTTP endpoint, transcript path resolution, and the `seen_event_ids` HashSet.
+
+### Decompose Broadcast Consumer
+The broadcast consumer is the last one still using `ingest_events()` with shared `AppState`. It needs projection state for `BroadcastMessage` assembly. Decomposing it requires the projections consumer to publish session metadata to `changes.{project}.{session}`, which the broadcast consumer then consumes.
 
 ---
 

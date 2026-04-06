@@ -137,6 +137,8 @@ The Rust codebase is a **workspace with 9 crates**. Core domain logic lives in `
 
 ## Build & Test
 
+**Prerequisites:** Rust, Node.js, NATS (`brew install nats-server`)
+
 ```bash
 # Rust — test all crates + integration tests (never touches the binary)
 cd rs && cargo test
@@ -164,9 +166,11 @@ docker compose up
 ## Development Quick Reference
 
 ```bash
-just up              # Build + start server + UI (Ctrl+C to stop)
+just up              # Start NATS + server + UI (Ctrl+C to stop)
 just serve           # Start Rust server only
 just dev             # Start Vite UI dev server only
+just nats            # Start NATS JetStream standalone
+just nats-stop       # Stop NATS
 just test            # Run all tests (Rust + UI)
 just test-rs         # Rust tests only
 just test-ui         # UI tests only
@@ -181,23 +185,41 @@ just observe         # Start full stack + Prometheus + Grafana
 
 ## Architecture
 
-**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads, auto-detects format) → `translate.rs` / `translate_pi.rs` (agent-specific JSON → CloudEvent 1.0) → `server/ingest.rs` (ingest, persist, broadcast)
+**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads, auto-detects format) → `translate.rs` / `translate_pi.rs` (agent-specific JSON → CloudEvent 1.0) → NATS JetStream → independent consumer actors
 
 **Multi-agent support:** Open Story observes multiple coding agents simultaneously. Each agent has its own translator and watch directory. The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) lets the views layer parse format-specific fields. Raw data is never mutated — each agent's native structure is preserved.
 
-**Ingest fan-out** — events flow through a single `ingest_events()` orchestration point, then fan out to multiple sinks:
+**NATS Event Bus** — all events flow through NATS JetStream with hierarchical subjects:
 ```
-watcher/hooks → bus → ingest_events()
-                         ├→ SQLite (events, sessions, patterns)
-                         ├→ JSONL (append-only backup)
-                         ├→ pattern pipeline → SQLite
-                         └→ embedding channel → worker → Qdrant
+Source: watcher/hooks → translate_line() → CloudEvent → publish to NATS
+
+Subjects (hierarchical — encodes parent-child relationships):
+  events.{project}.{session}.main              — main agent events
+  events.{project}.{session}.agent.{agent_id}  — subagent events
+
+Subscribe to events.{project}.{session}.> → gets main + all subagents
+
+Streams:
+  events   — durable, limits-based (1GB)
+  patterns — detected PatternEvents (durable)
+  changes  — session metadata updates (interest-based)
 ```
-All sinks are optional and non-blocking. The system works with any subset active.
+
+NATS is a hard dependency. Install: `brew install nats-server`. Config: `nats.conf` at project root.
+
+**Independent actor-consumers** — each subscribes to NATS and owns its own state:
+```
+NATS events.> → persist consumer    → SQLite + JSONL + FTS (dedup, storage)
+NATS events.> → patterns consumer   → EvalApply → Sentence → PatternEvent
+NATS events.> → projections consumer → SessionProjection (tokens, metadata)
+NATS events.> → broadcast consumer  → ViewRecord → WireRecord → WebSocket
+```
+Each actor is a tokio task with independent failure domain. No shared RwLock between actors. `Arc<dyn EventStore>` for lock-free concurrent SQLite access.
 
 **Server crate** (`rs/server/src/`):
-- `ingest.rs` — `ingest_events()` pipeline (dedup → persist → project → broadcast)
-- `state.rs` — AppState (shared state behind `Arc<RwLock>`)
+- `consumers/` — independent actor-consumers (persist, patterns, projections, broadcast)
+- `ingest.rs` — `ingest_events()` (legacy monolithic path, used by broadcast consumer)
+- `state.rs` — AppState (boots from SQLite on restart)
 - `router.rs` — `build_router()` (all HTTP/WS routes)
 - `api.rs` — REST endpoints (`/api/sessions`, `/api/search`, `/api/agent/search`, etc.)
 - `ws.rs` — WebSocket broadcast for live updates
