@@ -110,43 +110,6 @@ OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions just up
 
 Both watchers run simultaneously — sessions from all configured coding agents appear in the same dashboard. Format detection is automatic (per-file, based on the first JSONL line). Each event carries an `agent` field identifying its source.
 
-### Enable semantic search (optional)
-
-Semantic search lets you find sessions by meaning — "how did we approach the auth refactor?" — using a local embedding model. Data never leaves your machine.
-
-**1. Download the ONNX Runtime library** (~16MB) from [GitHub releases](https://github.com/microsoft/onnxruntime/releases) and place the shared library in `data/models/`:
-
-| Platform | Archive | Library file |
-|----------|---------|-------------|
-| Linux/WSL | `onnxruntime-linux-x64-1.20.1.tgz` | `lib/libonnxruntime.so` |
-| macOS (Apple Silicon) | `onnxruntime-osx-arm64-1.20.1.tgz` | `lib/libonnxruntime.dylib` |
-| macOS (Intel) | `onnxruntime-osx-x86_64-1.20.1.tgz` | `lib/libonnxruntime.dylib` |
-| Windows | `onnxruntime-win-x64-1.20.1.zip` | `lib/onnxruntime.dll` |
-
-```bash
-# Example (Linux/WSL):
-curl -sL https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz | tar xz -C /tmp
-mkdir -p data/models
-cp /tmp/onnxruntime-linux-x64-1.20.1/lib/libonnxruntime.so data/models/
-```
-
-**2. Download the model and start services:**
-
-```bash
-just download-model            # Download embedding model (~86MB)
-just qdrant                    # Start Qdrant vector database
-just backfill                  # Embed existing events into Qdrant
-```
-
-Add to `data/config.toml`:
-```toml
-semantic_enabled = true
-qdrant_url = "http://localhost:6334"
-embedding_model_path = "data/models"
-```
-
-Then `just up` — the Search tab in the Explore view and `/api/agent/search` will be active.
-
 ### With Docker/Podman
 
 Run the full stack (server + UI + NATS) in containers:
