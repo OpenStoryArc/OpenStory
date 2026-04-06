@@ -131,6 +131,8 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
               </PhaseBlock>
             )}
 
+            <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
+
             {eval_ && (
               <PhaseBlock label="eval" color="#9ece6a">
                 <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
@@ -143,8 +145,6 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
                 <ExpandableText text={eval_.content || "(empty)"} />
               </PhaseBlock>
             )}
-
-            <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
           </div>
         )}
       </div>
