@@ -9,6 +9,7 @@
  */
 
 import type { PatternView } from "@/types/wire-record";
+import { extractDomainFact, extractDomainFacts, type DomainFact } from "@/lib/domain-facts";
 
 // ═══════════════════════════════════════════════════════════════════
 // Category classification
@@ -127,4 +128,40 @@ export function isInProgress(_pattern: PatternView): boolean {
 /** Extract env_size from each sentence as a growth series. */
 export function envGrowthSeries(sentences: readonly PatternView[]): number[] {
   return sentences.map(s => ((s.metadata ?? {}).env_size as number) ?? 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Domain fact extraction from turn patterns
+// ═══════════════════════════════════════════════════════════════════
+
+interface ApplyWithOutcome {
+  tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean; pattern?: string; source?: string; description?: string; reason?: string } | null;
+}
+
+/** Extract deduplicated, sorted domain facts from a turn.sentence pattern's applies. */
+export function turnDomainFacts(pattern: PatternView): DomainFact[] {
+  const applies = ((pattern.metadata ?? {}).applies as ApplyWithOutcome[]) ?? [];
+  return extractDomainFacts(applies);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Event map: pair applies with their domain facts
+// ═══════════════════════════════════════════════════════════════════
+
+export interface ApplyEventEntry {
+  tool_name: string;
+  fact: DomainFact | null;
+}
+
+/** Map each apply in a turn to its domain fact (or null if no outcome). */
+export function turnEventMap(pattern: PatternView): ApplyEventEntry[] {
+  const applies = ((pattern.metadata ?? {}).applies as Array<{
+    tool_name: string;
+    tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean; pattern?: string; source?: string; description?: string; reason?: string } | null;
+  }>) ?? [];
+
+  return applies.map(a => ({
+    tool_name: a.tool_name,
+    fact: a.tool_outcome ? extractDomainFact(a.tool_outcome) : null,
+  }));
 }

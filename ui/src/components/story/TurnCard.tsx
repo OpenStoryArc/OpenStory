@@ -10,8 +10,13 @@
 import React, { useState, useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { detectLanguage } from "@/lib/detect-language";
+import { stripAnsi } from "@/lib/strip-ansi";
+import { stripLineNumbers } from "@/lib/strip-line-numbers";
 import type { PatternView } from "@/types/wire-record";
-import { extractDomainFacts, type FactKind } from "@/lib/domain-facts";
+import { extractDomainFact, extractDomainFacts, type DomainFact, type FactKind } from "@/lib/domain-facts";
 
 interface TurnCardProps {
   pattern: PatternView;
@@ -46,14 +51,29 @@ export function TurnCard({ pattern }: TurnCardProps) {
     >
       {/* Header */}
       <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7] shrink-0">
-            {pattern.session_id}
-          </span>
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          {pattern.session_id.startsWith("agent-") ? (
+            <span
+              className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#ff9e6418] text-[#ff9e64] border border-[#ff9e6433] shrink-0"
+              title={pattern.session_id}
+            >
+              agent {pattern.session_id.slice(6, 14)}
+            </span>
+          ) : (
+            <span
+              className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7] shrink-0"
+              title={pattern.session_id}
+            >
+              {pattern.session_id.slice(0, 8)}
+            </span>
+          )}
           <span className="text-[#7aa2f7] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
+          <span className="text-[9px] font-mono text-[#565f89] shrink-0" title={`${pattern.events.length} CloudEvents`}>
+            {pattern.events.length} events
+          </span>
           {pattern.events.length > 0 && (
-            <span className="text-[9px] font-mono text-[#3b4261] truncate" title={pattern.events[0]}>
-              {pattern.events[0]?.slice(0, 8)}
+            <span className="text-[9px] font-mono text-[#3b4261] truncate" title={pattern.events.join("\n")}>
+              {pattern.events[0]?.slice(0, 8)}..{pattern.events[pattern.events.length - 1]?.slice(0, 8)}
             </span>
           )}
         </div>
@@ -66,7 +86,7 @@ export function TurnCard({ pattern }: TurnCardProps) {
         </span>
       </div>
 
-      {/* Always visible: diagram */}
+      {/* Always visible: diagram + domain facts */}
       <div className="px-3.5 py-2.5 space-y-1">
         {/* Diagram — always shown */}
         <DiagramInline
@@ -76,6 +96,9 @@ export function TurnCard({ pattern }: TurnCardProps) {
           subordinates={subordinates}
           predicate={predicate}
         />
+
+        {/* Domain badges — always visible */}
+        {applies.length > 0 && <DomainStrip applies={applies} />}
 
         {/* Detail toggle — everything else */}
         <button
@@ -91,9 +114,6 @@ export function TurnCard({ pattern }: TurnCardProps) {
             <p className="text-[12px] italic text-[#a9b1d6] pb-1">
               {pattern.label}
             </p>
-
-            {/* Domain badges */}
-            {applies.length > 0 && <DomainStrip applies={applies} />}
 
             {human?.content && (
               <PhaseBlock label="actor" color="#7dcfff">
@@ -120,7 +140,7 @@ export function TurnCard({ pattern }: TurnCardProps) {
               </PhaseBlock>
             )}
 
-            <ApplyList applies={applies} />
+            <ApplyList applies={applies} events={pattern.events} />
           </div>
         )}
       </div>
@@ -201,7 +221,7 @@ type Apply = {
   tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean };
 };
 
-function ApplyList({ applies }: { applies: Apply[] }) {
+function ApplyList({ applies, events }: { applies: Apply[]; events: readonly string[] }) {
   const [expanded, setExpanded] = useState(false);
 
   if (applies.length === 0) return null;
@@ -221,7 +241,7 @@ function ApplyList({ applies }: { applies: Apply[] }) {
   return (
     <>
       {visible.map((apply, i) => (
-        <ApplyBlock key={i} apply={apply} />
+        <ApplyBlock key={i} apply={apply} index={i} events={events} />
       ))}
       {hidden.length > 0 && (
         <button
@@ -235,23 +255,37 @@ function ApplyList({ applies }: { applies: Apply[] }) {
   );
 }
 
-function ApplyBlock({ apply }: { apply: Apply }) {
+function ApplyBlock({ apply, index, events }: { apply: Apply; index: number; events: readonly string[] }) {
   const [showOutput, setShowOutput] = useState(false);
   const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[#f7768e]" : "border-[#e0af68]";
   const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[#f7768e]" : "text-[#e0af68]";
   const label = apply.is_agent ? "apply · compound" : "apply";
+  const fact = apply.tool_outcome ? extractDomainFact(apply.tool_outcome) : null;
+  const factStyle = fact ? FACT_STYLES[fact.kind] : null;
 
   return (
     <div className={`py-1.5 px-2.5 my-1 rounded-r bg-[#24283b] border-l-[3px] ${cls}`}>
       <div className="flex justify-between items-start">
-        <span className={`text-[10px] font-bold uppercase tracking-wide ${labelColor}`}>{label}</span>
-        <span className="text-[10px] text-[#565f89]">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`text-[10px] font-bold uppercase tracking-wide shrink-0 ${labelColor}`}>{label}</span>
+          {fact && factStyle && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0"
+              style={{ backgroundColor: factStyle.bg, color: factStyle.color }}
+              title={fact.detail}
+            >
+              <span>{factStyle.icon}</span>
+              {fact.label}
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] text-[#565f89] shrink-0">
           {apply.tool_name}
           {apply.tool_outcome && <OutcomeBadge outcome={apply.tool_outcome} />}
         </span>
       </div>
       <div className="text-[12px] text-[#a9b1d6] mt-0.5 whitespace-pre-wrap break-words">
-        {apply.input_summary || "(no input)"}
+        {(apply.tool_outcome?.command ?? apply.tool_outcome?.path ?? apply.input_summary) || "(no input)"}
       </div>
       {apply.output_summary && (
         <button
@@ -262,9 +296,7 @@ function ApplyBlock({ apply }: { apply: Apply }) {
         </button>
       )}
       {showOutput && apply.output_summary && (
-        <div className="text-[11px] text-[#565f89] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
-          <Markdown remarkPlugins={[remarkGfm]}>{apply.output_summary}</Markdown>
-        </div>
+        <ApplyOutput output={apply.output_summary} toolName={apply.tool_name} outcome={apply.tool_outcome} />
       )}
       {apply.is_agent && (
         <div className="text-[10px] text-[#565f89] italic mt-0.5">
@@ -325,6 +357,73 @@ function DomainStrip({ applies }: { applies: Apply[] }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Apply output — syntax highlighted code
+// ─────────────────────────────────────────────
+
+/** Strip "123\t" line number prefixes from Read tool output. */
+function stripReadLineNumbers(text: string): string {
+  return text.split("\n").map(line => line.replace(/^\d+\t/, "")).join("\n");
+}
+
+function hasReadLineNumbers(text: string): boolean {
+  const lines = text.split("\n").slice(0, 5);
+  if (lines.length === 0) return false;
+  const matches = lines.filter(l => /^\d+\t/.test(l)).length;
+  return matches >= Math.ceil(lines.length * 0.6);
+}
+
+function ApplyOutput({ output, toolName, outcome }: {
+  output: string;
+  toolName: string;
+  outcome?: { type: string; path?: string; command?: string } | null;
+}) {
+  const filePath = outcome?.path;
+  const isCode = toolName === "Read" || toolName === "Edit" || toolName === "Write" || toolName === "Grep" || toolName === "Glob";
+  const isBash = toolName === "Bash";
+
+  // Strip ANSI codes and line numbers
+  let cleaned = stripAnsi(output);
+  if (hasReadLineNumbers(cleaned)) {
+    cleaned = stripReadLineNumbers(cleaned);
+  }
+
+  const language = detectLanguage({ filePath: filePath ?? undefined, toolName });
+
+  if (isCode || isBash) {
+    return (
+      <div className="mt-1 rounded bg-[#1a1b26] border border-[#2f3348] overflow-auto max-h-60">
+        {filePath && (
+          <div className="px-2 py-0.5 text-[10px] text-[#565f89] border-b border-[#2f3348]">
+            {language !== "text" ? language : ""} {filePath.split("/").pop()}
+          </div>
+        )}
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus}
+          customStyle={{
+            margin: 0,
+            padding: "6px 8px",
+            background: "transparent",
+            fontSize: "11px",
+          }}
+          wrapLongLines={true}
+          showLineNumbers={false}
+        >
+          {cleaned.trim()}
+        </SyntaxHighlighter>
+      </div>
+    );
+  }
+
+  // Fallback: markdown for non-code outputs
+  return (
+    <div className="text-[11px] text-[#565f89] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
+      <Markdown remarkPlugins={[remarkGfm]}>{output}</Markdown>
     </div>
   );
 }

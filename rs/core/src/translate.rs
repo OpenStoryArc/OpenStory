@@ -432,6 +432,11 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
                             result_output,
                             is_error,
                         );
+                        // Surface result text so the eval-apply detector
+                        // can populate output_summary on ApplyRecords
+                        if !result_output.is_empty() {
+                            payload.text = Some(result_output.to_string());
+                        }
                         break; // First result wins for the payload-level field
                     }
                 }

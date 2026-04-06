@@ -1059,3 +1059,75 @@ fn test_tool_outcome_absent_on_plain_user_message() {
     let p = cc_payload(&events[0]);
     assert!(p.tool_outcome.is_none());
 }
+
+/// Tool result text should be surfaced on payload.text so the pattern
+/// detector can populate output_summary on ApplyRecords.
+#[test]
+fn test_tool_result_text_surfaced_on_payload() {
+    let mut s = state();
+
+    // Step 1: Assistant requests a Read tool
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-read-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_read", "name": "Read", "input": {"file_path": "/src/main.rs"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    // Step 2: User sends back the tool result with file contents
+    let file_content = "fn main() {\n    println!(\"hello\");\n}";
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-read-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_read", "content": file_content},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert_eq!(p.text.as_deref(), Some(file_content), "payload.text should contain tool result content");
+}
+
+/// Tool result with empty content should not set payload.text.
+#[test]
+fn test_tool_result_empty_content_no_text() {
+    let mut s = state();
+
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_x", "name": "Bash", "input": {"command": "true"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_x", "content": ""},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert!(p.text.is_none(), "empty content should not set payload.text");
+}
