@@ -158,15 +158,14 @@ pub async fn run_server(
             let watcher_bus = bus.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, subject, events| {
                     let batch = IngestBatch {
                         session_id: session_id.to_string(),
                         project_id: project_id.unwrap_or("").to_string(),
                         events: events.to_vec(),
                     };
-                    let subject = format!("events.session.{session_id}");
                     let rt = tokio::runtime::Handle::current();
-                    if let Err(e) = rt.block_on(watcher_bus.publish(&subject, &batch)) {
+                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
                         eprintln!("Bus publish error: {e}");
                     }
                 }) {
@@ -178,7 +177,7 @@ pub async fn run_server(
             let watcher_state = state.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, _subject, events| {
                     let summary = event_type_summary(&events);
                     let rt = tokio::runtime::Handle::current();
                     let result = rt.block_on(async {
@@ -209,15 +208,14 @@ pub async fn run_server(
             if bus.is_active() {
                 let watcher_bus = bus.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, subject, events| {
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
                             events: events.to_vec(),
                         };
-                        let subject = format!("events.session.{session_id}");
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(&subject, &batch)) {
+                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
                             eprintln!("Pi-mono bus publish error: {e}");
                         }
                     }) {
@@ -227,7 +225,7 @@ pub async fn run_server(
             } else {
                 let watcher_state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, _subject, events| {
                         let summary = event_type_summary(&events);
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {

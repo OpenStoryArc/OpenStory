@@ -17,7 +17,7 @@ const BACKFILL_WINDOW: Duration = Duration::from_secs(24 * 3600);
 
 use crate::cloud_event::CloudEvent;
 use crate::output::emit_events;
-use crate::paths::{project_id_from_path, session_id_from_path};
+use crate::paths::{nats_subject_from_path, project_id_from_path, session_id_from_path};
 use crate::reader::read_new_lines;
 use crate::translate::TranscriptState;
 
@@ -83,7 +83,7 @@ pub fn watch_with_callback<F>(
     mut on_events: F,
 ) -> Result<()>
 where
-    F: FnMut(&str, Option<&str>, Vec<CloudEvent>),
+    F: FnMut(&str, Option<&str>, &str, Vec<CloudEvent>),
 {
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
 
@@ -120,7 +120,8 @@ where
                 total += events.len() as u64;
                 let sid = session_id_from_path(path);
                 let pid = project_id_from_path(path, watch_dir);
-                on_events(&sid, pid.as_deref(), events);
+                let subject = nats_subject_from_path(path, watch_dir);
+                on_events(&sid, pid.as_deref(), &subject, events);
             }
         }
         eprintln!("Backfilled {} events from recent files (skipped {} old)", total, skipped);
@@ -145,7 +146,8 @@ where
                             Ok(events) if !events.is_empty() => {
                                 let sid = session_id_from_path(path);
                                 let pid = project_id_from_path(path, watch_dir);
-                                on_events(&sid, pid.as_deref(), events);
+                                let subject = nats_subject_from_path(path, watch_dir);
+                                on_events(&sid, pid.as_deref(), &subject, events);
                             }
                             Ok(_) => {}
                             Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
