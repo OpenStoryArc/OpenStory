@@ -7,7 +7,7 @@
  * Ported from render-html.ts prototype.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -18,6 +18,8 @@ import { stripLineNumbers } from "@/lib/strip-line-numbers";
 import type { PatternView } from "@/types/wire-record";
 import { extractDomainFact, extractDomainFacts, type DomainFact, type FactKind } from "@/lib/domain-facts";
 import { agentSessionTurns } from "@/lib/story";
+import { extractCycles } from "@/lib/eval-apply";
+import { CycleList } from "./CycleCard";
 
 interface TurnCardProps {
   pattern: PatternView;
@@ -302,26 +304,35 @@ function ApplyBlock({ apply, index, events, allPatterns }: { apply: Apply; index
       {showOutput && apply.output_summary && (
         <ApplyOutput output={apply.output_summary} toolName={apply.tool_name} outcome={apply.tool_outcome} />
       )}
-      {apply.is_agent && <AgentExpand apply={apply} allPatterns={allPatterns} />}
+      {apply.is_agent && <AgentExpand apply={apply} />}
     </div>
   );
 }
 
-function AgentExpand({ apply, allPatterns }: { apply: Apply; allPatterns?: readonly PatternView[] }) {
+function AgentExpand({ apply }: { apply: Apply }) {
   const [expanded, setExpanded] = useState(false);
-  const agentSessionId = apply.tool_outcome?.agent_id ? `agent-${apply.tool_outcome.agent_id}` : null;
-  const agentTurns = useMemo(() => {
-    if (!agentSessionId || !allPatterns) return [];
-    return agentSessionTurns(agentSessionId, allPatterns);
-  }, [agentSessionId, allPatterns]);
+  const [cycles, setCycles] = useState<import("@/lib/eval-apply").EvalApplyCycle[] | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  if (agentTurns.length === 0) {
-    return (
-      <div className="text-[10px] text-[#565f89] italic mt-0.5">
-        nested eval-apply loop with fresh scope
-      </div>
-    );
-  }
+  const agentSessionId = apply.tool_outcome?.agent_id ? `agent-${apply.tool_outcome.agent_id}` : null;
+  const description = apply.tool_outcome?.description || apply.input_summary || "subagent";
+
+  // Lazy fetch: load subagent records and extract cycles on expand
+  useEffect(() => {
+    if (!expanded || !agentSessionId || cycles !== null) return;
+    setLoading(true);
+
+    fetch(`/api/sessions/${agentSessionId}/records`)
+      .then(res => res.json())
+      .then(records => {
+        setCycles(extractCycles(records));
+        setLoading(false);
+      })
+      .catch(() => {
+        setCycles([]);
+        setLoading(false);
+      });
+  }, [expanded, agentSessionId, cycles]);
 
   return (
     <div className="mt-1">
@@ -329,14 +340,19 @@ function AgentExpand({ apply, allPatterns }: { apply: Apply; allPatterns?: reado
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
         className="text-[10px] text-[#ff9e64] hover:text-[#c0caf5] transition-colors"
       >
-        {expanded ? "▼" : "▶"} {agentTurns.length} subagent turn{agentTurns.length !== 1 ? "s" : ""}
+        {expanded ? "▼" : "▶"} {cycles ? `${cycles.length} eval-apply cycles` : "subagent eval-apply"}
+        <span className="text-[#565f89] ml-1">"{description.slice(0, 40)}{description.length > 40 ? "..." : ""}"</span>
       </button>
-      {expanded && (
+      {expanded && loading && (
+        <div className="text-[10px] text-[#565f89] italic mt-1 ml-4">loading cycles...</div>
+      )}
+      {expanded && cycles && cycles.length > 0 && (
         <div className="mt-1 ml-2 border-l-2 border-[#ff9e6433] pl-2">
-          {agentTurns.map((t, i) => (
-            <TurnCard key={`${t.session_id}-${(t.metadata as any)?.turn ?? i}`} pattern={t} allPatterns={allPatterns} />
-          ))}
+          <CycleList cycles={cycles} sessionId={agentSessionId || ""} depth={1} />
         </div>
+      )}
+      {expanded && cycles && cycles.length === 0 && !loading && (
+        <div className="text-[10px] text-[#565f89] italic mt-1 ml-4">no cycles detected</div>
       )}
     </div>
   );
