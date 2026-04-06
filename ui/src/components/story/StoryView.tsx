@@ -317,7 +317,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
                 data-turn-card
                 className={focusIndex === i ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
               >
-                <TurnCard pattern={p} />
+                <TurnCard pattern={p} allPatterns={patterns} />
               </div>
             ))
           )}

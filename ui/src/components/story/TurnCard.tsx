@@ -17,12 +17,14 @@ import { stripAnsi } from "@/lib/strip-ansi";
 import { stripLineNumbers } from "@/lib/strip-line-numbers";
 import type { PatternView } from "@/types/wire-record";
 import { extractDomainFact, extractDomainFacts, type DomainFact, type FactKind } from "@/lib/domain-facts";
+import { agentSessionTurns } from "@/lib/story";
 
 interface TurnCardProps {
   pattern: PatternView;
+  allPatterns?: readonly PatternView[];
 }
 
-export function TurnCard({ pattern }: TurnCardProps) {
+export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
   const m = pattern.metadata ?? {};
   const turn = (m.turn as number) ?? 0;
   const isTerminal = (m.is_terminal as boolean) ?? true;
@@ -140,7 +142,7 @@ export function TurnCard({ pattern }: TurnCardProps) {
               </PhaseBlock>
             )}
 
-            <ApplyList applies={applies} events={pattern.events} />
+            <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
           </div>
         )}
       </div>
@@ -219,9 +221,10 @@ type Apply = {
   is_error: boolean;
   is_agent: boolean;
   tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean };
+  agent_session_id?: string | null;
 };
 
-function ApplyList({ applies, events }: { applies: Apply[]; events: readonly string[] }) {
+function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
   const [expanded, setExpanded] = useState(false);
 
   if (applies.length === 0) return null;
@@ -241,7 +244,7 @@ function ApplyList({ applies, events }: { applies: Apply[]; events: readonly str
   return (
     <>
       {visible.map((apply, i) => (
-        <ApplyBlock key={i} apply={apply} index={i} events={events} />
+        <ApplyBlock key={i} apply={apply} index={i} events={events} allPatterns={allPatterns} />
       ))}
       {hidden.length > 0 && (
         <button
@@ -255,7 +258,7 @@ function ApplyList({ applies, events }: { applies: Apply[]; events: readonly str
   );
 }
 
-function ApplyBlock({ apply, index, events }: { apply: Apply; index: number; events: readonly string[] }) {
+function ApplyBlock({ apply, index, events, allPatterns }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
   const [showOutput, setShowOutput] = useState(false);
   const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[#f7768e]" : "border-[#e0af68]";
   const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[#f7768e]" : "text-[#e0af68]";
@@ -298,9 +301,39 @@ function ApplyBlock({ apply, index, events }: { apply: Apply; index: number; eve
       {showOutput && apply.output_summary && (
         <ApplyOutput output={apply.output_summary} toolName={apply.tool_name} outcome={apply.tool_outcome} />
       )}
-      {apply.is_agent && (
-        <div className="text-[10px] text-[#565f89] italic mt-0.5">
-          nested eval-apply loop with fresh scope
+      {apply.is_agent && <AgentExpand apply={apply} allPatterns={allPatterns} />}
+    </div>
+  );
+}
+
+function AgentExpand({ apply, allPatterns }: { apply: Apply; allPatterns?: readonly PatternView[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const agentTurns = useMemo(() => {
+    if (!apply.agent_session_id || !allPatterns) return [];
+    return agentSessionTurns(apply.agent_session_id, allPatterns);
+  }, [apply.agent_session_id, allPatterns]);
+
+  if (agentTurns.length === 0) {
+    return (
+      <div className="text-[10px] text-[#565f89] italic mt-0.5">
+        nested eval-apply loop with fresh scope
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+        className="text-[10px] text-[#ff9e64] hover:text-[#c0caf5] transition-colors"
+      >
+        {expanded ? "▼" : "▶"} {agentTurns.length} subagent turn{agentTurns.length !== 1 ? "s" : ""}
+      </button>
+      {expanded && (
+        <div className="mt-1 ml-2 border-l-2 border-[#ff9e6433] pl-2">
+          {agentTurns.map((t, i) => (
+            <TurnCard key={`${t.session_id}-${(t.metadata as any)?.turn ?? i}`} pattern={t} allPatterns={allPatterns} />
+          ))}
         </div>
       )}
     </div>

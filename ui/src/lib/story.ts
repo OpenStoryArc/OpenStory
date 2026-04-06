@@ -153,6 +153,24 @@ export interface ApplyEventEntry {
   fact: DomainFact | null;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Subagent turn resolution
+// ═══════════════════════════════════════════════════════════════════
+
+/** Get turn.sentence patterns for a subagent session, sorted by turn number. */
+export function agentSessionTurns(
+  agentSessionId: string,
+  patterns: readonly PatternView[],
+): PatternView[] {
+  return patterns
+    .filter(p => p.type === "turn.sentence" && p.session_id === agentSessionId)
+    .sort((a, b) => {
+      const ta = ((a.metadata ?? {}).turn as number) ?? 0;
+      const tb = ((b.metadata ?? {}).turn as number) ?? 0;
+      return ta - tb;
+    });
+}
+
 /** Map each apply in a turn to its domain fact (or null if no outcome). */
 export function turnEventMap(pattern: PatternView): ApplyEventEntry[] {
   const applies = ((pattern.metadata ?? {}).applies as Array<{

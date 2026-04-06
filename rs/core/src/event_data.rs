@@ -257,6 +257,10 @@ pub struct ClaudeCodePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_outcome: Option<ToolOutcome>,
 
+    // ── Subagent linkage: which agent session was spawned by this tool_result ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+
     // ── Token usage (Claude Code shape) ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<Value>,
@@ -312,6 +316,7 @@ impl ClaudeCodePayload {
             tool: None,
             args: None,
             tool_outcome: None,
+            agent_session_id: None,
             token_usage: None,
             slug: None,
             message_id: None,
@@ -546,6 +551,14 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.tool_outcome.as_ref(),
             AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
+        }
+    }
+
+    /// Get agent_session_id (set on tool_result for Agent tool calls).
+    pub fn agent_session_id(&self) -> Option<&str> {
+        match self {
+            AgentPayload::ClaudeCode(p) => p.agent_session_id.as_deref(),
+            AgentPayload::PiMono(_) => None,
         }
     }
 }

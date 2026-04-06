@@ -444,6 +444,19 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         }
     }
 
+    // Extract agent session ID from Agent tool_result's toolUseResult.agentId
+    if subtype.as_deref() == Some("message.user.tool_result") {
+        if let Some(agent_id) = line
+            .get("toolUseResult")
+            .and_then(|v| v.get("agentId"))
+            .and_then(|v| v.as_str())
+        {
+            if !agent_id.is_empty() {
+                payload.agent_session_id = Some(format!("agent-{agent_id}"));
+            }
+        }
+    }
+
     // Session ID from envelope overrides filename-derived one (for sidechain files)
     let session_id = line
         .get("sessionId")

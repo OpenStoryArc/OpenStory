@@ -12,7 +12,7 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
 import type { PatternView } from "@/types/wire-record";
-import { turnDomainFacts, turnEventMap } from "@/lib/story";
+import { turnDomainFacts, turnEventMap, agentSessionTurns } from "@/lib/story";
 import type { DomainFact } from "@/lib/domain-facts";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -236,6 +236,56 @@ describe("turnEventMap", () => {
       (pattern) => turnEventMap(pattern),
       (entries) => {
         expect(entries.map(e => e.tool_name)).toEqual(["Grep", "Write", "Bash"]);
+      },
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Feature: agentSessionTurns — resolve subagent turns by session ID
+// ═══════════════════════════════════════════════════════════════════
+
+describe("agentSessionTurns", () => {
+  const allPatterns: PatternView[] = [
+    makeSentenceWithOutcomes({ turn: 1, session_id: "main-session" }),
+    makeSentenceWithOutcomes({ turn: 2, session_id: "main-session" }),
+    makeSentenceWithOutcomes({ turn: 0, session_id: "agent-abc123" }),
+    makeSentenceWithOutcomes({ turn: 1, session_id: "agent-abc123" }),
+    makeSentenceWithOutcomes({ turn: 0, session_id: "agent-def456" }),
+  ];
+
+  it("should return turns for a matching agent session", () => {
+    scenario(
+      () => ({ id: "agent-abc123", patterns: allPatterns }),
+      ({ id, patterns }) => agentSessionTurns(id, patterns),
+      (turns) => {
+        expect(turns).toHaveLength(2);
+        expect((turns[0]!.metadata as any).turn).toBe(0);
+        expect((turns[1]!.metadata as any).turn).toBe(1);
+      },
+    );
+  });
+
+  it("should return empty array for unknown session", () => {
+    scenario(
+      () => ({ id: "agent-unknown", patterns: allPatterns }),
+      ({ id, patterns }) => agentSessionTurns(id, patterns),
+      (turns) => expect(turns).toHaveLength(0),
+    );
+  });
+
+  it("should sort by turn number", () => {
+    const unordered: PatternView[] = [
+      makeSentenceWithOutcomes({ turn: 2, session_id: "agent-x" }),
+      makeSentenceWithOutcomes({ turn: 0, session_id: "agent-x" }),
+      makeSentenceWithOutcomes({ turn: 1, session_id: "agent-x" }),
+    ];
+    scenario(
+      () => ({ id: "agent-x", patterns: unordered }),
+      ({ id, patterns }) => agentSessionTurns(id, patterns),
+      (turns) => {
+        const turnNums = turns.map(t => (t.metadata as any).turn);
+        expect(turnNums).toEqual([0, 1, 2]);
       },
     );
   });

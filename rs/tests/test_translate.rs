@@ -1131,3 +1131,82 @@ fn test_tool_result_empty_content_no_text() {
     let p = cc_payload(&result_events[0]);
     assert!(p.text.is_none(), "empty content should not set payload.text");
 }
+
+/// Agent tool_result with toolUseResult.agentId should set agent_session_id.
+#[test]
+fn test_agent_tool_result_extracts_agent_session_id() {
+    let mut s = state();
+
+    // Step 1: Assistant requests an Agent tool
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-agent-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "Explore the codebase"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    // Step 2: User sends back the Agent tool result with agentId
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-agent-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_agent", "content": "Agent completed successfully"},
+            ],
+        },
+        "toolUseResult": {
+            "agentId": "a6dcf911fa2a142b1",
+            "status": "completed",
+            "prompt": "Explore the codebase",
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert_eq!(
+        p.agent_session_id.as_deref(),
+        Some("agent-a6dcf911fa2a142b1"),
+        "agent_session_id should be derived from toolUseResult.agentId"
+    );
+}
+
+/// Non-agent tool_result should not have agent_session_id.
+#[test]
+fn test_non_agent_tool_result_no_agent_session_id() {
+    let mut s = state();
+
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-bash-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_bash", "name": "Bash", "input": {"command": "ls"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-bash-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_bash", "content": "file1.rs"},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert!(p.agent_session_id.is_none(), "non-agent tool should not have agent_session_id");
+}
