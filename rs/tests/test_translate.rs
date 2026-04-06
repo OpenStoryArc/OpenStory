@@ -1185,4 +1185,32 @@ fn test_agent_tool_result_enriches_subagent_spawned_with_agent_id() {
     assert_eq!(outcome["type"], "SubAgentSpawned");
     assert_eq!(outcome["agent_id"], "a6dcf911fa2a142b1");
     assert_eq!(outcome["description"], "Explore the codebase");
+
+    // Verify it survives FULL round-trip: CloudEvent → JSON string → CloudEvent
+    // This is the NATS path: serialize to IngestBatch, deserialize back
+    let ce = &result_events[0];
+    let batch = open_story_bus::IngestBatch {
+        session_id: "test-session".to_string(),
+        project_id: "test-project".to_string(),
+        events: vec![ce.clone()],
+    };
+    let serialized = serde_json::to_string(&batch).expect("serialize IngestBatch");
+    let deserialized: open_story_bus::IngestBatch = serde_json::from_str(&serialized).expect("deserialize IngestBatch");
+
+    let rt_ce = &deserialized.events[0];
+    let rt_p = cc_payload(rt_ce);
+    assert_eq!(
+        rt_p.tool_outcome,
+        Some(open_story::event_data::ToolOutcome::SubAgentSpawned {
+            description: "Explore the codebase".to_string(),
+            agent_id: "a6dcf911fa2a142b1".to_string(),
+        }),
+        "agent_id must survive IngestBatch round-trip (the NATS path)"
+    );
+
+    // Also verify serde_json::to_value (what persist consumer uses to store in SQLite)
+    let val = serde_json::to_value(rt_ce).expect("to_value");
+    let val_outcome = &val["data"]["agent_payload"]["tool_outcome"];
+    assert_eq!(val_outcome["agent_id"], "a6dcf911fa2a142b1",
+        "agent_id must survive to_value (the SQLite storage path)");
 }
