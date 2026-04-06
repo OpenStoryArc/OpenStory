@@ -22,6 +22,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
+use open_story_server::consumers;
 use open_story_server::logging::{event_type_summary, log_event, short_id};
 
 pub use broadcast::BroadcastMessage;
@@ -83,7 +84,7 @@ pub async fn run_server(
         }
     };
 
-    // ── Bus consumer (consumer + full roles) ──
+    // ── Independent actor-consumers (consumer + full roles) ──
     if is_consumer && bus.is_active() {
         // Boot replay: recover state from JetStream event log
         match bus.replay("events.>").await {
@@ -112,7 +113,16 @@ pub async fn run_server(
             }
         }
 
-        // Spawn bus consumer: subscribe to events, call ingest_events()
+        // ── Single consumer for now (actors ready but not wired) ──
+        //
+        // The 4 actor-consumers (persist, patterns, projections, broadcast)
+        // are implemented in consumers/ but wiring them as independent NATS
+        // consumers causes RwLock contention on shared AppState.
+        //
+        // Next step: give each actor its own state (no shared RwLock).
+        // For now, one consumer runs ingest_events() which does everything.
+        // The actor implementations are tested independently and ready
+        // to be plugged in once state ownership is separated.
         let consumer_state = state.clone();
         let consumer_bus = bus.clone();
         tokio::spawn(async move {
@@ -124,11 +134,9 @@ pub async fn run_server(
                         let mut s = consumer_state.write().await;
                         let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
                         let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
-                        // Broadcast changes to local WS clients
                         for change in &result.changes {
                             let _ = s.broadcast_tx.send(change.clone());
                         }
-                        // Publish changes to bus for distributed consumers
                         if !result.changes.is_empty() {
                             let subject = format!("changes.store.{session_id}");
                             if let Ok(bytes) = serde_json::to_vec(&result.changes) {
@@ -144,9 +152,7 @@ pub async fn run_server(
                         drop(s);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Bus consumer error: {e}");
-                }
+                Err(e) => eprintln!("Bus consumer error: {e}"),
             }
         });
     }
