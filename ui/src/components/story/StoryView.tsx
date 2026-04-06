@@ -184,7 +184,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
           return (
             <button
               key={s.id}
-              onClick={() => { onSelectSession(isActive ? null : s.id); setSidebarOpen(false); }}
+              onClick={() => { onSelectSession(isActive ? null : s.id); }}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
                 isActive ? "bg-[#24283b] border border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
               }`}
@@ -213,7 +213,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
             {sessionsWithStories.filter(s => s.isAgent).map(s => (
               <button
                 key={s.id}
-                onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
+                onClick={() => { onSelectSession(s.id); }}
                 className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 ${
                   selectedSession === s.id ? "bg-[#24283b] border border-[#3b4261] text-[#c0caf5]" : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
                 }`}
