@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenStory — Proposed NATS Event Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1b26; color: #c0caf5; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; padding: 20px; }
+  h1 { color: #9ece6a; font-size: 18px; margin-bottom: 4px; }
+  h2 { color: #bb9af7; font-size: 14px; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .subtitle { color: #565f89; font-size: 12px; margin-bottom: 20px; }
+  .flow { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .column { flex: 1; min-width: 280px; }
+  .box { background: #1f2335; border: 1px solid #2f3348; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .box-header { font-size: 11px; color: #565f89; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .source { border-left: 3px solid #7aa2f7; }
+  .transport { border-left: 3px solid #e0af68; }
+  .consumer { border-left: 3px solid #9ece6a; }
+  .sink { border-left: 3px solid #bb9af7; }
+  .improvement { background: #9ece6a15; border: 1px solid #9ece6a33; border-radius: 6px; padding: 10px; margin: 8px 0; }
+  .improvement-label { color: #9ece6a; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  .improvement-text { color: #a9b1d6; font-size: 11px; margin-top: 4px; }
+  .tree { font-size: 11px; }
+  .tree-node { padding: 2px 0; }
+  .tree-project { color: #bb9af7; font-weight: bold; }
+  .tree-session { color: #7aa2f7; }
+  .tree-agent { color: #ff9e64; }
+  .tree-line { color: #3b4261; }
+  .tree-wildcard { color: #9ece6a; font-style: italic; }
+  .tree-indent { display: inline-block; }
+  .subscribe-example { background: #24283b; border-radius: 4px; padding: 6px 10px; margin: 4px 0; font-size: 11px; }
+  .subscribe-pattern { color: #e0af68; }
+  .subscribe-result { color: #565f89; font-size: 10px; }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+  .side { border-radius: 8px; padding: 12px; }
+  .side-current { background: #f7768e10; border: 1px solid #f7768e33; }
+  .side-proposed { background: #9ece6a10; border: 1px solid #9ece6a33; }
+  .side-label { font-size: 10px; font-weight: bold; text-transform: uppercase; margin-bottom: 8px; }
+  .consumer-card { background: #24283b; border-radius: 6px; padding: 8px; margin: 4px 0; border-left: 3px solid; }
+  .consumer-name { font-size: 12px; font-weight: bold; }
+  .consumer-filter { color: #e0af68; font-size: 10px; }
+  .consumer-sink { color: #565f89; font-size: 10px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<h1>OpenStory — Proposed NATS Event Flow</h1>
+<p class="subtitle">Hierarchical subjects, independent consumers, clean type boundaries</p>
+
+<!-- Comparison: Before/After -->
+<h2>Subject Hierarchy: Before → After</h2>
+<div class="comparison">
+  <div class="side side-current">
+    <div class="side-label" style="color:#f7768e">Current: Flat</div>
+    <div class="tree" id="current-tree"></div>
+  </div>
+  <div class="side side-proposed">
+    <div class="side-label" style="color:#9ece6a">Proposed: Hierarchical</div>
+    <div class="tree" id="proposed-tree"></div>
+  </div>
+</div>
+
+<!-- Subscribe examples -->
+<h2>Subscription Patterns</h2>
+<div class="box transport">
+  <div class="box-header"><span>NATS Wildcard Subscriptions</span></div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.openstory.06907d46.></div>
+    <div class="subscribe-result">→ Main agent + ALL 5 subagents (full session visibility)</div>
+  </div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.openstory.06907d46</div>
+    <div class="subscribe-result">→ Main agent only (no subagents)</div>
+  </div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.openstory.06907d46.agent.></div>
+    <div class="subscribe-result">→ Only subagents (5 agents, not the main)</div>
+  </div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.openstory.06907d46.agent.a6dcf911</div>
+    <div class="subscribe-result">→ One specific subagent ("Explore PatternView types and data")</div>
+  </div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.openstory.></div>
+    <div class="subscribe-result">→ All sessions in the openstory project</div>
+  </div>
+
+  <div class="subscribe-example">
+    <div class="subscribe-pattern">events.></div>
+    <div class="subscribe-result">→ Everything (all projects, all sessions)</div>
+  </div>
+
+  <div class="improvement">
+    <div class="improvement-label">Improvement</div>
+    <div class="improvement-text">Parent-child relationships are structural. No payload inspection needed. The subject IS the routing key.</div>
+  </div>
+</div>
+
+<!-- Flow diagram -->
+<h2>Event Flow</h2>
+<div class="flow">
+  <div class="column">
+    <h2 style="margin-top:0">Sources</h2>
+
+    <div class="box source">
+      <div class="box-header"><span>File Watcher / Hooks</span></div>
+      <pre style="font-size:10px; color:#a9b1d6; white-space:pre-wrap">translate_line(raw) → CloudEvent
+
+Subject composition:
+  project = resolve_project(cwd)
+  session = raw.sessionId
+  agent   = raw.agentId   // null for main
+
+  if agent:
+    "events.{project}.{session}.agent.{agent}"
+  else:
+    "events.{project}.{session}"</pre>
+    </div>
+
+    <div class="improvement">
+      <div class="improvement-label">Improvement: session_id is real</div>
+      <div class="improvement-text">
+        No more synthesized "agent-{id}" session IDs.<br>
+        Identity is the composite: <code>(session_id, agent_id)</code><br>
+        The subject encodes both.
+      </div>
+    </div>
+  </div>
+
+  <div class="column">
+    <h2 style="margin-top:0">Transport</h2>
+
+    <div class="box transport">
+      <div class="box-header"><span>Stream: events</span><span>events.></span></div>
+      <div style="font-size:11px; color:#a9b1d6">
+        Single durable stream captures all subjects.<br>
+        Consumers filter by pattern.
+      </div>
+    </div>
+
+    <div class="box transport">
+      <div class="box-header"><span>Stream: patterns</span><span style="color:#9ece6a">NEW</span></div>
+      <div style="font-size:11px; color:#a9b1d6">
+        Detected patterns published back to bus.<br>
+        <code>patterns.{project}.{session}</code><br>
+        Consumers can react to patterns independently.
+      </div>
+    </div>
+
+    <div class="box transport">
+      <div class="box-header"><span>Stream: changes</span><span>changes.></span></div>
+      <div style="font-size:11px; color:#565f89">
+        Broadcast messages for distributed UI clients.
+      </div>
+    </div>
+  </div>
+
+  <div class="column">
+    <h2 style="margin-top:0">Consumers (Independent)</h2>
+
+    <div class="consumer-card" style="border-color: #bb9af7">
+      <div class="consumer-name" style="color:#bb9af7">persist</div>
+      <div class="consumer-filter">filter: events.></div>
+      <div class="consumer-sink">CloudEvent → SQLite + JSONL (no transform)</div>
+    </div>
+
+    <div class="consumer-card" style="border-color: #9ece6a">
+      <div class="consumer-name" style="color:#9ece6a">patterns</div>
+      <div class="consumer-filter">filter: events.></div>
+      <div class="consumer-sink">CloudEvent → EvalApply → Sentence → PatternEvent<br>→ publish to patterns.{project}.{session}</div>
+    </div>
+
+    <div class="consumer-card" style="border-color: #7aa2f7">
+      <div class="consumer-name" style="color:#7aa2f7">projections</div>
+      <div class="consumer-filter">filter: events.></div>
+      <div class="consumer-sink">CloudEvent → SessionProjection (tokens, files, duration)</div>
+    </div>
+
+    <div class="consumer-card" style="border-color: #e0af68">
+      <div class="consumer-name" style="color:#e0af68">broadcast</div>
+      <div class="consumer-filter">filter: events.> + patterns.></div>
+      <div class="consumer-sink">CloudEvent → ViewRecord → WireRecord → WebSocket</div>
+    </div>
+
+    <div class="improvement">
+      <div class="improvement-label">Improvement: Independent consumers</div>
+      <div class="improvement-text">
+        Each consumer has its own failure domain.<br>
+        Pattern detection can lag without blocking persistence.<br>
+        New consumers (analytics, alerts) add without changing existing code.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Type flow -->
+<h2>Type at Each Boundary</h2>
+<div class="box" style="border-left: 3px solid #e0af68">
+<pre style="font-size: 11px; color: #a9b1d6; line-height: 1.6">
+<span style="color:#7aa2f7">Source</span>          JSONL line (serde_json::Value)
+    │               raw.sessionId, raw.agentId, raw.message
+    │ translate_line()
+    ▼
+<span style="color:#7aa2f7">CloudEvent</span>      The canonical type on the bus
+    │               id, type, subtype, time, agent
+    │               data.raw (immutable), data.agent_payload (typed lift)
+    │               data.agent_payload.tool_outcome (domain event)
+    │
+    │ publish to events.{project}.{session}[.agent.{agent_id}]
+    ▼
+<span style="color:#e0af68">NATS</span>            JSON-serialized IngestBatch { session_id, project_id, events }
+    │
+    │ consumer deserializes
+    ▼
+<span style="color:#7aa2f7">CloudEvent</span>      Same type, no transformation during transport
+    │
+    ├──▶ <span style="color:#bb9af7">persist</span>:     CloudEvent → SQLite row (no transform)
+    │
+    ├──▶ <span style="color:#9ece6a">patterns</span>:    CloudEvent
+    │                     → step(accumulator, event) → StructuralTurn
+    │                     → SentenceDetector → <span style="color:#9ece6a">PatternEvent</span>
+    │                         type: "turn.sentence"
+    │                         session_id, event_ids, metadata
+    │                         metadata.applies[].tool_outcome.agent_id  ← THE LINK
+    │
+    ├──▶ <span style="color:#7aa2f7">projections</span>: CloudEvent → SessionProjection update
+    │
+    └──▶ <span style="color:#e0af68">broadcast</span>:   CloudEvent → ViewRecord → WireRecord → WebSocket
+</pre>
+</div>
+
+<script>
+// Real session data
+const sessions = [
+  { id: '06907d46', project: 'openstory', label: 'Story tab data surfacing', events: 1695, agents: [
+    { id: 'a6dcf911', label: 'Explore PatternView types' },
+    { id: 'a2a1e372', label: 'Explore App.tsx and Story wiring' },
+    { id: 'afdf1bb2', label: 'Trace ToolOutcome data path' },
+    { id: 'acbabdbd', label: 'Plan MongoDB sink' },
+    { id: 'aade319f', label: 'Design Story tab improvements' },
+  ]},
+  { id: 'd6b40007', project: 'openstory', label: 'UV install', events: 277, agents: [] },
+  { id: '661d17bf', project: 'openstory', label: 'Setup', events: 76, agents: [] },
+  { id: '20648d56', project: 'pi-mono', label: 'Pi-mono setup', events: 195, agents: [] },
+  { id: 'b9a810f6', project: 'openclaw', label: 'OpenClaw setup', events: 35, agents: [] },
+];
+
+// Render current (flat) tree
+function renderCurrentTree() {
+  const el = document.getElementById('current-tree');
+  let html = '<div class="tree-node"><span class="tree-line">events.</span></div>';
+  html += '<div class="tree-node"><span class="tree-line">  └── session.</span></div>';
+
+  for (const s of sessions) {
+    html += `<div class="tree-node"><span class="tree-line">        ├── </span><span class="tree-session">${s.id}</span></div>`;
+    for (const a of s.agents) {
+      html += `<div class="tree-node"><span class="tree-line">        ├── </span><span class="tree-agent">agent-${a.id}</span> <span style="color:#565f89;font-size:10px">← orphaned</span></div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+// Render proposed (hierarchical) tree
+function renderProposedTree() {
+  const el = document.getElementById('proposed-tree');
+  let html = '<div class="tree-node"><span class="tree-line">events.</span></div>';
+
+  const projects = [...new Set(sessions.map(s => s.project))];
+  for (const proj of projects) {
+    html += `<div class="tree-node"><span class="tree-line">  ├── </span><span class="tree-project">${proj}</span><span class="tree-line">.</span></div>`;
+    const projSessions = sessions.filter(s => s.project === proj);
+    for (let i = 0; i < projSessions.length; i++) {
+      const s = projSessions[i];
+      const isLast = i === projSessions.length - 1;
+      const prefix = isLast ? '└── ' : '├── ';
+      html += `<div class="tree-node"><span class="tree-line">  │     ${prefix}</span><span class="tree-session">${s.id}</span></div>`;
+      if (s.agents.length > 0) {
+        html += `<div class="tree-node"><span class="tree-line">  │     │     └── </span><span class="tree-line">agent.</span></div>`;
+        for (let j = 0; j < s.agents.length; j++) {
+          const a = s.agents[j];
+          const aLast = j === s.agents.length - 1;
+          const aPrefix = aLast ? '└── ' : '├── ';
+          html += `<div class="tree-node"><span class="tree-line">  │     │           ${aPrefix}</span><span class="tree-agent">${a.id}</span> <span style="color:#565f89;font-size:10px">${a.label}</span></div>`;
+        }
+      }
+    }
+  }
+
+  html += `<div class="tree-node" style="margin-top:8px"><span class="tree-wildcard">Subscribe: events.openstory.06907d46.> → session + all 5 agents</span></div>`;
+  el.innerHTML = html;
+}
+
+renderCurrentTree();
+renderProposedTree();
+</script>
+</body>
+</html>
