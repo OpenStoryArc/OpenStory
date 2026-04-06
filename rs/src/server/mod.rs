@@ -116,48 +116,109 @@ pub async fn run_server(
             }
         }
 
-        // ── Single consumer for now (actors ready but not wired) ──
-        //
-        // The 4 actor-consumers (persist, patterns, projections, broadcast)
-        // are implemented in consumers/ but wiring them as independent NATS
-        // consumers causes RwLock contention on shared AppState.
-        //
-        // Next step: give each actor its own state (no shared RwLock).
-        // For now, one consumer runs ingest_events() which does everything.
-        // The actor implementations are tested independently and ready
-        // to be plugged in once state ownership is separated.
-        let consumer_state = state.clone();
-        let consumer_bus = bus.clone();
-        tokio::spawn(async move {
-            match consumer_bus.subscribe("events.>").await {
-                Ok(mut sub) => {
-                    while let Some(batch) = sub.receiver.recv().await {
-                        let summary = event_type_summary(&batch.events);
-                        let session_id = batch.session_id.clone();
-                        let mut s = consumer_state.write().await;
-                        let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
-                        for change in &result.changes {
-                            let _ = s.broadcast_tx.send(change.clone());
-                        }
-                        if !result.changes.is_empty() {
-                            let subject = format!("changes.store.{session_id}");
-                            if let Ok(bytes) = serde_json::to_vec(&result.changes) {
-                                let _ = consumer_bus.publish_bytes(&subject, &bytes).await;
+        // ── Actor 1: persist consumer (owns dedup + storage) ──
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let data_dir = state.read().await.store.data_dir.clone();
+            let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
+                .expect("create session store for persist consumer");
+            let persist_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::persist::PersistConsumer::new(event_store, session_store);
+                match persist_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            if result.persisted > 0 {
+                                log_event("persist", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
+                                    short_id(&batch.session_id), result.persisted, result.skipped
+                                ));
                             }
                         }
-                        if result.count > 0 {
-                            log_event("bus", &format!(
-                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                short_id(&session_id), result.count, summary
-                            ));
-                        }
-                        drop(s);
                     }
+                    Err(e) => eprintln!("Persist consumer error: {e}"),
                 }
-                Err(e) => eprintln!("Bus consumer error: {e}"),
-            }
-        });
+            });
+        }
+
+        // ── Actor 2: patterns consumer (owns pipelines, publishes PatternEvents) ──
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let patterns_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::patterns::PatternsConsumer::new();
+                match patterns_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            // Persist turns and patterns to SQLite
+                            for turn in &result.turns {
+                                let _ = event_store.insert_turn(&batch.session_id, turn);
+                            }
+                            for pe in &result.patterns {
+                                let _ = event_store.insert_pattern(&batch.session_id, pe);
+                            }
+                            if !result.patterns.is_empty() {
+                                log_event("patterns", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
+                                    short_id(&batch.session_id), result.patterns.len(), result.turns.len()
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Patterns consumer error: {e}"),
+                }
+            });
+        }
+
+        // ── Actor 3: projections consumer (owns session metadata) ──
+        {
+            let projections_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::projections::ProjectionsConsumer::new();
+                match projections_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            actor.process_batch(&batch.session_id, &batch.events);
+                        }
+                    }
+                    Err(e) => eprintln!("Projections consumer error: {e}"),
+                }
+            });
+        }
+
+        // ── Actor 4: broadcast consumer (uses ingest_events for now) ──
+        // Still uses shared AppState because BroadcastMessage assembly depends
+        // on projection state. This is the last consumer to decompose.
+        {
+            let broadcast_state = state.clone();
+            let broadcast_bus = bus.clone();
+            tokio::spawn(async move {
+                match broadcast_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let summary = event_type_summary(&batch.events);
+                            let session_id = batch.session_id.clone();
+                            let mut s = broadcast_state.write().await;
+                            let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
+                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                            for change in &result.changes {
+                                let _ = s.broadcast_tx.send(change.clone());
+                            }
+                            if result.count > 0 {
+                                log_event("broadcast", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                    short_id(&session_id), result.count, summary
+                                ));
+                            }
+                            drop(s);
+                        }
+                    }
+                    Err(e) => eprintln!("Broadcast consumer error: {e}"),
+                }
+            });
+        }
     }
 
     // ── File watcher (publisher + full roles) ──
