@@ -13,7 +13,6 @@ import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
 import type { PatternView } from "@/types/wire-record";
 import { turnDomainFacts, turnEventMap, agentSessionTurns } from "@/lib/story";
-import type { DomainFact } from "@/lib/domain-facts";
 
 // ═══════════════════════════════════════════════════════════════════
 // Test data factory — with realistic ToolOutcome values

@@ -11,13 +11,8 @@
  *   Agent applies expand recursively into more CycleCards
  */
 
-import React, { useState, useEffect } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { detectLanguage } from "@/lib/detect-language";
-import { stripAnsi } from "@/lib/strip-ansi";
-import { extractCycles, type EvalApplyCycle, type CycleTool } from "@/lib/eval-apply";
-import type { WireRecord } from "@/types/wire-record";
+import { useState, useEffect } from "react";
+import type { EvalApplyCycle, CycleTool } from "@/lib/eval-apply";
 
 const DEPTH_COLORS = [
   { border: "#7aa2f7", bg: "#7aa2f718", label: "main" },  // depth 0
@@ -33,7 +28,7 @@ interface CycleCardProps {
 
 export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
   const colors = DEPTH_COLORS[Math.min(depth, 2)]!;
-  const [expanded, setExpanded] = useState(false);
+  const [_expanded, _setExpanded] = useState(false);
 
   return (
     <div
@@ -82,7 +77,7 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
   );
 }
 
-function ToolRow({ tool, sessionId, depth }: { tool: CycleTool; sessionId: string; depth: number }) {
+function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sessionId: string; depth: number }) {
   const [agentExpanded, setAgentExpanded] = useState(false);
   const [agentCycles, setAgentCycles] = useState<EvalApplyCycle[] | null>(null);
 

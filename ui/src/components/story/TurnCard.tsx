@@ -14,10 +14,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { detectLanguage } from "@/lib/detect-language";
 import { stripAnsi } from "@/lib/strip-ansi";
-import { stripLineNumbers } from "@/lib/strip-line-numbers";
 import type { PatternView } from "@/types/wire-record";
-import { extractDomainFact, extractDomainFacts, type DomainFact, type FactKind } from "@/lib/domain-facts";
-import { agentSessionTurns } from "@/lib/story";
+import { extractDomainFact, extractDomainFacts, type FactKind } from "@/lib/domain-facts";
 import { extractCycles } from "@/lib/eval-apply";
 import { CycleList } from "./CycleCard";
 
@@ -261,7 +259,7 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
   );
 }
 
-function ApplyBlock({ apply, index, events, allPatterns }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
+function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
   const [showOutput, setShowOutput] = useState(false);
   const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[#f7768e]" : "border-[#e0af68]";
   const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[#f7768e]" : "text-[#e0af68]";

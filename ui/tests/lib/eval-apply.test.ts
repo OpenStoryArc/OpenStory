@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { extractCycles, type EvalApplyCycle } from "@/lib/eval-apply";
+import { extractCycles } from "@/lib/eval-apply";
 import type { WireRecord } from "@/types/wire-record";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,13 +57,13 @@ function assistantMessage(text: string): WireRecord {
 
 function toolCall(name: string, input: Record<string, string> = {}): WireRecord {
   return makeRecord("tool_call", {
-    payload: { name, input },
+    payload: { name, input, call_id: `call-${seq}`, raw_input: {} } as any,
   });
 }
 
 function toolResult(output: string = "ok"): WireRecord {
   return makeRecord("tool_result", {
-    payload: { output, is_error: false },
+    payload: { output, is_error: false, call_id: `call-${seq}` } as any,
   });
 }
 
