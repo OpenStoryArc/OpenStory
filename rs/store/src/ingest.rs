@@ -24,9 +24,10 @@ pub fn is_plan_event(event: &Value) -> bool {
             Some(d) => d,
             None => return false,
         };
-        // Check top-level tool field first (new format)
-        if data.get("tool").and_then(|v| v.as_str()) == Some("ExitPlanMode") {
-            if let Some(args) = data.get("args") {
+        // Check agent_payload.tool field (monadic format)
+        let ap = data.get("agent_payload").unwrap_or(&Value::Null);
+        if ap.get("tool").and_then(|v| v.as_str()) == Some("ExitPlanMode") {
+            if let Some(args) = ap.get("args") {
                 if let Some(plan) = args.get("plan").and_then(|v| v.as_str()) {
                     if !plan.is_empty() {
                         return true;
@@ -62,8 +63,9 @@ pub fn is_plan_event(event: &Value) -> bool {
             Some(d) => d,
             None => return false,
         };
-        return data.get("tool").and_then(|v| v.as_str()) == Some("ExitPlanMode")
-            && data
+        let ap = data.get("agent_payload").unwrap_or(data);
+        return ap.get("tool").and_then(|v| v.as_str()) == Some("ExitPlanMode")
+            && ap
                 .get("args")
                 .and_then(|a| a.get("plan"))
                 .and_then(|v| v.as_str())
@@ -170,8 +172,10 @@ mod tests {
             "type": "io.arc.event",
             "subtype": "message.assistant.tool_use",
             "data": {
-                "tool": "ExitPlanMode",
-                "args": { "plan": "# My Plan\n\nStep 1..." }
+                "agent_payload": {
+                    "tool": "ExitPlanMode",
+                    "args": { "plan": "# My Plan\n\nStep 1..." }
+                }
             }
         });
         assert!(is_plan_event(&event));
@@ -183,8 +187,10 @@ mod tests {
             "type": "io.arc.event",
             "subtype": "message.assistant.tool_use",
             "data": {
-                "tool": "ExitPlanMode",
-                "args": { "plan": "" }
+                "agent_payload": {
+                    "tool": "ExitPlanMode",
+                    "args": { "plan": "" }
+                }
             }
         });
         assert!(!is_plan_event(&event));
@@ -196,8 +202,10 @@ mod tests {
             "type": "io.arc.event",
             "subtype": "message.assistant.tool_use",
             "data": {
-                "tool": "Bash",
-                "args": { "command": "ls" }
+                "agent_payload": {
+                    "tool": "Bash",
+                    "args": { "command": "ls" }
+                }
             }
         });
         assert!(!is_plan_event(&event));
@@ -208,8 +216,10 @@ mod tests {
         let event = json!({
             "type": "session.tool.call",
             "data": {
-                "tool": "ExitPlanMode",
-                "args": { "plan": "some plan" }
+                "agent_payload": {
+                    "tool": "ExitPlanMode",
+                    "args": { "plan": "some plan" }
+                }
             }
         });
         assert!(is_plan_event(&event));
@@ -260,7 +270,7 @@ mod tests {
         let event = json!({
             "type": "io.arc.event",
             "subtype": "message.user.prompt",
-            "data": { "text": "hello" }
+            "data": { "agent_payload": { "text": "hello" } }
         });
         assert!(!is_plan_event(&event));
     }
@@ -324,7 +334,7 @@ mod tests {
             "source": "arc://test",
             "time": "2025-01-14T00:00:00Z",
             "data": {
-                "text": "hello",
+                "agent_payload": { "text": "hello" },
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
@@ -350,7 +360,7 @@ mod tests {
             "source": "arc://test",
             "time": "2025-01-14T00:00:00Z",
             "data": {
-                "text": "hello",
+                "agent_payload": { "text": "hello" },
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
@@ -363,9 +373,11 @@ mod tests {
             "source": "arc://test",
             "time": "2025-01-14T00:00:01Z",
             "data": {
-                "parent_uuid": "evt-parent",
-                "tool": "Bash",
-                "args": {"command": "ls"},
+                "agent_payload": {
+                    "parent_uuid": "evt-parent",
+                    "tool": "Bash",
+                    "args": {"command": "ls"}
+                },
                 "raw": {"type": "assistant", "message": {"model": "claude-4", "content": [
                     {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "ls"}}
                 ]}}
@@ -397,6 +409,7 @@ mod tests {
                 call_id: "toolu_big".to_string(),
                 output: Some(large_output),
                 is_error: false,
+                tool_outcome: None,
             }),
         };
 
@@ -421,6 +434,7 @@ mod tests {
                 call_id: "toolu_sm".to_string(),
                 output: Some("small output".to_string()),
                 is_error: false,
+                tool_outcome: None,
             }),
         };
 

@@ -85,6 +85,14 @@ impl EventStore for JsonlStore {
         Ok(vec![])
     }
 
+    fn insert_turn(&self, _session_id: &str, _turn: &open_story_patterns::StructuralTurn) -> Result<()> {
+        Ok(())
+    }
+
+    fn session_turns(&self, _session_id: &str) -> Result<Vec<open_story_patterns::StructuralTurn>> {
+        Ok(vec![])
+    }
+
     fn upsert_plan(
         &self,
         _plan_id: &str,

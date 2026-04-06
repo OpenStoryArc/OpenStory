@@ -1,0 +1,12 @@
+{
+  "name": "eval-apply-detector",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx test.ts",
+    "detect": "tsx eval-apply-detector.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0"
+  }
+}

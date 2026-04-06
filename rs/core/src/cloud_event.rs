@@ -4,6 +4,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::event_data::EventData;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudEvent {
     pub specversion: String,
@@ -13,7 +15,7 @@ pub struct CloudEvent {
     pub event_type: String,
     pub time: String,
     pub datacontenttype: String,
-    pub data: serde_json::Value,
+    pub data: EventData,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtype: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,7 +33,7 @@ impl CloudEvent {
     pub fn new(
         source: String,
         event_type: String,
-        data: serde_json::Value,
+        data: EventData,
         subtype: Option<String>,
         event_id: Option<String>,
         time: Option<String>,
@@ -60,11 +62,13 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn test_data() -> EventData {
+        EventData::new(json!({"key": "value"}), 1, "test-session".to_string())
+    }
+
     #[test]
     fn test_new_defaults_boundary_table() {
-        // Test that optional fields get correct defaults
         let cases: Vec<(&str, Option<&str>, Option<&str>, Option<&str>, Option<&str>)> = vec![
-            // (description, event_id, time, subject, dataschema)
             ("all None → auto-generated id + time", None, None, None, None),
             ("explicit id",    Some("custom-id"), None, None, None),
             ("explicit time",  None, Some("2026-01-01T00:00:00Z"), None, None),
@@ -77,7 +81,7 @@ mod tests {
             let ce = CloudEvent::new(
                 "test-source".into(),
                 "io.arc.event".into(),
-                json!({"key": "value"}),
+                test_data(),
                 Some("test.subtype".into()),
                 eid.map(|s| s.into()),
                 time.map(|s| s.into()),
@@ -113,7 +117,8 @@ mod tests {
     #[test]
     fn test_serialization_skips_none_fields() {
         let ce = CloudEvent::new(
-            "src".into(), "io.arc.event".into(), json!({}),
+            "src".into(), "io.arc.event".into(),
+            EventData::new(json!({}), 0, "s".to_string()),
             None, None, None, None, None, None,
         );
         let serialized = serde_json::to_string(&ce).unwrap();
@@ -125,7 +130,8 @@ mod tests {
     #[test]
     fn test_serialization_includes_present_fields() {
         let ce = CloudEvent::new(
-            "src".into(), "io.arc.event".into(), json!({}),
+            "src".into(), "io.arc.event".into(),
+            EventData::new(json!({}), 0, "s".to_string()),
             Some("test.sub".into()), None, None,
             Some("test-subject".into()), Some("https://schema".into()),
             None,
@@ -138,8 +144,9 @@ mod tests {
 
     #[test]
     fn test_auto_generated_ids_are_unique() {
-        let ce1 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None, None);
-        let ce2 = CloudEvent::new("s".into(), "t".into(), json!({}), None, None, None, None, None, None);
+        let d = || EventData::new(json!({}), 0, "s".to_string());
+        let ce1 = CloudEvent::new("s".into(), "t".into(), d(), None, None, None, None, None, None);
+        let ce2 = CloudEvent::new("s".into(), "t".into(), d(), None, None, None, None, None, None);
         assert_ne!(ce1.id, ce2.id, "auto-generated IDs should be unique");
     }
 }

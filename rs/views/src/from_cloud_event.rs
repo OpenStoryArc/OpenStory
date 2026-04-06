@@ -1,15 +1,13 @@
-// Transform CloudEvent (as serde_json::Value) into typed ViewRecords.
+// Transform CloudEvent into typed ViewRecords.
 //
-// A CloudEvent from open-story has:
-//   type: "io.arc.event"
-//   subtype: hierarchical (e.g., "message.assistant.tool_use")
-//   data.raw: the original transcript line
-//   data.seq: sequence number
-//   data.session_id: session ID
-//   data.tool / data.args: extracted tool info (for tool_use)
-//   data.text: extracted text (for messages)
+// Two entry points:
+//   from_cloud_event(&CloudEvent) — typed access, preferred
+//   from_cloud_event_value(&Value) — for stored JSON (deserializes and delegates)
 
 use serde_json::Value;
+
+use open_story_core::cloud_event::CloudEvent;
+use open_story_core::event_data::AgentPayload;
 
 use crate::tool_input;
 use crate::unified::*;
@@ -47,72 +45,59 @@ fn normalize_subtype(event_type: &str, raw_subtype: &str) -> String {
     }
 }
 
-/// Transform a raw CloudEvent (as Value) into typed ViewRecords.
+/// Transform a typed CloudEvent into ViewRecords.
 ///
 /// Returns one or more ViewRecords depending on the event type.
 /// For assistant tool_use events, extracts each tool_use content block
 /// as a separate ToolCall record.
 /// Returns empty vec for unrecognized/malformed events.
 /// Handles both unified (io.arc.event) and legacy (io.arc.transcript.*) formats.
-pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
-    let id = event
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let time = event
-        .get("time")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let event_type = event
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let raw_subtype = event
-        .get("subtype")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let subtype_owned = normalize_subtype(event_type, raw_subtype);
+pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
+    let id = event.id.clone();
+    let time = event.time.clone();
+    let subtype_owned = normalize_subtype(
+        &event.event_type,
+        event.subtype.as_deref().unwrap_or(""),
+    );
     let subtype = subtype_owned.as_str();
-    let data = match event.get("data") {
-        Some(d) => d,
-        None => return vec![],
+
+    // Foundation fields — typed access
+    let data = &event.data;
+    let seq = data.seq;
+    let session_id = data.session_id.clone();
+    let raw = &data.raw;
+    let agent = event.agent.as_deref().unwrap_or("claude-code");
+
+    // Agent payload — typed dispatch on the enum
+    let ap = data.agent_payload.as_ref();
+
+    // Extract subagent identity from payload (Story 037)
+    let agent_id = match ap {
+        Some(AgentPayload::ClaudeCode(cc)) => cc.agent_id.clone(),
+        _ => None,
     };
-    let seq = data
-        .get("seq")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let session_id = data
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let is_sidechain = match ap {
+        Some(AgentPayload::ClaudeCode(cc)) => cc.is_sidechain.unwrap_or(false),
+        _ => false,
+    };
 
-    // Extract subagent identity from CloudEvent data (Story 037)
-    let agent_id = data
-        .get("agent_id")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let is_sidechain = data
-        .get("is_sidechain")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    // Convenience: extract shared fields via AgentPayload accessors
+    let text = ap.and_then(|p| p.text()).unwrap_or("");
+    let model = ap.and_then(|p| p.model()).unwrap_or("unknown");
+    let tool = ap.and_then(|p| p.tool());
+    let args = ap.and_then(|p| p.args());
+    let token_usage = ap.and_then(|p| p.token_usage());
+    let stop_reason = ap.and_then(|p| p.stop_reason_str());
 
-    let raw = data.get("raw").unwrap_or(&Value::Null);
-    let agent = event
-        .get("agent")
-        .and_then(|v| v.as_str())
-        .unwrap_or("claude-code");
+    // Agent-specific field access for duration_ms, hook fields
+    let duration_ms = match ap {
+        Some(AgentPayload::ClaudeCode(cc)) => cc.duration_ms.map(|v| v as u64),
+        _ => None,
+    };
 
     // Build records, then stamp agent identity onto each one
     let mut records = match subtype {
         s if s.starts_with("message.user.prompt") => {
-            let text = data
-                .get("text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
             vec![ViewRecord {
                 id,
                 seq,
@@ -121,18 +106,69 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::UserMessage(UserMessage {
-                    content: MessageContent::Text(text),
+                    content: MessageContent::Text(text.to_string()),
                     images: vec![],
                 }),
             }]
         }
 
         "message.user.tool_result" => {
-            extract_tool_results(raw, data, agent, &id, seq, &session_id, &time)
+            // Tool results still need raw content block parsing
+            let payload_value = ap
+                .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                .unwrap_or(Value::Null);
+            let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
+            extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time, tool_outcome)
         }
 
         s if s.starts_with("message.assistant.tool_use") => {
-            extract_tool_calls(raw, data, agent, &id, seq, &session_id, &time)
+            // Tool calls: try typed fields first, fall back to raw content blocks
+            if let (Some(tool_name), Some(tool_args)) = (tool, args) {
+                // Check raw for multiple tool_use blocks
+                let content = raw
+                    .get("message")
+                    .and_then(|m| m.get("content"));
+                let has_multiple = content
+                    .and_then(|c| c.as_array())
+                    .map(|arr| {
+                        let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
+                        arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some(tool_type)).count()
+                    })
+                    .unwrap_or(0);
+
+                if has_multiple > 1 {
+                    // Multiple tool blocks — fall back to raw parsing
+                    let payload_value = ap
+                        .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                        .unwrap_or(Value::Null);
+                    extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
+                } else {
+                    // Single tool — use typed fields
+                    let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    vec![ViewRecord {
+                        id,
+                        seq,
+                        session_id,
+                        timestamp: time,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolCall(Box::new(ToolCall {
+                            call_id: String::new(),
+                            name: tool_name.to_string(),
+                            input: tool_args.clone(),
+                            raw_input: tool_args.clone(),
+                            typed_input: Some(typed),
+                            status: None,
+                        })),
+                    }]
+                }
+            } else {
+                // No typed tool fields — fall back to raw content blocks
+                let payload_value = ap
+                    .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                    .unwrap_or(Value::Null);
+                extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
+            }
         }
 
         s if s.starts_with("message.assistant.thinking") => {
@@ -140,11 +176,6 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant") => {
-            let model = data
-                .get("model")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
             let content = extract_content_blocks(raw);
             let mut records = vec![ViewRecord {
                 id: id.clone(),
@@ -154,9 +185,9 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
-                    model,
+                    model: model.to_string(),
                     content,
-                    stop_reason: data.get("stop_reason").and_then(|v| v.as_str()).map(|s| s.into()),
+                    stop_reason: stop_reason.map(|s| s.into()),
                     end_turn: None,
                     phase: None,
                 })),
@@ -165,7 +196,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
             // Emit TokenUsage record if token_usage data is present.
             // Field names differ by agent: Claude Code uses input_tokens/output_tokens,
             // pi-mono uses input/output.
-            if let Some(usage) = data.get("token_usage") {
+            if let Some(usage) = token_usage {
                 let (input_tokens, output_tokens, total_tokens) = match agent {
                     "pi-mono" => (
                         usage.get("input").and_then(|v| v.as_u64()),
@@ -200,9 +231,6 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
         }
 
         "system.turn.complete" => {
-            let duration_ms = data
-                .get("duration_ms")
-                .and_then(|v| v.as_u64());
             vec![ViewRecord {
                 id,
                 seq,
@@ -228,8 +256,8 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
                 is_sidechain: false,
                 body: RecordBody::SystemEvent(SystemEvent {
                     subtype: subtype.to_string(),
-                    message: data.get("text").and_then(|v| v.as_str()).map(|s| s.into()),
-                    duration_ms: data.get("duration_ms").and_then(|v| v.as_u64()),
+                    message: if text.is_empty() { None } else { Some(text.to_string()) },
+                    duration_ms,
                 }),
             }]
         }
@@ -279,6 +307,7 @@ pub fn from_cloud_event(event: &Value) -> Vec<ViewRecord> {
     }
     records
 }
+
 
 /// Extract tool_use content blocks into individual ToolCall ViewRecords.
 ///
@@ -399,6 +428,7 @@ fn extract_tool_results(
     seq: u64,
     session_id: &str,
     time: &str,
+    tool_outcome: Option<open_story_core::event_data::ToolOutcome>,
 ) -> Vec<ViewRecord> {
     match agent {
         "pi-mono" => {
@@ -444,6 +474,7 @@ fn extract_tool_results(
                     call_id,
                     output,
                     is_error,
+                    tool_outcome: tool_outcome.clone(),
                 }),
             }]
         }
@@ -482,6 +513,8 @@ fn extract_tool_results(
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                    // tool_outcome applies to the first result (payload-level field)
+                    let outcome = if idx == 0 { tool_outcome.clone() } else { None };
                     records.push(ViewRecord {
                         id: record_id,
                         seq: seq + idx as u64,
@@ -493,6 +526,7 @@ fn extract_tool_results(
                             call_id,
                             output,
                             is_error,
+                            tool_outcome: outcome,
                         }),
                     });
                     idx += 1;

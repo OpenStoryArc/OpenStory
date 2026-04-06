@@ -133,6 +133,10 @@ fn extract_model(event: &Value) -> Option<String> {
     if let Some(m) = data.get("model").and_then(|v| v.as_str()) {
         return Some(m.to_string());
     }
+    // Monadic format: data.agent_payload.model
+    if let Some(m) = data.get("agent_payload").and_then(|ap| ap.get("model")).and_then(|v| v.as_str()) {
+        return Some(m.to_string());
+    }
     // Transcript format: data.raw.message.model
     if let Some(m) = data.get("raw")
         .and_then(|r| r.get("message"))
@@ -222,6 +226,10 @@ pub fn extract_cwd(event: &Value) -> Option<String> {
         return Some(cwd.to_string());
     }
     if let Some(cwd) = data.get("cwd").and_then(|v| v.as_str()) {
+        return Some(cwd.to_string());
+    }
+    // Monadic format: data.agent_payload.cwd
+    if let Some(cwd) = data.get("agent_payload").and_then(|ap| ap.get("cwd")).and_then(|v| v.as_str()) {
         return Some(cwd.to_string());
     }
     // Transcript format: data.raw.cwd

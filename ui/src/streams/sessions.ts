@@ -180,6 +180,7 @@ export function toPatternView(pe: ServerPatternEvent): PatternView {
   return {
     type: pe.pattern_type,
     label: pe.summary,
+    session_id: pe.session_id,
     events: [...pe.event_ids],
     metadata: pe.metadata,
   };

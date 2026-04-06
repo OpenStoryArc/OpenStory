@@ -128,7 +128,8 @@ pub fn ingest_events(
             if is_plan_event(&val) {
                 let plan_content = extract_plan_content(&val).or_else(|| {
                     val.get("data")
-                        .and_then(|d| d.get("args"))
+                        .and_then(|d| d.get("agent_payload"))
+                        .and_then(|ap| ap.get("args"))
                         .and_then(|a| a.get("plan"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
@@ -143,7 +144,7 @@ pub fn ingest_events(
             }
 
             // BFF transform: CloudEvent → typed ViewRecords for the UI
-            let view_records = from_cloud_event(&val);
+            let view_records = from_cloud_event(ce);
 
             // Capture full payloads for truncated records (lazy-load endpoint)
             for vr in &view_records {
@@ -166,14 +167,25 @@ pub fn ingest_events(
             let ephemeral = projection::is_ephemeral(subtype);
             let proj = state.store.projections.get(session_id).unwrap();
 
-            // Feed ViewRecords to pattern pipeline (durable events only)
+            // Feed to pattern pipeline (durable events only)
             let mut detected_patterns = Vec::new();
-            if !ephemeral && !view_records.is_empty() {
+            if !ephemeral {
                 let pipeline = state
                     .store
                     .pattern_pipelines
                     .entry(session_id.to_string())
                     .or_default();
+
+                // Phase 1: CloudEvent → eval-apply → structural turns → sentence
+                let (patterns, turns) = pipeline.feed_event(ce);
+                detected_patterns.extend(patterns);
+
+                // Persist completed structural turns
+                for turn in &turns {
+                    let _ = state.store.event_store.insert_turn(session_id, turn);
+                }
+
+                // Phase 2: ViewRecords → legacy record detectors (TestCycle, GitFlow, etc.)
                 for vr in &view_records {
                     let depth = proj.node_depth(&vr.id);
                     let parent_uuid_owned = proj.node_parent(&vr.id).map(|s| s.to_string());
@@ -392,8 +404,11 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                 .or_insert_with(|| projection::SessionProjection::new(sid));
             proj.append(val);
 
-            // BFF transform
-            let view_records = from_cloud_event(val);
+            // BFF transform — deserialize stored JSON to typed CloudEvent
+            let view_records = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
+                Ok(ce) => from_cloud_event(&ce),
+                Err(_) => vec![],
+            };
 
             // Capture full payloads for truncated records
             for vr in &view_records {
@@ -425,13 +440,36 @@ pub fn replay_boot_sessions(state: &mut AppState) {
             }
 
             // Feed to pattern pipeline (skip ephemeral)
-            if !ephemeral && !view_records.is_empty() {
+            if !ephemeral {
                 let proj = state.store.projections.get(sid).unwrap();
                 let pipeline = state
                     .store
                     .pattern_pipelines
                     .entry(sid.clone())
                     .or_default();
+
+                // Phase 1: CloudEvent → eval-apply → structural turns → sentence
+                if let Ok(ce) = serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
+                    let (detected, turns) = pipeline.feed_event(&ce);
+                    // Persist completed structural turns
+                    for turn in &turns {
+                        let _ = state.store.event_store.insert_turn(sid, turn);
+                    }
+                    if !detected.is_empty() {
+                        total_patterns += detected.len();
+                        for pe in &detected {
+                            let _ = state.store.event_store.insert_pattern(sid, pe);
+                        }
+                        state
+                            .store
+                            .detected_patterns
+                            .entry(sid.clone())
+                            .or_default()
+                            .extend(detected);
+                    }
+                }
+
+                // Phase 2: ViewRecords → legacy record detectors
                 for vr in &view_records {
                     let depth = proj.node_depth(&vr.id);
                     let parent_uuid_owned = proj.node_parent(&vr.id).map(|s| s.to_string());
@@ -459,12 +497,16 @@ pub fn replay_boot_sessions(state: &mut AppState) {
             total_events += 1;
         }
 
-        // Flush remaining patterns from each session's pipeline
+        // Flush remaining patterns and turns from each session's pipeline
         if let Some(pipeline) = state.store.pattern_pipelines.get_mut(sid) {
-            let flushed = pipeline.flush();
-            if !flushed.is_empty() {
-                total_patterns += flushed.len();
-                for pe in &flushed {
+            let (flushed_patterns, flushed_turns) = pipeline.flush();
+            // Persist flushed turns
+            for turn in &flushed_turns {
+                let _ = state.store.event_store.insert_turn(sid, turn);
+            }
+            if !flushed_patterns.is_empty() {
+                total_patterns += flushed_patterns.len();
+                for pe in &flushed_patterns {
                     let _ = state.store.event_store.insert_pattern(sid, pe);
                 }
                 state
@@ -472,7 +514,7 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                     .detected_patterns
                     .entry(sid.clone())
                     .or_default()
-                    .extend(flushed);
+                    .extend(flushed_patterns);
             }
         }
 
@@ -1050,5 +1092,107 @@ mod tests {
         let payloads = payloads.unwrap();
         assert!(!payloads.is_empty());
         assert_eq!(payloads.values().next().unwrap().len(), TRUNCATION_THRESHOLD + 200);
+    }
+
+    #[test]
+    fn replay_boot_sessions_produces_sentence_patterns() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // A complete turn: user prompt → assistant tool_use → tool result → turn complete
+        let events: Vec<serde_json::Value> = vec![
+            serde_json::json!({
+                "id": "s-1", "type": "io.arc.event", "subtype": "message.user.prompt",
+                "source": "arc://test", "time": "2025-01-14T00:00:00Z",
+                "specversion": "1.0", "datacontenttype": "application/json",
+                "agent": "claude-code",
+                "data": {
+                    "raw": {"type": "user"},
+                    "seq": 1, "session_id": "sess-sent",
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "text": "List the files"
+                    }
+                }
+            }),
+            serde_json::json!({
+                "id": "s-2", "type": "io.arc.event", "subtype": "message.assistant.tool_use",
+                "source": "arc://test", "time": "2025-01-14T00:00:01Z",
+                "specversion": "1.0", "datacontenttype": "application/json",
+                "agent": "claude-code",
+                "data": {
+                    "raw": {"type": "assistant"},
+                    "seq": 2, "session_id": "sess-sent",
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "text": "Let me check.",
+                        "tool": "Bash",
+                        "args": {"command": "ls -la"},
+                        "stop_reason": "tool_use"
+                    }
+                }
+            }),
+            serde_json::json!({
+                "id": "s-3", "type": "io.arc.event", "subtype": "message.user.tool_result",
+                "source": "arc://test", "time": "2025-01-14T00:00:02Z",
+                "specversion": "1.0", "datacontenttype": "application/json",
+                "agent": "claude-code",
+                "data": {
+                    "raw": {"type": "user"},
+                    "seq": 3, "session_id": "sess-sent",
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "text": "file1.rs\nfile2.rs"
+                    }
+                }
+            }),
+            serde_json::json!({
+                "id": "s-4", "type": "io.arc.event", "subtype": "system.turn.complete",
+                "source": "arc://test", "time": "2025-01-14T00:00:03Z",
+                "specversion": "1.0", "datacontenttype": "application/json",
+                "agent": "claude-code",
+                "data": {
+                    "raw": {"type": "system", "subtype": "turn_duration", "durationMs": 3000},
+                    "seq": 4, "session_id": "sess-sent",
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "duration_ms": 3000.0
+                    }
+                }
+            }),
+        ];
+
+        let _ = state.store.event_store.insert_batch("sess-sent", &events);
+        let _ = state.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
+            id: "sess-sent".into(), project_id: None, project_name: None,
+            label: None, branch: None, event_count: events.len() as u64,
+            custom_label: None,
+            first_event: None, last_event: None,
+        });
+        replay_boot_sessions(&mut state);
+
+        let patterns = state.store.detected_patterns.get("sess-sent");
+        assert!(patterns.is_some(), "should have detected patterns");
+
+        let sentences: Vec<_> = patterns.unwrap()
+            .iter()
+            .filter(|p| p.pattern_type == "turn.sentence")
+            .collect();
+        assert!(!sentences.is_empty(), "replay should produce turn.sentence patterns");
+        assert!(
+            sentences[0].summary.contains("Claude"),
+            "sentence should contain subject 'Claude': {}",
+            sentences[0].summary
+        );
+
+        let eval_apply: Vec<_> = patterns.unwrap()
+            .iter()
+            .filter(|p| p.pattern_type.starts_with("eval_apply"))
+            .collect();
+        assert!(!eval_apply.is_empty(), "replay should produce eval_apply patterns");
     }
 }

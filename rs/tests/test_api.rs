@@ -7,6 +7,7 @@ use axum::http::Request;
 use helpers::{body_json, make_event, send_request, test_state};
 use tempfile::TempDir;
 
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::ingest_events;
 
 #[tokio::test]
@@ -247,10 +248,19 @@ async fn test_cors_rejects_unknown_origin() {
 // ── Activity endpoint ──────────────────────────────────────────────
 
 fn make_rich_event(event_type: &str, session_id: &str, subtype: Option<&str>) -> open_story::cloud_event::CloudEvent {
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test".to_string());
+    payload.tool = Some("Read".to_string());
+    let data = EventData::with_payload(
+        serde_json::json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     open_story::cloud_event::CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         event_type.to_string(),
-        serde_json::json!({"text": "test", "tool": "Read"}),
+        data,
         subtype.map(|s| s.to_string()),
         None, None, None, None, None,
     )
@@ -435,27 +445,30 @@ async fn test_session_plans_includes_subagent_plans() {
         // Ingest an ExitPlanMode event into the subagent session.
         // The event's data.session_id = "parent-sess" (the parent),
         // but we're ingesting under "agent-sub" (the subagent).
+        let mut plan_payload = ClaudeCodePayload::new();
+        plan_payload.tool = Some("ExitPlanMode".to_string());
+        plan_payload.args = Some(serde_json::json!({ "plan": "# Subagent Plan\n\nDo the thing." }));
+        let plan_data = EventData::with_payload(
+            serde_json::json!({
+                "type": "assistant",
+                "message": {
+                    "model": "claude-4",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "toolu_sub_plan",
+                        "name": "ExitPlanMode",
+                        "input": { "plan": "# Subagent Plan\n\nDo the thing." }
+                    }]
+                }
+            }),
+            1,
+            "parent-sess".to_string(),
+            AgentPayload::ClaudeCode(plan_payload),
+        );
         let plan_event = open_story::cloud_event::CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "parent-sess",
-                "tool": "ExitPlanMode",
-                "args": { "plan": "# Subagent Plan\n\nDo the thing." },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-4",
-                        "content": [{
-                            "type": "tool_use",
-                            "id": "toolu_sub_plan",
-                            "name": "ExitPlanMode",
-                            "input": { "plan": "# Subagent Plan\n\nDo the thing." }
-                        }]
-                    }
-                }
-            }),
+            plan_data,
             Some("message.assistant.tool_use".to_string()),
             Some("evt-sub-plan-1".to_string()),
             Some("2025-01-17T00:00:00Z".to_string()),
@@ -690,10 +703,18 @@ async fn test_agent_tools_includes_search() {
 // ── Session lifecycle endpoints ─────────────────────────────────────
 
 fn make_error_event(session_id: &str, id: &str) -> open_story::cloud_event::CloudEvent {
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("something failed".to_string());
+    let data = EventData::with_payload(
+        serde_json::json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     open_story::cloud_event::CloudEvent::new(
         format!("arc://transcript/{session_id}"),
         "io.arc.event".to_string(),
-        serde_json::json!({"text": "something failed", "message": "something failed"}),
+        data,
         Some("system.error".to_string()),
         Some(id.to_string()),
         None, None, None, None,

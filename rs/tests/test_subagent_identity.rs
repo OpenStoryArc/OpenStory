@@ -7,6 +7,7 @@ mod helpers;
 
 use std::fs;
 
+use open_story::event_data::AgentPayload;
 use open_story::translate::{translate_line, TranscriptState};
 use open_story_views::from_cloud_event::from_cloud_event;
 use helpers::fixtures_dir;
@@ -28,8 +29,7 @@ fn real_fixture_preserves_is_sidechain_through_pipeline() {
         let cloud_events = translate_line(&value, &mut state);
 
         for ce in &cloud_events {
-            let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-            let view_records = from_cloud_event(&ce_value);
+            let view_records = from_cloud_event(ce);
 
             for vr in &view_records {
                 total_view_records += 1;
@@ -86,15 +86,18 @@ fn real_fixture_progress_events_carry_agent_id() {
 
         if is_progress_with_nested {
             for ce in &cloud_events {
-                // Verify the agentId made it into CloudEvent.data
+                // Verify the agentId made it into the payload
+                let has_agent_id = match &ce.data.agent_payload {
+                    Some(AgentPayload::ClaudeCode(cc)) => cc.agent_id.is_some(),
+                    _ => false,
+                };
                 assert!(
-                    ce.data.get("agent_id").is_some(),
-                    "progress event with nested data.agentId should have agent_id in CloudEvent.data"
+                    has_agent_id,
+                    "progress event with nested data.agentId should have agent_id in payload"
                 );
 
                 // Convert to ViewRecords and verify agent_id is set
-                let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-                let view_records = from_cloud_event(&ce_value);
+                let view_records = from_cloud_event(ce);
                 for vr in &view_records {
                     assert!(
                         vr.agent_id.is_some(),
@@ -134,14 +137,18 @@ fn synthetic_subagent_event_round_trips() {
     let cloud_events = translate_line(&line, &mut state);
     assert_eq!(cloud_events.len(), 1);
 
-    // Verify CloudEvent.data carries the fields
+    // Verify CloudEvent.data payload carries the fields
     let ce = &cloud_events[0];
-    assert_eq!(ce.data["is_sidechain"], true);
-    assert_eq!(ce.data["agent_id"], "agent-explore-abc");
+    match &ce.data.agent_payload {
+        Some(AgentPayload::ClaudeCode(cc)) => {
+            assert_eq!(cc.is_sidechain, Some(true));
+            assert_eq!(cc.agent_id.as_deref(), Some("agent-explore-abc"));
+        }
+        _ => panic!("expected ClaudeCode payload"),
+    }
 
     // Convert to ViewRecords
-    let ce_value = serde_json::to_value(ce).expect("serialize CloudEvent");
-    let view_records = from_cloud_event(&ce_value);
+    let view_records = from_cloud_event(ce);
     assert_eq!(view_records.len(), 1);
 
     let vr = &view_records[0];

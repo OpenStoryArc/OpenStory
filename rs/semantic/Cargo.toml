@@ -11,6 +11,7 @@ onnx = ["ort", "tokenizers", "ndarray"]
 qdrant = ["qdrant-client"]
 
 [dependencies]
+open-story-core = { path = "../core" }
 open-story-views = { path = "../views" }
 anyhow = "1"
 async-trait = "0.1"

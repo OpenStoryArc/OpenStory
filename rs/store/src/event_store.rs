@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use open_story_patterns::PatternEvent;
+use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::queries;
 
@@ -64,6 +64,12 @@ pub trait EventStore: Send + Sync {
         session_id: &str,
         pattern_type: Option<&str>,
     ) -> Result<Vec<PatternEvent>>;
+
+    /// Insert a completed structural turn.
+    fn insert_turn(&self, session_id: &str, turn: &StructuralTurn) -> Result<()>;
+
+    /// Query structural turns for a session, ordered by turn_number.
+    fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>>;
 
     /// Store a plan.
     fn upsert_plan(

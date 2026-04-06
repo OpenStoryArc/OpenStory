@@ -108,6 +108,7 @@ mod tests {
                 call_id: call_id.into(),
                 output: Some(output.into()),
                 is_error: false,
+                tool_outcome: None,
             }),
         }
     }

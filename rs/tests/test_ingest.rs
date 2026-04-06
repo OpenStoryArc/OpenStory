@@ -7,6 +7,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::{ingest_events, is_plan_event};
 
 // ─── is_plan_event ───────────────────────────────────────────────────────────
@@ -17,8 +18,10 @@ fn is_plan_event_unified_format_with_tool_field() {
         "type": "io.arc.event",
         "subtype": "message.assistant.tool_use",
         "data": {
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# My Plan\n\nStep 1: do things" }
+            "agent_payload": {
+                "tool": "ExitPlanMode",
+                "args": { "plan": "# My Plan\n\nStep 1: do things" }
+            }
         }
     });
     assert!(is_plan_event(&event));
@@ -49,8 +52,10 @@ fn is_plan_event_legacy_tool_call() {
     let event = json!({
         "type": "io.arc.tool.call",
         "data": {
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Refactor plan" }
+            "agent_payload": {
+                "tool": "ExitPlanMode",
+                "args": { "plan": "# Refactor plan" }
+            }
         }
     });
     assert!(is_plan_event(&event));
@@ -82,8 +87,10 @@ fn is_plan_event_rejects_non_exit_plan_mode() {
         "type": "io.arc.event",
         "subtype": "message.assistant.tool_use",
         "data": {
-            "tool": "Read",
-            "args": { "file_path": "/tmp/foo.rs" }
+            "agent_payload": {
+                "tool": "Read",
+                "args": { "file_path": "/tmp/foo.rs" }
+            }
         }
     });
     assert!(!is_plan_event(&event));
@@ -95,8 +102,10 @@ fn is_plan_event_rejects_empty_plan() {
         "type": "io.arc.event",
         "subtype": "message.assistant.tool_use",
         "data": {
-            "tool": "ExitPlanMode",
-            "args": { "plan": "" }
+            "agent_payload": {
+                "tool": "ExitPlanMode",
+                "args": { "plan": "" }
+            }
         }
     });
     assert!(!is_plan_event(&event));
@@ -108,8 +117,10 @@ fn is_plan_event_rejects_wrong_subtype() {
         "type": "io.arc.event",
         "subtype": "message.assistant.text",
         "data": {
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Plan" }
+            "agent_payload": {
+                "tool": "ExitPlanMode",
+                "args": { "plan": "# Plan" }
+            }
         }
     });
     assert!(!is_plan_event(&event));
@@ -120,7 +131,7 @@ fn is_plan_event_rejects_user_prompt() {
     let event = json!({
         "type": "io.arc.event",
         "subtype": "message.user.prompt",
-        "data": { "text": "write a plan" }
+        "data": { "agent_payload": { "text": "write a plan" } }
     });
     assert!(!is_plan_event(&event));
 }
@@ -196,13 +207,19 @@ async fn ingest_extracts_and_saves_plan_from_exit_plan_mode() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
+    let mut payload = ClaudeCodePayload::new();
+    payload.tool = Some("ExitPlanMode".to_string());
+    payload.args = Some(json!({ "plan": "# Architecture Plan\n\nUse actor model." }));
+    let plan_data = EventData::with_payload(
+        json!({}),
+        0,
+        "sess-plan".to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
     let plan_event = CloudEvent::new(
         "arc://transcript/sess-plan".to_string(),
         "io.arc.event".to_string(),
-        json!({
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Architecture Plan\n\nUse actor model." }
-        }),
+        plan_data,
         Some("message.assistant.tool_use".to_string()),
         Some("plan-evt-001".to_string()),
         None,
@@ -229,13 +246,19 @@ async fn ingest_extracts_plan_from_legacy_tool_call() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
+    let mut legacy_payload = ClaudeCodePayload::new();
+    legacy_payload.tool = Some("ExitPlanMode".to_string());
+    legacy_payload.args = Some(json!({ "plan": "# Legacy Plan\n\nStep 1." }));
+    let legacy_data = EventData::with_payload(
+        json!({}),
+        0,
+        "sess-legacy".to_string(),
+        AgentPayload::ClaudeCode(legacy_payload),
+    );
     let plan_event = CloudEvent::new(
         "arc://hook/sess-legacy".to_string(),
         "io.arc.tool.call".to_string(),
-        json!({
-            "tool": "ExitPlanMode",
-            "args": { "plan": "# Legacy Plan\n\nStep 1." }
-        }),
+        legacy_data,
         None,
         Some("legacy-plan-001".to_string()),
         None,
