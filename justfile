@@ -61,11 +61,11 @@ kill-port port:
       fi
     fi
 
-# Build and start both server + UI (Ctrl+C to stop)
+# Build and start NATS + server + UI (Ctrl+C to stop)
 up:
     #!/usr/bin/env bash
     set -e
-    # Kill any lingering open-story processes
+    # Kill any lingering processes
     if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
       taskkill //F //IM open-story.exe 2>/dev/null || true
     else
@@ -73,12 +73,34 @@ up:
     fi
     just kill-port 3002
     just kill-port 5173
+
+    # Start NATS JetStream (hard dependency)
+    if ! command -v nats-server &>/dev/null; then
+      echo "ERROR: nats-server not found. Install: brew install nats-server"
+      exit 1
+    fi
+    if ! lsof -i :4222 &>/dev/null 2>&1; then
+      echo "Starting NATS JetStream..."
+      nats-server -c nats.conf &disown 2>/dev/null
+      sleep 1
+    else
+      echo "NATS already running on :4222"
+    fi
+
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     cargo build --manifest-path rs/cli/Cargo.toml
     cargo run --manifest-path rs/cli/Cargo.toml -- serve &
     sleep 2
     cd ui && npm run dev &
     wait
+
+# Start NATS JetStream standalone
+nats:
+    nats-server -c nats.conf
+
+# Stop NATS
+nats-stop:
+    pkill nats-server || true
 
 # Launch Jupyter notebook for event data exploration
 explore:
