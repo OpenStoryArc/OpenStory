@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::Result;
 use tokio::sync::{broadcast as tokio_broadcast, RwLock};
@@ -12,7 +11,6 @@ use open_story_bus::Bus;
 use open_story_store::state::StoreState;
 
 use open_story_store::analysis::{self, extract_cwd_from_events};
-use open_story_store::ingest::is_plan_event;
 
 use crate::broadcast::BroadcastMessage;
 use crate::config::Config;
@@ -144,93 +142,9 @@ fn boot_from_sqlite(
     }
 }
 
-/// Boot from JSONL — fallback when SQLite is empty (first run or fresh DB).
-fn boot_from_jsonl(store: &mut StoreState, config: &Config) {
-    let boot_window = Duration::from_secs(config.boot_window_hours * 3600);
-    let known_plan_sessions: std::collections::HashSet<String> = store
-        .plan_store
-        .list_plans()
-        .iter()
-        .map(|p| p.session_id.clone())
-        .collect();
-
-    let recent_sessions = store.session_store.list_recent_sessions(boot_window);
-    let total_sessions = store.session_store.list_sessions().len();
-    if total_sessions > 0 {
-        eprintln!(
-            "  \x1b[33mBooting from JSONL ({} recent / {} total sessions)\x1b[0m",
-            recent_sessions.len(),
-            total_sessions,
-        );
-    }
-    if total_sessions > recent_sessions.len() {
-        eprintln!(
-            "  \x1b[2mSkipped {} old sessions (>{:.0}h)\x1b[0m",
-            total_sessions - recent_sessions.len(),
-            boot_window.as_secs_f64() / 3600.0,
-        );
-    }
-
-    for sid in recent_sessions {
-        let events = store.session_store.load_session(&sid);
-        // Backfill plans from sessions not yet in PlanStore
-        if !known_plan_sessions.contains(&sid) {
-            for event in &events {
-                if is_plan_event(event) {
-                    if let Some(plan_content) = event
-                        .get("data")
-                        .and_then(|d| d.get("args"))
-                        .and_then(|a| a.get("plan"))
-                        .and_then(|v| v.as_str())
-                    {
-                        let timestamp = event.get("time").and_then(|v| v.as_str()).unwrap_or("");
-                        let _ = store.plan_store.save(&sid, plan_content, timestamp);
-                    }
-                }
-            }
-        }
-        // Track all loaded event IDs for dedup + detect subagent relationships
-        for event in &events {
-            if let Some(id) = event.get("id").and_then(|v| v.as_str()) {
-                store.seen_event_ids.insert(id.to_string());
-            }
-            // Detect subagent → parent relationship
-            if let Some(data_sid) = event.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != sid && !store.subagent_parents.contains_key(sid.as_str()) {
-                    store.subagent_parents.insert(sid.clone(), data_sid.to_string());
-                    store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(sid.clone());
-                }
-            }
-        }
-        // Populate EventStore so replay_boot_sessions can read from it
-        let _ = store.event_store.insert_batch(&sid, &events);
-        let _ = store.event_store.upsert_session(
-            &open_story_store::event_store::SessionRow {
-                id: sid.clone(),
-                project_id: None,
-                project_name: None,
-                label: None,
-                custom_label: None,
-                branch: None,
-                event_count: events.len() as u64,
-                first_event: events.first()
-                    .and_then(|e| e.get("time"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                last_event: events.last()
-                    .and_then(|e| e.get("time"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-            },
-        );
-    }
-}
+// boot_from_jsonl removed — all events now go through the watcher path:
+// JSONL → translate_line() → NATS → consumers → SQLite.
+// See commit history for the old implementation.
 
 #[cfg(test)]
 mod tests {
