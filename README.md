@@ -3,9 +3,7 @@
 [![CI](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Open Story gives you full visibility into what your AI coding agents are doing — in real time. It watches coding agent sessions (Claude Code, pi-mono, and more), translates transcript events into typed records via a [CloudEvents 1.0](https://cloudevents.io/) pipeline, and serves a live dashboard. Your data stays local, in open formats, fully portable.
-
-Real-time observability dashboard for AI coding agent sessions. Watches JSONL transcript files from multiple agents, auto-detects the format, translates them into typed ViewRecords, and serves a live web dashboard.
+Real-time observability for AI coding agents. Open Story watches what your agents do — every tool call, file edit, command, and decision — translates it into [CloudEvents 1.0](https://cloudevents.io/) via NATS JetStream, and serves a live dashboard with narrative visualization. Your data stays local, in open formats, fully portable.
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -28,6 +26,18 @@ Real-time observability dashboard for AI coding agent sessions. Watches JSONL tr
                                                    └──────────┘  └──────────┘  └──────────┘
 ```
 
+## What you see
+
+Four dashboard views, each a different lens on the same data:
+
+**Live** — real-time event stream as your agent works. Every tool call, file read, command execution, and model response appears as it happens. Session sidebar shows all active sessions with event counts, token usage, depth sparklines, and subagent hierarchy.
+
+**Story** — narrative view of agent work. Each turn is a card showing what Claude did and why: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain fact badges (files created/modified, commands run, searches performed), and eval-apply phase detail. Subagent delegations expand inline — click an Agent apply to see the subagent's eval-apply cycles nested recursively. The same structure at every depth.
+
+**Explore** — historical browse and search across sessions. Full-text search, event filtering, session comparison.
+
+**Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
+
 ## Philosophy
 
 Open Story is a mirror, not a leash. It observes but never interferes — it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours: CloudEvents 1.0, JSONL, Markdown. Open formats, portable, unencumbered.
@@ -44,6 +54,53 @@ The file watcher detects JSONL transcript changes, translates them into CloudEve
 - **broadcast** — CloudEvent → ViewRecord → WireRecord → WebSocket to UI
 
 HTTP hooks provide an additional near-real-time ingestion path for Claude Code events.
+
+Each actor is an independent tokio task with its own state and NATS subscription. No shared locks between actors — if pattern detection is slow, persistence and broadcast continue unblocked. NATS JetStream provides durable delivery, replay on restart, and hierarchical subject filtering. `just up` starts NATS automatically; `nats.conf` at the project root configures JetStream with 8MB max payload for large sessions.
+
+### The eval-apply model
+
+Agent sessions have recursive structure. A **turn** (one human prompt → complete response) contains multiple **eval-apply cycles** — each cycle is the model evaluating what it knows, dispatching tools, and processing results. Subagents spawned via the Agent tool have the same recursive cycle structure, just nested one level deeper.
+
+The Story tab renders this as paragraphs (turns) containing sentences (cycles). Subagent work nests inside parent turns. The same `CycleCard` component renders at every depth — it's the recursive visual unit of agent work.
+
+### For agents: using OpenStory
+
+Agents working on this project (or any project with OpenStory running) should use the API to understand session context. From experience building this system, here's what works best:
+
+**REST API is your primary tool.** Fast, structured, reliable:
+```
+GET /api/sessions                                  — list all sessions with metadata
+GET /api/sessions/{id}/records                     — all events for a session
+GET /api/sessions/{id}/patterns?type=turn.sentence — narrative turns with sentence diagrams
+GET /api/search?q=...                              — full-text search across events
+```
+
+**Patterns API for narrative understanding.** The `turn.sentence` patterns carry the sentence diagram (verb/object/subordinates), domain facts (files touched, commands run), eval-apply phases, and subagent delegations. Use this to understand WHAT happened, not just the raw events.
+
+**Records API for ground truth.** When you need the actual tool output, file contents, or exact sequence of events, fetch the records. The `extractCycles()` function in `ui/src/lib/eval-apply.ts` derives eval-apply cycles from records — same structure at every depth (main agent and subagents).
+
+**Scripts for data science.** `scripts/analyze_eval_apply_shape.py --all` maps the structural shape of every session. `scripts/query_store.py` inspects SQLite directly. Write scripts for questions — don't guess.
+
+**Avoid raw JSONL grep.** The raw transcript files are Claude Code's native format, not CloudEvents. The translate layer adds `agent_payload`, `tool_outcome`, `agent_id`. Always query through the API to get the translated, typed data.
+
+**Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
+
+### Deployed agent observability (OpenClaw)
+
+Open Story can observe autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
+
+```
+claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API/dashboard)
+              ──HTTP hooks──►
+```
+
+The listener runs as root (to read Claude's mode-600 transcript files), watches the shared volume, translates events, and publishes to NATS. The consumer runs separately with its own data volume, subscribes from NATS, and serves the dashboard. Start with:
+
+```bash
+docker compose -f docker-compose.openclaw.yml up -d
+```
+
+See `docker-compose.openclaw.yml` for full setup including API key configuration and volume management.
 
 ## Quick Start
 
@@ -83,12 +140,15 @@ just test        # Run all tests (Rust + UI)
 ### Manual setup
 
 ```bash
-# 1. Build and run the server
+# 1. Start NATS JetStream
+nats-server -c nats.conf &
+
+# 2. Build and run the server
 cd rs
 cargo build --release -p open-story-cli
 cargo run -p open-story-cli -- serve
 
-# 2. Start the UI dev server (in another terminal)
+# 3. Start the UI dev server (in another terminal)
 cd ui
 npm install
 npm run dev
@@ -305,18 +365,15 @@ Run `just` to see all available commands. Key ones:
 
 | Command | Description |
 |---------|-------------|
-| `just up` | Build and start server + UI (Ctrl+C to stop) |
+| `just up` | Start NATS + server + UI (Ctrl+C to stop) |
+| `just nats` | Start NATS JetStream standalone |
+| `just nats-stop` | Stop NATS |
 | `just test` | Run all tests (Rust + UI) |
 | `just test-rs` | Run Rust tests only |
 | `just test-ui` | Run UI tests only |
 | `just e2e` | Run Playwright E2E tests |
 | `just explore` | Launch Jupyter notebook for data exploration |
-| `just tree` | Launch tree explorer notebook |
-| `just patterns` | Run streaming pattern detection prototype |
 | `just events` | Live event viewer (pretty-print event log) |
-| `just qdrant` | Start Qdrant vector database |
-| `just download-model` | Download ONNX embedding model |
-| `just backfill` | Embed existing events into Qdrant |
 
 ## Security Notes
 

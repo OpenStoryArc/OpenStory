@@ -136,6 +136,9 @@ Per-client NATS subscriptions on WebSocket. Currently all events broadcast to al
 ### Remove Hooks
 With NATS as the transport, hooks are redundant with the file watcher. Both read the same JSONL and produce the same CloudEvents. The dedup logic exists solely because they race. Removing hooks eliminates dedup, the HTTP endpoint, transcript path resolution, and the `seen_event_ids` HashSet.
 
+### Update Architecture Tour
+`docs/architecture-tour.md` is stale — the Big Picture diagram shows the old monolithic path (`ingest_events()`) without NATS or actor-consumers. The 14-stop tour needs updating to reflect hierarchical subjects, independent actors, the boot path change, and the eval-apply recursive model. The tour is the onboarding doc for new contributors and agents.
+
 ### Decompose Broadcast Consumer
 The broadcast consumer is the last one still using `ingest_events()` with shared `AppState`. It needs projection state for `BroadcastMessage` assembly. Decomposing it requires the projections consumer to publish session metadata to `changes.{project}.{session}`, which the broadcast consumer then consumes.
 
