@@ -359,6 +359,65 @@ open-story/
 └── e2e/                         Playwright E2E tests
 ```
 
+## Scripts
+
+`scripts/` is a working library of Python tools for inspecting OpenStory data. They hit the REST API or read SQLite directly, and exist so questions can be answered with reproducible queries instead of one-off shell commands. Most have a `--test` flag and a clear `Usage:` header.
+
+**Tell the story of a session** (the entry point — start here):
+
+```bash
+python3 scripts/sessionstory.py SESSION_ID            # markdown fact sheet
+python3 scripts/sessionstory.py latest                # most recent session
+python3 scripts/sessionstory.py SESSION_ID --json     # machine-readable
+python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
+python3 scripts/sessionstory.py --list                # recent sessions
+python3 scripts/sessionstory.py --test                # self-tests
+```
+
+`sessionstory.py` collects deterministic facts (record types, tool histogram, patterns, prompt timeline, sample sentences from the `turn.sentence` detector) and emits a structured fact sheet. It does not narrate — narration is the agent's job. There's a Claude Code skill at `.claude/skills/sessionstory/` that documents the full workflow.
+
+**Analyze session structure:**
+
+| Script | What it shows |
+|---|---|
+| `analyze_eval_apply_shape.py --session SID` | Eval-apply cycle counts, with-tools vs terminal, tools per cycle |
+| `analyze_turn_shapes.py SID` | Distinct turn shapes + probability classes (multi_eval_apply, with_thinking, parallel_tools, …) |
+| `analyze_event_groups.py --session SID` | Per-prompt event windows, phase distribution, common tool sequences, tool runs |
+| `analyze_session_hierarchy.py` | Main vs subagent linking — how agent sessions relate to parents |
+| `analyze_payload_sizes.py` | Truncation impact across sessions |
+| `analyze_plan_events.py` | Where ExitPlanMode events live (main / subagent / hooks) |
+
+**Cost and tokens:**
+
+| Script | What it shows |
+|---|---|
+| `token_usage.py --session-id SID` | Input / output / cache tokens + estimated cost |
+| `token_usage.py --by-session` | Per-session breakdown |
+| `token_usage.py --by-day` | Daily trend |
+
+**Direct queries:**
+
+| Script | What it does |
+|---|---|
+| `query_store.py` | SQL queries over the live SQLite store (sessions, events, patterns) |
+| `query_session.py` | Single-session record fetch + filter |
+| `session_conversation.py SID` | Reconstruct user/assistant/tool flow in reading order |
+| `event_viewer.py` | Live pretty-printer for the event log |
+
+**Data and tooling:**
+
+- `scrub_check.py` — flag potential secrets in fixture data
+- `story_html.py` — render a session as a static HTML story
+- `synth_transcripts.py` — generate synthetic transcript fixtures for tests
+- `translate_pi_mono.py` — translator prototype for pi-mono format
+- `load_transcripts.py` — bulk load JSONL into SQLite
+- `prototype_event_graph.py` — graph-layout exploration (matplotlib)
+- `explore.ipynb` — Jupyter notebook scratchpad
+
+**Conventions:** scripts use stdlib only where possible (`urllib.request`, `sqlite3`, `argparse`). Scripts with `--test` self-validate against synthetic fixtures or a running server. New scripts should follow the same shape: docstring `Usage:` header, dataclasses for structured output, pure functions for the core logic, side effects at the edges.
+
+See also: `docs/research/sessions/` for example reports built from these scripts, and `docs/research/scheme/daystory.sh` for the day-scoped narration companion.
+
 ## Development Commands
 
 Run `just` to see all available commands. Key ones:

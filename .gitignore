@@ -9,8 +9,9 @@ ui/dist/
 data/
 rs/data/
 
-# Claude local settings
-.claude/
+# Claude local settings (ignore everything except project-level skills)
+.claude/*
+!.claude/skills/
 
 # IDE
 .vscode/
