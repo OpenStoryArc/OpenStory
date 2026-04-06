@@ -40,8 +40,8 @@ pub enum ToolOutcome {
     SearchPerformed { pattern: String, source: String },
     /// Bash tool
     CommandExecuted { command: String, succeeded: bool },
-    /// Agent tool
-    SubAgentSpawned { description: String },
+    /// Agent tool — agent_id links to the subagent session ("agent-{agent_id}")
+    SubAgentSpawned { description: String, #[serde(default)] agent_id: String },
 }
 
 /// Derive the domain event from a tool call + result pair.
@@ -143,7 +143,7 @@ pub fn derive_tool_outcome(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(ToolOutcome::SubAgentSpawned { description })
+            Some(ToolOutcome::SubAgentSpawned { description, agent_id: String::new() })
         }
         _ => None, // Unknown tool — no domain event
     }
@@ -257,10 +257,6 @@ pub struct ClaudeCodePayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_outcome: Option<ToolOutcome>,
 
-    // ── Subagent linkage: which agent session was spawned by this tool_result ──
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_session_id: Option<String>,
-
     // ── Token usage (Claude Code shape) ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<Value>,
@@ -316,7 +312,6 @@ impl ClaudeCodePayload {
             tool: None,
             args: None,
             tool_outcome: None,
-            agent_session_id: None,
             token_usage: None,
             slug: None,
             message_id: None,
@@ -554,13 +549,6 @@ impl AgentPayload {
         }
     }
 
-    /// Get agent_session_id (set on tool_result for Agent tool calls).
-    pub fn agent_session_id(&self) -> Option<&str> {
-        match self {
-            AgentPayload::ClaudeCode(p) => p.agent_session_id.as_deref(),
-            AgentPayload::PiMono(_) => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -958,7 +946,8 @@ mod tests {
             assert_eq!(
                 outcome,
                 Some(ToolOutcome::SubAgentSpawned {
-                    description: "research task".to_string()
+                    description: "research task".to_string(),
+                    agent_id: String::new(),
                 })
             );
         }

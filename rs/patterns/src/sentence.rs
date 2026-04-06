@@ -547,7 +547,6 @@ impl TurnDetector for SentenceDetector {
                     "is_error": a.is_error,
                     "is_agent": a.is_agent,
                     "tool_outcome": a.tool_outcome,
-                    "agent_session_id": a.agent_session_id,
                 })).collect::<Vec<_>>(),
                 "env_size": turn.env_size,
                 "env_delta": turn.env_delta,
@@ -605,7 +604,6 @@ mod tests {
             is_error: false,
             is_agent: name == "Agent",
             tool_outcome: None,
-            agent_session_id: None,
         }
     }
 

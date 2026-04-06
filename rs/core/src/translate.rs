@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData};
+use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData, ToolOutcome};
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -444,16 +444,14 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         }
     }
 
-    // Extract agent session ID from Agent tool_result's toolUseResult.agentId
-    if subtype.as_deref() == Some("message.user.tool_result") {
-        if let Some(agent_id) = line
+    // Enrich SubAgentSpawned with agentId from toolUseResult (the link to the subagent session)
+    if let Some(ToolOutcome::SubAgentSpawned { agent_id, .. }) = &mut payload.tool_outcome {
+        if let Some(aid) = line
             .get("toolUseResult")
             .and_then(|v| v.get("agentId"))
             .and_then(|v| v.as_str())
         {
-            if !agent_id.is_empty() {
-                payload.agent_session_id = Some(format!("agent-{agent_id}"));
-            }
+            *agent_id = aid.to_string();
         }
     }
 

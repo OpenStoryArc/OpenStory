@@ -220,8 +220,7 @@ type Apply = {
   output_summary: string;
   is_error: boolean;
   is_agent: boolean;
-  tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean };
-  agent_session_id?: string | null;
+  tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean; agent_id?: string; description?: string };
 };
 
 function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
@@ -308,10 +307,11 @@ function ApplyBlock({ apply, index, events, allPatterns }: { apply: Apply; index
 
 function AgentExpand({ apply, allPatterns }: { apply: Apply; allPatterns?: readonly PatternView[] }) {
   const [expanded, setExpanded] = useState(false);
+  const agentSessionId = apply.tool_outcome?.agent_id ? `agent-${apply.tool_outcome.agent_id}` : null;
   const agentTurns = useMemo(() => {
-    if (!apply.agent_session_id || !allPatterns) return [];
-    return agentSessionTurns(apply.agent_session_id, allPatterns);
-  }, [apply.agent_session_id, allPatterns]);
+    if (!agentSessionId || !allPatterns) return [];
+    return agentSessionTurns(agentSessionId, allPatterns);
+  }, [agentSessionId, allPatterns]);
 
   if (agentTurns.length === 0) {
     return (

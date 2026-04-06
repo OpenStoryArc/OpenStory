@@ -83,9 +83,6 @@ pub struct ApplyRecord {
     pub is_error: bool,
     pub is_agent: bool,
     pub tool_outcome: Option<ToolOutcome>,
-    /// Session ID of the subagent spawned by this apply (Agent tool only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_session_id: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -243,7 +240,6 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                     Some(ToolOutcome::CommandExecuted { succeeded, .. }) => !succeeded,
                     _ => false,
                 };
-                let agent_session_id = ap.and_then(|p| p.agent_session_id()).map(|s| s.to_string());
                 acc.completed_applies.push(ApplyRecord {
                     tool_name: pending.tool_name,
                     input_summary: pending.input_summary,
@@ -251,7 +247,6 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                     is_error,
                     is_agent: pending.is_agent,
                     tool_outcome,
-                    agent_session_id,
                 });
             }
             if acc.pending_applies.is_empty() {
