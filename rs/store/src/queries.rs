@@ -841,8 +841,11 @@ mod tests {
             Some(f) => format!(r#"{{"file_path": "{}"}}"#, f),
             None => r#"{"command": "cargo test"}"#.to_string(),
         };
+        // Production queries read from $.data.agent_payload.tool and
+        // $.data.agent_payload.args.* — wrap test data in the typed
+        // AgentPayload::ClaudeCode shape so the JSON-extract paths match.
         let payload = format!(
-            r#"{{"data": {{"tool": "{}", "args": {}}}}}"#,
+            r#"{{"data": {{"agent_payload": {{"_variant": "claude-code", "meta": {{"agent": "claude-code"}}, "tool": "{}", "args": {}}}}}}}"#,
             tool, args
         );
         conn.execute(
@@ -854,7 +857,12 @@ mod tests {
     }
 
     fn insert_error_event(conn: &Connection, id: &str, session_id: &str, msg: &str, ts: &str) {
-        let payload = format!(r#"{{"data": {{"text": "{}"}}}}"#, msg);
+        // system.error events store text inside agent_payload.text under the
+        // typed payload model (matches translator output for hook errors).
+        let payload = format!(
+            r#"{{"data": {{"agent_payload": {{"_variant": "claude-code", "meta": {{"agent": "claude-code"}}, "text": "{}"}}}}}}"#,
+            msg
+        );
         conn.execute(
             "INSERT INTO events (id, session_id, subtype, timestamp, payload)
              VALUES (?1, ?2, 'system.error', ?3, ?4)",

@@ -143,8 +143,26 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                         .unwrap_or(Value::Null);
                     extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
                 } else {
-                    // Single tool — use typed fields
+                    // Single tool — use typed fields. We still pull call_id
+                    // from the raw content block, since that's the only place
+                    // it lives — without it the ToolCall can't be linked to
+                    // its ToolResult downstream (call_id is the join key).
                     let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
+                    let id_field = if agent == "pi-mono" { "toolUseId" } else { "id" };
+                    let call_id = raw
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .and_then(|c| c.as_array())
+                        .and_then(|arr| {
+                            arr.iter().find(|b| {
+                                b.get("type").and_then(|v| v.as_str()) == Some(tool_type)
+                            })
+                        })
+                        .and_then(|b| b.get(id_field))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     vec![ViewRecord {
                         id,
                         seq,
@@ -153,7 +171,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                         agent_id: None,
                         is_sidechain: false,
                         body: RecordBody::ToolCall(Box::new(ToolCall {
-                            call_id: String::new(),
+                            call_id,
                             name: tool_name.to_string(),
                             input: tool_args.clone(),
                             raw_input: tool_args.clone(),
@@ -611,12 +629,48 @@ fn extract_content_blocks(raw: &Value) -> Vec<ContentBlock> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use open_story_core::cloud_event::CloudEvent;
     use crate::from_cloud_event::from_cloud_event;
     use crate::unified::*;
     use crate::tool_input::ToolInput;
 
-    fn make_cloud_event(subtype: &str, data: serde_json::Value) -> serde_json::Value {
+    /// Wrap a "logical" test fixture into the EventData shape the production
+    /// code expects. The logical shape has flat fields (seq, session_id, text,
+    /// model, tool, args, raw, …) — same shape these tests have always used.
+    /// This helper extracts the foundation fields (seq, session_id, raw) and
+    /// wraps everything else in an `AgentPayload::ClaudeCode` so the typed
+    /// payload accessors in `from_cloud_event` find what they expect.
+    ///
+    /// This bridges the test fixture shape to the post-AgentPayload-refactor
+    /// data model without requiring every test site to know about
+    /// `_variant` / `meta.agent` / `ClaudeCodePayload`.
+    fn make_event_data(data: serde_json::Value) -> serde_json::Value {
+        let mut obj = data.as_object().cloned().unwrap_or_default();
+        let seq = obj.remove("seq").unwrap_or(json!(1));
+        let session_id = obj.remove("session_id").unwrap_or(json!("sess-test"));
+        let raw = obj.remove("raw").unwrap_or(json!({}));
+
+        // Everything else is payload — wrap it in AgentPayload::ClaudeCode shape.
+        // The enum is tagged with `_variant` and ClaudeCodePayload requires
+        // `meta.agent`. ClaudeCodePayload has `#[serde(flatten)] extra` so any
+        // fields that aren't typed columns still survive.
+        let mut payload = serde_json::Map::new();
+        payload.insert("_variant".to_string(), json!("claude-code"));
+        payload.insert("meta".to_string(), json!({"agent": "claude-code"}));
+        for (k, v) in obj {
+            payload.insert(k, v);
+        }
+
         json!({
+            "raw": raw,
+            "seq": seq,
+            "session_id": session_id,
+            "agent_payload": payload,
+        })
+    }
+
+    fn make_cloud_event(subtype: &str, data: serde_json::Value) -> CloudEvent {
+        serde_json::from_value(json!({
             "specversion": "1.0",
             "id": "evt-001",
             "source": "arc://transcript/sess-abc",
@@ -624,8 +678,11 @@ mod tests {
             "time": "2025-01-09T10:00:00Z",
             "datacontenttype": "application/json",
             "subtype": subtype,
-            "data": data
-        })
+            "data": make_event_data(data),
+        }))
+        .expect("test fixture should deserialize as CloudEvent — \
+                 ensure the data block contains required EventData fields \
+                 (raw, seq, session_id)")
     }
 
     // describe("from_cloud_event")
@@ -879,8 +936,8 @@ mod tests {
     mod legacy_format {
         use super::*;
 
-        fn make_legacy_event(event_type: &str, subtype: &str, data: serde_json::Value) -> serde_json::Value {
-            json!({
+        fn make_legacy_event(event_type: &str, subtype: &str, data: serde_json::Value) -> CloudEvent {
+            serde_json::from_value(json!({
                 "specversion": "1.0",
                 "id": "evt-legacy-001",
                 "source": "arc://transcript/sess-abc",
@@ -888,8 +945,9 @@ mod tests {
                 "time": "2025-01-09T10:00:00Z",
                 "datacontenttype": "application/json",
                 "subtype": subtype,
-                "data": data
-            })
+                "data": super::make_event_data(data),
+            }))
+            .expect("legacy test fixture should deserialize as CloudEvent")
         }
 
         #[test]
@@ -1044,26 +1102,33 @@ mod tests {
     }
 
     // describe("when event is malformed")
+    //
+    // Note: these tests previously validated graceful handling of malformed
+    // JSON when from_cloud_event took an untyped &Value. The function now
+    // takes a typed &CloudEvent, so the malformed-input contract has moved
+    // upstream to the deserialization layer (watcher/reader). Garbage JSON
+    // can't even be constructed as a CloudEvent — serde::from_value rejects
+    // it before from_cloud_event is ever called. The tests for that now
+    // belong wherever raw JSON is first parsed into a CloudEvent.
     mod malformed {
         use super::*;
 
         #[test]
-        fn it_should_produce_system_event_not_panic() {
-            let event = json!({"garbage": true});
-            let records = from_cloud_event(&event);
-            // Should produce a SystemEvent fallback or empty, never panic
-            assert!(records.len() <= 1);
+        fn malformed_json_fails_to_deserialize_as_cloud_event() {
+            let event_json = json!({"garbage": true});
+            let result: Result<CloudEvent, _> = serde_json::from_value(event_json);
+            assert!(result.is_err(), "garbage JSON must not deserialize as CloudEvent");
         }
 
         #[test]
-        fn it_should_handle_missing_data_field() {
-            let event = json!({
+        fn missing_data_field_fails_to_deserialize_as_cloud_event() {
+            let event_json = json!({
                 "type": "io.arc.event",
                 "id": "evt-bad",
                 "subtype": "message.user.prompt"
             });
-            let records = from_cloud_event(&event);
-            assert!(records.len() <= 1);
+            let result: Result<CloudEvent, _> = serde_json::from_value(event_json);
+            assert!(result.is_err(), "CloudEvent without data field must not deserialize");
         }
     }
 

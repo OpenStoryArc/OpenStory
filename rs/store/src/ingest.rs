@@ -161,8 +161,73 @@ pub fn to_wire_record(vr: &ViewRecord, proj: &SessionProjection) -> WireRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use open_story_core::cloud_event::CloudEvent;
     use open_story_views::from_cloud_event::from_cloud_event;
     use serde_json::json;
+
+    /// Convert a logical test fixture (flat fields) into a typed CloudEvent
+    /// with a properly populated AgentPayload::ClaudeCode. Mirrors the helper
+    /// in `views/src/from_cloud_event.rs` tests — same wrapping rules so the
+    /// `text`, `tool`, etc. fields land where the production code looks for
+    /// them after the EventData → AgentPayload typed-dispatch refactor.
+    fn to_cloud_event(val: &serde_json::Value) -> CloudEvent {
+        let mut top = val.as_object().cloned().unwrap_or_default();
+        let raw_data = top.remove("data").unwrap_or(json!({}));
+        let mut data_obj = raw_data.as_object().cloned().unwrap_or_default();
+
+        let raw = data_obj.remove("raw").unwrap_or(json!({}));
+        let seq = data_obj.remove("seq").unwrap_or(json!(1));
+        let session_id = data_obj
+            .remove("session_id")
+            .unwrap_or(json!("test-session"));
+
+        // Wrap any remaining data fields (including any pre-existing
+        // agent_payload object) into a typed ClaudeCode payload.
+        let payload = if let Some(existing) = data_obj.remove("agent_payload") {
+            // The fixture already provided an agent_payload object — promote
+            // it into the tagged enum shape if it isn't already.
+            let mut p = existing.as_object().cloned().unwrap_or_default();
+            p.entry("_variant".to_string()).or_insert(json!("claude-code"));
+            p.entry("meta".to_string())
+                .or_insert(json!({"agent": "claude-code"}));
+            for (k, v) in data_obj {
+                p.insert(k, v);
+            }
+            serde_json::Value::Object(p)
+        } else {
+            let mut p = serde_json::Map::new();
+            p.insert("_variant".to_string(), json!("claude-code"));
+            p.insert("meta".to_string(), json!({"agent": "claude-code"}));
+            for (k, v) in data_obj {
+                p.insert(k, v);
+            }
+            serde_json::Value::Object(p)
+        };
+
+        top.insert(
+            "data".to_string(),
+            json!({
+                "raw": raw,
+                "seq": seq,
+                "session_id": session_id,
+                "agent_payload": payload,
+            }),
+        );
+        // Ensure required CloudEvent envelope fields exist.
+        top.entry("specversion".to_string())
+            .or_insert(json!("1.0"));
+        top.entry("source".to_string())
+            .or_insert(json!("arc://test"));
+        top.entry("datacontenttype".to_string())
+            .or_insert(json!("application/json"));
+        top.entry("time".to_string())
+            .or_insert(json!("2025-01-14T00:00:00Z"));
+        top.entry("type".to_string())
+            .or_insert(json!("io.arc.event"));
+
+        serde_json::from_value(serde_json::Value::Object(top))
+            .expect("test fixture should deserialize as CloudEvent")
+    }
 
     // ── is_plan_event ──────────────────────────────────────────────────
 
@@ -340,7 +405,8 @@ mod tests {
         });
         proj.append(&val);
 
-        let vrs = from_cloud_event(&val);
+        let event = to_cloud_event(&val);
+        let vrs = from_cloud_event(&event);
         assert!(!vrs.is_empty());
 
         let wire = to_wire_record(&vrs[0], &proj);
@@ -385,7 +451,8 @@ mod tests {
         });
         proj.append(&child);
 
-        let vrs = from_cloud_event(&child);
+        let event = to_cloud_event(&child);
+        let vrs = from_cloud_event(&event);
         let wire = to_wire_record(&vrs[0], &proj);
         assert_eq!(wire.depth, 1);
         assert_eq!(wire.parent_uuid, Some("evt-parent".to_string()));

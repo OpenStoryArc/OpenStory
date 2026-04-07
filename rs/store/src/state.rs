@@ -149,16 +149,27 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut state = StoreState::new(tmp.path()).unwrap();
 
-        // Simulate what ingest_events does: dedup, persist, project
+        // Simulate what ingest_events does: dedup, persist, project.
+        // Event shape mirrors the typed EventData → AgentPayload model the
+        // production code now expects (post-refactor): seq + session_id at
+        // the data level, text inside the agent_payload.
         let event = serde_json::json!({
+            "specversion": "1.0",
             "id": "evt-1",
             "type": "io.arc.event",
             "subtype": "message.user.prompt",
             "source": "arc://test",
             "time": "2025-01-14T00:00:00Z",
+            "datacontenttype": "application/json",
             "data": {
-                "text": "hello",
-                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
+                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}},
+                "seq": 1,
+                "session_id": "sess-1",
+                "agent_payload": {
+                    "_variant": "claude-code",
+                    "meta": {"agent": "claude-code"},
+                    "text": "hello"
+                }
             }
         });
 
