@@ -14,19 +14,46 @@ Claude will read the referenced files and explain them. Ask questions at any sto
 Open Story is a **real-time observer** for AI coding agents. It watches what coding agents do — every tool call, every file edit, every decision — and surfaces it in a live dashboard. It never interferes with the agent. It just watches.
 
 ```
-┌──────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
-│ Coding Agent     │     │ Open Story   │     │  WebSocket   │     │  React    │
-│ (writes JSONL    │────▶│  (Rust)      │────▶│  broadcast   │────▶│  Dashboard│
-│  transcripts)    │     │              │     │              │     │           │
-│                  │─────▶  POST /hooks │     │              │     │           │
-└──────────────────┘     └──────────────┘     └──────────────┘     └───────────┘
+                    ┌────────────────── NATS JetStream ──────────────────┐
+                    │   events.{project}.{session}.>                     │
+                    │   patterns.{project}.{session}.>                   │
+                    │   changes.{project}.{session}.>                    │
+                    └─────────────────────────┬──────────────────────────┘
+                                              │
+   ┌──────────┐    ┌─────────┐      publish   │   subscribe (independent consumers)
+   │ Watcher  │───▶│         │───CloudEvent──▶│
+   │ (notify) │    │ translate│                │   ┌─────────────┐
+   └──────────┘    │   .rs   │                │──▶│  persist    │──▶ SQLite + JSONL + FTS5
+                   │         │                │   └─────────────┘
+   ┌──────────┐    │         │                │
+   │  /hooks  │───▶│         │                │   ┌─────────────┐
+   │ (HTTP)   │    └─────────┘                │──▶│  patterns   │──▶ 7 detectors → PatternEvent
+   └──────────┘                               │   └─────────────┘
+                                              │
+                                              │   ┌─────────────┐
+                                              │──▶│ projections │──▶ SessionProjection state
+                                              │   └─────────────┘
+                                              │
+                                              │   ┌─────────────┐
+                                              │──▶│  broadcast  │──▶ WireRecord → WS → React UI
+                                              │   └─────────────┘
 ```
 
-Two ingest paths feed the same pipeline:
+Two **sources** feed CloudEvents into NATS:
 1. **File watchers** — monitor configured directories for JSONL transcript changes (one per agent)
-2. **HTTP hooks** — coding agents POST events directly via configured hooks (currently Claude Code)
+2. **HTTP hooks** — coding agents POST events directly via `/hooks` (currently Claude Code only)
 
-Both converge at `ingest_events()`, which transforms, persists, and broadcasts to the dashboard.
+Both convert raw transcript lines into CloudEvents (CloudEvents 1.0 spec, with an `agent` extension attribute) and **publish to NATS JetStream** on a hierarchical subject (`events.{project_id}.{session_id}.main` for the main agent, `events.{project_id}.{session_id}.agent.{agent_id}` for subagents). A subscription to `events.{project}.{session}.>` reads main + all subagents.
+
+Four **independent consumer actors** subscribe to NATS:
+- `persist` — SQLite + JSONL + FTS5 indexing (deduplication, durable storage)
+- `patterns` — runs the 7 streaming detectors and writes `PatternEvent`s
+- `projections` — incremental `SessionProjection` (token counts, metadata, depths, filter counts)
+- `broadcast` — assembles `WireRecord`s and pushes them to all WebSocket clients
+
+Each consumer is a tokio task with its own failure domain. **No shared `RwLock` between actors.** State is held behind `Arc<dyn EventStore>` for lock-free concurrent SQLite access. NATS is the only contract between sources and consumers — adding a new consumer means adding a new subscriber, not editing a fan-out function.
+
+This is the core architectural shift in the project: from a monolithic `ingest_events()` that owned dedup + persist + project + broadcast as one function, to **NATS as the spine** with independent actors subscribing to the same subjects.
 
 ---
 
@@ -155,28 +182,45 @@ Parses raw tool inputs into typed structs (BashInput, EditInput, ReadInput, etc.
 
 ---
 
-## Stop 6: The Server
+## Stop 6: The Server (and its consumers)
 
-**File:** `rs/server/src/lib.rs` (entry point) — the server was refactored from a single file into separate modules:
+**File:** `rs/server/src/lib.rs` (entry point)
 
-- `state.rs` — AppState (shared state behind `Arc<RwLock>`)
-- `ingest.rs` — `ingest_events()` pipeline (dedup → persist → project → broadcast)
-- `router.rs` — `build_router()` (all HTTP/WS routes)
-- `api.rs` — REST endpoint handlers
-- `ws.rs` — WebSocket broadcast
-- `hooks.rs` — `POST /hooks` receiver
-- `config.rs` — Config struct + TOML loading
+The server crate has two distinct halves:
+
+### 6a: HTTP/WS surface
+
+- `state.rs` — `AppState` boots from SQLite on restart, holds `Arc<dyn EventStore>` for lock-free concurrent access (no `RwLock` around the event store)
+- `router.rs` — `build_router()` wires every HTTP and WebSocket route
+- `api.rs` — REST endpoint handlers (`/api/sessions`, `/api/search`, `/api/agent/*`, …)
+- `ws.rs` — WebSocket broadcast handler
+- `hooks.rs` — `POST /hooks` receiver for coding agent HTTP hooks
+- `config.rs` — `Config` struct + TOML loading
 - `auth.rs` — Bearer token authentication middleware
-- `metrics.rs` — Prometheus metrics endpoint
+- `metrics.rs` — Prometheus `/metrics` endpoint
 - `broadcast.rs` — WebSocket broadcast channel management
+- `ingest.rs` — legacy monolithic ingest path; only the broadcast consumer still uses it (see BACKLOG: "Decompose Broadcast Consumer")
 
-Read `ingest.rs` carefully — `ingest_events()` is the core pipeline that every event flows through.
+### 6b: Independent consumer actors
+
+**Directory:** `rs/server/src/consumers/`
+
+Four tokio tasks, each subscribing to NATS independently. This is the post-NATS architecture — the replacement for the old `ingest_events()` fan-out:
+
+| File | Subject filter | What it does |
+|---|---|---|
+| `persist.rs` | `events.>` | Dedup, write to SQLite + JSONL, index FTS5 |
+| `patterns.rs` | `events.>` | Run the 7 detector pipeline, publish `PatternEvent`s to `patterns.>` |
+| `projections.rs` | `events.>` | Update incremental `SessionProjection` (tokens, metadata, depths) |
+| `broadcast.rs` | `events.>` | Assemble `WireRecord`, push to all WebSocket clients (still uses `ingest_events()` for projection state — see BACKLOG) |
+
+Each consumer owns its own state. None reach into another's. The contract between them is the NATS subject — that's the only coupling.
 
 **Questions to explore:**
-- What are the data stores an event gets written to? (see `ingest.rs`)
-- How does dedup work?
-- What's the difference between `records` (durable) and `ephemeral` in the broadcast?
-- How are plans extracted from events?
+- How does `projections` rebuild `SessionProjection` state from a NATS replay? (Hint: NATS JetStream's durable consumer + start sequence)
+- Why does `broadcast` still use `ingest_events()`? (See BACKLOG: "Decompose Broadcast Consumer")
+- How does `persist` deduplicate when both the file watcher and `/hooks` race to publish the same event?
+- What happens when one consumer falls behind? (Independent failure domains — the others keep working)
 
 ---
 
@@ -204,19 +248,24 @@ The server-side filter counts drive badge numbers in the sidebar; client-side pr
 
 **File:** `rs/patterns/src/lib.rs` — Pipeline + types
 
-Five streaming detectors, each a pure state machine: `(state, event) → (new_state, patterns)`.
+Seven streaming detectors, each a pure state machine: `(state, event) → (new_state, patterns)`.
 
 | Detector | File | What it finds |
 |----------|------|---------------|
+| EvalApply | `rs/patterns/src/eval_apply.rs` | SICP-style scope open/close, eval, apply, and turn-end events — the compound-procedure structure of the agent loop |
+| Sentence | `rs/patterns/src/sentence.rs` | Per-turn natural-language summary like *"Claude edited translate.rs, after reading 3 sources, while testing 6 checks, because '…' → answered"* |
 | TestCycle | `rs/patterns/src/test_cycle.rs` | edit → test → fail → fix loops |
 | GitFlow | `rs/patterns/src/git_flow.rs` | git command sequences (status → add → commit → push) |
 | ErrorRecovery | `rs/patterns/src/error_recovery.rs` | error → retry → success patterns |
 | AgentDelegation | `rs/patterns/src/agent_delegation.rs` | subagent spawning |
-| TurnPhase | `rs/patterns/src/turn_phase.rs` | conversation vs implementation vs testing phases |
+| TurnPhase | `rs/patterns/src/turn_phase.rs` | classification of each turn into conversation / implementation / execution / testing / exploration / delegation |
 
-Each detector implements the `Detector` trait with `feed()` and `flush()`. The pipeline feeds every non-ephemeral ViewRecord to all detectors.
+Each detector implements the `Detector` trait with `feed()` and `flush()`. The patterns consumer (`rs/server/src/consumers/patterns.rs`) subscribes to NATS events, runs the pipeline, and persists `PatternEvent`s to the patterns stream + SQLite. The detectors themselves are pure — no NATS knowledge, no I/O.
+
+The eval-apply and sentence detectors are the narrative layer — they're what the Story tab and `scripts/sessionstory.py` consume to summarize a session.
 
 **Questions to explore:**
+- How does the eval-apply detector decide when a scope opens vs closes?
 - How does GitFlowDetector decide when a git workflow ends?
 - What metadata does each pattern carry?
 - How do patterns get associated back to individual timeline events?
@@ -311,7 +360,6 @@ One JSONL file per session (`./data/{session_id}.jsonl`). Append-only backup tha
 
 ### 11c: PlanStore
 
->>>>>>> master
 **File:** `rs/store/src/plan_store.rs`
 
 Extracts and stores plans from ExitPlanMode tool calls. Markdown files in `./data/plans/`.
@@ -424,10 +472,62 @@ These are the testable units — pure functions with boundary-table tests.
 
 **Run everything:**
 ```bash
-cd rs && cargo test                    # Rust (~100 tests across 9 crates)
+cd rs && cargo test                    # Rust (~100 tests across 8 crates)
 cd ui && npx vitest run                # UI (~500 tests)
 cd e2e && npx playwright test          # E2E (~70 tests)
 ```
+
+---
+
+## Stop 15: Using OpenStory as an agent
+
+If you're an AI agent working in this repo, OpenStory is *for you* as much as it is for the human. You should be using it to answer questions about past sessions, not grepping transcript files. The principle is **dogfood the API** — every observation about session behavior should come from the live REST API or from a script that reads it.
+
+### The first thing to reach for: `scripts/sessionstory.py`
+
+```bash
+python3 scripts/sessionstory.py SESSION_ID            # markdown fact sheet
+python3 scripts/sessionstory.py latest                # most recent session
+python3 scripts/sessionstory.py SESSION_ID --json     # machine-readable
+python3 scripts/sessionstory.py SESSION_ID --brief    # shape + prompts only
+python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
+python3 scripts/sessionstory.py --list                # list recent sessions
+```
+
+`sessionstory.py` is the entry point for "what happened in this session." It hits three endpoints (`/api/sessions`, `/api/sessions/{id}/records`, `/api/sessions/{id}/patterns`), aggregates them deterministically, and emits a structured fact sheet — record-type histogram, tool histogram, eval-apply patterns, turn phases, verbatim sample sentences from the `turn.sentence` detector, and a noise-filtered prompt timeline. **It does not narrate.** Narration is the model's job; the script provides the facts.
+
+There's a Claude Code skill at `.claude/skills/sessionstory/SKILL.md` that documents the full collect-then-narrate workflow. Project-level skills travel with the repo, so any agent in this directory can invoke it.
+
+### REST API directly
+
+The four endpoints worth memorizing:
+
+| Endpoint | When to use |
+|---|---|
+| `GET /api/sessions` | List all sessions, find a session id |
+| `GET /api/sessions/{id}/records` | Every record in a session — record-type, payload, timestamp, depth, parent_uuid |
+| `GET /api/sessions/{id}/patterns` | Every pattern detected in a session — `eval_apply.*`, `turn.phase`, `turn.sentence`, `error.recovery`, `test.cycle` |
+| `GET /api/search?q=…` | FTS5 full-text search across event content |
+
+The data is yours, in CloudEvents 1.0, in JSON. No proprietary format, no opaque handles.
+
+### Adjacent scripts in `scripts/`
+
+When `sessionstory.py` doesn't expose what you need:
+
+- `analyze_eval_apply_shape.py --session SID` — eval-apply cycle structure (cycles, terminal vs with-tools, tools per cycle)
+- `analyze_turn_shapes.py SID` — distribution of distinct turn shapes and their probability classes
+- `analyze_event_groups.py --session SID` — per-prompt event windows, phase distribution, common tool sequences
+- `token_usage.py --session-id SID` — input / output / cache tokens and estimated cost
+- `query_store.py` — direct SQL queries against the live SQLite store
+
+### Validating your work against reality
+
+When you change docs or architecture, run `scripts/check_docs.py` to verify the docs still match the live codebase. The validator catches drift between claims (in prose) and reality (in `Cargo.toml` workspace members, `rs/patterns/src/*.rs` files, `rs/server/src/consumers/*.rs` files, file references). It has a `--test` flag with synthetic fixtures and a Claude Code skill at `.claude/skills/check-docs/`.
+
+### The principle
+
+OpenStory exists so humans can see what their agents are actually doing. **Applied inward, the same principle says: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
 
 ---
 
@@ -448,9 +548,11 @@ If you've followed the tour, you've seen these principles in action:
 ## Where to Go Next
 
 - **Add a new filter?** Start at `rs/store/src/projection.rs` (server-side) and `ui/src/lib/timeline-filters.ts` (client-side)
-- **Add a new pattern detector?** Implement the `Detector` trait in `rs/patterns/src/`, add to `PatternPipeline::new()`
+- **Add a new pattern detector?** Implement the `Detector` trait in `rs/patterns/src/`, register it in the patterns consumer (`rs/server/src/consumers/patterns.rs`)
 - **Add a new REST endpoint?** Add handler in `rs/server/src/api.rs`, route in `build_router()` in `router.rs`
+- **Add a new consumer actor?** Create a new file in `rs/server/src/consumers/`, subscribe to the right NATS subject, mirror the shape of `persist.rs` or `patterns.rs`
 - **Add a new UI component?** Pure logic in `ui/src/lib/`, component in `ui/src/components/`, test in `ui/tests/lib/`
-- **Understand the data?** Run `scripts/query_store.py` or open `scripts/explore.ipynb` (`just explore`)
+- **Understand the data?** Run `python3 scripts/sessionstory.py SESSION_ID` for a fact sheet, `scripts/query_store.py` for raw SQL, or open `scripts/explore.ipynb` (`just explore`)
+- **Validate docs against the codebase?** `python3 scripts/check_docs.py` — TDD docs validator, see Stop 15 above
 
 For the full project philosophy, read `CLAUDE.md` in the project root.

@@ -2,21 +2,29 @@
 
 ## The pipeline
 
-Events flow one direction through a series of independent actors:
+Events flow one direction through a series of independent actors connected by NATS JetStream:
 
 ```
-Source → Translate → Ingest → Persist → Broadcast → Render
+Source → Translate → NATS JetStream → {persist, patterns, projections, broadcast} → Render
 ```
 
 **Source**: File watchers (notify crate) monitor coding agent transcript directories. Each supported agent has a configurable watch directory (`watch_dir` for Claude Code, `pi_watch_dir` for pi-mono). HTTP hooks provide near-real-time event delivery for agents that support them (currently Claude Code).
 
-**Translate**: The reader auto-detects the transcript format on the first JSONL line and dispatches to the correct per-agent translator. Each translator extracts metadata in the coding agent's native field names — no normalization, no mutation of raw data. Every CloudEvent carries an `agent` field (e.g., `"claude-code"`, `"pi-mono"`) so downstream code can branch on format. UUID-based deduplication prevents double-processing.
+**Translate**: The reader auto-detects the transcript format on the first JSONL line and dispatches to the correct per-agent translator. Each translator extracts metadata in the coding agent's native field names — no normalization, no mutation of raw data. Every CloudEvent carries an `agent` field (e.g., `"claude-code"`, `"pi-mono"`) so downstream code can branch on format.
 
-**Ingest**: Events are validated, deduplicated again by event ID, and routed to persistence and broadcast.
+**NATS JetStream**: The spine. Sources publish CloudEvents to hierarchical subjects:
+- `events.{project_id}.{session_id}.main` — main agent events
+- `events.{project_id}.{session_id}.agent.{agent_id}` — subagent events
 
-**Persist**: Dual-write to SQLite (durable, queryable) and in-memory projections (fast, pre-computed views).
+A subscription to `events.{project}.{session}.>` reads main + all subagents. NATS provides durability (events stream is limits-based, 1GB), replay (consumers can rewind), and broadcast (multiple consumers read the same events independently). NATS is a hard dependency — install with `brew install nats-server`.
 
-**Broadcast**: WebSocket push to all connected clients. Each event is a self-contained message.
+**Independent consumer actors**: Four tokio tasks subscribe to NATS, each with its own state and failure domain:
+- `persist` — deduplicates, writes to SQLite + JSONL, indexes FTS5
+- `patterns` — runs the 7-detector pipeline, publishes `PatternEvent`s to `patterns.>`
+- `projections` — updates incremental `SessionProjection` (token counts, metadata, depths)
+- `broadcast` — assembles `WireRecord`s and pushes them to WebSocket clients
+
+There is no shared mutable state between consumers. State is held behind `Arc<dyn EventStore>` for lock-free concurrent SQLite access. The contract between consumers is the NATS subject, nothing else.
 
 **Render**: React dashboard transforms events into visual cards with syntax highlighting, markdown rendering, and pattern detection.
 
@@ -68,14 +76,16 @@ Agent sessions are grouped under their parent by `project_id`. The sidebar shows
 
 ## Pattern detection
 
-Five streaming pattern detectors run on every event:
-- **Test cycles**: detect test-run → pass/fail → fix → re-run loops
+Seven streaming pattern detectors run on every event:
+- **Eval-apply**: SICP-style scope open/close, eval, apply, and turn-end events that mirror the agent's compound-procedure structure
+- **Sentence**: per-turn natural-language summaries (the narrative atoms the Story tab consumes)
+- **Test cycles**: edit → test → fail → fix → re-run loops
 - **Git workflows**: commit, branch, push sequences
 - **Error recovery**: error → investigation → fix patterns
 - **Agent delegation**: main agent spawning subagents
-- **Turn phases**: time spent in thinking vs. tool use vs. response
+- **Turn phases**: classification of each turn into conversation, implementation, execution, testing, exploration, or delegation
 
-Patterns are detected incrementally and stored in both memory and SQLite. They appear as badges on timeline events and in the status bar.
+Detectors live in `rs/patterns/src/` (one file per detector). Each implements `(state, event) → (new_state, patterns)` — a pure state machine, no I/O. The pipeline feeds every ViewRecord to all detectors. Patterns are persisted to SQLite via the patterns consumer and exposed via `GET /api/sessions/{id}/patterns`.
 
 ## Content rendering
 
@@ -113,11 +123,42 @@ rs/
   bus/        — NATS JetStream event bus abstraction
   store/      — SQLite persistence, projections, queries, plans
   views/      — CloudEvent to ViewRecord transform (branches on agent type), WireRecord truncation
-  patterns/   — Streaming pattern detection (5 detectors)
+  patterns/   — Streaming pattern detection (7 detectors)
   server/     — HTTP/WS server, API routes, hooks, ingest
   src/        — Orchestration library (watcher + server wiring)
   cli/        — Thin CLI binary
   tests/      — Integration tests
 ```
 
-Core domain logic lives in `core`, `views`, `patterns`, and `store`. Infrastructure lives in `bus` (NATS) and `server` (HTTP/WS). The `open-story` lib crate orchestrates everything. The CLI binary is intentionally thin — this means `cargo test` never needs to build or touch the binary, avoiding file-lock conflicts on Windows.
+Core domain logic lives in `core`, `views`, `patterns`, and `store`. Infrastructure lives in `bus` (NATS) and `server` (HTTP/WS + the four consumer actors in `server/src/consumers/`). The `open-story` lib crate (workspace root, at `rs/`) orchestrates watcher + server + bus wiring. The CLI binary is intentionally thin — this means `cargo test` never needs to build or touch the binary, avoiding file-lock conflicts on Windows.
+
+> A directory at `rs/semantic/` exists with its own `Cargo.toml` but is **not** a workspace member — it's vestigial Qdrant-based search code from before SQLite FTS5 replaced it. See `BACKLOG.md` for the removal plan.
+
+## How agents use this data
+
+OpenStory exists so humans can see what their agents are doing. Applied inward, the same principle says: agents working in this repo should use OpenStory to see what *past* agents were doing — not by grepping transcript files, but by querying the live API.
+
+The two everyday entry points:
+
+```bash
+# Tell the story of a session — fact sheet for the model to narrate from
+python3 scripts/sessionstory.py SESSION_ID
+python3 scripts/sessionstory.py latest
+python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
+
+# Validate that docs match the live codebase
+python3 scripts/check_docs.py
+```
+
+Both follow the same shape: a script collects deterministic facts (records, patterns, file lists, workspace members), and the model interprets them. There are project-level Claude Code skills at `.claude/skills/sessionstory/` and `.claude/skills/check-docs/` so any agent in this repo can invoke them.
+
+The four REST endpoints worth memorizing:
+
+| Endpoint | When |
+|---|---|
+| `GET /api/sessions` | List sessions / find a session id |
+| `GET /api/sessions/{id}/records` | Every record (typed `WireRecord`s) |
+| `GET /api/sessions/{id}/patterns` | Every detected pattern (eval-apply, sentence, phase, error recovery, etc.) |
+| `GET /api/search?q=…` | FTS5 full-text search |
+
+The data is yours, in CloudEvents 1.0 + JSON, in human-readable formats. **Dogfood the API.** This is the sovereignty principle applied to the project's own self-knowledge — internal consistency is not truth, mechanical comparison against the live codebase is.

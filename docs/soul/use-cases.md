@@ -2,7 +2,7 @@
 
 These are concrete examples from the codebase demonstrating each principle. They are living references — when the code changes, these must be updated. If a use case points to a file or line that no longer exists, the use case is stale and must be refreshed.
 
-Last verified: 2025-01-21
+Last verified: 2026-04-06
 
 ---
 
@@ -71,10 +71,10 @@ Every edge case in one place. The table IS the spec. The `scenario()` helper is 
 
 **Where to look:**
 - Backlog: `docs/BACKLOG.md` (Observability → Agent Behavior Patterns)
-- Implementation: `rs/patterns/src/lib.rs`
-- Prototype: `scripts/streaming_patterns.py`
+- Implementation: `rs/patterns/src/lib.rs` and the seven detector files in `rs/patterns/src/`
+- Reports: `docs/research/sessions/` — moment-in-time analyses generated from running scripts against real sessions
 
-The backlog describes what users need (pattern visibility) in a short paragraph. The patterns crate is the implementation — and it traces back to its prototype in `scripts/`.
+The backlog describes what users need (pattern visibility) in a short paragraph. The patterns crate is the implementation. The reports in `docs/research/sessions/` show the patterns being consumed in practice — this is how the layers cohere from intent → implementation → use.
 
 **What to verify:** `docs/BACKLOG.md` is the single source of truth for future work. When work is complete, the entry is removed — completed work lives in git history.
 
@@ -82,22 +82,22 @@ The backlog describes what users need (pattern visibility) in a short paragraph.
 
 ## 4. Actor systems and message-passing
 
-**Where to look:** `rs/server/src/ingest.rs`
+**Where to look:** `rs/server/src/consumers/`
 
-The `ingest_events()` function is the fan-out point. Events enter once and are independently distributed to:
-- SQLite persistence (event store)
-- JSONL append-only backup
-- Pattern detection pipeline (streaming fold)
-- Session projection (incremental materialized views)
-- Plan extraction
-- WebSocket broadcast (via `BroadcastMessage`)
-- Embedding worker (via bounded mpsc channel)
+NATS JetStream is the spine. Sources publish CloudEvents to hierarchical subjects (`events.{project}.{session}.main`, `events.{project}.{session}.agent.{agent_id}`), and **four independent consumer actors** subscribe — each a tokio task with its own state and failure domain:
 
-Each sink is optional and non-blocking. The embedding worker (in `rs/semantic/src/worker.rs`) uses `try_send()` with silent drop on full channel — embedding must never block ingest.
+- `consumers/persist.rs` — subscribes to `events.>`, deduplicates, writes to SQLite + JSONL, indexes FTS5
+- `consumers/patterns.rs` — runs the 7-detector pipeline, publishes `PatternEvent`s to `patterns.>`
+- `consumers/projections.rs` — updates incremental `SessionProjection` (token counts, metadata, depths)
+- `consumers/broadcast.rs` — assembles `WireRecord`s and pushes them to all WebSocket clients
+
+Adding a new consumer means writing a new `consumers/foo.rs` that subscribes to a NATS subject. **No fan-out function to edit. No central registry. No `RwLock` to share.** State is held behind `Arc<dyn EventStore>` for lock-free concurrent SQLite access. Consumers don't reach into each other — the only contract is the NATS subject.
+
+This is the architectural shift away from the old monolithic `ingest_events()` pipeline (which still exists in `rs/server/src/ingest.rs`, used only by the broadcast consumer for projection state — see BACKLOG: "Decompose Broadcast Consumer"). The decomposition is the actor model in its honest form: independent processes communicating through messages on a shared bus.
 
 The UI side mirrors this: `ui/src/streams/connection.ts` uses RxJS subjects as message channels. `status$` and `messages$` are independent streams that consumers subscribe to.
 
-**What to verify:** New sinks should follow this pattern — non-blocking, optional, independent. No sink should depend on another sink's output. If a new consumer needs events, it subscribes to a channel; it doesn't reach into another actor's state.
+**What to verify:** New consumers should be new files in `rs/server/src/consumers/`, subscribing to a NATS subject independently. No consumer should depend on another consumer's output. If you find yourself adding a `pub` field to one consumer so another can read it, you're building the wrong shape — publish a derived event to a new subject instead.
 
 ---
 
@@ -200,16 +200,24 @@ Contrast with what was removed: the project previously had a lazy-loading list a
 ## 9. Prototype first / Scripts over rawdogging
 
 **Where to look:**
-- Prototype: `scripts/streaming_patterns.py`
-- Production: `rs/patterns/src/lib.rs`
+- Entry point: `scripts/sessionstory.py` (the first script to reach for when answering "what happened")
+- Validator: `scripts/check_docs.py` (TDD docs validator — the second script worth knowing)
+- Production: `rs/patterns/src/lib.rs` (the 7 streaming detectors that the analysis scripts query)
 
-The Python prototype includes 28 BDD tests, validates against real data, and implements the complete state-machine design for 5 pattern detectors. The Rust patterns crate is a direct port — same Detector trait, same PatternEvent structure, same pure fold semantics.
+The `scripts/` directory is a working library of saved investigations. Two of them are the everyday entry points:
 
-Also: `scripts/tree_prototype.py` proved that transcript data is a linked list (177 levels deep, almost no branching), not a tree — which prevented building a tree UI for non-tree data. The prototype caught a wrong assumption before any UI code was written.
+- **`sessionstory.py SESSION_ID`** hits the OpenStory REST API, aggregates records and patterns, and emits a structured fact sheet — record-type histogram, tool histogram, eval-apply patterns, turn phases, verbatim sentences from the `turn.sentence` detector, prompt timeline. It does not narrate; narration is the model's job. Add `--unfinished` to see trailing assistant messages, useful when picking up where a previous session left off.
+- **`check_docs.py`** is a TDD docs validator. It compares claims in markdown (crate counts, detector counts, file references, NATS mentions, sessionstory pointers) against the live codebase (`rs/Cargo.toml` workspace members, `rs/patterns/src/*.rs` files, `rs/server/src/consumers/*.rs` files, the filesystem). When the docs drift from reality, it tells you which assertion failed.
 
-The `scripts/` directory contains 20+ Python scripts, each a saved investigation: `query_store.py` (database queries), `analyze_payloads.py` (payload size distribution), `timeline_prototype.py` (visualization prototype), `subagent_enrichment_spec.py` (enrichment design). Each has a `__main__` block, clear output, and tells a story of inquiry.
+Both follow the same shape: stdlib only, dataclasses for output, pure functions for the core logic, side effects at the edges, `--test` flag with synthetic-fixture self-tests. Both have project-level Claude Code skills at `.claude/skills/sessionstory/` and `.claude/skills/check-docs/` so any agent in the repo can invoke them.
 
-**What to verify:** For new features, check `scripts/` first — is there already a prototype or analysis script? If not, and the feature involves data model decisions or UI design, write a script first. Validate on real data. The prototype is the spec.
+The structure-analysis siblings — `analyze_eval_apply_shape.py`, `analyze_turn_shapes.py`, `analyze_event_groups.py`, `analyze_payload_sizes.py` — answer narrower questions and feed into bigger reports. `query_store.py` is the SQL escape hatch. `token_usage.py` is the cost ledger. See `README.md` for the grouped index.
+
+**The lesson learned the hard way:** we built a tree abstraction for what turned out to be a linked list. We built a lazy-loading list for 2000 records that render in milliseconds. Both mistakes happened because we *imagined* the data instead of *looking* at it. Scripts in `scripts/` are how you look. Run one before you write a single line of production code.
+
+**Sessions are also data the agent should query.** When you need to answer "what happened in the session that did X" — don't grep transcript files. Run `sessionstory.py SID` or hit `/api/sessions/{id}/records` directly. Dogfood the API. The product exists because raw transcripts aren't a useful representation of what happened; running the API on yourself is how you eat your own cooking.
+
+**What to verify:** Before writing inline shell or Python for analysis, check `scripts/` for an existing script that answers your question. If you write a new analysis as a one-off, save it as a `scripts/foo.py` file with a `--test` flag and a docstring `Usage:` header. Raw shell vanishes; scripts endure.
 
 ---
 

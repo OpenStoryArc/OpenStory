@@ -40,8 +40,8 @@ pub enum ToolOutcome {
     SearchPerformed { pattern: String, source: String },
     /// Bash tool
     CommandExecuted { command: String, succeeded: bool },
-    /// Agent tool
-    SubAgentSpawned { description: String },
+    /// Agent tool — agent_id links to the subagent session ("agent-{agent_id}")
+    SubAgentSpawned { description: String, #[serde(default)] agent_id: String },
 }
 
 /// Derive the domain event from a tool call + result pair.
@@ -143,7 +143,7 @@ pub fn derive_tool_outcome(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(ToolOutcome::SubAgentSpawned { description })
+            Some(ToolOutcome::SubAgentSpawned { description, agent_id: String::new() })
         }
         _ => None, // Unknown tool — no domain event
     }
@@ -548,6 +548,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
         }
     }
+
 }
 
 #[cfg(test)]
@@ -945,7 +946,8 @@ mod tests {
             assert_eq!(
                 outcome,
                 Some(ToolOutcome::SubAgentSpawned {
-                    description: "research task".to_string()
+                    description: "research task".to_string(),
+                    agent_id: String::new(),
                 })
             );
         }

@@ -100,7 +100,15 @@ This is how we verify the product works and catch rendering/data issues in real 
 
 **Maintaining scripts:** When the data model changes (new tables, renamed fields, new event subtypes), update the scripts that query it. Scripts with `--test` flags should be run as part of validation. A broken script is a broken understanding.
 
-Scripts in `scripts/` are runnable standalone (`uv run python scripts/foo.py`) and often have `--test` flags. Use `scripts/query_store.py` to inspect the SQLite database. See `scripts/` for the full inventory.
+Scripts in `scripts/` are runnable standalone (`python3 scripts/foo.py` or `uv run python scripts/foo.py`) and often have `--test` flags. Key entry points:
+
+- **`scripts/sessionstory.py SESSION_ID`** — the first script to reach for when answering "what happened in this session." Hits the OpenStory REST API, aggregates records + patterns, emits a structured fact sheet (record types, tool histogram, eval-apply patterns, turn phases, verbatim sample sentences from the `turn.sentence` detector, prompt timeline). Add `--unfinished` to see trailing assistant messages — useful when picking up where a previous session left off. There's a project-level skill at `.claude/skills/sessionstory/SKILL.md`.
+- **`scripts/check_docs.py`** — TDD docs validator. Compares claims in markdown (crate counts, detector counts, file references) against the live codebase (`rs/Cargo.toml` workspace members, `rs/patterns/src/*.rs`, `rs/server/src/consumers/*.rs`, the filesystem). Run before committing docs changes to catch drift. Has a `--test` flag with synthetic fixtures.
+- **`scripts/query_store.py`** — direct SQL queries against the live SQLite store.
+- **`scripts/analyze_*.py`** — session structure analysis (eval-apply shapes, turn shapes, event groups, payload sizes).
+- **`scripts/token_usage.py`** — input/output/cache token counts and estimated cost.
+
+See `scripts/` for the full inventory and `README.md` for the grouped index.
 
 ### Learned anti-patterns
 
@@ -118,24 +126,27 @@ Full list with context: `docs/soul/patterns.md`
 ## Project Structure
 
 ```
-rs/           — Rust workspace (9 crates)
+rs/           — Rust workspace (8 crates)
+  .           — open-story: orchestration library (watcher + server wiring)
   core/       — open-story-core: CloudEvent types, per-agent translators, reader, paths
   bus/        — open-story-bus: NATS JetStream event bus abstraction
-  store/      — open-story-store: persistence, analysis, projection
+  store/      — open-story-store: persistence, analysis, projection, FTS5 search
   views/      — open-story-views: CloudEvent → ViewRecord BFF transform
-  patterns/   — open-story-patterns: streaming pattern detection (5 detectors)
-  semantic/   — open-story-semantic: embedding, vector search, Qdrant integration
-  server/     — open-story-server: HTTP/WS server, API, hooks, ingest
-  src/        — open-story: orchestration library (watcher + server wiring)
+  patterns/   — open-story-patterns: streaming pattern detection (7 detectors)
+  server/     — open-story-server: HTTP/WS server, API, hooks, consumer actors
   cli/        — open-story-cli: thin CLI binary
   tests/      — integration tests
 ui/           — React dashboard (Vite, TailwindCSS v4, RxJS, Recharts)
 e2e/          — Playwright E2E tests
 ```
 
-The Rust codebase is a **workspace with 9 crates**. Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, `open-story-store`, and `open-story-semantic`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS). The `open-story` lib crate orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+The Rust codebase is a **workspace with 8 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `patterns`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+
+> **Note on `rs/semantic/`:** This directory exists on disk with its own `Cargo.toml` but is **not** a workspace member. It's vestigial Qdrant-based semantic search code from before SQLite FTS5 replaced it. Search now goes through `rs/store/src/sqlite_store.rs` (`events_fts` virtual table, `search_fts()` function). The orphaned `semantic/` directory is slated for removal — see BACKLOG: "Remove orphaned semantic crate."
 
 ## Build & Test
+
+**Prerequisites:** Rust, Node.js, NATS (`brew install nats-server`)
 
 ```bash
 # Rust — test all crates + integration tests (never touches the binary)
@@ -164,9 +175,11 @@ docker compose up
 ## Development Quick Reference
 
 ```bash
-just up              # Build + start server + UI (Ctrl+C to stop)
+just up              # Start NATS + server + UI (Ctrl+C to stop)
 just serve           # Start Rust server only
 just dev             # Start Vite UI dev server only
+just nats            # Start NATS JetStream standalone
+just nats-stop       # Stop NATS
 just test            # Run all tests (Rust + UI)
 just test-rs         # Rust tests only
 just test-ui         # UI tests only
@@ -181,23 +194,41 @@ just observe         # Start full stack + Prometheus + Grafana
 
 ## Architecture
 
-**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads, auto-detects format) → `translate.rs` / `translate_pi.rs` (agent-specific JSON → CloudEvent 1.0) → `server/ingest.rs` (ingest, persist, broadcast)
+**Pipeline:** `watcher.rs` (notify crate) → `reader.rs` (incremental byte-offset reads, auto-detects format) → `translate.rs` / `translate_pi.rs` (agent-specific JSON → CloudEvent 1.0) → NATS JetStream → independent consumer actors
 
 **Multi-agent support:** Open Story observes multiple coding agents simultaneously. Each agent has its own translator and watch directory. The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) lets the views layer parse format-specific fields. Raw data is never mutated — each agent's native structure is preserved.
 
-**Ingest fan-out** — events flow through a single `ingest_events()` orchestration point, then fan out to multiple sinks:
+**NATS Event Bus** — all events flow through NATS JetStream with hierarchical subjects:
 ```
-watcher/hooks → bus → ingest_events()
-                         ├→ SQLite (events, sessions, patterns)
-                         ├→ JSONL (append-only backup)
-                         ├→ pattern pipeline → SQLite
-                         └→ embedding channel → worker → Qdrant
+Source: watcher/hooks → translate_line() → CloudEvent → publish to NATS
+
+Subjects (hierarchical — encodes parent-child relationships):
+  events.{project}.{session}.main              — main agent events
+  events.{project}.{session}.agent.{agent_id}  — subagent events
+
+Subscribe to events.{project}.{session}.> → gets main + all subagents
+
+Streams:
+  events   — durable, limits-based (1GB)
+  patterns — detected PatternEvents (durable)
+  changes  — session metadata updates (interest-based)
 ```
-All sinks are optional and non-blocking. The system works with any subset active.
+
+NATS is a hard dependency. Install: `brew install nats-server`. Config: `nats.conf` at project root.
+
+**Independent actor-consumers** — each subscribes to NATS and owns its own state:
+```
+NATS events.> → persist consumer    → SQLite + JSONL + FTS (dedup, storage)
+NATS events.> → patterns consumer   → EvalApply → Sentence → PatternEvent
+NATS events.> → projections consumer → SessionProjection (tokens, metadata)
+NATS events.> → broadcast consumer  → ViewRecord → WireRecord → WebSocket
+```
+Each actor is a tokio task with independent failure domain. No shared RwLock between actors. `Arc<dyn EventStore>` for lock-free concurrent SQLite access.
 
 **Server crate** (`rs/server/src/`):
-- `ingest.rs` — `ingest_events()` pipeline (dedup → persist → project → broadcast)
-- `state.rs` — AppState (shared state behind `Arc<RwLock>`)
+- `consumers/` — independent actor-consumers (persist, patterns, projections, broadcast)
+- `ingest.rs` — `ingest_events()` (legacy monolithic path, used by broadcast consumer)
+- `state.rs` — AppState (boots from SQLite on restart)
 - `router.rs` — `build_router()` (all HTTP/WS routes)
 - `api.rs` — REST endpoints (`/api/sessions`, `/api/search`, `/api/agent/search`, etc.)
 - `ws.rs` — WebSocket broadcast for live updates

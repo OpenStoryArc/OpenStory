@@ -146,28 +146,37 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
     }
   }, [focusIndex]);
 
-  // Mobile sidebar toggle
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Sidebar toggle (default open on desktop)
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
     <div className="flex flex-1 min-h-0 relative">
-      {/* Mobile sidebar toggle */}
-      <button
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed bottom-4 left-4 z-50 w-10 h-10 rounded-full bg-[#7aa2f7] text-[#1a1b26] flex items-center justify-center shadow-lg text-lg"
-      >
-        {sidebarOpen ? "×" : "☰"}
-      </button>
+      {/* Sidebar open button — visible when sidebar is closed */}
+      {!sidebarOpen && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="absolute top-2 left-2 z-50 w-8 h-8 rounded bg-[#24283b] border border-[#3b4261] text-[#7aa2f7] flex items-center justify-center shadow-lg text-sm hover:bg-[#2a3050] transition-colors"
+          title="Open sidebar"
+        >
+          ☰
+        </button>
+      )}
 
-      {/* Sidebar — hidden on mobile unless toggled */}
-      <div className={`
-        ${sidebarOpen ? "fixed inset-0 z-40 w-72" : "hidden"} md:relative md:block md:w-80
-        bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto p-2 flex-shrink-0
-      `}>
-        <div className="flex items-center justify-between px-2 py-1 mb-1">
-          <span className="text-xs text-[#565f89] uppercase tracking-wide">Sessions</span>
-          <span className="text-xs text-[#565f89]">{sessionsWithStories.filter(s => !s.isAgent).length}</span>
+      {/* Sidebar — collapsible, VS Code explorer style */}
+      {sidebarOpen && (
+      <div className="relative w-72 md:w-80 bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col">
+        {/* Header bar */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0">
+          <span className="text-[11px] text-[#565f89] uppercase tracking-wider font-semibold">Sessions</span>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="w-6 h-6 rounded flex items-center justify-center text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b] transition-colors text-base"
+            title="Close sidebar"
+          >
+            ×
+          </button>
         </div>
+        <div className="flex-1 overflow-y-auto p-2">
 
         {/* Main sessions */}
         {sessionsWithStories.filter(s => !s.isAgent).map(s => {
@@ -175,9 +184,9 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
           return (
             <button
               key={s.id}
-              onClick={() => { onSelectSession(isActive ? null : s.id); setSidebarOpen(false); }}
+              onClick={() => { onSelectSession(isActive ? null : s.id); }}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
-                isActive ? "bg-[#24283b] border border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
+                isActive ? "bg-[#24283b] border-l-2 border-l-[#7aa2f7] border-y border-r border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
               }`}
               title={s.id}
             >
@@ -204,7 +213,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
             {sessionsWithStories.filter(s => s.isAgent).map(s => (
               <button
                 key={s.id}
-                onClick={() => { onSelectSession(s.id); setSidebarOpen(false); }}
+                onClick={() => { onSelectSession(s.id); }}
                 className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 ${
                   selectedSession === s.id ? "bg-[#24283b] border border-[#3b4261] text-[#c0caf5]" : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
                 }`}
@@ -230,6 +239,8 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
           </div>
         )}
       </div>
+      </div>
+      )}
 
       {/* Main feed */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -306,7 +317,7 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
                 data-turn-card
                 className={focusIndex === i ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
               >
-                <TurnCard pattern={p} />
+                <TurnCard pattern={p} allPatterns={patterns} />
               </div>
             ))
           )}

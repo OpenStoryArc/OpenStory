@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::Result;
 
@@ -19,7 +20,9 @@ use crate::sqlite_store::SqliteStore;
 /// Store state — event storage, projections, patterns, and project resolution.
 pub struct StoreState {
     // ── event store (SQLite default, JSONL fallback) ──
-    pub event_store: Box<dyn EventStore>,
+    // Arc-wrapped so multiple actor-consumers can hold a reference
+    // without a shared RwLock. SQLite handles internal locking.
+    pub event_store: Arc<dyn EventStore>,
 
     // ── dedup ──
     pub seen_event_ids: HashSet<String>,
@@ -70,13 +73,14 @@ impl StoreState {
         let plan_store = PlanStore::new(&plans_dir)?;
 
         // Try SQLite (with optional encryption), fall back to JSONL
-        let event_store: Box<dyn EventStore> = match SqliteStore::new_with_key(data_dir, key) {
-            Ok(store) => Box::new(store),
+        // Arc-wrapped so multiple actor-consumers can share the store.
+        let event_store: Arc<dyn EventStore> = match SqliteStore::new_with_key(data_dir, key) {
+            Ok(store) => Arc::new(store),
             Err(e) => {
                 eprintln!("SQLite unavailable ({}), falling back to JSONL store", e);
                 let fallback_session_store = SessionStore::new(data_dir)?;
                 let fallback_event_log = EventLog::new(data_dir)?;
-                Box::new(crate::jsonl_store::JsonlStore::new(
+                Arc::new(crate::jsonl_store::JsonlStore::new(
                     fallback_session_store,
                     fallback_event_log,
                 ))
@@ -145,16 +149,27 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut state = StoreState::new(tmp.path()).unwrap();
 
-        // Simulate what ingest_events does: dedup, persist, project
+        // Simulate what ingest_events does: dedup, persist, project.
+        // Event shape mirrors the typed EventData → AgentPayload model the
+        // production code now expects (post-refactor): seq + session_id at
+        // the data level, text inside the agent_payload.
         let event = serde_json::json!({
+            "specversion": "1.0",
             "id": "evt-1",
             "type": "io.arc.event",
             "subtype": "message.user.prompt",
             "source": "arc://test",
             "time": "2025-01-14T00:00:00Z",
+            "datacontenttype": "application/json",
             "data": {
-                "text": "hello",
-                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
+                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}},
+                "seq": 1,
+                "session_id": "sess-1",
+                "agent_payload": {
+                    "_variant": "claude-code",
+                    "meta": {"agent": "claude-code"},
+                    "text": "hello"
+                }
             }
         });
 

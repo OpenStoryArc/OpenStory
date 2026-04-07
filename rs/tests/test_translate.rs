@@ -1059,3 +1059,158 @@ fn test_tool_outcome_absent_on_plain_user_message() {
     let p = cc_payload(&events[0]);
     assert!(p.tool_outcome.is_none());
 }
+
+/// Tool result text should be surfaced on payload.text so the pattern
+/// detector can populate output_summary on ApplyRecords.
+#[test]
+fn test_tool_result_text_surfaced_on_payload() {
+    let mut s = state();
+
+    // Step 1: Assistant requests a Read tool
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-read-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_read", "name": "Read", "input": {"file_path": "/src/main.rs"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    // Step 2: User sends back the tool result with file contents
+    let file_content = "fn main() {\n    println!(\"hello\");\n}";
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-read-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_read", "content": file_content},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert_eq!(p.text.as_deref(), Some(file_content), "payload.text should contain tool result content");
+}
+
+/// Tool result with empty content should not set payload.text.
+#[test]
+fn test_tool_result_empty_content_no_text() {
+    let mut s = state();
+
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_x", "name": "Bash", "input": {"command": "true"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_x", "content": ""},
+            ],
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert!(p.text.is_none(), "empty content should not set payload.text");
+}
+
+/// Agent tool_result with toolUseResult.agentId should set agent_id on SubAgentSpawned.
+#[test]
+fn test_agent_tool_result_enriches_subagent_spawned_with_agent_id() {
+    let mut s = state();
+
+    // Step 1: Assistant requests an Agent tool
+    let assistant_line = base_entry(json!({
+        "type": "assistant",
+        "uuid": "evt-agent-use",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "toolu_agent", "name": "Agent", "input": {"description": "Explore the codebase"}},
+            ],
+            "stop_reason": "tool_use",
+        },
+    }));
+    translate_line(&assistant_line, &mut s);
+
+    // Step 2: User sends back the Agent tool result with agentId
+    let result_line = base_entry(json!({
+        "type": "user",
+        "uuid": "evt-agent-result",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_agent", "content": "Agent completed successfully"},
+            ],
+        },
+        "toolUseResult": {
+            "agentId": "a6dcf911fa2a142b1",
+            "status": "completed",
+            "prompt": "Explore the codebase",
+        },
+    }));
+    let result_events = translate_line(&result_line, &mut s);
+
+    let p = cc_payload(&result_events[0]);
+    assert_eq!(
+        p.tool_outcome,
+        Some(open_story::event_data::ToolOutcome::SubAgentSpawned {
+            description: "Explore the codebase".to_string(),
+            agent_id: "a6dcf911fa2a142b1".to_string(),
+        }),
+        "SubAgentSpawned should carry agent_id from toolUseResult"
+    );
+
+    // Verify it survives JSON serialization (ToolOutcome uses serde tag, no flatten issues)
+    let json = serde_json::to_value(&result_events[0]).expect("should serialize");
+    let outcome = &json["data"]["agent_payload"]["tool_outcome"];
+    assert_eq!(outcome["type"], "SubAgentSpawned");
+    assert_eq!(outcome["agent_id"], "a6dcf911fa2a142b1");
+    assert_eq!(outcome["description"], "Explore the codebase");
+
+    // Verify it survives FULL round-trip: CloudEvent → JSON string → CloudEvent
+    // This is the NATS path: serialize to IngestBatch, deserialize back
+    let ce = &result_events[0];
+    let batch = open_story_bus::IngestBatch {
+        session_id: "test-session".to_string(),
+        project_id: "test-project".to_string(),
+        events: vec![ce.clone()],
+    };
+    let serialized = serde_json::to_string(&batch).expect("serialize IngestBatch");
+    let deserialized: open_story_bus::IngestBatch = serde_json::from_str(&serialized).expect("deserialize IngestBatch");
+
+    let rt_ce = &deserialized.events[0];
+    let rt_p = cc_payload(rt_ce);
+    assert_eq!(
+        rt_p.tool_outcome,
+        Some(open_story::event_data::ToolOutcome::SubAgentSpawned {
+            description: "Explore the codebase".to_string(),
+            agent_id: "a6dcf911fa2a142b1".to_string(),
+        }),
+        "agent_id must survive IngestBatch round-trip (the NATS path)"
+    );
+
+    // Also verify serde_json::to_value (what persist consumer uses to store in SQLite)
+    let val = serde_json::to_value(rt_ce).expect("to_value");
+    let val_outcome = &val["data"]["agent_payload"]["tool_outcome"];
+    assert_eq!(val_outcome["agent_id"], "a6dcf911fa2a142b1",
+        "agent_id must survive to_value (the SQLite storage path)");
+}

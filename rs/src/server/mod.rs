@@ -22,6 +22,10 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
+// Consumer actor implementations ready but not yet wired as independent NATS consumers.
+// See rs/server/src/consumers/ for the implementations.
+#[allow(unused_imports)]
+use open_story_server::consumers;
 use open_story_server::logging::{event_type_summary, log_event, short_id};
 
 pub use broadcast::BroadcastMessage;
@@ -83,7 +87,7 @@ pub async fn run_server(
         }
     };
 
-    // ── Bus consumer (consumer + full roles) ──
+    // ── Independent actor-consumers (consumer + full roles) ──
     if is_consumer && bus.is_active() {
         // Boot replay: recover state from JetStream event log
         match bus.replay("events.>").await {
@@ -112,43 +116,109 @@ pub async fn run_server(
             }
         }
 
-        // Spawn bus consumer: subscribe to events, call ingest_events()
-        let consumer_state = state.clone();
-        let consumer_bus = bus.clone();
-        tokio::spawn(async move {
-            match consumer_bus.subscribe("events.>").await {
-                Ok(mut sub) => {
-                    while let Some(batch) = sub.receiver.recv().await {
-                        let summary = event_type_summary(&batch.events);
-                        let session_id = batch.session_id.clone();
-                        let mut s = consumer_state.write().await;
-                        let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
-                        // Broadcast changes to local WS clients
-                        for change in &result.changes {
-                            let _ = s.broadcast_tx.send(change.clone());
-                        }
-                        // Publish changes to bus for distributed consumers
-                        if !result.changes.is_empty() {
-                            let subject = format!("changes.store.{session_id}");
-                            if let Ok(bytes) = serde_json::to_vec(&result.changes) {
-                                let _ = consumer_bus.publish_bytes(&subject, &bytes).await;
+        // ── Actor 1: persist consumer (owns dedup + storage) ──
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let data_dir = state.read().await.store.data_dir.clone();
+            let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
+                .expect("create session store for persist consumer");
+            let persist_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::persist::PersistConsumer::new(event_store, session_store);
+                match persist_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            if result.persisted > 0 {
+                                log_event("persist", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
+                                    short_id(&batch.session_id), result.persisted, result.skipped
+                                ));
                             }
                         }
-                        if result.count > 0 {
-                            log_event("bus", &format!(
-                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                short_id(&session_id), result.count, summary
-                            ));
-                        }
-                        drop(s);
                     }
+                    Err(e) => eprintln!("Persist consumer error: {e}"),
                 }
-                Err(e) => {
-                    eprintln!("Bus consumer error: {e}");
+            });
+        }
+
+        // ── Actor 2: patterns consumer (owns pipelines, publishes PatternEvents) ──
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let patterns_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::patterns::PatternsConsumer::new();
+                match patterns_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            // Persist turns and patterns to SQLite
+                            for turn in &result.turns {
+                                let _ = event_store.insert_turn(&batch.session_id, turn);
+                            }
+                            for pe in &result.patterns {
+                                let _ = event_store.insert_pattern(&batch.session_id, pe);
+                            }
+                            if !result.patterns.is_empty() {
+                                log_event("patterns", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
+                                    short_id(&batch.session_id), result.patterns.len(), result.turns.len()
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Patterns consumer error: {e}"),
                 }
-            }
-        });
+            });
+        }
+
+        // ── Actor 3: projections consumer (owns session metadata) ──
+        {
+            let projections_bus = bus.clone();
+            tokio::spawn(async move {
+                let mut actor = consumers::projections::ProjectionsConsumer::new();
+                match projections_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            actor.process_batch(&batch.session_id, &batch.events);
+                        }
+                    }
+                    Err(e) => eprintln!("Projections consumer error: {e}"),
+                }
+            });
+        }
+
+        // ── Actor 4: broadcast consumer (uses ingest_events for now) ──
+        // Still uses shared AppState because BroadcastMessage assembly depends
+        // on projection state. This is the last consumer to decompose.
+        {
+            let broadcast_state = state.clone();
+            let broadcast_bus = bus.clone();
+            tokio::spawn(async move {
+                match broadcast_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let summary = event_type_summary(&batch.events);
+                            let session_id = batch.session_id.clone();
+                            let mut s = broadcast_state.write().await;
+                            let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
+                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                            for change in &result.changes {
+                                let _ = s.broadcast_tx.send(change.clone());
+                            }
+                            if result.count > 0 {
+                                log_event("broadcast", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                    short_id(&session_id), result.count, summary
+                                ));
+                            }
+                            drop(s);
+                        }
+                    }
+                    Err(e) => eprintln!("Broadcast consumer error: {e}"),
+                }
+            });
+        }
     }
 
     // ── File watcher (publisher + full roles) ──
@@ -158,15 +228,14 @@ pub async fn run_server(
             let watcher_bus = bus.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, subject, events| {
                     let batch = IngestBatch {
                         session_id: session_id.to_string(),
                         project_id: project_id.unwrap_or("").to_string(),
                         events: events.to_vec(),
                     };
-                    let subject = format!("events.session.{session_id}");
                     let rt = tokio::runtime::Handle::current();
-                    if let Err(e) = rt.block_on(watcher_bus.publish(&subject, &batch)) {
+                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
                         eprintln!("Bus publish error: {e}");
                     }
                 }) {
@@ -178,7 +247,7 @@ pub async fn run_server(
             let watcher_state = state.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, _subject, events| {
                     let summary = event_type_summary(&events);
                     let rt = tokio::runtime::Handle::current();
                     let result = rt.block_on(async {
@@ -209,15 +278,14 @@ pub async fn run_server(
             if bus.is_active() {
                 let watcher_bus = bus.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, subject, events| {
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
                             events: events.to_vec(),
                         };
-                        let subject = format!("events.session.{session_id}");
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(&subject, &batch)) {
+                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
                             eprintln!("Pi-mono bus publish error: {e}");
                         }
                     }) {
@@ -227,7 +295,7 @@ pub async fn run_server(
             } else {
                 let watcher_state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, _subject, events| {
                         let summary = event_type_summary(&events);
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {

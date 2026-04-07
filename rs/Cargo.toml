@@ -40,7 +40,7 @@ filetime = "0.2"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-testcontainers = { version = "0.27", features = ["http_wait", "docker-compose"] }
+testcontainers = { version = "0.27.2", features = ["http_wait", "docker-compose"] }
 reqwest = { version = "0.12", features = ["json"] }
 urlencoding = "2"
 tokio-tungstenite = "0.26"

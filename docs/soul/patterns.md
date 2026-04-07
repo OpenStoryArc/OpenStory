@@ -57,6 +57,25 @@ To syntax-highlight Read tool results, the file path comes from the parent tool_
 
 Every feature starts as a pure function with a boundary table. Components compose those functions. Test the functions, trust the composition.
 
+### Claim-vs-reality checks
+
+When a fact is stated in two places — once as a **claim** in prose (docs, README, CLAUDE.md, comments) and once as a **reality** in code (`Cargo.toml` workspace members, source files, the filesystem, struct fields) — they can drift. The drift is invisible because each side is internally consistent: every doc agrees with every other doc, every line of code agrees with every other line. But neither side knows about the other. Mechanical checks that compare the two sides surface the drift before it metastasizes.
+
+Two examples in this codebase:
+
+- **`scripts/sessionstory.py`** exposed a vocabulary collision between two existing analysis scripts: one counted "turn" as `system.turn.complete` events (63 in a sample session), the other counted "turn" as user-prompt windows (155 in the same session). Both scripts called the variable "Turn N". Reading either script in isolation gave you a coherent picture. Comparing them surfaced the lie. Filed in BACKLOG as "Turn Vocabulary Collision".
+- **`scripts/check_docs.py`** caught that four docs (`README.md`, `CLAUDE.md`, `architecture-tour.md`, `soul/architecture.md`) all claimed "9 crates" while `rs/Cargo.toml`'s workspace `members` array had 8. The orphaned 9th crate (`rs/semantic/`) existed on disk with its own `Cargo.toml` but was never wired into the workspace. Every doc was internally consistent with every other doc. None of them were consistent with the build. Filed in BACKLOG as "Remove Orphaned Semantic Crate".
+
+The principle: **OpenStory exists because the agent's internal narrative isn't the same as what the agent actually does.** Applied inward, the same principle says: the project's internal narrative isn't the same as what the project actually is. Internal consistency is not truth. Mechanical comparison against the source-of-truth side (the code, the build, the filesystem) is the only thing that catches it.
+
+How to apply it:
+
+- When you write a check that compares a claim to reality, save it as a script: `scripts/check_docs.py`, `scripts/check_api.py` (proposed), `scripts/check_config.py` (proposed). Each is small, pure-ish, has a `--test` flag with synthetic fixtures, and is independent of the others.
+- Run the checks before committing docs, and ideally in CI as a gate against future drift.
+- When you find a new claim/reality pair worth checking, add a new check function to the relevant script (or write a new sibling script). Don't merge them into a unified `check.py` until you have at least three reasons to.
+
+The shape is the same shape as the rest of the codebase: pure functions, side effects at the edges, `--test` flag, dataclasses for output, no clever abstractions. The validators are scripts, not frameworks.
+
 ---
 
 ## Anti-patterns to avoid

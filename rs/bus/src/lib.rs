@@ -94,11 +94,12 @@ mod tests {
     #[test]
     fn ingest_batch_with_events_round_trip() {
         use open_story_core::cloud_event::CloudEvent;
+        use open_story_core::event_data::EventData;
 
         let event = CloudEvent::new(
             "test-source".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({}),
+            EventData::new(serde_json::json!({}), 1, "sess-test".to_string()),
             None,
             None,
             None,

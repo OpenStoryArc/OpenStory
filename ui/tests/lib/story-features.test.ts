@@ -71,7 +71,13 @@ function makeSentence(overrides: Partial<{
         output_summary: "",
         is_error: a.is_error,
         is_agent: a.is_agent,
-        tool_outcome: null,
+        tool_outcome: a.tool_name === "Write" ? { type: "FileCreated", path: "/test.ts" }
+          : a.tool_name === "Edit" ? { type: "FileModified", path: "/test.ts" }
+          : a.tool_name === "Read" ? { type: "FileRead", path: "/test.ts" }
+          : a.tool_name === "Bash" ? { type: "CommandExecuted", command: "npm test", succeeded: !a.is_error }
+          : a.tool_name === "Grep" || a.tool_name === "Glob" ? { type: "SearchPerformed", pattern: "*.ts", source: "filesystem" }
+          : a.tool_name === "Agent" ? { type: "SubAgentSpawned", description: "explore" }
+          : null,
       })),
       env_size: overrides.env_size ?? 5,
       env_delta: overrides.env_delta ?? 2,

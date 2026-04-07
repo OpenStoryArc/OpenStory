@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenStory — Current NATS Event Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1b26; color: #c0caf5; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; padding: 20px; }
+  h1 { color: #7aa2f7; font-size: 18px; margin-bottom: 4px; }
+  h2 { color: #bb9af7; font-size: 14px; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .subtitle { color: #565f89; font-size: 12px; margin-bottom: 20px; }
+  .flow { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .column { flex: 1; min-width: 280px; }
+  .box { background: #1f2335; border: 1px solid #2f3348; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .box-header { font-size: 11px; color: #565f89; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .source { border-left: 3px solid #7aa2f7; }
+  .transport { border-left: 3px solid #e0af68; }
+  .consumer { border-left: 3px solid #9ece6a; }
+  .sink { border-left: 3px solid #bb9af7; }
+  .subject { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; margin: 2px 0; border-radius: 4px; font-size: 11px; }
+  .subject:hover { background: #24283b; }
+  .subject-main { color: #7aa2f7; }
+  .subject-agent { color: #ff9e64; }
+  .count { color: #565f89; font-size: 10px; }
+  .session { padding: 6px 8px; margin: 3px 0; border-radius: 4px; background: #24283b; }
+  .session-id { font-size: 10px; font-family: monospace; padding: 1px 4px; border-radius: 3px; }
+  .session-main .session-id { background: #7aa2f720; color: #7aa2f7; }
+  .session-agent .session-id { background: #ff9e6420; color: #ff9e64; }
+  .session-label { color: #a9b1d6; font-size: 11px; margin-top: 2px; }
+  .session-meta { color: #565f89; font-size: 10px; margin-top: 2px; }
+  .arrow { color: #3b4261; text-align: center; padding: 8px; font-size: 18px; }
+  .problem { background: #f7768e15; border: 1px solid #f7768e33; border-radius: 6px; padding: 10px; margin: 8px 0; }
+  .problem-label { color: #f7768e; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  .problem-text { color: #a9b1d6; font-size: 11px; margin-top: 4px; }
+  .stats { display: flex; gap: 16px; margin: 8px 0; }
+  .stat { text-align: center; }
+  .stat-value { color: #7aa2f7; font-size: 18px; font-weight: bold; }
+  .stat-label { color: #565f89; font-size: 10px; text-transform: uppercase; }
+  .live-events { max-height: 200px; overflow-y: auto; font-size: 10px; }
+  .live-event { padding: 3px 6px; margin: 1px 0; border-radius: 3px; background: #24283b; display: flex; gap: 8px; }
+  .live-event .subtype { color: #9ece6a; }
+  .live-event .sid { color: #7aa2f7; }
+  .live-event .time { color: #565f89; }
+  .orphan-line { border-left: 2px dashed #f7768e33; margin-left: 12px; padding-left: 8px; }
+</style>
+</head>
+<body>
+
+<h1>OpenStory — Current NATS Event Flow</h1>
+<p class="subtitle">Live data from NATS JetStream + OpenStory API</p>
+
+<div class="stats" id="stats">
+  <div class="stat"><div class="stat-value" id="stat-streams">-</div><div class="stat-label">Streams</div></div>
+  <div class="stat"><div class="stat-value" id="stat-subjects">-</div><div class="stat-label">Subjects</div></div>
+  <div class="stat"><div class="stat-value" id="stat-messages">-</div><div class="stat-label">Messages</div></div>
+  <div class="stat"><div class="stat-value" id="stat-sessions">-</div><div class="stat-label">Sessions</div></div>
+  <div class="stat"><div class="stat-value" id="stat-agents">-</div><div class="stat-label">Subagents</div></div>
+</div>
+
+<div class="flow">
+  <!-- Sources -->
+  <div class="column">
+    <h2>Sources</h2>
+
+    <div class="box source">
+      <div class="box-header"><span>File Watcher</span><span>notify crate</span></div>
+      <div style="font-size:11px; color:#a9b1d6">
+        Watches <code>~/.claude/projects/</code><br>
+        Detects JSONL changes → <code>translate_line()</code><br>
+        Produces: <code>Vec&lt;CloudEvent&gt;</code>
+      </div>
+    </div>
+
+    <div class="box source">
+      <div class="box-header"><span>HTTP Hooks</span><span>POST /hooks</span></div>
+      <div style="font-size:11px; color:#a9b1d6">
+        Claude Code Stop / PostToolUse / SubagentStop<br>
+        Same translate path as watcher
+      </div>
+    </div>
+
+    <div class="box source" style="margin-top: 12px">
+      <div class="box-header"><span>Type at boundary</span></div>
+      <pre style="font-size:10px; color:#a9b1d6; white-space:pre-wrap">IngestBatch {
+  session_id: String,
+  project_id: String,
+  events: Vec&lt;CloudEvent&gt;
+}
+
+Published to:
+  events.session.{session_id}</pre>
+    </div>
+
+    <div class="problem">
+      <div class="problem-label">Problem: session_id overloaded</div>
+      <div class="problem-text">
+        Main: <code>session_id = raw.sessionId</code> (real UUID)<br>
+        Subagent: <code>session_id = "agent-" + raw.agentId</code> (synthesized)
+      </div>
+    </div>
+  </div>
+
+  <!-- Transport -->
+  <div class="column">
+    <h2>NATS JetStream</h2>
+
+    <div class="box transport">
+      <div class="box-header"><span>Stream: events</span><span>Limits (1GB)</span></div>
+      <div id="subjects" style="font-size: 11px;">Loading...</div>
+    </div>
+
+    <div class="problem">
+      <div class="problem-label">Problem: Flat namespace</div>
+      <div class="problem-text">
+        Subagent subjects are peers of parent sessions.<br>
+        Can't subscribe to "session + all its subagents."
+      </div>
+    </div>
+
+    <div class="box transport">
+      <div class="box-header"><span>Stream: changes</span><span>Interest-based</span></div>
+      <div style="font-size:11px; color:#565f89">
+        changes.store.{session_id}<br>
+        For distributed consumer fan-out
+      </div>
+    </div>
+  </div>
+
+  <!-- Consumer + Sinks -->
+  <div class="column">
+    <h2>Consumer → Sinks</h2>
+
+    <div class="box consumer">
+      <div class="box-header"><span>Single Consumer</span><span>events.&gt;</span></div>
+      <div style="font-size:11px; color:#a9b1d6">
+        <code>bus.subscribe("events.>")</code><br>
+        Receives ALL batches → <code>ingest_events()</code>
+      </div>
+    </div>
+
+    <div class="problem">
+      <div class="problem-label">Problem: Monolithic consumer</div>
+      <div class="problem-text">All sinks coupled in one function. No independent scaling.</div>
+    </div>
+
+    <div class="box sink"><div class="box-header"><span>Sink: SQLite</span></div><div style="font-size:10px;color:#565f89">CloudEvent → events table (full JSON)</div></div>
+    <div class="box sink"><div class="box-header"><span>Sink: JSONL</span></div><div style="font-size:10px;color:#565f89">CloudEvent → append-only backup</div></div>
+    <div class="box sink"><div class="box-header"><span>Sink: Patterns</span></div><div style="font-size:10px;color:#565f89">CloudEvent → EvalApply → Sentence → PatternEvent</div></div>
+    <div class="box sink"><div class="box-header"><span>Sink: Projections</span></div><div style="font-size:10px;color:#565f89">CloudEvent → SessionProjection update</div></div>
+    <div class="box sink"><div class="box-header"><span>Sink: WebSocket</span></div><div style="font-size:10px;color:#565f89">BroadcastMessage → all UI clients</div></div>
+  </div>
+</div>
+
+<!-- Sessions -->
+<h2>Sessions (from API)</h2>
+<div class="flow">
+  <div class="column" id="main-sessions">
+    <div class="box"><div class="box-header"><span>Main Sessions</span></div><div id="main-list">Loading...</div></div>
+  </div>
+  <div class="column" id="agent-sessions">
+    <div class="box"><div class="box-header"><span>Subagent Sessions</span></div>
+      <div class="orphan-line">
+        <div class="problem">
+          <div class="problem-label">Problem: No parent link in subject</div>
+          <div class="problem-text">These agents belong to parent sessions but NATS doesn't know that</div>
+        </div>
+        <div id="agent-list">Loading...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Live events -->
+<h2>Live Events (WebSocket)</h2>
+<div class="box" style="border-left: 3px solid #9ece6a">
+  <div class="box-header"><span id="live-status">Connecting...</span></div>
+  <div class="live-events" id="live-events"></div>
+</div>
+
+<script>
+// Fetch NATS subjects
+async function loadSubjects() {
+  // Use pre-fetched data since NATS monitoring API may not support CORS
+  const subjects = [
+    { name: 'events.session.06907d46-b9fb-4907-88cf-2c72bca5d305', count: 83, type: 'main' },
+    { name: 'events.session.d6b40007-32d2-4175-ad16-817be31f4f13', count: 1, type: 'main' },
+    { name: 'events.session.661d17bf-e818-4292-8b3a-6522e62251e9', count: 1, type: 'main' },
+    { name: 'events.session.20648d56-a684-4ea6-98f7-b1d526ae95b5', count: 1, type: 'main' },
+    { name: 'events.session.b9a810f6-879b-4f62-b68a-78e0dea8747f', count: 1, type: 'main' },
+    { name: 'events.session.6aec54b7-9d2d-49c4-9b58-e67fb766e1c2', count: 1, type: 'main' },
+    { name: 'events.session.agent-a6dcf911fa2a142b1', count: 1, type: 'agent' },
+    { name: 'events.session.agent-afdf1bb254247d086', count: 1, type: 'agent' },
+    { name: 'events.session.agent-acbabdbdf2734a364', count: 1, type: 'agent' },
+    { name: 'events.session.agent-a2a1e3729b70ff50d', count: 1, type: 'agent' },
+    { name: 'events.session.agent-aade319f980336dc1', count: 1, type: 'agent' },
+    { name: 'events.session.agent-aa2fb17ab49e9fe0a', count: 1, type: 'agent' },
+  ];
+
+  const el = document.getElementById('subjects');
+  el.innerHTML = subjects.map(s => {
+    const cls = s.type === 'agent' ? 'subject-agent' : 'subject-main';
+    const short = s.name.replace('events.session.', '');
+    return `<div class="subject ${cls}"><span>${short}</span><span class="count">${s.count} msg</span></div>`;
+  }).join('');
+
+  document.getElementById('stat-subjects').textContent = subjects.length;
+  document.getElementById('stat-messages').textContent = subjects.reduce((a, b) => a + b.count, 0);
+  document.getElementById('stat-streams').textContent = '2';
+}
+
+// Fetch sessions from API
+async function loadSessions() {
+  try {
+    const res = await fetch('http://localhost:3002/api/sessions');
+    const sessions = await res.json();
+
+    const main = sessions.filter(s => !s.session_id.startsWith('agent-'));
+    const agents = sessions.filter(s => s.session_id.startsWith('agent-'));
+
+    document.getElementById('stat-sessions').textContent = main.length;
+    document.getElementById('stat-agents').textContent = agents.length;
+
+    document.getElementById('main-list').innerHTML = main.map(s => `
+      <div class="session session-main">
+        <span class="session-id">${s.session_id.slice(0, 8)}</span>
+        <span class="session-meta">${s.event_count} events · ${s.project_name || '?'}</span>
+        <div class="session-label">${(s.first_prompt || s.label || '').slice(0, 60)}</div>
+      </div>
+    `).join('');
+
+    document.getElementById('agent-list').innerHTML = agents.map(s => `
+      <div class="session session-agent">
+        <span class="session-id">${s.session_id.slice(0, 22)}</span>
+        <span class="session-meta">${s.event_count} events</span>
+        <div class="session-label">${(s.label || s.first_prompt || '').slice(0, 60)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    document.getElementById('main-list').textContent = 'API unavailable';
+    document.getElementById('agent-list').textContent = 'API unavailable';
+  }
+}
+
+// Live WebSocket events
+function connectWS() {
+  const ws = new WebSocket('ws://localhost:3002/ws');
+  const el = document.getElementById('live-events');
+  const status = document.getElementById('live-status');
+
+  ws.onopen = () => { status.textContent = 'Connected — live events'; status.style.color = '#9ece6a'; };
+  ws.onclose = () => { status.textContent = 'Disconnected'; status.style.color = '#f7768e'; };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.kind === 'enriched' && msg.records) {
+        for (const r of msg.records) {
+          const div = document.createElement('div');
+          div.className = 'live-event';
+          const time = new Date(r.timestamp).toLocaleTimeString();
+          const isAgent = r.session_id?.startsWith('agent-');
+          div.innerHTML = `
+            <span class="time">${time}</span>
+            <span class="sid" style="color:${isAgent ? '#ff9e64' : '#7aa2f7'}">${(r.session_id || '').slice(0, 8)}</span>
+            <span class="subtype">${r.record_type || '?'}</span>
+          `;
+          el.prepend(div);
+          if (el.children.length > 50) el.lastChild.remove();
+        }
+      }
+    } catch {}
+  };
+}
+
+loadSubjects();
+loadSessions();
+connectWS();
+</script>
+</body>
+</html>

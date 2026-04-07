@@ -12,8 +12,8 @@ Surface token usage (input, output, cache reads/writes) per session with estimat
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
-### Domain Events & Workspace Impact
-Deterministic "what changed in the world" events derived from tool_call + tool_result pairs: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. A `ToolOutcome` enum on the payload, derived in the translate layer. Subsumes the original Workspace Impact Summary — domain events ARE the data layer for file/code change tracking. Full design with Rust code: `docs/design-domain-events.md` (Part 1). Prototyped and tested in TypeScript (20 tests) at `claurst/scheme/prototype/domain.ts`.
+### Domain Events & Workspace Impact — SHIPPED
+`ToolOutcome` enum implemented in the translate layer: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. Domain fact badges visible on every Story card. `SubAgentSpawned` carries `agent_id` for parent-child linking. Remaining: `ToolOutcome` for pi-mono (`translate_pi.rs`).
 
 ### Agent Behavior Patterns
 Cross-session analytics revealing longitudinal trends: tool preferences, session duration, token consumption over time, error rates by task type. Answers questions like "I spend 60% of tokens on test-writing" by aggregating over persisted event data.
@@ -60,8 +60,8 @@ Server-side `?format=csv` query parameter across analytics endpoints (sessions, 
 
 ## UI
 
-### Story Tab — Narrative Session View
-A new tab alongside Live and Explore showing sessions as narrative structure rather than event streams. Turns grouped by `turn_end` records, each with five layers: sentence (natural language summary), diagram (grammatical tree), domain facts (badge strip), domain events (deterministic fact list), and phases (eval-apply structure). Same data as Live/Explore, different lens — for understanding what happened and why, not debugging what the machine did. Depends on domain events (above). Full design: `docs/design-domain-events.md` (Part 2). Prototyped with 58 TypeScript tests and HTML visualization at `claurst/scheme/prototype/`.
+### Story Tab — Narrative Session View — PARTIALLY SHIPPED
+Five-layer turn cards with sentence diagram, domain fact badges, syntax-highlighted code output, eval-apply phase detail, main/sub agent badges. Recursive CycleCard for inline subagent expansion (fetches records, derives eval-apply cycles client-side). Collapsible sidebar with session selection. Remaining: sidebar replication from Live tab, Rust-side cycle detector (`turn.cycle` pattern), scoped SSE (per-client NATS subscriptions on WebSocket).
 
 ### Card-Based Live Event Feed
 Redesign event timeline from table rows to visually distinct cards grouped by event type (prompts, tools, results, thinking) with color-coded badges and automatic entrance animations.
@@ -75,8 +75,8 @@ Render the causal event tree (parent_uuid relationships) as a collapsible, inter
 ### Event Graph Navigation
 Faceted navigation for Explore: turn outline + file/tool/agent facets, with intersection queries to answer "what happened in turn 3 to file auth.rs?" The FacetPanel component exists; this wires it to real queries.
 
-### Syntax Highlighting
-Integrate Shiki for VS Code-quality syntax highlighting in code blocks across the dashboard (bash, JSON, rust, etc.), with lazy loading and language detection.
+### Syntax Highlighting — SHIPPED
+Implemented via `react-syntax-highlighter` (Prism + VS Code Dark+) with `detectLanguage()` from file path extensions. Available in Story tab tool output expand and RecordDetail in Live tab.
 
 ### Timeline Rendering Performance
 Fix virtualizer layout shifts when rows expand to show detail inline. Expanded rows should push subsequent rows down without overlap.
@@ -127,12 +127,55 @@ Cron job or systemd timer on the server that queries the OpenStory API to detect
 ### Starter Configuration
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
 
+### Eval-Apply Cycle Detector (Rust)
+Add `turn.cycle` as a new pattern type alongside `turn.sentence`. Each eval-apply cycle (model evaluates → dispatches tools → gets results) becomes a detectable pattern. Currently cycles are derived client-side via `extractCycles()` in `ui/src/lib/eval-apply.ts`. Moving to Rust enables real-time cycle streaming via the patterns consumer. Key insight from data: main agents and subagents have identical cycle structure — subagents just lack `turn.complete` markers.
+
+### Scoped Server-Sent Events
+Per-client NATS subscriptions on WebSocket. Currently all events broadcast to all clients. With hierarchical subjects, the UI could subscribe to `events.{project}.{session}.>` and get only one session's events (main + subagents). Reduces bandwidth, enables multiple tabs watching different sessions.
+
+### Remove Hooks
+With NATS as the transport, hooks are redundant with the file watcher. Both read the same JSONL and produce the same CloudEvents. The dedup logic exists solely because they race. Removing hooks eliminates dedup, the HTTP endpoint, transcript path resolution, and the `seen_event_ids` HashSet.
+
+### Update Architecture Tour
+`docs/architecture-tour.md` is stale — the Big Picture diagram shows the old monolithic path (`ingest_events()`) without NATS or actor-consumers. The 14-stop tour needs updating to reflect hierarchical subjects, independent actors, the boot path change, and the eval-apply recursive model. The tour is the onboarding doc for new contributors and agents.
+
+### Decompose Broadcast Consumer
+The broadcast consumer is the last one still using `ingest_events()` with shared `AppState`. It needs projection state for `BroadcastMessage` assembly. Decomposing it requires the projections consumer to publish session metadata to `changes.{project}.{session}`, which the broadcast consumer then consumes.
+
 ---
 
 ## Quality
 
 ### Eval-Apply Data Quality Hardening (recurring)
 Regular exercise: run `scripts/analyze_turn_shapes.py --all` against live sessions to map the problem space, update probability-class test fixtures (`rs/tests/fixtures/turn_probability_classes.json`), and add assertions for any new edge cases discovered. The distribution of real event sequences is the ground truth — the detector must handle what agents actually produce, not what we imagine they produce. Key metrics to track: turns/sentences ratio (should be 1.0), is_error capture rate (should match raw data), turn number continuity (no gaps), env_delta accuracy. Current known gaps: 7 session mismatches between turns and sentences, subagent sessions produce flushed turns that may lack enough content for meaningful sentences.
+
+### Finish CloudEvent::new Typed EventData Migration
+A multi-week half-finished refactor: someone tightened `CloudEvent.data` from `serde_json::Value` to typed `EventData`, plus changed several store constructor signatures (`SessionStore::new`, `EventLog::new` from `PathBuf` → `&Path` returning `Result`; `PersistConsumer::new` from 0-arg → 2-arg). The production code was updated. Most test fixtures and a few production call sites were *not*. CI has been red on every commit since at least `74cffd60` because of it.
+
+**Already fixed in commit X (todo: fill commit hash post-merge):**
+- `rs/views/src/from_cloud_event.rs` — `make_cloud_event` and `make_legacy_event` test helpers now return typed `CloudEvent`. New `make_event_data` helper wraps logical fixture fields into `AgentPayload::ClaudeCode` shape so the typed payload accessors find what they expect. Replaced 2 obsolete malformed-input tests with new tests at the deserialization boundary. **Plus a real production bug fix:** the single-tool typed path in `from_cloud_event` was hardcoding `call_id: String::new()` instead of extracting it from the raw content block — empty call_id breaks the join between tool_use and tool_result records, so this was a data-fidelity bug, not just a test issue.
+- `rs/store/src/ingest.rs` — new `to_cloud_event` helper that wraps test fixtures into the typed AgentPayload shape; 2 call sites updated.
+- `rs/store/src/state.rs` — `ingest_event_into_store_state` test fixture rewritten with typed `agent_payload`.
+- `rs/store/src/queries.rs` — `insert_tool_event` and `insert_error_event` SQL helpers wrap fields in `agent_payload` so the production `json_extract($.data.agent_payload.tool)` queries match.
+- `rs/bus/src/lib.rs` and `rs/bus/tests/nats_integration.rs` — 2 `CloudEvent::new` call sites switched from raw `Value` to `EventData::new(...)`.
+
+**Still broken (this entry):**
+- `rs/server/src/ingest.rs` — 7 sites at lines 584, 672, 730, 773, 817, 861, 902 calling `CloudEvent::new(... json!({...}) ...)` where the third arg should be `EventData::new(...)`. Mechanical fix.
+- `rs/server/src/consumers/persist.rs` — 6 sites around lines 130, 141–149 with the older constructor signatures (`PersistConsumer::new()` without args, `SessionStore::new(PathBuf)` instead of `&Path`, missing `.expect()` on `Result` returns). Deeper test rot — multiple constructors changed and the tests weren't updated.
+- `rs/tests/` — 6 integration test files (`test_consumers.rs`, `test_subject_hierarchy.rs`, `test_view_api.rs`, `test_pattern_integration.rs`, `test_ingest.rs`, `test_api.rs`, `helpers/mod.rs`) reference `CloudEvent::new` and may have similar stale call sites; status unknown until the server crate compiles.
+
+**Verification:** the fix is complete when `just test` (which runs `cargo test --workspace --exclude open-story-cli` plus `npm test` and clippy) is fully green. Today the workspace compiles cleanly for `views`, `store`, `bus`. Once `server` and `rs/tests/` are clean, the whole Rust suite should be green for the first time in a week.
+
+**Note for whoever picks this up:** the pattern of every fix is the same — wrap fixture data in `AgentPayload::ClaudeCode` (with `_variant: "claude-code"` and `meta.agent: "claude-code"`), or use `EventData::new(raw, seq, session_id)` when constructing `CloudEvent::new` directly. Look at the `make_event_data` helper in `views/src/from_cloud_event.rs` and the `to_cloud_event` helper in `store/src/ingest.rs` for the canonical wrapping rules. Surfaced by `just test` after `scripts/check_docs.py` revealed how stale the docs were.
+
+### Eval-Apply Scope Open/Close Imbalance
+Sessions show a ~4× ratio of `eval_apply.scope_open` to `eval_apply.scope_close` patterns. Example: session `06907d46` had 2754 opens vs 721 closes. Two candidate causes: (1) the detector is missing close events in some compound-procedure shapes, (2) subagent flushes (`SubAgentSpawned` outcomes) close scopes implicitly without emitting `scope_close`. Either way scopes should balance — the imbalance breaks any consumer that tries to use scope nesting to reconstruct call hierarchies. Fix: add detector instrumentation/assertions that every `scope_open` eventually emits a `scope_close` (or a typed flush event), then audit which paths drop one. See `docs/research/sessions/06907d46-feat-story-tab-data.md` for the original observation.
+
+### Remove Orphaned Semantic Crate
+`rs/semantic/` exists on disk with its own `Cargo.toml` (`open-story-semantic`, with feature flags for Qdrant + ONNX), but it's **not** a workspace member in `rs/Cargo.toml` and no other crate depends on it. It's vestigial Qdrant-based semantic search code from before SQLite FTS5 replaced it. The replacement is real and working: `rs/store/src/sqlite_store.rs` has an `events_fts` virtual table (line 146), an `index_fts()` function, and a `search_fts()` function that powers `GET /api/search`. The `/api/search` endpoint already routes through FTS5, not Qdrant. Action: `git rm -r rs/semantic/`, drop the `qdrant_url` / `embedding_model_path` / `semantic_enabled` fields from `Config`, remove any documentation references that still mention semantic search via Qdrant. Surfaced by `scripts/check_docs.py` — the validator caught that 4 docs claimed 9 crates while the workspace had 8 because the orphan was on disk but not in the build.
+
+### Turn Vocabulary Collision
+Two scripts disagree on what "turn" means: `sessionstory.py` counts `system.turn.complete` events (true model turns, e.g., 63 for session `06907d46`), while `analyze_event_groups.py` counts user-prompt windows (e.g., 155 for the same session). Both are correct for their question but the shared label is confusing — a reader of one script's output and the other's will get incompatible numbers. Resolution: rename `analyze_event_groups.py`'s "Turn N" output to "Window N" or "Prompt N", and add a short note to both scripts' docstrings clarifying the distinction. Optional: add a `--turn-mode={model,prompt}` flag where it makes sense.
 
 ### UI Battle-Hardening
 Performance and chaos testing: synthetic event firehose (throughput, latency, memory), render fidelity under load, interactive chaos (click storm, filter switching), DPI/viewport matrix, 8-hour soak tests.

@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData};
+use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData, ToolOutcome};
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -432,10 +432,26 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
                             result_output,
                             is_error,
                         );
+                        // Surface result text so the eval-apply detector
+                        // can populate output_summary on ApplyRecords
+                        if !result_output.is_empty() {
+                            payload.text = Some(result_output.to_string());
+                        }
                         break; // First result wins for the payload-level field
                     }
                 }
             }
+        }
+    }
+
+    // Enrich SubAgentSpawned with agentId from toolUseResult (the link to the subagent session)
+    if let Some(ToolOutcome::SubAgentSpawned { agent_id, .. }) = &mut payload.tool_outcome {
+        if let Some(aid) = line
+            .get("toolUseResult")
+            .and_then(|v| v.get("agentId"))
+            .and_then(|v| v.as_str())
+        {
+            *agent_id = aid.to_string();
         }
     }
 

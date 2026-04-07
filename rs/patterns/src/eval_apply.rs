@@ -535,7 +535,12 @@ fn summarize_tool_input(tool_name: &str, args: &serde_json::Value) -> String {
         }
         "Bash" => {
             let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
-            if cmd.len() > 80 { format!("{}...", &cmd[..77]) } else { cmd.to_string() }
+            if cmd.chars().count() > 80 {
+                let truncated: String = cmd.chars().take(77).collect();
+                format!("{truncated}...")
+            } else {
+                cmd.to_string()
+            }
         }
         "Grep" | "Glob" => {
             args.get("pattern")
@@ -563,7 +568,12 @@ fn summarize_tool_input(tool_name: &str, args: &serde_json::Value) -> String {
         }
         _ => {
             let s = args.to_string();
-            if s.len() > 80 { format!("{}...", &s[..77]) } else { s }
+            if s.chars().count() > 80 {
+                let truncated: String = s.chars().take(77).collect();
+                format!("{truncated}...")
+            } else {
+                s
+            }
         }
     }
 }

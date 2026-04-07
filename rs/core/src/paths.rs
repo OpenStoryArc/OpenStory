@@ -25,6 +25,43 @@ pub fn project_id_from_path(path: &Path, watch_dir: &Path) -> Option<String> {
     first.as_os_str().to_str().map(|s| s.to_string())
 }
 
+/// Compose a hierarchical NATS subject from a JSONL file path.
+///
+/// Main agent:  `{watch_dir}/{project}/{session}.jsonl`
+///              → `events.{project}.{session}.main`
+///
+/// Subagent:    `{watch_dir}/{project}/{session}/subagents/agent-{id}.jsonl`
+///              → `events.{project}.{session}.agent.{id}`
+///
+/// The subject hierarchy encodes the parent-child relationship so NATS
+/// wildcard subscriptions can target a session + all its subagents.
+pub fn nats_subject_from_path(path: &Path, watch_dir: &Path) -> String {
+    let project = project_id_from_path(path, watch_dir)
+        .unwrap_or_else(|| "unknown".to_string());
+    let file_stem = path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+
+    // Check if this is a subagent file: .../subagents/agent-{id}.jsonl
+    let is_subagent = path.components().any(|c| c.as_os_str() == "subagents")
+        && file_stem.starts_with("agent-");
+
+    if is_subagent {
+        // Extract agent_id by stripping "agent-" prefix
+        let agent_id = &file_stem["agent-".len()..];
+        // Parent session_id is the directory name containing "subagents/"
+        // Path: {project}/{session}/subagents/agent-{id}.jsonl
+        let parent_session = path.parent()  // subagents/
+            .and_then(|p| p.parent())       // {session}/
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+        format!("events.{project}.{parent_session}.agent.{agent_id}")
+    } else {
+        format!("events.{project}.{file_stem}.main")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +142,47 @@ mod tests {
         let watch_dir = PathBuf::from("/home/user/.claude/projects");
         let path = PathBuf::from("/tmp/other/session.jsonl");
         assert_eq!(project_id_from_path(&path, &watch_dir), None);
+    }
+
+    // -- nats_subject_from_path --
+
+    #[test]
+    fn subject_for_main_agent_session() {
+        let watch_dir = PathBuf::from("/home/user/.claude/projects");
+        let path = PathBuf::from("/home/user/.claude/projects/my-project/06907d46-uuid.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch_dir),
+            "events.my-project.06907d46-uuid.main"
+        );
+    }
+
+    #[test]
+    fn subject_for_subagent_session() {
+        let watch_dir = PathBuf::from("/home/user/.claude/projects");
+        let path = PathBuf::from("/home/user/.claude/projects/my-project/06907d46-uuid/subagents/agent-a6dcf911.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch_dir),
+            "events.my-project.06907d46-uuid.agent.a6dcf911"
+        );
+    }
+
+    #[test]
+    fn subject_strips_agent_prefix_from_filename() {
+        let watch_dir = PathBuf::from("/home/user/.claude/projects");
+        let path = PathBuf::from("/home/user/.claude/projects/proj/sess-123/subagents/agent-abc123def.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch_dir),
+            "events.proj.sess-123.agent.abc123def"
+        );
+    }
+
+    #[test]
+    fn subject_fallback_when_no_project() {
+        let watch_dir = PathBuf::from("/home/user/.claude/projects");
+        let path = PathBuf::from("/home/user/.claude/projects/session.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch_dir),
+            "events.unknown.session.main"
+        );
     }
 }

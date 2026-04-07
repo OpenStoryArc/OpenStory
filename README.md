@@ -3,33 +3,42 @@
 [![CI](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Open Story gives you full visibility into what your AI coding agents are doing — in real time. It watches coding agent sessions (Claude Code, pi-mono, and more), translates transcript events into typed records via a [CloudEvents 1.0](https://cloudevents.io/) pipeline, and serves a live dashboard. Your data stays local, in open formats, fully portable.
+Real-time observability for AI coding agents. Open Story watches what your agents do — every tool call, file edit, command, and decision — translates it into [CloudEvents 1.0](https://cloudevents.io/) via NATS JetStream, and serves a live dashboard with narrative visualization. Your data stays local, in open formats, fully portable.
 
-Real-time observability dashboard for AI coding agent sessions. Watches JSONL transcript files from multiple agents, auto-detects the format, translates them into typed ViewRecords, and serves a live web dashboard.
+> **What does this look like in practice?** **[Read the report of the session that built this feature](docs/research/sessions/06907d46-feat-story-tab-data.md)** — a 21-hour, $212, 4001-record working session, narrated entirely from data the project collected about itself, using its own scripts. *"OpenStory pointed at itself."*
 
 ```
-┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
-│  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│  Server   │
-│  (JSONL files)   │     │  Watcher     │     │  (CloudEvent)│     │  (Axum)   │
-└─────────────────┘     └──────────────┘     └──────────────┘     └─────┬─────┘
-        │                                                               │
-        │  POST /hooks                          ┌───────────┐           │
-        └──────────────────────────────────────▶│  Hooks     │───────────┘
-           (near-real-time)                     │  Handler   │     │
-                                                └───────────┘     │
-                                                                  │ ingest
-                                                                  ▼
-                                          ┌──────────┐     ┌───────────┐
-                                          │  Qdrant  │◀────│  SQLite   │
-                                          │ (vectors)│     │ (events)  │
-                                          └──────────┘     └───────────┘
-                                                │               │
-                                                ▼               ▼
-                                          ┌───────────────────────────┐
-                                          │      React Dashboard      │
-                                          │  Live · Explore · Search  │
-                                          └───────────────────────────┘
+┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│    NATS      │
+│  (JSONL files)   │     │  Watcher     │     │  (CloudEvent)│     │  JetStream   │
+└─────────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
+                                                                         │
+                                                          ┌──────────────┼──────────────┐
+                                                          │              │              │
+                                                          ▼              ▼              ▼
+                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
+                                                   │ persist  │  │ patterns │  │broadcast │
+                                                   │ consumer │  │ consumer │  │ consumer │
+                                                   └────┬─────┘  └────┬─────┘  └────┬─────┘
+                                                        │              │              │
+                                                        ▼              ▼              ▼
+                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
+                                                   │  SQLite  │  │ Patterns │  │   React  │
+                                                   │ + JSONL  │  │ + Turns  │  │Dashboard │
+                                                   └──────────┘  └──────────┘  └──────────┘
 ```
+
+## What you see
+
+Four dashboard views, each a different lens on the same data:
+
+**Live** — real-time event stream as your agent works. Every tool call, file read, command execution, and model response appears as it happens. Session sidebar shows all active sessions with event counts, token usage, depth sparklines, and subagent hierarchy.
+
+**Story** — narrative view of agent work. Each turn is a card showing what Claude did and why: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain fact badges (files created/modified, commands run, searches performed), and eval-apply phase detail. Subagent delegations expand inline — click an Agent apply to see the subagent's eval-apply cycles nested recursively. The same structure at every depth.
+
+**Explore** — historical browse and search across sessions. Full-text search, event filtering, session comparison.
+
+**Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
 
 ## Philosophy
 
@@ -39,17 +48,68 @@ See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, an
 
 ## How it works
 
-Two ingestion paths work in parallel:
-- **File watcher** — polls `~/.claude/projects/` for new/changed `.jsonl` files (background discovery)
-- **HTTP hooks** — coding agents POST to `/hooks` on each event (near-real-time delivery, currently Claude Code)
+The file watcher detects JSONL transcript changes, translates them into CloudEvents via `translate_line()`, and publishes to NATS JetStream with hierarchical subjects (`events.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
 
-Both produce `io.arc.event` CloudEvents with typed subtypes. The server transforms these into typed ViewRecords before broadcasting to the UI. Deduplication ensures no duplicates.
+- **persist** — dedup + SQLite + JSONL backup + full-text search index
+- **patterns** — eval-apply cycle detection → sentence generation → PatternEvents
+- **projections** — session metadata (tokens, labels, branches, agent relationships)
+- **broadcast** — CloudEvent → ViewRecord → WireRecord → WebSocket to UI
+
+HTTP hooks provide an additional near-real-time ingestion path for Claude Code events.
+
+Each actor is an independent tokio task with its own state and NATS subscription. No shared locks between actors — if pattern detection is slow, persistence and broadcast continue unblocked. NATS JetStream provides durable delivery, replay on restart, and hierarchical subject filtering. `just up` starts NATS automatically; `nats.conf` at the project root configures JetStream with 8MB max payload for large sessions.
+
+### The eval-apply model
+
+Agent sessions have recursive structure. A **turn** (one human prompt → complete response) contains multiple **eval-apply cycles** — each cycle is the model evaluating what it knows, dispatching tools, and processing results. Subagents spawned via the Agent tool have the same recursive cycle structure, just nested one level deeper.
+
+The Story tab renders this as paragraphs (turns) containing sentences (cycles). Subagent work nests inside parent turns. The same `CycleCard` component renders at every depth — it's the recursive visual unit of agent work.
+
+### For agents: using OpenStory
+
+Agents working on this project (or any project with OpenStory running) should use the API to understand session context. From experience building this system, here's what works best:
+
+**REST API is your primary tool.** Fast, structured, reliable:
+```
+GET /api/sessions                                  — list all sessions with metadata
+GET /api/sessions/{id}/records                     — all events for a session
+GET /api/sessions/{id}/patterns?type=turn.sentence — narrative turns with sentence diagrams
+GET /api/search?q=...                              — full-text search across events
+```
+
+**Patterns API for narrative understanding.** The `turn.sentence` patterns carry the sentence diagram (verb/object/subordinates), domain facts (files touched, commands run), eval-apply phases, and subagent delegations. Use this to understand WHAT happened, not just the raw events.
+
+**Records API for ground truth.** When you need the actual tool output, file contents, or exact sequence of events, fetch the records. The `extractCycles()` function in `ui/src/lib/eval-apply.ts` derives eval-apply cycles from records — same structure at every depth (main agent and subagents).
+
+**Scripts for data science.** `scripts/analyze_eval_apply_shape.py --all` maps the structural shape of every session. `scripts/query_store.py` inspects SQLite directly. Write scripts for questions — don't guess.
+
+**Avoid raw JSONL grep.** The raw transcript files are Claude Code's native format, not CloudEvents. The translate layer adds `agent_payload`, `tool_outcome`, `agent_id`. Always query through the API to get the translated, typed data.
+
+**Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
+
+### Deployed agent observability (OpenClaw)
+
+Open Story can observe autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
+
+```
+claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API/dashboard)
+              ──HTTP hooks──►
+```
+
+The listener runs as root (to read Claude's mode-600 transcript files), watches the shared volume, translates events, and publishes to NATS. The consumer runs separately with its own data volume, subscribes from NATS, and serves the dashboard. Start with:
+
+```bash
+docker compose -f docker-compose.openclaw.yml up -d
+```
+
+See `docker-compose.openclaw.yml` for full setup including API key configuration and volume management.
 
 ## Quick Start
 
 Requires:
 - [Rust](https://rustup.rs/) (stable, edition 2021)
 - [Node.js](https://nodejs.org/) 20+
+- [NATS Server](https://nats.io/) — `brew install nats-server` (event bus, hard dependency)
 - [just](https://github.com/casey/just) — command runner (recommended)
 - [Docker](https://docker.com/) or [Podman](https://podman.io/) — for E2E/container tests only
 
@@ -75,19 +135,22 @@ openstory test       # Run all tests
 ### With `just` (recommended)
 
 ```bash
-just up          # Build and start server + UI dev server (Ctrl+C to stop)
+just up          # Start NATS + server + UI (Ctrl+C to stop)
 just test        # Run all tests (Rust + UI)
 ```
 
 ### Manual setup
 
 ```bash
-# 1. Build and run the server
+# 1. Start NATS JetStream
+nats-server -c nats.conf &
+
+# 2. Build and run the server
 cd rs
 cargo build --release -p open-story-cli
 cargo run -p open-story-cli -- serve
 
-# 2. Start the UI dev server (in another terminal)
+# 3. Start the UI dev server (in another terminal)
 cd ui
 npm install
 npm run dev
@@ -108,43 +171,6 @@ OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions just up
 ```
 
 Both watchers run simultaneously — sessions from all configured coding agents appear in the same dashboard. Format detection is automatic (per-file, based on the first JSONL line). Each event carries an `agent` field identifying its source.
-
-### Enable semantic search (optional)
-
-Semantic search lets you find sessions by meaning — "how did we approach the auth refactor?" — using a local embedding model. Data never leaves your machine.
-
-**1. Download the ONNX Runtime library** (~16MB) from [GitHub releases](https://github.com/microsoft/onnxruntime/releases) and place the shared library in `data/models/`:
-
-| Platform | Archive | Library file |
-|----------|---------|-------------|
-| Linux/WSL | `onnxruntime-linux-x64-1.20.1.tgz` | `lib/libonnxruntime.so` |
-| macOS (Apple Silicon) | `onnxruntime-osx-arm64-1.20.1.tgz` | `lib/libonnxruntime.dylib` |
-| macOS (Intel) | `onnxruntime-osx-x86_64-1.20.1.tgz` | `lib/libonnxruntime.dylib` |
-| Windows | `onnxruntime-win-x64-1.20.1.zip` | `lib/onnxruntime.dll` |
-
-```bash
-# Example (Linux/WSL):
-curl -sL https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz | tar xz -C /tmp
-mkdir -p data/models
-cp /tmp/onnxruntime-linux-x64-1.20.1/lib/libonnxruntime.so data/models/
-```
-
-**2. Download the model and start services:**
-
-```bash
-just download-model            # Download embedding model (~86MB)
-just qdrant                    # Start Qdrant vector database
-just backfill                  # Embed existing events into Qdrant
-```
-
-Add to `data/config.toml`:
-```toml
-semantic_enabled = true
-qdrant_url = "http://localhost:6334"
-embedding_model_path = "data/models"
-```
-
-Then `just up` — the Search tab in the Explore view and `/api/agent/search` will be active.
 
 ### With Docker/Podman
 
@@ -313,15 +339,14 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 
 ```
 open-story/
-├── rs/                          Rust workspace (9 crates)
+├── rs/                          Rust workspace (8 crates)
 │   ├── core/                    open-story-core (CloudEvent types, translate, reader)
 │   ├── bus/                     open-story-bus (NATS JetStream event bus)
-│   ├── store/                   open-story-store (persistence, analysis, projection)
+│   ├── store/                   open-story-store (persistence, projection, FTS5 search)
 │   ├── views/                   open-story-views (BFF: CloudEvent → ViewRecord)
-│   ├── patterns/                open-story-patterns (5 streaming detectors)
-│   ├── semantic/                open-story-semantic (embedding, search, Qdrant)
-│   ├── server/                  open-story-server (HTTP/WS, API, hooks, ingest)
-│   ├── src/                     open-story lib (watcher + server orchestration)
+│   ├── patterns/                open-story-patterns (7 streaming detectors)
+│   ├── server/                  open-story-server (HTTP/WS, API, hooks, consumer actors)
+│   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
 │   └── tests/                   Integration tests
 ├── ui/                          React dashboard
@@ -335,24 +360,80 @@ open-story/
 └── e2e/                         Playwright E2E tests
 ```
 
+## Scripts
+
+`scripts/` is a working library of Python tools for inspecting OpenStory data. They hit the REST API or read SQLite directly, and exist so questions can be answered with reproducible queries instead of one-off shell commands. Most have a `--test` flag and a clear `Usage:` header.
+
+**Tell the story of a session** (the entry point — start here):
+
+```bash
+python3 scripts/sessionstory.py SESSION_ID            # markdown fact sheet
+python3 scripts/sessionstory.py latest                # most recent session
+python3 scripts/sessionstory.py SESSION_ID --json     # machine-readable
+python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
+python3 scripts/sessionstory.py --list                # recent sessions
+python3 scripts/sessionstory.py --test                # self-tests
+```
+
+`sessionstory.py` collects deterministic facts (record types, tool histogram, patterns, prompt timeline, sample sentences from the `turn.sentence` detector) and emits a structured fact sheet. It does not narrate — narration is the agent's job. There's a Claude Code skill at `.claude/skills/sessionstory/` that documents the full workflow.
+
+**Analyze session structure:**
+
+| Script | What it shows |
+|---|---|
+| `analyze_eval_apply_shape.py --session SID` | Eval-apply cycle counts, with-tools vs terminal, tools per cycle |
+| `analyze_turn_shapes.py SID` | Distinct turn shapes + probability classes (multi_eval_apply, with_thinking, parallel_tools, …) |
+| `analyze_event_groups.py --session SID` | Per-prompt event windows, phase distribution, common tool sequences, tool runs |
+| `analyze_session_hierarchy.py` | Main vs subagent linking — how agent sessions relate to parents |
+| `analyze_payload_sizes.py` | Truncation impact across sessions |
+| `analyze_plan_events.py` | Where ExitPlanMode events live (main / subagent / hooks) |
+
+**Cost and tokens:**
+
+| Script | What it shows |
+|---|---|
+| `token_usage.py --session-id SID` | Input / output / cache tokens + estimated cost |
+| `token_usage.py --by-session` | Per-session breakdown |
+| `token_usage.py --by-day` | Daily trend |
+
+**Direct queries:**
+
+| Script | What it does |
+|---|---|
+| `query_store.py` | SQL queries over the live SQLite store (sessions, events, patterns) |
+| `query_session.py` | Single-session record fetch + filter |
+| `session_conversation.py SID` | Reconstruct user/assistant/tool flow in reading order |
+| `event_viewer.py` | Live pretty-printer for the event log |
+
+**Data and tooling:**
+
+- `scrub_check.py` — flag potential secrets in fixture data
+- `story_html.py` — render a session as a static HTML story
+- `synth_transcripts.py` — generate synthetic transcript fixtures for tests
+- `translate_pi_mono.py` — translator prototype for pi-mono format
+- `load_transcripts.py` — bulk load JSONL into SQLite
+- `prototype_event_graph.py` — graph-layout exploration (matplotlib)
+- `explore.ipynb` — Jupyter notebook scratchpad
+
+**Conventions:** scripts use stdlib only where possible (`urllib.request`, `sqlite3`, `argparse`). Scripts with `--test` self-validate against synthetic fixtures or a running server. New scripts should follow the same shape: docstring `Usage:` header, dataclasses for structured output, pure functions for the core logic, side effects at the edges.
+
+See also: `docs/research/sessions/` for example reports built from these scripts, and `docs/research/scheme/daystory.sh` for the day-scoped narration companion.
+
 ## Development Commands
 
 Run `just` to see all available commands. Key ones:
 
 | Command | Description |
 |---------|-------------|
-| `just up` | Build and start server + UI (Ctrl+C to stop) |
+| `just up` | Start NATS + server + UI (Ctrl+C to stop) |
+| `just nats` | Start NATS JetStream standalone |
+| `just nats-stop` | Stop NATS |
 | `just test` | Run all tests (Rust + UI) |
 | `just test-rs` | Run Rust tests only |
 | `just test-ui` | Run UI tests only |
 | `just e2e` | Run Playwright E2E tests |
 | `just explore` | Launch Jupyter notebook for data exploration |
-| `just tree` | Launch tree explorer notebook |
-| `just patterns` | Run streaming pattern detection prototype |
 | `just events` | Live event viewer (pretty-print event log) |
-| `just qdrant` | Start Qdrant vector database |
-| `just download-model` | Download ONNX embedding model |
-| `just backfill` | Embed existing events into Qdrant |
 
 ## Security Notes
 
