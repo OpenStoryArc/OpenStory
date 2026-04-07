@@ -15,6 +15,8 @@ pub mod event_store;
 pub mod extract;
 pub mod ingest;
 pub mod jsonl_store;
+#[cfg(feature = "mongo")]
+pub mod mongo_store;
 pub mod persistence;
 pub mod plan_store;
 pub mod projection;

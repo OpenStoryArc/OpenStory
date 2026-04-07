@@ -598,6 +598,50 @@ pub async fn it_counts_indexed_full_text_records(store: Arc<dyn EventStore>) {
 // mongo_backend` with the same shape — every test must pass against
 // both backends or the trait contract is wrong.
 
+/// All conformance test names — single source of truth for both backends.
+///
+/// Adding a new helper above? Add it here too. The macro then expands the
+/// list once per backend module, so the SQLite and Mongo wrappers can never
+/// drift apart.
+macro_rules! for_each_conformance_test {
+    ($macro:ident) => {
+        // Writes
+        $macro!(it_inserts_a_new_event_and_returns_true);
+        $macro!(it_returns_false_when_inserting_a_duplicate_event);
+        $macro!(it_treats_event_id_as_a_global_primary_key);
+        $macro!(it_reports_the_count_of_new_events_in_a_batch);
+        $macro!(it_dedupes_a_batch_against_already_stored_events);
+        $macro!(it_handles_an_empty_batch);
+        $macro!(it_upserts_a_session_and_lists_it);
+        $macro!(it_updates_an_existing_session_on_upsert);
+        $macro!(it_never_overwrites_a_user_set_custom_label);
+        $macro!(it_persists_and_queries_a_detected_pattern);
+        $macro!(it_filters_session_patterns_by_type);
+        $macro!(it_persists_and_queries_a_structural_turn);
+        $macro!(it_upserts_a_plan_idempotently);
+        // Reads
+        $macro!(it_returns_session_events_ordered_by_timestamp);
+        $macro!(it_round_trips_an_event_payload_losslessly);
+        $macro!(it_returns_no_events_for_an_unknown_session);
+        $macro!(it_starts_with_an_empty_session_list);
+        $macro!(it_returns_the_full_payload_for_a_known_event);
+        $macro!(it_returns_none_for_an_unknown_event_payload);
+        $macro!(it_exports_a_session_as_newline_delimited_json);
+        $macro!(it_exports_an_empty_session_as_an_empty_string);
+        // Lifecycle
+        $macro!(it_deletes_a_session_and_all_its_data);
+        $macro!(it_only_deletes_the_targeted_session);
+        $macro!(it_returns_zero_when_deleting_a_nonexistent_session);
+        // FTS
+        $macro!(it_indexes_text_and_finds_it_via_full_text_search);
+        $macro!(it_scopes_full_text_search_to_a_session_when_asked);
+        $macro!(it_returns_no_results_for_an_empty_search_query);
+        $macro!(it_returns_no_results_when_nothing_matches);
+        $macro!(it_caps_full_text_search_results_at_the_limit);
+        $macro!(it_counts_indexed_full_text_records);
+    };
+}
+
 mod sqlite_backend {
     use super::*;
     use open_story_store::sqlite_store::SqliteStore;
@@ -606,7 +650,7 @@ mod sqlite_backend {
         Arc::new(SqliteStore::in_memory().expect("create in-memory sqlite store"))
     }
 
-    macro_rules! conformance_test {
+    macro_rules! sqlite_conformance_test {
         ($name:ident) => {
             #[tokio::test]
             async fn $name() {
@@ -615,41 +659,71 @@ mod sqlite_backend {
         };
     }
 
-    // Writes
-    conformance_test!(it_inserts_a_new_event_and_returns_true);
-    conformance_test!(it_returns_false_when_inserting_a_duplicate_event);
-    conformance_test!(it_treats_event_id_as_a_global_primary_key);
-    conformance_test!(it_reports_the_count_of_new_events_in_a_batch);
-    conformance_test!(it_dedupes_a_batch_against_already_stored_events);
-    conformance_test!(it_handles_an_empty_batch);
-    conformance_test!(it_upserts_a_session_and_lists_it);
-    conformance_test!(it_updates_an_existing_session_on_upsert);
-    conformance_test!(it_never_overwrites_a_user_set_custom_label);
-    conformance_test!(it_persists_and_queries_a_detected_pattern);
-    conformance_test!(it_filters_session_patterns_by_type);
-    conformance_test!(it_persists_and_queries_a_structural_turn);
-    conformance_test!(it_upserts_a_plan_idempotently);
+    for_each_conformance_test!(sqlite_conformance_test);
+}
 
-    // Reads
-    conformance_test!(it_returns_session_events_ordered_by_timestamp);
-    conformance_test!(it_round_trips_an_event_payload_losslessly);
-    conformance_test!(it_returns_no_events_for_an_unknown_session);
-    conformance_test!(it_starts_with_an_empty_session_list);
-    conformance_test!(it_returns_the_full_payload_for_a_known_event);
-    conformance_test!(it_returns_none_for_an_unknown_event_payload);
-    conformance_test!(it_exports_a_session_as_newline_delimited_json);
-    conformance_test!(it_exports_an_empty_session_as_an_empty_string);
+/// MongoDB backend wrapper. Spins up a fresh `mongo:7` testcontainer per
+/// test (cheap — Mongo boots in ~1s) and runs the same conformance helpers
+/// against `MongoStore`. Gated behind the `mongo` feature so the suite
+/// doesn't require Docker for users who only want SQLite.
+///
+/// Run with: `cargo test -p open-story-store --features mongo --test event_store_conformance`
+#[cfg(feature = "mongo")]
+mod mongo_backend {
+    use super::*;
+    use open_story_store::mongo_store::MongoStore;
+    use testcontainers::core::{ContainerPort, WaitFor};
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers::{ContainerAsync, GenericImage};
 
-    // Lifecycle
-    conformance_test!(it_deletes_a_session_and_all_its_data);
-    conformance_test!(it_only_deletes_the_targeted_session);
-    conformance_test!(it_returns_zero_when_deleting_a_nonexistent_session);
+    /// A running mongo container — kept alive for the duration of the test.
+    /// Drop = container teardown via testcontainers.
+    struct MongoFixture {
+        _container: ContainerAsync<GenericImage>,
+        store: Arc<dyn EventStore>,
+    }
 
-    // FTS
-    conformance_test!(it_indexes_text_and_finds_it_via_full_text_search);
-    conformance_test!(it_scopes_full_text_search_to_a_session_when_asked);
-    conformance_test!(it_returns_no_results_for_an_empty_search_query);
-    conformance_test!(it_returns_no_results_when_nothing_matches);
-    conformance_test!(it_caps_full_text_search_results_at_the_limit);
-    conformance_test!(it_counts_indexed_full_text_records);
+    async fn start_mongo() -> MongoFixture {
+        let container = GenericImage::new("mongo", "7")
+            .with_exposed_port(ContainerPort::Tcp(27017))
+            .with_wait_for(WaitFor::message_on_stdout("Waiting for connections"))
+            .start()
+            .await
+            .expect("start mongo:7 testcontainer (is Docker running?)");
+
+        let host = container
+            .get_host()
+            .await
+            .expect("mongo container host");
+        let port = container
+            .get_host_port_ipv4(27017)
+            .await
+            .expect("mongo container port");
+        let uri = format!("mongodb://{host}:{port}");
+
+        // Each test gets its own database name so collections never collide.
+        // Mongo creates databases lazily on first write — no setup needed.
+        let db_name = format!("openstory_conformance_{}", uuid::Uuid::new_v4().simple());
+        let store: Arc<dyn EventStore> = Arc::new(
+            MongoStore::connect(&uri, &db_name)
+                .await
+                .expect("connect MongoStore"),
+        );
+        MongoFixture {
+            _container: container,
+            store,
+        }
+    }
+
+    macro_rules! mongo_conformance_test {
+        ($name:ident) => {
+            #[tokio::test]
+            async fn $name() {
+                let fixture = start_mongo().await;
+                super::$name(fixture.store.clone()).await;
+            }
+        };
+    }
+
+    for_each_conformance_test!(mongo_conformance_test);
 }
