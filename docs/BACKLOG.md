@@ -106,6 +106,9 @@ Automated format gap detection script (`scripts/validate_openclaw.py`) that scan
 ### Multi-Agent UI — Agent Filter & Cross-Agent Analytics
 The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) enables filtering sessions by agent platform and comparing tool preferences, token usage, and session duration across agents. Add agent filter to the dashboard sidebar and cross-agent analytics endpoints.
 
+### MongoStore Analytics Query Parity
+The 12 analytics endpoints (`/api/sessions/{id}/synopsis`, `/tool-journey`, `/file-impact`, `/errors`, `/api/insights/pulse`, `/tool-evolution`, `/efficiency`, `/api/agent/project-context`, `/recent-files`, `/api/insights/productivity`, `/token-usage`, `/token-usage/daily`) currently fall through to the `EventStore` trait's empty default impls when running on the MongoStore backend. SQLite uses hand-rolled SQL in `rs/store/src/queries.rs`; Mongo needs the equivalent aggregation pipelines. Each method has a SQL reference and an existing fixture-style test in `sqlite_store.rs` — the deep-equality check is "seed both backends with identical data, run the query, assert outputs match." Add the assertions to `rs/store/tests/event_store_conformance.rs` as the first step (the conformance suite currently skips analytics by design — Phase 5 adds them). Mongo deployments will see "no data" for these endpoints until this lands. Filed by the Phase 8 commit `246795d` of the MongoDB sink work.
+
 ### Multi-Directory Watcher
 Accept multiple `--watch-dir` roots, backfill concurrently, and resolve project_id correctly across all roots with longest-prefix matching. Currently uses `watch_dir` + `pi_watch_dir` as separate config fields. Generalize to `watch_dirs = [...]` array.
 

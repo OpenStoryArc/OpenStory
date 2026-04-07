@@ -146,7 +146,7 @@ The Rust codebase is a **workspace with 8 crates** (workspace members declared i
 
 ## Build & Test
 
-**Prerequisites:** Rust, Node.js, NATS (`brew install nats-server`)
+**Prerequisites:** Rust, Node.js, NATS (`brew install nats-server`). Docker only required for the optional Mongo backend.
 
 ```bash
 # Rust — test all crates + integration tests (never touches the binary)
@@ -159,6 +159,13 @@ cd rs && cargo test -p open-story-server
 
 # Rust — build the CLI binary
 cd rs && cargo build -p open-story-cli
+
+# Build with the MongoDB backend feature (adds the mongodb + bson deps)
+cd rs && cargo build -p open-story-cli --features mongo
+
+# Run the EventStore conformance suite against BOTH backends.
+# The mongo_backend module spins up a mongo:7 testcontainer per test.
+cd rs && cargo test -p open-story-store --features mongo --test event_store_conformance
 
 # React dashboard
 cd ui && npm install && npm run dev    # dev server (port 5173)
@@ -175,7 +182,11 @@ docker compose up
 ## Development Quick Reference
 
 ```bash
-just up              # Start NATS + server + UI (Ctrl+C to stop)
+just up              # Start NATS + Mongo + server (mongo backend) + UI (default)
+just up-no-mongo     # Same as above but uses SQLite (no Docker required)
+just mongo           # Start the openstory-mongo container only
+just mongo-stop      # Stop the openstory-mongo container (data preserved)
+just mongo-reset     # Drop the Mongo data volume (DESTRUCTIVE)
 just serve           # Start Rust server only
 just dev             # Start Vite UI dev server only
 just nats            # Start NATS JetStream standalone
@@ -218,12 +229,20 @@ NATS is a hard dependency. Install: `brew install nats-server`. Config: `nats.co
 
 **Independent actor-consumers** — each subscribes to NATS and owns its own state:
 ```
-NATS events.> → persist consumer    → SQLite + JSONL + FTS (dedup, storage)
+NATS events.> → persist consumer    → EventStore + JSONL + FTS (dedup, storage)
 NATS events.> → patterns consumer   → EvalApply → Sentence → PatternEvent
 NATS events.> → projections consumer → SessionProjection (tokens, metadata)
 NATS events.> → broadcast consumer  → ViewRecord → WireRecord → WebSocket
 ```
-Each actor is a tokio task with independent failure domain. No shared RwLock between actors. `Arc<dyn EventStore>` for lock-free concurrent SQLite access.
+Each actor is a tokio task with independent failure domain. No shared RwLock between actors. `Arc<dyn EventStore>` for lock-free concurrent storage access — the trait is `async`, so the same actor code drives both SQLite (default) and MongoDB (`--features mongo`) backends without changes.
+
+**Pluggable EventStore backends.** The `open-story-store::event_store::EventStore` trait is the persistence seam. Two implementations ship:
+- **`SqliteStore`** — default. In-process, zero deps, single file at `{data_dir}/open-story.db`.
+- **`MongoStore`** — feature-gated behind `open-story-store/mongo`. Mirrors the SQLite schema as five collections (`events`, `sessions`, `patterns`, `turns`, `plans`, `events_fts`) with a text index for `$text`-powered FTS. Selected via `data_backend = "mongo"` in `data/config.toml` or `OPEN_STORY_DATA_BACKEND=mongo`. Boot fails clearly if the feature isn't compiled in — never silently falls back.
+
+The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the same 30 BDD-style helpers against both backends, so anything that passes on SQLite must pass on Mongo (and vice versa). When adding a third backend, add a `mod {backend}_backend` wrapper that calls the same helpers — the trait contract is the spec.
+
+**JSONL backup is always on disk.** Whichever durable EventStore is selected, the `SessionStore` JSONL appender keeps writing per-session `*.jsonl` files in `data_dir`. That's the sovereignty escape hatch the project promises: your data is always grep-able from outside the database, regardless of which backend you choose.
 
 **Server crate** (`rs/server/src/`):
 - `consumers/` — independent actor-consumers (persist, patterns, projections, broadcast)
@@ -241,12 +260,16 @@ Each actor is a tokio task with independent failure domain. No shared RwLock bet
 - `tool_schemas.rs` — Tool schema definitions
 
 **Store crate** (`rs/store/src/`):
-- `sqlite_store.rs` — SQLite persistence (events, sessions)
+- `event_store.rs` — `EventStore` trait (async, the persistence contract)
+- `sqlite_store.rs` — default SQLite implementation
+- `mongo_store.rs` — MongoDB implementation (gated by the `mongo` feature)
+- `jsonl_store.rs` — fallback when SQLite open fails (degraded — writes only)
 - `projection.rs` — SessionProjection (incremental materialized views)
 - `persistence.rs` — SessionStore (JSONL append-only backup)
 - `plan_store.rs` — Plan extraction and storage
 - `analysis.rs` — Session summaries and tool analytics
 - `queries.rs` — CLI query functions (synopsis, pulse, context)
+- `state.rs` — `StoreState::with_backend(...)` async constructor that branches on `BackendChoice`
 
 **Semantic crate** (`open-story-semantic`):
 - `SemanticStore` trait + `NoopSemanticStore` (same pattern as `Bus`/`NoopBus`)
@@ -296,6 +319,9 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `data_dir` | `./data` | Directory for SQLite DB, JSONL, plans |
 | `watch_dir` | `~/.claude/projects/` | Coding agent transcript watch directory (Claude Code default) |
 | `pi_watch_dir` | `""` (disabled) | Pi-mono session watch directory (e.g., `~/.pi/agent/sessions/`) |
+| `data_backend` | `sqlite` | Persistence backend: `sqlite` (default) or `mongo` (requires `--features mongo`) |
+| `mongo_uri` | `mongodb://localhost:27017` | MongoDB connection URI (used only when `data_backend = "mongo"`) |
+| `mongo_db` | `openstory` | MongoDB database name (used only when `data_backend = "mongo"`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
 | `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
