@@ -73,8 +73,8 @@ impl SqliteStore {
         Ok(store)
     }
 
-    /// Open an in-memory database (for tests).
-    #[cfg(test)]
+    /// Open an in-memory database. Useful for tests and the EventStore
+    /// conformance suite (`store/tests/event_store_conformance.rs`).
     pub fn in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         let store = Self {
