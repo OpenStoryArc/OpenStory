@@ -5,6 +5,8 @@
 
 Real-time observability for AI coding agents. Open Story watches what your agents do — every tool call, file edit, command, and decision — translates it into [CloudEvents 1.0](https://cloudevents.io/) via NATS JetStream, and serves a live dashboard with narrative visualization. Your data stays local, in open formats, fully portable.
 
+> **What does this look like in practice?** **[Read the report of the session that built this feature](docs/research/sessions/06907d46-feat-story-tab-data.md)** — a 21-hour, $212, 4001-record working session, narrated entirely from data the project collected about itself, using its own scripts. *"OpenStory pointed at itself."*
+
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│    NATS      │
