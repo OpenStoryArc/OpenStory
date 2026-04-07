@@ -256,3 +256,52 @@ Open Story observes multiple coding agents simultaneously. This feature exercise
 Both watchers run concurrently, feeding the same ingest pipeline.
 
 **What to verify:** When adding a new agent format, follow this pattern: write a prototype script in `scripts/`, create a translator in `rs/core/src/`, add format detection in `reader.rs`, and add agent-specific branches in `from_cloud_event.rs`. Never mutate `raw`. Never normalize agent-specific field names. The `agent` field is the discriminator.
+
+---
+
+## 11. Pluggable persistence backends (principles 1, 4, 5, 7, 8 in practice)
+
+**Where to look:**
+- The trait: `rs/store/src/event_store.rs` (`EventStore`, async)
+- SQLite implementation: `rs/store/src/sqlite_store.rs` (default)
+- MongoDB implementation: `rs/store/src/mongo_store.rs` (gated by `--features mongo`)
+- Backend selector: `rs/store/src/state.rs` (`BackendChoice`, `StoreState::with_backend`)
+- Config: `rs/server/src/config.rs` (`DataBackend` enum, `mongo_uri`, `mongo_db`)
+- Conformance suite: `rs/store/tests/event_store_conformance.rs` (47 helpers, parametric over both backends via `for_each_conformance_test!`)
+- Plan / design notes: `docs/research/mongo-analytics-parity-plan.md`
+
+The `EventStore` trait is the persistence seam. Two implementations ship: SQLite (the in-process default) and MongoDB (opt-in for distributed deployments). The trait is async, the conformance suite is shared, and each backend implements each method in its native idiom. This feature exercises several principles:
+
+**Observe, never interfere (1):** Both backends are write-and-read interfaces over events the agent already produced. Neither modifies the source JSONL, neither writes back to the agent. The MongoStore implementation is held to the same read-only-on-source contract as SqliteStore.
+
+**Functional-first, side effects at the edges (4):** The `EventStore` trait is the side-effect boundary. Above it — pattern detection, projection, broadcast, query layer — everything is pure logic over typed data. Below it, each backend handles its own I/O. Adding MongoDB didn't touch the persist consumer, the patterns consumer, the projections consumer, or the broadcast consumer. The barrier held.
+
+**Reactive and event-driven (5):** The persist consumer subscribes to NATS and writes through `Arc<dyn EventStore>`. Whether that Arc points at SqliteStore or MongoStore is invisible to the consumer's logic. Both backends produce identical observable behavior under the conformance suite's contract.
+
+**Open standards, user-owned data (7):** **The JSONL backup is always on disk regardless of which durable backend is selected.** That's deliberate. SQLite ships in a single file the user can `cp` or open with `sqlite3`. MongoDB lives in a daemon. Both are valid choices, but neither replaces the per-session JSONL files in `data/`. The sovereignty escape hatch survives the database choice — your data is always grep-able from outside whichever store you pick.
+
+**Minimal, honest code (8):** No abstraction layer, no ORM, no query DSL. The `EventStore` trait has 30+ methods that map directly to operations a real backend can perform. SqliteStore is ~1200 lines of rusqlite calls. MongoStore is ~1100 lines of mongodb driver calls. The translation between them is naming, not logic. There's no plugin system, no driver registry, no abstract query language — just a trait, two impls, and a conformance suite that pins their behavior together.
+
+**Conformance is semantic, not byte-equal:** This is the load-bearing pattern. The 47 helpers in the conformance suite tag each query with one of three categories:
+- **C1** strict equality (`assert_eq!`) — for queries with mathematically defined answers
+- **C2** canonical-sort then equality — for queries where tie order is implementation-defined
+- **C3** API redesign — for queries where a cosmetic field was forcing one backend to mimic the other
+
+Each backend implements each query in its native idiom. SQLite uses `json_extract` + `strftime` + `LIKE`. MongoDB uses dotted-path access + `$dateFromString` + `$exists`. Same answers, different implementations. See `docs/soul/patterns.md` ("Semantic parity, not byte parity") for the full pattern.
+
+**Multi-host vs single-host trade-off (philosophy):** SQLite is the right choice for local single-user dev — zero deps, single file, microsecond persist hot path, ACID across `delete_session`. MongoDB is the right choice for multi-host deployments — replica sets, native nested-field indexing, change streams. The CHOICE between them is itself a real product feature, not a tax to pay for picking the wrong one. `docs/research/mongo-analytics-parity-plan.md` §1.7 has the full pros/cons matrix.
+
+**Lessons learned:**
+- **Source data format defines the storage contract.** Before designing the conformance suite, we read the actual JSONL on disk and traced the translator pass-through. Both Claude Code and pi-mono emit `YYYY-MM-DDTHH:MM:SS.sssZ` (24 chars, UTC, zero-padded). That invariant eliminated three speculative risks from the plan (date round-trip fidelity, UTC vs local extraction, fixture seeding format). Read the data first.
+- **Don't bury cross-system divergence behind once-a-year code paths.** Initial plan included a `fixture_anchor` that shifted timestamps back 14 days during the Dec 28–Jan 3 ISO week boundary. Max called it out: "this seems very messy and will be difficult to surface later." The fix wasn't a calendar guard — it was a C3 API redesign to remove the divergent week label entirely. See `docs/soul/patterns.md` ("Burying cross-system divergence behind once-a-year code paths").
+- **Async-first is the default.** The EventStore trait is `async fn` everywhere via `async_trait`. SQLite's internal code stays synchronous (rusqlite is sync) but lives inside async fn bodies; the `Mutex<Connection>` guard never crosses an `.await` boundary. MongoDB is async-native via the `mongodb` crate. Both work without forcing a runtime around the sync backend.
+- **Feature gates fail loudly.** Selecting `data_backend = "mongo"` without building with `--features mongo` errors at boot with a clear actionable message ("requires building with `--features open-story-store/mongo`"). Never silently falls back — the user picked Mongo for a reason, falling back to SQLite would be a sovereignty bug.
+
+**Configuration:**
+- `data_backend` — `sqlite` (default) or `mongo`
+- `mongo_uri` — `mongodb://localhost:27017` (default)
+- `mongo_db` — `openstory` (default)
+
+`just up` brings up Mongo + NATS + server (compiled with `--features mongo`) by default. `just up-no-mongo` is the SQLite-only opt-out for users without Docker.
+
+**What to verify:** When adding a third backend (Postgres? Redis Streams?), follow this pattern: implement the `EventStore` trait, add a `BackendChoice::Postgres` variant gated by a feature flag, add a `mod postgres_backend` wrapper to the conformance suite that runs the same `for_each_conformance_test!` macro. The trait contract is the spec. The conformance suite catches contract violations at the assertion site, not the implementation site.
