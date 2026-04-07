@@ -676,6 +676,248 @@ impl EventStore for MongoStore {
         out
     }
 
+    /// Synopsis combines session metadata + tool/error counts +
+    /// duration + top tools. Mirrors `queries::session_synopsis`.
+    /// C1 for the metadata/counts; the `top_tools` field is C2 (ties
+    /// in count are implementation-defined — fixture and conformance
+    /// test handle that with a canonical sort at the assertion site).
+    async fn query_session_synopsis(
+        &self,
+        session_id: &str,
+    ) -> Option<crate::queries::SessionSynopsis> {
+        use crate::queries::{SessionSynopsis, ToolCount};
+        use futures::StreamExt;
+
+        // 1. Session metadata (returns None if no row)
+        let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let session_doc = sessions
+            .find_one(doc! { "_id": session_id })
+            .await
+            .ok()
+            .flatten()?;
+
+        let project_id = session_doc.get_str("project_id").ok().map(|s| s.to_string());
+        let project_name = session_doc.get_str("project_name").ok().map(|s| s.to_string());
+        let label = session_doc.get_str("label").ok().map(|s| s.to_string());
+        let event_count = get_count(&session_doc, "event_count");
+        let first_event = session_doc.get_str("first_event").ok().map(|s| s.to_string());
+        let last_event = session_doc.get_str("last_event").ok().map(|s| s.to_string());
+
+        // 2. Tool count + error count via $match + count_documents
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let tool_count = events
+            .count_documents(doc! {
+                "session_id": session_id,
+                "subtype": "message.assistant.tool_use",
+            })
+            .await
+            .unwrap_or(0);
+        let error_count = events
+            .count_documents(doc! {
+                "session_id": session_id,
+                "subtype": "system.error",
+            })
+            .await
+            .unwrap_or(0);
+
+        // 3. Duration from RFC3339 strings
+        let duration_secs = match (&first_event, &last_event) {
+            (Some(f), Some(l)) => {
+                let f = chrono::DateTime::parse_from_rfc3339(f).ok();
+                let l = chrono::DateTime::parse_from_rfc3339(l).ok();
+                match (f, l) {
+                    (Some(f), Some(l)) => Some((l - f).num_seconds()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        // 4. Top tools — first nested-field aggregation. Group by
+        //    payload.data.agent_payload.tool, count, sort, limit 5.
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "session_id": session_id,
+                    "subtype": "message.assistant.tool_use",
+                    "payload.data.agent_payload.tool": { "$ne": Bson::Null },
+                }
+            },
+            doc! {
+                "$group": {
+                    "_id": "$payload.data.agent_payload.tool",
+                    "count": { "$sum": 1 },
+                }
+            },
+            doc! { "$sort": { "count": -1 } },
+            doc! { "$limit": 5 },
+        ];
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_session_synopsis top_tools: {e}");
+                return None;
+            }
+        };
+        let mut top_tools = Vec::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                top_tools.push(ToolCount {
+                    tool: d.get_str("_id").unwrap_or_default().to_string(),
+                    count: get_count(&d, "count"),
+                });
+            }
+        }
+
+        Some(SessionSynopsis {
+            session_id: session_id.to_string(),
+            label,
+            project_id,
+            project_name,
+            event_count,
+            tool_count,
+            error_count,
+            first_event,
+            last_event,
+            duration_secs,
+            top_tools,
+        })
+    }
+
+    /// Sequence of tool calls in timestamp order. Mirrors
+    /// `queries::tool_journey`. C1 strict equality (timestamps are
+    /// distinct in the fixture).
+    async fn query_tool_journey(
+        &self,
+        session_id: &str,
+    ) -> Vec<crate::queries::ToolStep> {
+        use crate::queries::ToolStep;
+        use futures::StreamExt;
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "timestamp": 1 })
+            .build();
+        let mut cursor = match events
+            .find(doc! {
+                "session_id": session_id,
+                "subtype": "message.assistant.tool_use",
+                "payload.data.agent_payload.tool": { "$ne": Bson::Null },
+            })
+            .with_options(opts)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_tool_journey: {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let timestamp = doc.get_str("timestamp").unwrap_or_default().to_string();
+            // Walk into the nested payload to find the tool name and
+            // the file/path/command target. COALESCE order matches the
+            // SQL impl: file_path → file → path → command.
+            let agent_payload = doc
+                .get_document("payload")
+                .ok()
+                .and_then(|p| p.get_document("data").ok())
+                .and_then(|d| d.get_document("agent_payload").ok());
+            let Some(ap) = agent_payload else { continue };
+            let tool = match ap.get_str("tool").ok() {
+                Some(t) => t.to_string(),
+                None => continue,
+            };
+            let file = ap.get_document("args").ok().and_then(|args| {
+                args.get_str("file_path")
+                    .ok()
+                    .or_else(|| args.get_str("file").ok())
+                    .or_else(|| args.get_str("path").ok())
+                    .or_else(|| args.get_str("command").ok())
+                    .map(|s| s.to_string())
+            });
+            out.push(ToolStep { tool, file, timestamp });
+        }
+        out
+    }
+
+    /// File impact: per-file read/write counts. Mirrors
+    /// `queries::file_impact`. The Rust-side post-sort by
+    /// `(reads + writes) DESC` makes the order deterministic → C1.
+    async fn query_file_impact(
+        &self,
+        session_id: &str,
+    ) -> Vec<crate::queries::FileImpact> {
+        use crate::queries::FileImpact;
+        use futures::StreamExt;
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let mut cursor = match events
+            .find(doc! {
+                "session_id": session_id,
+                "subtype": "message.assistant.tool_use",
+            })
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_file_impact: {e}");
+                return Vec::new();
+            }
+        };
+
+        // Aggregate (target, reads, writes) per file in Rust to mirror
+        // the SQL impl exactly.
+        let mut impacts: std::collections::HashMap<String, (u64, u64)> =
+            std::collections::HashMap::new();
+
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let agent_payload = doc
+                .get_document("payload")
+                .ok()
+                .and_then(|p| p.get_document("data").ok())
+                .and_then(|d| d.get_document("agent_payload").ok());
+            let Some(ap) = agent_payload else { continue };
+            let tool = match ap.get_str("tool").ok() {
+                Some(t) => t.to_string(),
+                None => continue,
+            };
+            // Same COALESCE chain as tool_journey but only file_path/file/path
+            // (Bash command isn't a file, doesn't count for file_impact).
+            let target = ap.get_document("args").ok().and_then(|args| {
+                args.get_str("file_path")
+                    .ok()
+                    .or_else(|| args.get_str("file").ok())
+                    .or_else(|| args.get_str("path").ok())
+                    .map(|s| s.to_string())
+            });
+            let Some(target) = target else { continue };
+
+            let entry = impacts.entry(target).or_insert((0, 0));
+            match tool.as_str() {
+                "Read" | "Glob" | "Grep" => entry.0 += 1,
+                "Edit" | "Write" | "NotebookEdit" => entry.1 += 1,
+                _ => {} // ignore Bash etc.
+            }
+        }
+
+        let mut result: Vec<FileImpact> = impacts
+            .into_iter()
+            .map(|(file, (reads, writes))| FileImpact { file, reads, writes })
+            .collect();
+        result.sort_by(|a, b| (b.reads + b.writes).cmp(&(a.reads + a.writes)));
+        result
+    }
+
     /// Errors for a session, ordered by timestamp ASC. Mirrors
     /// `queries::session_errors`. C1 strict equality.
     async fn query_session_errors(

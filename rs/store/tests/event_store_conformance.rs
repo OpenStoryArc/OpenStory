@@ -896,6 +896,105 @@ pub async fn it_returns_session_errors_in_timestamp_order(store: Arc<dyn EventSt
     assert!(result_b1.is_empty(), "sess-B1 has no error events");
 }
 
+/// §8.1 — `query_session_synopsis` returns combined session metadata +
+/// counts + top tools. C1 for the metadata/counts, C2 for top_tools
+/// (canonical-sort by `(count DESC, tool ASC)`).
+pub async fn it_returns_a_session_synopsis(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_session_synopsis("sess-A1").await;
+    let synopsis = result.expect("sess-A1 must have a synopsis");
+
+    // C1 — metadata
+    assert_eq!(synopsis.session_id, "sess-A1");
+    assert_eq!(synopsis.label.as_deref(), Some("build feature X"));
+    assert_eq!(synopsis.project_id.as_deref(), Some("proj-alpha"));
+    assert_eq!(synopsis.project_name.as_deref(), Some("Alpha"));
+
+    // C1 — counts: 5 tool_use events, 1 system.error event
+    assert_eq!(synopsis.tool_count, 5, "5 tool_use events in sess-A1");
+    assert_eq!(synopsis.error_count, 1, "1 system.error in sess-A1");
+
+    // C2 — top tools by count.
+    // sess-A1 tool distribution: Edit ×2, Bash ×1, Read ×2.
+    // Canonical sort: (count DESC, tool ASC).
+    // Both Edit (2) and Read (2) tie at count=2 → sort by tool name
+    // → [Edit(2), Read(2), Bash(1)].
+    let mut canonical = synopsis.top_tools.clone();
+    canonical.sort_by(|a, b| (b.count, &a.tool).cmp(&(a.count, &b.tool)));
+    assert_eq!(canonical.len(), 3, "3 distinct tools in sess-A1");
+    assert_eq!(canonical[0], ToolCount { tool: "Edit".into(), count: 2 });
+    assert_eq!(canonical[1], ToolCount { tool: "Read".into(), count: 2 });
+    assert_eq!(canonical[2], ToolCount { tool: "Bash".into(), count: 1 });
+}
+
+/// §8.2 — `query_session_synopsis` returns None for an unknown session.
+pub async fn it_returns_none_for_unknown_session_synopsis(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+    let result = store.query_session_synopsis("does-not-exist").await;
+    assert!(result.is_none(), "unknown session must return None");
+}
+
+/// §8.3 — `query_tool_journey` returns the sequence of tool calls in
+/// timestamp ASC order. C1 strict equality (timestamps are distinct).
+pub async fn it_returns_tool_journey_in_timestamp_order(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_tool_journey("sess-A1").await;
+    let tools: Vec<&str> = result.iter().map(|s| s.tool.as_str()).collect();
+    let files: Vec<Option<&str>> = result.iter().map(|s| s.file.as_deref()).collect();
+
+    // sess-A1 tool_use events in timestamp order:
+    // a1-t1: Edit src/main.rs
+    // a1-t2: Edit src/main.rs
+    // a1-t3: Bash (no file)
+    // a1-t4: Read src/main.rs
+    // a1-t5: Read Cargo.toml
+    assert_eq!(tools, vec!["Edit", "Edit", "Bash", "Read", "Read"]);
+    assert_eq!(
+        files,
+        vec![
+            Some("src/main.rs"),
+            Some("src/main.rs"),
+            None,
+            Some("src/main.rs"),
+            Some("Cargo.toml"),
+        ]
+    );
+}
+
+/// §8.4 — `query_tool_journey` for an unknown session returns empty.
+pub async fn it_returns_tool_journey_empty_for_unknown_session(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+    let result = store.query_tool_journey("does-not-exist").await;
+    assert!(result.is_empty());
+}
+
+/// §8.5 — `query_file_impact` returns files with read/write counts
+/// per file, ordered by `(reads + writes) DESC`. The Rust-side post
+/// sort makes the order deterministic → C1.
+pub async fn it_returns_file_impact_with_reads_and_writes(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_file_impact("sess-A1").await;
+
+    // sess-A1 tool calls touching files:
+    // src/main.rs: Edit×2 (writes=2), Read×1 (reads=1) → total=3
+    // Cargo.toml:  Read×1 (reads=1)                   → total=1
+    // (Bash without a file is excluded)
+    //
+    // Sorted by (reads+writes) DESC:
+    // 1. src/main.rs (3)
+    // 2. Cargo.toml  (1)
+    assert_eq!(result.len(), 2, "2 files touched in sess-A1");
+    assert_eq!(result[0].file, "src/main.rs");
+    assert_eq!(result[0].reads, 1);
+    assert_eq!(result[0].writes, 2);
+    assert_eq!(result[1].file, "Cargo.toml");
+    assert_eq!(result[1].reads, 1);
+    assert_eq!(result[1].writes, 0);
+}
+
 // ───────────────────────────────────────────────────────────────────────
 // Backend wrappers
 // ───────────────────────────────────────────────────────────────────────
@@ -951,6 +1050,11 @@ macro_rules! for_each_conformance_test {
         $macro!(it_scopes_project_context_to_the_project);
         $macro!(it_returns_project_pulse_grouped_by_project);
         $macro!(it_returns_session_errors_in_timestamp_order);
+        $macro!(it_returns_a_session_synopsis);
+        $macro!(it_returns_none_for_unknown_session_synopsis);
+        $macro!(it_returns_tool_journey_in_timestamp_order);
+        $macro!(it_returns_tool_journey_empty_for_unknown_session);
+        $macro!(it_returns_file_impact_with_reads_and_writes);
     };
 }
 
