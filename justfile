@@ -61,7 +61,7 @@ kill-port port:
       fi
     fi
 
-# Build and start NATS + server + UI (Ctrl+C to stop)
+# Build and start NATS + Mongo + server (mongo backend) + UI (Ctrl+C to stop)
 up:
     #!/usr/bin/env bash
     set -e
@@ -87,12 +87,99 @@ up:
       echo "NATS already running on :4222"
     fi
 
+    # Start MongoDB (default backend)
+    just mongo
+
+    trap 'kill $(jobs -p) 2>/dev/null' EXIT
+    cargo build --manifest-path rs/cli/Cargo.toml --features mongo
+    OPEN_STORY_DATA_BACKEND=mongo \
+    OPEN_STORY_MONGO_URI=mongodb://localhost:27017 \
+    OPEN_STORY_MONGO_DB=openstory \
+      cargo run --manifest-path rs/cli/Cargo.toml --features mongo -- serve &
+    sleep 2
+    cd ui && npm run dev &
+    wait
+
+# Same as `just up` but uses SQLite (no Docker / Mongo container required)
+up-no-mongo:
+    #!/usr/bin/env bash
+    set -e
+    if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+      taskkill //F //IM open-story.exe 2>/dev/null || true
+    else
+      pkill -f 'open-story.*serve' 2>/dev/null || true
+    fi
+    just kill-port 3002
+    just kill-port 5173
+
+    if ! command -v nats-server &>/dev/null; then
+      echo "ERROR: nats-server not found. Install: brew install nats-server"
+      exit 1
+    fi
+    if ! lsof -i :4222 &>/dev/null 2>&1; then
+      echo "Starting NATS JetStream..."
+      nats-server -c nats.conf &disown 2>/dev/null
+      sleep 1
+    else
+      echo "NATS already running on :4222"
+    fi
+
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     cargo build --manifest-path rs/cli/Cargo.toml
     cargo run --manifest-path rs/cli/Cargo.toml -- serve &
     sleep 2
     cd ui && npm run dev &
     wait
+
+# Start MongoDB (mongo:7) as a Docker container (idempotent)
+mongo:
+    #!/usr/bin/env bash
+    cmd={{container_cmd}}
+    name=openstory-mongo
+    if $cmd ps --format '{{"{{"}}.Names{{"}}"}}' | grep -q "^${name}$"; then
+      echo "MongoDB already running"
+    elif $cmd ps -a --format '{{"{{"}}.Names{{"}}"}}' | grep -q "^${name}$"; then
+      echo "Restarting existing MongoDB container..."
+      $cmd start ${name} >/dev/null
+    else
+      echo "Starting MongoDB (mongo:7)..."
+      $cmd run -d --name ${name} -p 27017:27017 \
+        -v openstory-mongo-data:/data/db \
+        docker.io/library/mongo:7 >/dev/null
+    fi
+    # Wait for the server to accept connections (≤10s)
+    for i in $(seq 1 20); do
+      if $cmd exec ${name} mongosh --quiet --eval 'db.adminCommand({ping: 1})' >/dev/null 2>&1; then
+        echo "MongoDB ready on :27017"
+        exit 0
+      fi
+      sleep 0.5
+    done
+    echo "WARNING: mongo did not become ready in 10s — check '$cmd logs ${name}'"
+
+# Stop and remove the openstory-mongo container (data volume preserved)
+mongo-stop:
+    #!/usr/bin/env bash
+    cmd={{container_cmd}}
+    name=openstory-mongo
+    if $cmd ps -a --format '{{"{{"}}.Names{{"}}"}}' | grep -q "^${name}$"; then
+      $cmd stop ${name} >/dev/null
+      $cmd rm ${name} >/dev/null
+      echo "Stopped MongoDB"
+    else
+      echo "MongoDB not running"
+    fi
+
+# Drop the openstory-mongo data volume (DESTRUCTIVE — clean slate for Mongo)
+mongo-reset: mongo-stop
+    #!/usr/bin/env bash
+    cmd={{container_cmd}}
+    if $cmd volume ls --format '{{"{{"}}.Name{{"}}"}}' | grep -q '^openstory-mongo-data$'; then
+      $cmd volume rm openstory-mongo-data >/dev/null
+      echo "Removed openstory-mongo-data volume"
+    else
+      echo "No openstory-mongo-data volume to remove"
+    fi
 
 # Start NATS JetStream standalone
 nats:

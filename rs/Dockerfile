@@ -1,5 +1,10 @@
 FROM rust:1.88-slim AS builder
 
+# Optional cargo features to enable in the release build. Set via the
+# docker-compose `args:` block. Default empty (SQLite-only). Use
+# `FEATURES=mongo` to include the MongoDB EventStore backend.
+ARG FEATURES=""
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev build-essential protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
@@ -26,7 +31,11 @@ RUN mkdir -p src bus/src cli/src core/src patterns/src server/src store/src view
     echo "pub fn dummy() {}" > server/src/lib.rs && \
     echo "pub fn dummy() {}" > store/src/lib.rs && \
     echo "pub fn dummy() {}" > views/src/lib.rs && \
-    cargo build --release -p open-story-cli 2>/dev/null || true
+    if [ -n "$FEATURES" ]; then \
+        cargo build --release -p open-story-cli --features "$FEATURES" 2>/dev/null || true; \
+    else \
+        cargo build --release -p open-story-cli 2>/dev/null || true; \
+    fi
 
 # Copy real source and build (touch forces Cargo to see changed sources)
 COPY src/ src/
@@ -37,7 +46,12 @@ COPY patterns/src/ patterns/src/
 COPY server/src/ server/src/
 COPY store/src/ store/src/
 COPY views/src/ views/src/
-RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs patterns/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && cargo build --release -p open-story-cli
+RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs patterns/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && \
+    if [ -n "$FEATURES" ]; then \
+        cargo build --release -p open-story-cli --features "$FEATURES"; \
+    else \
+        cargo build --release -p open-story-cli; \
+    fi
 
 FROM debian:bookworm-slim
 
