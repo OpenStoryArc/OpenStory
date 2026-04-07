@@ -26,6 +26,37 @@ use serde_json::{json, Value};
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
 use open_story_store::event_store::{EventStore, SessionRow};
+// Analytics output struct imports get added back as new helpers are
+// written. Keeping the import list minimal to silence unused-import
+// warnings during the Phase 5 TDD walk.
+#[allow(unused_imports)]
+use open_story_store::queries::{
+    HourlyActivity, ProjectPulse, ProjectSession, SessionError, SessionSynopsis,
+    ToolCount, ToolStep,
+};
+
+// ───────────────────────────────────────────────────────────────────────
+// Canonical timestamp format
+// ───────────────────────────────────────────────────────────────────────
+//
+// See §1.5 of `docs/research/mongo-analytics-parity-plan.md` for the
+// derivation. The translator at `rs/core/src/translate.rs:473` and
+// `translate_pi.rs:330` pass-through this format from the source JSONL.
+// Fixture timestamps must be byte-identical to what production stores —
+// never use `chrono::DateTime::to_rfc3339()` here.
+const TS_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
+
+/// Returns a fixture timestamp at `hours_ago` hours and
+/// `extra_minutes_ago` minutes before now, formatted in the canonical
+/// translator format. Used by `seed_analytics_universe` to produce
+/// timestamps that fall within any reasonable `days` window of `now()`.
+fn ts_offset(hours_ago: i64, extra_minutes_ago: i64) -> String {
+    (chrono::Utc::now()
+        - chrono::Duration::hours(hours_ago)
+        - chrono::Duration::minutes(extra_minutes_ago))
+        .format(TS_FORMAT)
+        .to_string()
+}
 
 // ───────────────────────────────────────────────────────────────────────
 // Test fixtures
@@ -590,6 +621,282 @@ pub async fn it_counts_indexed_full_text_records(store: Arc<dyn EventStore>) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
+// Analytics fixture — the "Analytics Universe"
+// ───────────────────────────────────────────────────────────────────────
+//
+// One shared seed function used by every analytics conformance helper.
+// See §7 of `docs/research/mongo-analytics-parity-plan.md` for the
+// declarative spec. Topology: 2 projects, 3 sessions, ~25 events.
+//
+// Timestamps are computed relative to `Utc::now()` at seed time so the
+// `days` parameter on time-windowed queries always sees them. Format
+// is the canonical translator format (§1.5) — byte-identical to what
+// the JSONL pass-through produces in production.
+
+/// Build an analytics-fixture event with the right shape for the
+/// SQLite/Mongo path (`payload.data.agent_payload.tool` for tool_use,
+/// `payload.data.agent_payload.text` for messages, etc.).
+fn analytics_event(
+    id: &str,
+    session_id: &str,
+    timestamp: &str,
+    subtype: &str,
+    agent_payload: Value,
+) -> Value {
+    json!({
+        "id": id,
+        "type": "io.arc.event",
+        "subtype": subtype,
+        "source": format!("arc://transcript/{session_id}"),
+        "time": timestamp,
+        "data": {
+            "raw": {},
+            "seq": 1,
+            "session_id": session_id,
+            "agent_payload": agent_payload,
+        }
+    })
+}
+
+/// Tool-use event helper.
+fn tool_use_event(id: &str, sid: &str, ts: &str, tool: &str, file: Option<&str>) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(f) = file {
+        args.insert("file_path".into(), Value::String(f.to_string()));
+    }
+    analytics_event(
+        id,
+        sid,
+        ts,
+        "message.assistant.tool_use",
+        json!({
+            "_variant": "claude-code",
+            "meta": {"agent": "claude-code"},
+            "tool": tool,
+            "args": args,
+        }),
+    )
+}
+
+/// User-prompt event helper.
+fn user_prompt_event(id: &str, sid: &str, ts: &str, text: &str) -> Value {
+    analytics_event(
+        id,
+        sid,
+        ts,
+        "message.user.prompt",
+        json!({
+            "_variant": "claude-code",
+            "meta": {"agent": "claude-code"},
+            "text": text,
+        }),
+    )
+}
+
+/// System-error event helper.
+fn error_event(id: &str, sid: &str, ts: &str, message: &str) -> Value {
+    analytics_event(
+        id,
+        sid,
+        ts,
+        "system.error",
+        json!({
+            "_variant": "claude-code",
+            "meta": {"agent": "claude-code"},
+            "text": message,
+        }),
+    )
+}
+
+/// Seed the shared analytics universe into a fresh store. Idempotent
+/// per-store but not safe to call twice on the same store (event ids
+/// would collide and dedup would silently no-op).
+///
+/// The fixture is small (~25 events, 3 sessions, 2 projects) and
+/// intentionally has no within-session timestamp ties — the 1-minute
+/// increments give every event a distinct timestamp. Tied counts in
+/// `top_tools` are allowed; the C2 canonical-sort handles them.
+async fn seed_analytics_universe(store: &dyn EventStore) {
+    // ── Sessions ──
+    // sess-A1: proj-alpha, 12 events, started ~24h ago
+    // sess-A2: proj-alpha, 8  events, started ~12h ago
+    // sess-B1: proj-beta,  5  events, started ~6h  ago
+    let session_rows = [
+        ("sess-A1", "proj-alpha", "Alpha", "build feature X", ts_offset(24, 11), ts_offset(24, 0)),
+        ("sess-A2", "proj-alpha", "Alpha", "fix auth bug",    ts_offset(12, 7),  ts_offset(12, 0)),
+        ("sess-B1", "proj-beta",  "Beta",  "explore data",    ts_offset(6, 4),   ts_offset(6, 0)),
+    ];
+    for (id, pid, pname, label, first, last) in &session_rows {
+        store
+            .upsert_session(&SessionRow {
+                id: id.to_string(),
+                project_id: Some(pid.to_string()),
+                project_name: Some(pname.to_string()),
+                label: Some(label.to_string()),
+                custom_label: None,
+                branch: Some("main".to_string()),
+                event_count: 0, // updated lazily — analytics queries don't depend on this
+                first_event: Some(first.clone()),
+                last_event: Some(last.clone()),
+            })
+            .await
+            .unwrap();
+    }
+
+    // ── sess-A1 events ── 12 events: 1 prompt, 5 tool_use, 5 results, 1 error
+    let a1_events = vec![
+        user_prompt_event("a1-p1",  "sess-A1", &ts_offset(24, 11), "build feature X"),
+        tool_use_event(   "a1-t1",  "sess-A1", &ts_offset(24, 10), "Edit", Some("src/main.rs")),
+        tool_use_event(   "a1-t2",  "sess-A1", &ts_offset(24, 9),  "Edit", Some("src/main.rs")),
+        tool_use_event(   "a1-t3",  "sess-A1", &ts_offset(24, 8),  "Bash", None),
+        tool_use_event(   "a1-t4",  "sess-A1", &ts_offset(24, 7),  "Read", Some("src/main.rs")),
+        tool_use_event(   "a1-t5",  "sess-A1", &ts_offset(24, 6),  "Read", Some("Cargo.toml")),
+        analytics_event("a1-r1",  "sess-A1", &ts_offset(24, 5), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a1-r2",  "sess-A1", &ts_offset(24, 4), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a1-r3",  "sess-A1", &ts_offset(24, 3), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a1-r4",  "sess-A1", &ts_offset(24, 2), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a1-r5",  "sess-A1", &ts_offset(24, 1), "message.user.tool_result", json!({"text":"ok"})),
+        error_event(      "a1-e1",  "sess-A1", &ts_offset(24, 0),  "compile error: trait bound not satisfied"),
+    ];
+    for e in &a1_events {
+        store.insert_event("sess-A1", e).await.unwrap();
+    }
+
+    // ── sess-A2 events ── 8 events: 1 prompt, 3 tool_use, 3 results, 1 error
+    let a2_events = vec![
+        user_prompt_event("a2-p1",  "sess-A2", &ts_offset(12, 7),  "fix auth bug"),
+        tool_use_event(   "a2-t1",  "sess-A2", &ts_offset(12, 6),  "Read", Some("tests/auth.rs")),
+        tool_use_event(   "a2-t2",  "sess-A2", &ts_offset(12, 5),  "Read", Some("tests/auth.rs")),
+        tool_use_event(   "a2-t3",  "sess-A2", &ts_offset(12, 4),  "Bash", None),
+        analytics_event("a2-r1",  "sess-A2", &ts_offset(12, 3), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a2-r2",  "sess-A2", &ts_offset(12, 2), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("a2-r3",  "sess-A2", &ts_offset(12, 1), "message.user.tool_result", json!({"text":"ok"})),
+        error_event(      "a2-e1",  "sess-A2", &ts_offset(12, 0),  "test failure: assertion left != right"),
+    ];
+    for e in &a2_events {
+        store.insert_event("sess-A2", e).await.unwrap();
+    }
+
+    // ── sess-B1 events ── 5 events: 1 prompt, 2 tool_use, 2 results
+    let b1_events = vec![
+        user_prompt_event("b1-p1",  "sess-B1", &ts_offset(6, 4),  "explore data"),
+        tool_use_event(   "b1-t1",  "sess-B1", &ts_offset(6, 3),  "Grep", Some("data/raw/")),
+        tool_use_event(   "b1-t2",  "sess-B1", &ts_offset(6, 2),  "Glob", Some("data/raw/*.csv")),
+        analytics_event("b1-r1",  "sess-B1", &ts_offset(6, 1), "message.user.tool_result", json!({"text":"ok"})),
+        analytics_event("b1-r2",  "sess-B1", &ts_offset(6, 0), "message.user.tool_result", json!({"text":"ok"})),
+    ];
+    for e in &b1_events {
+        store.insert_event("sess-B1", e).await.unwrap();
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Analytics conformance helpers
+// ───────────────────────────────────────────────────────────────────────
+//
+// Each helper is tagged with its §1.6 parity category:
+//   C1 — strict assert_eq! (math is well-defined)
+//   C2 — canonical-sort then assert_eq! (tie order is implementation-defined)
+//   C3 — API redesign required (cosmetic field doing too much work)
+//
+// All helpers seed the analytics universe at the start; the seed is
+// idempotent per-store but not safe to call twice on the same store.
+
+/// §8.10 — `query_project_context` returns recent sessions for a
+/// project, ordered by `last_event DESC`. Distinct `last_event` values
+/// in the fixture make the order unambiguous → C1 strict equality.
+pub async fn it_returns_project_context_recent_sessions(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_project_context("proj-alpha", 5).await;
+
+    // proj-alpha has 2 sessions (sess-A1, sess-A2). sess-A2 was created
+    // ~12h ago and sess-A1 ~24h ago, so A2 is more recent → first.
+    assert_eq!(result.len(), 2, "proj-alpha has 2 sessions");
+    assert_eq!(result[0].session_id, "sess-A2", "most recent first");
+    assert_eq!(result[0].label.as_deref(), Some("fix auth bug"));
+    assert_eq!(result[1].session_id, "sess-A1");
+    assert_eq!(result[1].label.as_deref(), Some("build feature X"));
+}
+
+/// §8.11 — `query_project_context` is scoped to the requested project.
+/// Querying for `proj-beta` must NOT return any `proj-alpha` sessions.
+pub async fn it_scopes_project_context_to_the_project(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_project_context("proj-beta", 5).await;
+
+    assert_eq!(result.len(), 1, "proj-beta has exactly 1 session");
+    assert_eq!(result[0].session_id, "sess-B1");
+    assert_eq!(result[0].label.as_deref(), Some("explore data"));
+}
+
+/// §8.7 — `query_project_pulse` aggregates by project across the time
+/// window, sorted by `total_events DESC`. C1 because counts are
+/// mathematically defined.
+pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    // Note: project_pulse uses `SUM(s.event_count)` from the sessions
+    // table — but our fixture leaves event_count at 0 (analytics
+    // queries don't depend on it for THIS query, but project_pulse
+    // does). Update event_count via re-upsert before querying.
+    let updates = [
+        ("sess-A1", "proj-alpha", "Alpha", "build feature X", ts_offset(24, 11), ts_offset(24, 0), 12u64),
+        ("sess-A2", "proj-alpha", "Alpha", "fix auth bug",    ts_offset(12, 7),  ts_offset(12, 0), 8u64),
+        ("sess-B1", "proj-beta",  "Beta",  "explore data",    ts_offset(6, 4),   ts_offset(6, 0),  5u64),
+    ];
+    for (id, pid, pname, label, first, last, count) in &updates {
+        store
+            .upsert_session(&SessionRow {
+                id: id.to_string(),
+                project_id: Some(pid.to_string()),
+                project_name: Some(pname.to_string()),
+                label: Some(label.to_string()),
+                custom_label: None,
+                branch: Some("main".to_string()),
+                event_count: *count,
+                first_event: Some(first.clone()),
+                last_event: Some(last.clone()),
+            })
+            .await
+            .unwrap();
+    }
+
+    // generous days window — fixtures are within 24h of now
+    let result = store.query_project_pulse(365).await;
+
+    assert_eq!(result.len(), 2, "two projects with last_event in window");
+    // proj-alpha: 2 sessions, 12+8=20 events → first by total_events DESC
+    assert_eq!(result[0].project_id, "proj-alpha");
+    assert_eq!(result[0].project_name.as_deref(), Some("Alpha"));
+    assert_eq!(result[0].session_count, 2);
+    assert_eq!(result[0].event_count, 20);
+    // proj-beta: 1 session, 5 events
+    assert_eq!(result[1].project_id, "proj-beta");
+    assert_eq!(result[1].session_count, 1);
+    assert_eq!(result[1].event_count, 5);
+}
+
+/// §8.6 — `query_session_errors` returns errors in `timestamp ASC`
+/// order. Distinct timestamps → C1 strict equality.
+pub async fn it_returns_session_errors_in_timestamp_order(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_session_errors("sess-A1").await;
+
+    assert_eq!(result.len(), 1, "sess-A1 has 1 error event");
+    assert_eq!(result[0].message, "compile error: trait bound not satisfied");
+
+    let result_a2 = store.query_session_errors("sess-A2").await;
+    assert_eq!(result_a2.len(), 1, "sess-A2 has 1 error event");
+    assert_eq!(result_a2[0].message, "test failure: assertion left != right");
+
+    let result_b1 = store.query_session_errors("sess-B1").await;
+    assert!(result_b1.is_empty(), "sess-B1 has no error events");
+}
+
+// ───────────────────────────────────────────────────────────────────────
 // Backend wrappers
 // ───────────────────────────────────────────────────────────────────────
 //
@@ -639,6 +946,11 @@ macro_rules! for_each_conformance_test {
         $macro!(it_returns_no_results_when_nothing_matches);
         $macro!(it_caps_full_text_search_results_at_the_limit);
         $macro!(it_counts_indexed_full_text_records);
+        // Analytics — Phase 5
+        $macro!(it_returns_project_context_recent_sessions);
+        $macro!(it_scopes_project_context_to_the_project);
+        $macro!(it_returns_project_pulse_grouped_by_project);
+        $macro!(it_returns_session_errors_in_timestamp_order);
     };
 }
 

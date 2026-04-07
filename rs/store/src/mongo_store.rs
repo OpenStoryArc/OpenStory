@@ -553,8 +553,190 @@ impl EventStore for MongoStore {
     // session_events — gets parity for free.
 
     // ── Phase 5: analytics queries ──────────────────────────────────
-    // (intentionally not stubbed — they fall back to the trait's default
-    // empty impls until Phase 5 implements them as Mongo aggregations)
+    //
+    // Each method follows the §1.6 semantic-parity-per-query model:
+    // it answers the same question as the SQLite implementation in
+    // queries.rs, using whatever Mongo primitive is most natural.
+    // The answers are byte-equal under §1.6 Category 1, or canonical-
+    // sort-equal under Category 2. See
+    // docs/research/mongo-analytics-parity-plan.md.
+
+    /// Pure session-metadata read. Mirrors `queries::project_context`
+    /// — returns the most recent N sessions for a project, ordered by
+    /// `last_event DESC`. C1 strict equality.
+    async fn query_project_context(
+        &self,
+        project_id: &str,
+        limit: usize,
+    ) -> Vec<crate::queries::ProjectSession> {
+        use crate::queries::ProjectSession;
+        use futures::StreamExt;
+
+        let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "last_event": -1 })
+            .limit(limit as i64)
+            .build();
+        let mut cursor = match coll
+            .find(doc! { "project_id": project_id })
+            .with_options(opts)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_project_context: {e}");
+                return Vec::new();
+            }
+        };
+
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("mongo query_project_context cursor: {e}");
+                    return out;
+                }
+            };
+            out.push(ProjectSession {
+                session_id: doc.get_str("_id").unwrap_or_default().to_string(),
+                label: doc.get_str("label").ok().map(|s| s.to_string()),
+                event_count: doc.get_i64("event_count").unwrap_or(0) as u64,
+                first_event: doc.get_str("first_event").ok().map(|s| s.to_string()),
+                last_event: doc.get_str("last_event").ok().map(|s| s.to_string()),
+            });
+        }
+        out
+    }
+
+    /// Aggregate session counts and event totals per project, filtered
+    /// by `last_event >= cutoff`. Mirrors `queries::project_pulse`.
+    /// C1 strict equality.
+    async fn query_project_pulse(&self, days: u32) -> Vec<crate::queries::ProjectPulse> {
+        use crate::queries::ProjectPulse;
+        use futures::StreamExt;
+
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        // §1.5 / §6.8: use the canonical translator format so the cutoff
+        // is byte-comparable to stored values. Mongo could use a typed
+        // BSON Date here too, but storage is BSON String, so we stay
+        // in string-compare regime to keep the schema honest.
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
+
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "project_id": { "$ne": Bson::Null },
+                    "last_event": { "$gte": &cutoff_str },
+                }
+            },
+            doc! {
+                "$group": {
+                    "_id": "$project_id",
+                    "project_name":  { "$first": "$project_name" },
+                    "session_count": { "$sum": 1 },
+                    "event_count":   { "$sum": "$event_count" },
+                    "last_activity": { "$max": "$last_event" },
+                }
+            },
+            doc! {
+                // C1 strict order: by total events descending — fixture
+                // uses distinct counts so this is unambiguous.
+                "$sort": { "event_count": -1 }
+            },
+        ];
+
+        let mut cursor = match coll.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_project_pulse: {e}");
+                return Vec::new();
+            }
+        };
+
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("mongo query_project_pulse cursor: {e}");
+                    return out;
+                }
+            };
+            out.push(ProjectPulse {
+                project_id: doc.get_str("_id").unwrap_or_default().to_string(),
+                project_name: doc.get_str("project_name").ok().map(|s| s.to_string()),
+                session_count: get_count(&doc, "session_count"),
+                event_count: get_count(&doc, "event_count"),
+                last_activity: doc.get_str("last_activity").ok().map(|s| s.to_string()),
+            });
+        }
+        out
+    }
+
+    /// Errors for a session, ordered by timestamp ASC. Mirrors
+    /// `queries::session_errors`. C1 strict equality.
+    async fn query_session_errors(
+        &self,
+        session_id: &str,
+    ) -> Vec<crate::queries::SessionError> {
+        use crate::queries::SessionError;
+        use futures::StreamExt;
+
+        let coll: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "timestamp": 1 })
+            .build();
+        let mut cursor = match coll
+            .find(doc! {
+                "session_id": session_id,
+                "subtype": "system.error",
+            })
+            .with_options(opts)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_session_errors: {e}");
+                return Vec::new();
+            }
+        };
+
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("mongo query_session_errors cursor: {e}");
+                    return out;
+                }
+            };
+            // The full original event lives at `payload`. Read text via
+            // the same COALESCE order SqliteStore uses:
+            // data.agent_payload.text → data.raw.message.content
+            let timestamp = doc.get_str("timestamp").unwrap_or_default().to_string();
+            let message = doc
+                .get_document("payload")
+                .ok()
+                .and_then(|p| p.get_document("data").ok())
+                .and_then(|d| {
+                    d.get_document("agent_payload")
+                        .ok()
+                        .and_then(|ap| ap.get_str("text").ok().map(|s| s.to_string()))
+                        .or_else(|| {
+                            d.get_document("raw")
+                                .ok()
+                                .and_then(|r| r.get_document("message").ok())
+                                .and_then(|m| m.get_str("content").ok().map(|s| s.to_string()))
+                        })
+                })
+                .unwrap_or_default();
+            out.push(SessionError { timestamp, message });
+        }
+        out
+    }
 
     // ── Phase 6: FTS ────────────────────────────────────────────────
 
@@ -738,6 +920,20 @@ fn is_duplicate_key(err: &mongodb::error::Error) -> bool {
         *err.kind,
         ErrorKind::Write(WriteFailure::WriteError(ref we)) if we.code == MONGO_DUPLICATE_KEY
     )
+}
+
+/// Read a numeric field that might be stored as `Int32` or `Int64`
+/// (BSON's `$sum: 1` produces `Int32` for small counts; `$sum: $field`
+/// produces `Int64` if the input was `Int64`). Returns 0 for missing
+/// or non-numeric values. This is the §6.1 integer-width-tolerance
+/// helper called out in the parity plan.
+fn get_count(doc: &Document, key: &str) -> u64 {
+    match doc.get(key) {
+        Some(Bson::Int32(n)) => (*n).max(0) as u64,
+        Some(Bson::Int64(n)) => (*n).max(0) as u64,
+        Some(Bson::Double(n)) => n.max(0.0) as u64,
+        _ => 0,
+    }
 }
 
 /// Convert a `sessions` document back into a `SessionRow`. The session
