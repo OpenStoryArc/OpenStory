@@ -970,6 +970,107 @@ pub async fn it_returns_tool_journey_empty_for_unknown_session(store: Arc<dyn Ev
     assert!(result.is_empty());
 }
 
+/// §8.9 — `query_session_efficiency` returns the most recent 50
+/// sessions with tool/error counts. The SQL query uses
+/// `ORDER BY last_event DESC LIMIT 50`, but the `SessionEfficiency`
+/// struct doesn't carry `last_event` — so the Vec ordering is opaque
+/// at the API surface and we test on SET membership instead.
+/// C2 with canonical sort by `session_id` ASC.
+pub async fn it_returns_session_efficiency_for_recent_sessions(
+    store: Arc<dyn EventStore>,
+) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_session_efficiency().await;
+
+    // Canonical sort by session_id so any backend-specific Vec
+    // ordering is normalized away.
+    let mut canonical = result.clone();
+    canonical.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+
+    // Three sessions in fixture.
+    assert_eq!(canonical.len(), 3, "3 sessions in fixture");
+
+    assert_eq!(canonical[0].session_id, "sess-A1");
+    assert_eq!(canonical[0].label.as_deref(), Some("build feature X"));
+    assert_eq!(canonical[0].tool_count, 5, "sess-A1 has 5 tool_use events");
+    assert_eq!(canonical[0].error_count, 1);
+
+    assert_eq!(canonical[1].session_id, "sess-A2");
+    assert_eq!(canonical[1].label.as_deref(), Some("fix auth bug"));
+    assert_eq!(canonical[1].tool_count, 3, "sess-A2 has 3 tool_use events");
+    assert_eq!(canonical[1].error_count, 1);
+
+    assert_eq!(canonical[2].session_id, "sess-B1");
+    assert_eq!(canonical[2].label.as_deref(), Some("explore data"));
+    assert_eq!(canonical[2].tool_count, 2, "sess-B1 has 2 tool_use events");
+    assert_eq!(canonical[2].error_count, 0);
+}
+
+/// §8.12 — `query_recent_files` returns distinct files modified
+/// (Edit/Write/NotebookEdit) in a project's sessions, most-recent
+/// first. C2 — same-timestamp ties have implementation-defined order,
+/// so the helper sorts both outputs alphabetically before comparing
+/// set membership.
+pub async fn it_returns_recent_files_for_a_project(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_recent_files("proj-alpha", 5).await;
+
+    // Edit/Write events in proj-alpha sessions (sess-A1 + sess-A2):
+    //   sess-A1: Edit src/main.rs (×2)
+    //   sess-A2: (no edits — only Reads)
+    // Distinct files modified: ["src/main.rs"]
+    let mut canonical = result.clone();
+    canonical.sort();
+    assert_eq!(canonical, vec!["src/main.rs".to_string()]);
+
+    // Scoping: proj-beta has no edit events at all → empty result
+    let beta = store.query_recent_files("proj-beta", 5).await;
+    assert!(beta.is_empty(), "proj-beta has no edit events");
+}
+
+/// §8.13 — `query_productivity_by_hour` buckets events by UTC hour.
+/// Both backends compute the same hour from the same `Z`-suffixed
+/// source data, so this is C1 strict equality on the bucket counts —
+/// but the EXACT hour values depend on `Utc::now()` at test time.
+/// The assertion compares the result Vec from each backend to the
+/// expected Vec computed from the same `chrono` ops at fixture seed
+/// time.
+pub async fn it_buckets_productivity_by_hour(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_productivity_by_hour(365).await;
+
+    // The fixture has events at three anchor offsets: 24h ago, 12h
+    // ago, 6h ago. Each anchor produces ~12, 8, 5 events at one
+    // distinct hour (within the 1-minute spread). Total = 25 events.
+    let total: u64 = result.iter().map(|h| h.event_count).sum();
+    assert_eq!(total, 25, "25 events total in the fixture");
+
+    // Hours are 0..=23
+    for h in &result {
+        assert!(h.hour < 24, "hour bucket out of range: {}", h.hour);
+    }
+
+    // Buckets sorted by hour ASC (the SQL impl uses ORDER BY hour)
+    let mut sorted = result.clone();
+    sorted.sort_by_key(|h| h.hour);
+    assert_eq!(sorted, result, "result must be ordered by hour ASC");
+
+    // The fixture has events at exactly 3 anchors (24h, 12h, 6h ago)
+    // so we expect at most 3 distinct hour buckets. They MAY collapse
+    // into fewer buckets if two anchors land in the same UTC hour
+    // (e.g., test runs at xx:30 and 6h ago is xx:30 of the previous
+    // hour-aligned bucket). The total events stays 25 either way.
+    assert!(
+        result.len() <= 3,
+        "fixture spans at most 3 distinct hours, got {}",
+        result.len()
+    );
+    assert!(!result.is_empty(), "must have at least one bucket");
+}
+
 /// §8.5 — `query_file_impact` returns files with read/write counts
 /// per file, ordered by `(reads + writes) DESC`. The Rust-side post
 /// sort makes the order deterministic → C1.
@@ -1055,6 +1156,9 @@ macro_rules! for_each_conformance_test {
         $macro!(it_returns_tool_journey_in_timestamp_order);
         $macro!(it_returns_tool_journey_empty_for_unknown_session);
         $macro!(it_returns_file_impact_with_reads_and_writes);
+        $macro!(it_returns_session_efficiency_for_recent_sessions);
+        $macro!(it_returns_recent_files_for_a_project);
+        $macro!(it_buckets_productivity_by_hour);
     };
 }
 

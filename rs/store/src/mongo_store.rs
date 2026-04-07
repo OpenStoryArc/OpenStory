@@ -918,6 +918,246 @@ impl EventStore for MongoStore {
         result
     }
 
+    /// Per-session efficiency metrics. Last 50 sessions ordered by
+    /// `last_event DESC`, with per-session tool/error counts. Mirrors
+    /// `queries::session_efficiency`. C2 — the SessionEfficiency
+    /// struct doesn't carry `last_event`, so the result Vec ordering
+    /// at the API surface is opaque; the conformance test sorts both
+    /// backends' outputs canonically before asserting on set
+    /// membership and counts.
+    async fn query_session_efficiency(
+        &self,
+    ) -> Vec<crate::queries::SessionEfficiency> {
+        use crate::queries::SessionEfficiency;
+        use futures::StreamExt;
+
+        // 1. Fetch the last 50 sessions ordered by last_event DESC.
+        //    Mirrors the SQL impl's outer query.
+        let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "last_event": -1 })
+            .limit(50)
+            .build();
+        let mut cursor = match sessions.find(doc! {}).with_options(opts).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_session_efficiency: {e}");
+                return Vec::new();
+            }
+        };
+
+        let mut session_rows: Vec<(String, Option<String>, u64, Option<String>, Option<String>)> =
+            Vec::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                session_rows.push((
+                    d.get_str("_id").unwrap_or_default().to_string(),
+                    d.get_str("label").ok().map(|s| s.to_string()),
+                    get_count(&d, "event_count"),
+                    d.get_str("first_event").ok().map(|s| s.to_string()),
+                    d.get_str("last_event").ok().map(|s| s.to_string()),
+                ));
+            }
+        }
+
+        // 2. Per-session tool_count + error_count via count_documents.
+        //    Mirrors the SQL impl's per-row subqueries (N+1 pattern).
+        //    Slower than a $lookup but matches the SQL contract exactly.
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let mut out = Vec::with_capacity(session_rows.len());
+        for (id, label, event_count, first_event, last_event) in session_rows {
+            let tool_count = events
+                .count_documents(doc! {
+                    "session_id": &id,
+                    "subtype": "message.assistant.tool_use",
+                })
+                .await
+                .unwrap_or(0);
+            let error_count = events
+                .count_documents(doc! {
+                    "session_id": &id,
+                    "subtype": "system.error",
+                })
+                .await
+                .unwrap_or(0);
+
+            let duration_secs = match (&first_event, &last_event) {
+                (Some(f), Some(l)) => {
+                    let f = chrono::DateTime::parse_from_rfc3339(f).ok();
+                    let l = chrono::DateTime::parse_from_rfc3339(l).ok();
+                    match (f, l) {
+                        (Some(f), Some(l)) => Some((l - f).num_seconds()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+
+            out.push(SessionEfficiency {
+                session_id: id,
+                label,
+                event_count,
+                tool_count,
+                error_count,
+                duration_secs,
+            });
+        }
+        out
+    }
+
+    /// Distinct files modified in a project's sessions, most-recent
+    /// first. Cross-collection: matches sessions by project_id, then
+    /// finds events in those sessions. Mirrors `queries::recent_files`.
+    /// Two-step approach (find sessions then find events filtered by
+    /// session_id $in) is simpler than a $lookup pipeline and just as
+    /// fast for our typical N (≤100 sessions per project).
+    async fn query_recent_files(
+        &self,
+        project_id: &str,
+        session_limit: usize,
+    ) -> Vec<String> {
+        use futures::StreamExt;
+
+        // 1. Find session ids in the project.
+        let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let mut sess_cursor = match sessions
+            .find(doc! { "project_id": project_id })
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_recent_files (sessions): {e}");
+                return Vec::new();
+            }
+        };
+        let mut session_ids: Vec<String> = Vec::new();
+        while let Some(next) = sess_cursor.next().await {
+            if let Ok(d) = next {
+                if let Ok(id) = d.get_str("_id") {
+                    session_ids.push(id.to_string());
+                }
+            }
+        }
+        if session_ids.is_empty() {
+            return Vec::new();
+        }
+
+        // 2. Aggregate matching events: filter by session_id $in,
+        //    only Edit/Write/NotebookEdit, with a non-null target,
+        //    distinct by file path keeping the most recent timestamp.
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "session_id": { "$in": &session_ids },
+                    "subtype": "message.assistant.tool_use",
+                    "payload.data.agent_payload.tool": {
+                        "$in": ["Edit", "Write", "NotebookEdit"]
+                    },
+                }
+            },
+            // Compute the COALESCE-style target field
+            doc! {
+                "$addFields": {
+                    "target": {
+                        "$ifNull": [
+                            "$payload.data.agent_payload.args.file_path",
+                            { "$ifNull": [
+                                "$payload.data.agent_payload.args.file",
+                                "$payload.data.agent_payload.args.path"
+                            ] }
+                        ]
+                    }
+                }
+            },
+            doc! { "$match": { "target": { "$ne": Bson::Null } } },
+            // Group by target, keeping the most recent timestamp
+            doc! {
+                "$group": {
+                    "_id": "$target",
+                    "latest": { "$max": "$timestamp" },
+                }
+            },
+            // Sort by most recent first
+            doc! { "$sort": { "latest": -1 } },
+            // Match the SQL impl's `LIMIT session_limit * 20`
+            doc! { "$limit": (session_limit as i64) * 20 },
+        ];
+
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_recent_files (events): {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                if let Ok(target) = d.get_str("_id") {
+                    out.push(target.to_string());
+                }
+            }
+        }
+        out
+    }
+
+    /// Activity density by hour of day. Mirrors
+    /// `queries::productivity_by_hour`. Both backends interpret the
+    /// same `Z`-suffixed UTC timestamps and produce the same hour
+    /// buckets — see §1.5 / §6.2 of the parity plan.
+    async fn query_productivity_by_hour(
+        &self,
+        days: u32,
+    ) -> Vec<crate::queries::HourlyActivity> {
+        use crate::queries::HourlyActivity;
+        use futures::StreamExt;
+
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        // Extract hour from the timestamp string via $substr (chars
+        // 11..13). This is faster than $dateFromString → $hour, and
+        // it's exactly equivalent because the timestamp format is
+        // fixed-width (§1.5).
+        let pipeline = vec![
+            doc! { "$match": { "timestamp": { "$gte": cutoff_str } } },
+            doc! {
+                "$group": {
+                    "_id": {
+                        "$toInt": { "$substr": ["$timestamp", 11, 2] }
+                    },
+                    "count": { "$sum": 1 },
+                }
+            },
+            doc! { "$sort": { "_id": 1 } },
+        ];
+
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_productivity_by_hour: {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                let hour = match d.get("_id") {
+                    Some(Bson::Int32(h)) => *h as u32,
+                    Some(Bson::Int64(h)) => *h as u32,
+                    _ => continue,
+                };
+                out.push(HourlyActivity {
+                    hour,
+                    event_count: get_count(&d, "count"),
+                });
+            }
+        }
+        out
+    }
+
     /// Errors for a session, ordered by timestamp ASC. Mirrors
     /// `queries::session_errors`. C1 strict equality.
     async fn query_session_errors(
