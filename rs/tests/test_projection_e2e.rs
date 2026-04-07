@@ -35,12 +35,12 @@ fn fixtures_dir() -> PathBuf {
 
 /// Load a real fixture file, translate to CloudEvents, ingest into state.
 /// Returns the session_id and number of events ingested.
-fn load_fixture(state: &mut open_story::server::AppState, filename: &str) -> (String, usize) {
+async fn load_fixture(state: &mut open_story::server::AppState, filename: &str) -> (String, usize) {
     let path = fixtures_dir().join(filename);
     let session_id = filename.trim_end_matches(".jsonl").to_string();
     let mut ts = TranscriptState::new(session_id.clone());
     let events = read_new_lines(&path, &mut ts).unwrap();
-    let result = ingest_events(state, &session_id, &events, None);
+    let result = ingest_events(state, &session_id, &events, None).await;
     (session_id, result.count)
 }
 
@@ -78,7 +78,7 @@ mod incremental_consistency {
             let state = test_state(&data_dir);
             let (session_id, count) = {
                 let mut s = state.write().await;
-                load_fixture(&mut s, fixture)
+                load_fixture(&mut s, fixture).await
             };
 
             let s = state.read().await;
@@ -127,7 +127,7 @@ mod tree_consistency {
         let state = test_state(&data_dir);
         {
             let mut s = state.write().await;
-            load_fixture(&mut s, "synth_origin.jsonl");
+            load_fixture(&mut s, "synth_origin.jsonl").await;
         }
 
         let s = state.read().await;
@@ -180,7 +180,7 @@ mod tree_consistency {
         let state = test_state(&data_dir);
         {
             let mut s = state.write().await;
-            load_fixture(&mut s, "synth_global.jsonl");
+            load_fixture(&mut s, "synth_global.jsonl").await;
         }
 
         let s = state.read().await;
@@ -270,12 +270,12 @@ mod dedup {
 
         let count_first = {
             let mut s = state.write().await;
-            ingest_events(&mut s, "synthetic", &events, None).count
+            ingest_events(&mut s, "synthetic", &events, None).await.count
         };
 
         let count_second = {
             let mut s = state.write().await;
-            ingest_events(&mut s, "synthetic", &events, None).count
+            ingest_events(&mut s, "synthetic", &events, None).await.count
         };
 
         assert!(count_first > 0, "first ingest should produce events");
@@ -308,7 +308,7 @@ mod ws_initial_state_real_data {
         let state = test_state(&data_dir);
         {
             let mut s = state.write().await;
-            load_fixture(&mut s, "synth_origin.jsonl");
+            load_fixture(&mut s, "synth_origin.jsonl").await;
         }
 
         let s = state.read().await;
@@ -356,7 +356,7 @@ mod ws_initial_state_real_data {
         {
             let mut s = state.write().await;
             s.config.max_initial_records = 500;
-            load_fixture(&mut s, "synth_global.jsonl");
+            load_fixture(&mut s, "synth_global.jsonl").await;
         }
 
         let s = state.read().await;
@@ -395,8 +395,8 @@ mod multi_session {
         let state = test_state(&data_dir);
         let (sid_a, count_a, sid_b, count_b) = {
             let mut s = state.write().await;
-            let (a, ca) = load_fixture(&mut s, "synth_origin.jsonl");
-            let (b, cb) = load_fixture(&mut s, "synth_hooks.jsonl");
+            let (a, ca) = load_fixture(&mut s, "synth_origin.jsonl").await;
+            let (b, cb) = load_fixture(&mut s, "synth_hooks.jsonl").await;
             (a, ca, b, cb)
         };
 
@@ -504,7 +504,7 @@ mod ephemeral_in_real_data {
         let state = test_state(&data_dir);
         {
             let mut s = state.write().await;
-            load_fixture(&mut s, "synth_hooks.jsonl");
+            load_fixture(&mut s, "synth_hooks.jsonl").await;
         }
 
         let s = state.read().await;

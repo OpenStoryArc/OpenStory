@@ -135,7 +135,7 @@ mod content_endpoint {
         {
             let mut s = state.write().await;
             let event = make_event_with_large_payload("sess-1", "evt-big", 5000);
-            ingest_events(&mut s, "sess-1", &[event], None);
+            ingest_events(&mut s, "sess-1", &[event], None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-big/content")
@@ -168,7 +168,7 @@ mod content_endpoint {
             let mut s = state.write().await;
             // 100 bytes — well under TRUNCATION_THRESHOLD
             let event = make_event_with_large_payload("sess-1", "evt-small", 100);
-            ingest_events(&mut s, "sess-1", &[event], None);
+            ingest_events(&mut s, "sess-1", &[event], None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-small/content")

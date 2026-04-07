@@ -190,7 +190,7 @@ pub async fn receive_hook(
         )
     } else {
         // Local mode (NoopBus): ingest directly
-        let result = ingest_events(&mut s, &session_id, &events, project_id.as_deref());
+        let result = ingest_events(&mut s, &session_id, &events, project_id.as_deref()).await;
         // Broadcast changes to local WS clients
         for change in &result.changes {
             let _ = s.broadcast_tx.send(change.clone());

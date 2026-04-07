@@ -22,14 +22,14 @@ async fn test_ingest_same_batch_twice() {
 
     let mut s = state.write().await;
 
-    let first = ingest_events(&mut s, "sess-1", &events, None);
+    let first = ingest_events(&mut s, "sess-1", &events, None).await;
     assert_eq!(first.count, 2);
 
     // Same events again — should all be deduplicated
-    let second = ingest_events(&mut s, "sess-1", &events, None);
+    let second = ingest_events(&mut s, "sess-1", &events, None).await;
     assert_eq!(second.count, 0);
 
-    assert_eq!(s.store.event_store.session_events("sess-1").unwrap().len(), 2);
+    assert_eq!(s.store.event_store.session_events("sess-1").await.unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -44,15 +44,15 @@ async fn test_dedup_across_hook_and_ingest() {
     let mut s = state.write().await;
 
     // First ingest
-    let result = ingest_events(&mut s, "sess-1", &events, None);
+    let result = ingest_events(&mut s, "sess-1", &events, None).await;
     assert_eq!(result.count, 1);
 
     // Simulate same event coming through a different path (e.g., watcher)
-    let result = ingest_events(&mut s, "sess-1", &events, None);
+    let result = ingest_events(&mut s, "sess-1", &events, None).await;
     assert_eq!(result.count, 0);
 
     // Only 1 event stored
-    assert_eq!(s.store.event_store.session_events("sess-1").unwrap().len(), 1);
+    assert_eq!(s.store.event_store.session_events("sess-1").await.unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -67,12 +67,12 @@ async fn test_seen_ids_loaded_from_persistence() {
             make_event_with_id("io.arc.event", "sess-1", "evt-persist-2"),
         ];
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, "sess-1", &events, None);
+        let result = ingest_events(&mut s, "sess-1", &events, None).await;
         assert_eq!(result.count, 2);
     }
 
     // Phase 2: create new state from same directory — IDs should be loaded
-    let state2 = open_story::server::create_state(data_dir.path(), data_dir.path(), Arc::new(NoopBus), open_story::server::Config::default()).unwrap();
+    let state2 = open_story::server::create_state(data_dir.path(), data_dir.path(), Arc::new(NoopBus), open_story::server::Config::default()).await.unwrap();
     let mut s2 = state2.write().await;
 
     // These events already exist in persistence — should be deduplicated
@@ -80,13 +80,13 @@ async fn test_seen_ids_loaded_from_persistence() {
         make_event_with_id("io.arc.event", "sess-1", "evt-persist-1"),
         make_event_with_id("io.arc.event", "sess-1", "evt-persist-2"),
     ];
-    let result = ingest_events(&mut s2, "sess-1", &events, None);
+    let result = ingest_events(&mut s2, "sess-1", &events, None).await;
     assert_eq!(result.count, 0);
 
     // But a new event should succeed
     let new_events = vec![
         make_event_with_id("io.arc.event", "sess-1", "evt-persist-3"),
     ];
-    let result = ingest_events(&mut s2, "sess-1", &new_events, None);
+    let result = ingest_events(&mut s2, "sess-1", &new_events, None).await;
     assert_eq!(result.count, 1);
 }

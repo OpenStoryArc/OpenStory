@@ -48,7 +48,7 @@ impl PersistConsumer {
     }
 
     /// Process a batch of CloudEvents — dedup, persist, index.
-    pub fn process_batch(
+    pub async fn process_batch(
         &mut self,
         session_id: &str,
         events: &[CloudEvent],
@@ -73,15 +73,15 @@ impl PersistConsumer {
             // Persist to JSONL backup
             let _ = session_store.append(session_id, &val);
 
-            // Persist to SQLite
-            let _ = event_store.insert_event(session_id, &val);
+            // Persist to the durable event store
+            let _ = event_store.insert_event(session_id, &val).await;
 
-            // Index in FTS5 for full-text search
+            // Index in the full-text index
             let view_records = from_cloud_event(ce);
             for vr in &view_records {
                 if let Some(text) = open_story_store::extract::extract_text(vr) {
                     let record_type = open_story_store::extract::record_type_str(&vr.body);
-                    let _ = event_store.index_fts(&vr.id, session_id, record_type, &text);
+                    let _ = event_store.index_fts(&vr.id, session_id, record_type, &text).await;
                 }
             }
 
@@ -125,9 +125,22 @@ mod tests {
         )
     }
 
-    #[test]
-    fn dedup_tracks_event_ids() {
-        let mut consumer = PersistConsumer::new();
+    fn make_consumer() -> (PersistConsumer, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let session_store = SessionStore::new(tmp.path()).expect("create session store");
+        let event_log = open_story_store::persistence::EventLog::new(tmp.path()).expect("create event log");
+        let event_store: Arc<dyn EventStore> = Arc::new(
+            open_story_store::jsonl_store::JsonlStore::new(
+                SessionStore::new(tmp.path()).expect("create session store"),
+                event_log,
+            ),
+        );
+        (PersistConsumer::new(event_store, session_store), tmp)
+    }
+
+    #[tokio::test]
+    async fn dedup_tracks_event_ids() {
+        let (mut consumer, _tmp) = make_consumer();
         assert!(!consumer.is_duplicate("evt-1"));
 
         // Manually insert
@@ -136,42 +149,29 @@ mod tests {
         assert!(!consumer.is_duplicate("evt-2"));
     }
 
-    fn make_consumer() -> (PersistConsumer, tempfile::TempDir) {
-        let tmp = tempfile::tempdir().expect("create temp dir");
-        let session_store = SessionStore::new(tmp.path().to_path_buf());
-        let event_log = open_story_store::persistence::EventLog::new(tmp.path().to_path_buf());
-        let event_store: Arc<dyn EventStore> = Arc::new(
-            open_story_store::jsonl_store::JsonlStore::new(
-                SessionStore::new(tmp.path().to_path_buf()),
-                event_log,
-            ),
-        );
-        (PersistConsumer::new(event_store, session_store), tmp)
-    }
-
-    #[test]
-    fn dedup_skips_duplicate_event_ids() {
+    #[tokio::test]
+    async fn dedup_skips_duplicate_event_ids() {
         let (mut consumer, _tmp) = make_consumer();
         let e1 = test_event("evt-1");
         let e2 = test_event("evt-1"); // same ID
         let e3 = test_event("evt-2"); // different ID
 
-        let result = consumer.process_batch("sess-1", &[e1, e2, e3]);
+        let result = consumer.process_batch("sess-1", &[e1, e2, e3]).await;
         assert_eq!(result.persisted, 2, "should persist 2 unique events");
         assert_eq!(result.skipped, 1, "should skip 1 duplicate");
         assert_eq!(consumer.seen_count(), 2);
     }
 
-    #[test]
-    fn dedup_state_persists_across_batches() {
+    #[tokio::test]
+    async fn dedup_state_persists_across_batches() {
         let (mut consumer, _tmp) = make_consumer();
 
         let e1 = test_event("evt-1");
-        let result1 = consumer.process_batch("sess-1", &[e1]);
+        let result1 = consumer.process_batch("sess-1", &[e1]).await;
         assert_eq!(result1.persisted, 1);
 
         let e1_again = test_event("evt-1");
-        let result2 = consumer.process_batch("sess-1", &[e1_again]);
+        let result2 = consumer.process_batch("sess-1", &[e1_again]).await;
         assert_eq!(result2.persisted, 0);
         assert_eq!(result2.skipped, 1);
     }

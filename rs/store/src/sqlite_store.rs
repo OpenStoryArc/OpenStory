@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -175,7 +176,7 @@ impl SqliteStore {
     }
 
     /// Index a record in FTS5 for full-text search.
-    pub fn index_fts(
+    fn index_fts_inner(
         &self,
         event_id: &str,
         session_id: &str,
@@ -191,7 +192,7 @@ impl SqliteStore {
     }
 
     /// Full-text search across indexed events.
-    pub fn search_fts(
+    fn search_fts_inner(
         &self,
         query: &str,
         limit: usize,
@@ -247,7 +248,7 @@ impl SqliteStore {
     }
 
     /// Count of records in the FTS5 index (used for backfill check).
-    pub fn fts_count(&self) -> Result<u64> {
+    fn fts_count_inner(&self) -> Result<u64> {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM events_fts",
@@ -271,8 +272,9 @@ impl SqliteStore {
     }
 }
 
+#[async_trait]
 impl EventStore for SqliteStore {
-    fn insert_event(&self, session_id: &str, event: &Value) -> Result<bool> {
+    async fn insert_event(&self, session_id: &str, event: &Value) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
         let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
@@ -290,7 +292,7 @@ impl EventStore for SqliteStore {
         Ok(rows > 0)
     }
 
-    fn insert_batch(&self, session_id: &str, events: &[Value]) -> Result<usize> {
+    async fn insert_batch(&self, session_id: &str, events: &[Value]) -> Result<usize> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
         let mut count = 0;
@@ -315,7 +317,7 @@ impl EventStore for SqliteStore {
         Ok(count)
     }
 
-    fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
+    async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC",
@@ -334,7 +336,7 @@ impl EventStore for SqliteStore {
         Ok(events)
     }
 
-    fn list_sessions(&self) -> Result<Vec<SessionRow>> {
+    async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event
@@ -360,7 +362,7 @@ impl EventStore for SqliteStore {
         Ok(sessions)
     }
 
-    fn upsert_session(&self, session: &SessionRow) -> Result<()> {
+    async fn upsert_session(&self, session: &SessionRow) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         // Note: custom_label is NOT included here — it's only set by
         // update_session_label(). Boot replay and live ingestion never
@@ -390,7 +392,7 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
-    fn update_session_label(&self, session_id: &str, label: &str) -> Result<()> {
+    async fn update_session_label(&self, session_id: &str, label: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE sessions SET custom_label = ?1 WHERE id = ?2",
@@ -399,7 +401,7 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
-    fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()> {
+    async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let metadata = serde_json::to_string(&pattern.metadata)?;
         let event_ids = serde_json::to_string(&pattern.event_ids)?;
@@ -422,7 +424,7 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
-    fn session_patterns(
+    async fn session_patterns(
         &self,
         session_id: &str,
         pattern_type: Option<&str>,
@@ -453,7 +455,7 @@ impl EventStore for SqliteStore {
         Ok(patterns)
     }
 
-    fn insert_turn(&self, session_id: &str, turn: &StructuralTurn) -> Result<()> {
+    async fn insert_turn(&self, session_id: &str, turn: &StructuralTurn) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let id = format!("turn:{}:{}", session_id, turn.turn_number);
         let data = serde_json::to_string(turn)?;
@@ -465,7 +467,7 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
-    fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
+    async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number",
@@ -481,7 +483,7 @@ impl EventStore for SqliteStore {
         Ok(turns)
     }
 
-    fn upsert_plan(
+    async fn upsert_plan(
         &self,
         plan_id: &str,
         session_id: &str,
@@ -498,7 +500,7 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
-    fn full_payload(&self, event_id: &str) -> Result<Option<String>> {
+    async fn full_payload(&self, event_id: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
         let result = conn.query_row(
             "SELECT payload FROM events WHERE id = ?1",
@@ -514,57 +516,57 @@ impl EventStore for SqliteStore {
 
     // ── Query method overrides ──────────────────────────────────────
 
-    fn query_session_synopsis(&self, session_id: &str) -> Option<crate::queries::SessionSynopsis> {
+    async fn query_session_synopsis(&self, session_id: &str) -> Option<crate::queries::SessionSynopsis> {
         self.with_connection(|conn| crate::queries::session_synopsis(conn, session_id))
     }
 
-    fn query_tool_journey(&self, session_id: &str) -> Vec<crate::queries::ToolStep> {
+    async fn query_tool_journey(&self, session_id: &str) -> Vec<crate::queries::ToolStep> {
         self.with_connection(|conn| crate::queries::tool_journey(conn, session_id))
     }
 
-    fn query_file_impact(&self, session_id: &str) -> Vec<crate::queries::FileImpact> {
+    async fn query_file_impact(&self, session_id: &str) -> Vec<crate::queries::FileImpact> {
         self.with_connection(|conn| crate::queries::file_impact(conn, session_id))
     }
 
-    fn query_session_errors(&self, session_id: &str) -> Vec<crate::queries::SessionError> {
+    async fn query_session_errors(&self, session_id: &str) -> Vec<crate::queries::SessionError> {
         self.with_connection(|conn| crate::queries::session_errors(conn, session_id))
     }
 
-    fn query_project_pulse(&self, days: u32) -> Vec<crate::queries::ProjectPulse> {
+    async fn query_project_pulse(&self, days: u32) -> Vec<crate::queries::ProjectPulse> {
         self.with_connection(|conn| crate::queries::project_pulse(conn, days))
     }
 
-    fn query_tool_evolution(&self, days: u32) -> Vec<crate::queries::ToolEvolution> {
+    async fn query_tool_evolution(&self, days: u32) -> Vec<crate::queries::ToolEvolution> {
         self.with_connection(|conn| crate::queries::tool_evolution(conn, days))
     }
 
-    fn query_session_efficiency(&self) -> Vec<crate::queries::SessionEfficiency> {
+    async fn query_session_efficiency(&self) -> Vec<crate::queries::SessionEfficiency> {
         self.with_connection(crate::queries::session_efficiency)
     }
 
-    fn query_project_context(&self, project_id: &str, limit: usize) -> Vec<crate::queries::ProjectSession> {
+    async fn query_project_context(&self, project_id: &str, limit: usize) -> Vec<crate::queries::ProjectSession> {
         self.with_connection(|conn| crate::queries::project_context(conn, project_id, limit))
     }
 
-    fn query_recent_files(&self, project_id: &str, session_limit: usize) -> Vec<String> {
+    async fn query_recent_files(&self, project_id: &str, session_limit: usize) -> Vec<String> {
         self.with_connection(|conn| crate::queries::recent_files(conn, project_id, session_limit))
     }
 
-    fn query_productivity_by_hour(&self, days: u32) -> Vec<crate::queries::HourlyActivity> {
+    async fn query_productivity_by_hour(&self, days: u32) -> Vec<crate::queries::HourlyActivity> {
         self.with_connection(|conn| crate::queries::productivity_by_hour(conn, days))
     }
 
-    fn query_token_usage(&self, days: Option<u32>, session_id: Option<&str>, model: &str) -> crate::queries::TokenUsageSummary {
+    async fn query_token_usage(&self, days: Option<u32>, session_id: Option<&str>, model: &str) -> crate::queries::TokenUsageSummary {
         self.with_connection(|conn| crate::queries::token_usage(conn, days, session_id, model))
     }
 
-    fn query_daily_token_usage(&self, days: Option<u32>) -> Vec<crate::queries::DailyTokenUsage> {
+    async fn query_daily_token_usage(&self, days: Option<u32>) -> Vec<crate::queries::DailyTokenUsage> {
         self.with_connection(|conn| crate::queries::daily_token_usage(conn, days))
     }
 
     // ── Lifecycle methods ───────────────────────────────────────────
 
-    fn delete_session(&self, session_id: &str) -> Result<u64> {
+    async fn delete_session(&self, session_id: &str) -> Result<u64> {
         let conn = self.conn.lock().unwrap();
         // Delete FTS5 entries before events (contentless table has no cascade triggers)
         conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [session_id])?;
@@ -578,7 +580,7 @@ impl EventStore for SqliteStore {
         Ok(events_deleted)
     }
 
-    fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
+    async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let conn = self.conn.lock().unwrap();
@@ -603,16 +605,16 @@ impl EventStore for SqliteStore {
         Ok(total)
     }
 
-    fn index_fts(&self, event_id: &str, session_id: &str, record_type: &str, text: &str) -> Result<()> {
-        SqliteStore::index_fts(self, event_id, session_id, record_type, text)
+    async fn index_fts(&self, event_id: &str, session_id: &str, record_type: &str, text: &str) -> Result<()> {
+        self.index_fts_inner(event_id, session_id, record_type, text)
     }
 
-    fn search_fts(&self, query: &str, limit: usize, session_filter: Option<&str>) -> Result<Vec<crate::queries::FtsSearchResult>> {
-        SqliteStore::search_fts(self, query, limit, session_filter)
+    async fn search_fts(&self, query: &str, limit: usize, session_filter: Option<&str>) -> Result<Vec<crate::queries::FtsSearchResult>> {
+        self.search_fts_inner(query, limit, session_filter)
     }
 
-    fn fts_count(&self) -> Result<u64> {
-        SqliteStore::fts_count(self)
+    async fn fts_count(&self) -> Result<u64> {
+        self.fts_count_inner()
     }
 }
 
@@ -706,82 +708,82 @@ mod tests {
         })
     }
 
-    #[test]
-    fn insert_event_returns_true_for_new() {
+    #[tokio::test]
+    async fn insert_event_returns_true_for_new() {
         let store = SqliteStore::in_memory().unwrap();
         let event = test_event("evt-1", "2025-01-14T00:00:00Z");
-        assert!(store.insert_event("sess-1", &event).unwrap());
+        assert!(store.insert_event("sess-1", &event).await.unwrap());
     }
 
-    #[test]
-    fn insert_event_returns_false_for_duplicate() {
+    #[tokio::test]
+    async fn insert_event_returns_false_for_duplicate() {
         let store = SqliteStore::in_memory().unwrap();
         let event = test_event("evt-1", "2025-01-14T00:00:00Z");
-        store.insert_event("sess-1", &event).unwrap();
-        assert!(!store.insert_event("sess-1", &event).unwrap());
+        store.insert_event("sess-1", &event).await.unwrap();
+        assert!(!store.insert_event("sess-1", &event).await.unwrap());
     }
 
-    #[test]
-    fn session_events_returns_ordered_by_timestamp() {
+    #[tokio::test]
+    async fn session_events_returns_ordered_by_timestamp() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z")).unwrap();
-        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).unwrap();
-        store.insert_event("sess-1", &test_event("evt-3", "2025-01-14T00:00:03Z")).unwrap();
+        store.insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z")).await.unwrap();
+        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).await.unwrap();
+        store.insert_event("sess-1", &test_event("evt-3", "2025-01-14T00:00:03Z")).await.unwrap();
 
-        let events = store.session_events("sess-1").unwrap();
+        let events = store.session_events("sess-1").await.unwrap();
         assert_eq!(events.len(), 3);
         assert_eq!(events[0]["id"], "evt-1");
         assert_eq!(events[1]["id"], "evt-2");
         assert_eq!(events[2]["id"], "evt-3");
     }
 
-    #[test]
-    fn session_events_unknown_session_returns_empty() {
+    #[tokio::test]
+    async fn session_events_unknown_session_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.session_events("nonexistent").unwrap().is_empty());
+        assert!(store.session_events("nonexistent").await.unwrap().is_empty());
     }
 
     // ── Phase 1d: insert_batch ──
 
-    #[test]
-    fn insert_batch_returns_count() {
+    #[tokio::test]
+    async fn insert_batch_returns_count() {
         let store = SqliteStore::in_memory().unwrap();
         let events = vec![
             test_event("evt-1", "2025-01-14T00:00:01Z"),
             test_event("evt-2", "2025-01-14T00:00:02Z"),
             test_event("evt-3", "2025-01-14T00:00:03Z"),
         ];
-        assert_eq!(store.insert_batch("sess-1", &events).unwrap(), 3);
+        assert_eq!(store.insert_batch("sess-1", &events).await.unwrap(), 3);
     }
 
-    #[test]
-    fn insert_batch_deduplicates() {
+    #[tokio::test]
+    async fn insert_batch_deduplicates() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).unwrap();
+        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).await.unwrap();
 
         let events = vec![
             test_event("evt-1", "2025-01-14T00:00:01Z"), // duplicate
             test_event("evt-2", "2025-01-14T00:00:02Z"),
         ];
-        assert_eq!(store.insert_batch("sess-1", &events).unwrap(), 1);
+        assert_eq!(store.insert_batch("sess-1", &events).await.unwrap(), 1);
     }
 
-    #[test]
-    fn insert_batch_empty() {
+    #[tokio::test]
+    async fn insert_batch_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        assert_eq!(store.insert_batch("sess-1", &[]).unwrap(), 0);
+        assert_eq!(store.insert_batch("sess-1", &[]).await.unwrap(), 0);
     }
 
     // ── Phase 1e: list_sessions + upsert_session ──
 
-    #[test]
-    fn list_sessions_empty() {
+    #[tokio::test]
+    async fn list_sessions_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.list_sessions().unwrap().is_empty());
+        assert!(store.list_sessions().await.unwrap().is_empty());
     }
 
-    #[test]
-    fn upsert_session_then_list() {
+    #[tokio::test]
+    async fn upsert_session_then_list() {
         let store = SqliteStore::in_memory().unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-1".into(),
@@ -793,17 +795,17 @@ mod tests {
             event_count: 42,
             first_event: Some("2025-01-14T00:00:00Z".into()),
             last_event: Some("2025-01-14T01:00:00Z".into()),
-        }).unwrap();
+        }).await.unwrap();
 
-        let sessions = store.list_sessions().unwrap();
+        let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "sess-1");
         assert_eq!(sessions[0].label.as_deref(), Some("fix auth bug"));
         assert_eq!(sessions[0].event_count, 42);
     }
 
-    #[test]
-    fn upsert_session_updates_existing() {
+    #[tokio::test]
+    async fn upsert_session_updates_existing() {
         let store = SqliteStore::in_memory().unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-1".into(),
@@ -813,7 +815,7 @@ mod tests {
             branch: None,
             event_count: 10,
             first_event: None, last_event: None,
-        }).unwrap();
+        }).await.unwrap();
 
         store.upsert_session(&SessionRow {
             id: "sess-1".into(),
@@ -823,32 +825,32 @@ mod tests {
             branch: Some("feature".into()),
             event_count: 20,
             first_event: None, last_event: Some("2025-01-14T02:00:00Z".into()),
-        }).unwrap();
+        }).await.unwrap();
 
-        let sessions = store.list_sessions().unwrap();
+        let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].label.as_deref(), Some("new label"));
         assert_eq!(sessions[0].branch.as_deref(), Some("feature"));
         assert_eq!(sessions[0].event_count, 20);
     }
 
-    #[test]
-    fn list_sessions_sorted_by_last_event_desc() {
+    #[tokio::test]
+    async fn list_sessions_sorted_by_last_event_desc() {
         let store = SqliteStore::in_memory().unwrap();
         store.upsert_session(&SessionRow {
             id: "old".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 0,
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-13T00:00:00Z".into()),
-        }).unwrap();
+        }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "new".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 0,
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-14T00:00:00Z".into()),
-        }).unwrap();
+        }).await.unwrap();
 
-        let sessions = store.list_sessions().unwrap();
+        let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions[0].id, "new");
         assert_eq!(sessions[1].id, "old");
     }
@@ -867,46 +869,46 @@ mod tests {
         }
     }
 
-    #[test]
-    fn insert_and_query_pattern() {
+    #[tokio::test]
+    async fn insert_and_query_pattern() {
         let store = SqliteStore::in_memory().unwrap();
         let pattern = test_pattern("test_cycle", "2025-01-14T00:00:00Z");
-        store.insert_pattern("sess-1", &pattern).unwrap();
+        store.insert_pattern("sess-1", &pattern).await.unwrap();
 
-        let patterns = store.session_patterns("sess-1", None).unwrap();
+        let patterns = store.session_patterns("sess-1", None).await.unwrap();
         assert_eq!(patterns.len(), 1);
         assert_eq!(patterns[0].pattern_type, "test_cycle");
         assert_eq!(patterns[0].event_ids, vec!["evt-1", "evt-2"]);
         assert_eq!(patterns[0].metadata["key"], "value");
     }
 
-    #[test]
-    fn session_patterns_filter_by_type() {
+    #[tokio::test]
+    async fn session_patterns_filter_by_type() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:00Z")).unwrap();
-        store.insert_pattern("sess-1", &test_pattern("error_recovery", "2025-01-14T00:00:01Z")).unwrap();
-        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:02Z")).unwrap();
+        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:00Z")).await.unwrap();
+        store.insert_pattern("sess-1", &test_pattern("error_recovery", "2025-01-14T00:00:01Z")).await.unwrap();
+        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:02Z")).await.unwrap();
 
-        let filtered = store.session_patterns("sess-1", Some("test_cycle")).unwrap();
+        let filtered = store.session_patterns("sess-1", Some("test_cycle")).await.unwrap();
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().all(|p| p.pattern_type == "test_cycle"));
 
-        let all = store.session_patterns("sess-1", None).unwrap();
+        let all = store.session_patterns("sess-1", None).await.unwrap();
         assert_eq!(all.len(), 3);
     }
 
-    #[test]
-    fn session_patterns_empty_session() {
+    #[tokio::test]
+    async fn session_patterns_empty_session() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.session_patterns("nonexistent", None).unwrap().is_empty());
+        assert!(store.session_patterns("nonexistent", None).await.unwrap().is_empty());
     }
 
     // ── Phase 1g: upsert_plan + full_payload ──
 
-    #[test]
-    fn upsert_and_retrieve_plan() {
+    #[tokio::test]
+    async fn upsert_and_retrieve_plan() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_plan("plan-1", "sess-1", "# My Plan\n\nStep 1...").unwrap();
+        store.upsert_plan("plan-1", "sess-1", "# My Plan\n\nStep 1...").await.unwrap();
 
         let conn = store.conn.lock().unwrap();
         let content: String = conn.query_row(
@@ -917,11 +919,11 @@ mod tests {
         assert_eq!(content, "# My Plan\n\nStep 1...");
     }
 
-    #[test]
-    fn upsert_plan_updates_content() {
+    #[tokio::test]
+    async fn upsert_plan_updates_content() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_plan("plan-1", "sess-1", "v1").unwrap();
-        store.upsert_plan("plan-1", "sess-1", "v2").unwrap();
+        store.upsert_plan("plan-1", "sess-1", "v1").await.unwrap();
+        store.upsert_plan("plan-1", "sess-1", "v2").await.unwrap();
 
         let conn = store.conn.lock().unwrap();
         let content: String = conn.query_row(
@@ -932,87 +934,87 @@ mod tests {
         assert_eq!(content, "v2");
     }
 
-    #[test]
-    fn full_payload_returns_event_json() {
+    #[tokio::test]
+    async fn full_payload_returns_event_json() {
         let store = SqliteStore::in_memory().unwrap();
         let event = test_event("evt-1", "2025-01-14T00:00:00Z");
-        store.insert_event("sess-1", &event).unwrap();
+        store.insert_event("sess-1", &event).await.unwrap();
 
-        let payload = store.full_payload("evt-1").unwrap().unwrap();
+        let payload = store.full_payload("evt-1").await.unwrap().unwrap();
         let parsed: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(parsed["id"], "evt-1");
     }
 
-    #[test]
-    fn full_payload_missing_returns_none() {
+    #[tokio::test]
+    async fn full_payload_missing_returns_none() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.full_payload("nonexistent").unwrap().is_none());
+        assert!(store.full_payload("nonexistent").await.unwrap().is_none());
     }
 
     // ── Lifecycle: delete_session ────────────────────────────────────
 
-    #[test]
-    fn delete_session_removes_all_data() {
+    #[tokio::test]
+    async fn delete_session_removes_all_data() {
         let store = SqliteStore::in_memory().unwrap();
 
         // Insert events, session, pattern, plan
-        store.insert_event("sess-del", &test_event("evt-d1", "2025-01-14T00:00:00Z")).unwrap();
-        store.insert_event("sess-del", &test_event("evt-d2", "2025-01-14T00:00:01Z")).unwrap();
+        store.insert_event("sess-del", &test_event("evt-d1", "2025-01-14T00:00:00Z")).await.unwrap();
+        store.insert_event("sess-del", &test_event("evt-d2", "2025-01-14T00:00:01Z")).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 2,
                 custom_label: None,
             first_event: None, last_event: None,
-        }).unwrap();
-        store.upsert_plan("plan-del", "sess-del", "plan content").unwrap();
+        }).await.unwrap();
+        store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
 
-        let deleted = store.delete_session("sess-del").unwrap();
+        let deleted = store.delete_session("sess-del").await.unwrap();
         assert_eq!(deleted, 2, "should delete 2 events");
-        assert!(store.session_events("sess-del").unwrap().is_empty());
-        assert!(store.list_sessions().unwrap().is_empty());
+        assert!(store.session_events("sess-del").await.unwrap().is_empty());
+        assert!(store.list_sessions().await.unwrap().is_empty());
     }
 
-    #[test]
-    fn delete_session_does_not_affect_other_sessions() {
+    #[tokio::test]
+    async fn delete_session_does_not_affect_other_sessions() {
         let store = SqliteStore::in_memory().unwrap();
 
-        store.insert_event("sess-keep", &test_event("evt-k1", "2025-01-14T00:00:00Z")).unwrap();
-        store.insert_event("sess-del2", &test_event("evt-d1", "2025-01-14T00:00:00Z")).unwrap();
+        store.insert_event("sess-keep", &test_event("evt-k1", "2025-01-14T00:00:00Z")).await.unwrap();
+        store.insert_event("sess-del2", &test_event("evt-d1", "2025-01-14T00:00:00Z")).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-keep".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
-        }).unwrap();
+        }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del2".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
-        }).unwrap();
+        }).await.unwrap();
 
-        store.delete_session("sess-del2").unwrap();
+        store.delete_session("sess-del2").await.unwrap();
 
-        assert_eq!(store.session_events("sess-keep").unwrap().len(), 1);
-        assert_eq!(store.list_sessions().unwrap().len(), 1);
-        assert_eq!(store.list_sessions().unwrap()[0].id, "sess-keep");
+        assert_eq!(store.session_events("sess-keep").await.unwrap().len(), 1);
+        assert_eq!(store.list_sessions().await.unwrap().len(), 1);
+        assert_eq!(store.list_sessions().await.unwrap()[0].id, "sess-keep");
     }
 
-    #[test]
-    fn delete_nonexistent_session_returns_zero() {
+    #[tokio::test]
+    async fn delete_nonexistent_session_returns_zero() {
         let store = SqliteStore::in_memory().unwrap();
-        assert_eq!(store.delete_session("nonexistent").unwrap(), 0);
+        assert_eq!(store.delete_session("nonexistent").await.unwrap(), 0);
     }
 
     // ── Lifecycle: export_session_jsonl ──────────────────────────────
 
-    #[test]
-    fn export_session_jsonl_returns_newline_delimited() {
+    #[tokio::test]
+    async fn export_session_jsonl_returns_newline_delimited() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-exp", &test_event("evt-e1", "2025-01-14T00:00:01Z")).unwrap();
-        store.insert_event("sess-exp", &test_event("evt-e2", "2025-01-14T00:00:02Z")).unwrap();
+        store.insert_event("sess-exp", &test_event("evt-e1", "2025-01-14T00:00:01Z")).await.unwrap();
+        store.insert_event("sess-exp", &test_event("evt-e2", "2025-01-14T00:00:02Z")).await.unwrap();
 
-        let jsonl = store.export_session_jsonl("sess-exp").unwrap();
+        let jsonl = store.export_session_jsonl("sess-exp").await.unwrap();
         let lines: Vec<&str> = jsonl.lines().collect();
         assert_eq!(lines.len(), 2);
 
@@ -1023,209 +1025,209 @@ mod tests {
         }
     }
 
-    #[test]
-    fn export_empty_session_returns_empty_string() {
+    #[tokio::test]
+    async fn export_empty_session_returns_empty_string() {
         let store = SqliteStore::in_memory().unwrap();
-        let jsonl = store.export_session_jsonl("nonexistent").unwrap();
+        let jsonl = store.export_session_jsonl("nonexistent").await.unwrap();
         assert!(jsonl.is_empty());
     }
 
     // ── Lifecycle: cleanup_old_sessions ──────────────────────────────
 
-    #[test]
-    fn cleanup_old_sessions_removes_stale() {
+    #[tokio::test]
+    async fn cleanup_old_sessions_removes_stale() {
         let store = SqliteStore::in_memory().unwrap();
 
         // Old session (90 days ago)
-        store.insert_event("sess-old", &test_event("evt-old", "2025-12-01T00:00:00Z")).unwrap();
+        store.insert_event("sess-old", &test_event("evt-old", "2025-12-01T00:00:00Z")).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-old".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: Some("2025-12-01T00:00:00Z".into()),
             last_event: Some("2025-12-01T00:00:00Z".into()),
-        }).unwrap();
+        }).await.unwrap();
 
         // Recent session
         let now = chrono::Utc::now().to_rfc3339();
-        store.insert_event("sess-new", &test_event("evt-new", &now)).unwrap();
+        store.insert_event("sess-new", &test_event("evt-new", &now)).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-new".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: Some(now.clone()),
             last_event: Some(now),
-        }).unwrap();
+        }).await.unwrap();
 
-        let deleted = store.cleanup_old_sessions(30).unwrap();
+        let deleted = store.cleanup_old_sessions(30).await.unwrap();
         assert_eq!(deleted, 1, "should delete 1 old event");
-        assert_eq!(store.list_sessions().unwrap().len(), 1);
-        assert_eq!(store.list_sessions().unwrap()[0].id, "sess-new");
+        assert_eq!(store.list_sessions().await.unwrap().len(), 1);
+        assert_eq!(store.list_sessions().await.unwrap()[0].id, "sess-new");
     }
 
-    #[test]
-    fn cleanup_with_no_old_sessions_deletes_nothing() {
+    #[tokio::test]
+    async fn cleanup_with_no_old_sessions_deletes_nothing() {
         let store = SqliteStore::in_memory().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        store.insert_event("sess-recent", &test_event("evt-r", &now)).unwrap();
+        store.insert_event("sess-recent", &test_event("evt-r", &now)).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-recent".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: Some(now.clone()),
             last_event: Some(now),
-        }).unwrap();
+        }).await.unwrap();
 
-        let deleted = store.cleanup_old_sessions(7).unwrap();
+        let deleted = store.cleanup_old_sessions(7).await.unwrap();
         assert_eq!(deleted, 0);
-        assert_eq!(store.list_sessions().unwrap().len(), 1);
+        assert_eq!(store.list_sessions().await.unwrap().len(), 1);
     }
 
     // ── Encryption key API (SQLCipher when available) ──────────────
 
-    #[test]
-    fn new_with_key_accepts_key_parameter() {
+    #[tokio::test]
+    async fn new_with_key_accepts_key_parameter() {
         // With bundled (non-cipher) SQLite, key is accepted but ignored.
         // With bundled-sqlcipher, the DB would actually be encrypted.
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), Some("test-key-123")).unwrap();
 
-        store.insert_event("sess-enc", &test_event("evt-enc-1", "2025-01-14T00:00:00Z")).unwrap();
-        let events = store.session_events("sess-enc").unwrap();
+        store.insert_event("sess-enc", &test_event("evt-enc-1", "2025-01-14T00:00:00Z")).await.unwrap();
+        let events = store.session_events("sess-enc").await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["id"], "evt-enc-1");
     }
 
-    #[test]
-    fn new_with_key_none_is_same_as_new() {
+    #[tokio::test]
+    async fn new_with_key_none_is_same_as_new() {
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), None).unwrap();
-        store.insert_event("sess-nk", &test_event("evt-nk", "2025-01-14T00:00:00Z")).unwrap();
+        store.insert_event("sess-nk", &test_event("evt-nk", "2025-01-14T00:00:00Z")).await.unwrap();
 
         // Readable by new() (no key)
         let store2 = SqliteStore::new(tmp.path()).unwrap();
-        assert_eq!(store2.session_events("sess-nk").unwrap().len(), 1);
+        assert_eq!(store2.session_events("sess-nk").await.unwrap().len(), 1);
     }
 
-    #[test]
-    fn new_with_empty_key_is_same_as_no_key() {
+    #[tokio::test]
+    async fn new_with_empty_key_is_same_as_no_key() {
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), Some("")).unwrap();
-        store.insert_event("sess-ek", &test_event("evt-ek", "2025-01-14T00:00:00Z")).unwrap();
+        store.insert_event("sess-ek", &test_event("evt-ek", "2025-01-14T00:00:00Z")).await.unwrap();
 
         let store2 = SqliteStore::new(tmp.path()).unwrap();
-        let events = store2.session_events("sess-ek").unwrap();
+        let events = store2.session_events("sess-ek").await.unwrap();
         assert_eq!(events.len(), 1);
     }
 
     // ── FTS5 full-text search tests ──
 
-    #[test]
-    fn fts5_index_and_search() {
+    #[tokio::test]
+    async fn fts5_index_and_search() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "fix the authentication bug").unwrap();
-        store.index_fts("evt-2", "sess-1", "assistant_message", "I will fix the login flow").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "fix the authentication bug").await.unwrap();
+        store.index_fts("evt-2", "sess-1", "assistant_message", "I will fix the login flow").await.unwrap();
 
-        let results = store.search_fts("authentication", 10, None).unwrap();
+        let results = store.search_fts("authentication", 10, None).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].event_id, "evt-1");
         assert_eq!(results[0].session_id, "sess-1");
         assert_eq!(results[0].record_type, "user_message");
     }
 
-    #[test]
-    fn fts5_porter_stemming() {
+    #[tokio::test]
+    async fn fts5_porter_stemming() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "debugging the test failures").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "debugging the test failures").await.unwrap();
 
         // "debug" should match "debugging" via porter stemmer
-        let results = store.search_fts("debug", 10, None).unwrap();
+        let results = store.search_fts("debug", 10, None).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].event_id, "evt-1");
     }
 
-    #[test]
-    fn fts5_session_filter() {
+    #[tokio::test]
+    async fn fts5_session_filter() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "deploy the application").unwrap();
-        store.index_fts("evt-2", "sess-2", "user_message", "deploy the database").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "deploy the application").await.unwrap();
+        store.index_fts("evt-2", "sess-2", "user_message", "deploy the database").await.unwrap();
 
-        let results = store.search_fts("deploy", 10, Some("sess-1")).unwrap();
+        let results = store.search_fts("deploy", 10, Some("sess-1")).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].session_id, "sess-1");
     }
 
-    #[test]
-    fn fts5_empty_query_returns_empty() {
+    #[tokio::test]
+    async fn fts5_empty_query_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "hello world").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "hello world").await.unwrap();
 
-        let results = store.search_fts("", 10, None).unwrap();
+        let results = store.search_fts("", 10, None).await.unwrap();
         assert!(results.is_empty());
     }
 
-    #[test]
-    fn fts5_no_match_returns_empty() {
+    #[tokio::test]
+    async fn fts5_no_match_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "hello world").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "hello world").await.unwrap();
 
-        let results = store.search_fts("nonexistent", 10, None).unwrap();
+        let results = store.search_fts("nonexistent", 10, None).await.unwrap();
         assert!(results.is_empty());
     }
 
-    #[test]
-    fn fts5_delete_session_removes_entries() {
+    #[tokio::test]
+    async fn fts5_delete_session_removes_entries() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-fts", &test_event("evt-fts1", "2025-01-14T00:00:00Z")).unwrap();
-        store.index_fts("evt-fts1", "sess-fts", "user_message", "search test content").unwrap();
+        store.insert_event("sess-fts", &test_event("evt-fts1", "2025-01-14T00:00:00Z")).await.unwrap();
+        store.index_fts("evt-fts1", "sess-fts", "user_message", "search test content").await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-fts".into(), project_id: None, project_name: None,
             label: None, custom_label: None, branch: None, event_count: 1,
             first_event: None, last_event: None,
-        }).unwrap();
+        }).await.unwrap();
 
         // Verify it's searchable
-        assert_eq!(store.search_fts("search", 10, None).unwrap().len(), 1);
+        assert_eq!(store.search_fts("search", 10, None).await.unwrap().len(), 1);
 
         // Delete session
-        store.delete_session("sess-fts").unwrap();
+        store.delete_session("sess-fts").await.unwrap();
 
         // Verify FTS entries are gone
-        assert!(store.search_fts("search", 10, None).unwrap().is_empty());
-        assert_eq!(store.fts_count().unwrap(), 0);
+        assert!(store.search_fts("search", 10, None).await.unwrap().is_empty());
+        assert_eq!(store.fts_count().await.unwrap(), 0);
     }
 
-    #[test]
-    fn fts5_rank_ordering() {
+    #[tokio::test]
+    async fn fts5_rank_ordering() {
         let store = SqliteStore::in_memory().unwrap();
         // evt-2 has "rust" twice, should rank higher
-        store.index_fts("evt-1", "sess-1", "user_message", "learn rust programming").unwrap();
-        store.index_fts("evt-2", "sess-1", "assistant_message", "rust is great for rust projects").unwrap();
+        store.index_fts("evt-1", "sess-1", "user_message", "learn rust programming").await.unwrap();
+        store.index_fts("evt-2", "sess-1", "assistant_message", "rust is great for rust projects").await.unwrap();
 
-        let results = store.search_fts("rust", 10, None).unwrap();
+        let results = store.search_fts("rust", 10, None).await.unwrap();
         assert_eq!(results.len(), 2);
         // FTS5 rank is negative (more negative = more relevant), so first result should be more relevant
         assert!(results[0].rank <= results[1].rank);
     }
 
-    #[test]
-    fn fts5_count() {
+    #[tokio::test]
+    async fn fts5_count() {
         let store = SqliteStore::in_memory().unwrap();
-        assert_eq!(store.fts_count().unwrap(), 0);
+        assert_eq!(store.fts_count().await.unwrap(), 0);
 
-        store.index_fts("evt-1", "sess-1", "user_message", "hello").unwrap();
-        store.index_fts("evt-2", "sess-1", "user_message", "world").unwrap();
-        assert_eq!(store.fts_count().unwrap(), 2);
+        store.index_fts("evt-1", "sess-1", "user_message", "hello").await.unwrap();
+        store.index_fts("evt-2", "sess-1", "user_message", "world").await.unwrap();
+        assert_eq!(store.fts_count().await.unwrap(), 2);
     }
 
-    #[test]
-    fn fts5_limit_respected() {
+    #[tokio::test]
+    async fn fts5_limit_respected() {
         let store = SqliteStore::in_memory().unwrap();
         for i in 0..10 {
-            store.index_fts(&format!("evt-{i}"), "sess-1", "user_message", "common search term").unwrap();
+            store.index_fts(&format!("evt-{i}"), "sess-1", "user_message", "common search term").await.unwrap();
         }
 
-        let results = store.search_fts("common", 3, None).unwrap();
+        let results = store.search_fts("common", 3, None).await.unwrap();
         assert_eq!(results.len(), 3);
     }
 }

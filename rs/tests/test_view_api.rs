@@ -111,7 +111,7 @@ mod view_records_endpoint {
                 make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_1"),
                 make_tool_result_event("sess-1", "toolu_1", "test result: ok"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/view-records")
@@ -145,7 +145,7 @@ mod view_records_endpoint {
                     "new_string": "fn new()"
                 }), "toolu_edit"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/view-records")
@@ -198,7 +198,7 @@ mod conversation_endpoint {
                 make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_1"),
                 make_tool_result_event("sess-1", "toolu_1", "all tests passed"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/conversation")
@@ -234,7 +234,7 @@ mod conversation_endpoint {
             let events = vec![
                 make_tool_use_event("sess-1", "Bash", json!({"command": "long running"}), "toolu_pending"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/conversation")
@@ -275,7 +275,7 @@ mod file_changes_endpoint {
                 make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_bash"),
                 make_tool_use_event("sess-1", "Read", json!({"file_path": "/src/lib.rs"}), "toolu_read"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/file-changes")

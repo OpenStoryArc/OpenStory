@@ -55,7 +55,7 @@ pub async fn run_server(
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
 
-    let state = create_state(data_dir, watch_dir, bus.clone(), config)?;
+    let state = create_state(data_dir, watch_dir, bus.clone(), config).await?;
 
     // ── Banner ──
     {
@@ -69,12 +69,12 @@ pub async fn run_server(
         eprintln!("  \x1b[2m────────────────────────────────────\x1b[0m");
 
         if is_consumer {
-            let session_count = s.store.event_store.list_sessions().unwrap_or_default().len();
+            let session_count = s.store.event_store.list_sessions().await.unwrap_or_default().len();
             eprintln!("  \x1b[2mSessions loaded:\x1b[0m {session_count}");
             eprintln!("  \x1b[2mData dir:\x1b[0m       {}", data_dir.display());
 
             // Replay boot-loaded sessions through projections + pattern pipelines
-            replay_boot_sessions(&mut s);
+            replay_boot_sessions(&mut s).await;
         }
     }
 
@@ -97,7 +97,7 @@ pub async fn run_server(
                     let mut total = 0;
                     for batch in &batches {
                         let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
                         for change in result.changes {
                             let _ = s.broadcast_tx.send(change);
                         }
@@ -128,7 +128,7 @@ pub async fn run_server(
                 match persist_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
-                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            let result = actor.process_batch(&batch.session_id, &batch.events).await;
                             if result.persisted > 0 {
                                 log_event("persist", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
@@ -152,12 +152,12 @@ pub async fn run_server(
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
                             let result = actor.process_batch(&batch.session_id, &batch.events);
-                            // Persist turns and patterns to SQLite
+                            // Persist turns and patterns to the event store
                             for turn in &result.turns {
-                                let _ = event_store.insert_turn(&batch.session_id, turn);
+                                let _ = event_store.insert_turn(&batch.session_id, turn).await;
                             }
                             for pe in &result.patterns {
-                                let _ = event_store.insert_pattern(&batch.session_id, pe);
+                                let _ = event_store.insert_pattern(&batch.session_id, pe).await;
                             }
                             if !result.patterns.is_empty() {
                                 log_event("patterns", &format!(
@@ -202,7 +202,7 @@ pub async fn run_server(
                             let session_id = batch.session_id.clone();
                             let mut s = broadcast_state.write().await;
                             let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }
@@ -252,7 +252,7 @@ pub async fn run_server(
                     let rt = tokio::runtime::Handle::current();
                     let result = rt.block_on(async {
                         let mut s = watcher_state.write().await;
-                        let result = ingest_events(&mut s, session_id, &events, project_id);
+                        let result = ingest_events(&mut s, session_id, &events, project_id).await;
                         for change in &result.changes {
                             let _ = s.broadcast_tx.send(change.clone());
                         }
@@ -300,7 +300,7 @@ pub async fn run_server(
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {
                             let mut s = watcher_state.write().await;
-                            let result = ingest_events(&mut s, session_id, &events, project_id);
+                            let result = ingest_events(&mut s, session_id, &events, project_id).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }

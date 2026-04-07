@@ -61,7 +61,7 @@ async fn test_hooks_with_transcript() {
 
     // Verify events are in session state
     let s = state.read().await;
-    let events = s.store.event_store.session_events("sess-1").unwrap();
+    let events = s.store.event_store.session_events("sess-1").await.unwrap();
     assert!(events.len() >= 2);
 }
 
@@ -134,7 +134,7 @@ async fn test_hooks_derives_session_id() {
     assert_eq!(body["status"], "ok");
 
     let s = state.read().await;
-    assert!(!s.store.event_store.session_events("my-derived-session").unwrap().is_empty());
+    assert!(!s.store.event_store.session_events("my-derived-session").await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -184,7 +184,7 @@ async fn test_hooks_incremental_reads() {
 
     // Total in session should be first + second
     let s = state.read().await;
-    let total = s.store.event_store.session_events("incr-session").unwrap().len();
+    let total = s.store.event_store.session_events("incr-session").await.unwrap().len();
     assert!(total as u64 >= first_count + second_count);
 }
 
@@ -219,6 +219,6 @@ async fn test_hooks_resolves_from_watch_dir() {
 
     // Verify events were ingested
     let s = state.read().await;
-    let events = s.store.event_store.session_events("watch-sess").unwrap();
+    let events = s.store.event_store.session_events("watch-sess").await.unwrap();
     assert!(events.len() >= 2);
 }

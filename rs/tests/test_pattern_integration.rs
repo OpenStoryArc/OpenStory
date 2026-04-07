@@ -114,8 +114,8 @@ fn user_prompt(session_id: &str, id: &str) -> CloudEvent {
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
-#[test]
-fn it_should_detect_git_workflow_during_ingest() {
+#[tokio::test]
+async fn it_should_detect_git_workflow_during_ingest() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
@@ -128,8 +128,8 @@ fn it_should_detect_git_workflow_during_ingest() {
         user_prompt("sess-1", "e4"),
     ];
 
-    let mut s = state.blocking_write();
-    let result = ingest_events(&mut s, "sess-1", &events, None);
+    let mut s = state.write().await;
+    let result = ingest_events(&mut s, "sess-1", &events, None).await;
     drop(s);
 
     // Check returned changes for pattern detection
@@ -144,8 +144,8 @@ fn it_should_detect_git_workflow_during_ingest() {
     assert!(found_pattern, "should detect git.workflow pattern during ingest");
 }
 
-#[test]
-fn it_should_detect_test_cycle_during_ingest() {
+#[tokio::test]
+async fn it_should_detect_test_cycle_during_ingest() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
@@ -187,8 +187,8 @@ fn it_should_detect_test_cycle_during_ingest() {
         tool_result_event("sess-1", "e5", "toolu_e4", "test result: ok. 54 passed"),
     ];
 
-    let mut s = state.blocking_write();
-    let result = ingest_events(&mut s, "sess-1", &events, None);
+    let mut s = state.write().await;
+    let result = ingest_events(&mut s, "sess-1", &events, None).await;
     drop(s);
 
     let mut found_cycle = false;
@@ -202,8 +202,8 @@ fn it_should_detect_test_cycle_during_ingest() {
     assert!(found_cycle, "should detect test.cycle pattern during ingest");
 }
 
-#[test]
-fn it_should_include_patterns_in_initial_state() {
+#[tokio::test]
+async fn it_should_include_patterns_in_initial_state() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
@@ -215,12 +215,12 @@ fn it_should_include_patterns_in_initial_state() {
     ];
 
     {
-        let mut s = state.blocking_write();
-        ingest_events(&mut s, "sess-1", &events, None);
+        let mut s = state.write().await;
+        ingest_events(&mut s, "sess-1", &events, None).await;
     }
 
     // Build initial_state — should include detected patterns
-    let s = state.blocking_read();
+    let s = state.read().await;
     let patterns = build_initial_state(&s).patterns;
     assert!(
         patterns.iter().any(|p| p.pattern_type == "git.workflow"),
@@ -232,14 +232,14 @@ fn it_should_include_patterns_in_initial_state() {
 // Boot replay: projections + patterns from pre-loaded sessions
 // ═══════════════════════════════════════════════════════════════════
 
-#[test]
-fn it_should_replay_boot_sessions_through_projections() {
+#[tokio::test]
+async fn it_should_replay_boot_sessions_through_projections() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
     // Simulate boot-loaded session (raw events in state.sessions)
     {
-        let mut s = state.blocking_write();
+        let mut s = state.write().await;
         let events = vec![
             bash_tool_use("sess-boot", "e1", "git status"),
             bash_tool_use("sess-boot", "e2", "git add ."),
@@ -251,29 +251,29 @@ fn it_should_replay_boot_sessions_through_projections() {
             .iter()
             .map(|ce| serde_json::to_value(ce).unwrap())
             .collect();
-        let _ = s.store.event_store.insert_batch("sess-boot", &values);
+        let _ = s.store.event_store.insert_batch("sess-boot", &values).await;
         let _ = s.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-boot".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: values.len() as u64,
                 custom_label: None,
             first_event: None, last_event: None,
-        });
+        }).await;
     }
 
     // Before replay: projections should be empty
     {
-        let s = state.blocking_read();
+        let s = state.read().await;
         assert!(s.store.projections.is_empty(), "projections empty before replay");
     }
 
     // Run boot replay
     {
-        let mut s = state.blocking_write();
-        replay_boot_sessions(&mut s);
+        let mut s = state.write().await;
+        replay_boot_sessions(&mut s).await;
     }
 
     // After replay: projections and patterns should be populated
-    let s = state.blocking_read();
+    let s = state.read().await;
     assert!(
         s.store.projections.contains_key("sess-boot"),
         "projection should exist after replay"
@@ -292,13 +292,13 @@ fn it_should_replay_boot_sessions_through_projections() {
     );
 }
 
-#[test]
-fn it_should_replay_populates_initial_state() {
+#[tokio::test]
+async fn it_should_replay_populates_initial_state() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
     {
-        let mut s = state.blocking_write();
+        let mut s = state.write().await;
         let events = vec![
             user_prompt("sess-boot", "e1"),
             bash_tool_use("sess-boot", "e2", "ls -la"),
@@ -307,17 +307,17 @@ fn it_should_replay_populates_initial_state() {
             .iter()
             .map(|ce| serde_json::to_value(ce).unwrap())
             .collect();
-        let _ = s.store.event_store.insert_batch("sess-boot", &values);
+        let _ = s.store.event_store.insert_batch("sess-boot", &values).await;
         let _ = s.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-boot".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: values.len() as u64,
                 custom_label: None,
             first_event: None, last_event: None,
-        });
-        replay_boot_sessions(&mut s);
+        }).await;
+        replay_boot_sessions(&mut s).await;
     }
 
-    let s = state.blocking_read();
+    let s = state.read().await;
     let init = build_initial_state(&s);
     let records = init.records;
     let filter_counts = init.filter_counts;
@@ -346,7 +346,7 @@ async fn it_should_return_patterns_via_api() {
             bash_tool_use("sess-1", "e2", "git push"),
             user_prompt("sess-1", "e3"),
         ];
-        ingest_events(&mut s, "sess-1", &events, None);
+        ingest_events(&mut s, "sess-1", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-1/patterns")
@@ -376,7 +376,7 @@ async fn it_should_filter_patterns_by_type() {
             bash_tool_use("sess-1", "e2", "git push"),
             user_prompt("sess-1", "e3"),
         ];
-        ingest_events(&mut s, "sess-1", &events, None);
+        ingest_events(&mut s, "sess-1", &events, None).await;
     }
 
     // Filter for git.workflow — should return results

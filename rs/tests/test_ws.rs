@@ -65,7 +65,7 @@ async fn ws_initial_state_contains_ingested_records() {
             make_user_prompt("ws-sess", "ws-evt-1"),
             make_event("io.arc.event", "ws-sess"),
         ];
-        ingest_events(&mut s, "ws-sess", &events, None);
+        ingest_events(&mut s, "ws-sess", &events, None).await;
     }
 
     let addr = start_test_server(state).await;

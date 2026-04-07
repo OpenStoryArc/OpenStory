@@ -113,12 +113,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[test]
-    fn new_creates_empty_store() {
+    #[tokio::test]
+    async fn new_creates_empty_store() {
         let tmp = TempDir::new().unwrap();
         let state = StoreState::new(tmp.path()).unwrap();
 
-        assert!(state.event_store.list_sessions().unwrap().is_empty());
+        assert!(state.event_store.list_sessions().await.unwrap().is_empty());
         assert!(state.seen_event_ids.is_empty());
         assert!(state.projections.is_empty());
         assert!(state.pattern_pipelines.is_empty());
@@ -144,8 +144,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_event_into_store_state() {
+    #[tokio::test]
+    async fn ingest_event_into_store_state() {
         let tmp = TempDir::new().unwrap();
         let mut state = StoreState::new(tmp.path()).unwrap();
 
@@ -178,14 +178,14 @@ mod tests {
         assert!(!state.seen_event_ids.insert(event_id.to_string()), "dedup should reject duplicate");
 
         // Persist via EventStore
-        assert!(state.event_store.insert_event("sess-1", &event).unwrap());
-        assert!(!state.event_store.insert_event("sess-1", &event).unwrap(), "dedup via PK");
+        assert!(state.event_store.insert_event("sess-1", &event).await.unwrap());
+        assert!(!state.event_store.insert_event("sess-1", &event).await.unwrap(), "dedup via PK");
 
         let proj = state.projections.entry("sess-1".to_string())
             .or_insert_with(|| SessionProjection::new("sess-1"));
         let result = proj.append(&event);
 
-        let stored = state.event_store.session_events("sess-1").unwrap();
+        let stored = state.event_store.session_events("sess-1").await.unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(proj.event_count(), 1);
         assert!(!result.is_empty());

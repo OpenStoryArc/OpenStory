@@ -38,7 +38,7 @@ pub struct IngestResult {
 /// Returns an `IngestResult` with the count of events ingested (after dedup) and
 /// a list of `BroadcastMessage` changes. The caller is responsible for sending
 /// changes to `broadcast_tx` and/or publishing to the bus change feed.
-pub fn ingest_events(
+pub async fn ingest_events(
     state: &mut AppState,
     session_id: &str,
     events: &[CloudEvent],
@@ -114,7 +114,7 @@ pub fn ingest_events(
 
             let _ = state.store.session_store.append(session_id, &val);
             // Persist to EventStore (SQLite default, JSONL fallback)
-            let _ = state.store.event_store.insert_event(session_id, &val);
+            let _ = state.store.event_store.insert_event(session_id, &val).await;
 
             // Update projection
             let proj = state
@@ -139,7 +139,7 @@ pub fn ingest_events(
                     let _ = state.store.plan_store.save(session_id, &content, timestamp);
                     // Dual-write plan to EventStore
                     let plan_id = format!("plan:{}:{}", session_id, timestamp);
-                    let _ = state.store.event_store.upsert_plan(&plan_id, session_id, &content);
+                    let _ = state.store.event_store.upsert_plan(&plan_id, session_id, &content).await;
                 }
             }
 
@@ -182,7 +182,7 @@ pub fn ingest_events(
 
                 // Persist completed structural turns
                 for turn in &turns {
-                    let _ = state.store.event_store.insert_turn(session_id, turn);
+                    let _ = state.store.event_store.insert_turn(session_id, turn).await;
                 }
 
                 // Phase 2: ViewRecords → legacy record detectors (TestCycle, GitFlow, etc.)
@@ -215,7 +215,7 @@ pub fn ingest_events(
                             }
                         }
                         // Dual-write pattern to EventStore
-                        let _ = state.store.event_store.insert_pattern(session_id, pe);
+                        let _ = state.store.event_store.insert_pattern(session_id, pe).await;
                     }
                     state
                         .store
@@ -231,7 +231,7 @@ pub fn ingest_events(
                 for vr in &view_records {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, session_id, record_type, &text);
+                        let _ = state.store.event_store.index_fts(&vr.id, session_id, record_type, &text).await;
                     }
                 }
             }
@@ -344,7 +344,7 @@ pub fn ingest_events(
                 &crate::event_store_bridge::session_row_from_projection(
                     session_id, proj, &state.store,
                 ),
-            );
+            ).await;
         }
     }
 
@@ -357,9 +357,10 @@ pub fn ingest_events(
 /// and detected patterns from sessions that were loaded from disk.
 /// Without this, `build_initial_state()` would return empty data for
 /// boot-loaded sessions until new events arrive.
-pub fn replay_boot_sessions(state: &mut AppState) {
+pub async fn replay_boot_sessions(state: &mut AppState) {
     let session_ids: Vec<String> = state.store.event_store
         .list_sessions()
+        .await
         .unwrap_or_default()
         .iter()
         .map(|r| r.id.clone())
@@ -368,11 +369,12 @@ pub fn replay_boot_sessions(state: &mut AppState) {
     let mut total_patterns = 0;
 
     // One-time FTS5 backfill: if the index is empty, populate it during replay
-    let fts_needs_backfill = state.store.event_store.fts_count().unwrap_or(0) == 0;
+    let fts_needs_backfill = state.store.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
         let events = state.store.event_store
             .session_events(sid)
+            .await
             .unwrap_or_default();
         if events.is_empty() {
             continue;
@@ -434,7 +436,7 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                 for vr in &view_records {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, sid, record_type, &text);
+                        let _ = state.store.event_store.index_fts(&vr.id, sid, record_type, &text).await;
                     }
                 }
             }
@@ -453,12 +455,12 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                     let (detected, turns) = pipeline.feed_event(&ce);
                     // Persist completed structural turns
                     for turn in &turns {
-                        let _ = state.store.event_store.insert_turn(sid, turn);
+                        let _ = state.store.event_store.insert_turn(sid, turn).await;
                     }
                     if !detected.is_empty() {
                         total_patterns += detected.len();
                         for pe in &detected {
-                            let _ = state.store.event_store.insert_pattern(sid, pe);
+                            let _ = state.store.event_store.insert_pattern(sid, pe).await;
                         }
                         state
                             .store
@@ -482,7 +484,7 @@ pub fn replay_boot_sessions(state: &mut AppState) {
                     if !detected.is_empty() {
                         total_patterns += detected.len();
                         for pe in &detected {
-                            let _ = state.store.event_store.insert_pattern(sid, pe);
+                            let _ = state.store.event_store.insert_pattern(sid, pe).await;
                         }
                         state
                             .store
@@ -502,12 +504,12 @@ pub fn replay_boot_sessions(state: &mut AppState) {
             let (flushed_patterns, flushed_turns) = pipeline.flush();
             // Persist flushed turns
             for turn in &flushed_turns {
-                let _ = state.store.event_store.insert_turn(sid, turn);
+                let _ = state.store.event_store.insert_turn(sid, turn).await;
             }
             if !flushed_patterns.is_empty() {
                 total_patterns += flushed_patterns.len();
                 for pe in &flushed_patterns {
-                    let _ = state.store.event_store.insert_pattern(sid, pe);
+                    let _ = state.store.event_store.insert_pattern(sid, pe).await;
                 }
                 state
                     .store
@@ -522,13 +524,13 @@ pub fn replay_boot_sessions(state: &mut AppState) {
         if let Some(proj) = state.store.projections.get(sid) {
             let _ = state.store.event_store.upsert_session(
                 &crate::event_store_bridge::session_row_from_projection(sid, proj, &state.store),
-            );
+            ).await;
         }
     }
 
     if total_events > 0 {
         let fts_note = if fts_needs_backfill {
-            let fts_count = state.store.event_store.fts_count().unwrap_or(0);
+            let fts_count = state.store.event_store.fts_count().await.unwrap_or(0);
             format!(", FTS5 backfill: {fts_count} indexed")
         } else {
             String::new()
@@ -601,41 +603,41 @@ mod tests {
 
     // ── ingest_events tests ─────────────────────────────────────────────
 
-    #[test]
-    fn ingest_empty_events_returns_zero() {
+    #[tokio::test]
+    async fn ingest_empty_events_returns_zero() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
-        let result = ingest_events(&mut state, "sess-1", &[], None);
+        let result = ingest_events(&mut state, "sess-1", &[], None).await;
         assert_eq!(result.count, 0);
-        assert!(state.store.event_store.list_sessions().unwrap().is_empty());
+        assert!(state.store.event_store.list_sessions().await.unwrap().is_empty());
     }
 
-    #[test]
-    fn ingest_deduplicates_by_event_id() {
+    #[tokio::test]
+    async fn ingest_deduplicates_by_event_id() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-dup-1", "hello");
 
-        let result1 = ingest_events(&mut state, "sess-1", &[event.clone()], None);
+        let result1 = ingest_events(&mut state, "sess-1", &[event.clone()], None).await;
         assert_eq!(result1.count, 1);
 
-        let result2 = ingest_events(&mut state, "sess-1", &[event], None);
+        let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;
         assert_eq!(result2.count, 0, "duplicate event should be skipped");
 
-        assert_eq!(state.store.event_store.session_events("sess-1").unwrap().len(), 1);
+        assert_eq!(state.store.event_store.session_events("sess-1").await.unwrap().len(), 1);
     }
 
-    #[test]
-    fn ingest_persists_to_session_store() {
+    #[tokio::test]
+    async fn ingest_persists_to_session_store() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-persist-1", "persist me");
 
-        ingest_events(&mut state, "sess-persist", &[event], None);
+        ingest_events(&mut state, "sess-persist", &[event], None).await;
 
         // In-memory sessions
-        assert!(!state.store.event_store.session_events("sess-persist").unwrap().is_empty());
-        assert_eq!(state.store.event_store.session_events("sess-persist").unwrap().len(), 1);
+        assert!(!state.store.event_store.session_events("sess-persist").await.unwrap().is_empty());
+        assert_eq!(state.store.event_store.session_events("sess-persist").await.unwrap().len(), 1);
 
         // Persisted to store (load from disk)
         let loaded = state.store.session_store.load_session("sess-persist");
@@ -646,13 +648,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_associates_project_id() {
+    #[tokio::test]
+    async fn ingest_associates_project_id() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-proj-1", "hello");
 
-        ingest_events(&mut state, "sess-proj", &[event], Some("my-project"));
+        ingest_events(&mut state, "sess-proj", &[event], Some("my-project")).await;
 
         assert_eq!(
             state.store.session_projects.get("sess-proj"),
@@ -661,8 +663,8 @@ mod tests {
         assert!(state.store.session_project_names.contains_key("sess-proj"));
     }
 
-    #[test]
-    fn ingest_derives_project_from_cwd_fallback() {
+    #[tokio::test]
+    async fn ingest_derives_project_from_cwd_fallback() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -687,7 +689,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-cwd", &[event], None);
+        ingest_events(&mut state, "sess-cwd", &[event], None).await;
 
         assert!(
             state.store.session_projects.contains_key("sess-cwd"),
@@ -695,13 +697,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_returns_enriched_change_for_durable_events() {
+    #[tokio::test]
+    async fn ingest_returns_enriched_change_for_durable_events() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
         let event = make_user_prompt_event("evt-bc-1", "broadcast me");
-        let result = ingest_events(&mut state, "sess-bc", &[event], None);
+        let result = ingest_events(&mut state, "sess-bc", &[event], None).await;
 
         assert!(!result.changes.is_empty(), "should return changes for durable event");
         match &result.changes[0] {
@@ -719,8 +721,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ingest_returns_ephemeral_change_for_progress_events() {
+    #[tokio::test]
+    async fn ingest_returns_ephemeral_change_for_progress_events() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -744,7 +746,7 @@ mod tests {
             None,
         );
 
-        let result = ingest_events(&mut state, "sess-eph", &[event], None);
+        let result = ingest_events(&mut state, "sess-eph", &[event], None).await;
 
         assert!(!result.changes.is_empty(), "should return changes for progress event");
         match &result.changes[0] {
@@ -762,8 +764,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ingest_extracts_plan_from_exit_plan_mode() {
+    #[tokio::test]
+    async fn ingest_extracts_plan_from_exit_plan_mode() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -796,7 +798,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-plan", &[event], None);
+        ingest_events(&mut state, "sess-plan", &[event], None).await;
 
         let plans = state.store.plan_store.list_plans();
         assert!(
@@ -805,8 +807,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_captures_full_payload_for_large_tool_result() {
+    #[tokio::test]
+    async fn ingest_captures_full_payload_for_large_tool_result() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -835,7 +837,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-trunc", &[event], None);
+        ingest_events(&mut state, "sess-trunc", &[event], None).await;
 
         let session_payloads = state.store.full_payloads.get("sess-trunc");
         assert!(
@@ -848,8 +850,8 @@ mod tests {
         assert_eq!(captured.len(), TRUNCATION_THRESHOLD + 500);
     }
 
-    #[test]
-    fn ingest_subagent_populates_parent_child_index() {
+    #[tokio::test]
+    async fn ingest_subagent_populates_parent_child_index() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -875,7 +877,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "agent-456", &[event], None);
+        ingest_events(&mut state, "agent-456", &[event], None).await;
 
         assert_eq!(
             state.store.subagent_parents.get("agent-456"),
@@ -890,8 +892,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_normal_session_does_not_populate_parent_child() {
+    #[tokio::test]
+    async fn ingest_normal_session_does_not_populate_parent_child() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -916,7 +918,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-1", &[event], None);
+        ingest_events(&mut state, "sess-1", &[event], None).await;
 
         assert!(
             state.store.subagent_parents.is_empty(),
@@ -928,13 +930,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ingest_populates_projection() {
+    #[tokio::test]
+    async fn ingest_populates_projection() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-proj-pop-1", "hello world");
 
-        ingest_events(&mut state, "sess-proj-pop", &[event], None);
+        ingest_events(&mut state, "sess-proj-pop", &[event], None).await;
 
         assert!(
             state.store.projections.contains_key("sess-proj-pop"),
@@ -947,8 +949,8 @@ mod tests {
 
     // ── replay_boot_sessions tests ──────────────────────────────────────
 
-    #[test]
-    fn replay_boot_sessions_populates_projections() {
+    #[tokio::test]
+    async fn replay_boot_sessions_populates_projections() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -968,34 +970,34 @@ mod tests {
                 }
             }
         });
-        let _ = state.store.event_store.insert_event("sess-1", &event);
+        let _ = state.store.event_store.insert_event("sess-1", &event).await;
         let _ = state.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-1".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
-        });
+        }).await;
 
         assert!(state.store.projections.is_empty());
 
-        replay_boot_sessions(&mut state);
+        replay_boot_sessions(&mut state).await;
 
         assert!(state.store.projections.contains_key("sess-1"));
         let proj = state.store.projections.get("sess-1").unwrap();
         assert!(proj.filter_counts().values().sum::<usize>() > 0);
     }
 
-    #[test]
-    fn replay_boot_sessions_with_empty_sessions_is_noop() {
+    #[tokio::test]
+    async fn replay_boot_sessions_with_empty_sessions_is_noop() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
-        replay_boot_sessions(&mut state);
+        replay_boot_sessions(&mut state).await;
         assert!(state.store.projections.is_empty());
     }
 
-    #[test]
-    fn replay_boot_sessions_detects_patterns() {
+    #[tokio::test]
+    async fn replay_boot_sessions_detects_patterns() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -1040,14 +1042,14 @@ mod tests {
             }),
         ];
 
-        let _ = state.store.event_store.insert_batch("sess-tc", &events);
+        let _ = state.store.event_store.insert_batch("sess-tc", &events).await;
         let _ = state.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-tc".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: events.len() as u64,
                 custom_label: None,
             first_event: None, last_event: None,
-        });
-        replay_boot_sessions(&mut state);
+        }).await;
+        replay_boot_sessions(&mut state).await;
 
         let patterns = state.store.detected_patterns.get("sess-tc");
         assert!(patterns.is_some(), "should have detected patterns during replay");
@@ -1059,8 +1061,8 @@ mod tests {
         assert!(test_cycles[0].summary.contains("PASS"));
     }
 
-    #[test]
-    fn replay_boot_sessions_captures_full_payloads() {
+    #[tokio::test]
+    async fn replay_boot_sessions_captures_full_payloads() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -1078,14 +1080,14 @@ mod tests {
             }
         });
 
-        let _ = state.store.event_store.insert_event("sess-replay-trunc", &event);
+        let _ = state.store.event_store.insert_event("sess-replay-trunc", &event).await;
         let _ = state.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-replay-trunc".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
-        });
-        replay_boot_sessions(&mut state);
+        }).await;
+        replay_boot_sessions(&mut state).await;
 
         let payloads = state.store.full_payloads.get("sess-replay-trunc");
         assert!(payloads.is_some(), "replay should capture full payloads for large tool results");
@@ -1094,8 +1096,8 @@ mod tests {
         assert_eq!(payloads.values().next().unwrap().len(), TRUNCATION_THRESHOLD + 200);
     }
 
-    #[test]
-    fn replay_boot_sessions_produces_sentence_patterns() {
+    #[tokio::test]
+    async fn replay_boot_sessions_produces_sentence_patterns() {
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
@@ -1166,14 +1168,14 @@ mod tests {
             }),
         ];
 
-        let _ = state.store.event_store.insert_batch("sess-sent", &events);
+        let _ = state.store.event_store.insert_batch("sess-sent", &events).await;
         let _ = state.store.event_store.upsert_session(&open_story_store::event_store::SessionRow {
             id: "sess-sent".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: events.len() as u64,
             custom_label: None,
             first_event: None, last_event: None,
-        });
-        replay_boot_sessions(&mut state);
+        }).await;
+        replay_boot_sessions(&mut state).await;
 
         let patterns = state.store.detected_patterns.get("sess-sent");
         assert!(patterns.is_some(), "should have detected patterns");

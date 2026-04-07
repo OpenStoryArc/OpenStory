@@ -143,14 +143,14 @@ mod ws_initial_state {
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Bash", "ls"),
                 make_assistant_text("sess-1", "evt-4", Some("evt-2"), "done"),
             ];
-            ingest_events(&mut s, "sess-1", &durable, None);
+            ingest_events(&mut s, "sess-1", &durable, None).await;
 
             // 2 progress events
             let progress = vec![
                 make_progress_event("sess-1", "evt-p1", Some("evt-2")),
                 make_progress_event("sess-1", "evt-p2", Some("evt-2")),
             ];
-            ingest_events(&mut s, "sess-1", &progress, None);
+            ingest_events(&mut s, "sess-1", &progress, None).await;
         }
 
         let s = state.read().await;
@@ -176,7 +176,7 @@ mod ws_initial_state {
                 make_user_prompt("sess-1", "evt-1"),
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Read", "/foo.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let s = state.read().await;
@@ -208,7 +208,7 @@ mod ws_initial_state {
                 make_user_prompt("sess-1", "evt-1"),
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Read", "/foo.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let s = state.read().await;
@@ -230,7 +230,7 @@ mod ws_initial_state {
             // Ingest 600 events
             for i in 0..600 {
                 let e = make_user_prompt("sess-1", &format!("evt-{i}"));
-                ingest_events(&mut s, "sess-1", &[e], None);
+                ingest_events(&mut s, "sess-1", &[e], None).await;
             }
         }
 
@@ -251,7 +251,7 @@ mod ws_initial_state {
             let mut s = state.write().await;
             for i in 0..600 {
                 let e = make_user_prompt("sess-1", &format!("evt-{i:04}"));
-                ingest_events(&mut s, "sess-1", &[e], None);
+                ingest_events(&mut s, "sess-1", &[e], None).await;
             }
         }
 
@@ -278,7 +278,7 @@ mod ws_initial_state {
             // Ingest 600 user prompts — exceeds max_initial_records (500)
             for i in 0..600 {
                 let e = make_user_prompt("sess-1", &format!("evt-{i:04}"));
-                ingest_events(&mut s, "sess-1", &[e], None);
+                ingest_events(&mut s, "sess-1", &[e], None).await;
             }
         }
 
@@ -320,7 +320,7 @@ mod ws_initial_state {
                 make_tool_use("sess-1", "evt-4", Some("evt-3"), "Read", "/foo.rs"),
                 make_tool_use("sess-1", "evt-5", Some("evt-3"), "Edit", "/bar.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let s = state.read().await;
@@ -359,7 +359,7 @@ mod ws_initial_state {
             for sess in ["sess-1", "sess-2", "sess-3"] {
                 for i in 0..400 {
                     let e = make_user_prompt(sess, &format!("{sess}-evt-{i:04}"));
-                    ingest_events(&mut s, sess, &[e], None);
+                    ingest_events(&mut s, sess, &[e], None).await;
                 }
             }
         }

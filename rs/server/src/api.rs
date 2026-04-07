@@ -20,6 +20,7 @@ use crate::transcript::{find_transcript_path, read_transcript};
 pub async fn list_sessions(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let session_ids: Vec<String> = s.store.event_store.list_sessions()
+        .await
         .unwrap_or_default()
         .iter()
         .map(|r| r.id.clone())
@@ -28,7 +29,7 @@ pub async fn list_sessions(State(state): State<SharedState>) -> Json<Value> {
     let now = Some(Utc::now());
     let mut result = Vec::new();
     for sid in &session_ids {
-        let events = s.store.event_store.session_events(sid).unwrap_or_default();
+        let events = s.store.event_store.session_events(sid).await.unwrap_or_default();
         let summary = session_summary(sid, &events, now);
         let project_id = s.store.session_projects.get(sid);
         let project_name = s.store.session_project_names.get(sid);
@@ -69,7 +70,7 @@ pub async fn get_events(
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     log_event("api", &format!("GET /api/sessions/{}/events ({} events)", short_id(&session_id), events.len()));
     Json(Value::Array(events))
 }
@@ -80,7 +81,7 @@ pub async fn get_summary(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/summary", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let summary = session_summary(&session_id, &events, Some(Utc::now()));
     let project_id = s.store.session_projects.get(&session_id);
     Json(json!({
@@ -107,7 +108,7 @@ pub async fn get_activity(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/activity", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let a = activity_summary(&events);
     Json(json!({
         "first_prompt": a.first_prompt,
@@ -127,7 +128,7 @@ pub async fn get_tools(
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let dist = tool_call_distribution(&events);
     Json(serde_json::to_value(dist).unwrap_or(json!({})))
 }
@@ -145,7 +146,7 @@ pub async fn get_transcript(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/transcript", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let transcript_path = find_transcript_path(&events);
 
     let data_dir = s.store.data_dir.clone();
@@ -214,7 +215,7 @@ pub async fn get_view_records(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/view-records", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
 
     let view_records: Vec<Value> = events
         .iter()
@@ -241,7 +242,7 @@ pub async fn get_conversation(
     let fmt = query.format.as_deref().unwrap_or("json");
     log_event("api", &format!("GET /api/sessions/{}/conversation?format={fmt}", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
 
     let view_records: Vec<_> = events
         .iter()
@@ -280,7 +281,7 @@ pub async fn get_file_changes(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/file-changes", short_id(&session_id)));
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).unwrap_or_default();
+    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
 
     let view_records: Vec<_> = events
         .iter()
@@ -345,6 +346,7 @@ pub async fn get_event_content(
         .store
         .event_store
         .full_payload(&event_id)
+        .await
         .ok()
         .flatten()
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -388,6 +390,7 @@ pub async fn get_patterns(
         .store
         .event_store
         .session_patterns(&session_id, query.pattern_type.as_deref())
+        .await
         .unwrap_or_default();
     Json(json!({ "patterns": result }))
 }
@@ -402,6 +405,7 @@ pub async fn get_turns(
         .store
         .event_store
         .session_turns(&session_id)
+        .await
         .unwrap_or_default();
     Json(json!({ "turns": turns }))
 }
@@ -474,6 +478,7 @@ pub async fn get_session_synopsis(
     log_event("api", &format!("GET /api/sessions/{}/synopsis", short_id(&session_id)));
     let s = state.read().await;
     let synopsis = s.store.event_store.query_session_synopsis(&session_id)
+        .await
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(serde_json::to_value(synopsis).unwrap_or(json!({}))))
 }
@@ -485,7 +490,7 @@ pub async fn get_tool_journey(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/tool-journey", short_id(&session_id)));
     let s = state.read().await;
-    let journey = s.store.event_store.query_tool_journey(&session_id);
+    let journey = s.store.event_store.query_tool_journey(&session_id).await;
     Json(serde_json::to_value(journey).unwrap_or(json!([])))
 }
 
@@ -496,7 +501,7 @@ pub async fn get_file_impact(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/file-impact", short_id(&session_id)));
     let s = state.read().await;
-    let impact = s.store.event_store.query_file_impact(&session_id);
+    let impact = s.store.event_store.query_file_impact(&session_id).await;
     Json(serde_json::to_value(impact).unwrap_or(json!([])))
 }
 
@@ -507,7 +512,7 @@ pub async fn get_session_errors(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/sessions/{}/errors", short_id(&session_id)));
     let s = state.read().await;
-    let errors = s.store.event_store.query_session_errors(&session_id);
+    let errors = s.store.event_store.query_session_errors(&session_id).await;
     Json(serde_json::to_value(errors).unwrap_or(json!([])))
 }
 
@@ -528,7 +533,7 @@ pub async fn get_project_pulse(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/insights/pulse?days={}", query.days));
     let s = state.read().await;
-    let pulse = s.store.event_store.query_project_pulse(query.days);
+    let pulse = s.store.event_store.query_project_pulse(query.days).await;
     Json(serde_json::to_value(pulse).unwrap_or(json!([])))
 }
 
@@ -549,7 +554,7 @@ pub async fn get_tool_evolution(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/insights/tool-evolution?days={}", query.days));
     let s = state.read().await;
-    let evolution = s.store.event_store.query_tool_evolution(query.days);
+    let evolution = s.store.event_store.query_tool_evolution(query.days).await;
     Json(serde_json::to_value(evolution).unwrap_or(json!([])))
 }
 
@@ -559,7 +564,7 @@ pub async fn get_session_efficiency_insights(
 ) -> Json<Value> {
     log_event("api", "GET /api/insights/efficiency");
     let s = state.read().await;
-    let efficiency = s.store.event_store.query_session_efficiency();
+    let efficiency = s.store.event_store.query_session_efficiency().await;
     Json(serde_json::to_value(efficiency).unwrap_or(json!([])))
 }
 
@@ -575,7 +580,7 @@ pub async fn get_agent_project_context(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/agent/project-context?project={}", query.project));
     let s = state.read().await;
-    let context = s.store.event_store.query_project_context(&query.project, 5);
+    let context = s.store.event_store.query_project_context(&query.project, 5).await;
     Json(serde_json::to_value(context).unwrap_or(json!([])))
 }
 
@@ -586,7 +591,7 @@ pub async fn get_agent_recent_files(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/agent/recent-files?project={}", query.project));
     let s = state.read().await;
-    let files = s.store.event_store.query_recent_files(&query.project, 5);
+    let files = s.store.event_store.query_recent_files(&query.project, 5).await;
     Json(serde_json::to_value(files).unwrap_or(json!([])))
 }
 
@@ -603,7 +608,7 @@ pub async fn get_productivity(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/insights/productivity?days={}", query.days));
     let s = state.read().await;
-    let hourly = s.store.event_store.query_productivity_by_hour(query.days);
+    let hourly = s.store.event_store.query_productivity_by_hour(query.days).await;
     Json(serde_json::to_value(hourly).unwrap_or(json!([])))
 }
 
@@ -641,7 +646,7 @@ pub async fn get_token_usage(
         query.days,
         query.session_id.as_deref(),
         &query.model,
-    );
+    ).await;
     Json(serde_json::to_value(result).unwrap_or(json!({})))
 }
 
@@ -654,7 +659,7 @@ pub async fn get_daily_token_usage(
 ) -> Json<Value> {
     log_event("api", &format!("GET /api/insights/token-usage/daily?days={}", query.days));
     let s = state.read().await;
-    let result = s.store.event_store.query_daily_token_usage(Some(query.days));
+    let result = s.store.event_store.query_daily_token_usage(Some(query.days)).await;
     Json(serde_json::to_value(result).unwrap_or(json!([])))
 }
 
@@ -851,6 +856,7 @@ pub async fn search_events(
     let s = state.read().await;
     let results = s.store.event_store
         .search_fts(&q, query.limit, query.session_id.as_deref())
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -915,6 +921,7 @@ pub async fn agent_search(
     let event_limit = query.limit * 10;
     let results = s.store.event_store
         .search_fts(&q, event_limit, None)
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1056,6 +1063,7 @@ pub async fn delete_session(
     let mut s = state.write().await;
 
     let deleted = s.store.event_store.delete_session(&session_id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if deleted == 0 && !s.store.projections.contains_key(&session_id) {
@@ -1095,6 +1103,7 @@ pub async fn export_session(
     let s = state.read().await;
 
     let jsonl = s.store.event_store.export_session_jsonl(&session_id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if jsonl.is_empty() {

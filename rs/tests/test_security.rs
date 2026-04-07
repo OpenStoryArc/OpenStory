@@ -47,7 +47,7 @@ async fn transcript_api_rejects_dotdot_in_path() {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
-        let _ = s.store.event_store.insert_event("sess-traversal", &event);
+        let _ = s.store.event_store.insert_event("sess-traversal", &event).await;
     }
 
     let req = Request::get("/api/sessions/sess-traversal/transcript")
@@ -85,7 +85,7 @@ async fn transcript_api_rejects_backslash_traversal() {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
-        let _ = s.store.event_store.insert_event("sess-bs", &event);
+        let _ = s.store.event_store.insert_event("sess-bs", &event).await;
     }
 
     let req = Request::get("/api/sessions/sess-bs/transcript")
@@ -132,14 +132,14 @@ async fn session_id_with_sql_injection_is_harmless() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, malicious_sid, &events, None);
+        let result = ingest_events(&mut s, malicious_sid, &events, None).await;
         assert_eq!(result.count, 1, "event should be ingested normally despite SQL in session_id");
     }
 
     // Verify the events table still exists and original data is intact
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events(malicious_sid).unwrap();
+        let stored = s.store.event_store.session_events(malicious_sid).await.unwrap();
         assert_eq!(stored.len(), 1, "events table should still exist with our event");
     }
 
@@ -168,13 +168,13 @@ async fn session_id_extremely_long_does_not_crash() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, &long_sid, &events, None);
+        let result = ingest_events(&mut s, &long_sid, &events, None).await;
         assert_eq!(result.count, 1, "long session_id should not crash");
     }
 
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events(&long_sid).unwrap();
+        let stored = s.store.event_store.session_events(&long_sid).await.unwrap();
         assert_eq!(stored.len(), 1);
     }
 }
@@ -191,13 +191,13 @@ async fn sqlite_injection_via_event_id() {
 
     {
         let mut s = state.write().await;
-        ingest_events(&mut s, "sess-sqli", &events, None);
+        ingest_events(&mut s, "sess-sqli", &events, None).await;
     }
 
     // Table should still exist, event should be stored with literal SQL as ID
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-sqli").unwrap();
+        let stored = s.store.event_store.session_events("sess-sqli").await.unwrap();
         assert_eq!(stored.len(), 1, "events table survives SQL injection attempt in event_id");
         assert_eq!(
             stored[0].get("id").and_then(|v| v.as_str()),
@@ -227,7 +227,7 @@ async fn sqlite_injection_via_subtype() {
 
     {
         let s = state.read().await;
-        let inserted = s.store.event_store.insert_event("sess-sqli-sub", &event).unwrap();
+        let inserted = s.store.event_store.insert_event("sess-sqli-sub", &event).await.unwrap();
         assert!(inserted, "event with SQL in subtype should be inserted normally");
     }
 
@@ -242,8 +242,8 @@ async fn sqlite_injection_via_subtype() {
             "time": "2025-01-15T00:00:01Z",
             "data": {"text": "still here"}
         });
-        let _ = s.store.event_store.insert_event("sess-sqli-sub", &event2);
-        let all = s.store.event_store.session_events("sess-sqli-sub").unwrap();
+        let _ = s.store.event_store.insert_event("sess-sqli-sub", &event2).await;
+        let all = s.store.event_store.session_events("sess-sqli-sub").await.unwrap();
         assert_eq!(all.len(), 2, "both events should survive — SQL injection in subtype had no effect");
     }
 }
@@ -354,16 +354,16 @@ async fn duplicate_event_id_does_not_overwrite_data() {
 
         // First event with id "evt-collision"
         let event_a = make_user_prompt("sess-collision", "evt-collision");
-        let result_a = ingest_events(&mut s, "sess-collision", &[event_a], None);
+        let result_a = ingest_events(&mut s, "sess-collision", &[event_a], None).await;
         assert_eq!(result_a.count, 1);
 
         // Second event with SAME id but potentially different data
         let event_b = make_event_with_id("io.arc.event", "sess-collision", "evt-collision");
-        let result_b = ingest_events(&mut s, "sess-collision", &[event_b], None);
+        let result_b = ingest_events(&mut s, "sess-collision", &[event_b], None).await;
         assert_eq!(result_b.count, 0, "duplicate event_id should be deduplicated");
 
         // Only one event should be stored
-        let stored = s.store.event_store.session_events("sess-collision").unwrap();
+        let stored = s.store.event_store.session_events("sess-collision").await.unwrap();
         assert_eq!(stored.len(), 1, "only original event should exist");
     }
 }
@@ -378,12 +378,12 @@ async fn duplicate_event_id_across_sessions() {
 
         // Same event ID in session A
         let event_a = make_user_prompt("sess-a", "shared-evt");
-        let result_a = ingest_events(&mut s, "sess-a", &[event_a], None);
+        let result_a = ingest_events(&mut s, "sess-a", &[event_a], None).await;
         assert_eq!(result_a.count, 1);
 
         // Same event ID in session B — should be deduplicated by seen_event_ids
         let event_b = make_user_prompt("sess-b", "shared-evt");
-        let result_b = ingest_events(&mut s, "sess-b", &[event_b], None);
+        let result_b = ingest_events(&mut s, "sess-b", &[event_b], None).await;
         assert_eq!(result_b.count, 0, "same event_id across sessions should be deduplicated");
     }
 }
@@ -405,7 +405,7 @@ async fn ingest_many_sessions_no_crash() {
             let events: Vec<_> = (0..events_per_session)
                 .map(|j| make_user_prompt(&sid, &format!("evt-{}-{}", i, j)))
                 .collect();
-            let result = ingest_events(&mut s, &sid, &events, None);
+            let result = ingest_events(&mut s, &sid, &events, None).await;
             assert_eq!(result.count, events_per_session);
         }
     }
@@ -413,7 +413,7 @@ async fn ingest_many_sessions_no_crash() {
     // Verify all sessions exist
     {
         let s = state.read().await;
-        let sessions = s.store.event_store.list_sessions().unwrap();
+        let sessions = s.store.event_store.list_sessions().await.unwrap();
         assert_eq!(
             sessions.len(),
             num_sessions,
@@ -446,13 +446,13 @@ async fn ingest_large_event_payload_no_crash() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, "sess-large", &events, None);
+        let result = ingest_events(&mut s, "sess-large", &events, None).await;
         assert_eq!(result.count, 1, "large event should be ingested successfully");
     }
 
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-large").unwrap();
+        let stored = s.store.event_store.session_events("sess-large").await.unwrap();
         assert_eq!(stored.len(), 1);
     }
 }
@@ -583,7 +583,7 @@ async fn hook_session_id_is_authoritative() {
     {
         let mut s = state.write().await;
         // Route to "attacker-session" despite event data saying "victim-session"
-        let result = ingest_events(&mut s, "attacker-session", &events, None);
+        let result = ingest_events(&mut s, "attacker-session", &events, None).await;
         assert_eq!(result.count, 1);
 
         // Events should be under attacker-session, not victim-session
@@ -591,6 +591,7 @@ async fn hook_session_id_is_authoritative() {
             .store
             .event_store
             .session_events("attacker-session")
+            .await
             .unwrap();
         assert_eq!(
             attacker_events.len(),
@@ -603,6 +604,7 @@ async fn hook_session_id_is_authoritative() {
             .store
             .event_store
             .session_events("victim-session")
+            .await
             .unwrap();
         assert_eq!(
             victim_events.len(),
