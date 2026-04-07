@@ -337,15 +337,14 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 
 ```
 open-story/
-├── rs/                          Rust workspace (9 crates)
+├── rs/                          Rust workspace (8 crates)
 │   ├── core/                    open-story-core (CloudEvent types, translate, reader)
 │   ├── bus/                     open-story-bus (NATS JetStream event bus)
-│   ├── store/                   open-story-store (persistence, analysis, projection)
+│   ├── store/                   open-story-store (persistence, projection, FTS5 search)
 │   ├── views/                   open-story-views (BFF: CloudEvent → ViewRecord)
-│   ├── patterns/                open-story-patterns (5 streaming detectors)
-│   ├── semantic/                open-story-semantic (embedding, search, Qdrant)
-│   ├── server/                  open-story-server (HTTP/WS, API, hooks, ingest)
-│   ├── src/                     open-story lib (watcher + server orchestration)
+│   ├── patterns/                open-story-patterns (7 streaming detectors)
+│   ├── server/                  open-story-server (HTTP/WS, API, hooks, consumer actors)
+│   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
 │   └── tests/                   Integration tests
 ├── ui/                          React dashboard

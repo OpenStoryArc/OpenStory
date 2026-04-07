@@ -100,7 +100,15 @@ This is how we verify the product works and catch rendering/data issues in real 
 
 **Maintaining scripts:** When the data model changes (new tables, renamed fields, new event subtypes), update the scripts that query it. Scripts with `--test` flags should be run as part of validation. A broken script is a broken understanding.
 
-Scripts in `scripts/` are runnable standalone (`uv run python scripts/foo.py`) and often have `--test` flags. Use `scripts/query_store.py` to inspect the SQLite database. See `scripts/` for the full inventory.
+Scripts in `scripts/` are runnable standalone (`python3 scripts/foo.py` or `uv run python scripts/foo.py`) and often have `--test` flags. Key entry points:
+
+- **`scripts/sessionstory.py SESSION_ID`** — the first script to reach for when answering "what happened in this session." Hits the OpenStory REST API, aggregates records + patterns, emits a structured fact sheet (record types, tool histogram, eval-apply patterns, turn phases, verbatim sample sentences from the `turn.sentence` detector, prompt timeline). Add `--unfinished` to see trailing assistant messages — useful when picking up where a previous session left off. There's a project-level skill at `.claude/skills/sessionstory/SKILL.md`.
+- **`scripts/check_docs.py`** — TDD docs validator. Compares claims in markdown (crate counts, detector counts, file references) against the live codebase (`rs/Cargo.toml` workspace members, `rs/patterns/src/*.rs`, `rs/server/src/consumers/*.rs`, the filesystem). Run before committing docs changes to catch drift. Has a `--test` flag with synthetic fixtures.
+- **`scripts/query_store.py`** — direct SQL queries against the live SQLite store.
+- **`scripts/analyze_*.py`** — session structure analysis (eval-apply shapes, turn shapes, event groups, payload sizes).
+- **`scripts/token_usage.py`** — input/output/cache token counts and estimated cost.
+
+See `scripts/` for the full inventory and `README.md` for the grouped index.
 
 ### Learned anti-patterns
 
@@ -118,22 +126,23 @@ Full list with context: `docs/soul/patterns.md`
 ## Project Structure
 
 ```
-rs/           — Rust workspace (9 crates)
+rs/           — Rust workspace (8 crates)
+  .           — open-story: orchestration library (watcher + server wiring)
   core/       — open-story-core: CloudEvent types, per-agent translators, reader, paths
   bus/        — open-story-bus: NATS JetStream event bus abstraction
-  store/      — open-story-store: persistence, analysis, projection
+  store/      — open-story-store: persistence, analysis, projection, FTS5 search
   views/      — open-story-views: CloudEvent → ViewRecord BFF transform
-  patterns/   — open-story-patterns: streaming pattern detection (5 detectors)
-  semantic/   — open-story-semantic: embedding, vector search, Qdrant integration
-  server/     — open-story-server: HTTP/WS server, API, hooks, ingest
-  src/        — open-story: orchestration library (watcher + server wiring)
+  patterns/   — open-story-patterns: streaming pattern detection (7 detectors)
+  server/     — open-story-server: HTTP/WS server, API, hooks, consumer actors
   cli/        — open-story-cli: thin CLI binary
   tests/      — integration tests
 ui/           — React dashboard (Vite, TailwindCSS v4, RxJS, Recharts)
 e2e/          — Playwright E2E tests
 ```
 
-The Rust codebase is a **workspace with 9 crates**. Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, `open-story-store`, and `open-story-semantic`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS). The `open-story` lib crate orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+The Rust codebase is a **workspace with 8 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `patterns`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+
+> **Note on `rs/semantic/`:** This directory exists on disk with its own `Cargo.toml` but is **not** a workspace member. It's vestigial Qdrant-based semantic search code from before SQLite FTS5 replaced it. Search now goes through `rs/store/src/sqlite_store.rs` (`events_fts` virtual table, `search_fts()` function). The orphaned `semantic/` directory is slated for removal — see BACKLOG: "Remove orphaned semantic crate."
 
 ## Build & Test
 
