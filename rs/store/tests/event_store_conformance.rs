@@ -1030,6 +1030,251 @@ pub async fn it_returns_recent_files_for_a_project(store: Arc<dyn EventStore>) {
     assert!(beta.is_empty(), "proj-beta has no edit events");
 }
 
+/// §8.8 — `query_tool_evolution` buckets tool calls into weeks. Uses
+/// the redesigned `ToolEvolution` shape (`bucket_start`/`bucket_end`
+/// instead of a `week` label) per §1.6 Category 3. Both backends
+/// compute the same Monday-of-week from the same input timestamp,
+/// so this is **C1** strict equality after the redesign — no week
+/// labeling divergence.
+pub async fn it_returns_tool_evolution_bucketed_by_week(store: Arc<dyn EventStore>) {
+    seed_analytics_universe(&*store).await;
+
+    let result = store.query_tool_evolution(365).await;
+
+    // All fixture events are within ~24h of `now()`, so they all bucket
+    // into the SAME week. Both backends produce the same `bucket_start`.
+    assert!(!result.is_empty(), "fixture has tool_use events");
+
+    // All rows must have the SAME bucket_start (we're in one week).
+    let first_bucket = result[0].bucket_start.clone();
+    let first_end = result[0].bucket_end.clone();
+    for row in &result {
+        assert_eq!(
+            row.bucket_start, first_bucket,
+            "all events should be in the same week bucket"
+        );
+        assert_eq!(
+            row.bucket_end, first_end,
+            "bucket_end should match across rows in the same bucket"
+        );
+    }
+
+    // bucket_start must be a Monday (day-of-week == 1) and
+    // bucket_end == bucket_start + 6 days
+    let start_date = chrono::NaiveDate::parse_from_str(&first_bucket, "%Y-%m-%d")
+        .expect("bucket_start must be YYYY-MM-DD");
+    use chrono::Datelike;
+    assert_eq!(
+        start_date.weekday(),
+        chrono::Weekday::Mon,
+        "bucket_start must be a Monday, got {} ({})",
+        first_bucket,
+        start_date.weekday()
+    );
+    let end_date = chrono::NaiveDate::parse_from_str(&first_end, "%Y-%m-%d")
+        .expect("bucket_end must be YYYY-MM-DD");
+    assert_eq!(
+        (end_date - start_date).num_days(),
+        6,
+        "bucket_end must be 6 days after bucket_start"
+    );
+
+    // Sum of tool counts must match the fixture's total tool_use count:
+    // sess-A1: Edit×2 + Bash×1 + Read×2 = 5
+    // sess-A2: Read×2 + Bash×1 = 3
+    // sess-B1: Grep×1 + Glob×1 = 2
+    // Total = 10
+    let total: u64 = result.iter().map(|r| r.count).sum();
+    assert_eq!(total, 10, "10 tool_use events in the fixture");
+
+    // The set of (tool, count) pairs across the single bucket should
+    // match the per-tool aggregate. Sort canonically before compare.
+    let mut canonical: Vec<(String, u64)> =
+        result.iter().map(|r| (r.tool.clone(), r.count)).collect();
+    canonical.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Aggregate tool counts:
+    //   Bash: 2 (1 in A1, 1 in A2)
+    //   Edit: 2 (2 in A1)
+    //   Glob: 1 (1 in B1)
+    //   Grep: 1 (1 in B1)
+    //   Read: 4 (2 in A1, 2 in A2)
+    let expected = vec![
+        ("Bash".to_string(), 2u64),
+        ("Edit".to_string(), 2u64),
+        ("Glob".to_string(), 1u64),
+        ("Grep".to_string(), 1u64),
+        ("Read".to_string(), 4u64),
+    ];
+    assert_eq!(canonical, expected);
+}
+
+/// Seed three assistant.text events with `data.raw.message.usage`
+/// fields populated, so token_usage / daily_token_usage have data
+/// to aggregate. Distinct token counts so the per-session ordering
+/// is unambiguous.
+async fn seed_token_usage_events(store: &dyn EventStore) {
+    // Token records for each session, mirroring the §7.5 spec
+    // (input, output, cache_read, cache_creation):
+    let token_events = [
+        ("evt-tok-1", "sess-A1", &ts_offset(24, 0), 1000u64, 500u64, 200u64, 100u64),
+        ("evt-tok-2", "sess-A2", &ts_offset(12, 0), 800u64, 300u64, 150u64, 50u64),
+        ("evt-tok-3", "sess-B1", &ts_offset(6, 0),  600u64, 200u64, 100u64, 25u64),
+    ];
+    for (id, sid, ts, input, output, cache_read, cache_creation) in &token_events {
+        let event = json!({
+            "id": id,
+            "type": "io.arc.event",
+            "subtype": "message.assistant.text",
+            "source": format!("arc://transcript/{sid}"),
+            "time": ts,
+            "data": {
+                "raw": {
+                    "message": {
+                        "usage": {
+                            "input_tokens": input,
+                            "output_tokens": output,
+                            "cache_read_input_tokens": cache_read,
+                            "cache_creation_input_tokens": cache_creation,
+                        }
+                    }
+                },
+                "seq": 1,
+                "session_id": sid,
+                "agent_payload": {
+                    "_variant": "claude-code",
+                    "meta": {"agent": "claude-code"},
+                    "text": "ok",
+                }
+            }
+        });
+        store.insert_event(sid, &event).await.unwrap();
+    }
+}
+
+/// §8.14 — `query_token_usage(None, None, "sonnet")` returns the full
+/// summary across all sessions with cost computed for the sonnet
+/// model. C1 strict equality (sums + cost from shared Rust function).
+pub async fn it_returns_token_usage_summary_for_all_sessions(
+    store: Arc<dyn EventStore>,
+) {
+    seed_analytics_universe(&*store).await;
+    seed_token_usage_events(&*store).await;
+
+    let result = store.query_token_usage(None, None, "sonnet").await;
+
+    // Aggregate from §7.5 fixture:
+    //   input  = 1000 + 800 + 600 = 2400
+    //   output = 500 + 300 + 200 = 1000
+    //   cache_read = 200 + 150 + 100 = 450
+    //   cache_creation = 100 + 50 + 25 = 175
+    //   total  = 4025
+    //   message_count = 3
+    assert_eq!(result.session_count, 3);
+    assert_eq!(result.usage.input_tokens, 2400);
+    assert_eq!(result.usage.output_tokens, 1000);
+    assert_eq!(result.usage.cache_read_tokens, 450);
+    assert_eq!(result.usage.cache_creation_tokens, 175);
+    assert_eq!(result.usage.total_tokens, 4025);
+    assert_eq!(result.usage.message_count, 3);
+
+    // Cost: sonnet rates (input 3.0/M, output 15.0/M, cache_read 0.30/M,
+    // cache_creation 3.75/M) computed by the shared estimate_cost
+    // helper. Both backends call the same Rust function so the f64
+    // result is byte-identical.
+    assert_eq!(result.cost.model, "sonnet");
+    assert!(
+        (result.cost.input - 0.0072).abs() < 1e-9,
+        "input cost: {}",
+        result.cost.input
+    );
+    assert!(
+        (result.cost.output - 0.015).abs() < 1e-9,
+        "output cost: {}",
+        result.cost.output
+    );
+
+    // Per-session breakdown sorted by output_tokens DESC:
+    //   sess-A1 (500), sess-A2 (300), sess-B1 (200)
+    assert_eq!(result.sessions.len(), 3);
+    assert_eq!(result.sessions[0].session_id, "sess-A1");
+    assert_eq!(result.sessions[0].usage.input_tokens, 1000);
+    assert_eq!(result.sessions[0].usage.output_tokens, 500);
+    assert_eq!(result.sessions[1].session_id, "sess-A2");
+    assert_eq!(result.sessions[1].usage.output_tokens, 300);
+    assert_eq!(result.sessions[2].session_id, "sess-B1");
+    assert_eq!(result.sessions[2].usage.output_tokens, 200);
+}
+
+/// §8.15 — `query_token_usage(None, Some("sess-A1"), "sonnet")`
+/// returns just the requested session's tokens.
+pub async fn it_returns_token_usage_for_a_specific_session(
+    store: Arc<dyn EventStore>,
+) {
+    seed_analytics_universe(&*store).await;
+    seed_token_usage_events(&*store).await;
+
+    let result = store
+        .query_token_usage(None, Some("sess-A1"), "sonnet")
+        .await;
+
+    assert_eq!(result.session_count, 1);
+    assert_eq!(result.usage.input_tokens, 1000);
+    assert_eq!(result.usage.output_tokens, 500);
+    assert_eq!(result.sessions.len(), 1);
+    assert_eq!(result.sessions[0].session_id, "sess-A1");
+}
+
+/// §8.17 — `query_token_usage` with no matching sessions returns a
+/// zero summary with the cost still computed for the requested model.
+pub async fn it_returns_zero_token_summary_when_no_sessions_match(
+    store: Arc<dyn EventStore>,
+) {
+    // Empty store — no seed.
+    let result = store.query_token_usage(None, None, "opus").await;
+
+    assert_eq!(result.session_count, 0);
+    assert_eq!(result.usage.input_tokens, 0);
+    assert_eq!(result.usage.output_tokens, 0);
+    assert_eq!(result.usage.total_tokens, 0);
+    assert_eq!(result.usage.message_count, 0);
+    assert_eq!(result.cost.model, "opus");
+    assert_eq!(result.cost.total, 0.0);
+    assert!(result.sessions.is_empty());
+}
+
+/// §8.18 — `query_daily_token_usage` buckets token records by date
+/// prefix (first 10 chars of timestamp). C1 strict equality.
+pub async fn it_returns_daily_token_usage_bucketed_by_date(
+    store: Arc<dyn EventStore>,
+) {
+    seed_analytics_universe(&*store).await;
+    seed_token_usage_events(&*store).await;
+
+    let result = store.query_daily_token_usage(Some(365)).await;
+
+    // Total tokens across all daily buckets must equal the fixture
+    // aggregate (input + output + cache_read + cache_creation = 4025)
+    let total: u64 = result.iter().map(|d| d.usage.total_tokens).sum();
+    assert_eq!(total, 4025, "all token records sum to 4025");
+
+    // Total message count across all buckets = 3
+    let total_msgs: u64 = result.iter().map(|d| d.usage.message_count).sum();
+    assert_eq!(total_msgs, 3);
+
+    // Each row has a 10-char date prefix
+    for row in &result {
+        assert_eq!(row.date.len(), 10, "date must be YYYY-MM-DD");
+        assert_eq!(&row.date[4..5], "-");
+        assert_eq!(&row.date[7..8], "-");
+    }
+
+    // Buckets sorted by date ASC
+    let mut sorted = result.clone();
+    sorted.sort_by(|a, b| a.date.cmp(&b.date));
+    assert_eq!(sorted, result);
+}
+
 /// §8.13 — `query_productivity_by_hour` buckets events by UTC hour.
 /// Both backends compute the same hour from the same `Z`-suffixed
 /// source data, so this is C1 strict equality on the bucket counts —
@@ -1159,6 +1404,11 @@ macro_rules! for_each_conformance_test {
         $macro!(it_returns_session_efficiency_for_recent_sessions);
         $macro!(it_returns_recent_files_for_a_project);
         $macro!(it_buckets_productivity_by_hour);
+        $macro!(it_returns_tool_evolution_bucketed_by_week);
+        $macro!(it_returns_token_usage_summary_for_all_sessions);
+        $macro!(it_returns_token_usage_for_a_specific_session);
+        $macro!(it_returns_zero_token_summary_when_no_sessions_match);
+        $macro!(it_returns_daily_token_usage_bucketed_by_date);
     };
 }
 

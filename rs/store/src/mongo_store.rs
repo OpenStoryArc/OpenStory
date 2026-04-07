@@ -1102,6 +1102,122 @@ impl EventStore for MongoStore {
         out
     }
 
+    /// Tool calls bucketed by week (Monday-Sunday). Mirrors
+    /// `queries::tool_evolution`. Both backends compute the same
+    /// Monday-of-week from the same input timestamp regardless of
+    /// week-numbering convention — that's the §1.6 Category 3 fix.
+    /// C1 strict equality after the API redesign.
+    async fn query_tool_evolution(
+        &self,
+        days: u32,
+    ) -> Vec<crate::queries::ToolEvolution> {
+        use crate::queries::ToolEvolution;
+        use futures::StreamExt;
+
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        // The pipeline:
+        //   1. $match — filter by subtype + cutoff + non-null tool
+        //   2. $addFields — parse timestamp into a Date, then $dateTrunc
+        //      to the start of the week (Monday). $dateTrunc with
+        //      `unit: "week"` and `startOfWeek: "monday"` gives us
+        //      exactly the Monday of the week containing the timestamp.
+        //   3. $addFields — bucket_start as YYYY-MM-DD, bucket_end as
+        //      bucket_start + 6 days
+        //   4. $group — by (bucket_start, tool)
+        //   5. $sort — by bucket_start ASC, count DESC
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "subtype": "message.assistant.tool_use",
+                    "timestamp": { "$gte": cutoff_str },
+                    "payload.data.agent_payload.tool": { "$ne": Bson::Null },
+                }
+            },
+            doc! {
+                "$addFields": {
+                    "_parsed_ts": {
+                        "$dateFromString": { "dateString": "$timestamp" }
+                    }
+                }
+            },
+            doc! {
+                "$addFields": {
+                    "_monday": {
+                        "$dateTrunc": {
+                            "date": "$_parsed_ts",
+                            "unit": "week",
+                            "startOfWeek": "monday",
+                        }
+                    }
+                }
+            },
+            doc! {
+                "$addFields": {
+                    "bucket_start": {
+                        "$dateToString": { "format": "%Y-%m-%d", "date": "$_monday" }
+                    },
+                    "bucket_end": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d",
+                            "date": {
+                                "$dateAdd": {
+                                    "startDate": "$_monday",
+                                    "unit": "day",
+                                    "amount": 6,
+                                }
+                            }
+                        }
+                    },
+                }
+            },
+            doc! {
+                "$group": {
+                    "_id": {
+                        "bucket_start": "$bucket_start",
+                        "bucket_end": "$bucket_end",
+                        "tool": "$payload.data.agent_payload.tool",
+                    },
+                    "count": { "$sum": 1 },
+                }
+            },
+            doc! {
+                "$sort": {
+                    "_id.bucket_start": 1,
+                    "count": -1,
+                }
+            },
+        ];
+
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_tool_evolution: {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = match next {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let id = match doc.get_document("_id").ok() {
+                Some(d) => d,
+                None => continue,
+            };
+            out.push(ToolEvolution {
+                bucket_start: id.get_str("bucket_start").unwrap_or_default().to_string(),
+                bucket_end: id.get_str("bucket_end").unwrap_or_default().to_string(),
+                tool: id.get_str("tool").unwrap_or_default().to_string(),
+                count: get_count(&doc, "count"),
+            });
+        }
+        out
+    }
+
     /// Activity density by hour of day. Mirrors
     /// `queries::productivity_by_hour`. Both backends interpret the
     /// same `Z`-suffixed UTC timestamps and produce the same hour
@@ -1153,6 +1269,260 @@ impl EventStore for MongoStore {
                     hour,
                     event_count: get_count(&d, "count"),
                 });
+            }
+        }
+        out
+    }
+
+    /// Token usage summary across the matched sessions, with cost
+    /// computed via the shared `estimate_cost` Rust helper. Mirrors
+    /// `queries::token_usage`. C1 strict equality (sums + cost from
+    /// the same Rust function in both backends).
+    async fn query_token_usage(
+        &self,
+        days: Option<u32>,
+        session_id: Option<&str>,
+        model: &str,
+    ) -> crate::queries::TokenUsageSummary {
+        use crate::queries::{
+            estimate_cost_for_model, SessionTokenUsage, TokenUsage, TokenUsageSummary,
+        };
+        use futures::StreamExt;
+
+        // 1. Resolve which sessions to include (mirrors the SQL impl's
+        //    three filter modes).
+        let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let session_filter = match (session_id, days) {
+            (Some(sid), _) => doc! { "_id": sid },
+            (None, Some(d)) => {
+                let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
+                let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+                doc! { "last_event": { "$gt": cutoff_str } }
+            }
+            (None, None) => doc! {},
+        };
+        let session_opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "last_event": -1 })
+            .build();
+        let mut sess_cursor = match sessions
+            .find(session_filter)
+            .with_options(session_opts)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_token_usage (sessions): {e}");
+                return TokenUsageSummary {
+                    session_count: 0,
+                    usage: TokenUsage::default(),
+                    cost: estimate_cost_for_model(&TokenUsage::default(), model),
+                    sessions: Vec::new(),
+                };
+            }
+        };
+
+        // (id, label, project_name, first_event, last_event)
+        let mut session_rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = Vec::new();
+        while let Some(next) = sess_cursor.next().await {
+            if let Ok(d) = next {
+                session_rows.push((
+                    d.get_str("_id").unwrap_or_default().to_string(),
+                    d.get_str("label").ok().map(|s| s.to_string()),
+                    d.get_str("project_name").ok().map(|s| s.to_string()),
+                    d.get_str("first_event").ok().map(|s| s.to_string()),
+                    d.get_str("last_event").ok().map(|s| s.to_string()),
+                ));
+            }
+        }
+
+        if session_rows.is_empty() {
+            return TokenUsageSummary {
+                session_count: 0,
+                usage: TokenUsage::default(),
+                cost: estimate_cost_for_model(&TokenUsage::default(), model),
+                sessions: Vec::new(),
+            };
+        }
+
+        // 2. Aggregate token usage per session via Mongo aggregation.
+        //    The token fields live at payload.data.raw.message.usage —
+        //    use $exists for precise filtering instead of SQL's
+        //    over-inclusive LIKE substring scan.
+        let session_ids: Vec<&str> = session_rows.iter().map(|s| s.0.as_str()).collect();
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let pipeline = vec![
+            doc! {
+                "$match": {
+                    "session_id": { "$in": &session_ids },
+                    "subtype": { "$in": [
+                        "message.assistant.text",
+                        "message.assistant.tool_use",
+                        "message.assistant.thinking",
+                    ]},
+                    "payload.data.raw.message.usage.input_tokens": { "$exists": true },
+                }
+            },
+            doc! {
+                "$group": {
+                    "_id": "$session_id",
+                    "input_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.input_tokens", 0] }
+                    },
+                    "output_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.output_tokens", 0] }
+                    },
+                    "cache_read_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.cache_read_input_tokens", 0] }
+                    },
+                    "cache_creation_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.cache_creation_input_tokens", 0] }
+                    },
+                    "message_count": { "$sum": 1 },
+                }
+            },
+        ];
+
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_token_usage (events): {e}");
+                return TokenUsageSummary {
+                    session_count: session_rows.len() as u64,
+                    usage: TokenUsage::default(),
+                    cost: estimate_cost_for_model(&TokenUsage::default(), model),
+                    sessions: Vec::new(),
+                };
+            }
+        };
+
+        let mut session_usages: std::collections::HashMap<String, TokenUsage> =
+            std::collections::HashMap::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                let sid = d.get_str("_id").unwrap_or_default().to_string();
+                let mut u = TokenUsage::default();
+                u.input_tokens = get_count(&d, "input_tokens");
+                u.output_tokens = get_count(&d, "output_tokens");
+                u.cache_read_tokens = get_count(&d, "cache_read_tokens");
+                u.cache_creation_tokens = get_count(&d, "cache_creation_tokens");
+                u.message_count = get_count(&d, "message_count");
+                u.total_tokens = u.input_tokens
+                    + u.output_tokens
+                    + u.cache_read_tokens
+                    + u.cache_creation_tokens;
+                session_usages.insert(sid, u);
+            }
+        }
+
+        // 3. Build per-session results (only include sessions that
+        //    actually had usage events) and the running total.
+        let mut total = TokenUsage::default();
+        let mut session_results: Vec<SessionTokenUsage> = Vec::new();
+        for (sid, label, project_name, first_event, last_event) in &session_rows {
+            let usage = session_usages.remove(sid).unwrap_or_default();
+            total.input_tokens += usage.input_tokens;
+            total.output_tokens += usage.output_tokens;
+            total.cache_read_tokens += usage.cache_read_tokens;
+            total.cache_creation_tokens += usage.cache_creation_tokens;
+            total.message_count += usage.message_count;
+            if usage.message_count > 0 {
+                session_results.push(SessionTokenUsage {
+                    session_id: sid.clone(),
+                    label: label.clone(),
+                    project_name: project_name.clone(),
+                    first_event: first_event.clone(),
+                    last_event: last_event.clone(),
+                    usage,
+                });
+            }
+        }
+        total.total_tokens = total.input_tokens
+            + total.output_tokens
+            + total.cache_read_tokens
+            + total.cache_creation_tokens;
+
+        // 4. Sort sessions by output tokens DESC (matches SQL impl).
+        session_results.sort_by(|a, b| b.usage.output_tokens.cmp(&a.usage.output_tokens));
+
+        TokenUsageSummary {
+            session_count: session_rows.len() as u64,
+            usage: total.clone(),
+            cost: estimate_cost_for_model(&total, model),
+            sessions: session_results,
+        }
+    }
+
+    /// Daily token usage trend. Mirrors `queries::daily_token_usage`.
+    /// Buckets by date prefix (first 10 chars of timestamp). C1.
+    async fn query_daily_token_usage(
+        &self,
+        days: Option<u32>,
+    ) -> Vec<crate::queries::DailyTokenUsage> {
+        use crate::queries::{DailyTokenUsage, TokenUsage};
+        use futures::StreamExt;
+
+        let mut match_doc = doc! {
+            "subtype": { "$in": [
+                "message.assistant.text",
+                "message.assistant.tool_use",
+                "message.assistant.thinking",
+            ]},
+            "payload.data.raw.message.usage.input_tokens": { "$exists": true },
+        };
+        if let Some(d) = days {
+            let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
+            let cutoff_str = cutoff.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+            match_doc.insert("timestamp", doc! { "$gt": cutoff_str });
+        }
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        // Bucket by date prefix using $substr — same trick as
+        // productivity_by_hour, exploits the §1.5 fixed-width format.
+        let pipeline = vec![
+            doc! { "$match": match_doc },
+            doc! {
+                "$group": {
+                    "_id": { "$substr": ["$timestamp", 0, 10] },
+                    "input_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.input_tokens", 0] }
+                    },
+                    "output_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.output_tokens", 0] }
+                    },
+                    "cache_read_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.cache_read_input_tokens", 0] }
+                    },
+                    "cache_creation_tokens": {
+                        "$sum": { "$ifNull": ["$payload.data.raw.message.usage.cache_creation_input_tokens", 0] }
+                    },
+                    "message_count": { "$sum": 1 },
+                }
+            },
+            doc! { "$sort": { "_id": 1 } },
+        ];
+
+        let mut cursor = match events.aggregate(pipeline).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("mongo query_daily_token_usage: {e}");
+                return Vec::new();
+            }
+        };
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            if let Ok(d) = next {
+                let date = d.get_str("_id").unwrap_or_default().to_string();
+                let mut usage = TokenUsage::default();
+                usage.input_tokens = get_count(&d, "input_tokens");
+                usage.output_tokens = get_count(&d, "output_tokens");
+                usage.cache_read_tokens = get_count(&d, "cache_read_tokens");
+                usage.cache_creation_tokens = get_count(&d, "cache_creation_tokens");
+                usage.message_count = get_count(&d, "message_count");
+                usage.total_tokens = usage.input_tokens
+                    + usage.output_tokens
+                    + usage.cache_read_tokens
+                    + usage.cache_creation_tokens;
+                out.push(DailyTokenUsage { date, usage });
             }
         }
         out

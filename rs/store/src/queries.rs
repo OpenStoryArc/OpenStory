@@ -334,38 +334,73 @@ pub fn project_pulse(conn: &Connection, days: u32) -> Vec<ProjectPulse> {
     .collect()
 }
 
-/// Tool evolution: tool mix over time.
+/// Tool evolution: tool mix over time, bucketed into weeks.
+///
+/// The bucket is identified by the **Monday** of the week containing
+/// the event timestamp (`bucket_start`) and the **Sunday** at the end
+/// of that week (`bucket_end`), both in canonical `YYYY-MM-DD` format.
+/// The dashboard formats these into a display label client-side.
+///
+/// **Why not a `week: String` field like SQLite's old `%Y-W%W` output?**
+/// SQLite's `%W` and Mongo's `$isoWeek` use different week-numbering
+/// conventions and disagree at year boundaries. By exposing the bucket
+/// boundaries instead of a label, both backends compute the same value
+/// regardless of week-numbering convention. See §1.6 Category 3 of
+/// `docs/research/mongo-analytics-parity-plan.md`.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ToolEvolution {
-    pub week: String,
+    /// Monday of the week containing the events, `YYYY-MM-DD`.
+    pub bucket_start: String,
+    /// Sunday at the end of that week, `YYYY-MM-DD`.
+    pub bucket_end: String,
     pub tool: String,
     pub count: u64,
 }
 
 /// Query tool usage by week.
+///
+/// Buckets each event into the week beginning on Monday (ISO 8601
+/// week start). Returns one row per `(bucket_start, tool)` pair.
 pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
     let cutoff_str = format_ts(cutoff);
 
+    // SQLite's `weekday` modifier in `strftime`/`date` returns 0 for
+    // Sunday, 1 for Monday, ..., 6 for Saturday. To get the Monday of
+    // the current week we shift back `(weekday + 6) % 7` days. The
+    // expression below produces that Monday as `YYYY-MM-DD`.
+    //
+    // Example: timestamp 2026-04-09 (Thursday, weekday=4)
+    //   shift = (4 + 6) % 7 = 3
+    //   monday = 2026-04-09 - 3 days = 2026-04-06 ✓
+    //
+    // Sunday at end of week = monday + 6 days.
     let mut stmt = conn
         .prepare(
-            "SELECT strftime('%Y-W%W', timestamp) as week,
+            "SELECT date(timestamp,
+                         '-' || ((CAST(strftime('%w', timestamp) AS INTEGER) + 6) % 7) || ' days'
+                        ) as bucket_start,
+                    date(timestamp,
+                         '-' || ((CAST(strftime('%w', timestamp) AS INTEGER) + 6) % 7) || ' days',
+                         '+6 days'
+                        ) as bucket_end,
                     json_extract(payload, '$.data.agent_payload.tool') as tool,
                     COUNT(*) as cnt
              FROM events
              WHERE subtype = 'message.assistant.tool_use'
                AND tool IS NOT NULL
                AND timestamp >= ?1
-             GROUP BY week, tool
-             ORDER BY week, cnt DESC",
+             GROUP BY bucket_start, tool
+             ORDER BY bucket_start, cnt DESC",
         )
         .unwrap();
 
     stmt.query_map([&cutoff_str], |row| {
         Ok(ToolEvolution {
-            week: row.get(0)?,
-            tool: row.get(1)?,
-            count: row.get(2)?,
+            bucket_start: row.get(0)?,
+            bucket_end: row.get(1)?,
+            tool: row.get(2)?,
+            count: row.get(3)?,
         })
     })
     .unwrap()
@@ -610,6 +645,14 @@ pub struct DailyTokenUsage {
     pub date: String,
     #[serde(flatten)]
     pub usage: TokenUsage,
+}
+
+/// Compute the cost estimate for the given token usage and model.
+/// Public so backend implementations (e.g., MongoStore) can call the
+/// same Rust helper to guarantee byte-identical f64 results across
+/// backends — see §1.6 of the parity plan.
+pub fn estimate_cost_for_model(usage: &TokenUsage, model: &str) -> CostEstimate {
+    estimate_cost(usage, model)
 }
 
 fn estimate_cost(usage: &TokenUsage, model: &str) -> CostEstimate {
