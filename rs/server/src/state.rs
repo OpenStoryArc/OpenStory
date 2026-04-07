@@ -8,12 +8,12 @@ use anyhow::Result;
 use tokio::sync::{broadcast as tokio_broadcast, RwLock};
 
 use open_story_bus::Bus;
-use open_story_store::state::StoreState;
+use open_story_store::state::{BackendChoice, StoreState};
 
 use open_story_store::analysis::{self, extract_cwd_from_events};
 
 use crate::broadcast::BroadcastMessage;
-use crate::config::Config;
+use crate::config::{Config, DataBackend};
 
 /// Shared application state, wrapped in Arc<RwLock<_>>.
 ///
@@ -51,7 +51,14 @@ pub type SharedState = Arc<RwLock<AppState>>;
 /// Now all events go through one path: JSONL → translate → NATS → consumers.
 pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, config: Config) -> Result<SharedState> {
     let db_key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
-    let mut store = StoreState::new_with_key(data_dir, db_key)?;
+    let backend = match config.data_backend {
+        DataBackend::Sqlite => BackendChoice::Sqlite,
+        DataBackend::Mongo => BackendChoice::Mongo {
+            uri: config.mongo_uri.clone(),
+            db_name: config.mongo_db.clone(),
+        },
+    };
+    let mut store = StoreState::with_backend(data_dir, db_key, backend).await?;
 
     let (broadcast_tx, _) = tokio_broadcast::channel(config.broadcast_channel_size);
 

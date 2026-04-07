@@ -18,3 +18,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+
+[features]
+default = []
+# Pass-through features so `cargo build -p open-story-cli --features mongo`
+# picks up the MongoDB backend in the store crate.
+encryption = ["open-story-store/encryption", "open-story/encryption"]
+mongo = ["open-story-store/mongo", "open-story/mongo"]

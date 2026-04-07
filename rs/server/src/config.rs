@@ -20,6 +20,45 @@ pub enum Role {
     Consumer,
 }
 
+/// Persistence backend selection. Defaults to SQLite — the in-process,
+/// zero-dependency option that ships with every build. Switch to `Mongo`
+/// for distributed deployments where multiple consumers want to share
+/// state across hosts.
+///
+/// `Mongo` requires the `open-story-store/mongo` feature to be enabled
+/// at build time. If the feature is off, selecting `Mongo` will error
+/// clearly at boot rather than silently falling back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DataBackend {
+    #[default]
+    Sqlite,
+    Mongo,
+}
+
+impl fmt::Display for DataBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataBackend::Sqlite => write!(f, "sqlite"),
+            DataBackend::Mongo => write!(f, "mongo"),
+        }
+    }
+}
+
+impl FromStr for DataBackend {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "sqlite" => Ok(DataBackend::Sqlite),
+            "mongo" | "mongodb" => Ok(DataBackend::Mongo),
+            _ => Err(format!(
+                "invalid data_backend '{}': expected 'sqlite' or 'mongo'",
+                s
+            )),
+        }
+    }
+}
+
 impl fmt::Display for Role {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -72,6 +111,14 @@ pub struct Config {
     pub watch_dir: String,
     /// Directory to watch for pi-mono session files. Empty = disabled.
     pub pi_watch_dir: String,
+    /// Persistence backend: "sqlite" (default) or "mongo".
+    /// `mongo` requires building with `--features open-story-store/mongo`.
+    pub data_backend: DataBackend,
+    /// MongoDB connection URI. Used only when `data_backend = "mongo"`.
+    /// Example: `mongodb://localhost:27017` or `mongodb://user:pass@host/db?replicaSet=...`.
+    pub mongo_uri: String,
+    /// MongoDB database name. Used only when `data_backend = "mongo"`.
+    pub mongo_db: String,
 
     // ── bus ──
     /// NATS server URL for event bus.
@@ -136,6 +183,9 @@ impl Default for Config {
             data_dir: "./data".to_string(),
             watch_dir: String::new(), // resolved at runtime
             pi_watch_dir: String::new(), // disabled by default
+            data_backend: DataBackend::Sqlite,
+            mongo_uri: "mongodb://localhost:27017".to_string(),
+            mongo_db: "openstory".to_string(),
             nats_url: "nats://localhost:4222".to_string(),
             max_initial_records: 2000,
             boot_window_hours: 24,
@@ -341,6 +391,9 @@ mod tests {
             data_dir: "/tmp/data".into(),
             watch_dir: "/tmp/watch".into(),
             pi_watch_dir: String::new(),
+            data_backend: DataBackend::Sqlite,
+            mongo_uri: "mongodb://localhost:27017".into(),
+            mongo_db: "openstory".into(),
             nats_url: "nats://custom:4222".into(),
             max_initial_records: 100,
             boot_window_hours: 48,
