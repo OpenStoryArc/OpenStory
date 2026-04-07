@@ -88,14 +88,71 @@ impl MongoStore {
     }
 
     /// Create the indexes the trait contract relies on. Idempotent — Mongo
-    /// silently no-ops `createIndex` calls when the index already exists.
+    /// silently no-ops `createIndex` calls when an index with the same
+    /// shape already exists.
     ///
-    /// **Phase 2 stub:** no-op. Phase 3 will populate this with the actual
-    /// `IndexModel` calls (events.session_id+timestamp, sessions._id,
-    /// patterns.session_id, turns.session_id+turn_number, plans.session_id,
-    /// events_fts text index).
+    /// Indexes:
+    /// - `events`: compound (session_id, timestamp) for `session_events`
+    ///   range scans. The `_id` PK is implicit.
+    /// - `patterns`: session_id index for `session_patterns` filter.
+    /// - `turns`: session_id index for `session_turns` filter.
+    /// - `plans`: session_id index.
+    /// - `events_fts`: a **text index** on `searchable_text` powering
+    ///   `$text: { $search: ... }` queries used by `search_fts`.
+    ///   Mongo's text index implements stemming + stopword removal +
+    ///   relevance scoring out of the box; we use the default English
+    ///   analyzer to match SQLite's `porter` tokenizer.
     async fn init_indexes(&self) -> Result<()> {
-        // TODO Phase 3: create the five collection indexes.
+        use mongodb::IndexModel;
+
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        events
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "session_id": 1, "timestamp": 1 })
+                    .build(),
+            )
+            .await
+            .map_err(|e| anyhow!("create events index: {e}"))?;
+
+        let patterns: Collection<Document> = self.db.collection(COLL_PATTERNS);
+        patterns
+            .create_index(IndexModel::builder().keys(doc! { "session_id": 1 }).build())
+            .await
+            .map_err(|e| anyhow!("create patterns index: {e}"))?;
+
+        let turns: Collection<Document> = self.db.collection(COLL_TURNS);
+        turns
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "session_id": 1, "turn_number": 1 })
+                    .build(),
+            )
+            .await
+            .map_err(|e| anyhow!("create turns index: {e}"))?;
+
+        let plans: Collection<Document> = self.db.collection(COLL_PLANS);
+        plans
+            .create_index(IndexModel::builder().keys(doc! { "session_id": 1 }).build())
+            .await
+            .map_err(|e| anyhow!("create plans index: {e}"))?;
+
+        // FTS: text index on searchable_text. Mongo's text index syntax
+        // uses the special "text" string in the keys document.
+        let fts: Collection<Document> = self.db.collection(COLL_FTS);
+        fts.create_index(
+            IndexModel::builder()
+                .keys(doc! { "searchable_text": "text" })
+                .build(),
+        )
+        .await
+        .map_err(|e| anyhow!("create events_fts text index: {e}"))?;
+        // Companion index on session_id for the optional filter — text
+        // queries combine with regular filters via compound match.
+        fts.create_index(IndexModel::builder().keys(doc! { "session_id": 1 }).build())
+            .await
+            .map_err(|e| anyhow!("create events_fts session_id index: {e}"))?;
+
         Ok(())
     }
 }
@@ -500,27 +557,113 @@ impl EventStore for MongoStore {
     // empty impls until Phase 5 implements them as Mongo aggregations)
 
     // ── Phase 6: FTS ────────────────────────────────────────────────
+
+    /// Index a record for full-text search. Stores the indexed text on
+    /// the `searchable_text` field where the text index lives. The
+    /// `_id` is the event_id so re-indexing the same event overwrites
+    /// (matches SQLite's contentless table behavior).
     async fn index_fts(
         &self,
-        _event_id: &str,
-        _session_id: &str,
-        _record_type: &str,
-        _text: &str,
+        event_id: &str,
+        session_id: &str,
+        record_type: &str,
+        text: &str,
     ) -> Result<()> {
-        todo!("Phase 6: index_fts — populate searchable_text on events_fts collection")
+        let coll: Collection<Document> = self.db.collection(COLL_FTS);
+        let filter = doc! { "_id": event_id };
+        let update = doc! {
+            "$set": {
+                "session_id": session_id,
+                "record_type": record_type,
+                "searchable_text": text,
+            }
+        };
+        let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
+        coll.update_one(filter, update)
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo index_fts: {e}"))?;
+        Ok(())
     }
 
+    /// Full-text search. Returns matches sorted by relevance (textScore).
+    /// Empty query returns empty Vec — Mongo's $text rejects empty
+    /// search strings, so we short-circuit before hitting the driver.
     async fn search_fts(
         &self,
-        _query: &str,
-        _limit: usize,
-        _session_filter: Option<&str>,
+        query: &str,
+        limit: usize,
+        session_filter: Option<&str>,
     ) -> Result<Vec<crate::queries::FtsSearchResult>> {
-        todo!("Phase 6: search_fts — $text search with optional session_id filter, sort by textScore")
+        use crate::queries::FtsSearchResult;
+        use futures::StreamExt;
+
+        if query.is_empty() {
+            return Ok(vec![]);
+        }
+        let coll: Collection<Document> = self.db.collection(COLL_FTS);
+
+        // $text search; combine with session_id filter if asked.
+        let mut filter = doc! { "$text": { "$search": query } };
+        if let Some(sid) = session_filter {
+            filter.insert("session_id", sid);
+        }
+
+        // Project the textScore meta value alongside the document so we
+        // can both sort by it and return it as `rank` (note: SQLite uses
+        // negative ranks where more negative = more relevant; Mongo uses
+        // positive scores where higher = more relevant. We expose the
+        // raw signed score and let the caller treat it as opaque — the
+        // `it_caps_full_text_search_results_at_the_limit` and
+        // `it_indexes_text_and_finds_it_via_full_text_search`
+        // conformance tests don't compare cross-backend rank values).
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "score": { "$meta": "textScore" } })
+            .projection(doc! { "score": { "$meta": "textScore" }, "session_id": 1, "record_type": 1, "searchable_text": 1 })
+            .limit(limit as i64)
+            .build();
+
+        let mut cursor = coll
+            .find(filter)
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo search_fts: {e}"))?;
+
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo search_fts cursor: {e}"))?;
+            let event_id = doc.get_str("_id").unwrap_or_default().to_string();
+            let session_id = doc.get_str("session_id").unwrap_or_default().to_string();
+            let record_type = doc.get_str("record_type").unwrap_or_default().to_string();
+            let text = doc.get_str("searchable_text").unwrap_or_default().to_string();
+            // Mongo doesn't return a snippet primitive — fall back to a
+            // truncated copy of the matched text. The API consumes
+            // FtsSearchResult.snippet for highlighting; truncating is
+            // good enough until someone needs server-side bolding.
+            let snippet = if text.len() > 120 {
+                format!("{}…", &text[..120])
+            } else {
+                text
+            };
+            let rank = doc.get_f64("score").unwrap_or(0.0);
+            out.push(FtsSearchResult {
+                event_id,
+                session_id,
+                record_type,
+                snippet,
+                rank,
+            });
+        }
+        Ok(out)
     }
 
     async fn fts_count(&self) -> Result<u64> {
-        todo!("Phase 6: fts_count")
+        let coll: Collection<Document> = self.db.collection(COLL_FTS);
+        let n = coll
+            .count_documents(doc! {})
+            .await
+            .map_err(|e| anyhow!("mongo fts_count: {e}"))?;
+        Ok(n)
     }
 }
 
