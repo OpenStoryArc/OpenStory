@@ -136,6 +136,35 @@ Real-time running token accumulator in the session header that ticks up as event
 
 ---
 
+## Hermes Agent Integration
+
+A coordinated set of items for letting OpenStory observe Hermes Agent sessions and letting Hermes agents query OpenStory for structural views of their own past work. Full design and runnable prototype at [`docs/research/HERMES_INTEGRATION.md`](research/HERMES_INTEGRATION.md) and [`docs/research/hermes-integration/`](research/hermes-integration/). Architectural framing at [`docs/research/LISTENER_AS_ALGEBRA.md`](research/LISTENER_AS_ALGEBRA.md).
+
+The work splits into two parallel tracks (OpenStory side, standalone-package side) with one shared prerequisite. The standalone-package approach intentionally avoids asking the Hermes maintainers to merge anything — Hermes already supports third-party plugins via the `hermes_agent.plugins` entry-point group, so the integration ships independently.
+
+### Hermes message shape verification — PREREQUISITE
+Boot a Hermes session in a container, run a 5-turn task that exercises a tool call and a thinking block, finalize, capture `~/.hermes/logs/session_{id}.json`. Resolve every `# VERIFY:` marker in `docs/research/hermes-integration/translate_hermes.py` and `plugin_sketch.py`. Required before either of the next two items can ship. Two providers should be checked, not one: an Anthropic-direct provider and an OpenAI-shaped provider, since Hermes is provider-polymorphic and the assistant message shape may differ. Estimated 30 minutes if Hermes boots cleanly. Detailed protocol in [`hermes-integration/DISTRIBUTION_PLAN.md`](research/hermes-integration/DISTRIBUTION_PLAN.md).
+
+### Hermes translator (`rs/core/src/translate_hermes.rs`)
+Port [`docs/research/hermes-integration/translate_hermes.py`](research/hermes-integration/translate_hermes.py) to Rust, parallel to `translate.rs` (Claude Code) and `translate_pi.rs` (pi-mono). The Python sketch is the executable spec — 12 tests in `test_translate.py` cover the structural shape. Add `# VERIFY:` resolution after the prerequisite step. Add Hermes file recognition to the watcher (path pattern `*/openstory-events/*.jsonl` plus a sniff of the first line for `"source": "hermes"`). ~150 lines of Rust + ~30 lines for the watcher routing + parallel test cases. Estimate: 1 day after the prerequisite is done.
+
+### Standalone `hermes-openstory` plugin package
+Build the plugin scaffolding in [`docs/research/hermes-integration/plugin_sketch.py`](research/hermes-integration/plugin_sketch.py) and [`recall_tool_sketch.py`](research/hermes-integration/recall_tool_sketch.py) into a real pip-installable package, using the entry-point declaration in [`pyproject.toml.example`](research/hermes-integration/pyproject.toml.example). Hooks `post_llm_call`, `post_tool_call`, `on_session_finalize`, etc. and writes Hermes-native events as JSONL into a watched directory. Registers the `recall` tool that wraps OpenStory's `/api/sessions/{id}/synopsis`, `/patterns`, `/file-impact`, `/errors`, `/tool-journey`, and `/api/search` endpoints — these endpoints are *already shipped* in OpenStory; this work makes them callable from inside a Hermes agent loop. Lives in its own repo, published to PyPI. No upstream PR to hermes-agent required. Estimate: 1 day for the package layout, CI, smoke test, and v0.1.0 publish.
+
+### Hermes session backfill script (`scripts/backfill_hermes_sessions.py`)
+One-shot script that reads existing `~/.hermes/logs/session_*.json` files and emits Hermes-native event JSONL into the watched directory. Lets users retroactively ingest sessions that existed before they installed the plugin. Lower priority than the live path (which is the high-leverage integration), but cheap once the translator exists.
+
+### Skill-extraction signal feed (Hermes consuming OpenStory)
+Once the translator and plugin are in place, the next high-value integration is feeding OpenStory's structural metrics back into Hermes's autonomous skill creation. Hermes currently uses LLM judgment to decide when a sequence of actions is worth turning into a skill; OpenStory's `StructuralTurn` data (cycle counts, error rates, file impact, user follow-up sentiment) gives that judgment deterministic features. Implementation lives in the `hermes-openstory` package, not in OpenStory itself. Tracked here so the backlog reflects the full integration story.
+
+### Cross-provider behavioral comparison endpoint
+A new `GET /api/insights/provider-comparison` endpoint that aggregates structural metrics per provider for the same task: cycles per task, error rates, tool selections, terminal stop reasons. Useful for Hermes's `smart_model_routing.py` decisions and as a research output in its own right. Requires running the same task across providers (Hermes already supports this via `batch_runner.py`); OpenStory's job is the aggregation and the view. Lower priority — listed for completeness as the most novel research output of the integration.
+
+### StructuralTurn training data export
+A new `GET /api/sessions/{id}/training-export?format=structural-jsonl` endpoint that emits `StructuralTurn`s (with eval/apply phases separated, domain facts extracted, subagent boundaries explicit, `ToolOutcome` typed) as training data. Lets Hermes's trajectory pipeline (`trajectory_compressor.py`, the tinker-atropos integration) consume the structurally-decomposed view alongside or instead of raw messages. Open research question: does training on structurally-decomposed traces produce better tool-calling models? The two repos are uniquely positioned to answer it. Higher-effort; depends on the translator and plugin being in place first.
+
+---
+
 ## Search & Navigation
 
 ### Session Search & Full-Text Query
