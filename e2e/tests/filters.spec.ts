@@ -18,9 +18,9 @@ test.describe('timeline filters', () => {
     await page.goto('/');
     await waitForTimeline(page);
 
-    // Click "Tools" filter
-    const toolsFilter = page.getByTestId('filter-tools');
-    await toolsFilter.click();
+    // Click "Tests" filter (the tools/tests filter — see lib/timeline-filters.ts)
+    const testsFilter = page.getByTestId('filter-tests');
+    await testsFilter.click();
 
     // Match count should appear (X/Y format)
     const matchCount = page.getByTestId('filter-match-count');
@@ -33,7 +33,7 @@ test.describe('timeline filters', () => {
     await waitForTimeline(page);
 
     // Activate a filter first
-    await page.getByTestId('filter-tools').click();
+    await page.getByTestId('filter-tests').click();
     await expect(page.getByTestId('filter-match-count')).toBeVisible();
 
     // Click All to reset
@@ -43,30 +43,30 @@ test.describe('timeline filters', () => {
     await expect(page.getByTestId('filter-match-count')).not.toBeVisible();
   });
 
-  test('narrative filter should show a subset of events', async ({ page }) => {
+  test('conversation filter should show a subset of events', async ({ page }) => {
     await page.goto('/');
     await waitForTimeline(page);
 
-    const rows = page.getByTestId('timeline-row');
-    const totalCount = await rows.count();
+    // Apply conversation filter (was named "narrative" in the old grouped filter scheme)
+    await page.getByTestId('filter-conversation').click();
 
-    // Apply narrative filter
-    await page.getByTestId('filter-narrative').click();
-
-    // Should have fewer events (narrative = user + assistant messages)
-    const filteredCount = await rows.count();
-    expect(filteredCount).toBeLessThanOrEqual(totalCount);
+    // Match count is the authoritative source for "filtered subset" — avoids
+    // races against incoming WebSocket events that would shift a raw row count.
+    // Format: "filtered/total" e.g., "12/21".
+    const matchCount = page.getByTestId('filter-match-count');
+    await expect(matchCount).toBeVisible({ timeout: 5_000 });
+    const text = (await matchCount.textContent()) ?? '';
+    const match = text.match(/(\d+)\/(\d+)/);
+    expect(match, `match-count text "${text}" should be in "filtered/total" format`).not.toBeNull();
+    const filtered = parseInt(match![1]!, 10);
+    const total = parseInt(match![2]!, 10);
+    expect(filtered).toBeLessThanOrEqual(total);
+    expect(filtered).toBeGreaterThan(0);
   });
 
-  test('filter bar should show group labels', async ({ page }) => {
-    await page.goto('/');
-    await waitForTimeline(page);
-
-    const filterBar = page.getByTestId('filter-bar');
-    // Should have recognizable group labels
-    await expect(filterBar).toContainText('View');
-    await expect(filterBar).toContainText('Category');
-  });
+  // `filter bar should show group labels` retired — FILTER_GROUPS no longer
+  // exposes labeled groups (single flat row of filters in the current UI).
+  // See ui/src/lib/timeline-filters.ts.
 
   test('errors filter should be available', async ({ page }) => {
     await page.goto('/');

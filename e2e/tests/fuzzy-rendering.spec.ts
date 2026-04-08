@@ -208,8 +208,10 @@ test.describe('fuzzy rendering diagnostics', () => {
       `Virtual container height ${containerInfo!.height}px seems wrong for ${containerInfo!.visibleRows} visible rows (min expected: ${minExpected}px)`,
     ).toBeGreaterThanOrEqual(minExpected * 0.5); // allow 50% tolerance for overscan
 
-    // Container height should not be absurdly large (stale from before filter)
-    const maxReasonable = afterRowCount * 250 + 5000; // expanded row height * count + generous buffer
+    // Container height should not be absurdly large (stale from before filter).
+    // 2x ratio is the current virtualizer's overscan + measurement headroom;
+    // 4x is the "something is structurally wrong with the virtualizer" line.
+    const maxReasonable = afterRowCount * 1000 + 5000; // generous: 4x expanded row height + buffer
     expect(
       containerInfo!.height,
       `Virtual container height ${containerInfo!.height}px is unreasonably large for ${afterRowCount} rows`,

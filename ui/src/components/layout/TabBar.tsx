@@ -15,12 +15,14 @@ const TABS: { mode: ViewMode; label: string }[] = [
 
 export function TabBar({ active, onSwitch }: TabBarProps) {
   return (
-    <div className="flex items-center gap-1" data-testid="tab-bar">
+    <div className="flex items-center gap-1" data-testid="tab-bar" role="tablist">
       {TABS.map(({ mode, label }) => (
         <button
           key={mode}
           onClick={() => onSwitch(mode)}
           data-testid={`tab-${mode}`}
+          role="tab"
+          aria-selected={active === mode}
           className={`px-3 py-1 rounded text-sm transition-colors ${
             active === mode
               ? "bg-[#7aa2f7] text-[#1a1b26] font-medium"

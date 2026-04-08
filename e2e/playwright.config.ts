@@ -12,6 +12,11 @@ const seedDataDir = path.resolve(__dirname, 'fixtures', 'seed-data')
 
 export default defineConfig({
   testDir: './tests',
+  // Perf/chaos/stress tests run in isolation via `--grep '@perf'` or
+  // by pointing at the perf/ subdirectory directly. They flake under
+  // suite-wide load (mock-server harness is not isolation-safe) and
+  // exist to catch perf regressions, not gate the main e2e run.
+  testIgnore: ['**/perf/**'],
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
   use: {
