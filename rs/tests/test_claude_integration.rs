@@ -243,23 +243,8 @@ async fn integration_stack_open_story_healthy() {
         assert!(resp.is_ok(), "Open Story should respond on /api/sessions");
         assert_eq!(resp.unwrap().status(), 200);
 
-        // Test hooks endpoint
-        let client = reqwest::Client::new();
-        let hook_body = serde_json::json!({
-            "session_id": "integration-health-test",
-            "hook_event_name": "PostToolUse",
-            "tool_name": "Read",
-            "transcript_path": ""
-        });
-
-        let hook_resp = client
-            .post(format!("http://localhost:{port}/hooks"))
-            .json(&hook_body)
-            .send()
-            .await
-            .expect("POST /hooks failed");
-
-        assert_eq!(hook_resp.status(), 202);
+        // /hooks endpoint retired — the watcher is the sole ingestion source.
+        // Health is now /api/sessions returning 200, which we just checked.
     }
 
     // Cleanup

@@ -66,29 +66,8 @@ async fn full_watcher_to_nats_to_sqlite() {
     assert!(!events.is_empty(), "events should be available for session");
 }
 
-/// Hooks endpoint works through the full stack.
-#[tokio::test]
-#[ignore]
-async fn full_hooks_accepted() {
-    let stack = start_stack(TestConfig::Full, &fixtures_dir()).await;
-
-    let hook_body = serde_json::json!({
-        "session_id": "full-hook-test",
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Read",
-        "transcript_path": ""
-    });
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/hooks", stack.base_url()))
-        .json(&hook_body)
-        .send()
-        .await
-        .expect("POST /hooks failed");
-
-    assert_eq!(resp.status(), 202);
-}
+// `full_hooks_accepted` retired alongside the /hooks endpoint
+// (the watcher is the sole ingestion source).
 
 /// API consistency: sessions, events, and view-records all agree on data.
 #[tokio::test]

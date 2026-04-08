@@ -128,9 +128,14 @@ pub struct Config {
     /// Maximum records sent in the WebSocket initial_state handshake.
     /// Higher values give more history on connect but increase payload size.
     pub max_initial_records: usize,
-    /// How far back (in hours) to load sessions from JSONL on first boot.
-    /// Ignored when SQLite already has data.
-    pub boot_window_hours: u64,
+    /// How far back (in hours) the watcher's startup backfill scans existing
+    /// JSONL files in `watch_dir`. Files whose mtime is older than this window
+    /// are skipped — they're treated as historical noise that the user can
+    /// query via `/api/sessions` from the EventStore but doesn't need to
+    /// re-stream live. Set to `0` to disable the filter (load every JSONL
+    /// the watcher sees, regardless of age) — useful for tests with static
+    /// fixture data.
+    pub watch_backfill_hours: u64,
     /// Payload size (bytes) above which tool outputs are truncated in WireRecords.
     /// Full content available via the /content endpoint.
     pub truncation_threshold: usize,
@@ -188,7 +193,7 @@ impl Default for Config {
             mongo_db: "openstory".to_string(),
             nats_url: "nats://localhost:4222".to_string(),
             max_initial_records: 2000,
-            boot_window_hours: 24,
+            watch_backfill_hours: 24,
             truncation_threshold: 100_000,
             stale_threshold_secs: 300,
             broadcast_channel_size: 256,
@@ -245,9 +250,11 @@ impl Config {
 # Max records in the WebSocket initial_state handshake.
 # max_initial_records = 2000
 
-# How far back (hours) to load sessions from JSONL on first boot.
-# Ignored once SQLite has data.
-# boot_window_hours = 24
+# How far back (hours) the watcher's startup backfill scans existing
+# JSONL files in `watch_dir`. Files whose mtime is older than this window
+# are skipped. Set to 0 to disable the filter (load every JSONL the
+# watcher sees, regardless of age) — useful for tests with static fixture data.
+# watch_backfill_hours = 24
 
 # Payload size (bytes) above which tool outputs are truncated.
 # Full content available via /api/sessions/{id}/events/{eid}/content.
@@ -323,7 +330,7 @@ mod tests {
         assert_eq!(config.api_token, "");
         assert!(config.allowed_origins.is_empty());
         assert_eq!(config.max_initial_records, 2000);
-        assert_eq!(config.boot_window_hours, 24);
+        assert_eq!(config.watch_backfill_hours, 24);
         assert_eq!(config.truncation_threshold, 100_000);
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
@@ -346,7 +353,7 @@ mod tests {
         assert_eq!(config.port, 8080);
         assert_eq!(config.max_initial_records, 1000);
         // Unset fields get defaults
-        assert_eq!(config.boot_window_hours, 24);
+        assert_eq!(config.watch_backfill_hours, 24);
         assert_eq!(config.truncation_threshold, 100_000);
     }
 
@@ -396,7 +403,7 @@ mod tests {
             mongo_db: "openstory".into(),
             nats_url: "nats://custom:4222".into(),
             max_initial_records: 100,
-            boot_window_hours: 48,
+            watch_backfill_hours: 48,
             truncation_threshold: 4000,
             stale_threshold_secs: 600,
             broadcast_channel_size: 512,

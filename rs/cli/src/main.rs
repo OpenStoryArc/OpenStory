@@ -65,9 +65,11 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_MAX_INITIAL_RECORDS")]
         max_initial_records: Option<usize>,
 
-        /// How far back (hours) to load sessions from JSONL on first boot
-        #[arg(long, env = "OPEN_STORY_BOOT_WINDOW_HOURS")]
-        boot_window_hours: Option<u64>,
+        /// How far back (hours) the watcher backfills existing JSONL files
+        /// in `watch_dir` on startup. Files older than this are skipped.
+        /// Set to 0 to disable the filter (useful for tests with static fixtures).
+        #[arg(long, env = "OPEN_STORY_WATCH_BACKFILL_HOURS")]
+        watch_backfill_hours: Option<u64>,
 
         /// Payload size (bytes) above which tool outputs are truncated
         #[arg(long, env = "OPEN_STORY_TRUNCATION_THRESHOLD")]
@@ -198,18 +200,18 @@ async fn main() -> Result<()> {
             let (cli_overrides, static_dir) = match cli.command {
                 Some(Command::Serve {
                     role, host, port, data_dir, static_dir, watch_dir, nats_url,
-                    max_initial_records, boot_window_hours, truncation_threshold,
+                    max_initial_records, watch_backfill_hours, truncation_threshold,
                     stale_threshold_secs, api_token, db_key, metrics,
                     data_backend, mongo_uri, mongo_db, init_config,
                 }) => ((role, host, port, data_dir, watch_dir, nats_url,
-                        max_initial_records, boot_window_hours, truncation_threshold,
+                        max_initial_records, watch_backfill_hours, truncation_threshold,
                         stale_threshold_secs, api_token, db_key, metrics,
                         data_backend, mongo_uri, mongo_db, init_config), static_dir),
                 _ => ((Role::Full, None, None, None, None, None, None, None, None, None, None, None, false,
                        None, None, None, false), None),
             };
             let (cli_role, cli_host, cli_port, cli_data_dir, cli_watch_dir, cli_nats_url,
-                 cli_max_records, cli_boot_hours, cli_trunc, cli_stale, cli_api_token,
+                 cli_max_records, cli_watch_backfill_hours, cli_trunc, cli_stale, cli_api_token,
                  cli_db_key, cli_metrics, cli_data_backend, cli_mongo_uri, cli_mongo_db,
                  init_config) = cli_overrides;
 
@@ -234,7 +236,7 @@ async fn main() -> Result<()> {
             if let Some(v) = cli_watch_dir { config.watch_dir = v.to_string_lossy().to_string(); }
             if let Some(v) = cli_nats_url { config.nats_url = v; }
             if let Some(v) = cli_max_records { config.max_initial_records = v; }
-            if let Some(v) = cli_boot_hours { config.boot_window_hours = v; }
+            if let Some(v) = cli_watch_backfill_hours { config.watch_backfill_hours = v; }
             if let Some(v) = cli_trunc { config.truncation_threshold = v; }
             if let Some(v) = cli_stale { config.stale_threshold_secs = v; }
             if let Some(v) = cli_api_token { config.api_token = v; }

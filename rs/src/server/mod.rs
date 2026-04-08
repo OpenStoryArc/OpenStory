@@ -270,13 +270,15 @@ pub async fn run_server(
     }
 
     // ── File watcher (publisher + full roles) ──
+    // Snapshot the backfill window from config before any closures move it.
+    let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     if is_publisher {
         if bus.is_active() {
             // Bus mode: watcher → bus.publish()
             let watcher_bus = bus.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, subject, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, subject, events| {
                     let batch = IngestBatch {
                         session_id: session_id.to_string(),
                         project_id: project_id.unwrap_or("").to_string(),
@@ -295,7 +297,7 @@ pub async fn run_server(
             let watcher_state = state.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, _subject, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, _subject, events| {
                     let summary = event_type_summary(&events);
                     let rt = tokio::runtime::Handle::current();
                     let result = rt.block_on(async {
@@ -326,7 +328,7 @@ pub async fn run_server(
             if bus.is_active() {
                 let watcher_bus = bus.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, subject, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, subject, events| {
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
@@ -343,7 +345,7 @@ pub async fn run_server(
             } else {
                 let watcher_state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, _subject, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, _subject, events| {
                         let summary = event_type_summary(&events);
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {

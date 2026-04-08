@@ -58,34 +58,9 @@ async fn degrade_agent_search_works_without_external_deps() {
 
 // ── Bus boundary ──────────────────────────────────────────────────────
 
-/// Server without NATS: hooks still work via direct ingest.
-#[tokio::test]
-#[ignore]
-async fn degrade_no_nats_hooks_still_work() {
-    // Minimal config — NoopBus, direct ingest
-    let container = start_open_story(&fixtures_dir()).await;
-
-    let hook_body = serde_json::json!({
-        "session_id": "degrade-hook-test",
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Read",
-        "transcript_path": ""
-    });
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/hooks", container.base_url()))
-        .json(&hook_body)
-        .send()
-        .await
-        .expect("POST /hooks failed");
-
-    assert_eq!(
-        resp.status(),
-        202,
-        "hooks should work without NATS (direct ingest fallback)"
-    );
-}
+// `degrade_no_nats_hooks_still_work` retired alongside the /hooks endpoint
+// (the watcher is the sole ingestion source). Degraded-mode coverage now
+// lives in the watcher's own integration tests.
 
 // ── All APIs work in minimal config ──────────────────────────────────
 
