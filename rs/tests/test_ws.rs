@@ -113,7 +113,6 @@ async fn ws_receives_broadcast_after_hook_ingest() {
             project_name: None,
             session_label: Some("test-broadcast".to_string()),
             session_branch: None,
-            agent_labels: HashMap::new(),
             total_input_tokens: None,
             total_output_tokens: None,
         };
@@ -164,7 +163,6 @@ async fn ws_multiple_clients_each_receive_broadcast() {
             project_name: None,
             session_label: Some("multi-test".to_string()),
             session_branch: None,
-            agent_labels: HashMap::new(),
             total_input_tokens: None,
             total_output_tokens: None,
         };

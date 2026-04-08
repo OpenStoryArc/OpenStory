@@ -3,7 +3,7 @@
 //! Actor contract:
 //!   subscribes: events.>
 //!   publishes:  changes.{project}.{session}
-//!   owns:       projections, session_projects, agent_labels, plan_store
+//!   owns:       projections, session_projects, plan_store
 //!
 //! Responsibilities:
 //!   1. Update SessionProjection (token counts, event counts, labels, branches)
@@ -31,9 +31,6 @@ pub struct ProjectionsConsumer {
     subagent_parents: HashMap<String, String>,
     /// Parent → child session list.
     session_children: HashMap<String, Vec<String>>,
-    /// Agent ID → description label (used when wired as independent consumer).
-    #[allow(dead_code)]
-    agent_labels: HashMap<String, String>,
 }
 
 /// Result of processing one batch through projections.
@@ -53,7 +50,6 @@ impl ProjectionsConsumer {
             session_project_names: HashMap::new(),
             subagent_parents: HashMap::new(),
             session_children: HashMap::new(),
-            agent_labels: HashMap::new(),
         }
     }
 

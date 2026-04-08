@@ -26,7 +26,6 @@ import type { PatternView } from "@/types/wire-record";
 interface StoryViewProps {
   patterns: readonly PatternView[];
   sessionLabels: Readonly<Record<string, { label: string | null }>>;
-  agentLabels: Readonly<Record<string, string>>;
   selectedSession: string | null;
   onSelectSession: (sid: string | null) => void;
 }
@@ -39,7 +38,7 @@ const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = 
   { key: "error", label: "Error", color: "#f7768e" },
 ];
 
-export function StoryView({ patterns, sessionLabels, agentLabels, selectedSession, onSelectSession }: StoryViewProps) {
+export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSession }: StoryViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -89,18 +88,15 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
     return Array.from(counts.entries()).map(([sid, count]) => {
       const raw = sessionLabels[sid]?.label;
       const isAgent = sid.startsWith("agent-");
-      const agentDesc = agentLabels[sid];
-      const label = agentDesc
-        ? (agentDesc.length > 35 ? agentDesc.slice(0, 32) + "..." : agentDesc)
-        : raw && raw !== sid
-          ? (raw.length > 40 ? raw.slice(0, 37) + "..." : raw)
-          : (isAgent ? sid.slice(6, 18) : sid.slice(0, 8));
+      const label = raw && raw !== sid
+        ? (raw.length > 40 ? raw.slice(0, 37) + "..." : raw)
+        : (isAgent ? sid.slice(6, 18) : sid.slice(0, 8));
       return { id: sid, label, count, isAgent };
     }).sort((a, b) => {
       if (a.isAgent !== b.isAgent) return a.isAgent ? 1 : -1;
       return b.count - a.count;
     });
-  }, [patterns, sessionLabels, agentLabels]);
+  }, [patterns, sessionLabels]);
 
   // Auto-scroll
   useEffect(() => {

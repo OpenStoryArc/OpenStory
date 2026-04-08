@@ -34,7 +34,6 @@ pub struct StoreState {
     pub projections: HashMap<String, SessionProjection>,
     pub pattern_pipelines: HashMap<String, PatternPipeline>,
     pub detected_patterns: HashMap<String, Vec<PatternEvent>>,
-    pub agent_labels: HashMap<String, String>,
     pub full_payloads: HashMap<String, HashMap<String, String>>,
 
     // ── subagent parent-child index ──
@@ -170,7 +169,6 @@ impl StoreState {
             projections: HashMap::new(),
             pattern_pipelines: HashMap::new(),
             detected_patterns: HashMap::new(),
-            agent_labels: HashMap::new(),
             full_payloads: HashMap::new(),
             subagent_parents: HashMap::new(),
             session_children: HashMap::new(),
@@ -263,7 +261,6 @@ mod tests {
         assert!(state.projections.is_empty());
         assert!(state.pattern_pipelines.is_empty());
         assert!(state.detected_patterns.is_empty());
-        assert!(state.agent_labels.is_empty());
         assert!(state.full_payloads.is_empty());
         assert!(state.subagent_parents.is_empty());
         assert!(state.session_children.is_empty());

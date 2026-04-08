@@ -148,24 +148,15 @@ describe("deriveSessions", () => {
     expect(sessions[0]!.branch).toBe("feature/login-fix");
   });
 
-  it("should populate subagent description from agentLabels map", () => {
-    const events = [
-      makeEvent({ session_id: "s1", timestamp: "2026-01-01T00:00:01Z", agent_id: null }),
-      makeEvent({ session_id: "s1", timestamp: "2026-01-01T00:00:02Z", agent_id: "sub-a" }),
-    ];
-    const agentLabels: Record<string, string> = {
-      "sub-a": "Run tests and fix failures",
-    };
-    const sessions = deriveSessions(events, undefined, agentLabels);
-    const sub = sessions[0]!.subagents[0]!;
-    expect(sub.description).toBe("Run tests and fix failures");
-  });
-
-  it("should return null description when agent not in agentLabels", () => {
+  it("should leave subagent description null after the agent_labels feature was cut", () => {
+    // The legacy `agent_labels` feature was removed in chore/cut-legacy-detectors
+    // (broken end-to-end on real data). Subagent labels now fall through to
+    // sessionLabels[sub.id]. See BACKLOG: "Subagent Task Labels — Restore After Cut"
+    // for the planned proper fix.
     const events = [
       makeEvent({ session_id: "s1", timestamp: "2026-01-01T00:00:01Z", agent_id: "sub-a" }),
     ];
-    const sessions = deriveSessions(events, undefined, {});
+    const sessions = deriveSessions(events, undefined);
     expect(sessions[0]!.subagents[0]!.description).toBeNull();
   });
 

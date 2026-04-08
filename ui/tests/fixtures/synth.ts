@@ -362,7 +362,6 @@ export function synthInitialState(
     filter_counts: filterCounts,
     patterns: [],
     session_labels: {},
-    agent_labels: {},
   };
 }
 

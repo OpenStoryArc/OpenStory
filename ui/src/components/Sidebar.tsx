@@ -55,7 +55,6 @@ interface SidebarProps {
   focusAgentId: string | null;
   onFocusAgent: (agentId: string | null) => void;
   sessionLabels?: Readonly<Record<string, SessionLabel>>;
-  agentLabels?: Readonly<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +64,6 @@ interface SidebarProps {
 export function deriveSessions(
   events: readonly (ViewRecord | WireRecord)[],
   sessionLabels?: Readonly<Record<string, SessionLabel>>,
-  agentLabels?: Readonly<Record<string, string>>,
 ): SessionInfo[] {
   const sessionMap = new Map<string, {
     count: number;
@@ -126,7 +124,7 @@ export function deriveSessions(
         eventCount: subData.count,
         firstTimestamp: subData.first,
         representativeId: subData.repId,
-        description: agentLabels?.[agentId] ?? agentLabels?.[subData.repId] ?? null,
+        description: null,
       });
     }
     subagents.sort((a, b) => a.firstTimestamp.localeCompare(b.firstTimestamp));
@@ -188,11 +186,10 @@ export const Sidebar = memo(function Sidebar({
   focusAgentId,
   onFocusAgent,
   sessionLabels,
-  agentLabels,
 }: SidebarProps) {
   const sessions = useMemo(
-    () => deriveSessions(events, sessionLabels, agentLabels),
-    [events, sessionLabels, agentLabels],
+    () => deriveSessions(events, sessionLabels),
+    [events, sessionLabels],
   );
   const selectedInfo = useMemo(
     () => sessions.find((s) => s.id === selectedSession) ?? null,

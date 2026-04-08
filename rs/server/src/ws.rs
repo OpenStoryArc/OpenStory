@@ -45,7 +45,6 @@ pub struct InitialState {
     pub filter_counts: HashMap<String, HashMap<String, usize>>,
     pub patterns: Vec<PatternEvent>,
     pub session_labels: HashMap<String, SessionLabel>,
-    pub agent_labels: HashMap<String, String>,
 }
 
 /// Build initial_state from projection cache.
@@ -123,7 +122,6 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
         filter_counts: all_filter_counts,
         patterns: all_patterns,
         session_labels,
-        agent_labels: state.store.agent_labels.clone(),
     }
 }
 
@@ -144,7 +142,6 @@ async fn handle_socket(mut socket: WebSocket, state: SharedState) {
         "filter_counts": init.filter_counts,
         "patterns": init.patterns,
         "session_labels": init.session_labels,
-        "agent_labels": init.agent_labels,
     });
 
     if socket

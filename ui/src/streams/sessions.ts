@@ -18,8 +18,6 @@ export interface EnrichedSessionState {
   readonly treeIndex: ReadonlyMap<string, { depth: number; parent_uuid: string | null }>;
   /** Session labels: session_id → { label, branch }. */
   readonly sessionLabels: Readonly<Record<string, SessionLabel>>;
-  /** Agent labels: agent_id (or delegation event_id) → description. */
-  readonly agentLabels: Readonly<Record<string, string>>;
 }
 
 export const EMPTY_ENRICHED_STATE: EnrichedSessionState = {
@@ -29,7 +27,6 @@ export const EMPTY_ENRICHED_STATE: EnrichedSessionState = {
   filterCounts: {},
   treeIndex: new Map(),
   sessionLabels: {},
-  agentLabels: {},
 };
 
 /** Action types for the enriched reducer. */
@@ -40,7 +37,6 @@ export type EnrichedAction =
       readonly patterns: readonly PatternView[];
       readonly filterCounts: Readonly<Record<string, Readonly<Record<string, number>>>>;
       readonly sessionLabels: Readonly<Record<string, SessionLabel>>;
-      readonly agentLabels: Readonly<Record<string, string>>;
     }
   | {
       readonly kind: "enriched";
@@ -51,7 +47,6 @@ export type EnrichedAction =
       readonly filter_deltas: Readonly<Record<string, number>>;
       readonly session_label?: string;
       readonly session_branch?: string;
-      readonly agent_labels?: Readonly<Record<string, string>>;
       readonly total_input_tokens?: number;
       readonly total_output_tokens?: number;
     };
@@ -74,7 +69,6 @@ export function enrichedReducer(
         filterCounts: { ...action.filterCounts },
         treeIndex,
         sessionLabels: { ...action.sessionLabels },
-        agentLabels: { ...action.agentLabels },
       };
     }
     case "enriched": {
@@ -138,11 +132,6 @@ export function enrichedReducer(
         };
       }
 
-      let agentLabels = state.agentLabels;
-      if (action.agent_labels && Object.keys(action.agent_labels).length > 0) {
-        agentLabels = { ...state.agentLabels, ...action.agent_labels };
-      }
-
       return {
         records: newRecords,
         currentEphemeral,
@@ -150,7 +139,6 @@ export function enrichedReducer(
         filterCounts,
         treeIndex,
         sessionLabels,
-        agentLabels,
       };
     }
   }
@@ -221,16 +209,12 @@ export function buildSessionState$(
             const sessionLabels = "session_labels" in msg && msg.session_labels
               ? msg.session_labels
               : {};
-            const agentLabels = "agent_labels" in msg && msg.agent_labels
-              ? msg.agent_labels
-              : {};
             return {
               kind: "initial_state",
               records: msg.records,
               patterns,
               filterCounts,
               sessionLabels,
-              agentLabels,
             };
           }
           if ("view_records" in msg) {
@@ -248,7 +232,6 @@ export function buildSessionState$(
               patterns: [],
               filterCounts: {},
               sessionLabels: {},
-              agentLabels: {},
             };
           }
           return null;
@@ -265,7 +248,6 @@ export function buildSessionState$(
             filter_deltas: msg.filter_deltas,
             session_label: msg.session_label,
             session_branch: msg.session_branch,
-            agent_labels: msg.agent_labels,
             total_input_tokens: msg.total_input_tokens,
             total_output_tokens: msg.total_output_tokens,
           };

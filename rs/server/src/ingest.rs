@@ -4,8 +4,6 @@
 //! open-story-store::ingest and are re-exported here. This module retains the
 //! stateful orchestration (ingest_events, replay_boot_sessions) that depends on AppState.
 
-use std::collections::HashMap;
-
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
 use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
@@ -198,22 +196,7 @@ pub async fn ingest_events(
                 }
                 // Store detected patterns for initial_state
                 if !detected_patterns.is_empty() {
-                    // Extract agent labels from delegation patterns
                     for pe in &detected_patterns {
-                        if pe.pattern_type == "agent.delegation" {
-                            if let Some(desc) =
-                                pe.metadata.get("description").and_then(|v| v.as_str())
-                            {
-                                if !desc.is_empty() {
-                                    if let Some(first_id) = pe.event_ids.first() {
-                                        state
-                                            .store
-                                            .agent_labels
-                                            .insert(first_id.clone(), desc.to_string());
-                                    }
-                                }
-                            }
-                        }
                         // Dual-write pattern to EventStore
                         let _ = state.store.event_store.insert_pattern(session_id, pe).await;
                     }
@@ -247,18 +230,6 @@ pub async fn ingest_events(
             } else {
                 None
             };
-            // Collect new agent labels from delegation patterns
-            let mut new_agent_labels = HashMap::new();
-            for pe in &detected_patterns {
-                if pe.pattern_type == "agent.delegation" {
-                    if let Some(desc) = pe.metadata.get("description").and_then(|v| v.as_str()) {
-                        if let Some(first_id) = pe.event_ids.first() {
-                            new_agent_labels.insert(first_id.clone(), desc.to_string());
-                        }
-                    }
-                }
-            }
-
             // Check if token usage changed (any TokenUsage records in this batch)
             let tokens_changed = view_records
                 .iter()
@@ -287,7 +258,6 @@ pub async fn ingest_events(
                         project_name: state.store.session_project_names.get(session_id).cloned(),
                         session_label: None,
                         session_branch: None,
-                        agent_labels: HashMap::new(),
                         total_input_tokens: None,
                         total_output_tokens: None,
                     });
@@ -306,7 +276,6 @@ pub async fn ingest_events(
                         project_name: state.store.session_project_names.get(session_id).cloned(),
                         session_label,
                         session_branch,
-                        agent_labels: new_agent_labels,
                         total_input_tokens: token_fields.0,
                         total_output_tokens: token_fields.1,
                     });

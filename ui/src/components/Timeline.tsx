@@ -297,7 +297,7 @@ interface TimelineProps {
 }
 
 export function Timeline({ state$, sessionFilter = null, agentFilter = null, onExploreLink }: TimelineProps) {
-  const state = useObservable(state$, { records: [], currentEphemeral: null, patterns: [], filterCounts: {}, treeIndex: new Map(), sessionLabels: {}, agentLabels: {} } as EnrichedSessionState);
+  const state = useObservable(state$, { records: [], currentEphemeral: null, patterns: [], filterCounts: {}, treeIndex: new Map(), sessionLabels: {} } as EnrichedSessionState);
   const connectionStatus = useConnectionStatus();
   const [activeFilter, setActiveFilter] = useState("all");
   const [focusRootId, setFocusRootId] = useState<string | null>(null);
