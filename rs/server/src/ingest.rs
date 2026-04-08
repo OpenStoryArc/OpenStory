@@ -9,7 +9,6 @@ use open_story_views::unified::RecordBody;
 use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
 
 use open_story_core::cloud_event::CloudEvent;
-use open_story_patterns::FeedContext;
 use open_story_store::analysis;
 use open_story_store::projection;
 
@@ -174,7 +173,7 @@ pub async fn ingest_events(
                     .entry(session_id.to_string())
                     .or_default();
 
-                // Phase 1: CloudEvent → eval-apply → structural turns → sentence
+                // CloudEvent → eval-apply → structural turns → sentence
                 let (patterns, turns) = pipeline.feed_event(ce);
                 detected_patterns.extend(patterns);
 
@@ -183,17 +182,6 @@ pub async fn ingest_events(
                     let _ = state.store.event_store.insert_turn(session_id, turn).await;
                 }
 
-                // Phase 2: ViewRecords → legacy record detectors (TestCycle, GitFlow, etc.)
-                for vr in &view_records {
-                    let depth = proj.node_depth(&vr.id);
-                    let parent_uuid_owned = proj.node_parent(&vr.id).map(|s| s.to_string());
-                    let ctx = FeedContext {
-                        record: vr,
-                        depth,
-                        parent_uuid: parent_uuid_owned.as_deref(),
-                    };
-                    detected_patterns.extend(pipeline.feed(&ctx));
-                }
                 // Store detected patterns for initial_state
                 if !detected_patterns.is_empty() {
                     for pe in &detected_patterns {
@@ -412,7 +400,6 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
 
             // Feed to pattern pipeline (skip ephemeral)
             if !ephemeral {
-                let proj = state.store.projections.get(sid).unwrap();
                 let pipeline = state
                     .store
                     .pattern_pipelines
@@ -440,29 +427,6 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
                     }
                 }
 
-                // Phase 2: ViewRecords → legacy record detectors
-                for vr in &view_records {
-                    let depth = proj.node_depth(&vr.id);
-                    let parent_uuid_owned = proj.node_parent(&vr.id).map(|s| s.to_string());
-                    let ctx = FeedContext {
-                        record: vr,
-                        depth,
-                        parent_uuid: parent_uuid_owned.as_deref(),
-                    };
-                    let detected = pipeline.feed(&ctx);
-                    if !detected.is_empty() {
-                        total_patterns += detected.len();
-                        for pe in &detected {
-                            let _ = state.store.event_store.insert_pattern(sid, pe).await;
-                        }
-                        state
-                            .store
-                            .detected_patterns
-                            .entry(sid.clone())
-                            .or_default()
-                            .extend(detected);
-                    }
-                }
             }
 
             total_events += 1;

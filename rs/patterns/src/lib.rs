@@ -1,34 +1,31 @@
 //! Streaming pattern detection pipeline.
 //!
-//! Each detector is a pure fold: (state, event) -> (new_state, [outputs])
-//! Detectors run independently and emit PatternEvents when they recognize
-//! higher-order behavioral patterns in the event stream.
+//! Eval-apply is the source of truth. It consumes CloudEvents and produces
+//! `StructuralTurn`s; the sentence detector consumes turns and produces
+//! `turn.sentence` patterns. Anything else (turn phase classification,
+//! agent delegation, etc.) is a runtime projection of `StructuralTurn`,
+//! computed at the rendering boundary, not persisted as its own pattern type.
 //!
-//! Ported from `scripts/streaming_patterns.py` (28 BDD tests).
+//! Historical note: a `Detector` trait + 5 record-based detectors
+//! (TurnPhaseDetector, AgentDelegationDetector, ErrorRecoveryDetector,
+//! TestCycleDetector, GitFlowDetector) lived alongside this pipeline through
+//! the `feat/mongodb-sink` work. They were cut in `chore/cut-legacy-detectors`
+//! after the data showed they produced ~127 turn.phase patterns and 0–13 of
+//! everything else across nine sessions while the new pipeline produced
+//! ~3000 eval_apply patterns. Two were dead-by-data, three were retired in
+//! favor of derive-on-the-fly. See git log + docs/BACKLOG.md for the
+//! "Subagent Task Labels — Restore After Cut" follow-up.
 
 use serde::{Deserialize, Serialize};
 
-pub mod turn_phase;
-pub mod git_flow;
-pub mod test_cycle;
-pub mod error_recovery;
-pub mod agent_delegation;
 pub mod eval_apply;
 pub mod sentence;
 
-// Re-export detectors for convenience
-pub use turn_phase::TurnPhaseDetector;
-pub use git_flow::GitFlowDetector;
-pub use test_cycle::TestCycleDetector;
-pub use error_recovery::ErrorRecoveryDetector;
-pub use agent_delegation::AgentDelegationDetector;
-pub use eval_apply::EvalApplyDetector;
+// Re-export the only detectors that survived the cut.
+pub use eval_apply::{EvalApplyDetector, StructuralTurn};
 pub use sentence::SentenceDetector;
 
 use open_story_core::cloud_event::CloudEvent;
-use open_story_views::view_record::ViewRecord;
-
-pub use eval_apply::StructuralTurn;
 
 // ═══════════════════════════════════════════════════════════════════
 // PatternEvent — the output of all detectors
@@ -38,7 +35,7 @@ pub use eval_apply::StructuralTurn;
 /// Represents a recognized behavioral pattern spanning multiple events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternEvent {
-    /// Pattern type identifier (e.g., "test.cycle", "git.workflow").
+    /// Pattern type identifier (e.g., "eval_apply.eval", "turn.sentence").
     pub pattern_type: String,
     /// Session this pattern belongs to.
     pub session_id: String,
@@ -56,45 +53,10 @@ pub struct PatternEvent {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// FeedContext — what detectors receive alongside each ViewRecord
+// TurnDetector — consumes StructuralTurns produced by eval_apply
 // ═══════════════════════════════════════════════════════════════════
 
-/// Context passed to detectors on each feed call.
-/// Provides tree metadata that ViewRecord doesn't carry.
-pub struct FeedContext<'a> {
-    /// The ViewRecord being processed.
-    pub record: &'a ViewRecord,
-    /// Depth in the session tree (0 = root).
-    pub depth: u16,
-    /// Parent event UUID (None = root event).
-    pub parent_uuid: Option<&'a str>,
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Detector trait
-// ═══════════════════════════════════════════════════════════════════
-
-/// A streaming pattern detector.
-///
-/// Each detector maintains its own state machine and emits PatternEvents
-/// when it recognizes a pattern in the event stream. Detectors are pure folds:
-/// they process events one at a time and produce outputs without side effects.
-pub trait Detector: Send + Sync {
-    /// Process one event. Returns any patterns detected.
-    fn feed(&mut self, ctx: &FeedContext) -> Vec<PatternEvent>;
-
-    /// Flush at end of stream. Returns any incomplete patterns.
-    fn flush(&mut self) -> Vec<PatternEvent>;
-
-    /// Detector name (used for logging/debugging).
-    fn name(&self) -> &str;
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// TurnDetector — consumes StructuralTurns (output of eval-apply)
-// ═══════════════════════════════════════════════════════════════════
-
-/// A detector that consumes StructuralTurns rather than raw records.
+/// A detector that consumes `StructuralTurn`s rather than raw CloudEvents.
 /// Runs in phase 2 of the pipeline, after eval-apply produces turns.
 pub trait TurnDetector: Send + Sync {
     /// Process one completed turn. Returns any patterns detected.
@@ -103,25 +65,22 @@ pub trait TurnDetector: Send + Sync {
     /// Flush at end of stream.
     fn flush(&mut self) -> Vec<PatternEvent>;
 
-    /// Detector name.
+    /// Detector name (used for logging/debugging).
     fn name(&self) -> &str;
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PatternPipeline — wires detectors together
+// PatternPipeline — wires the eval-apply + turn-detector chain together
 // ═══════════════════════════════════════════════════════════════════
 
 /// Two-phase streaming pipeline:
 ///   Phase 1: CloudEvent → EvalApplyDetector → StructuralTurns + PatternEvents
 ///   Phase 2: StructuralTurn → TurnDetectors → PatternEvents
-///   Legacy:  ViewRecord → record Detectors → PatternEvents
 pub struct PatternPipeline {
     /// Phase 1: CloudEvent consumer. Produces StructuralTurns.
     eval_apply: EvalApplyDetector,
     /// Phase 2: StructuralTurn consumers (SentenceDetector, etc.)
     turn_detectors: Vec<Box<dyn TurnDetector>>,
-    /// Legacy: ViewRecord consumers (TestCycle, GitFlow, etc.)
-    record_detectors: Vec<Box<dyn Detector>>,
 }
 
 impl PatternPipeline {
@@ -129,28 +88,15 @@ impl PatternPipeline {
     pub fn new() -> Self {
         PatternPipeline {
             eval_apply: EvalApplyDetector::new(),
-            turn_detectors: vec![
-                Box::new(SentenceDetector::new()),
-            ],
-            record_detectors: vec![
-                Box::new(TestCycleDetector::new()),
-                Box::new(GitFlowDetector::new()),
-                Box::new(ErrorRecoveryDetector::new()),
-                Box::new(AgentDelegationDetector::new()),
-                Box::new(TurnPhaseDetector::new()),
-            ],
+            turn_detectors: vec![Box::new(SentenceDetector::new())],
         }
     }
 
-    /// Create a pipeline with custom detectors.
-    pub fn with_detectors(
-        record_detectors: Vec<Box<dyn Detector>>,
-        turn_detectors: Vec<Box<dyn TurnDetector>>,
-    ) -> Self {
+    /// Create a pipeline with custom turn detectors. Used in tests.
+    pub fn with_turn_detectors(turn_detectors: Vec<Box<dyn TurnDetector>>) -> Self {
         PatternPipeline {
             eval_apply: EvalApplyDetector::new(),
             turn_detectors,
-            record_detectors,
         }
     }
 
@@ -173,26 +119,13 @@ impl PatternPipeline {
         (emitted, turns)
     }
 
-    /// Legacy: Feed one ViewRecord to record-based detectors.
-    pub fn feed(&mut self, ctx: &FeedContext) -> Vec<PatternEvent> {
-        let mut emitted = Vec::new();
-        // Feed to eval-apply via legacy path too (for backward compat)
-        emitted.extend(self.eval_apply.feed(ctx));
-        for d in &mut self.record_detectors {
-            emitted.extend(d.feed(ctx));
-        }
-        emitted
-    }
-
-    /// Flush all detectors across both phases.
-    /// Returns (PatternEvents, flushed StructuralTurns).
+    /// Flush both phases. The eval-apply detector emits patterns inline as
+    /// CloudEvents arrive (no buffering), so flush only collects any
+    /// in-flight `StructuralTurn`s and routes them through the turn
+    /// detectors.
     pub fn flush(&mut self) -> (Vec<PatternEvent>, Vec<StructuralTurn>) {
         let mut emitted = Vec::new();
 
-        // Flush eval-apply (PatternEvents)
-        emitted.extend(self.eval_apply.flush());
-
-        // Flush incomplete turns through turn detectors
         let turns = self.eval_apply.flush_turns();
         for turn in &turns {
             for td in &mut self.turn_detectors {
@@ -203,10 +136,6 @@ impl PatternPipeline {
             emitted.extend(td.flush());
         }
 
-        // Flush legacy record detectors
-        for d in &mut self.record_detectors {
-            emitted.extend(d.flush());
-        }
         (emitted, turns)
     }
 }

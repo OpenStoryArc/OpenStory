@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use open_story_core::cloud_event::CloudEvent;
-use open_story::patterns::{Detector, EvalApplyDetector};
+use open_story::patterns::EvalApplyDetector;
 
 /// Load the fixture file and parse into class → events map.
 fn load_fixtures() -> HashMap<String, Vec<CloudEvent>> {
@@ -64,14 +64,10 @@ fn feed_sequence(
 
     let mut turns = det.take_completed_turns();
 
-    // Also flush in case turn didn't end with system.turn.complete
-    let (flushed_patterns, flushed_turns) = {
-        let p = det.flush();
-        let t = det.flush_turns();
-        (p, t)
-    };
-    all_patterns.extend(flushed_patterns);
-    turns.extend(flushed_turns);
+    // Also flush in case the trailing turn didn't end with system.turn.complete.
+    // The new pipeline emits PatternEvents inline as events arrive (no buffered
+    // flush patterns) — only StructuralTurns need draining at flush.
+    turns.extend(det.flush_turns());
 
     (all_patterns, turns)
 }
