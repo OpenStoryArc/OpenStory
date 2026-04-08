@@ -385,10 +385,12 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
     [state.patterns],
   );
 
-  // Extract turn phase segments for the phase bar
+  // Derive turn phase segments from records on the fly. The legacy
+  // `turn.phase` pattern type was retired — phases are a runtime projection
+  // of the conversation's tool usage, not persisted derived data.
   const turnPhases = useMemo(
-    () => extractTurnPhases(state.patterns),
-    [state.patterns],
+    () => extractTurnPhases(state.records),
+    [state.records],
   );
 
   // Pattern click-to-highlight: clicking a pattern badge highlights all member events
