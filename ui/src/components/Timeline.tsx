@@ -26,7 +26,6 @@ import { extractTurnPhases } from "@/lib/turn-phases";
 import { TurnPhaseBar } from "@/components/TurnPhaseBar";
 import type { PatternView } from "@/types/wire-record";
 import { computeTurnSummaries, type TurnSummary } from "@/lib/turn-summary";
-import { GitFlowCard } from "@/components/events/GitFlowCard";
 
 // ---------------------------------------------------------------------------
 // Color palette for category badges (Tokyonight)
@@ -72,13 +71,13 @@ function sessionColor(sessionId: string): string {
 // ---------------------------------------------------------------------------
 // Pattern badge colors (Tokyonight palette)
 // ---------------------------------------------------------------------------
-const PATTERN_COLORS: Record<string, string> = {
-  "test.cycle": "#9ece6a",      // green (pass) — red handled via metadata
-  "git.workflow": "#7aa2f7",    // blue
-  "error.recovery": "#e0af68",  // orange
-  "agent.delegation": "#bb9af7", // purple
-  "turn.phase": "#565f89",      // muted grey
-};
+// All persisted pattern types live in the eval_apply.* / turn.* namespaces.
+// Pre-cleanup, this map had entries for legacy types (test.cycle, git.workflow,
+// error.recovery, agent.delegation, turn.phase) — all retired in
+// chore/cut-legacy-detectors. Anything not matched falls back to the muted
+// grey default below, which keeps the badge palette consistent without
+// requiring per-type entries.
+const PATTERN_COLORS: Record<string, string> = {};
 
 function patternColor(p: PatternView): string {
   return PATTERN_COLORS[p.type] ?? "#565f89";
@@ -534,9 +533,6 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
               <span style={{ color: patternColor(highlightedPattern) }}>
                 {PATTERN_LABELS[highlightedPattern.type] ?? highlightedPattern.type}: {highlightedPattern.events.length} events
               </span>
-              {highlightedPattern.type === "git.workflow" && highlightedPattern.metadata && (
-                <GitFlowCard metadata={highlightedPattern.metadata} />
-              )}
               <button
                 onClick={() => setHighlightedPattern(null)}
                 className="text-[#565f89] hover:text-[#f7768e] ml-0.5"
