@@ -12,6 +12,113 @@ Surface token usage (input, output, cache reads/writes) per session with estimat
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
+### Stream Architecture: Live Events + Live Story + Explore Rewrite
+The next branch after `chore/cut-legacy-detectors`. Crystallizes the
+architecture the cleanup branch was building toward: **two pure streams,
+each with a single source of truth, plus a queryable history view.**
+
+The shape:
+```
+  Source (file watcher → translator)
+      │
+      ▼
+   CloudEvents (the pure observation)
+      │
+      ├─→ persist consumer       → events collection (queryable via REST)
+      │
+      ├─→ patterns consumer      → PatternEvents (derived narrative)
+      │       │                       │
+      │       ├─→ persist patterns → patterns collection (queryable via REST)
+      │       └─→ NATS patterns.{project}.{session}
+      │                              │
+      │                              ▼
+      │                         Live Story consumer
+      │                              │
+      │                              ▼
+      │                         WebSocket subject "live.story"
+      │
+      └─→ NATS events.{project}.{session}
+              │
+              ▼
+         Live Events consumer
+              │
+              ▼
+         WebSocket subject "live.events"
+```
+
+Three views, each backed by exactly one source, no preload soup:
+
+| View       | Source                                                | Behavior                                              |
+|------------|-------------------------------------------------------|-------------------------------------------------------|
+| Live       | WebSocket `live.events` stream                        | Empty on connect, fills as new CloudEvents arrive.    |
+| Live Story | WebSocket `live.story` stream                         | Empty on connect, fills as new patterns are detected. |
+| Explore    | REST `/api/events` + `/api/patterns` against the      | Whatever shape we want. Rebuilt from scratch.         |
+|            | queryable collections                                 |                                                       |
+
+**What this branch needs to do:**
+
+1. **Decompose the broadcast consumer (Actor 4)** into two stream-forwarders.
+   - `LiveEventsConsumer`: subscribe to NATS `events.>`, forward CloudEvents to WebSocket clients on the `live.events` channel. Pure forwarder, no shared state.
+   - `LiveStoryConsumer`: subscribe to NATS `patterns.>` (already published by Actor 2 after `chore/cut-legacy-detectors`), forward PatternEvents on the `live.story` channel. Pure forwarder.
+2. **Redesign the WebSocket protocol.** Today's `initial_state` / `enriched` shape goes away. New shape: `kind: "event"` and `kind: "pattern"` — minimal, pure, streaming. No preload payload by default; if a client wants recent history it asks via REST.
+3. **Delete `ingest_events`.** After Actor 4 is decomposed, the function has no production callers. The 14 integration tests that use it as a convenient driver need a thin replacement helper or to be rewritten against the actor pipeline directly.
+4. **Rewrite the UI.**
+   - **Live tab**: subscribes to `live.events`, renders events as they arrive. Empty on first connect — it's a window into "now," not a buffer. If you reload mid-session you start from now.
+   - **Story tab**: subscribes to `live.story`, renders patterns as they arrive. Same shape — live window, no preload.
+   - **Explore tab**: deleted and rebuilt from scratch on REST endpoints. Old explore code doesn't migrate; it needs a redesign.
+5. **Delete `state.store.detected_patterns`** after the broadcast rewire completes. Once the broadcast consumers forward live, the in-memory cache that `build_initial_state` reads is no longer needed (initial_state itself goes away).
+
+**Why this is a separate branch:** the cleanup branch removed the *cause* of the duplication and the legacy parallel pipelines. Steps 1–5 above are a UX redesign that changes how the dashboard works and needs its own focused branch with screenshots, acceptance criteria, and probably a feature flag for the cutover.
+
+**Architectural principles this enforces:**
+- Functional-first, side effects at the edges (CLAUDE.md principle 4): `ingest_events`'s monolithic god-function is gone.
+- Actor systems and message-passing (principle 3): every consumer subscribes to NATS, no shared mutable state.
+- Reactive and event-driven (principle 5): two streams, one direction each, no buffering at the source.
+- Minimal, honest code (principle 7): the dashboard says "this is what's happening NOW" instead of pretending to be a queryable history that you reload to refresh.
+
+**Validation criterion:** the Live tab on a fresh page reload starts with **zero records**, and fills only with events that arrive after connect. The Story tab does the same with patterns. The Explore tab serves whatever the new design wants from the REST endpoints. No view should depend on `initial_state` or `BroadcastMessage::Enriched` after this branch lands.
+
+### Synthetic Event ID Stability (file_snapshot drift)
+After `chore/cut-legacy-detectors` made Actor 2 the sole pattern detector,
+the sentence-pattern duplication ratio dropped from 1.76× to 1.05×. The
+remaining 5% comes from a separate, smaller bug: the translator/watcher
+generates fresh UUIDs for *synthetic* events (`file_snapshot`,
+`system_event`) on each backfill pass instead of deriving them from the
+underlying source state. So the conversation events for a given turn are
+stable across reprocessing (user/assistant/tool_call/tool_result/reasoning
+all match) but the synthetic events around them have different IDs each
+time. The patterns consumer assembles "structurally identical" sentences
+that nonetheless reference different event_id sets, and the persisted rows
+land under different Mongo `_id`s.
+
+Empirical evidence: in the validation run for the cleanup branch, the
+single remaining duplicate group had **212 stable event_ids and 25
+unstable** — and the 25 unstable were `file_snapshot=16,
+<not in records>=8, system_event=1`. Zero user/assistant/tool drift.
+
+Two possible fixes:
+1. **Content-derived IDs for synthetic events** — `file_snapshot` ID =
+   `hash(path + sha256(content))`, `system_event` ID = `hash(subtype +
+   timestamp)`. Same source state → same ID across passes. The persisted
+   rows naturally collapse via the EventStore PRIMARY KEY.
+2. **Exclude synthetic events from sentence identity** — when computing
+   sentence pattern `_id`, hash only the conversation backbone
+   (user/assistant/tool/reasoning), ignoring synthetic noise around the
+   turn boundaries. Smaller change but doesn't fix the underlying ID
+   instability for other consumers.
+
+I'd lean (1) — it's the right fix and improves the property for *every*
+downstream consumer, not just the sentence detector. The
+`<not in records>` orphans are a related symptom: they're event_ids
+referenced by old patterns whose underlying records were "garbage
+collected" (probably by the same restamping issue, where the new pass
+generates a new ID and the old one becomes unreferenced).
+
+Estimate: ~30 lines in `rs/core/src/translate.rs` (and the equivalent
+for pi-mono in `translate_pi.rs`). Plus a BDD spec asserting that
+re-translating the same JSONL line yields the same event ID for synthetic
+event types.
+
 ### Subagent Task Labels — Restore After Cut
 The previous `agent_labels` feature mapped subagent identities to their parent's Task-tool prompt so the dashboard could show "Find the eval/apply lineage doc" in the sidebar instead of "agent-a47118017b71c6821". It was cut in `chore/cut-legacy-detectors` because the legacy implementation was broken end-to-end on real data: (a) the detector checked `tool_name == "Agent"` but the Claude Code tool is named `"Task"` (rs/patterns/src/eval_apply.rs and rs/patterns/src/agent_delegation.rs both had this stale string), so it fired ~5 times in 9 sessions of real data instead of for every subagent invocation; (b) even when it fired, ingest.rs keyed the label by the parent Task-call's event_id while the UI looked it up by the subagent's session_id, so the UI never found it. With both bugs the feature was a no-op. Today the dashboard falls back to the standard `sessionLabels` path (the subagent's own first user_message), which is functional but verbose. To restore the cleaner labels: (1) detect Task tool calls in the new pipeline (StructuralTurn.applies, where `tool_name == "Task"` is the right check), capturing the prompt; (2) key the label by the *subagent's* session_id, not the parent event_id, so the UI lookup actually resolves. Both fixes are small but each must be present for the feature to work — fixing only one is worse than cutting it. Estimate: ~50 lines including a BDD spec for the keying invariant.
 
