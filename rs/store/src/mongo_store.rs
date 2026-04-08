@@ -163,8 +163,9 @@ impl EventStore for MongoStore {
 
     /// Insert a CloudEvent. Dedup is per **event id** (global, not per
     /// session) — that matches `SqliteStore`'s `INSERT OR IGNORE` on
-    /// the `events.id` PK and the `seen_event_ids` invariant in the
-    /// persist consumer.
+    /// the `events.id` PK. After the /hooks endpoint was retired, the
+    /// EventStore PRIMARY KEY is the *only* dedup boundary in the
+    /// system; the legacy in-memory `seen_event_ids` HashSet is gone.
     ///
     /// Returns `Ok(true)` for new events, `Ok(false)` for duplicates.
     /// A `Mongo` write error with code 11000 is the only error path that

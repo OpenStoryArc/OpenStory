@@ -68,13 +68,13 @@ async fn health(State(state): State<SharedState>) -> axum::Json<serde_json::Valu
     }))
 }
 
-/// Build a minimal router for publisher mode — hooks + health only.
+/// Build a minimal router for publisher mode — health only.
 ///
-/// Publisher doesn't serve API/WebSocket endpoints. It only accepts
-/// hook POSTs (to publish to NATS) and responds to health checks.
+/// Publisher doesn't serve API/WebSocket endpoints. After the hooks
+/// endpoint was retired, publisher mode only responds to health checks
+/// — events arrive via the file watcher and flow through NATS.
 pub fn build_publisher_router(state: SharedState, config: &Config) -> Router {
     let publisher_router = Router::new()
-        .route("/hooks", axum::routing::post(crate::hooks::receive_hook))
         .route("/health", axum::routing::get(health));
 
     let cors = build_cors(config);
@@ -197,7 +197,6 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .route("/api/search", axum::routing::get(crate::api::search_events))
         // ── Core routes ──
         .route("/ws", axum::routing::get(crate::ws::ws_handler))
-        .route("/hooks", axum::routing::post(crate::hooks::receive_hook))
         .route("/health", axum::routing::get(health));
 
     let cors = build_cors(config);
@@ -294,14 +293,6 @@ mod tests {
         let req = Request::get("/health").body(Body::empty()).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), 200);
-
-        // POST /hooks with empty body should return 202 (accepted)
-        let req = Request::post("/hooks")
-            .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .unwrap();
-        let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), 202);
 
         // GET /api/sessions should return 404 (not on publisher router)
         let req = Request::get("/api/sessions").body(Body::empty()).unwrap();

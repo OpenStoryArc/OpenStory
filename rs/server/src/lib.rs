@@ -11,7 +11,6 @@ pub mod broadcast;
 pub mod config;
 pub mod consumers;
 pub mod event_store_bridge;
-pub mod hooks;
 pub mod ingest;
 pub mod logging;
 pub mod metrics;

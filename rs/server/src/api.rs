@@ -1077,11 +1077,6 @@ pub async fn delete_session(
     s.store.full_payloads.remove(&session_id);
     s.store.session_projects.remove(&session_id);
     s.store.session_project_names.remove(&session_id);
-    s.store.seen_event_ids.retain(|id| {
-        // Remove event IDs that belonged to the deleted session
-        // This is best-effort — seen_event_ids doesn't track session ownership
-        !id.starts_with(&session_id)
-    });
 
     Ok(Json(json!({
         "status": "deleted",

@@ -128,12 +128,9 @@ async fn boot_from_sqlite(
     );
     for row in sqlite_sessions {
         let events = store.event_store.session_events(&row.id).await.unwrap_or_default();
-        // Track event IDs for dedup + detect subagent relationships
+        // Detect subagent → parent relationships from the boot-loaded events.
+        // (Dedup is the EventStore PK's job — no in-memory tracking needed.)
         for event in &events {
-            if let Some(id) = event.get("id").and_then(|v| v.as_str()) {
-                store.seen_event_ids.insert(id.to_string());
-            }
-            // Detect subagent → parent relationship
             if let Some(data_sid) = event.get("data")
                 .and_then(|d| d.get("session_id"))
                 .and_then(|v| v.as_str())
@@ -170,7 +167,6 @@ mod tests {
         let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
         let s = state.read().await;
         assert!(s.store.event_store.list_sessions().await.unwrap().is_empty());
-        assert!(s.store.seen_event_ids.is_empty());
         assert!(s.store.projections.is_empty());
     }
 
@@ -199,7 +195,6 @@ mod tests {
         let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
         let s = state.read().await;
         assert!(!s.store.event_store.session_events("test-session").await.unwrap().is_empty());
-        assert!(s.store.seen_event_ids.contains("evt-boot-1"));
     }
 
     #[tokio::test]
@@ -305,8 +300,7 @@ mod tests {
         let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
         let s = state.read().await;
 
-        assert!(s.store.seen_event_ids.contains("dedup-a"));
-        assert!(s.store.seen_event_ids.contains("dedup-b"));
+        // Both events should land in the EventStore exactly once via PK dedup.
         assert_eq!(s.store.event_store.session_events("sess-dedup").await.unwrap().len(), 2);
     }
 
@@ -357,7 +351,6 @@ mod tests {
             "should boot session from SQLite"
         );
         assert_eq!(s.store.event_store.session_events("sqlite-session").await.unwrap().len(), 1);
-        assert!(s.store.seen_event_ids.contains("sqlite-evt-1"));
     }
 
     /// SQLite boot should pick up ALL sessions, not just recent ones.
@@ -460,7 +453,6 @@ mod tests {
             !s.store.event_store.session_events("restart-session").await.unwrap().is_empty(),
             "should survive restart via SQLite even after JSONL deletion"
         );
-        assert!(s.store.seen_event_ids.contains("restart-evt-1"));
     }
 
     /// When both SQLite and JSONL have data, SQLite wins.

@@ -86,11 +86,10 @@ pub async fn ingest_events(
 
     for ce in events {
         if let Ok(val) = serde_json::to_value(ce) {
-            // Dedup: skip events we've already seen
-            let event_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if !event_id.is_empty() && !state.store.seen_event_ids.insert(event_id.to_string()) {
-                continue;
-            }
+            // Dedup is now solely the EventStore PK's job — the legacy
+            // in-memory `seen_event_ids` HashSet was retired alongside
+            // the /hooks endpoint that needed it. The watcher is the
+            // sole ingestion source.
 
             // Detect subagent → parent relationship.
             // The event's data.session_id comes from the transcript's sessionId field,
@@ -109,9 +108,24 @@ pub async fn ingest_events(
                 }
             }
 
+            // Persist to EventStore (SQLite default, JSONL fallback). The
+            // EventStore PK is the dedup boundary now — if it returns false,
+            // the event was already stored and we skip the rest of the loop
+            // (no JSONL append, no projection update, no pattern detection,
+            // no broadcast). This makes ingest_events idempotent without an
+            // in-memory HashSet.
+            let inserted = state
+                .store
+                .event_store
+                .insert_event(session_id, &val)
+                .await
+                .unwrap_or(false);
+            if !inserted {
+                continue;
+            }
+            // Append to JSONL only on a successful (non-duplicate) insert
+            // — duplicates shouldn't pollute the sovereignty escape hatch.
             let _ = state.store.session_store.append(session_id, &val);
-            // Persist to EventStore (SQLite default, JSONL fallback)
-            let _ = state.store.event_store.insert_event(session_id, &val).await;
 
             // Update projection
             let proj = state

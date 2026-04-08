@@ -3,7 +3,7 @@
 //! This is the store-owned subset of what was previously AppState. The server
 //! composes StoreState with server-specific fields (broadcast_tx, transcript_states, bus).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -24,8 +24,6 @@ pub struct StoreState {
     // without a shared RwLock. SQLite handles internal locking.
     pub event_store: Arc<dyn EventStore>,
 
-    // ── dedup ──
-    pub seen_event_ids: HashSet<String>,
     pub session_store: SessionStore,
     pub event_log: EventLog,
     pub plan_store: PlanStore,
@@ -162,7 +160,6 @@ impl StoreState {
     ) -> Self {
         Self {
             event_store,
-            seen_event_ids: HashSet::new(),
             session_store,
             event_log,
             plan_store,
@@ -257,7 +254,6 @@ mod tests {
         let state = StoreState::new(tmp.path()).unwrap();
 
         assert!(state.event_store.list_sessions().await.unwrap().is_empty());
-        assert!(state.seen_event_ids.is_empty());
         assert!(state.projections.is_empty());
         assert!(state.pattern_pipelines.is_empty());
         assert!(state.detected_patterns.is_empty());
@@ -310,11 +306,9 @@ mod tests {
             }
         });
 
-        let event_id = "evt-1";
-        assert!(state.seen_event_ids.insert(event_id.to_string()), "first insert should succeed");
-        assert!(!state.seen_event_ids.insert(event_id.to_string()), "dedup should reject duplicate");
-
-        // Persist via EventStore
+        // Dedup is now solely the EventStore PRIMARY KEY's job — the legacy
+        // in-memory `seen_event_ids` HashSet was retired alongside the
+        // /hooks endpoint that needed it.
         assert!(state.event_store.insert_event("sess-1", &event).await.unwrap());
         assert!(!state.event_store.insert_event("sess-1", &event).await.unwrap(), "dedup via PK");
 

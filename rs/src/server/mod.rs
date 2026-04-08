@@ -6,7 +6,6 @@
 pub mod analysis;
 pub mod api;
 pub mod broadcast;
-pub mod hooks;
 pub mod ingest;
 pub mod persistence;
 pub mod plan_store;

@@ -3,15 +3,24 @@
 //! Actor contract:
 //!   subscribes: events.>
 //!   publishes:  nothing (pure sink)
-//!   owns:       seen_event_ids, event_store, session_store, FTS index
+//!   owns:       event_store, session_store, FTS index
 //!
 //! Responsibilities:
-//!   1. Dedup by event ID (skip already-seen events)
-//!   2. Insert into SQLite (event_store)
-//!   3. Append to JSONL (session_store)
-//!   4. Index in FTS5 for full-text search
+//!   1. Insert into the durable EventStore (SQLite or MongoDB).
+//!      Dedup is the EventStore's PRIMARY KEY job — `insert_event`
+//!      returns `Ok(false)` for duplicates and we treat that as "skipped"
+//!      without further work. The legacy in-memory `seen_event_ids`
+//!      HashSet was retired alongside the /hooks endpoint that needed it
+//!      (the watcher is the sole ingestion source, so we no longer need
+//!      to defend against the same event arriving twice via two paths).
+//!   2. Append to JSONL backup (only on a successful insert — duplicates
+//!      shouldn't pollute the sovereignty escape hatch).
+//!   3. Index in FTS for full-text search (only on a successful insert).
+//!
+//! Cost note: relying on the EventStore PK means each duplicate now
+//! costs one DB roundtrip rather than a HashMap lookup. In practice
+//! duplicates are rare (one ingestion path), so the simplification wins.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use open_story_core::cloud_event::CloudEvent;
@@ -21,8 +30,6 @@ use open_story_views::from_cloud_event::from_cloud_event;
 
 /// State owned by the persist consumer actor.
 pub struct PersistConsumer {
-    /// Event IDs already seen — for dedup.
-    seen_event_ids: HashSet<String>,
     /// Shared event store (Arc — SQLite handles internal locking).
     event_store: Arc<dyn EventStore>,
     /// JSONL backup store (owned — only this actor writes).
@@ -31,9 +38,9 @@ pub struct PersistConsumer {
 
 /// Result of processing one batch of events.
 pub struct PersistResult {
-    /// Number of events persisted (after dedup).
+    /// Number of events persisted (after PK dedup).
     pub persisted: usize,
-    /// Number of events skipped (dedup).
+    /// Number of events skipped (PK collision — already persisted).
     pub skipped: usize,
 }
 
@@ -41,13 +48,12 @@ impl PersistConsumer {
     /// Create a new persist consumer with owned state.
     pub fn new(event_store: Arc<dyn EventStore>, session_store: SessionStore) -> Self {
         Self {
-            seen_event_ids: HashSet::new(),
             event_store,
             session_store,
         }
     }
 
-    /// Process a batch of CloudEvents — dedup, persist, index.
+    /// Process a batch of CloudEvents — persist + index.
     pub async fn process_batch(
         &mut self,
         session_id: &str,
@@ -63,20 +69,23 @@ impl PersistConsumer {
                 continue;
             };
 
-            // Dedup: skip events we've already seen
-            let event_id = val.get("id").and_then(|v| v.as_str()).unwrap_or("");
-            if !event_id.is_empty() && !self.seen_event_ids.insert(event_id.to_string()) {
+            // EventStore PK is the dedup boundary. Returns Ok(false) when the
+            // event_id already exists, Ok(true) on a fresh insert.
+            let inserted = event_store
+                .insert_event(session_id, &val)
+                .await
+                .unwrap_or(false);
+
+            if !inserted {
                 skipped += 1;
                 continue;
             }
 
-            // Persist to JSONL backup
+            // Append to JSONL backup only on a successful insert — duplicates
+            // shouldn't pollute the sovereignty escape hatch.
             let _ = session_store.append(session_id, &val);
 
-            // Persist to the durable event store
-            let _ = event_store.insert_event(session_id, &val).await;
-
-            // Index in the full-text index
+            // Index in the full-text index.
             let view_records = from_cloud_event(ce);
             for vr in &view_records {
                 if let Some(text) = open_story_store::extract::extract_text(vr) {
@@ -89,16 +98,6 @@ impl PersistConsumer {
         }
 
         PersistResult { persisted, skipped }
-    }
-
-    /// Check if an event ID has already been seen.
-    pub fn is_duplicate(&self, event_id: &str) -> bool {
-        self.seen_event_ids.contains(event_id)
-    }
-
-    /// Number of unique events seen.
-    pub fn seen_count(&self) -> usize {
-        self.seen_event_ids.len()
     }
 }
 
@@ -139,18 +138,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dedup_tracks_event_ids() {
-        let (mut consumer, _tmp) = make_consumer();
-        assert!(!consumer.is_duplicate("evt-1"));
-
-        // Manually insert
-        consumer.seen_event_ids.insert("evt-1".to_string());
-        assert!(consumer.is_duplicate("evt-1"));
-        assert!(!consumer.is_duplicate("evt-2"));
-    }
-
-    #[tokio::test]
-    async fn dedup_skips_duplicate_event_ids() {
+    async fn dedup_skips_duplicate_event_ids_via_pk() {
         let (mut consumer, _tmp) = make_consumer();
         let e1 = test_event("evt-1");
         let e2 = test_event("evt-1"); // same ID
@@ -158,8 +146,7 @@ mod tests {
 
         let result = consumer.process_batch("sess-1", &[e1, e2, e3]).await;
         assert_eq!(result.persisted, 2, "should persist 2 unique events");
-        assert_eq!(result.skipped, 1, "should skip 1 duplicate");
-        assert_eq!(consumer.seen_count(), 2);
+        assert_eq!(result.skipped, 1, "should skip 1 duplicate via PK collision");
     }
 
     #[tokio::test]
@@ -170,6 +157,7 @@ mod tests {
         let result1 = consumer.process_batch("sess-1", &[e1]).await;
         assert_eq!(result1.persisted, 1);
 
+        // Same event_id in a fresh batch — the EventStore PK still rejects it.
         let e1_again = test_event("evt-1");
         let result2 = consumer.process_batch("sess-1", &[e1_again]).await;
         assert_eq!(result2.persisted, 0);
