@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use open_story_patterns::{PatternEvent, PatternPipeline};
+use open_story_patterns::PatternEvent;
 
 use crate::event_store::EventStore;
 use crate::persistence::{EventLog, SessionStore};
@@ -30,7 +30,11 @@ pub struct StoreState {
 
     // ── projections + patterns ──
     pub projections: HashMap<String, SessionProjection>,
-    pub pattern_pipelines: HashMap<String, PatternPipeline>,
+    /// Cache of detected patterns keyed by session_id, populated by the
+    /// patterns consumer (Actor 2). Read by `build_initial_state` for the
+    /// WebSocket handshake. Pattern *detection* lives in the patterns
+    /// consumer; this is just the in-memory mirror it pushes into so the
+    /// API/WebSocket layers can read it without a DB roundtrip.
     pub detected_patterns: HashMap<String, Vec<PatternEvent>>,
     pub full_payloads: HashMap<String, HashMap<String, String>>,
 
@@ -164,7 +168,6 @@ impl StoreState {
             event_log,
             plan_store,
             projections: HashMap::new(),
-            pattern_pipelines: HashMap::new(),
             detected_patterns: HashMap::new(),
             full_payloads: HashMap::new(),
             subagent_parents: HashMap::new(),
@@ -255,7 +258,6 @@ mod tests {
 
         assert!(state.event_store.list_sessions().await.unwrap().is_empty());
         assert!(state.projections.is_empty());
-        assert!(state.pattern_pipelines.is_empty());
         assert!(state.detected_patterns.is_empty());
         assert!(state.full_payloads.is_empty());
         assert!(state.subagent_parents.is_empty());

@@ -178,38 +178,22 @@ pub async fn ingest_events(
             let ephemeral = projection::is_ephemeral(subtype);
             let proj = state.store.projections.get(session_id).unwrap();
 
-            // Feed to pattern pipeline (durable events only)
-            let mut detected_patterns = Vec::new();
-            if !ephemeral {
-                let pipeline = state
-                    .store
-                    .pattern_pipelines
-                    .entry(session_id.to_string())
-                    .or_default();
-
-                // CloudEvent → eval-apply → structural turns → sentence
-                let (patterns, turns) = pipeline.feed_event(ce);
-                detected_patterns.extend(patterns);
-
-                // Persist completed structural turns
-                for turn in &turns {
-                    let _ = state.store.event_store.insert_turn(session_id, turn).await;
-                }
-
-                // Store detected patterns for initial_state
-                if !detected_patterns.is_empty() {
-                    for pe in &detected_patterns {
-                        // Dual-write pattern to EventStore
-                        let _ = state.store.event_store.insert_pattern(session_id, pe).await;
-                    }
-                    state
-                        .store
-                        .detected_patterns
-                        .entry(session_id.to_string())
-                        .or_default()
-                        .extend(detected_patterns.clone());
-                }
-            }
+            // Pattern detection is now solely the patterns consumer's job
+            // (Actor 2 in the actor-consumer architecture). ingest_events
+            // used to maintain its own per-session PatternPipeline in
+            // state.store.pattern_pipelines and feed events through it,
+            // which created a *second* pipeline that ran in parallel with
+            // Actor 2's pipeline — same events, two accumulators, two
+            // sentence streams, double persistence. That was the source
+            // of the duplication captured in scripts/inspect_sentence_dedup.py.
+            //
+            // Trade-off: live BroadcastMessage::Enriched payloads no longer
+            // include the `patterns` field. The UI still gets patterns via
+            // the REST API and via initial_state on next reload. The proper
+            // fix — wiring Actor 2 to publish patterns to NATS so the
+            // broadcast consumer can subscribe and forward — is the next
+            // branch's work. See backlog: stream architecture rewrite.
+            let detected_patterns: Vec<open_story_patterns::PatternEvent> = Vec::new();
 
             // Index in FTS5 for full-text search (durable events only)
             if !ephemeral {
@@ -337,7 +321,6 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
         .map(|r| r.id.clone())
         .collect();
     let mut total_events = 0;
-    let mut total_patterns = 0;
 
     // One-time FTS5 backfill: if the index is empty, populate it during replay
     let fts_needs_backfill = state.store.event_store.fts_count().await.unwrap_or(0) == 0;
@@ -412,59 +395,14 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
                 }
             }
 
-            // Feed to pattern pipeline (skip ephemeral)
-            if !ephemeral {
-                let pipeline = state
-                    .store
-                    .pattern_pipelines
-                    .entry(sid.clone())
-                    .or_default();
-
-                // Phase 1: CloudEvent → eval-apply → structural turns → sentence
-                if let Ok(ce) = serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
-                    let (detected, turns) = pipeline.feed_event(&ce);
-                    // Persist completed structural turns
-                    for turn in &turns {
-                        let _ = state.store.event_store.insert_turn(sid, turn).await;
-                    }
-                    if !detected.is_empty() {
-                        total_patterns += detected.len();
-                        for pe in &detected {
-                            let _ = state.store.event_store.insert_pattern(sid, pe).await;
-                        }
-                        state
-                            .store
-                            .detected_patterns
-                            .entry(sid.clone())
-                            .or_default()
-                            .extend(detected);
-                    }
-                }
-
-            }
+            // Pattern detection retired from the boot-replay path. The
+            // patterns consumer (Actor 2) is now the sole pattern detector
+            // and runs over the same NATS replay stream independently.
+            // (Boot replay still needs to drive the projections + storage
+            // layers to get the in-memory state populated for the API.)
+            let _ = ephemeral;
 
             total_events += 1;
-        }
-
-        // Flush remaining patterns and turns from each session's pipeline
-        if let Some(pipeline) = state.store.pattern_pipelines.get_mut(sid) {
-            let (flushed_patterns, flushed_turns) = pipeline.flush();
-            // Persist flushed turns
-            for turn in &flushed_turns {
-                let _ = state.store.event_store.insert_turn(sid, turn).await;
-            }
-            if !flushed_patterns.is_empty() {
-                total_patterns += flushed_patterns.len();
-                for pe in &flushed_patterns {
-                    let _ = state.store.event_store.insert_pattern(sid, pe).await;
-                }
-                state
-                    .store
-                    .detected_patterns
-                    .entry(sid.clone())
-                    .or_default()
-                    .extend(flushed_patterns);
-            }
         }
 
         // Dual-write session projection after processing all events
@@ -485,10 +423,9 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
         crate::logging::log_event(
             "boot",
             &format!(
-                "replayed {} events across {} sessions ({} patterns detected{})",
+                "replayed {} events across {} sessions{}",
                 total_events,
                 session_ids.len(),
-                total_patterns,
                 fts_note,
             ),
         );

@@ -1073,7 +1073,6 @@ pub async fn delete_session(
     // Clean up in-memory state
     s.store.projections.remove(&session_id);
     s.store.detected_patterns.remove(&session_id);
-    s.store.pattern_pipelines.remove(&session_id);
     s.store.full_payloads.remove(&session_id);
     s.store.session_projects.remove(&session_id);
     s.store.session_project_names.remove(&session_id);

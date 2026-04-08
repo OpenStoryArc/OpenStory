@@ -141,24 +141,73 @@ pub async fn run_server(
             });
         }
 
-        // ── Actor 2: patterns consumer (owns pipelines, publishes PatternEvents) ──
+        // ── Actor 2: patterns consumer ──
+        // The sole pattern detector. Subscribes to events.>, runs the
+        // eval-apply + sentence pipeline, persists turns + patterns to the
+        // EventStore, mirrors the pattern stream into AppState's
+        // detected_patterns cache (so build_initial_state can serve them
+        // to fresh WebSocket clients), and publishes patterns to NATS
+        // patterns.{project}.{session} so the next branch's broadcast
+        // consumer rewire can subscribe and forward live.
         {
             let event_store = state.read().await.store.event_store.clone();
             let patterns_bus = bus.clone();
+            let patterns_state = state.clone();
             tokio::spawn(async move {
                 let mut actor = consumers::patterns::PatternsConsumer::new();
                 match patterns_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
                             let result = actor.process_batch(&batch.session_id, &batch.events);
-                            // Persist turns and patterns to the event store
+
+                            // Persist turns and patterns to the EventStore
                             for turn in &result.turns {
                                 let _ = event_store.insert_turn(&batch.session_id, turn).await;
                             }
                             for pe in &result.patterns {
                                 let _ = event_store.insert_pattern(&batch.session_id, pe).await;
                             }
+
                             if !result.patterns.is_empty() {
+                                // Mirror into AppState.detected_patterns so
+                                // the WebSocket initial_state handshake can
+                                // serve them to fresh clients without a DB
+                                // roundtrip.
+                                {
+                                    let mut s = patterns_state.write().await;
+                                    s.store
+                                        .detected_patterns
+                                        .entry(batch.session_id.clone())
+                                        .or_default()
+                                        .extend(result.patterns.iter().cloned());
+                                }
+
+                                // Publish to patterns.{project}.{session}
+                                // for downstream consumers (live story
+                                // broadcast, etc.). Best-effort: a publish
+                                // failure logs but doesn't block the
+                                // pipeline — the patterns are already
+                                // durable in the EventStore.
+                                let project = if batch.project_id.is_empty() {
+                                    "default"
+                                } else {
+                                    batch.project_id.as_str()
+                                };
+                                let subject = format!(
+                                    "patterns.{}.{}",
+                                    project, batch.session_id,
+                                );
+                                if let Ok(payload) = serde_json::to_vec(&result.patterns) {
+                                    if let Err(e) = patterns_bus
+                                        .publish_bytes(&subject, &payload)
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "patterns consumer publish_bytes({subject}) failed: {e}"
+                                        );
+                                    }
+                                }
+
                                 log_event("patterns", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
                                     short_id(&batch.session_id), result.patterns.len(), result.turns.len()
