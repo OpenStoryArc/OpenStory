@@ -492,6 +492,12 @@ fn ext_to_language(ext: &str) -> &str {
 
 pub struct SentenceDetector;
 
+impl Default for SentenceDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SentenceDetector {
     pub fn new() -> Self {
         Self

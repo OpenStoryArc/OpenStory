@@ -38,6 +38,12 @@ pub struct BroadcastResult {
     pub messages: Vec<BroadcastMessage>,
 }
 
+impl Default for BroadcastConsumer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BroadcastConsumer {
     pub fn new() -> Self {
         Self {

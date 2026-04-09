@@ -127,12 +127,13 @@ mod tests {
     fn make_consumer() -> (PersistConsumer, tempfile::TempDir) {
         let tmp = tempfile::tempdir().expect("create temp dir");
         let session_store = SessionStore::new(tmp.path()).expect("create session store");
-        let event_log = open_story_store::persistence::EventLog::new(tmp.path()).expect("create event log");
+        // Use SqliteStore (not the JsonlStore fallback) so the EventStore PK
+        // constraint is enforced — dedup tests need real PK rejection on
+        // duplicate event_ids, not the JsonlStore's append-only "every insert
+        // returns Ok(true)" behavior.
         let event_store: Arc<dyn EventStore> = Arc::new(
-            open_story_store::jsonl_store::JsonlStore::new(
-                SessionStore::new(tmp.path()).expect("create session store"),
-                event_log,
-            ),
+            open_story_store::sqlite_store::SqliteStore::new(tmp.path())
+                .expect("create sqlite store"),
         );
         (PersistConsumer::new(event_store, session_store), tmp)
     }

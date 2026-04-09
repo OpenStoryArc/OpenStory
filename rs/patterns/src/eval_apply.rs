@@ -160,6 +160,7 @@ impl Default for Accumulator {
 
 /// The result of one fold step.
 /// Either we continue accumulating, or a turn is complete.
+#[allow(clippy::large_enum_variant)]
 pub enum StepResult {
     /// The fold continues — no turn boundary yet.
     Continue {
@@ -446,6 +447,12 @@ pub struct EvalApplyDetector {
     acc: Accumulator,
     /// Completed turns ready for downstream consumers.
     completed_turns: Vec<StructuralTurn>,
+}
+
+impl Default for EvalApplyDetector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EvalApplyDetector {

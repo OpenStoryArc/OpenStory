@@ -14,6 +14,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { detectLanguage } from "@/lib/detect-language";
 import { stripAnsi } from "@/lib/strip-ansi";
+import { sessionChipStyle } from "@/lib/session-colors";
 import type { PatternView } from "@/types/wire-record";
 import { extractDomainFact, extractDomainFacts, type FactKind } from "@/lib/domain-facts";
 import { extractCycles } from "@/lib/eval-apply";
@@ -22,9 +23,17 @@ import { CycleList } from "./CycleCard";
 interface TurnCardProps {
   pattern: PatternView;
   allPatterns?: readonly PatternView[];
+  /**
+   * Click handler for the session chip — when set, clicking the chip filters
+   * the Story view to that session (or back to all sessions). When undefined,
+   * the chip is informational-only.
+   */
+  onSelectSession?: (sessionId: string | null) => void;
+  /** True when this card's session is the currently-selected one. */
+  isSelectedSession?: boolean;
 }
 
-export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
+export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSession }: TurnCardProps) {
   const m = pattern.metadata ?? {};
   const turn = (m.turn as number) ?? 0;
   const isTerminal = (m.is_terminal as boolean) ?? true;
@@ -45,37 +54,80 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
 
   const depthIndent = Math.min(scopeDepth * 16, 48);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
+
+  // Color the session chip deterministically — same session_id → same color
+  // across the Sidebar AND the Story cards. This is the visual link that lets
+  // you see "these two cards belong to the same session" at a glance, even
+  // when they're interleaved in the all-sessions view.
+  const isSubagent = pattern.session_id.startsWith("agent-");
+  const chipStyle = sessionChipStyle(pattern.session_id);
+  const chipLabel = isSubagent
+    ? `sub ${pattern.session_id.slice(6, 14)}`
+    : `main ${pattern.session_id.slice(0, 8)}`;
+
+  // Clicking the chip filters the Story view to this session, or back to
+  // ALL if it's already the selected one. Shift-click bypasses the toggle
+  // and always selects (rare; left as a future affordance).
+  const chipClickable = onSelectSession != null;
+  const handleChipClick = (e: React.MouseEvent) => {
+    if (!chipClickable) return;
+    e.stopPropagation();
+    if (isSelectedSession) {
+      onSelectSession!(null); // toggle off
+    } else {
+      onSelectSession!(pattern.session_id);
+    }
+  };
+
+  // Selected-session highlight ring on the whole card.
+  const cardClassName = `mb-2 rounded-lg bg-[#1f2335] border overflow-hidden transition-colors ${
+    isSelectedSession
+      ? "border-[#7aa2f7]"
+      : "border-[#2a2e42] hover:border-[#3b4261]"
+  }`;
 
   return (
     <div
-      className="mb-2 rounded-lg bg-[#1f2335] border border-[#2a2e42] overflow-hidden hover:border-[#3b4261] transition-colors"
+      className={cardClassName}
       style={{ marginLeft: `${depthIndent}px` }}
     >
       {/* Header */}
       <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          {pattern.session_id.startsWith("agent-") ? (
-            <span className="inline-flex items-center gap-1 shrink-0">
-              <span
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#ff9e6418] text-[#ff9e64] border border-[#ff9e6433]"
-                title={`Agent ID: ${pattern.session_id.slice(6)}`}
-              >
-                sub {pattern.session_id.slice(6, 18)}
-              </span>
-            </span>
-          ) : (
-            <span
-              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#7aa2f718] text-[#7aa2f7] border border-[#7aa2f733] shrink-0"
-              title={`Session: ${pattern.session_id}`}
-            >
-              main {pattern.session_id.slice(0, 8)}
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={handleChipClick}
+            disabled={!chipClickable}
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 transition-all ${
+              chipClickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
+            } ${isSelectedSession ? "ring-1 ring-offset-0" : ""}`}
+            style={{
+              color: chipStyle.fg,
+              backgroundColor: chipStyle.bg,
+              borderColor: chipStyle.border,
+              ...(isSelectedSession ? { boxShadow: `0 0 0 1px ${chipStyle.fg}` } : {}),
+            }}
+            title={
+              chipClickable
+                ? `${pattern.session_id} — click to ${
+                    isSelectedSession ? "show all sessions" : "filter to this session only"
+                  }`
+                : pattern.session_id
+            }
+          >
+            {chipLabel}
+          </button>
           <span className="text-[#7aa2f7] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
-          <span className="text-[9px] font-mono text-[#565f89] shrink-0" title={`${pattern.events.length} CloudEvents`}>
-            {pattern.events.length} events
-          </span>
-          {pattern.events.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setEventsOpen(!eventsOpen); }}
+            className="text-[9px] font-mono text-[#565f89] hover:text-[#7aa2f7] shrink-0 cursor-pointer transition-colors"
+            title={`${pattern.events.length} CloudEvents — click to ${eventsOpen ? "hide" : "show"} ids`}
+          >
+            {pattern.events.length} events {eventsOpen ? "▾" : "▸"}
+          </button>
+          {pattern.events.length > 0 && !eventsOpen && (
             <span className="text-[9px] font-mono text-[#3b4261] truncate" title={pattern.events.join("\n")}>
               {pattern.events[0]?.slice(0, 8)}..{pattern.events[pattern.events.length - 1]?.slice(0, 8)}
             </span>
@@ -89,6 +141,30 @@ export function TurnCard({ pattern, allPatterns }: TurnCardProps) {
           {isTerminal ? "terminate" : "continue"}
         </span>
       </div>
+
+      {/* Event IDs panel — toggles via the "N events ▸" button in the header.
+          Shows full UUIDs in a compact list, each individually selectable so
+          they can be copied with a single double-click. */}
+      {eventsOpen && pattern.events.length > 0 && (
+        <div className="px-3.5 py-1.5 bg-[#1a1b26] border-y border-[#2a2e42]">
+          <div className="text-[9px] uppercase tracking-wide text-[#565f89] mb-1">
+            event ids ({pattern.events.length})
+          </div>
+          <div className="font-mono text-[10px] text-[#a9b1d6] space-y-0.5 max-h-40 overflow-y-auto">
+            {pattern.events.map((eid, i) => (
+              <div key={eid} className="flex items-baseline gap-1.5">
+                <span className="text-[#3b4261] w-6 text-right shrink-0">{i + 1}</span>
+                <span
+                  className="select-all break-all hover:text-[#7aa2f7] transition-colors"
+                  title="Double-click to select, ⌘C to copy"
+                >
+                  {eid}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Always visible: diagram + domain facts */}
       <div className="px-3.5 py-2.5 space-y-1">

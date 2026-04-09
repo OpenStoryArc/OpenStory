@@ -42,6 +42,12 @@ pub struct ProjectionsResult {
     pub total_output_tokens: Option<u64>,
 }
 
+impl Default for ProjectionsConsumer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProjectionsConsumer {
     pub fn new() -> Self {
         Self {

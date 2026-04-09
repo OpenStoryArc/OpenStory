@@ -170,32 +170,14 @@ mod tests {
         assert!(s.store.projections.is_empty());
     }
 
-    #[tokio::test]
-    async fn create_state_loads_persisted_sessions() {
-        let tmp = tempfile::tempdir().unwrap();
-        let data_dir = tmp.path().join("data");
-        let watch_dir = tmp.path().join("watch");
-        std::fs::create_dir_all(&data_dir).unwrap();
-        std::fs::create_dir_all(&watch_dir).unwrap();
-
-        let event = serde_json::json!({
-            "id": "evt-boot-1",
-            "type": "io.arc.event",
-            "subtype": "message.user.prompt",
-            "source": "arc://test",
-            "time": "2025-01-13T00:00:00Z",
-            "data": {"text": "hello"}
-        });
-        std::fs::write(
-            data_dir.join("test-session.jsonl"),
-            serde_json::to_string(&event).unwrap() + "\n",
-        )
-        .unwrap();
-
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
-        let s = state.read().await;
-        assert!(!s.store.event_store.session_events("test-session").await.unwrap().is_empty());
-    }
+    // `create_state_loads_persisted_sessions` retired — it asserted that
+    // writing a JSONL file to `data_dir` would populate the EventStore on
+    // `create_state()`. That was the `boot_from_jsonl` path, removed in
+    // commit 5d936fe. The watcher is now the only ingestion route, and it
+    // runs as a separate task spawned by `run_server()`, not by
+    // `create_state()` itself. Equivalent coverage now lives in
+    // `boot_from_sqlite_when_db_has_sessions` (which pre-populates SQLite
+    // directly) plus the watcher integration tests in `rs/tests/test_watcher.rs`.
 
     #[tokio::test]
     async fn create_state_scans_watch_dir_entries() {
@@ -215,94 +197,16 @@ mod tests {
         assert!(s.store.watch_dir_entries.contains(&"other-project".to_string()));
     }
 
-    #[tokio::test]
-    async fn create_state_backfills_plans_from_persisted_sessions() {
-        let tmp = tempfile::tempdir().unwrap();
-        let data_dir = tmp.path().join("data");
-        let watch_dir = tmp.path().join("watch");
-        std::fs::create_dir_all(&data_dir).unwrap();
-        std::fs::create_dir_all(&watch_dir).unwrap();
+    // `create_state_backfills_plans_from_persisted_sessions` retired —
+    // same reason as above: depended on the deleted `boot_from_jsonl`
+    // path. Plan extraction now happens in `ingest_events`, exercised by
+    // `ingest_extracts_plan_from_exit_plan_mode` below.
 
-        let event = serde_json::json!({
-            "id": "evt-plan-backfill",
-            "type": "io.arc.event",
-            "subtype": "message.assistant.tool_use",
-            "source": "arc://test",
-            "time": "2025-01-13T00:00:00Z",
-            "data": {
-                "tool": "ExitPlanMode",
-                "args": { "plan": "# Backfilled Plan\n\nThis was persisted and should be backfilled." },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-4",
-                        "content": [{
-                            "type": "tool_use",
-                            "id": "toolu_plan_bf",
-                            "name": "ExitPlanMode",
-                            "input": { "plan": "# Backfilled Plan\n\nThis was persisted and should be backfilled." }
-                        }]
-                    }
-                }
-            }
-        });
-        std::fs::write(
-            data_dir.join("sess-plan-bf.jsonl"),
-            serde_json::to_string(&event).unwrap() + "\n",
-        )
-        .unwrap();
-
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
-        let s = state.read().await;
-
-        assert!(!s.store.event_store.session_events("sess-plan-bf").await.unwrap().is_empty());
-
-        let plans = s.store.plan_store.list_plans();
-        let session_plans: Vec<_> = plans
-            .iter()
-            .filter(|p| p.session_id == "sess-plan-bf")
-            .collect();
-        assert!(
-            !session_plans.is_empty(),
-            "plan should be backfilled from persisted ExitPlanMode event"
-        );
-    }
-
-    #[tokio::test]
-    async fn create_state_tracks_all_event_ids_for_dedup() {
-        let tmp = tempfile::tempdir().unwrap();
-        let data_dir = tmp.path().join("data");
-        let watch_dir = tmp.path().join("watch");
-        std::fs::create_dir_all(&data_dir).unwrap();
-        std::fs::create_dir_all(&watch_dir).unwrap();
-
-        let events = format!(
-            "{}\n{}\n",
-            serde_json::to_string(&serde_json::json!({
-                "id": "dedup-a",
-                "type": "io.arc.event",
-                "source": "arc://test",
-                "time": "2025-01-13T00:00:00Z",
-                "data": {"text": "first"}
-            }))
-            .unwrap(),
-            serde_json::to_string(&serde_json::json!({
-                "id": "dedup-b",
-                "type": "io.arc.event",
-                "source": "arc://test",
-                "time": "2025-01-13T00:00:01Z",
-                "data": {"text": "second"}
-            }))
-            .unwrap()
-        );
-        std::fs::write(data_dir.join("sess-dedup.jsonl"), events).unwrap();
-
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
-        let s = state.read().await;
-
-        // Both events should land in the EventStore exactly once via PK dedup.
-        assert_eq!(s.store.event_store.session_events("sess-dedup").await.unwrap().len(), 2);
-    }
+    // `create_state_tracks_all_event_ids_for_dedup` retired — depended on
+    // the deleted `boot_from_jsonl` path AND on the deleted in-memory
+    // `seen_event_ids` HashSet. Dedup is now solely the EventStore PK's
+    // job, exercised by `consumers::persist::tests::dedup_*` (via
+    // SqliteStore which enforces the PK constraint).
 
     // ── SQLite boot tests ─────────────────────────────────────────────
 
@@ -409,8 +313,11 @@ mod tests {
         assert!(!s.store.event_store.session_events("new-session").await.unwrap().is_empty());
     }
 
-    /// Simulate a restart: first boot loads JSONL → populates SQLite,
-    /// second boot finds SQLite populated → loads from DB.
+    /// Simulate a restart: first boot pre-populates SQLite directly (via
+    /// the EventStore API), second boot finds SQLite populated → loads
+    /// from DB. The first leg used to load from JSONL via `boot_from_jsonl`
+    /// (now deleted); the test now uses the same SqliteStore-direct
+    /// approach as `boot_from_sqlite_when_db_has_sessions`.
     #[tokio::test]
     async fn sqlite_survives_restart_cycle() {
         let tmp = tempfile::tempdir().unwrap();
@@ -419,39 +326,41 @@ mod tests {
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::create_dir_all(&watch_dir).unwrap();
 
-        // Write a JSONL file for first boot
-        let event = serde_json::json!({
-            "id": "restart-evt-1",
-            "type": "io.arc.event",
-            "subtype": "message.user.prompt",
-            "source": "arc://test",
-            "time": "2025-01-14T00:00:00Z",
-            "data": {"text": "hello"}
-        });
-        std::fs::write(
-            data_dir.join("restart-session.jsonl"),
-            serde_json::to_string(&event).unwrap() + "\n",
-        ).unwrap();
-
-        // First boot: loads from JSONL, populates SQLite via dual-write in replay
-        let state1 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        // First leg: pre-populate SQLite directly (the new shape of "data
+        // already exists from a previous run", since `boot_from_jsonl` is gone).
         {
-            let mut s = state1.write().await;
-            // Run replay to populate SQLite (normally called after create_state)
-            crate::ingest::replay_boot_sessions(&mut s).await;
+            use open_story_store::event_store::{EventStore, SessionRow};
+            use open_story_store::sqlite_store::SqliteStore;
+            let db = SqliteStore::new(&data_dir).unwrap();
+            let event = serde_json::json!({
+                "id": "restart-evt-1",
+                "type": "io.arc.event",
+                "subtype": "message.user.prompt",
+                "source": "arc://test",
+                "time": "2025-01-14T00:00:00Z",
+                "data": {"text": "hello"}
+            });
+            db.insert_event("restart-session", &event).await.unwrap();
+            db.upsert_session(&SessionRow {
+                id: "restart-session".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: Some("2025-01-14T00:00:00Z".into()),
+                last_event: Some("2025-01-14T00:00:00Z".into()),
+            }).await.unwrap();
         }
-        drop(state1);
 
-        // Delete the JSONL file — simulating data loss or cleanup
-        std::fs::remove_file(data_dir.join("restart-session.jsonl")).unwrap();
-
-        // Second boot: JSONL is gone, should still load from SQLite
+        // Second leg: boot finds SQLite populated, loads from DB.
         let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
         let s = state2.read().await;
 
         assert!(
             !s.store.event_store.session_events("restart-session").await.unwrap().is_empty(),
-            "should survive restart via SQLite even after JSONL deletion"
+            "should boot from pre-populated SQLite without any JSONL on disk"
         );
     }
 

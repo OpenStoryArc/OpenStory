@@ -58,6 +58,23 @@ impl NatsBus {
             .await
             .context("failed to create/get 'changes' JetStream stream")?;
 
+        // Patterns stream — durable, limits-based. Carries derived pattern
+        // events (turn.sentence, eval_apply.*) published by the patterns
+        // consumer. Subscribed by future Live Story consumers (next branch's
+        // stream architecture rewrite); right now no subscriber exists, but
+        // the stream needs to exist so `publish_bytes` to `patterns.>`
+        // doesn't error out at the broker.
+        self.jetstream
+            .get_or_create_stream(stream::Config {
+                name: "patterns".to_string(),
+                subjects: vec!["patterns.>".to_string()],
+                retention: stream::RetentionPolicy::Limits,
+                max_bytes: 268_435_456, // 256 MB — patterns are smaller than events
+                ..Default::default()
+            })
+            .await
+            .context("failed to create/get 'patterns' JetStream stream")?;
+
         Ok(())
     }
 

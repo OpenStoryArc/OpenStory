@@ -294,6 +294,12 @@ pub struct ClaudeCodePayload {
     pub extra: serde_json::Map<String, Value>,
 }
 
+impl Default for ClaudeCodePayload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClaudeCodePayload {
     pub fn new() -> Self {
         Self {
@@ -412,6 +418,12 @@ pub struct PiMonoPayload {
     // ── Open schema catch-all ──
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
+}
+
+impl Default for PiMonoPayload {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PiMonoPayload {
