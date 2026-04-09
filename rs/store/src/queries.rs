@@ -9,10 +9,31 @@
 use rusqlite::Connection;
 use serde::Serialize;
 
+// ── Canonical timestamp format ───────────────────────────────────────
+//
+// The translator (`rs/core/src/translate.rs:473` and
+// `translate_pi.rs:330`) emits CloudEvent `time` fields exactly in this
+// format — it pass-throughs the JSONL `timestamp` field unchanged, and
+// both Claude Code and pi-mono produce ISO 8601 UTC with millisecond
+// precision and `Z` suffix. See §1.5 of
+// `docs/research/mongo-analytics-parity-plan.md` for the verification.
+//
+// Cutoffs and any test fixture timestamps MUST use this constant.
+// Never use `chrono::DateTime::to_rfc3339()` here — it produces a
+// `+00:00` suffix that is NOT byte-equal to stored values, and the
+// resulting lexical comparison only works by ASCII collation accident
+// (`Z > +`). See §6.8 of the same plan.
+pub(crate) const TS_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.3fZ";
+
+/// Format a `DateTime<Utc>` in the canonical translator format.
+pub(crate) fn format_ts(dt: chrono::DateTime<chrono::Utc>) -> String {
+    dt.format(TS_FORMAT).to_string()
+}
+
 // ── FTS5 Search ────────────────────────────────────────────────────
 
 /// Result from a full-text search query.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct FtsSearchResult {
     pub event_id: String,
     pub session_id: String,
@@ -25,7 +46,7 @@ pub struct FtsSearchResult {
 
 /// Synopsis of a session: goal, journey, outcome.
 /// "Did I achieve what I set out to do?"
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SessionSynopsis {
     pub session_id: String,
     pub label: Option<String>,
@@ -41,7 +62,7 @@ pub struct SessionSynopsis {
 }
 
 /// Tool usage count for a session.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ToolCount {
     pub tool: String,
     pub count: u64,
@@ -137,7 +158,7 @@ fn session_top_tools(conn: &Connection, session_id: &str, limit: usize) -> Vec<T
 
 /// Tool journey: sequence of tools used with file targets.
 /// "What strategy did the agent use?"
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ToolStep {
     pub tool: String,
     pub file: Option<String>,
@@ -177,7 +198,7 @@ pub fn tool_journey(conn: &Connection, session_id: &str) -> Vec<ToolStep> {
 
 /// File impact: files read vs. written, blast radius.
 /// "What did the agent change?"
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct FileImpact {
     pub file: String,
     pub reads: u64,
@@ -238,7 +259,7 @@ pub fn file_impact(conn: &Connection, session_id: &str) -> Vec<FileImpact> {
 }
 
 /// Session errors with timestamps.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SessionError {
     pub timestamp: String,
     pub message: String,
@@ -271,7 +292,7 @@ pub fn session_errors(conn: &Connection, session_id: &str) -> Vec<SessionError> 
 
 /// Project activity pulse: events per project in the last N days.
 /// "Which projects am I actively working on?"
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ProjectPulse {
     pub project_id: String,
     pub project_name: Option<String>,
@@ -283,7 +304,7 @@ pub struct ProjectPulse {
 /// Query project activity over the last N days.
 pub fn project_pulse(conn: &Connection, days: u32) -> Vec<ProjectPulse> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
-    let cutoff_str = cutoff.to_rfc3339();
+    let cutoff_str = format_ts(cutoff);
 
     let mut stmt = conn
         .prepare(
@@ -313,38 +334,73 @@ pub fn project_pulse(conn: &Connection, days: u32) -> Vec<ProjectPulse> {
     .collect()
 }
 
-/// Tool evolution: tool mix over time.
-#[derive(Debug, Clone, Serialize)]
+/// Tool evolution: tool mix over time, bucketed into weeks.
+///
+/// The bucket is identified by the **Monday** of the week containing
+/// the event timestamp (`bucket_start`) and the **Sunday** at the end
+/// of that week (`bucket_end`), both in canonical `YYYY-MM-DD` format.
+/// The dashboard formats these into a display label client-side.
+///
+/// **Why not a `week: String` field like SQLite's old `%Y-W%W` output?**
+/// SQLite's `%W` and Mongo's `$isoWeek` use different week-numbering
+/// conventions and disagree at year boundaries. By exposing the bucket
+/// boundaries instead of a label, both backends compute the same value
+/// regardless of week-numbering convention. See §1.6 Category 3 of
+/// `docs/research/mongo-analytics-parity-plan.md`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ToolEvolution {
-    pub week: String,
+    /// Monday of the week containing the events, `YYYY-MM-DD`.
+    pub bucket_start: String,
+    /// Sunday at the end of that week, `YYYY-MM-DD`.
+    pub bucket_end: String,
     pub tool: String,
     pub count: u64,
 }
 
 /// Query tool usage by week.
+///
+/// Buckets each event into the week beginning on Monday (ISO 8601
+/// week start). Returns one row per `(bucket_start, tool)` pair.
 pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
-    let cutoff_str = cutoff.to_rfc3339();
+    let cutoff_str = format_ts(cutoff);
 
+    // SQLite's `weekday` modifier in `strftime`/`date` returns 0 for
+    // Sunday, 1 for Monday, ..., 6 for Saturday. To get the Monday of
+    // the current week we shift back `(weekday + 6) % 7` days. The
+    // expression below produces that Monday as `YYYY-MM-DD`.
+    //
+    // Example: timestamp 2026-04-09 (Thursday, weekday=4)
+    //   shift = (4 + 6) % 7 = 3
+    //   monday = 2026-04-09 - 3 days = 2026-04-06 ✓
+    //
+    // Sunday at end of week = monday + 6 days.
     let mut stmt = conn
         .prepare(
-            "SELECT strftime('%Y-W%W', timestamp) as week,
+            "SELECT date(timestamp,
+                         '-' || ((CAST(strftime('%w', timestamp) AS INTEGER) + 6) % 7) || ' days'
+                        ) as bucket_start,
+                    date(timestamp,
+                         '-' || ((CAST(strftime('%w', timestamp) AS INTEGER) + 6) % 7) || ' days',
+                         '+6 days'
+                        ) as bucket_end,
                     json_extract(payload, '$.data.agent_payload.tool') as tool,
                     COUNT(*) as cnt
              FROM events
              WHERE subtype = 'message.assistant.tool_use'
                AND tool IS NOT NULL
                AND timestamp >= ?1
-             GROUP BY week, tool
-             ORDER BY week, cnt DESC",
+             GROUP BY bucket_start, tool
+             ORDER BY bucket_start, cnt DESC",
         )
         .unwrap();
 
     stmt.query_map([&cutoff_str], |row| {
         Ok(ToolEvolution {
-            week: row.get(0)?,
-            tool: row.get(1)?,
-            count: row.get(2)?,
+            bucket_start: row.get(0)?,
+            bucket_end: row.get(1)?,
+            tool: row.get(2)?,
+            count: row.get(3)?,
         })
     })
     .unwrap()
@@ -353,7 +409,7 @@ pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
 }
 
 /// Session efficiency metrics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SessionEfficiency {
     pub session_id: String,
     pub label: Option<String>,
@@ -436,7 +492,7 @@ pub fn session_efficiency(conn: &Connection) -> Vec<SessionEfficiency> {
 
 /// Project context: recent sessions for a project.
 /// "Pick up where the last agent left off."
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ProjectSession {
     pub session_id: String,
     pub label: Option<String>,
@@ -504,7 +560,7 @@ pub fn recent_files(conn: &Connection, project_id: &str, session_limit: usize) -
 
 /// Productivity by hour: event density by time of day.
 /// "When should I schedule deep agent work?"
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HourlyActivity {
     pub hour: u32,
     pub event_count: u64,
@@ -513,7 +569,7 @@ pub struct HourlyActivity {
 /// Query activity density by hour of day.
 pub fn productivity_by_hour(conn: &Connection, days: u32) -> Vec<HourlyActivity> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
-    let cutoff_str = cutoff.to_rfc3339();
+    let cutoff_str = format_ts(cutoff);
 
     let mut stmt = conn
         .prepare(
@@ -540,7 +596,7 @@ pub fn productivity_by_hour(conn: &Connection, days: u32) -> Vec<HourlyActivity>
 // ── Token Usage Queries ───────────────────────────────────────────
 
 /// Token usage for a session or aggregate scope.
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -551,7 +607,7 @@ pub struct TokenUsage {
 }
 
 /// Token usage for a single session, with metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SessionTokenUsage {
     pub session_id: String,
     pub label: Option<String>,
@@ -563,7 +619,7 @@ pub struct SessionTokenUsage {
 }
 
 /// Cost estimate in USD.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct CostEstimate {
     pub input: f64,
     pub output: f64,
@@ -574,7 +630,7 @@ pub struct CostEstimate {
 }
 
 /// Token usage summary with cost estimate.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct TokenUsageSummary {
     pub session_count: u64,
     #[serde(flatten)]
@@ -584,11 +640,19 @@ pub struct TokenUsageSummary {
 }
 
 /// Daily token usage.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DailyTokenUsage {
     pub date: String,
     #[serde(flatten)]
     pub usage: TokenUsage,
+}
+
+/// Compute the cost estimate for the given token usage and model.
+/// Public so backend implementations (e.g., MongoStore) can call the
+/// same Rust helper to guarantee byte-identical f64 results across
+/// backends — see §1.6 of the parity plan.
+pub fn estimate_cost_for_model(usage: &TokenUsage, model: &str) -> CostEstimate {
+    estimate_cost(usage, model)
 }
 
 fn estimate_cost(usage: &TokenUsage, model: &str) -> CostEstimate {
@@ -634,7 +698,7 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
             let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
             (
                 "SELECT id, label, project_name, first_event, last_event FROM sessions WHERE last_event > ?1 ORDER BY last_event DESC".into(),
-                vec![Box::new(cutoff.to_rfc3339())],
+                vec![Box::new(format_ts(cutoff))],
             )
         }
         (None, None) => (
@@ -741,7 +805,7 @@ pub fn daily_token_usage(conn: &Connection, days: Option<u32>) -> Vec<DailyToken
     let (where_clause, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match days {
         Some(d) => {
             let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
-            ("AND e.timestamp > ?1".into(), vec![Box::new(cutoff.to_rfc3339())])
+            ("AND e.timestamp > ?1".into(), vec![Box::new(format_ts(cutoff))])
         }
         None => (String::new(), vec![]),
     };
@@ -976,8 +1040,9 @@ mod tests {
     #[test]
     fn project_pulse_aggregates_by_project() {
         let conn = setup_test_db();
-        // Use recent timestamps so the 30-day filter includes them
-        let now = chrono::Utc::now().to_rfc3339();
+        // Use recent timestamps so the 30-day filter includes them.
+        // Use the canonical translator format (Z suffix) — see §6.8.
+        let now = format_ts(chrono::Utc::now());
         conn.execute(
             "INSERT INTO sessions (id, project_id, project_name, label, event_count, first_event, last_event)
              VALUES ('s1', 'proj-a', 'proj-a', 'session 1', 100, ?1, ?1)",

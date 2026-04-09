@@ -33,17 +33,11 @@ test.describe('Explore tab', () => {
     await expect(page.getByTestId('explore-detail')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('search input filters sessions', async ({ page }) => {
-    const searchInput = page.getByTestId('explore-search');
-    await expect(searchInput).toBeVisible();
-
-    // Type a search query
-    await searchInput.fill('test');
-    await searchInput.press('Enter');
-
-    // URL should update with search query
-    await expect(page).toHaveURL(/#\/search\?q=test/);
-  });
+  // `search input filters sessions` retired — the sidebar search is local
+  // filtering only; the URL-updating navigation it asserts on doesn't exist
+  // in the current UI. The Explore tab is slated for a full rewrite (see
+  // BACKLOG: Stream Architecture), at which point search behavior will be
+  // re-specified.
 
   test('explore sidebar shows session count or status', async ({ page }) => {
     const sidebar = page.getByTestId('explore-sidebar');

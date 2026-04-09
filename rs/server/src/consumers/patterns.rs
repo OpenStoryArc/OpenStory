@@ -35,6 +35,12 @@ pub struct PatternsResult {
     pub turns: Vec<StructuralTurn>,
 }
 
+impl Default for PatternsConsumer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternsConsumer {
     pub fn new() -> Self {
         Self {
@@ -117,6 +123,19 @@ impl PatternsConsumer {
 }
 
 /// Check if a subtype is ephemeral (not fed to pattern detection).
+///
+/// Ephemeral events are observation metadata that don't represent agent
+/// reasoning or action — the eval_apply detector should never see them
+/// because (a) they don't contribute to the structural turn shape and
+/// (b) some of them lack a stable `event.time`, which would corrupt
+/// `start_ts` if they were picked as the first event of a turn.
+///
+/// `file.snapshot` is the load-bearing one: file snapshots arrive as
+/// metadata before/around tool calls and have no timestamp from the
+/// source JSONL. Before this filter was added, they were stamping
+/// turn `start_ts` with wall-clock-at-detection-time, causing every
+/// boot replay to emit a fresh sentence row for the same logical turn
+/// (the H2 case in scripts/inspect_sentence_dedup.py — 1.50× ratio).
 fn is_ephemeral(subtype: &str) -> bool {
     subtype.starts_with("progress.")
         || subtype == "system.hook"
@@ -124,6 +143,7 @@ fn is_ephemeral(subtype: &str) -> bool {
         || subtype == "queue.dequeue"
         || subtype == "queue.remove"
         || subtype == "queue.popAll"
+        || subtype == "file.snapshot"
 }
 
 #[cfg(test)]

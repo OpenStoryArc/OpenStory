@@ -162,14 +162,12 @@ describe("buildSessionState$ with enriched messages", () => {
       session_labels: {
         s1: { label: "Fix the login bug", branch: "feature/login" },
       },
-      agent_labels: { "evt-agent-1": "Run tests" },
     });
     ws$.complete();
 
     const states = await promise;
     const final = states[states.length - 1]! as EnrichedSessionState;
     expect(final.sessionLabels.s1).toEqual({ label: "Fix the login bug", branch: "feature/login" });
-    expect(final.agentLabels["evt-agent-1"]).toBe("Run tests");
   });
 
   it("should merge session label from enriched message", async () => {
@@ -196,33 +194,6 @@ describe("buildSessionState$ with enriched messages", () => {
     const states = await promise;
     const final = states[states.length - 1]! as EnrichedSessionState;
     expect(final.sessionLabels.s1).toEqual({ label: "Fix the login bug", branch: "feature/login" });
-  });
-
-  it("should merge agent labels from enriched message", async () => {
-    const ws$ = new Subject<WsMessage>();
-    const state$ = buildSessionState$(ws$, { batchMs: 0 });
-
-    const promise = firstValueFrom(state$.pipe(take(3), toArray()));
-    ws$.next({
-      kind: "initial_state",
-      records: [makeWireRecord({ id: "r1" })],
-      filter_counts: {},
-      agent_labels: { "a1": "Search for files" },
-    });
-    ws$.next({
-      kind: "enriched",
-      session_id: "s1",
-      records: [],
-      ephemeral: [],
-      filter_deltas: {},
-      agent_labels: { "a2": "Run test suite" },
-    });
-    ws$.complete();
-
-    const states = await promise;
-    const final = states[states.length - 1]! as EnrichedSessionState;
-    expect(final.agentLabels["a1"]).toBe("Search for files");
-    expect(final.agentLabels["a2"]).toBe("Run test suite");
   });
 
   it("should preserve agent_id and is_sidechain on WireRecords", async () => {

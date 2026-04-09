@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet};
 
 use open_story_core::cloud_event::CloudEvent;
-use open_story::patterns::{Detector, EvalApplyDetector, StructuralTurn};
+use open_story::patterns::{EvalApplyDetector, StructuralTurn};
 
 /// Load the probability class fixtures and extract all CloudEvents.
 fn load_all_fixture_events() -> HashMap<String, Vec<CloudEvent>> {

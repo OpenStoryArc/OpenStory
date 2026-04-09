@@ -69,36 +69,27 @@ describe("filter tooltips — every filter has a description", () => {
 // ═══════════════════════════════════════════════════════════════════
 // describe("pattern labels and tooltips")
 // ═══════════════════════════════════════════════════════════════════
+//
+// Pre-cleanup, this asserted a label/tooltip entry for each of the 5
+// legacy pattern types. They were all retired in
+// chore/cut-legacy-detectors. The PATTERN_LABELS / PATTERN_TOOLTIPS
+// maps now exist as the dispatch surface for any *future* named
+// pattern type that wants a friendlier display label — consumers fall
+// back to the raw pattern_type string when no entry exists.
+// The remaining invariant we care about: any entries that DO exist
+// must be human-readable (>=3 chars), not abbreviations.
 
 describe("pattern labels and tooltips", () => {
-  const EXPECTED_PATTERNS = [
-    "test.cycle",
-    "git.workflow",
-    "error.recovery",
-    "agent.delegation",
-    "turn.phase",
-  ];
-
-  it("should have a display label for every pattern type", () => {
-    for (const p of EXPECTED_PATTERNS) {
-      const label = PATTERN_LABELS[p];
-      expect(label).toBeDefined();
-      expect(label!.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("should have a tooltip for every pattern type", () => {
-    for (const p of EXPECTED_PATTERNS) {
-      const tooltip = PATTERN_TOOLTIPS[p];
-      expect(tooltip).toBeDefined();
-      expect(tooltip!.length).toBeGreaterThan(10);
-    }
-  });
-
-  it("pattern labels should be human-readable, not abbreviations", () => {
+  it("any pattern label entries should be human-readable, not abbreviations", () => {
     // Labels should be at least 3 chars (not "err", "git", etc.)
     for (const label of Object.values(PATTERN_LABELS)) {
       expect(label.length).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("any pattern tooltip entries should be substantive descriptions", () => {
+    for (const tooltip of Object.values(PATTERN_TOOLTIPS)) {
+      expect(tooltip.length).toBeGreaterThan(10);
     }
   });
 });

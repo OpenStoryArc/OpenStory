@@ -56,14 +56,6 @@ test.describe('REST API smoke tests', () => {
     }
   });
 
-  test('POST /hooks returns 202 for valid hook payload', async ({ request }) => {
-    const res = await request.post(`${apiBaseUrl}/hooks`, {
-      data: {
-        session_id: 'e2e-api-test',
-        type: 'PostToolUse',
-        event: { session_id: 'e2e-api-test' },
-      },
-    });
-    expect(res.status()).toBe(202);
-  });
+  // POST /hooks tests retired alongside the /hooks endpoint
+  // (the watcher is the sole ingestion source).
 });

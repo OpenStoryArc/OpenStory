@@ -149,11 +149,11 @@ async fn ingest_persists_events_to_session_store() {
     ];
 
     let mut s = state.write().await;
-    let result = ingest_events(&mut s, "sess-p1", &events, None);
+    let result = ingest_events(&mut s, "sess-p1", &events, None).await;
     assert_eq!(result.count, 2);
 
     // Events stored in session map
-    assert_eq!(s.store.event_store.session_events("sess-p1").unwrap().len(), 2);
+    assert_eq!(s.store.event_store.session_events("sess-p1").await.unwrap().len(), 2);
 
     // JSONL file written to data_dir
     let jsonl_path = tmp.path().join("sess-p1.jsonl");
@@ -180,7 +180,7 @@ async fn ingest_broadcasts_view_records_to_subscribers() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, "sess-bc", &events, None);
+        let result = ingest_events(&mut s, "sess-bc", &events, None).await;
         assert_eq!(result.count, 1);
         // Broadcast changes to WS clients (callers are now responsible)
         for change in &result.changes {
@@ -229,7 +229,7 @@ async fn ingest_extracts_and_saves_plan_from_exit_plan_mode() {
     );
 
     let mut s = state.write().await;
-    let result = ingest_events(&mut s, "sess-plan", &[plan_event], None);
+    let result = ingest_events(&mut s, "sess-plan", &[plan_event], None).await;
     assert_eq!(result.count, 1);
 
     // Plan should be saved to plan_store
@@ -268,7 +268,7 @@ async fn ingest_extracts_plan_from_legacy_tool_call() {
     );
 
     let mut s = state.write().await;
-    let result = ingest_events(&mut s, "sess-legacy", &[plan_event], None);
+    let result = ingest_events(&mut s, "sess-legacy", &[plan_event], None).await;
     assert_eq!(result.count, 1);
 
     let plans = s.store.plan_store.list_for_session("sess-legacy");
@@ -285,7 +285,7 @@ async fn ingest_records_project_association() {
     let events = vec![make_event("io.arc.event", "sess-proj")];
 
     let mut s = state.write().await;
-    ingest_events(&mut s, "sess-proj", &events, Some("my-project"));
+    ingest_events(&mut s, "sess-proj", &events, Some("my-project")).await;
 
     assert_eq!(
         s.store.session_projects.get("sess-proj").unwrap(),
@@ -299,7 +299,7 @@ async fn ingest_returns_zero_for_empty_events() {
     let state = test_state(&tmp);
 
     let mut s = state.write().await;
-    let result = ingest_events(&mut s, "sess-empty", &[], None);
+    let result = ingest_events(&mut s, "sess-empty", &[], None).await;
     assert_eq!(result.count, 0);
-    assert!(!!s.store.event_store.session_events("sess-empty").unwrap().is_empty());
+    assert!(s.store.event_store.session_events("sess-empty").await.unwrap().is_empty());
 }

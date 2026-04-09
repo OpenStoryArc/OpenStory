@@ -20,13 +20,13 @@ import {
   scopeDepthProfile,
   type StoryCategory,
 } from "@/lib/story";
+import { sessionColor } from "@/lib/session-colors";
 
 import type { PatternView } from "@/types/wire-record";
 
 interface StoryViewProps {
   patterns: readonly PatternView[];
   sessionLabels: Readonly<Record<string, { label: string | null }>>;
-  agentLabels: Readonly<Record<string, string>>;
   selectedSession: string | null;
   onSelectSession: (sid: string | null) => void;
 }
@@ -39,7 +39,7 @@ const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = 
   { key: "error", label: "Error", color: "#f7768e" },
 ];
 
-export function StoryView({ patterns, sessionLabels, agentLabels, selectedSession, onSelectSession }: StoryViewProps) {
+export function StoryView({ patterns, sessionLabels, selectedSession, onSelectSession }: StoryViewProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -89,18 +89,15 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
     return Array.from(counts.entries()).map(([sid, count]) => {
       const raw = sessionLabels[sid]?.label;
       const isAgent = sid.startsWith("agent-");
-      const agentDesc = agentLabels[sid];
-      const label = agentDesc
-        ? (agentDesc.length > 35 ? agentDesc.slice(0, 32) + "..." : agentDesc)
-        : raw && raw !== sid
-          ? (raw.length > 40 ? raw.slice(0, 37) + "..." : raw)
-          : (isAgent ? sid.slice(6, 18) : sid.slice(0, 8));
+      const label = raw && raw !== sid
+        ? (raw.length > 40 ? raw.slice(0, 37) + "..." : raw)
+        : (isAgent ? sid.slice(6, 18) : sid.slice(0, 8));
       return { id: sid, label, count, isAgent };
     }).sort((a, b) => {
       if (a.isAgent !== b.isAgent) return a.isAgent ? 1 : -1;
       return b.count - a.count;
     });
-  }, [patterns, sessionLabels, agentLabels]);
+  }, [patterns, sessionLabels]);
 
   // Auto-scroll
   useEffect(() => {
@@ -178,26 +175,83 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
         </div>
         <div className="flex-1 overflow-y-auto p-2">
 
+        {/* "All sessions" — explicit affordance for the cross-session view.
+            Always visible, always at the top, always indicates whether you're
+            currently in ALL mode or scoped to a single session. Replaces the
+            old implicit click-toggle on individual session rows. */}
+        {(() => {
+          const allActive = selectedSession === null;
+          const totalTurns = sessionsWithStories.reduce((acc, s) => acc + s.count, 0);
+          return (
+            <button
+              type="button"
+              onClick={() => { onSelectSession(null); }}
+              className={`w-full text-left px-2 py-2 rounded mb-2 transition-colors ${
+                allActive
+                  ? "bg-[#283549] border-l-[3px] border-l-[#7aa2f7] border-y border-r border-[#3b4261]"
+                  : "hover:bg-[#24283b] border border-transparent"
+              }`}
+              title="Show turns from every session, interleaved by turn number"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`text-[14px] ${allActive ? "text-[#7aa2f7]" : "text-[#565f89]"}`}>⊞</span>
+                <span className={`text-sm ${allActive ? "text-[#c0caf5] font-medium" : "text-[#a9b1d6]"}`}>
+                  All sessions
+                </span>
+                <span className="text-[10px] text-[#565f89] ml-auto">
+                  {sessionsWithStories.length} · {totalTurns} turns
+                </span>
+              </div>
+            </button>
+          );
+        })()}
+
         {/* Main sessions */}
         {sessionsWithStories.filter(s => !s.isAgent).map(s => {
           const isActive = selectedSession === s.id;
+          const color = sessionColor(s.id);
           return (
             <button
               key={s.id}
+              type="button"
               onClick={() => { onSelectSession(isActive ? null : s.id); }}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
-                isActive ? "bg-[#24283b] border-l-2 border-l-[#7aa2f7] border-y border-r border-[#3b4261]" : "hover:bg-[#24283b] border border-transparent"
+                isActive
+                  ? "bg-[#283549] border-l-[3px] border-y border-r border-[#3b4261]"
+                  : "hover:bg-[#24283b] border border-transparent"
               }`}
+              style={isActive ? { borderLeftColor: color } : undefined}
               title={s.id}
             >
-              <div className="text-sm text-[#c0caf5] truncate">{s.label}</div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-[#1a1b26] text-[#7aa2f7]">
-                  {s.id.slice(0, 8)}
-                </span>
-                <span className="text-[10px] text-[#565f89]">
-                  {s.count} turns
-                </span>
+              <div className="flex items-start gap-1.5">
+                {isActive && (
+                  <span
+                    className="text-[10px] mt-0.5 shrink-0"
+                    style={{ color }}
+                  >
+                    ●
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className={`text-sm truncate ${isActive ? "text-[#c0caf5] font-medium" : "text-[#c0caf5]"}`}>
+                    {s.label}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span
+                      className="text-[10px] font-mono px-1 py-0.5 rounded border"
+                      style={{
+                        color,
+                        backgroundColor: `${color}18`,
+                        borderColor: `${color}33`,
+                      }}
+                    >
+                      {s.id.slice(0, 8)}
+                    </span>
+                    <span className="text-[10px] text-[#565f89]">
+                      {s.count} turns
+                    </span>
+                  </div>
+                </div>
               </div>
             </button>
           );
@@ -210,18 +264,27 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
               <span className="text-[10px] text-[#565f89] uppercase tracking-wide">Agents</span>
               <span className="text-[10px] text-[#565f89]">{sessionsWithStories.filter(s => s.isAgent).length}</span>
             </div>
-            {sessionsWithStories.filter(s => s.isAgent).map(s => (
-              <button
-                key={s.id}
-                onClick={() => { onSelectSession(s.id); }}
-                className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 ${
-                  selectedSession === s.id ? "bg-[#24283b] border border-[#3b4261] text-[#c0caf5]" : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
-                }`}
-                title={s.id}
-              >
-                {s.label} <span className="opacity-60">({s.count})</span>
-              </button>
-            ))}
+            {sessionsWithStories.filter(s => s.isAgent).map(s => {
+              const isActive = selectedSession === s.id;
+              const color = sessionColor(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => { onSelectSession(isActive ? null : s.id); }}
+                  className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 transition-colors ${
+                    isActive
+                      ? "bg-[#283549] border-l-[3px] border-y border-r border-[#3b4261] text-[#c0caf5]"
+                      : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
+                  }`}
+                  style={isActive ? { borderLeftColor: color } : undefined}
+                  title={s.id}
+                >
+                  {isActive && <span className="mr-1" style={{ color }}>●</span>}
+                  {s.label} <span className="opacity-60">({s.count})</span>
+                </button>
+              );
+            })}
           </>
         )}
 
@@ -317,7 +380,12 @@ export function StoryView({ patterns, sessionLabels, agentLabels, selectedSessio
                 data-turn-card
                 className={focusIndex === i ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
               >
-                <TurnCard pattern={p} allPatterns={patterns} />
+                <TurnCard
+                  pattern={p}
+                  allPatterns={patterns}
+                  onSelectSession={onSelectSession}
+                  isSelectedSession={selectedSession === p.session_id}
+                />
               </div>
             ))
           )}

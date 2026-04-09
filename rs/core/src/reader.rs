@@ -15,6 +15,14 @@ use crate::cloud_event::CloudEvent;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
+/// Detect a pre-translated CloudEvent line. The shape is unambiguous:
+/// `specversion: "1.0"` plus `type: "io.arc.event"`. Raw Claude Code and
+/// Pi-mono lines never have these fields.
+fn is_cloud_event(obj: &Value) -> bool {
+    obj.get("specversion").and_then(|v| v.as_str()) == Some("1.0")
+        && obj.get("type").and_then(|v| v.as_str()) == Some("io.arc.event")
+}
+
 /// Read new complete lines from a transcript file, translate to CloudEvents.
 ///
 /// Auto-detects the transcript format (Claude Code vs pi-mono) on the first
@@ -71,6 +79,19 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             Ok(v) => v,
             Err(_) => continue,
         };
+
+        // Pre-translated CloudEvent passthrough.
+        // If a line is already a CloudEvent (specversion + io.arc.event type),
+        // deserialize it directly instead of running it through translate_line
+        // — translation would be a no-op at best and a parse failure at worst.
+        // This lets test fixtures and replay tooling write CloudEvents to JSONL
+        // and have the watcher load them faithfully.
+        if is_cloud_event(&obj) {
+            if let Ok(ce) = serde_json::from_value::<CloudEvent>(obj.clone()) {
+                events.push(ce);
+                continue;
+            }
+        }
 
         // Detect format once per file, then lock
         if state.format == TranscriptFormat::Unknown {

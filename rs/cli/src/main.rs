@@ -15,7 +15,7 @@ use clap::{Parser, Subcommand};
 
 use open_story::server;
 use open_story::server::Config;
-use open_story::server::config::Role;
+use open_story::server::config::{DataBackend, Role};
 use open_story::watcher;
 use open_story_bus::Bus;
 use open_story_bus::nats_bus::NatsBus;
@@ -65,9 +65,11 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_MAX_INITIAL_RECORDS")]
         max_initial_records: Option<usize>,
 
-        /// How far back (hours) to load sessions from JSONL on first boot
-        #[arg(long, env = "OPEN_STORY_BOOT_WINDOW_HOURS")]
-        boot_window_hours: Option<u64>,
+        /// How far back (hours) the watcher backfills existing JSONL files
+        /// in `watch_dir` on startup. Files older than this are skipped.
+        /// Set to 0 to disable the filter (useful for tests with static fixtures).
+        #[arg(long, env = "OPEN_STORY_WATCH_BACKFILL_HOURS")]
+        watch_backfill_hours: Option<u64>,
 
         /// Payload size (bytes) above which tool outputs are truncated
         #[arg(long, env = "OPEN_STORY_TRUNCATION_THRESHOLD")]
@@ -88,6 +90,19 @@ enum Command {
         /// Enable Prometheus metrics endpoint at /metrics
         #[arg(long, env = "OPEN_STORY_METRICS")]
         metrics: bool,
+
+        /// Persistence backend: "sqlite" (default) or "mongo".
+        /// `mongo` requires building with `--features mongo`.
+        #[arg(long, env = "OPEN_STORY_DATA_BACKEND")]
+        data_backend: Option<DataBackend>,
+
+        /// MongoDB connection URI. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_URI")]
+        mongo_uri: Option<String>,
+
+        /// MongoDB database name. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_DB")]
+        mongo_db: Option<String>,
 
         /// Write a default config.toml to the data directory and exit
         #[arg(long)]
@@ -185,16 +200,20 @@ async fn main() -> Result<()> {
             let (cli_overrides, static_dir) = match cli.command {
                 Some(Command::Serve {
                     role, host, port, data_dir, static_dir, watch_dir, nats_url,
-                    max_initial_records, boot_window_hours, truncation_threshold,
-                    stale_threshold_secs, api_token, db_key, metrics, init_config,
+                    max_initial_records, watch_backfill_hours, truncation_threshold,
+                    stale_threshold_secs, api_token, db_key, metrics,
+                    data_backend, mongo_uri, mongo_db, init_config,
                 }) => ((role, host, port, data_dir, watch_dir, nats_url,
-                        max_initial_records, boot_window_hours, truncation_threshold,
-                        stale_threshold_secs, api_token, db_key, metrics, init_config), static_dir),
-                _ => ((Role::Full, None, None, None, None, None, None, None, None, None, None, None, false, false), None),
+                        max_initial_records, watch_backfill_hours, truncation_threshold,
+                        stale_threshold_secs, api_token, db_key, metrics,
+                        data_backend, mongo_uri, mongo_db, init_config), static_dir),
+                _ => ((Role::Full, None, None, None, None, None, None, None, None, None, None, None, false,
+                       None, None, None, false), None),
             };
             let (cli_role, cli_host, cli_port, cli_data_dir, cli_watch_dir, cli_nats_url,
-                 cli_max_records, cli_boot_hours, cli_trunc, cli_stale, cli_api_token,
-                 cli_db_key, cli_metrics, init_config) = cli_overrides;
+                 cli_max_records, cli_watch_backfill_hours, cli_trunc, cli_stale, cli_api_token,
+                 cli_db_key, cli_metrics, cli_data_backend, cli_mongo_uri, cli_mongo_db,
+                 init_config) = cli_overrides;
 
             // Resolve data_dir first (needed to find config.toml)
             let data_dir = cli_data_dir.unwrap_or_else(|| PathBuf::from("./data"));
@@ -217,12 +236,15 @@ async fn main() -> Result<()> {
             if let Some(v) = cli_watch_dir { config.watch_dir = v.to_string_lossy().to_string(); }
             if let Some(v) = cli_nats_url { config.nats_url = v; }
             if let Some(v) = cli_max_records { config.max_initial_records = v; }
-            if let Some(v) = cli_boot_hours { config.boot_window_hours = v; }
+            if let Some(v) = cli_watch_backfill_hours { config.watch_backfill_hours = v; }
             if let Some(v) = cli_trunc { config.truncation_threshold = v; }
             if let Some(v) = cli_stale { config.stale_threshold_secs = v; }
             if let Some(v) = cli_api_token { config.api_token = v; }
             if let Some(v) = cli_db_key { config.db_key = v; }
             if cli_metrics { config.metrics_enabled = true; }
+            if let Some(v) = cli_data_backend { config.data_backend = v; }
+            if let Some(v) = cli_mongo_uri { config.mongo_uri = v; }
+            if let Some(v) = cli_mongo_db { config.mongo_db = v; }
 
             // Resolve watch_dir default if not set
             if config.watch_dir.is_empty() {

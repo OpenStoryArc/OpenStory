@@ -24,7 +24,13 @@ jobs:
         run: cargo build --workspace --exclude open-story-cli
       - name: Test all crates
         working-directory: rs
-        run: cargo test --workspace --exclude open-story-cli -- --skip compose --skip container
+        # Skip filters apply to test FUNCTION names. `compose` and `container`
+        # filter the tests in `test_compose.rs` / `test_container.rs` (whose
+        # function names start with `compose_*` / `container_*`). The
+        # `pi_mono_*` tests live in `test_pi_mono_container.rs` and need the
+        # same `open-story:test` Docker image; their function names don't
+        # contain "container", so they need their own skip filter.
+        run: cargo test --workspace --exclude open-story-cli -- --skip compose --skip container --skip pi_mono
       - name: Clippy
         working-directory: rs
         run: cargo clippy --workspace --exclude open-story-cli -- -D warnings

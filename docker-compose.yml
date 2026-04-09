@@ -9,10 +9,26 @@ services:
       - nats-data:/data
     restart: unless-stopped
 
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - openstory-mongo-data:/data/db
+    restart: unless-stopped
+    # Default backend for `just compose`. Server picks this up via the
+    # OPEN_STORY_DATA_BACKEND=mongo env var below. To run with SQLite
+    # instead, comment out this service and the env vars on `server`.
+
   server:
     build:
       context: ./rs
       dockerfile: Dockerfile
+      args:
+        # Build the binary with the mongo feature so the server can
+        # actually use the mongo service above. Drop this arg if you
+        # want a SQLite-only image.
+        FEATURES: mongo
     ports:
       - "3002:3002"
     volumes:
@@ -20,8 +36,12 @@ services:
       - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
     environment:
       - NATS_URL=nats://nats:4222
+      - OPEN_STORY_DATA_BACKEND=mongo
+      - OPEN_STORY_MONGO_URI=mongodb://mongo:27017
+      - OPEN_STORY_MONGO_DB=openstory
     depends_on:
       - nats
+      - mongo
     restart: unless-stopped
 
   ui:
@@ -39,3 +59,4 @@ services:
 
 volumes:
   nats-data:
+  openstory-mongo-data:

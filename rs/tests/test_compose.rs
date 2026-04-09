@@ -170,25 +170,5 @@ async fn compose_view_records_via_nats_bus() {
     assert!(first.get("payload").is_some());
 }
 
-/// Hooks endpoint works when NATS is available.
-#[tokio::test]
-async fn compose_hooks_accepted_with_nats() {
-    let (_compose, port) = start_compose_stack().await;
-
-    let hook_body = serde_json::json!({
-        "session_id": "compose-hook-test",
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Read",
-        "transcript_path": ""
-    });
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("http://localhost:{port}/hooks"))
-        .json(&hook_body)
-        .send()
-        .await
-        .expect("POST /hooks failed");
-
-    assert_eq!(resp.status(), 202);
-}
+// `compose_hooks_accepted_with_nats` retired alongside the /hooks endpoint
+// (the watcher is the sole ingestion source — see refactor: kill /hooks).

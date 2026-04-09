@@ -27,7 +27,6 @@ function toAction(msg: EnrichedMessage): EnrichedAction {
     patterns: msg.patterns ? msg.patterns.map(toPatternView) : undefined,
     session_label: msg.session_label,
     session_branch: msg.session_branch,
-    agent_labels: msg.agent_labels,
     total_input_tokens: msg.total_input_tokens,
     total_output_tokens: msg.total_output_tokens,
   };
@@ -58,7 +57,6 @@ describe("enrichedReducer — cold boot performance", () => {
           patterns: [],
           filterCounts: msg.filter_counts,
           sessionLabels: {},
-          agentLabels: {},
         };
         return timed(() => enrichedReducer(EMPTY_ENRICHED_STATE, action));
       },
@@ -78,7 +76,6 @@ describe("enrichedReducer — cold boot performance", () => {
           patterns: [],
           filterCounts: msg.filter_counts,
           sessionLabels: {},
-          agentLabels: {},
         };
         return timed(() => enrichedReducer(EMPTY_ENRICHED_STATE, action));
       },
@@ -99,7 +96,6 @@ describe("enrichedReducer — cold boot performance", () => {
           patterns: [],
           filterCounts: msg.filter_counts,
           sessionLabels: {},
-          agentLabels: {},
         };
         return timed(() => enrichedReducer(EMPTY_ENRICHED_STATE, action));
       },

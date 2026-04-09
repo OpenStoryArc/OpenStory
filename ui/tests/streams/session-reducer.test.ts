@@ -70,7 +70,6 @@ describe("enrichedReducer — initial_state", () => {
           patterns: [],
           filterCounts: { s1: { all: 2, user: 2 } },
           sessionLabels: {},
-          agentLabels: {},
         },
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -92,7 +91,6 @@ describe("enrichedReducer — initial_state", () => {
           patterns: [],
           filterCounts: { s1: { all: 5, user: 3, tools: 2 } },
           sessionLabels: {},
-          agentLabels: {},
         },
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -118,7 +116,6 @@ describe("enrichedReducer — initial_state", () => {
           patterns: [],
           filterCounts: { s1: { all: 2 } },
           sessionLabels: {},
-          agentLabels: {},
         },
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -253,13 +250,13 @@ describe("enrichedReducer — patterns", () => {
       () => ({
         state: EMPTY_STATE,
         action: makeEnrichedMessage({
-          patterns: [{ type: "git.workflow", label: "Git: commit flow", session_id: "", events: ["e1", "e2", "e3"] }],
+          patterns: [{ type: "turn.sentence", label: "Git: commit flow", session_id: "", events: ["e1", "e2", "e3"] }],
         }),
       }),
       ({ state, action }) => enrichedReducer(state, action),
       (result) => {
         expect(result.patterns).toHaveLength(1);
-        expect(result.patterns[0]!.type).toBe("git.workflow");
+        expect(result.patterns[0]!.type).toBe("turn.sentence");
       },
     );
   });
@@ -269,10 +266,10 @@ describe("enrichedReducer — patterns", () => {
       () => ({
         state: {
           ...EMPTY_STATE,
-          patterns: [{ type: "test.cycle", label: "Test cycle", session_id: "", events: ["e1"] }],
+          patterns: [{ type: "eval_apply.eval", label: "Test cycle", session_id: "", events: ["e1"] }],
         },
         action: makeEnrichedMessage({
-          patterns: [{ type: "git.workflow", label: "Git flow", session_id: "", events: ["e2", "e3"] }],
+          patterns: [{ type: "turn.sentence", label: "Git flow", session_id: "", events: ["e2", "e3"] }],
         }),
       }),
       ({ state, action }) => enrichedReducer(state, action),
@@ -404,7 +401,7 @@ describe("enrichedReducer — combined records + ephemeral + patterns + deltas",
         action: makeEnrichedMessage({
           records: [makeWireRecord({ id: "durable-1", depth: 0 })],
           ephemeral: [makeWireRecord({ id: "progress-1", record_type: "system_event" })],
-          patterns: [{ type: "test.cycle", label: "Test", session_id: "", events: ["e1"] }],
+          patterns: [{ type: "eval_apply.eval", label: "Test", session_id: "", events: ["e1"] }],
           filter_deltas: { all: 1, tools: 1 },
         }),
       }),
@@ -441,7 +438,7 @@ describe("enrichedReducer — combined records + ephemeral + patterns + deltas",
 describe("toPatternView — server→client pattern mapping", () => {
   it("should map pattern_type to type, summary to label, event_ids to events", () => {
     const server: ServerPatternEvent = {
-      pattern_type: "git.workflow",
+      pattern_type: "turn.sentence",
       session_id: "sess-1",
       event_ids: ["e1", "e2", "e3"],
       started_at: "2025-01-10T12:00:00Z",
@@ -450,14 +447,14 @@ describe("toPatternView — server→client pattern mapping", () => {
       metadata: { commands: ["status", "add", "commit"] },
     };
     const view = toPatternView(server);
-    expect(view.type).toBe("git.workflow");
+    expect(view.type).toBe("turn.sentence");
     expect(view.label).toBe("Git: status → add → commit");
     expect(view.events).toEqual(["e1", "e2", "e3"]);
   });
 
   it("should handle empty event_ids", () => {
     const server: ServerPatternEvent = {
-      pattern_type: "turn.phase",
+      pattern_type: "eval_apply.scope_open",
       session_id: "sess-1",
       event_ids: [],
       started_at: "",
@@ -467,7 +464,7 @@ describe("toPatternView — server→client pattern mapping", () => {
     };
     const view = toPatternView(server);
     expect(view.events).toEqual([]);
-    expect(view.type).toBe("turn.phase");
+    expect(view.type).toBe("eval_apply.scope_open");
   });
 });
 

@@ -47,7 +47,7 @@ async fn transcript_api_rejects_dotdot_in_path() {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
-        let _ = s.store.event_store.insert_event("sess-traversal", &event);
+        let _ = s.store.event_store.insert_event("sess-traversal", &event).await;
     }
 
     let req = Request::get("/api/sessions/sess-traversal/transcript")
@@ -85,7 +85,7 @@ async fn transcript_api_rejects_backslash_traversal() {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
-        let _ = s.store.event_store.insert_event("sess-bs", &event);
+        let _ = s.store.event_store.insert_event("sess-bs", &event).await;
     }
 
     let req = Request::get("/api/sessions/sess-bs/transcript")
@@ -132,14 +132,14 @@ async fn session_id_with_sql_injection_is_harmless() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, malicious_sid, &events, None);
+        let result = ingest_events(&mut s, malicious_sid, &events, None).await;
         assert_eq!(result.count, 1, "event should be ingested normally despite SQL in session_id");
     }
 
     // Verify the events table still exists and original data is intact
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events(malicious_sid).unwrap();
+        let stored = s.store.event_store.session_events(malicious_sid).await.unwrap();
         assert_eq!(stored.len(), 1, "events table should still exist with our event");
     }
 
@@ -168,13 +168,13 @@ async fn session_id_extremely_long_does_not_crash() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, &long_sid, &events, None);
+        let result = ingest_events(&mut s, &long_sid, &events, None).await;
         assert_eq!(result.count, 1, "long session_id should not crash");
     }
 
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events(&long_sid).unwrap();
+        let stored = s.store.event_store.session_events(&long_sid).await.unwrap();
         assert_eq!(stored.len(), 1);
     }
 }
@@ -191,13 +191,13 @@ async fn sqlite_injection_via_event_id() {
 
     {
         let mut s = state.write().await;
-        ingest_events(&mut s, "sess-sqli", &events, None);
+        ingest_events(&mut s, "sess-sqli", &events, None).await;
     }
 
     // Table should still exist, event should be stored with literal SQL as ID
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-sqli").unwrap();
+        let stored = s.store.event_store.session_events("sess-sqli").await.unwrap();
         assert_eq!(stored.len(), 1, "events table survives SQL injection attempt in event_id");
         assert_eq!(
             stored[0].get("id").and_then(|v| v.as_str()),
@@ -227,7 +227,7 @@ async fn sqlite_injection_via_subtype() {
 
     {
         let s = state.read().await;
-        let inserted = s.store.event_store.insert_event("sess-sqli-sub", &event).unwrap();
+        let inserted = s.store.event_store.insert_event("sess-sqli-sub", &event).await.unwrap();
         assert!(inserted, "event with SQL in subtype should be inserted normally");
     }
 
@@ -242,105 +242,14 @@ async fn sqlite_injection_via_subtype() {
             "time": "2025-01-15T00:00:01Z",
             "data": {"text": "still here"}
         });
-        let _ = s.store.event_store.insert_event("sess-sqli-sub", &event2);
-        let all = s.store.event_store.session_events("sess-sqli-sub").unwrap();
+        let _ = s.store.event_store.insert_event("sess-sqli-sub", &event2).await;
+        let all = s.store.event_store.session_events("sess-sqli-sub").await.unwrap();
         assert_eq!(all.len(), 2, "both events should survive — SQL injection in subtype had no effect");
     }
 }
 
-// ── Hook Payload ──────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn hooks_rejects_non_json_body() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from("this is not json"))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-
-    // axum's Json extractor returns 400 or 422 for invalid JSON
-    let status = resp.status();
-    assert!(
-        status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY,
-        "non-JSON body should be rejected, got {}",
-        status
-    );
-}
-
-#[tokio::test]
-async fn hooks_handles_empty_body() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from(""))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-
-    // Should be 422 (JSON parse failure) or 400
-    let status = resp.status();
-    assert!(
-        status == StatusCode::UNPROCESSABLE_ENTITY || status == StatusCode::BAD_REQUEST,
-        "empty body should be rejected, got {}",
-        status
-    );
-}
-
-#[tokio::test]
-async fn hooks_handles_wrong_json_types() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    // session_id as number, transcript_path as boolean — wrong types
-    let body = json!({"session_id": 12345, "transcript_path": true});
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&body).unwrap()))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-
-    // Should degrade gracefully — .as_str() returns None for non-strings
-    assert_eq!(
-        resp.status(),
-        StatusCode::ACCEPTED,
-        "wrong types should be handled gracefully"
-    );
-    let body: Value = body_json(resp).await;
-    assert_eq!(body["status"], "no_transcript", "should find no transcript for non-string session_id");
-}
-
-#[tokio::test]
-async fn hooks_deeply_nested_json_no_crash() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    // Build deeply nested JSON (200 levels)
-    let mut nested = json!({});
-    for _ in 0..200 {
-        nested = json!({"a": nested});
-    }
-
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&nested).unwrap()))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-
-    // serde_json has recursion limit ~128 — might reject, might accept
-    // Either way, no stack overflow
-    let status = resp.status();
-    assert!(
-        status == StatusCode::ACCEPTED
-            || status == StatusCode::UNPROCESSABLE_ENTITY
-            || status == StatusCode::BAD_REQUEST,
-        "deeply nested JSON should not cause stack overflow, got {}",
-        status
-    );
-}
+// Hook payload tests retired alongside the /hooks endpoint
+// (chore/cut-legacy-detectors). The watcher is the sole ingestion source.
 
 // ── Event ID Collision / Data Integrity ───────────────────────────────
 
@@ -354,16 +263,16 @@ async fn duplicate_event_id_does_not_overwrite_data() {
 
         // First event with id "evt-collision"
         let event_a = make_user_prompt("sess-collision", "evt-collision");
-        let result_a = ingest_events(&mut s, "sess-collision", &[event_a], None);
+        let result_a = ingest_events(&mut s, "sess-collision", &[event_a], None).await;
         assert_eq!(result_a.count, 1);
 
         // Second event with SAME id but potentially different data
         let event_b = make_event_with_id("io.arc.event", "sess-collision", "evt-collision");
-        let result_b = ingest_events(&mut s, "sess-collision", &[event_b], None);
+        let result_b = ingest_events(&mut s, "sess-collision", &[event_b], None).await;
         assert_eq!(result_b.count, 0, "duplicate event_id should be deduplicated");
 
         // Only one event should be stored
-        let stored = s.store.event_store.session_events("sess-collision").unwrap();
+        let stored = s.store.event_store.session_events("sess-collision").await.unwrap();
         assert_eq!(stored.len(), 1, "only original event should exist");
     }
 }
@@ -378,12 +287,12 @@ async fn duplicate_event_id_across_sessions() {
 
         // Same event ID in session A
         let event_a = make_user_prompt("sess-a", "shared-evt");
-        let result_a = ingest_events(&mut s, "sess-a", &[event_a], None);
+        let result_a = ingest_events(&mut s, "sess-a", &[event_a], None).await;
         assert_eq!(result_a.count, 1);
 
         // Same event ID in session B — should be deduplicated by seen_event_ids
         let event_b = make_user_prompt("sess-b", "shared-evt");
-        let result_b = ingest_events(&mut s, "sess-b", &[event_b], None);
+        let result_b = ingest_events(&mut s, "sess-b", &[event_b], None).await;
         assert_eq!(result_b.count, 0, "same event_id across sessions should be deduplicated");
     }
 }
@@ -405,7 +314,7 @@ async fn ingest_many_sessions_no_crash() {
             let events: Vec<_> = (0..events_per_session)
                 .map(|j| make_user_prompt(&sid, &format!("evt-{}-{}", i, j)))
                 .collect();
-            let result = ingest_events(&mut s, &sid, &events, None);
+            let result = ingest_events(&mut s, &sid, &events, None).await;
             assert_eq!(result.count, events_per_session);
         }
     }
@@ -413,7 +322,7 @@ async fn ingest_many_sessions_no_crash() {
     // Verify all sessions exist
     {
         let s = state.read().await;
-        let sessions = s.store.event_store.list_sessions().unwrap();
+        let sessions = s.store.event_store.list_sessions().await.unwrap();
         assert_eq!(
             sessions.len(),
             num_sessions,
@@ -446,13 +355,13 @@ async fn ingest_large_event_payload_no_crash() {
 
     {
         let mut s = state.write().await;
-        let result = ingest_events(&mut s, "sess-large", &events, None);
+        let result = ingest_events(&mut s, "sess-large", &events, None).await;
         assert_eq!(result.count, 1, "large event should be ingested successfully");
     }
 
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-large").unwrap();
+        let stored = s.store.event_store.session_events("sess-large").await.unwrap();
         assert_eq!(stored.len(), 1);
     }
 }
@@ -494,79 +403,9 @@ async fn meta_endpoint_returns_404_for_unknown_session() {
     );
 }
 
-#[tokio::test]
-async fn hook_with_transcript_path_pointing_outside_watch_dir() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    // Create a JSONL file outside the watch_dir
-    let outside_dir = tmp.path().join("outside");
-    std::fs::create_dir_all(&outside_dir).unwrap();
-    let outside_file = outside_dir.join("secret.jsonl");
-    std::fs::write(
-        &outside_file,
-        r#"{"type":"user","message":{"content":[{"type":"text","text":"secret"}]}}"#,
-    )
-    .unwrap();
-
-    // POST hook with transcript_path pointing outside watch_dir
-    let body = json!({
-        "session_id": "sess-escape",
-        "transcript_path": outside_file.to_string_lossy()
-    });
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&body).unwrap()))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-
-    // Tier 1 resolution uses the explicit path if the file exists —
-    // this is expected behavior since hooks come from the local Claude Code process.
-    // The key point is: this endpoint is trusted local input, not internet-facing.
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
-}
-
-// ── Symlink Traversal (Unix only) ─────────────────────────────────────
-
-#[cfg(unix)]
-#[tokio::test]
-async fn hooks_symlink_in_watch_dir_is_not_followed() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    // Create a secret file outside watch_dir
-    let secret_file = tmp.path().join("secret.jsonl");
-    std::fs::write(
-        &secret_file,
-        r#"{"type":"user","message":{"content":[{"type":"text","text":"top secret"}]}}"#,
-    )
-    .unwrap();
-
-    // Create a symlink inside watch_dir pointing to the secret file
-    let watch_dir = tmp.path().join("watch");
-    let symlink_path = watch_dir.join("evil-session.jsonl");
-    std::os::unix::fs::symlink(&secret_file, &symlink_path).unwrap();
-
-    // POST hook with session_id matching the symlink name
-    let body = json!({"session_id": "evil-session"});
-    let req = Request::post("/hooks")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&body).unwrap()))
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), StatusCode::ACCEPTED);
-
-    let resp_body: Value = body_json(resp).await;
-    // With follow_links(false), the symlink should not be followed via Tier 3
-    // The hook may still resolve via Tier 1 (explicit path) or Tier 2 (transcript_states),
-    // but Tier 3 (WalkDir) should skip symlinks.
-    // Since we didn't provide transcript_path and no transcript_state exists,
-    // Tier 3 is the only option — and it should fail to find the file.
-    assert_eq!(
-        resp_body["status"], "no_transcript",
-        "symlink in watch_dir should not be followed by WalkDir"
-    );
-}
+// Hook transcript-path / symlink tests retired alongside the /hooks
+// endpoint (chore/cut-legacy-detectors). The watcher's path-resolution
+// security boundary is exercised by the watcher's own integration tests.
 
 // ── Hook Injection (session routing) ──────────────────────────────────
 
@@ -583,7 +422,7 @@ async fn hook_session_id_is_authoritative() {
     {
         let mut s = state.write().await;
         // Route to "attacker-session" despite event data saying "victim-session"
-        let result = ingest_events(&mut s, "attacker-session", &events, None);
+        let result = ingest_events(&mut s, "attacker-session", &events, None).await;
         assert_eq!(result.count, 1);
 
         // Events should be under attacker-session, not victim-session
@@ -591,6 +430,7 @@ async fn hook_session_id_is_authoritative() {
             .store
             .event_store
             .session_events("attacker-session")
+            .await
             .unwrap();
         assert_eq!(
             attacker_events.len(),
@@ -603,6 +443,7 @@ async fn hook_session_id_is_authoritative() {
             .store
             .event_store
             .session_events("victim-session")
+            .await
             .unwrap();
         assert_eq!(
             victim_events.len(),

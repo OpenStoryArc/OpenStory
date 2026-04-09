@@ -6,7 +6,6 @@
 pub mod analysis;
 pub mod api;
 pub mod broadcast;
-pub mod hooks;
 pub mod ingest;
 pub mod persistence;
 pub mod plan_store;
@@ -55,7 +54,7 @@ pub async fn run_server(
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
 
-    let state = create_state(data_dir, watch_dir, bus.clone(), config)?;
+    let state = create_state(data_dir, watch_dir, bus.clone(), config).await?;
 
     // ── Banner ──
     {
@@ -69,12 +68,12 @@ pub async fn run_server(
         eprintln!("  \x1b[2m────────────────────────────────────\x1b[0m");
 
         if is_consumer {
-            let session_count = s.store.event_store.list_sessions().unwrap_or_default().len();
+            let session_count = s.store.event_store.list_sessions().await.unwrap_or_default().len();
             eprintln!("  \x1b[2mSessions loaded:\x1b[0m {session_count}");
             eprintln!("  \x1b[2mData dir:\x1b[0m       {}", data_dir.display());
 
             // Replay boot-loaded sessions through projections + pattern pipelines
-            replay_boot_sessions(&mut s);
+            replay_boot_sessions(&mut s).await;
         }
     }
 
@@ -97,7 +96,7 @@ pub async fn run_server(
                     let mut total = 0;
                     for batch in &batches {
                         let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
                         for change in result.changes {
                             let _ = s.broadcast_tx.send(change);
                         }
@@ -128,7 +127,7 @@ pub async fn run_server(
                 match persist_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
-                            let result = actor.process_batch(&batch.session_id, &batch.events);
+                            let result = actor.process_batch(&batch.session_id, &batch.events).await;
                             if result.persisted > 0 {
                                 log_event("persist", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
@@ -142,24 +141,73 @@ pub async fn run_server(
             });
         }
 
-        // ── Actor 2: patterns consumer (owns pipelines, publishes PatternEvents) ──
+        // ── Actor 2: patterns consumer ──
+        // The sole pattern detector. Subscribes to events.>, runs the
+        // eval-apply + sentence pipeline, persists turns + patterns to the
+        // EventStore, mirrors the pattern stream into AppState's
+        // detected_patterns cache (so build_initial_state can serve them
+        // to fresh WebSocket clients), and publishes patterns to NATS
+        // patterns.{project}.{session} so the next branch's broadcast
+        // consumer rewire can subscribe and forward live.
         {
             let event_store = state.read().await.store.event_store.clone();
             let patterns_bus = bus.clone();
+            let patterns_state = state.clone();
             tokio::spawn(async move {
                 let mut actor = consumers::patterns::PatternsConsumer::new();
                 match patterns_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
                             let result = actor.process_batch(&batch.session_id, &batch.events);
-                            // Persist turns and patterns to SQLite
+
+                            // Persist turns and patterns to the EventStore
                             for turn in &result.turns {
-                                let _ = event_store.insert_turn(&batch.session_id, turn);
+                                let _ = event_store.insert_turn(&batch.session_id, turn).await;
                             }
                             for pe in &result.patterns {
-                                let _ = event_store.insert_pattern(&batch.session_id, pe);
+                                let _ = event_store.insert_pattern(&batch.session_id, pe).await;
                             }
+
                             if !result.patterns.is_empty() {
+                                // Mirror into AppState.detected_patterns so
+                                // the WebSocket initial_state handshake can
+                                // serve them to fresh clients without a DB
+                                // roundtrip.
+                                {
+                                    let mut s = patterns_state.write().await;
+                                    s.store
+                                        .detected_patterns
+                                        .entry(batch.session_id.clone())
+                                        .or_default()
+                                        .extend(result.patterns.iter().cloned());
+                                }
+
+                                // Publish to patterns.{project}.{session}
+                                // for downstream consumers (live story
+                                // broadcast, etc.). Best-effort: a publish
+                                // failure logs but doesn't block the
+                                // pipeline — the patterns are already
+                                // durable in the EventStore.
+                                let project = if batch.project_id.is_empty() {
+                                    "default"
+                                } else {
+                                    batch.project_id.as_str()
+                                };
+                                let subject = format!(
+                                    "patterns.{}.{}",
+                                    project, batch.session_id,
+                                );
+                                if let Ok(payload) = serde_json::to_vec(&result.patterns) {
+                                    if let Err(e) = patterns_bus
+                                        .publish_bytes(&subject, &payload)
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "patterns consumer publish_bytes({subject}) failed: {e}"
+                                        );
+                                    }
+                                }
+
                                 log_event("patterns", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
                                     short_id(&batch.session_id), result.patterns.len(), result.turns.len()
@@ -202,7 +250,7 @@ pub async fn run_server(
                             let session_id = batch.session_id.clone();
                             let mut s = broadcast_state.write().await;
                             let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id);
+                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }
@@ -222,13 +270,15 @@ pub async fn run_server(
     }
 
     // ── File watcher (publisher + full roles) ──
+    // Snapshot the backfill window from config before any closures move it.
+    let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     if is_publisher {
         if bus.is_active() {
             // Bus mode: watcher → bus.publish()
             let watcher_bus = bus.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, subject, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, subject, events| {
                     let batch = IngestBatch {
                         session_id: session_id.to_string(),
                         project_id: project_id.unwrap_or("").to_string(),
@@ -247,12 +297,12 @@ pub async fn run_server(
             let watcher_state = state.clone();
             let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, true, |session_id, project_id, _subject, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, _subject, events| {
                     let summary = event_type_summary(&events);
                     let rt = tokio::runtime::Handle::current();
                     let result = rt.block_on(async {
                         let mut s = watcher_state.write().await;
-                        let result = ingest_events(&mut s, session_id, &events, project_id);
+                        let result = ingest_events(&mut s, session_id, &events, project_id).await;
                         for change in &result.changes {
                             let _ = s.broadcast_tx.send(change.clone());
                         }
@@ -278,7 +328,7 @@ pub async fn run_server(
             if bus.is_active() {
                 let watcher_bus = bus.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, subject, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, subject, events| {
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
@@ -295,12 +345,12 @@ pub async fn run_server(
             } else {
                 let watcher_state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, true, |session_id, project_id, _subject, events| {
+                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, _subject, events| {
                         let summary = event_type_summary(&events);
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {
                             let mut s = watcher_state.write().await;
-                            let result = ingest_events(&mut s, session_id, &events, project_id);
+                            let result = ingest_events(&mut s, session_id, &events, project_id).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }

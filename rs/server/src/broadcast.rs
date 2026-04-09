@@ -51,9 +51,6 @@ pub enum BroadcastMessage {
         /// Git branch, sent when first captured.
         #[serde(skip_serializing_if = "Option::is_none")]
         session_branch: Option<String>,
-        /// New agent labels discovered in this batch.
-        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-        agent_labels: HashMap<String, String>,
         /// Accumulated input tokens for this session (sent when changed).
         #[serde(skip_serializing_if = "Option::is_none")]
         total_input_tokens: Option<u64>,
@@ -83,7 +80,6 @@ mod tests {
             project_name: None,
             session_label: None,
             session_branch: None,
-            agent_labels: HashMap::new(),
             total_input_tokens: None,
             total_output_tokens: None,
         };
@@ -126,23 +122,18 @@ mod tests {
             project_name: None,
             session_label: None,
             session_branch: None,
-            agent_labels: HashMap::new(),
             total_input_tokens: None,
             total_output_tokens: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(!json.contains("project_id"));
         assert!(!json.contains("session_label"));
-        assert!(!json.contains("agent_labels"));
         assert!(!json.contains("total_input_tokens"));
         assert!(!json.contains("patterns"));
     }
 
     #[test]
     fn enriched_includes_present_optional_fields() {
-        let mut agent_labels = HashMap::new();
-        agent_labels.insert("agent-1".to_string(), "Fix the bug".to_string());
-
         let msg = BroadcastMessage::Enriched {
             session_id: "test".to_string(),
             records: vec![],
@@ -153,14 +144,12 @@ mod tests {
             project_name: Some("My Project".to_string()),
             session_label: Some("Implement feature X".to_string()),
             session_branch: Some("feature/x".to_string()),
-            agent_labels,
             total_input_tokens: Some(1500),
             total_output_tokens: Some(800),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"project_id\":\"proj\""));
         assert!(json.contains("\"session_label\":\"Implement feature X\""));
-        assert!(json.contains("\"agent-1\""));
         assert!(json.contains("\"total_input_tokens\":1500"));
     }
 }

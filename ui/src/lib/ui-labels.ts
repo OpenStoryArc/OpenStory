@@ -41,23 +41,20 @@ export const FILTER_TOOLTIPS: Record<string, string> = {
 // ═══════════════════════════════════════════════════════════════════
 // Pattern labels — map pattern type → user-facing display text
 // ═══════════════════════════════════════════════════════════════════
+//
+// Pre-cleanup, this file held labels and tooltips for the legacy
+// `test.cycle` / `git.workflow` / `error.recovery` / `agent.delegation` /
+// `turn.phase` pattern types. All five were retired in
+// chore/cut-legacy-detectors. The maps remain as the dispatch surface
+// for any current/future named pattern type that wants a friendlier
+// display label — the consumers (Timeline.tsx, etc.) fall back to the
+// raw pattern_type string when no entry exists, so this empty default
+// is safe.
 
-export const PATTERN_LABELS: Record<string, string> = {
-  "test.cycle": "test",
-  "git.workflow": "git",
-  "error.recovery": "recovery",
-  "agent.delegation": "agent",
-  "turn.phase": "phase",
-};
+export const PATTERN_LABELS: Record<string, string> = {};
 
 // ═══════════════════════════════════════════════════════════════════
 // Pattern tooltips — describe what each pattern detected
 // ═══════════════════════════════════════════════════════════════════
 
-export const PATTERN_TOOLTIPS: Record<string, string> = {
-  "test.cycle": "Test cycle: a sequence of test runs with pass/fail results",
-  "git.workflow": "Git workflow: a sequence of git commands (add, commit, push, etc.)",
-  "error.recovery": "Error recovery: the agent hit an error and corrected its approach",
-  "agent.delegation": "Agent delegation: work was delegated to a subagent",
-  "turn.phase": "Turn phase: the kind of work happening (conversation, implementation, testing, etc.)",
-};
+export const PATTERN_TOOLTIPS: Record<string, string> = {};

@@ -57,6 +57,26 @@ To syntax-highlight Read tool results, the file path comes from the parent tool_
 
 Every feature starts as a pure function with a boundary table. Components compose those functions. Test the functions, trust the composition.
 
+### Semantic parity, not byte parity
+
+When a trait has multiple implementations — say, an `EventStore` trait with a SQLite backend and a MongoDB backend — the natural instinct is to write a conformance suite that asserts byte-for-byte identical results. That instinct is wrong. It treats the two backends as fungible and forces one to mimic the other's idiom. The right model is **semantic equality per query**: each query has a contract (what question it answers), and each backend honors the contract using whatever primitive is natural for it. The conformance suite enforces the *answer*, not the *implementation*.
+
+Three test patterns make this concrete:
+
+- **C1 — Strict equality (`assert_eq!`)** — for queries where the answer is mathematically defined: counts, sums, ordered sets with well-defined sort keys. Both backends must produce byte-identical output. If they don't, one has a real bug.
+- **C2 — Canonical-sort then equality** — for queries where the SET is well-defined but tie order is implementation-defined. The conformance helper sorts both outputs by a stable secondary key before comparing. The looseness is encoded at the assertion site, where any future reader sees exactly what's tolerated and why. Not buried in fixture data, not hidden in a guard.
+- **C3 — Redesign the API to remove the cosmetic field** — when the divergence between backends is in a *cosmetic* field doing too much work (both bucket identifier and display label), fix the API. Replace the cosmetic field with the underlying structural data and let the consumer handle formatting.
+
+Worked example: the MongoDB sink (`feat/mongodb-sink` branch) implements 12 analytics queries on top of the `EventStore` trait. SQLite uses `json_extract` + `strftime` + `LIKE`. Mongo uses dotted-path access + `$dateFromString` + `$exists`. They're different idioms reaching the same answer. Of the 12 queries, 8 are pure C1, 3 are C2 (`top_tools`, `session_efficiency`, `recent_files`), and 1 needed C3 (`tool_evolution` — its old `week: String` field was both a bucket identifier AND a display label, with SQLite's `%W` and Mongo's `$isoWeek` disagreeing at year boundaries; the fix was replacing it with `bucket_start: String` + `bucket_end: String`, which both backends compute identically). See `rs/store/tests/event_store_conformance.rs` for the 47 helpers and `docs/research/mongo-analytics-parity-plan.md` §1.6 for the full model.
+
+The principle: **let each backend be itself.** Forcing identical internal shapes is solving the wrong problem. The CHOICE between backends is a real product feature — different deployment shapes legitimately want different storage primitives. The conformance suite's job is to surface contract violations across backends, not to homogenize the implementations behind one canonical shape.
+
+How to apply it:
+- When you're tempted to write a tolerance, a fudge factor, or a "skip if backend == X" branch in a conformance test, stop. Ask: what is the actual question this query answers, and is the field I'm trying to compare load-bearing for the answer or cosmetic?
+- If cosmetic, redesign the API to remove the cosmetic field (Category 3). The test goes back to strict equality on the structural data.
+- If load-bearing, the divergence is a real bug in one of the backends. Fix the bug, don't mask it.
+- Tag every conformance helper with its category (C1/C2/C3) in the docstring. Future readers see which parity pattern is in effect at the assertion site.
+
 ### Claim-vs-reality checks
 
 When a fact is stated in two places — once as a **claim** in prose (docs, README, CLAUDE.md, comments) and once as a **reality** in code (`Cargo.toml` workspace members, source files, the filesystem, struct fields) — they can drift. The drift is invisible because each side is internally consistent: every doc agrees with every other doc, every line of code agrees with every other line. But neither side knows about the other. Mechanical checks that compare the two sides surface the drift before it metastasizes.
@@ -79,6 +99,20 @@ The shape is the same shape as the rest of the codebase: pure functions, side ef
 ---
 
 ## Anti-patterns to avoid
+
+### Burying cross-system divergence behind once-a-year code paths
+
+When two systems disagree at a calendar boundary — say, SQLite's `%W` and MongoDB's `$isoWeek` produce different week labels for dates near Dec 28–Jan 3 — the tempting fix is to write a fixture seeder that shifts dates to dodge the boundary. **Don't.** That code path runs once a year and can't be exercised the other 358 days. When it eventually breaks, no one will know why. The divergence is hidden behind a calendar guard that's invisible to anyone reading the test.
+
+Three honest fixes, in order of preference:
+
+1. **Structural assertion at the test site.** Make the test assert on the *shape* of the result ("all rows have the same week label, whatever it is") instead of the specific calendar string. The looseness is now visible at the assertion site, where any future reader learns the contract.
+2. **Fix the underlying divergence.** If both systems can be made to agree (e.g., switch SQLite from `%W` to `%V` so both use ISO weeks), do that. One-line behavior change beats a recurring calendar workaround.
+3. **Redesign the API to remove the cosmetic field** — see "Semantic parity, not byte parity" above. If the divergent field was doing too much work (bucket identifier AND display label), drop it and expose the structural data instead. This is the fix the MongoDB sink work landed for `tool_evolution` (replaced `week: String` with `bucket_start: String` / `bucket_end: String`).
+
+What to avoid: code paths gated on the current calendar month/day. They're untestable, undiscoverable, and they convert "the test passes" into "the test passes when run on certain days." Time-dependent test flakes are debugging hell.
+
+The general principle: **make divergences visible, don't paper over them.** The conformance suite's job is to surface differences so you can choose how to resolve them, not to silently mask the ones that happen rarely. This pattern was caught by Max during planning the MongoStore analytics parity work — see `docs/research/mongo-analytics-parity-plan.md` §6.5 and §6.8 for the specific divergences this principle was named to prevent.
 
 ### Building before looking at the data
 

@@ -11,5 +11,8 @@
   "dependencies": {
     "@types/ws": "^8.18.1",
     "ws": "^8.19.0"
+  },
+  "overrides": {
+    "lodash": "^4.18.1"
   }
 }

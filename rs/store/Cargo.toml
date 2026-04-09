@@ -11,6 +11,11 @@ default = []
 # Build with: cargo build --features encryption
 # Without this feature, db_key config is accepted but ignored.
 encryption = []
+# Enable MongoDB as an EventStore backend. Adds the async `mongodb` driver
+# and `bson` as hard deps. Without this feature, MongoStore code is excluded
+# entirely (the feature gate also excludes the conformance suite's
+# `mongo_backend` module). The SQLite backend is unaffected either way.
+mongo = ["dep:mongodb", "dep:bson", "dep:futures"]
 
 [dependencies]
 open-story-core = { path = "../core" }
@@ -27,8 +32,14 @@ async-trait = "0.1"
 regex = "1"
 rusqlite = { version = "0.35", features = ["bundled"] }
 walkdir = "2"
+# MongoDB backend (feature `mongo`).
+mongodb = { version = "3.2", optional = true }
+bson = { version = "2.13", features = ["chrono-0_4"], optional = true }
+futures = { version = "0.3", optional = true }
 
 [dev-dependencies]
 filetime = "0.2"
 tempfile = "3"
 tokio = { version = "1", features = ["full"] }
+# Mongo testcontainer for the conformance suite (requires --features mongo).
+testcontainers = { version = "0.27.2", features = ["http_wait"] }

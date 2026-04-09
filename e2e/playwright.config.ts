@@ -12,6 +12,11 @@ const seedDataDir = path.resolve(__dirname, 'fixtures', 'seed-data')
 
 export default defineConfig({
   testDir: './tests',
+  // Perf/chaos/stress tests run in isolation via `--grep '@perf'` or
+  // by pointing at the perf/ subdirectory directly. They flake under
+  // suite-wide load (mock-server harness is not isolation-safe) and
+  // exist to catch perf regressions, not gate the main e2e run.
+  testIgnore: ['**/perf/**'],
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
   use: {
@@ -19,9 +24,20 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: [
-    // 1. API server via Docker container
+    // 1. API server via Docker container.
+    //
+    // Seed JSONL files are mounted at /watch so the file watcher backfills
+    // them on boot — that's the only path events take into the system after
+    // commit 5d936fe ("remove boot_from_jsonl — one path for all events").
+    // /data is left unmounted so the container creates a fresh SQLite db
+    // each run; the watcher populates it from the JSONL files via translate
+    // → NATS → consumers.
     {
-      command: `docker run --rm --name arc-e2e-server -p ${API_PORT}:3002 -v "${seedDataDir}:/data" open-story:test`,
+      // OPEN_STORY_WATCH_BACKFILL_HOURS=0 disables the default 24-hour
+      // mtime filter so the watcher backfills the static seed JSONL files
+      // (whose mtime is the git checkout time, often well outside the
+      // window) instead of skipping them as "old."
+      command: `docker run --rm --name arc-e2e-server -p ${API_PORT}:3002 -v "${seedDataDir}:/watch" -e OPEN_STORY_WATCH_BACKFILL_HOURS=0 open-story:test`,
       url: `http://127.0.0.1:${API_PORT}/api/sessions`,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
@@ -29,7 +45,7 @@ export default defineConfig({
       stderr: 'pipe',
       env: {
         ...process.env,
-        // Prevents Git Bash (MSYS) from mangling /data to C:\Program Files\Git\data
+        // Prevents Git Bash (MSYS) from mangling /watch to C:\Program Files\Git\watch
         MSYS_NO_PATHCONV: '1',
       },
     },

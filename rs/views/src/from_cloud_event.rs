@@ -438,6 +438,7 @@ fn extract_tool_calls(
 /// Branches on `agent`:
 /// - Claude Code: content blocks with `type: "tool_result"`, `tool_use_id`, `content`, `is_error`
 /// - Pi-mono: message-level `toolCallId`, `toolName`, `isError`; content is text blocks
+#[allow(clippy::too_many_arguments)]
 fn extract_tool_results(
     raw: &Value,
     data: &Value,

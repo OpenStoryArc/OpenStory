@@ -10,6 +10,7 @@ import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
 import { compactTime } from "@/lib/time";
 import { sampleDepthProfile } from "@/lib/depth-profile";
+import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,6 @@ interface SidebarProps {
   focusAgentId: string | null;
   onFocusAgent: (agentId: string | null) => void;
   sessionLabels?: Readonly<Record<string, SessionLabel>>;
-  agentLabels?: Readonly<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +65,6 @@ interface SidebarProps {
 export function deriveSessions(
   events: readonly (ViewRecord | WireRecord)[],
   sessionLabels?: Readonly<Record<string, SessionLabel>>,
-  agentLabels?: Readonly<Record<string, string>>,
 ): SessionInfo[] {
   const sessionMap = new Map<string, {
     count: number;
@@ -126,7 +125,7 @@ export function deriveSessions(
         eventCount: subData.count,
         firstTimestamp: subData.first,
         representativeId: subData.repId,
-        description: agentLabels?.[agentId] ?? agentLabels?.[subData.repId] ?? null,
+        description: null,
       });
     }
     subagents.sort((a, b) => a.firstTimestamp.localeCompare(b.firstTimestamp));
@@ -156,22 +155,8 @@ function formatTokenCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-// ---------------------------------------------------------------------------
-// Session colors
-// ---------------------------------------------------------------------------
-
-const SESSION_COLORS = [
-  "#7aa2f7", "#bb9af7", "#2ac3de", "#9ece6a", "#e0af68",
-  "#f7768e", "#7dcfff", "#ff9e64", "#c0caf5", "#73daca",
-];
-
-function sessionColor(sessionId: string): string {
-  let hash = 0;
-  for (let i = 0; i < sessionId.length; i++) {
-    hash = ((hash << 5) - hash + sessionId.charCodeAt(i)) | 0;
-  }
-  return SESSION_COLORS[Math.abs(hash) % SESSION_COLORS.length]!;
-}
+// Session colors live in @/lib/session-colors (imported at top of file)
+// so the Story tab can share the same deterministic palette.
 
 // ---------------------------------------------------------------------------
 // Component
@@ -188,11 +173,10 @@ export const Sidebar = memo(function Sidebar({
   focusAgentId,
   onFocusAgent,
   sessionLabels,
-  agentLabels,
 }: SidebarProps) {
   const sessions = useMemo(
-    () => deriveSessions(events, sessionLabels, agentLabels),
-    [events, sessionLabels, agentLabels],
+    () => deriveSessions(events, sessionLabels),
+    [events, sessionLabels],
   );
   const selectedInfo = useMemo(
     () => sessions.find((s) => s.id === selectedSession) ?? null,

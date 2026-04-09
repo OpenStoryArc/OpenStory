@@ -275,7 +275,7 @@ mod appstate_integration {
                 make_event("io.arc.event", "sess-1"),
                 make_event("io.arc.event", "sess-1"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let s = state.read().await;
@@ -295,7 +295,7 @@ mod appstate_integration {
                 make_user_prompt("sess-1", "evt-1"),
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Read", "/foo.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let s = state.read().await;
@@ -316,7 +316,7 @@ mod appstate_integration {
                 make_user_prompt("sess-1", "evt-1"),
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Read", "/foo.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None);
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/meta")

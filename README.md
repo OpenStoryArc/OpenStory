@@ -80,7 +80,7 @@ See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, an
 
 The file watcher detects JSONL transcript changes, translates them into CloudEvents via `translate_line()`, and publishes to NATS JetStream with hierarchical subjects (`events.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
 
-- **persist** — dedup + SQLite + JSONL backup + full-text search index
+- **persist** — dedup + durable event store (SQLite default, MongoDB optional via `--features mongo`) + JSONL backup + full-text search index
 - **patterns** — eval-apply cycle detection → sentence generation → PatternEvents
 - **projections** — session metadata (tokens, labels, branches, agent relationships)
 - **broadcast** — CloudEvent → ViewRecord → WireRecord → WebSocket to UI

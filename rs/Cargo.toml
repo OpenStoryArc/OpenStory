@@ -34,6 +34,10 @@ walkdir = "2"
 
 [features]
 default = []
+# Pass-through features so building from the workspace root picks up
+# the right knobs in the store crate.
+encryption = ["open-story-store/encryption"]
+mongo = ["open-story-store/mongo"]
 
 [dev-dependencies]
 filetime = "0.2"

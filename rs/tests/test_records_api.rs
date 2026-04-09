@@ -46,7 +46,7 @@ mod records_endpoint {
                 make_tool_use("sess-rec", "evt-2", None, "Bash", "cargo test"),
                 make_tool_result("sess-rec", "evt-3", None, "toolu_evt-2", "test result: ok"),
             ];
-            ingest_events(&mut s, "sess-rec", &events, None);
+            ingest_events(&mut s, "sess-rec", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-rec/records")
@@ -93,7 +93,7 @@ mod records_endpoint {
                 make_user_prompt("sess-depth", "evt-root"),
                 make_tool_use("sess-depth", "evt-child", Some("evt-root"), "Bash", "ls"),
             ];
-            ingest_events(&mut s, "sess-depth", &events, None);
+            ingest_events(&mut s, "sess-depth", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-depth/records")
@@ -134,7 +134,7 @@ mod records_endpoint {
                 make_assistant_text("sess-sort", "evt-b", None, "hello"),
                 make_tool_use("sess-sort", "evt-c", None, "Read", "/tmp/file"),
             ];
-            ingest_events(&mut s, "sess-sort", &events, None);
+            ingest_events(&mut s, "sess-sort", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-sort/records")

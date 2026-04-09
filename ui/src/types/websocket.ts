@@ -29,7 +29,6 @@ export interface EnrichedInitialStateMessage {
   readonly filter_counts: Readonly<Record<string, Record<string, number>>>;
   readonly patterns?: readonly ServerPatternEvent[];
   readonly session_labels?: Readonly<Record<string, SessionLabel>>;
-  readonly agent_labels?: Readonly<Record<string, string>>;
 }
 
 /** Phase 3 enriched broadcast: durable + ephemeral + filter deltas + patterns + labels. */
@@ -44,7 +43,6 @@ export interface EnrichedMessage {
   readonly project_name?: string;
   readonly session_label?: string;
   readonly session_branch?: string;
-  readonly agent_labels?: Readonly<Record<string, string>>;
   readonly total_input_tokens?: number;
   readonly total_output_tokens?: number;
 }

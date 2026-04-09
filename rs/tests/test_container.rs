@@ -212,34 +212,5 @@ async fn container_search_empty_query_returns_400() {
     assert_eq!(resp.status(), 400);
 }
 
-/// POST /hooks accepts hook events and returns 202.
-#[tokio::test]
-async fn container_accepts_hook_post() {
-    let fixture_dir = fixtures_dir();
-    let server = start_open_story(&fixture_dir).await;
-
-    let hook_body = serde_json::json!({
-        "session_id": "test-hook-session",
-        "type": "tool_use",
-        "tool": {
-            "name": "Read",
-            "input": {"file_path": "/tmp/test.txt"}
-        },
-        "session": {
-            "session_id": "test-hook-session",
-            "cwd": "/workspace"
-        },
-        "transcript_path": ""
-    });
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/hooks", server.base_url()))
-        .json(&hook_body)
-        .send()
-        .await
-        .expect("POST /hooks failed");
-
-    // Hooks endpoint returns 202 Accepted
-    assert_eq!(resp.status(), 202);
-}
+// `container_accepts_hook_post` retired alongside the /hooks endpoint
+// (the watcher is the sole ingestion source).
