@@ -1303,14 +1303,17 @@ pub async fn it_buckets_productivity_by_hour(store: Arc<dyn EventStore>) {
     sorted.sort_by_key(|h| h.hour);
     assert_eq!(sorted, result, "result must be ordered by hour ASC");
 
-    // The fixture has events at exactly 3 anchors (24h, 12h, 6h ago)
-    // so we expect at most 3 distinct hour buckets. They MAY collapse
-    // into fewer buckets if two anchors land in the same UTC hour
-    // (e.g., test runs at xx:30 and 6h ago is xx:30 of the previous
-    // hour-aligned bucket). The total events stays 25 either way.
+    // The fixture has events at exactly 3 anchors (24h, 12h, 6h ago),
+    // and each anchor spreads its events across an 11-minute window
+    // (`ts_offset(h, 11)` down to `ts_offset(h, 0)`). When the test runs
+    // at e.g. xx:05, the 11-minute spread straddles an hour boundary,
+    // splitting one anchor across TWO distinct hour buckets — so the
+    // worst case is 3 anchors × 2 = 6 buckets, not 3. They may collapse
+    // into fewer buckets when an anchor lands fully inside one hour.
+    // The total events stays 25 either way.
     assert!(
-        result.len() <= 3,
-        "fixture spans at most 3 distinct hours, got {}",
+        result.len() <= 6,
+        "fixture spans at most 6 distinct hours (3 anchors × 2 from 11-min spread), got {}",
         result.len()
     );
     assert!(!result.is_empty(), "must have at least one bucket");
