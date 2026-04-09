@@ -212,6 +212,8 @@ pub enum AgentPayload {
     ClaudeCode(ClaudeCodePayload),
     #[serde(rename = "pi-mono")]
     PiMono(PiMonoPayload),
+    #[serde(rename = "hermes")]
+    Hermes(HermesPayload),
 }
 
 // ── Claude Code Payload ────────────────────────────────────────────
@@ -462,6 +464,132 @@ impl PiMonoPayload {
     }
 }
 
+// ── Hermes Payload ─────────────────────────────────────────────────
+
+/// Typed extraction for Hermes Agent (NousResearch/hermes-agent) events.
+///
+/// Hermes is a self-improving agent that stores conversations in OpenAI shape
+/// regardless of which provider produced the response. The Anthropic adapter
+/// at `tests/agent/test_anthropic_adapter.py:575` is a one-way translator at
+/// the API boundary; persisted state is always OpenAI shape (assistant
+/// `tool_calls: [{id, function: {name, arguments}}]`, tool messages with
+/// `tool_call_id` and optional `tool_name`, reasoning as a top-level string
+/// field on the assistant message).
+///
+/// Verified against hermes-agent commit 6e3f7f36 on 2026-04-08.
+/// See `docs/research/hermes-integration/SOURCE_VERIFICATION.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HermesPayload {
+    /// The tag.
+    pub meta: PayloadMeta,
+
+    // ── Identity & sequencing ──
+    /// Plugin-side monotonic per-session sequence number from the input envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+
+    // ── Session metadata (system.session.start only) ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hermes_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+
+    // ── Message content ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Stop reason (`finish_reason`) — usually `"stop"` or `"tool_calls"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+
+    // ── Tool use (assistant) ──
+    /// Canonical OpenAI shape: tool name from `tool_calls[i].function.name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// Parsed JSON args from `tool_calls[i].function.arguments` (which is a JSON string in the wire format).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+    /// `tool_calls[i].id` — used to link the tool_use to its later tool_result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
+    /// Text content the assistant emitted alongside the tool call (eval phase preceding apply).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preceding_text: Option<String>,
+
+    // ── Tool result (role: tool) ──
+    /// `tool_call_id` from the tool message — links back to the originating tool_use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// `tool_name` is OPTIONAL in Hermes — present in some code paths, absent in others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+
+    // ── Thinking ──
+    /// Reasoning content. Hermes stores this as a top-level string field on
+    /// the assistant message (verified). The Anthropic SDK adapter converts
+    /// `content_block_delta` thinking blocks to a flat string before storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+
+    // ── Turn complete (system.turn.complete) ──
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<u64>,
+
+    // ── Open schema catch-all ──
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+impl Default for HermesPayload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HermesPayload {
+    pub fn new() -> Self {
+        Self {
+            meta: PayloadMeta {
+                agent: "hermes".to_string(),
+            },
+            seq: None,
+            timestamp: None,
+            model: None,
+            platform: None,
+            hermes_version: None,
+            system_prompt_preview: None,
+            tools: None,
+            text: None,
+            stop_reason: None,
+            tool: None,
+            args: None,
+            tool_use_id: None,
+            preceding_text: None,
+            tool_call_id: None,
+            tool_name: None,
+            reasoning: None,
+            reason: None,
+            completed: None,
+            interrupted: None,
+            message_count: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+}
+
 // ── Convenience accessors ──────────────────────────────────────────
 
 impl AgentPayload {
@@ -470,6 +598,7 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => &p.meta.agent,
             AgentPayload::PiMono(p) => &p.meta.agent,
+            AgentPayload::Hermes(p) => &p.meta.agent,
         }
     }
 
@@ -478,6 +607,7 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.text.as_deref(),
             AgentPayload::PiMono(p) => p.text.as_deref(),
+            AgentPayload::Hermes(p) => p.text.as_deref(),
         }
     }
 
@@ -486,6 +616,7 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.model.as_deref(),
             AgentPayload::PiMono(p) => p.model.as_deref(),
+            AgentPayload::Hermes(p) => p.model.as_deref(),
         }
     }
 
@@ -494,6 +625,7 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.tool.as_deref(),
             AgentPayload::PiMono(p) => p.tool.as_deref(),
+            AgentPayload::Hermes(p) => p.tool.as_deref(),
         }
     }
 
@@ -502,38 +634,58 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.args.as_ref(),
             AgentPayload::PiMono(p) => p.args.as_ref(),
+            AgentPayload::Hermes(p) => p.args.as_ref(),
         }
     }
 
     /// Get token usage from either payload variant.
+    ///
+    /// Hermes does not track token usage at the per-message level in the
+    /// way Claude Code and pi-mono do — it lives in the LLM provider's
+    /// raw response, not the persisted message dict. Returns None for
+    /// the Hermes variant.
     pub fn token_usage(&self) -> Option<&Value> {
         match self {
             AgentPayload::ClaudeCode(p) => p.token_usage.as_ref(),
             AgentPayload::PiMono(p) => p.token_usage.as_ref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 
     /// Get uuid from either payload variant.
+    ///
+    /// Hermes uses synthetic event IDs derived from `(session_id, seq, subtype)`
+    /// rather than UUIDs from the source data. Returns None for the Hermes
+    /// variant — the deterministic ID lives on the CloudEvent envelope itself.
     pub fn uuid(&self) -> Option<&str> {
         match self {
             AgentPayload::ClaudeCode(p) => p.uuid.as_deref(),
             AgentPayload::PiMono(p) => p.uuid.as_deref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 
     /// Get parent_uuid from either payload variant.
+    ///
+    /// Hermes does not maintain a parent-child message tree the way Claude
+    /// Code does (its message list is a flat sequence). Returns None.
     pub fn parent_uuid(&self) -> Option<&str> {
         match self {
             AgentPayload::ClaudeCode(p) => p.parent_uuid.as_deref(),
             AgentPayload::PiMono(p) => p.parent_uuid.as_deref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 
     /// Get cwd from either payload variant.
+    ///
+    /// Hermes does not record cwd in its message dicts (it's a process-level
+    /// concept, not a message-level one). Returns None.
     pub fn cwd(&self) -> Option<&str> {
         match self {
             AgentPayload::ClaudeCode(p) => p.cwd.as_deref(),
             AgentPayload::PiMono(p) => p.cwd.as_deref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 
@@ -542,22 +694,32 @@ impl AgentPayload {
         match self {
             AgentPayload::ClaudeCode(p) => p.stop_reason.as_ref().and_then(|v| v.as_str()),
             AgentPayload::PiMono(p) => p.stop_reason.as_deref(),
+            AgentPayload::Hermes(p) => p.stop_reason.as_deref(),
         }
     }
 
     /// Get content_types from either variant.
+    ///
+    /// Hermes uses flat OpenAI-shape messages without typed content blocks,
+    /// so there's nothing to surface here. Returns None.
     pub fn content_types(&self) -> Option<&[String]> {
         match self {
             AgentPayload::ClaudeCode(p) => p.content_types.as_deref(),
             AgentPayload::PiMono(p) => p.content_types.as_deref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 
     /// Get tool_outcome from either variant.
+    ///
+    /// Hermes does not currently produce typed `ToolOutcome` values — they're
+    /// derived in the Claude Code translator from inspecting tool inputs.
+    /// A future enhancement could derive them for Hermes too. For now: None.
     pub fn tool_outcome(&self) -> Option<&ToolOutcome> {
         match self {
             AgentPayload::ClaudeCode(p) => p.tool_outcome.as_ref(),
             AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
+            AgentPayload::Hermes(_) => None,
         }
     }
 

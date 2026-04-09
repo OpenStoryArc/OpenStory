@@ -188,6 +188,244 @@ def test_unknown_event_type_is_dropped_silently():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests added in Phase 2 from SOURCE_VERIFICATION.md findings.
+#
+# These exercise shapes that came directly from reading hermes-agent source
+# (commit 6e3f7f36 on 2026-04-08). They are still synthetic — no real Hermes
+# session has been captured — but they encode the verified ground truth from
+# tests/agent/test_anthropic_adapter.py:575 and run_agent.py:2408-2472 so the
+# translator's behavior matches what real Hermes data WOULD produce.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _hermes_message_event(seq, msg):
+    """Helper to wrap a raw Hermes message dict in the input envelope."""
+    return {
+        "envelope": {
+            "session_id": "verify-001",
+            "event_seq": seq,
+            "timestamp": "2026-04-08T14:00:00Z",
+            "source": "hermes",
+        },
+        "event_type": "message",
+        "data": msg,
+    }
+
+
+@test
+def test_canonical_openai_tool_call_shape_from_hermes_test_fixture():
+    """The exact assistant tool-call shape verified from
+    tests/agent/test_anthropic_adapter.py:575 in hermes-agent."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "assistant",
+            "content": "Let me search.",
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "function": {
+                        "name": "search",
+                        "arguments": '{"query": "test"}',  # JSON STRING
+                    },
+                }
+            ],
+        },
+    )
+    out = translate_event(raw)
+    # Should produce ONE tool_use CloudEvent (text+tool together = preceding_text)
+    tool_use = [e for e in out if e["subtype"] == "message.assistant.tool_use"]
+    assert len(tool_use) == 1, f"expected 1 tool_use, got {len(tool_use)}"
+    payload = tool_use[0]["data"]["agent_payload"]
+    assert payload["tool"] == "search"
+    assert payload["tool_use_id"] == "tc_1"
+    # arguments string should be parsed into a dict
+    assert payload["args"] == {"query": "test"}, "JSON string args must be parsed"
+    assert payload["preceding_text"] == "Let me search."
+
+
+@test
+def test_canonical_tool_result_shape_from_hermes_test_fixture():
+    """Tool result shape verified from tests/agent/test_anthropic_adapter.py:590.
+    Note: no `tool_name`, no `is_error`, plain string content."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "tool",
+            "tool_call_id": "tc_1",
+            "content": "search results",
+        },
+    )
+    out = translate_event(raw)
+    assert len(out) == 1
+    payload = out[0]["data"]["agent_payload"]
+    assert out[0]["subtype"] == "message.user.tool_result"
+    assert payload["tool_use_id"] == "tc_1"
+    assert payload["text"] == "search results"
+    # tool_name is optional and absent in the canonical fixture
+    assert payload["tool"] == ""
+    assert payload["is_error"] is False
+
+
+@test
+def test_tool_result_with_optional_tool_name_field():
+    """tool_name is optional but legal — verified from
+    gateway/session.py:957 which reads message.get('tool_name')."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "tool",
+            "tool_call_id": "tc_2",
+            "tool_name": "Read",
+            "content": "file contents...",
+        },
+    )
+    out = translate_event(raw)
+    payload = out[0]["data"]["agent_payload"]
+    assert payload["tool"] == "Read"
+
+
+@test
+def test_orphaned_tool_result_does_not_crash():
+    """Context compression can leave a tool_result without its preceding
+    tool_use (verified from tests/agent/test_anthropic_adapter.py:651).
+    The translator must handle this gracefully — it just emits the
+    tool_result CloudEvent on its own and OpenStory's pipeline handles
+    the dangling reference."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "tool",
+            "tool_call_id": "tc_orphan",
+            "content": "stale result from compressed-out tool use",
+        },
+    )
+    out = translate_event(raw)
+    assert len(out) == 1
+    assert out[0]["subtype"] == "message.user.tool_result"
+    assert out[0]["data"]["agent_payload"]["tool_use_id"] == "tc_orphan"
+
+
+@test
+def test_assistant_message_with_empty_content_and_tool_calls():
+    """When the assistant emits only tool calls, content is empty string
+    (not None). Verified from tests/agent/test_anthropic_adapter.py:603."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_a", "function": {"name": "tool_a", "arguments": "{}"}},
+            ],
+        },
+    )
+    out = translate_event(raw)
+    tool_use = [e for e in out if e["subtype"] == "message.assistant.tool_use"]
+    text = [e for e in out if e["subtype"] == "message.assistant.text"]
+    assert len(tool_use) == 1
+    # Empty content + tool calls = NO text event emitted (preceding_text is None)
+    assert len(text) == 0
+    assert tool_use[0]["data"]["agent_payload"]["preceding_text"] is None
+
+
+@test
+def test_multiple_tool_calls_in_one_assistant_message():
+    """Verified from tests/agent/test_anthropic_adapter.py:621
+    (test_merges_consecutive_tool_results) — Hermes can issue multiple
+    tool calls in one turn. The translator should fan out one
+    CloudEvent per tool call so OpenStory's pattern detector sees them
+    as parallel apply phases."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "tc_1", "function": {"name": "tool_a", "arguments": "{}"}},
+                {"id": "tc_2", "function": {"name": "tool_b", "arguments": "{}"}},
+            ],
+        },
+    )
+    out = translate_event(raw)
+    tool_use = [e for e in out if e["subtype"] == "message.assistant.tool_use"]
+    assert len(tool_use) == 2
+    assert {tu["data"]["agent_payload"]["tool"] for tu in tool_use} == {"tool_a", "tool_b"}
+
+
+@test
+def test_assistant_message_with_reasoning_and_tool_call():
+    """The full canonical shape: reasoning + content + tool_calls all in
+    one assistant message. Should produce: thinking event + tool_use event.
+    No standalone text event (the content is preceding_text on the tool_use)."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "assistant",
+            "content": "I'll search for that.",
+            "reasoning": "The user wants information; search is the right tool.",
+            "tool_calls": [
+                {"id": "tc_1", "function": {"name": "search", "arguments": '{"q": "x"}'}},
+            ],
+            "finish_reason": "tool_calls",
+        },
+    )
+    out = translate_event(raw)
+    subtypes = [e["subtype"] for e in out]
+    assert subtypes == ["message.assistant.thinking", "message.assistant.tool_use"]
+    thinking = out[0]["data"]["agent_payload"]
+    assert "user wants information" in thinking["text"]
+    tool_use = out[1]["data"]["agent_payload"]
+    assert tool_use["preceding_text"] == "I'll search for that."
+
+
+@test
+def test_assistant_text_only_message_carries_finish_reason():
+    """Pure text response (no tool calls). Should emit one text event
+    with the finish_reason in the payload."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "assistant",
+            "content": "Here's the answer.",
+            "finish_reason": "stop",
+        },
+    )
+    out = translate_event(raw)
+    assert len(out) == 1
+    assert out[0]["subtype"] == "message.assistant.text"
+    assert out[0]["data"]["agent_payload"]["stop_reason"] == "stop"
+
+
+@test
+def test_system_injected_message_maps_to_system_injected_other():
+    """Compression summaries / todo snapshots are plain system messages
+    (verified §4.5 of SOURCE_VERIFICATION.md). They have no special
+    field, so they all map to `system.injected.other`."""
+    raw = _hermes_message_event(
+        1,
+        {
+            "role": "system",
+            "content": "[Compressed history follows] Earlier in the session...",
+        },
+    )
+    out = translate_event(raw)
+    assert len(out) == 1
+    assert out[0]["subtype"] == "system.injected.other"
+
+
+@test
+def test_unknown_role_is_dropped_silently():
+    """Forward-compat: a future role we don't recognize must not crash."""
+    raw = _hermes_message_event(
+        1,
+        {"role": "future_role", "content": "..."},
+    )
+    out = translate_event(raw)
+    assert out == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":

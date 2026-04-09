@@ -150,13 +150,18 @@ def _translate_assistant_message(
     out: List[Dict[str, Any]] = []
 
     # ── Thinking phase (if present) ──
-    # VERIFY: Hermes may store reasoning as either:
-    #   (a) a top-level `reasoning` string field on the assistant message
-    #       (likely for OpenAI/OpenRouter providers and o1-style models)
-    #   (b) a `content` array containing {"type": "thinking", "text": ...} blocks
-    #       (likely for Anthropic-direct provider)
-    # The translator currently checks (a) first and (b) second. Confirm by
-    # reading one finalized session log per provider type.
+    # VERIFIED 2026-04-08 against hermes-agent 6e3f7f36
+    # (see SOURCE_VERIFICATION.md §4.4):
+    # Hermes stores reasoning as a TOP-LEVEL `reasoning` string field on the
+    # assistant message. The Anthropic-shape `content` array with
+    # {"type": "thinking", "text": ...} blocks NEVER appears in persisted
+    # state — the Anthropic SDK adapter at run_agent.py:4582-4586 extracts
+    # `thinking_text` from `content_block_delta` events and fires
+    # `_fire_reasoning_delta(thinking_text)`, then the agent loop stores
+    # the result in OpenAI shape (reasoning as a flat string).
+    # The Anthropic-content-block branch below is DEAD AS OF 2026-04-08
+    # but kept defensively in case Hermes shape drifts. # RUNTIME: confirm
+    # by capturing one real session and grepping for the field shape.
     reasoning = msg.get("reasoning")
     if reasoning:
         out.append(
@@ -206,14 +211,24 @@ def _translate_assistant_message(
         )
 
     # ── Tool calls (if any) ──
-    # VERIFY: Hermes message dicts use the OpenAI shape when the provider is
-    # OpenRouter / Nous Portal / OpenAI:
-    #   tool_calls: [{"id": ..., "type": "function",
-    #                 "function": {"name": ..., "arguments": "<json string>"}}]
-    # And the Anthropic shape when the provider is Anthropic direct:
-    #   content: [..., {"type": "tool_use", "id": ..., "name": ..., "input": {...}}]
-    # Both branches are handled below; verify the field names against a real
-    # session log for each provider before relying on this in production.
+    # VERIFIED 2026-04-08 against hermes-agent 6e3f7f36
+    # (see SOURCE_VERIFICATION.md §4): Hermes's INTERNAL message storage is
+    # ALWAYS the OpenAI shape, regardless of which provider produced the
+    # turn. The Anthropic adapter (`convert_messages_to_anthropic` at
+    # tests/agent/test_anthropic_adapter.py:575) is a one-way translator at
+    # the API boundary that takes OpenAI-shape messages as input and produces
+    # Anthropic-shape API requests as output. It is not bidirectional.
+    #
+    # Canonical OpenAI shape (verified from test fixture):
+    #   tool_calls: [
+    #     {"id": "tc_1", "function": {"name": "search", "arguments": '{"query": "test"}'}}
+    #   ]
+    # Note: `arguments` is a JSON STRING, not a parsed dict. Note: there is
+    # no `"type": "function"` key on the tool call (the older example
+    # JSONL fixture had it; harmless but cosmetic only).
+    #
+    # The Anthropic-content-block branch (`_has_anthropic_tool_use`) below
+    # is DEAD AS OF 2026-04-08 but kept defensively against shape drift.
     for tc in msg.get("tool_calls", []) or []:
         out.append(_translate_openai_tool_call(session_id, timestamp, seq, tc, text))
 
@@ -327,19 +342,29 @@ def _make_user_prompt(
 def _make_tool_result(
     session_id: str, timestamp: str, seq: int, msg: Dict[str, Any]
 ) -> Dict[str, Any]:
-    # VERIFY: Hermes tool messages — does Hermes use `tool_call_id` or `id`,
-    # and does it use `tool_name` or `name`? Both are checked here; trim
-    # whichever is wrong once verified.
+    # VERIFIED 2026-04-08 against hermes-agent 6e3f7f36
+    # (see SOURCE_VERIFICATION.md §4.1):
+    #   - Canonical key for the linking ID is `tool_call_id` (not `id`).
+    #   - `tool_name` is OPTIONAL — present in some code paths, absent in
+    #     others. The gateway DB writer at gateway/session.py:957 reads
+    #     `message.get("tool_name")` defensively. The
+    #     test_anthropic_adapter.py test fixtures don't include it.
+    #   - There is NO `is_error` field on tool result messages. If the
+    #     plugin or downstream needs error detection, infer from the
+    #     `result` content (e.g., string-prefix match on "Error:").
+    #
+    # The previous defensive `id` and `name` aliases are removed —
+    # they were never read by Hermes and would mask real bugs.
     return _make_event(
         subtype="message.user.tool_result",
         session_id=session_id,
         timestamp=timestamp,
         seq=seq,
         payload={
-            "tool": msg.get("tool_name") or msg.get("name") or "",
-            "tool_use_id": msg.get("tool_call_id") or msg.get("id") or "",
+            "tool": msg.get("tool_name", ""),
+            "tool_use_id": msg.get("tool_call_id", ""),
             "text": _extract_text(msg),
-            "is_error": bool(msg.get("is_error", False)),
+            "is_error": False,  # not represented in the wire format
         },
     )
 
@@ -347,10 +372,14 @@ def _make_tool_result(
 def _make_system_injected(
     session_id: str, timestamp: str, seq: int, msg: Dict[str, Any]
 ) -> Dict[str, Any]:
-    # VERIFY: Hermes injects various synthetic system messages (compression
-    # summaries, todo snapshots). What field distinguishes them? `subtype`?
-    # `name`? Or just substring matching on content? For now we group them all
-    # under `system.injected.other`.
+    # VERIFIED 2026-04-08 (see SOURCE_VERIFICATION.md §4.5): Hermes does NOT
+    # tag injected system messages with a `name` or `subtype` field. They
+    # are plain `{"role": "system", "content": "..."}` items, distinguishable
+    # only by content prefixes (e.g., compression summaries, todo snapshots).
+    # All system messages map to `system.injected.other` for v1.
+    # # RUNTIME: capture a real session that hits compression to learn the
+    # actual content prefix conventions, then add a content sniffer if
+    # downstream consumers need to differentiate.
     return _make_event(
         subtype="system.injected.other",
         session_id=session_id,

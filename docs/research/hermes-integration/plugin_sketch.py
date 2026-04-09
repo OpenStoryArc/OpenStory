@@ -24,13 +24,65 @@ OpenStory's existing file watcher picks up the JSONL, recognizes the
 hermes-events path pattern, and routes the lines through `translate_hermes.rs`
 (the production Rust port of `translate_hermes.py`).
 
-# VERIFY: Hermes plugin hook signatures (the `**kwargs` shape passed by
-# `invoke_hook()`) are inferred from the `invoke_hook(...)` call sites at:
-#   gateway/run.py:1487  — on_session_finalize(session_id=..., platform=...)
-#   cli.py:617           — on_session_finalize(session_id=..., platform=...)
-# The post_llm_call and post_tool_call kwargs need to be confirmed by
-# grepping their invoke_hook() call sites in the hermes-agent repo before
-# the package ships. The current signatures are educated guesses.
+# VERIFIED 2026-04-08 against hermes-agent commit 6e3f7f36
+# (see SOURCE_VERIFICATION.md §1 and §2). Every hook signature below is
+# now confirmed from a specific `_invoke_hook(...)` call site:
+#
+#   on_session_start    — run_agent.py:7089  (session_id, model, platform)
+#   pre_llm_call        — run_agent.py:7180  (session_id, user_message,
+#                                              conversation_history,
+#                                              is_first_turn, model, platform)
+#   pre_api_request     — run_agent.py:7421  (task_id, session_id, platform,
+#                                              model, provider, base_url, ...)
+#   post_api_request    — run_agent.py:8600  (same as pre_api_request)
+#   post_llm_call       — run_agent.py:9203  (session_id, user_message,
+#                                              assistant_response,
+#                                              conversation_history,
+#                                              model, platform)
+#   on_session_end      — run_agent.py:9302  (session_id, completed,
+#                                              interrupted, model, platform)
+#   pre_tool_call       — model_tools.py:503 (tool_name, args, task_id,
+#                                              session_id, tool_call_id)
+#   post_tool_call      — model_tools.py:532 (tool_name, args, result,
+#                                              task_id, session_id,
+#                                              tool_call_id)
+#   on_session_finalize — cli.py:617, gateway/run.py:1487
+#                                             (session_id, platform)
+#   on_session_reset    — gateway/run.py     (session_id, platform)
+#
+# Three corrections from the original prototype, all forced by these
+# verified signatures:
+#
+#   1. on_session_start does NOT pass system_prompt or tools as kwargs.
+#      To capture them, the plugin must read conversation_history[0] on
+#      the first pre_llm_call (where the system message lives).
+#
+#   2. post_llm_call's response kwarg is `assistant_response`, not
+#      `response_message`. Bug fixed below.
+#
+#   3. post_tool_call has NO `is_error` kwarg. The plugin can infer
+#      errors from `result` content if it cares; for OpenStory's
+#      pipeline this is not currently load-bearing.
+#
+# A fourth, structural finding (see SOURCE_VERIFICATION.md §2):
+# pre_llm_call AND post_llm_call BOTH pass conversation_history — the
+# full Hermes-native message list. This means the plugin can capture
+# everything by hooking just post_llm_call and diffing the conversation
+# history against its previous view. The per-tool_call hooks are
+# redundant for capture purposes (the tool result will appear in the
+# next pre_llm_call's history). They are kept here for two reasons:
+# (a) lower-latency emission, and (b) the prototype is staying close
+# to its original shape so the diff against the brief is reviewable.
+# A v2 plugin should consider collapsing to a single hook.
+#
+# CRITICAL NON-USE FLAG (see SOURCE_VERIFICATION.md §1.4):
+# pre_llm_call callbacks may RETURN a context dict that Hermes will
+# inject into the user message. PluginContext.inject_message() at
+# hermes_cli/plugins.py:164 also exists and lets plugins interrupt
+# the agent. BOTH ARE FEEDBACK PATHS INTO THE COALGEBRA. The OpenStory
+# plugin must keep all hooks returning None and must never call
+# inject_message. This preserves the algebra/coalgebra purity that
+# LISTENER_AS_ALGEBRA.md is built on.
 """
 
 from __future__ import annotations
@@ -158,13 +210,16 @@ def _on_session_start(
     session_id: Optional[str] = None,
     model: Optional[str] = None,
     platform: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    tools: Optional[list] = None,
     **_kwargs: Any,
 ) -> None:
-    # VERIFY: confirm the kwargs Hermes passes to on_session_start by reading
-    # gateway/run.py and cli.py for the invoke_hook("on_session_start", ...)
-    # call sites. This signature is a guess.
+    # VERIFIED 2026-04-08: run_agent.py:7089 passes ONLY (session_id, model,
+    # platform). The previously expected `system_prompt` and `tools` kwargs
+    # are NOT passed. To capture them the plugin would have to read
+    # conversation_history[0] on the first pre_llm_call (where the system
+    # message lives). For now we emit the session_start event with what we
+    # have; an enrichment pass on the first pre_llm_call could fill in the
+    # missing fields. # RUNTIME: confirm the conversation_history[0] shape
+    # against a real session.
     try:
         if not session_id:
             return
@@ -172,8 +227,8 @@ def _on_session_start(
         w.append(
             "session_start",
             {
-                "system_prompt_preview": (system_prompt or "")[:500],
-                "tools": tools or [],
+                "system_prompt_preview": "",  # see comment above
+                "tools": [],                  # see comment above
             },
             model=model or "",
             platform=platform or "",
@@ -184,31 +239,60 @@ def _on_session_start(
 
 def _on_post_llm_call(
     session_id: Optional[str] = None,
-    response_message: Optional[Dict[str, Any]] = None,
+    user_message: Optional[Any] = None,
+    assistant_response: Optional[Dict[str, Any]] = None,
+    conversation_history: Optional[list] = None,
+    model: Optional[str] = None,
+    platform: Optional[str] = None,
     **_kwargs: Any,
 ) -> None:
-    # VERIFY: confirm post_llm_call signature. The interesting argument is
-    # the assistant message dict the model just produced. Hermes likely passes
-    # the full response object — find the field name and adjust.
+    # VERIFIED 2026-04-08: run_agent.py:9203 passes
+    # (session_id, user_message, assistant_response, conversation_history,
+    #  model, platform).
+    #
+    # The original sketch expected `response_message` — that was a guess
+    # and is wrong. The correct kwarg name is `assistant_response`.
+    #
+    # We also receive `conversation_history` which is the FULL Hermes-native
+    # message list including the brand-new assistant_response. This is the
+    # ground truth for the per-turn message stream and lets future versions
+    # of this plugin capture everything from a single hook by diffing
+    # against the previous view (see SOURCE_VERIFICATION.md §7.1).
+    #
+    # For now we keep the simpler "emit just the new assistant message"
+    # behavior that the prototype shipped with — diffing against
+    # conversation_history is left for the v2 plugin once we have real
+    # data to validate against.
     try:
-        if not session_id or not response_message:
+        if not session_id or not assistant_response:
             return
-        _writer_for(session_id).append("message", response_message)
+        _writer_for(session_id).append("message", assistant_response)
     except Exception:
         pass
 
 
 def _on_post_tool_call(
-    session_id: Optional[str] = None,
     tool_name: Optional[str] = None,
-    tool_call_id: Optional[str] = None,
+    args: Optional[Dict[str, Any]] = None,
     result: Optional[str] = None,
-    is_error: bool = False,
+    task_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    tool_call_id: Optional[str] = None,
     **_kwargs: Any,
 ) -> None:
-    # VERIFY: confirm post_tool_call signature. The plugin needs the
-    # tool_call_id so the resulting CloudEvent can be linked back to the
-    # originating tool_use event.
+    # VERIFIED 2026-04-08: model_tools.py:532 passes
+    # (tool_name, args, result, task_id, session_id, tool_call_id).
+    #
+    # The original sketch expected `is_error` — that does NOT exist as a
+    # kwarg. If error detection becomes important, infer from `result`
+    # content (e.g., string-prefix match on "Error:") or read the next
+    # `pre_llm_call`'s `conversation_history` to see how the model
+    # framed the result. For v1 this is not load-bearing.
+    #
+    # `args` and `task_id` were not in the original sketch but are
+    # passed by Hermes — captured here for completeness (args could be
+    # useful as fallback if the assistant tool_use message is somehow
+    # lost; task_id matters in subagent contexts).
     try:
         if not session_id:
             return
@@ -219,28 +303,81 @@ def _on_post_tool_call(
                 "tool_call_id": tool_call_id or "",
                 "tool_name": tool_name or "",
                 "content": result or "",
-                "is_error": bool(is_error),
+                # Note: no `is_error` field — verified absent in canonical
+                # Hermes shape (see SOURCE_VERIFICATION.md §4.1).
             },
         )
     except Exception:
         pass
 
 
-def _on_user_message(
+def _on_pre_llm_call(
     session_id: Optional[str] = None,
-    content: Optional[str] = None,
+    user_message: Optional[Any] = None,
+    conversation_history: Optional[list] = None,
+    is_first_turn: bool = False,
+    model: Optional[str] = None,
+    platform: Optional[str] = None,
     **_kwargs: Any,
 ) -> None:
-    # VERIFY: Hermes may not have an explicit on_user_message hook. If not,
-    # the plugin will need to capture user prompts via post_llm_call by
-    # noting the *previous* turn's user content. For the prototype we assume
-    # such a hook (or wrapper) exists.
+    # VERIFIED 2026-04-08: run_agent.py:7180 passes
+    # (session_id, user_message, conversation_history, is_first_turn,
+    #  model, platform).
+    #
+    # This hook REPLACES the prototype's missing `_on_user_message` hook
+    # entirely. There is no `pre_user_message` in Hermes (see
+    # SOURCE_VERIFICATION.md §1.1 — VALID_HOOKS does not include one);
+    # `pre_llm_call` is the right place to capture user prompts because
+    # it fires immediately before each LLM call, and the parameter
+    # `user_message` IS the user-input string for that turn.
+    #
+    # IMPORTANT: this callback MUST return None. Hermes interprets a
+    # non-None return value from a pre_llm_call hook as context to inject
+    # into the user message (see SOURCE_VERIFICATION.md §1.4). Returning
+    # None preserves the listener-as-algebra purity.
     try:
-        if not session_id or content is None:
+        if not session_id:
             return
+        # user_message may be a string (CLI mode) or a structured object
+        # (gateway mode with attachments). For v1 we serialize either.
+        text = user_message if isinstance(user_message, str) else str(user_message or "")
         _writer_for(session_id).append(
             "message",
-            {"role": "user", "content": content},
+            {"role": "user", "content": text},
+        )
+    except Exception:
+        pass
+
+
+def _on_session_end(
+    session_id: Optional[str] = None,
+    completed: bool = False,
+    interrupted: bool = False,
+    model: Optional[str] = None,
+    platform: Optional[str] = None,
+    **_kwargs: Any,
+) -> None:
+    # VERIFIED 2026-04-08: run_agent.py:9302 passes
+    # (session_id, completed, interrupted, model, platform).
+    #
+    # This is a new hook the original prototype didn't know about. It
+    # fires at the end of EACH agent loop run with `completed` and
+    # `interrupted` booleans. Distinct from on_session_finalize, which
+    # fires at session boundaries (exit, /new, /reset).
+    #
+    # We emit a per-loop-run "turn complete" marker so OpenStory's
+    # patterns layer can see the loop-end state. The writer stays open
+    # because the session may continue after this in CLI mode.
+    try:
+        if not session_id:
+            return
+        _writer_for(session_id).append(
+            "session_end",  # event_type — translator emits system.turn.complete
+            {
+                "reason": "completed" if completed else ("interrupted" if interrupted else "unknown"),
+                "completed": bool(completed),
+                "interrupted": bool(interrupted),
+            },
         )
     except Exception:
         pass
@@ -297,17 +434,20 @@ def register(ctx: Any) -> None:
         )
 
     # ── Register lifecycle hooks ──
+    # All hooks below have signatures verified against hermes-agent 6e3f7f36
+    # on 2026-04-08 (see SOURCE_VERIFICATION.md §2). Each callback returns
+    # None — that is required for pre_llm_call to preserve the
+    # algebra/coalgebra split (a non-None return injects context into the
+    # user message). Even though only pre_llm_call has this contract, we
+    # follow the rule uniformly so a future maintainer doesn't accidentally
+    # promote one of the other callbacks to a feedback path.
     ctx.register_hook("on_session_start", _on_session_start)
+    ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
+    ctx.register_hook("on_session_end", _on_session_end)
     ctx.register_hook("on_session_finalize", _on_session_finalize)
     ctx.register_hook("on_session_reset", _on_session_reset)
-
-    # Note: Hermes does not currently appear to expose a `pre_user_message`
-    # hook (see VALID_HOOKS in hermes_cli/plugins.py). Capturing user inputs
-    # may require attaching a `pre_llm_call` hook and reading the trailing
-    # user message from the messages list. This is one of the things to
-    # confirm during the verification step.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
