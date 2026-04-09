@@ -174,19 +174,23 @@ class TokenUsage:
                 totals[k] += costs[k]
             if breached:
                 breaches += 1
-            # "Without cache": what if every cache_read was a fresh input
-            # token? cache_creation stays as-is (you'd still pay the
-            # cache-write price the first time). This is the ceiling on
-            # what caching saved you for THIS call.
+            # "Without cache": what if caching didn't exist? Every
+            # prompt token — input, cache_read, AND cache_creation — would
+            # be billed at the plain input rate. In a no-caching world
+            # there's no 1.25× cache-write surcharge; those tokens are
+            # just input like everything else.
             spec = PRICING.get(model, PRICING["sonnet"])
             base = spec["base"]
-            multiplier = 2.0 if breached else 1.0
+            multiplier = spec.get("tier_multiplier", 1.0) if breached else 1.0
             input_rate = base["input"] * multiplier
             output_rate = base["output"] * multiplier
-            cache_creation_rate = base["cache_creation"] * multiplier
+            all_prompt = (
+                call.get("input_tokens", 0)
+                + call.get("cache_read_input_tokens", 0)
+                + call.get("cache_creation_input_tokens", 0)
+            )
             no_cache_call = (
-                (call.get("input_tokens", 0) + call.get("cache_read_input_tokens", 0)) * input_rate
-                + call.get("cache_creation_input_tokens", 0) * cache_creation_rate
+                all_prompt * input_rate
                 + call.get("output_tokens", 0) * output_rate
             ) / 1_000_000
             without_cache_total += no_cache_call
@@ -619,6 +623,22 @@ def run_tests() -> None:
           abs(cs_cost["cache_savings"] - (cs_cost["without_cache"] - cs_cost["total"])) < 0.001)
     check("opus actual cost matches manual calc",
           abs(cs_cost["total"] - expected_actual) < 0.001)
+
+    # without_cache bills cache_creation at INPUT rate, not the 1.25×
+    # cache_creation rate. In a no-caching world there's no surcharge.
+    cc_test = TokenUsage()
+    cc_test.add_usage({
+        "input_tokens": 100,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 100_000,
+        "output_tokens": 100,
+    })
+    cc_cost = cc_test.estimate_cost("opus")
+    # No-cache counterfactual: (100 + 0 + 100_000) all at $15/MTok input
+    # + 100 output at $75/MTok
+    expected_no_cache = (100_100 * 15 + 100 * 75) / 1_000_000
+    check("without_cache uses input rate for cache_creation (not 1.25×)",
+          abs(cc_cost["without_cache"] - expected_no_cache) < 0.001)
 
     # extract_usage
     payload = json.dumps({
