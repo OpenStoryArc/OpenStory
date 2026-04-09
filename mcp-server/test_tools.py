@@ -113,6 +113,18 @@ async def run_all(brief: bool = False):
         lambda d: assert_type(d, list),
     )
 
+    await check(
+        "session_story",
+        {"session_id": sid},
+        lambda d: assert_keys(d, ["session_id", "total_records", "tool_call_counts"]),
+    )
+
+    await check(
+        "session_sentences",
+        {"session_id": sid, "limit": 5},
+        lambda d: assert_keys(d, ["count", "sentences"]),
+    )
+
     if not brief:
         print(f"\n--- Search tools ---")
 

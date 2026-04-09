@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -33,6 +35,7 @@ from fastmcp import FastMCP
 
 BASE_URL = os.environ.get("OPENSTORY_URL", "http://localhost:3002")
 API_TOKEN = os.environ.get("OPENSTORY_API_TOKEN", "")
+_SESSIONSTORY_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "sessionstory.py"
 
 mcp = FastMCP(
     "OpenStory",
@@ -361,6 +364,92 @@ def session_plans(session_id: str) -> str:
     return json.dumps(_get(f"/api/sessions/{session_id}/plans"), indent=2)
 
 
+@mcp.tool
+def session_story(session_id: str) -> str:
+    """Get a structured fact sheet for a session.
+
+    Returns aggregated SessionFacts: shape (records, turns, duration),
+    tool histogram, pattern counts, turn phase mix, up to 8 sample
+    sentences from the detector, and a prompt timeline. Wraps the
+    sessionstory.py analysis script.
+
+    Args:
+        session_id: The session to analyze.
+    """
+    script = _SESSIONSTORY_SCRIPT
+    if not script.exists():
+        return json.dumps({"error": f"sessionstory.py not found at {script}"})
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script), session_id, "--json",
+             "--url", BASE_URL],
+            capture_output=True, text=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "sessionstory.py timed out after 60s"})
+    if result.returncode != 0:
+        return json.dumps({
+            "error": f"sessionstory.py exited with code {result.returncode}",
+            "stderr": result.stderr[:500],
+        })
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return json.dumps({
+            "error": "sessionstory.py returned invalid JSON",
+            "raw_output": result.stdout[:1000],
+        })
+    return json.dumps(parsed, indent=2)
+
+
+@mcp.tool
+def session_sentences(session_id: str, limit: int = 50) -> str:
+    """Get compressed sentence narratives for a session.
+
+    Returns turn-by-turn sentence summaries with key metadata, stripped
+    of heavy fields (eval content, tool input/output). Much leaner than
+    the full session_patterns response for turn.sentence.
+
+    Args:
+        session_id: The session to query.
+        limit: Max sentences to return (default 50).
+    """
+    raw = _get(
+        f"/api/sessions/{session_id}/patterns", params={"type": "turn.sentence"}
+    )
+    patterns = raw.get("patterns", []) if isinstance(raw, dict) else raw
+    sentences = []
+    for p in patterns[:limit]:
+        meta = p.get("metadata") or {}
+        subordinates = []
+        for sub in meta.get("subordinates", []):
+            subordinates.append({
+                "role": sub.get("role"),
+                "verb": sub.get("verb"),
+                "object": sub.get("object"),
+            })
+        human = (meta.get("human") or {}).get("content", "")
+        sentences.append({
+            "turn": meta.get("turn"),
+            "summary": p.get("summary", ""),
+            "subject": meta.get("subject"),
+            "verb": meta.get("verb"),
+            "object": meta.get("object"),
+            "adverbial": meta.get("adverbial"),
+            "predicate": meta.get("predicate"),
+            "subordinates": subordinates,
+            "human_prompt": _truncate(human, 200),
+            "thinking_summary": (meta.get("thinking") or {}).get("summary"),
+            "duration_ms": meta.get("duration_ms"),
+            "scope_depth": meta.get("scope_depth"),
+            "is_terminal": meta.get("is_terminal"),
+            "stop_reason": meta.get("stop_reason"),
+            "started_at": p.get("started_at"),
+            "ended_at": p.get("ended_at"),
+        })
+    return json.dumps({"count": len(sentences), "sentences": sentences}, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -393,6 +482,8 @@ def _self_test():
         "file_impact",
         "session_errors",
         "session_patterns",
+        "session_story",
+        "session_sentences",
         "search",
         "agent_search",
         "project_context",
