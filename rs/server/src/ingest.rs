@@ -436,6 +436,7 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
 mod tests {
     use super::*;
     use open_story_bus::noop_bus::NoopBus;
+    use open_story_core::event_data::EventData;
     use open_story_store::state::StoreState;
 
     // Pure function tests (is_plan_event, extract_plan_content, to_wire_record)
@@ -467,15 +468,17 @@ mod tests {
         CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-1",
-                "text": text,
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": text}]}
-                }
-            }),
+            EventData::new(
+                serde_json::json!({
+                    "text": text,
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": text}]}
+                    }
+                }),
+                1,
+                "sess-1".to_string(),
+            ),
             Some("message.user.prompt".to_string()),
             Some(id.to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
@@ -555,16 +558,18 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-cwd",
-                "cwd": "/home/user/projects/my-app",
-                "text": "hello",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "hello"}]}
-                }
-            }),
+            EventData::new(
+                serde_json::json!({
+                    "cwd": "/home/user/projects/my-app",
+                    "text": "hello",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "hello"}]}
+                    }
+                }),
+                1,
+                "sess-cwd".to_string(),
+            ),
             Some("message.user.prompt".to_string()),
             Some("evt-cwd-1".to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
@@ -613,15 +618,17 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-eph",
-                "text": "running ls...",
-                "raw": {
-                    "type": "system",
-                    "message": {"content": [{"type": "text", "text": "running ls..."}]}
-                }
-            }),
+            EventData::new(
+                serde_json::json!({
+                    "text": "running ls...",
+                    "raw": {
+                        "type": "system",
+                        "message": {"content": [{"type": "text", "text": "running ls..."}]}
+                    }
+                }),
+                1,
+                "sess-eph".to_string(),
+            ),
             Some("progress.bash".to_string()),
             Some("evt-eph-1".to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
@@ -656,24 +663,26 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-plan",
-                "tool": "ExitPlanMode",
-                "args": { "plan": "# My Plan\n\nStep 1: do things" },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-4",
-                        "content": [{
-                            "type": "tool_use",
-                            "id": "toolu_plan",
-                            "name": "ExitPlanMode",
-                            "input": { "plan": "# My Plan\n\nStep 1: do things" }
-                        }]
+            EventData::new(
+                serde_json::json!({
+                    "tool": "ExitPlanMode",
+                    "args": { "plan": "# My Plan\n\nStep 1: do things" },
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-4",
+                            "content": [{
+                                "type": "tool_use",
+                                "id": "toolu_plan",
+                                "name": "ExitPlanMode",
+                                "input": { "plan": "# My Plan\n\nStep 1: do things" }
+                            }]
+                        }
                     }
-                }
-            }),
+                }),
+                1,
+                "sess-plan".to_string(),
+            ),
             Some("message.assistant.tool_use".to_string()),
             Some("evt-plan-1".to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
@@ -700,19 +709,21 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-trunc",
-                "call_id": "toolu_big",
-                "output": large_output,
-                "is_error": false,
-                "raw": {
-                    "type": "tool_result",
-                    "message": {
-                        "content": [{"type": "tool_result", "tool_use_id": "toolu_big", "content": large_output, "is_error": false}]
+            EventData::new(
+                serde_json::json!({
+                    "call_id": "toolu_big",
+                    "output": large_output,
+                    "is_error": false,
+                    "raw": {
+                        "type": "tool_result",
+                        "message": {
+                            "content": [{"type": "tool_result", "tool_use_id": "toolu_big", "content": large_output, "is_error": false}]
+                        }
                     }
-                }
-            }),
+                }),
+                1,
+                "sess-trunc".to_string(),
+            ),
             Some("message.user.tool_result".to_string()),
             Some("evt-trunc-1".to_string()),
             Some("2025-01-13T00:00:00Z".to_string()),
@@ -744,15 +755,17 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "parent-123",
-                "text": "subagent doing work",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "subagent doing work"}]}
-                }
-            }),
+            EventData::new(
+                serde_json::json!({
+                    "text": "subagent doing work",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "subagent doing work"}]}
+                    }
+                }),
+                1,
+                "parent-123".to_string(),
+            ),
             Some("message.user.prompt".to_string()),
             Some("evt-sub-1".to_string()),
             Some("2025-01-17T00:00:00Z".to_string()),
@@ -785,15 +798,17 @@ mod tests {
         let event = CloudEvent::new(
             "arc://test".to_string(),
             "io.arc.event".to_string(),
-            serde_json::json!({
-                "seq": 1,
-                "session_id": "sess-1",
-                "text": "normal session",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "normal session"}]}
-                }
-            }),
+            EventData::new(
+                serde_json::json!({
+                    "text": "normal session",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "normal session"}]}
+                    }
+                }),
+                1,
+                "sess-1".to_string(),
+            ),
             Some("message.user.prompt".to_string()),
             Some("evt-normal-1".to_string()),
             Some("2025-01-17T00:00:00Z".to_string()),
