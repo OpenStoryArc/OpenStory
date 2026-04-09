@@ -247,7 +247,27 @@ Cron job or systemd timer on the server that queries the OpenStory API to detect
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
 
 ### Sentence Identity & Query API
-The sentence detector emits `PatternEvent`s with a deterministic DB key (`{pattern_type}:{started_at}:{session_id}`) but no first-class `sentence_id` field. The MCP server derives this key client-side, which is fragile. Refactor the sentence detector (`rs/patterns/src/sentence.rs`) to emit a `sentence_id: Uuid` — deterministic hash of the sorted `event_ids` — as a field on the `PatternEvent` metadata. This gives sentences a content-addressed identity: same events always produce the same ID regardless of timestamp precision. Then add query support to the patterns API: filter by verb, entity (object field), subordinate role, human prompt text, duration range, and cross-session scope. These filters map to SQL WHERE clauses on the patterns table's metadata JSON (SQLite `json_extract`, Mongo dotted-path). The sentence ID becomes the stable key for the paragraph/story hierarchy (paragraphs reference sentence IDs, stories reference paragraph IDs — see `openstory-research/memory/` for the fold design). Estimate: ~30 lines in the detector for ID generation, ~100 lines for new query parameters on the API endpoint, plus conformance tests for both backends.
+Two pieces: identity and querying.
+
+**Identity.** The sentence detector emits `PatternEvent`s with a deterministic DB key (`{pattern_type}:{started_at}:{session_id}`) but no first-class `sentence_id` field. The MCP server derives this key client-side, which is fragile. Refactor the sentence detector (`rs/patterns/src/sentence.rs`) to emit a `sentence_id: Uuid` — deterministic hash of the sorted `event_ids` — as a field on the `PatternEvent` metadata. This gives sentences a content-addressed identity: same events always produce the same ID regardless of timestamp precision. The sentence ID becomes the stable key for the paragraph/story hierarchy (paragraphs reference sentence IDs, stories reference paragraph IDs — see `openstory-research/memory/` for the fold design).
+
+**Cross-session query endpoint.** `GET /api/sentences` — queries the patterns table for `type = 'turn.sentence'` with filters, not scoped to a single session. This is the foundation for the MCP `session_sentences` tool to support time-range queries ("last 3 days") and cross-session analytics.
+
+Filters (all optional, composable):
+- `days=N` / `since=ISO8601` — time range on `start_time`
+- `session_id=X` — scope to one session
+- `verb=committed` — filter on `metadata.verb` (SQLite `json_extract`, Mongo dotted-path)
+- `entity=patterns.rs` — substring match on `metadata.object`
+- `role=Verificatory` — filter on `metadata.subordinates[].role`
+- `human=benchmark` — FTS or LIKE on `metadata.human.content`
+- `min_duration=120000` — duration threshold on `metadata.duration_ms`
+- `limit=50` / `offset=0` — pagination
+
+Response: lean sentence index (id, turn, session_id, summary, verb, object, human_prompt truncated, started_at, event_count). Full event_ids and metadata available via `GET /api/sentences/{id}` detail endpoint.
+
+**Both backends.** Must be implemented in `SqliteStore` (via `json_extract` + `strftime` + `LIKE`) and `MongoStore` (via dotted-path + `$dateFromString` + `$regex`). Add conformance helpers following the existing C1/C2/C3 parity model in `rs/store/tests/event_store_conformance.rs`.
+
+Estimate: ~30 lines in detector for sentence_id, ~150 lines per backend for the query, ~50 lines API handler, ~100 lines conformance tests, MCP tool update.
 
 ### Eval-Apply Cycle Detector (Rust)
 Add `turn.cycle` as a new pattern type alongside `turn.sentence`. Each eval-apply cycle (model evaluates → dispatches tools → gets results) becomes a detectable pattern. Currently cycles are derived client-side via `extractCycles()` in `ui/src/lib/eval-apply.ts`. Moving to Rust enables real-time cycle streaming via the patterns consumer. Key insight from data: main agents and subagents have identical cycle structure — subagents just lack `turn.complete` markers.
