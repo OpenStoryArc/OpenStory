@@ -35,6 +35,12 @@ pub struct PatternsResult {
     pub turns: Vec<StructuralTurn>,
 }
 
+impl Default for PatternsConsumer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternsConsumer {
     pub fn new() -> Self {
         Self {
