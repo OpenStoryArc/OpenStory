@@ -404,11 +404,11 @@ def session_story(session_id: str) -> str:
 
 @mcp.tool
 def session_sentences(session_id: str, limit: int = 50) -> str:
-    """Get compressed sentence narratives for a session.
+    """Get sentence index for a session.
 
-    Returns turn-by-turn sentence summaries with key metadata, stripped
-    of heavy fields (eval content, tool input/output). Much leaner than
-    the full session_patterns response for turn.sentence.
+    Returns a lean turn-by-turn index: sentence ID, turn number, summary,
+    verb, object, human prompt, and event_ids for provenance. Use the ID
+    or event_ids to drill into detail via other tools.
 
     Args:
         session_id: The session to query.
@@ -421,31 +421,19 @@ def session_sentences(session_id: str, limit: int = 50) -> str:
     sentences = []
     for p in patterns[:limit]:
         meta = p.get("metadata") or {}
-        subordinates = []
-        for sub in meta.get("subordinates", []):
-            subordinates.append({
-                "role": sub.get("role"),
-                "verb": sub.get("verb"),
-                "object": sub.get("object"),
-            })
         human = (meta.get("human") or {}).get("content", "")
+        started = p.get("started_at", "")
+        # Derive the same deterministic ID the Rust store uses
+        pattern_id = f"{p.get('pattern_type', '')}:{started}:{session_id}"
         sentences.append({
+            "id": pattern_id,
             "turn": meta.get("turn"),
             "summary": p.get("summary", ""),
-            "subject": meta.get("subject"),
             "verb": meta.get("verb"),
             "object": meta.get("object"),
-            "adverbial": meta.get("adverbial"),
-            "predicate": meta.get("predicate"),
-            "subordinates": subordinates,
-            "human_prompt": _truncate(human, 200),
-            "thinking_summary": (meta.get("thinking") or {}).get("summary"),
-            "duration_ms": meta.get("duration_ms"),
-            "scope_depth": meta.get("scope_depth"),
-            "is_terminal": meta.get("is_terminal"),
-            "stop_reason": meta.get("stop_reason"),
-            "started_at": p.get("started_at"),
-            "ended_at": p.get("ended_at"),
+            "human_prompt": _truncate(human, 80),
+            "event_ids": p.get("event_ids", []),
+            "started_at": started,
         })
     return json.dumps({"count": len(sentences), "sentences": sentences}, indent=2)
 
