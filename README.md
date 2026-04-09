@@ -40,6 +40,36 @@ Four dashboard views, each a different lens on the same data:
 
 **Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
 
+### The Story tab — surface and depth
+
+Each completed turn becomes a parsed English sentence:
+**subject → verb → subordinates → adverbial → predicate.** One line, the
+whole turn.
+
+<p align="center">
+  <img src="docs/img/sentence-card.png" alt="A turn rendered as a sentence diagram" width="780">
+</p>
+
+> *Claude → **committed** → after reading 1 source, while running 10 checks,
+> because "committing is great, we should clean up and get this merged." → answered*
+
+Click the card and the eval-apply trace unfolds — the actor input, the tool
+applications, and the model's final eval. Same turn, two abstraction layers,
+both derived from the same CloudEvents:
+
+<p align="center">
+  <img src="docs/img/eval-apply-detail.png" alt="The eval-apply detail behind the sentence" width="700">
+</p>
+
+And sometimes the story is *itself*. Here is Open Story watching the agent
+prepare this very README — three `Bash` calls inspecting the file, captured
+as a sentence, while the agent's plan to "make this section *shine*" sits
+inside the EVAL phase below:
+
+<p align="center">
+  <img src="docs/img/mirror.png" alt="Open Story rendering the turn that wrote this README section" width="720">
+</p>
+
 ## Philosophy
 
 Open Story is a mirror, not a leash. It observes but never interferes — it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours: CloudEvents 1.0, JSONL, Markdown. Open formats, portable, unencumbered.
