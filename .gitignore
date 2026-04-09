@@ -35,6 +35,7 @@ rs/target/llvm-cov-target/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+.venv/
 
 # Secrets (NEVER commit these)
 .anthropic_api_key
