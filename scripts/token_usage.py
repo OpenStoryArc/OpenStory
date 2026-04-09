@@ -24,37 +24,96 @@ from typing import Optional
 
 
 # ── Pricing (per million tokens) ──
-# Default: Sonnet 4 rates. Override with --model flag.
+#
+# Each model has a `base` rate (prompt ≤ 200K tokens) and an optional
+# `tier_threshold` + `tier_multiplier`. When any single API call's prompt
+# size (input + cache_read + cache_creation) exceeds `tier_threshold`,
+# THAT call is billed at base × tier_multiplier — Anthropic charges per
+# request, not per session, so we apply the multiplier per-call when
+# computing cost.
+#
+# Sources:
+#   https://docs.anthropic.com/en/docs/about-claude/pricing
+#   Opus 4.6 1M context: prompts >200K tokens are 2× standard rates
+#
+# Default: Sonnet 4. Override with --model.
 PRICING = {
     "sonnet": {
-        "input": 3.00,
-        "output": 15.00,
-        "cache_read": 0.30,
-        "cache_creation": 3.75,
+        "base": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_creation": 3.75},
     },
     "opus": {
-        "input": 15.00,
-        "output": 75.00,
-        "cache_read": 1.50,
-        "cache_creation": 18.75,
+        # Opus 4 standard. No tier above 200K.
+        "base": {"input": 15.00, "output": 75.00, "cache_read": 1.50, "cache_creation": 18.75},
+    },
+    "opus-4-6": {
+        # Opus 4.6 with 1M context window. Prompts ≤200K bill at base
+        # rate; prompts >200K bill at 2× base.
+        "base": {"input": 15.00, "output": 75.00, "cache_read": 1.50, "cache_creation": 18.75},
+        "tier_threshold": 200_000,
+        "tier_multiplier": 2.0,
     },
     "haiku": {
-        "input": 0.80,
-        "output": 4.00,
-        "cache_read": 0.08,
-        "cache_creation": 1.00,
+        "base": {"input": 0.80, "output": 4.00, "cache_read": 0.08, "cache_creation": 1.00},
     },
 }
 
 
+def call_prompt_size(usage: dict) -> int:
+    """How many tokens are in the *prompt* for one API call.
+
+    Anthropic's tier threshold (200K for Opus 4.6 1M) is measured against
+    the prompt — input + cache_read + cache_creation. Output tokens don't
+    count toward the threshold; they're billed separately.
+    """
+    return (
+        usage.get("input_tokens", 0)
+        + usage.get("cache_read_input_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0)
+    )
+
+
+def call_cost(usage: dict, model: str) -> tuple[dict, bool]:
+    """Compute cost for ONE API call with per-call tier detection.
+
+    Returns (cost_dict, breached_tier) where `breached_tier` is True if
+    this call's prompt exceeded the model's tier threshold.
+    """
+    spec = PRICING.get(model, PRICING["sonnet"])
+    base = spec["base"]
+    multiplier = 1.0
+    breached = False
+    threshold = spec.get("tier_threshold")
+    if threshold is not None and call_prompt_size(usage) > threshold:
+        multiplier = spec["tier_multiplier"]
+        breached = True
+    rates = {k: v * multiplier for k, v in base.items()}
+    costs = {
+        "input": usage.get("input_tokens", 0) * rates["input"] / 1_000_000,
+        "output": usage.get("output_tokens", 0) * rates["output"] / 1_000_000,
+        "cache_read": usage.get("cache_read_input_tokens", 0) * rates["cache_read"] / 1_000_000,
+        "cache_creation": usage.get("cache_creation_input_tokens", 0) * rates["cache_creation"] / 1_000_000,
+    }
+    costs["total"] = sum(costs.values())
+    return costs, breached
+
+
 @dataclass
 class TokenUsage:
-    """Aggregated token counts for a scope (session, day, or total)."""
+    """Aggregated token counts for a scope (session, day, or total).
+
+    Holds the raw per-call usage records so cost can be computed
+    per-call (with tier detection) at any model. The aggregate token
+    fields are kept for backwards compatibility with the JSON output
+    and for fast totals.
+    """
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
     message_count: int = 0
+    # Per-call records — needed for tier-aware cost estimation. Each
+    # entry is the raw `usage` dict from one API response.
+    calls: list[dict] = field(default_factory=list)
 
     @property
     def total_tokens(self) -> int:
@@ -65,6 +124,13 @@ class TokenUsage:
             + self.cache_creation_tokens
         )
 
+    @property
+    def biggest_prompt(self) -> int:
+        """Largest single-call prompt size (for tier-breach reporting)."""
+        if not self.calls:
+            return 0
+        return max(call_prompt_size(c) for c in self.calls)
+
     def add_usage(self, usage: dict) -> None:
         """Add a single message's usage dict to the running totals."""
         self.input_tokens += usage.get("input_tokens", 0)
@@ -72,6 +138,7 @@ class TokenUsage:
         self.cache_read_tokens += usage.get("cache_read_input_tokens", 0)
         self.cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
         self.message_count += 1
+        self.calls.append(usage)
 
     def merge(self, other: "TokenUsage") -> None:
         """Merge another TokenUsage into this one."""
@@ -80,22 +147,68 @@ class TokenUsage:
         self.cache_read_tokens += other.cache_read_tokens
         self.cache_creation_tokens += other.cache_creation_tokens
         self.message_count += other.message_count
+        self.calls.extend(other.calls)
 
     def estimate_cost(self, model: str = "sonnet") -> dict:
-        """Estimate cost in USD using per-million-token pricing."""
-        rates = PRICING.get(model, PRICING["sonnet"])
-        costs = {
-            "input": self.input_tokens * rates["input"] / 1_000_000,
-            "output": self.output_tokens * rates["output"] / 1_000_000,
-            "cache_read": self.cache_read_tokens * rates["cache_read"] / 1_000_000,
-            "cache_creation": self.cache_creation_tokens * rates["cache_creation"] / 1_000_000,
-        }
-        costs["total"] = sum(costs.values())
-        return costs
+        """Estimate cost in USD with per-call tier detection.
+
+        Anthropic bills per-request, so the tier multiplier (e.g. 2× for
+        Opus 4.6 prompts >200K) applies only to the calls that breach
+        the threshold. We sum each call's cost individually rather than
+        applying a flat rate to the aggregate totals.
+
+        Includes a `tier_breaches` count and `biggest_prompt` so callers
+        can warn the user when prompt sizes are unusually large.
+
+        Also computes `without_cache` — the hypothetical bill if every
+        cache_read had been billed as fresh input. This is the value
+        prompt caching saves you, and it's the honest way to express the
+        Max-plan / caching benefit on a per-session basis.
+        """
+        totals = {"input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_creation": 0.0}
+        without_cache_total = 0.0
+        breaches = 0
+        for call in self.calls:
+            costs, breached = call_cost(call, model)
+            for k in totals:
+                totals[k] += costs[k]
+            if breached:
+                breaches += 1
+            # "Without cache": what if every cache_read was a fresh input
+            # token? cache_creation stays as-is (you'd still pay the
+            # cache-write price the first time). This is the ceiling on
+            # what caching saved you for THIS call.
+            spec = PRICING.get(model, PRICING["sonnet"])
+            base = spec["base"]
+            multiplier = 2.0 if breached else 1.0
+            input_rate = base["input"] * multiplier
+            output_rate = base["output"] * multiplier
+            cache_creation_rate = base["cache_creation"] * multiplier
+            no_cache_call = (
+                (call.get("input_tokens", 0) + call.get("cache_read_input_tokens", 0)) * input_rate
+                + call.get("cache_creation_input_tokens", 0) * cache_creation_rate
+                + call.get("output_tokens", 0) * output_rate
+            ) / 1_000_000
+            without_cache_total += no_cache_call
+        totals["total"] = sum(totals.values())
+        totals["tier_breaches"] = breaches
+        totals["biggest_prompt"] = self.biggest_prompt
+        totals["without_cache"] = without_cache_total
+        totals["cache_savings"] = without_cache_total - totals["total"]
+        return totals
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["total_tokens"] = self.total_tokens
+        # Don't serialize the raw calls list — it's an internal
+        # detail and would bloat JSON output.
+        d = {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
+            "message_count": self.message_count,
+            "total_tokens": self.total_tokens,
+            "biggest_prompt": self.biggest_prompt,
+        }
         return d
 
 
@@ -297,13 +410,31 @@ def print_summary(sessions: list[SessionInfo], model: str = "sonnet") -> None:
     print()
 
     costs = total.estimate_cost(model)
-    print(f"--- Estimated Cost ({model.title()} rates) ---")
+    spec = PRICING.get(model, PRICING["sonnet"])
+    threshold = spec.get("tier_threshold")
+    print(f"--- Estimated Cost ({model} rates) ---")
     print(f"  Input:          {format_cost(costs['input']):>10}")
     print(f"  Output:         {format_cost(costs['output']):>10}")
     print(f"  Cache read:     {format_cost(costs['cache_read']):>10}")
     print(f"  Cache creation: {format_cost(costs['cache_creation']):>10}")
     print(f"  {'':─<18}{'':─>10}")
     print(f"  Total:          {format_cost(costs['total']):>10}")
+    print()
+    print("--- The cache earned its keep ---")
+    print(f"  Without caching:    {format_cost(costs['without_cache']):>10}")
+    print(f"  Actual:             {format_cost(costs['total']):>10}")
+    print(f"  Cache saved you:    {format_cost(costs['cache_savings']):>10}")
+    if costs['without_cache'] > 0:
+        pct = 100 * costs['cache_savings'] / costs['without_cache']
+        print(f"  ({pct:.1f}% off retail)")
+    print()
+    print(f"--- Prompt size ---")
+    print(f"  Biggest single call: {format_number(costs['biggest_prompt'])} prompt tokens")
+    if threshold is not None:
+        if costs['tier_breaches'] > 0:
+            print(f"  ⚠  {costs['tier_breaches']} call(s) breached the {format_number(threshold)} tier — billed at 2× base")
+        else:
+            print(f"  ✓ all {total.message_count} calls stayed under the {format_number(threshold)} tier")
 
 
 def print_by_session(sessions: list[SessionInfo], model: str = "sonnet") -> None:
@@ -416,8 +547,10 @@ def run_tests() -> None:
     check("merge cache_creation", u.cache_creation_tokens == 70)
     check("merge message_count", u.message_count == 5)
 
-    # estimate_cost
-    cost_u = TokenUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+    # estimate_cost — note: estimate_cost now uses per-call records,
+    # so we have to seed via add_usage rather than dataclass kwargs.
+    cost_u = TokenUsage()
+    cost_u.add_usage({"input_tokens": 1_000_000, "output_tokens": 1_000_000})
     sonnet_cost = cost_u.estimate_cost("sonnet")
     check("sonnet input cost $3/MTok", abs(sonnet_cost["input"] - 3.0) < 0.01)
     check("sonnet output cost $15/MTok", abs(sonnet_cost["output"] - 15.0) < 0.01)
@@ -429,6 +562,63 @@ def run_tests() -> None:
 
     haiku_cost = cost_u.estimate_cost("haiku")
     check("haiku input cost $0.80/MTok", abs(haiku_cost["input"] - 0.80) < 0.01)
+
+    # ── Opus 4.6 tier detection ──
+    # A single small call (under 200K) bills at base rate.
+    small = TokenUsage()
+    small.add_usage({"input_tokens": 50_000, "output_tokens": 1_000})
+    small_cost = small.estimate_cost("opus-4-6")
+    check("opus-4-6 small call uses base rate",
+          abs(small_cost["input"] - 50_000 * 15 / 1_000_000) < 0.01)
+    check("opus-4-6 small call has 0 tier breaches", small_cost["tier_breaches"] == 0)
+    check("opus-4-6 small biggest_prompt is 50K", small_cost["biggest_prompt"] == 50_000)
+
+    # A single large call (>200K prompt) bills at 2× base.
+    big = TokenUsage()
+    big.add_usage({"input_tokens": 250_000, "output_tokens": 1_000})
+    big_cost = big.estimate_cost("opus-4-6")
+    check("opus-4-6 big call uses 2× rate",
+          abs(big_cost["input"] - 250_000 * 30 / 1_000_000) < 0.01)
+    check("opus-4-6 big call has 1 tier breach", big_cost["tier_breaches"] == 1)
+
+    # Mixed: tier multiplier applies per-call, not per-session.
+    mixed = TokenUsage()
+    mixed.add_usage({"input_tokens": 50_000, "output_tokens": 100})    # base
+    mixed.add_usage({"input_tokens": 250_000, "output_tokens": 100})  # 2x
+    mixed_cost = mixed.estimate_cost("opus-4-6")
+    expected_input = (50_000 * 15 + 250_000 * 30) / 1_000_000
+    check("opus-4-6 mixed: tier applies per-call",
+          abs(mixed_cost["input"] - expected_input) < 0.01)
+    check("opus-4-6 mixed: 1 of 2 calls breached", mixed_cost["tier_breaches"] == 1)
+
+    # Threshold counts cache_read + cache_creation toward prompt size.
+    cached_big = TokenUsage()
+    cached_big.add_usage({
+        "input_tokens": 100,
+        "cache_read_input_tokens": 250_000,
+        "output_tokens": 50,
+    })
+    cached_big_cost = cached_big.estimate_cost("opus-4-6")
+    check("opus-4-6 prompt size includes cache_read",
+          cached_big_cost["tier_breaches"] == 1)
+
+    # without_cache: a fully-cached call costs much less than the
+    # hypothetical "all input" cost.
+    cache_savings = TokenUsage()
+    cache_savings.add_usage({
+        "input_tokens": 100,
+        "cache_read_input_tokens": 100_000,
+        "output_tokens": 100,
+    })
+    cs_cost = cache_savings.estimate_cost("opus")
+    # Actual: input @ $15 + cache_read @ $1.50 + output @ $75
+    expected_actual = (100 * 15 + 100_000 * 1.5 + 100 * 75) / 1_000_000
+    check("without_cache > actual when cache_read is large",
+          cs_cost["without_cache"] > cs_cost["total"])
+    check("cache_savings = without_cache - actual",
+          abs(cs_cost["cache_savings"] - (cs_cost["without_cache"] - cs_cost["total"])) < 0.001)
+    check("opus actual cost matches manual calc",
+          abs(cs_cost["total"] - expected_actual) < 0.001)
 
     # extract_usage
     payload = json.dumps({
