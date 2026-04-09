@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openstory": {
+      "command": "uv",
+      "args": ["run", "--directory", "mcp-server", "python", "server.py"],
+      "env": {
+        "OPENSTORY_URL": "http://localhost:3002"
+      }
+    }
+  }
+}
