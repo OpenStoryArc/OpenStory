@@ -64,7 +64,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   const chipStyle = sessionChipStyle(pattern.session_id);
   const chipLabel = isSubagent
     ? `sub ${pattern.session_id.slice(6, 14)}`
-    : `main ${pattern.session_id.slice(0, 8)}`;
+    : `main ${pattern.session_id}`;
 
   // Clicking the chip filters the Story view to this session, or back to
   // ALL if it's already the selected one. Shift-click bypasses the toggle

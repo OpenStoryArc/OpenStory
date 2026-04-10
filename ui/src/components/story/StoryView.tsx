@@ -265,7 +265,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           const color = sessionColor(s.session_id);
           const label = s.label && s.label !== s.session_id
             ? (s.label.length > 40 ? s.label.slice(0, 37) + "..." : s.label)
-            : s.session_id.slice(0, 8);
+            : s.session_id;
           const cachedCount = sentenceCache.get(s.session_id)?.length;
           return (
             <button
@@ -302,7 +302,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                         borderColor: `${color}33`,
                       }}
                     >
-                      {s.session_id.slice(0, 8)}
+                      {s.session_id}
                     </span>
                     {cachedCount != null && (
                       <span className="text-[10px] text-[#565f89]">
@@ -345,7 +345,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                   title={s.session_id}
                 >
                   {isActive && <span className="mr-1" style={{ color }}>●</span>}
-                  {s.session_id.slice(6, 18)} <span className="opacity-60">({s.event_count ?? 0})</span>
+                  {s.session_id} <span className="opacity-60">({s.event_count ?? 0})</span>
                 </button>
               );
             })}
