@@ -4,7 +4,16 @@
       "command": "uv",
       "args": ["run", "--directory", "mcp-server", "python", "server.py"],
       "env": {
-        "OPENSTORY_URL": "http://localhost:3002"
+        "OPENSTORY_URL": "${OPENSTORY_LOCAL_URL:-http://localhost:3002}",
+        "OPENSTORY_LABEL": "local"
+      }
+    },
+    "openstory-remote": {
+      "command": "uv",
+      "args": ["run", "--directory", "mcp-server", "python", "server.py"],
+      "env": {
+        "OPENSTORY_URL": "${OPENSTORY_REMOTE_URL}",
+        "OPENSTORY_LABEL": "remote — all machines"
       }
     }
   }

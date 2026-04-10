@@ -1,0 +1,56 @@
+# Leaf deployment: local machine connecting to central hub.
+#
+# Runs a NATS leaf node (forwards events to the VPS hub via Tailscale)
+# and Open Story in full mode (watches local Claude Code transcripts, serves local UI).
+#
+# Prerequisites:
+#   - Tailscale connected to same tailnet as the VPS
+#   - Edit deploy/nats-leaf.conf with your hub's Tailscale host and token
+#   - Build Open Story image: docker build -f Dockerfile.prod -t open-story:prod .
+#
+# Usage:
+#   docker compose -f docker-compose.leaf.yml up -d
+#
+# Local UI: http://localhost:3002
+# Common UI: https://<vps-tailscale-hostname> (via Caddy on VPS)
+
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["-c", "/etc/nats/nats-leaf.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      - nats-data:/tmp/nats-jetstream-leaf
+      - ./deploy/nats-leaf.conf:/etc/nats/nats-leaf.conf:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  open-story:
+    image: open-story:prod
+    user: "0:0"
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - os-data:/data
+      - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
+    environment:
+      - NATS_URL=nats://nats:4222
+      - OPEN_STORY_WATCH_DIR=/watch
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
+    depends_on:
+      - nats
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+volumes:
+  nats-data:
+  os-data:

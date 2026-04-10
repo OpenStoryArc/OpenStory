@@ -15,13 +15,16 @@ OpenClaw gateway (:18789)     -- coding agent, writes JSONL sessions
   |
   v (shared Docker volume)
 Open Story server (:3002)     -- observes, stores, broadcasts
-  |
-  +-- Dashboard UI
-  +-- REST API
-  +-- WebSocket (live stream)
+  |                               |
+  +-- Dashboard UI                v
+  +-- REST API              NATS hub (:4222 local, :7422 leaf nodes)
+  +-- WebSocket (live)        |
+                              +-- leaf nodes from other machines (via Tailscale)
 
-Caddy reverse proxy on Tailscale IP (HTTP, private network)
+Caddy reverse proxy on Tailscale IP (HTTPS, private network)
 ```
+
+For distributed streaming (multiple machines), see [distributed.md](distributed.md).
 
 ## Prerequisites
 
@@ -132,6 +135,8 @@ chmod 600 .env
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `TELEGRAM_ALLOWED_USER_IDS` | Yes | Comma-separated Telegram user IDs |
 | `OPENCLAW_AUTH_TOKEN` | Yes | Shared secret between OpenClaw and the Telegram bot |
+| `NATS_LEAF_TOKEN` | No | Token for remote NATS leaf node auth (see [distributed.md](distributed.md)) |
+| `TAILSCALE_IP` | No | Tailscale IP to bind NATS leaf port (e.g., `100.64.0.1`) |
 
 ## Step 6: Build images
 
@@ -162,7 +167,7 @@ Verify all three containers are healthy:
 docker compose -f docker-compose.prod.yml ps
 ```
 
-You should see `openclaw`, `open-story`, and `telegram-bot` all running.
+You should see `openclaw`, `open-story`, `nats`, and `telegram-bot` all running.
 
 ## Step 8: Configure Caddy
 
