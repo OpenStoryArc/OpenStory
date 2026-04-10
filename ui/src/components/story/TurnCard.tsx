@@ -46,6 +46,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   const object = (m.object as string) ?? "";
   const adverbial = m.adverbial as string | null;
   const predicate = (m.predicate as string) ?? "answered";
+  const subject = pattern.summary?.split(/\s+/)[0] || "Claude";
   const subordinates = (m.subordinates as Array<{ role: string; verb: string; object: string; tool_calls: number }>) ?? [];
   const human = m.human as { content: string; timestamp: string } | null;
   const thinking = m.thinking as { summary: string } | null;
@@ -170,6 +171,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
       <div className="px-3.5 py-2.5 space-y-1">
         {/* Diagram — always shown */}
         <DiagramInline
+          subject={subject}
           verb={verb}
           object={object}
           adverbial={adverbial}
@@ -245,15 +247,15 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
 // Sentence diagram (click to expand)
 // ─────────────────────────────────────────────
 
-function DiagramInline({ verb, object, adverbial, subordinates, predicate }: {
-  verb: string; object: string; adverbial: string | null;
+function DiagramInline({ subject, verb, object, adverbial, subordinates, predicate }: {
+  subject: string; verb: string; object: string; adverbial: string | null;
   subordinates: Array<{ role: string; verb: string; object: string; tool_calls: number }>;
   predicate: string;
 }) {
   return (
     <div className="px-1 py-1 bg-[#1a1b26] rounded text-[11px] font-mono">
       <div>
-        <span className="text-[#7aa2f7] font-bold">Claude</span>
+        <span className="text-[#7aa2f7] font-bold">{subject}</span>
         <span className="text-[#3b4261]"> ──── </span>
         <span className="text-[#9ece6a] font-bold">{verb}</span>
         <span className="text-[#3b4261]"> ──── </span>
