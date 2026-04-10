@@ -7,7 +7,12 @@ ui/dist/
 
 # Data
 data/
+data-mongo/
+data.old/
 rs/data/
+
+# Screenshots
+screenshots/
 
 # Claude local settings (ignore everything except project-level skills)
 .claude/*
