@@ -113,56 +113,57 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            // Tool results still need raw content block parsing
-            let payload_value = ap
-                .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
-                .unwrap_or(Value::Null);
-            let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
-            extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time, tool_outcome)
+            if agent == "hermes" {
+                // Hermes tool results: call_id and content on the typed payload.
+                // Tool result content is always a JSON string wrapping structured
+                // output (read_file → {content, error, ...}, terminal → {output,
+                // exit_code, ...}, etc.). We store it as-is.
+                let (call_id, content_text) = match ap {
+                    Some(AgentPayload::Hermes(h)) => (
+                        h.tool_call_id.clone().unwrap_or_default(),
+                        h.text.clone().unwrap_or_default(),
+                    ),
+                    _ => (String::new(), text.to_string()),
+                };
+                vec![ViewRecord {
+                    id,
+                    seq,
+                    session_id,
+                    timestamp: time,
+                    agent_id: None,
+                    is_sidechain: false,
+                    body: RecordBody::ToolResult(ToolResult {
+                        call_id,
+                        output: Some(content_text),
+                        is_error: false,
+                        tool_outcome: None,
+                    }),
+                }]
+            } else {
+                // Claude Code / pi-mono: raw content block parsing
+                let payload_value = ap
+                    .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                    .unwrap_or(Value::Null);
+                let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
+                extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time, tool_outcome)
+            }
         }
 
         s if s.starts_with("message.assistant.tool_use") => {
             // Tool calls: try typed fields first, fall back to raw content blocks
             if let (Some(tool_name), Some(tool_args)) = (tool, args) {
-                // Check raw for multiple tool_use blocks
-                let content = raw
-                    .get("message")
-                    .and_then(|m| m.get("content"));
-                let has_multiple = content
-                    .and_then(|c| c.as_array())
-                    .map(|arr| {
-                        let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
-                        arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some(tool_type)).count()
-                    })
-                    .unwrap_or(0);
-
-                if has_multiple > 1 {
-                    // Multiple tool blocks — fall back to raw parsing
-                    let payload_value = ap
-                        .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
-                        .unwrap_or(Value::Null);
-                    extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
-                } else {
-                    // Single tool — use typed fields. We still pull call_id
-                    // from the raw content block, since that's the only place
-                    // it lives — without it the ToolCall can't be linked to
-                    // its ToolResult downstream (call_id is the join key).
+                // Hermes: tool_use_id is on the typed payload — no raw content
+                // block parsing needed. Hermes's translator already fans out
+                // one CloudEvent per tool call, so there are never "multiple
+                // tool blocks in one event" like Claude Code has.
+                if agent == "hermes" {
+                    let call_id = match ap {
+                        Some(AgentPayload::Hermes(h)) => {
+                            h.tool_use_id.clone().unwrap_or_default()
+                        }
+                        _ => String::new(),
+                    };
                     let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
-                    let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
-                    let id_field = if agent == "pi-mono" { "toolUseId" } else { "id" };
-                    let call_id = raw
-                        .get("message")
-                        .and_then(|m| m.get("content"))
-                        .and_then(|c| c.as_array())
-                        .and_then(|arr| {
-                            arr.iter().find(|b| {
-                                b.get("type").and_then(|v| v.as_str()) == Some(tool_type)
-                            })
-                        })
-                        .and_then(|b| b.get(id_field))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
                     vec![ViewRecord {
                         id,
                         seq,
@@ -179,6 +180,63 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             status: None,
                         })),
                     }]
+                } else {
+                    // Claude Code / pi-mono: check raw for multiple tool_use blocks
+                    let content = raw
+                        .get("message")
+                        .and_then(|m| m.get("content"));
+                    let has_multiple = content
+                        .and_then(|c| c.as_array())
+                        .map(|arr| {
+                            let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
+                            arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some(tool_type)).count()
+                        })
+                        .unwrap_or(0);
+
+                    if has_multiple > 1 {
+                        // Multiple tool blocks — fall back to raw parsing
+                        let payload_value = ap
+                            .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
+                            .unwrap_or(Value::Null);
+                        extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
+                    } else {
+                        // Single tool — use typed fields. We still pull call_id
+                        // from the raw content block, since that's the only place
+                        // it lives — without it the ToolCall can't be linked to
+                        // its ToolResult downstream (call_id is the join key).
+                        let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                        let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
+                        let id_field = if agent == "pi-mono" { "toolUseId" } else { "id" };
+                        let call_id = raw
+                            .get("message")
+                            .and_then(|m| m.get("content"))
+                            .and_then(|c| c.as_array())
+                            .and_then(|arr| {
+                                arr.iter().find(|b| {
+                                    b.get("type").and_then(|v| v.as_str()) == Some(tool_type)
+                                })
+                            })
+                            .and_then(|b| b.get(id_field))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        vec![ViewRecord {
+                            id,
+                            seq,
+                            session_id,
+                            timestamp: time,
+                            agent_id: None,
+                            is_sidechain: false,
+                            body: RecordBody::ToolCall(Box::new(ToolCall {
+                                call_id,
+                                name: tool_name.to_string(),
+                                input: tool_args.clone(),
+                                raw_input: tool_args.clone(),
+                                typed_input: Some(typed),
+                                status: None,
+                            })),
+                        }]
+                    }
                 }
             } else {
                 // No typed tool fields — fall back to raw content blocks
@@ -194,7 +252,20 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant") => {
-            let content = extract_content_blocks(raw);
+            // Hermes: content is on the typed payload (text accessor), not
+            // in raw content blocks. Claude Code and pi-mono use raw content
+            // blocks that extract_content_blocks parses.
+            let content = if agent == "hermes" {
+                // Hermes stores content as a flat string on the typed payload.
+                // Wrap it as a single Text content block for the views layer.
+                if text.is_empty() {
+                    vec![]
+                } else {
+                    vec![ContentBlock::Text { text: text.to_string() }]
+                }
+            } else {
+                extract_content_blocks(raw)
+            };
             let mut records = vec![ViewRecord {
                 id: id.clone(),
                 seq,
