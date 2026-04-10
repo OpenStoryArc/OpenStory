@@ -121,7 +121,7 @@ sleep 3
 # --- 3. Verify events captured ---
 step "Checking for captured sessions..."
 SESSIONS=$(curl -sf "http://localhost:$OS_PORT/api/sessions" || echo "[]")
-SESSION_COUNT=$(echo "$SESSIONS" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data))" 2>/dev/null || echo "0")
+SESSION_COUNT=$(echo "$SESSIONS" | python3 -c "import sys,json; data=json.load(sys.stdin); print(len(data.get('sessions', [])))" 2>/dev/null || echo "0")
 
 echo "Sessions found: $SESSION_COUNT"
 

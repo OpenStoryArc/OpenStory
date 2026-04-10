@@ -23,7 +23,8 @@ async fn test_list_sessions_empty() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert_eq!(body, serde_json::json!([]));
+    assert_eq!(body["total"].as_u64(), Some(0));
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
@@ -54,7 +55,8 @@ async fn test_list_sessions_with_data() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    let sessions = body.as_array().unwrap();
+    assert_eq!(body["total"].as_u64(), Some(2));
+    let sessions = body["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2);
 
     let session_ids: Vec<&str> = sessions
@@ -173,7 +175,7 @@ async fn test_list_sessions_includes_project_id() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    let sessions = body.as_array().unwrap();
+    let sessions = body["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2);
 
     for session in sessions {
@@ -521,7 +523,7 @@ async fn test_list_sessions_includes_label_branch_and_tokens() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    let sessions = body.as_array().unwrap();
+    let sessions = body["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 1);
 
     let session = &sessions[0];
@@ -554,6 +556,86 @@ async fn test_list_sessions_includes_label_branch_and_tokens() {
         session.get("total_output_tokens").is_some(),
         "session list should include total_output_tokens"
     );
+}
+
+// ── Session list response format + pagination ──────────────────────
+
+#[tokio::test]
+async fn test_list_sessions_returns_wrapped_format() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-fmt")];
+        ingest_events(&mut s, "sess-fmt", &events, None).await;
+    }
+
+    let req = Request::get("/api/sessions")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    // Response should be { sessions: [...], total: N }
+    assert!(body["sessions"].is_array(), "response should have 'sessions' array");
+    assert_eq!(body["total"].as_u64(), Some(1));
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(body["sessions"][0]["session_id"], "sess-fmt");
+}
+
+#[tokio::test]
+async fn test_list_sessions_limit() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        for i in 0..5 {
+            let sid = format!("sess-{}", i);
+            let events = vec![make_event("io.arc.event", &sid)];
+            ingest_events(&mut s, &sid, &events, None).await;
+        }
+    }
+
+    let req = Request::get("/api/sessions?limit=2")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(body["total"].as_u64(), Some(5));
+}
+
+#[tokio::test]
+async fn test_list_sessions_offset() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        for i in 0..5 {
+            let sid = format!("sess-{}", i);
+            let events = vec![make_event("io.arc.event", &sid)];
+            ingest_events(&mut s, &sid, &events, None).await;
+        }
+    }
+
+    let req = Request::get("/api/sessions?limit=2&offset=3")
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(body["total"].as_u64(), Some(5));
 }
 
 // ── FTS5 search endpoint tests ──────────────────────────────────────
@@ -773,7 +855,7 @@ async fn test_delete_session_removes_session() {
         .unwrap();
     let resp = send_request(state, req).await;
     let body = body_json(resp).await;
-    let sessions = body.as_array().unwrap();
+    let sessions = body["sessions"].as_array().unwrap();
     let ids: Vec<&str> = sessions
         .iter()
         .filter_map(|s| s["session_id"].as_str())

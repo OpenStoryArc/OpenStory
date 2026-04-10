@@ -339,7 +339,7 @@ def fetch_records(base_url: str, session_id: str) -> list[dict]:
 
 def fetch_sessions(base_url: str) -> list[dict]:
     data = urllib.request.urlopen(f"{base_url}/api/sessions").read()
-    return json.loads(data)
+    return json.loads(data)["sessions"]
 
 
 def pick_session(base_url: str) -> tuple[str, int]:

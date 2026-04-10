@@ -25,7 +25,7 @@ def fetch(base_url: str, path: str):
 
 
 def list_sessions(base_url: str, limit: int = 20) -> None:
-    sessions = fetch(base_url, "/api/sessions")
+    sessions = fetch(base_url, "/api/sessions")["sessions"]
     # Most recent first
     sessions.sort(key=lambda s: s.get("start_time", ""), reverse=True)
     print(f"{'ID':>14s}  {'Events':>6s}  {'Tools':>5s}  {'Status':>7s}  {'Branch':<30s}  Label")
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     # Support prefix matching
     sid = args.session_id
     if len(sid) < 36:
-        sessions = fetch(args.url, "/api/sessions")
+        sessions = fetch(args.url, "/api/sessions")["sessions"]
         matches = [s for s in sessions if s["session_id"].startswith(sid)]
         if len(matches) == 1:
             sid = matches[0]["session_id"]

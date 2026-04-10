@@ -24,7 +24,7 @@ def fetch(url):
 
 def main():
     if len(sys.argv) < 2:
-        sessions = fetch(f"{API}/api/sessions")
+        sessions = fetch(f"{API}/api/sessions")["sessions"]
         print("Sessions:")
         for s in sessions[:10]:
             label = (s.get("first_prompt") or s["session_id"])[:60]
@@ -35,7 +35,7 @@ def main():
     sid = sys.argv[1]
     # Allow short IDs
     if len(sid) < 36:
-        sessions = fetch(f"{API}/api/sessions")
+        sessions = fetch(f"{API}/api/sessions")["sessions"]
         matches = [s for s in sessions if s["session_id"].startswith(sid)]
         if not matches:
             print(f"No session matching '{sid}'")

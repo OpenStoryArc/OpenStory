@@ -6,14 +6,16 @@ test.describe('REST API smoke tests', () => {
     const res = await request.get(`${apiBaseUrl}/api/sessions`);
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBeGreaterThan(0);
+    expect(body.sessions).toBeDefined();
+    expect(Array.isArray(body.sessions)).toBe(true);
+    expect(body.sessions.length).toBeGreaterThan(0);
+    expect(typeof body.total).toBe('number');
   });
 
   test('GET /api/sessions/:id/events returns events for a session', async ({ request }) => {
     // First get the session list
     const sessRes = await request.get(`${apiBaseUrl}/api/sessions`);
-    const sessions = await sessRes.json();
+    const { sessions } = await sessRes.json();
     expect(sessions.length).toBeGreaterThan(0);
 
     const sessionId = sessions[0].session_id;
@@ -26,7 +28,7 @@ test.describe('REST API smoke tests', () => {
 
   test('GET /api/sessions returns sessions with expected fields', async ({ request }) => {
     const res = await request.get(`${apiBaseUrl}/api/sessions`);
-    const sessions = await res.json();
+    const { sessions } = await res.json();
     const first = sessions[0];
     expect(first.session_id).toBeDefined();
     expect(typeof first.session_id).toBe('string');
@@ -34,7 +36,7 @@ test.describe('REST API smoke tests', () => {
 
   test('GET /api/sessions/:id/events returns events with expected fields', async ({ request }) => {
     const sessRes = await request.get(`${apiBaseUrl}/api/sessions`);
-    const sessions = await sessRes.json();
+    const { sessions } = await sessRes.json();
     const sessionId = sessions[0].session_id;
 
     const eventsRes = await request.get(`${apiBaseUrl}/api/sessions/${sessionId}/events`);

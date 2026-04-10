@@ -98,8 +98,7 @@ export function App() {
       {/* Story tab */}
       {viewMode === "story" && (
         <StoryView
-          patterns={state.patterns}
-          sessionLabels={state.sessionLabels}
+          livePatterns={state.patterns}
           selectedSession={storySession}
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
         />

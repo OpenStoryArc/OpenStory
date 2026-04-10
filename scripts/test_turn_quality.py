@@ -26,7 +26,7 @@ def test(name, passed, msg=""):
     return passed
 
 def main():
-    sessions = fetch(f"{API}/api/sessions")
+    sessions = fetch(f"{API}/api/sessions")["sessions"]
     print(f"Testing {len(sessions)} sessions\n")
 
     total_tests = 0

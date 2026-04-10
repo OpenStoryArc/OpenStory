@@ -50,7 +50,7 @@ uv run python server.py --test
 | `OPENSTORY_URL` | `http://localhost:3002` | OpenStory server base URL |
 | `OPENSTORY_API_TOKEN` | (empty) | Bearer token for authenticated APIs |
 
-## Tools (17)
+## Tools (19)
 
 | Tool | Description |
 |------|-------------|
@@ -61,6 +61,8 @@ uv run python server.py --test
 | `file_impact` | File read/write counts |
 | `session_errors` | Error records with timestamps |
 | `session_patterns` | Detected patterns (eval-apply, sentences, etc.) |
+| `session_story` | Structured fact sheet (shape, tools, patterns, prompts) |
+| `session_sentences` | Compressed sentence narratives with key metadata |
 | `search` | Full-text search across all events |
 | `agent_search` | Natural-language search with relevance ranking |
 | `project_context` | Recent sessions for a project |

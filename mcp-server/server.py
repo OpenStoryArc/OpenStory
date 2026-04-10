@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -33,6 +35,7 @@ from fastmcp import FastMCP
 
 BASE_URL = os.environ.get("OPENSTORY_URL", "http://localhost:3002")
 API_TOKEN = os.environ.get("OPENSTORY_API_TOKEN", "")
+_SESSIONSTORY_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "sessionstory.py"
 
 mcp = FastMCP(
     "OpenStory",
@@ -74,7 +77,8 @@ def list_sessions() -> str:
     files edited, model, duration, first prompt, project, and branch.
     Use this to find a session ID for deeper queries.
     """
-    sessions = _get("/api/sessions")
+    resp = _get("/api/sessions")
+    sessions = resp.get("sessions", resp) if isinstance(resp, dict) else resp
     # Return a concise summary rather than the full payload
     result = []
     for s in sessions:
@@ -361,6 +365,80 @@ def session_plans(session_id: str) -> str:
     return json.dumps(_get(f"/api/sessions/{session_id}/plans"), indent=2)
 
 
+@mcp.tool
+def session_story(session_id: str) -> str:
+    """Get a structured fact sheet for a session.
+
+    Returns aggregated SessionFacts: shape (records, turns, duration),
+    tool histogram, pattern counts, turn phase mix, up to 8 sample
+    sentences from the detector, and a prompt timeline. Wraps the
+    sessionstory.py analysis script.
+
+    Args:
+        session_id: The session to analyze.
+    """
+    script = _SESSIONSTORY_SCRIPT
+    if not script.exists():
+        return json.dumps({"error": f"sessionstory.py not found at {script}"})
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script), session_id, "--json",
+             "--url", BASE_URL],
+            capture_output=True, text=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return json.dumps({"error": "sessionstory.py timed out after 60s"})
+    if result.returncode != 0:
+        return json.dumps({
+            "error": f"sessionstory.py exited with code {result.returncode}",
+            "stderr": result.stderr[:500],
+        })
+    try:
+        parsed = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return json.dumps({
+            "error": "sessionstory.py returned invalid JSON",
+            "raw_output": result.stdout[:1000],
+        })
+    return json.dumps(parsed, indent=2)
+
+
+@mcp.tool
+def session_sentences(session_id: str, limit: int = 50) -> str:
+    """Get sentence index for a session.
+
+    Returns a lean turn-by-turn index: sentence ID, turn number, summary,
+    verb, object, human prompt, and event_ids for provenance. Use the ID
+    or event_ids to drill into detail via other tools.
+
+    Args:
+        session_id: The session to query.
+        limit: Max sentences to return (default 50).
+    """
+    raw = _get(
+        f"/api/sessions/{session_id}/patterns", params={"type": "turn.sentence"}
+    )
+    patterns = raw.get("patterns", []) if isinstance(raw, dict) else raw
+    sentences = []
+    for p in patterns[:limit]:
+        meta = p.get("metadata") or {}
+        human = (meta.get("human") or {}).get("content", "")
+        started = p.get("started_at", "")
+        # Derive the same deterministic ID the Rust store uses
+        pattern_id = f"{p.get('pattern_type', '')}:{started}:{session_id}"
+        sentences.append({
+            "id": pattern_id,
+            "turn": meta.get("turn"),
+            "summary": p.get("summary", ""),
+            "verb": meta.get("verb"),
+            "object": meta.get("object"),
+            "human_prompt": _truncate(human, 80),
+            "event_ids": p.get("event_ids", []),
+            "started_at": started,
+        })
+    return json.dumps({"count": len(sentences), "sentences": sentences}, indent=2)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -393,6 +471,8 @@ def _self_test():
         "file_impact",
         "session_errors",
         "session_patterns",
+        "session_story",
+        "session_sentences",
         "search",
         "agent_search",
         "project_context",

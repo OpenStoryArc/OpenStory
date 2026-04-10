@@ -9,6 +9,9 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 ### Cost & Token Tracking
 Surface token usage (input, output, cache reads/writes) per session with estimated cost calculations based on model pricing. Token timelines and cache hit ratios give financial visibility into agent work. Token usage analytics scripts exist (`scripts/token_usage.py`); this is about surfacing it in the UI.
 
+### Per-Call Model-Aware Cost Estimation
+The model string (`claude-opus-4-6`, `claude-haiku-4-5-20251001`, etc.) is already present in the raw event payload at `data.raw.message.model`. Today `token_usage.py` and the MCP `token_usage` tool apply a single flat pricing tier across all sessions — the user has to guess which model they were running. The fix: extract the model string from each assistant message, map it to a pricing tier, and compute cost per-call at the correct rate. This gives actual spend instead of hypothetical spend. Prototype: `scripts/cost_by_model.py`. Production path: update `token_usage.py` to default to per-call model extraction (with `--model` as an override), update the MCP `token_usage` and `daily_token_usage` tools to return model-aware costs, and add a `model` column to the Rust `token_usage` and `daily_token_usage` analytics queries.
+
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
@@ -245,6 +248,29 @@ Cron job or systemd timer on the server that queries the OpenStory API to detect
 
 ### Starter Configuration
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
+
+### Sentence Identity & Query API
+Two pieces: identity and querying.
+
+**Identity.** The sentence detector emits `PatternEvent`s with a deterministic DB key (`{pattern_type}:{started_at}:{session_id}`) but no first-class `sentence_id` field. The MCP server derives this key client-side, which is fragile. Refactor the sentence detector (`rs/patterns/src/sentence.rs`) to emit a `sentence_id: Uuid` — deterministic hash of the sorted `event_ids` — as a field on the `PatternEvent` metadata. This gives sentences a content-addressed identity: same events always produce the same ID regardless of timestamp precision. The sentence ID becomes the stable key for the paragraph/story hierarchy (paragraphs reference sentence IDs, stories reference paragraph IDs — see `openstory-research/memory/` for the fold design).
+
+**Cross-session query endpoint.** `GET /api/sentences` — queries the patterns table for `type = 'turn.sentence'` with filters, not scoped to a single session. This is the foundation for the MCP `session_sentences` tool to support time-range queries ("last 3 days") and cross-session analytics.
+
+Filters (all optional, composable):
+- `days=N` / `since=ISO8601` — time range on `start_time`
+- `session_id=X` — scope to one session
+- `verb=committed` — filter on `metadata.verb` (SQLite `json_extract`, Mongo dotted-path)
+- `entity=patterns.rs` — substring match on `metadata.object`
+- `role=Verificatory` — filter on `metadata.subordinates[].role`
+- `human=benchmark` — FTS or LIKE on `metadata.human.content`
+- `min_duration=120000` — duration threshold on `metadata.duration_ms`
+- `limit=50` / `offset=0` — pagination
+
+Response: lean sentence index (id, turn, session_id, summary, verb, object, human_prompt truncated, started_at, event_count). Full event_ids and metadata available via `GET /api/sentences/{id}` detail endpoint.
+
+**Both backends.** Must be implemented in `SqliteStore` (via `json_extract` + `strftime` + `LIKE`) and `MongoStore` (via dotted-path + `$dateFromString` + `$regex`). Add conformance helpers following the existing C1/C2/C3 parity model in `rs/store/tests/event_store_conformance.rs`.
+
+Estimate: ~30 lines in detector for sentence_id, ~150 lines per backend for the query, ~50 lines API handler, ~100 lines conformance tests, MCP tool update.
 
 ### Eval-Apply Cycle Detector (Rust)
 Add `turn.cycle` as a new pattern type alongside `turn.sentence`. Each eval-apply cycle (model evaluates → dispatches tools → gets results) becomes a detectable pattern. Currently cycles are derived client-side via `extractCycles()` in `ui/src/lib/eval-apply.ts`. Moving to Rust enables real-time cycle streaming via the patterns consumer. Key insight from data: main agents and subagents have identical cycle structure — subagents just lack `turn.complete` markers.
