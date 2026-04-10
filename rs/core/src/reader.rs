@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
+use crate::translate_hermes::{is_hermes_format, translate_hermes_line};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
 /// Detect a pre-translated CloudEvent line. The shape is unambiguous:
@@ -93,9 +94,14 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             }
         }
 
-        // Detect format once per file, then lock
+        // Detect format once per file, then lock.
+        // Order matters: Hermes check first (envelope.source == "hermes" is
+        // unambiguous), then pi-mono (has its own signals), then Claude Code
+        // as the default fallback.
         if state.format == TranscriptFormat::Unknown {
-            state.format = if is_pi_mono_format(&obj) {
+            state.format = if is_hermes_format(&obj) {
+                TranscriptFormat::Hermes
+            } else if is_pi_mono_format(&obj) {
                 TranscriptFormat::PiMono
             } else {
                 TranscriptFormat::ClaudeCode
@@ -103,6 +109,7 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
         }
 
         let new_events = match state.format {
+            TranscriptFormat::Hermes => translate_hermes_line(&obj, state),
             TranscriptFormat::PiMono => translate_pi_line(&obj, state),
             _ => translate_line(&obj, state),
         };

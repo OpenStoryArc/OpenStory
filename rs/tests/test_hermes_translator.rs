@@ -761,6 +761,59 @@ fn real_execute_code_result_has_output_and_exit_code() {
     );
 }
 
+// ── Complex refactor session (16 msgs, 7 tool calls) ───────────
+
+#[test]
+fn real_complex_refactor_translates_full_session() {
+    let events = translate_fixture("real_complex_refactor.jsonl");
+    // 18 input lines → events: start + user + 7*(tool_use + tool_result) + text + end = 18
+    assert!(events.len() >= 16, "complex session should produce many events, got {}", events.len());
+
+    // Should have 7 tool_use events
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 7, "7 tool calls in the complex refactor");
+
+    // Check tool diversity
+    let mut tool_names: Vec<&str> = tool_uses.iter()
+        .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
+        .collect();
+    tool_names.sort();
+    tool_names.dedup();
+    assert!(
+        tool_names.len() >= 3,
+        "should exercise at least 3 tool types, got {:?}",
+        tool_names
+    );
+}
+
+#[test]
+fn real_complex_refactor_has_alternating_tool_pattern() {
+    // Multi-turn sessions should have strict alternation:
+    // assistant(tool_use) → tool(result) → assistant(tool_use) → ...
+    let events = translate_fixture("real_complex_refactor.jsonl");
+    let relevant: Vec<(&str, &str)> = events.iter()
+        .filter_map(|e| {
+            let st = e.subtype.as_deref()?;
+            if st == "message.assistant.tool_use" || st == "message.user.tool_result" {
+                Some((st, ""))
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Every tool_use should be followed by a tool_result
+    for pair in relevant.windows(2) {
+        if pair[0].0 == "message.assistant.tool_use" {
+            assert_eq!(
+                pair[1].0, "message.user.tool_result",
+                "tool_use must be followed by tool_result"
+            );
+        }
+    }
+}
+
 // ── Cross-session invariants ────────────────────────────────────
 
 #[test]
@@ -773,6 +826,7 @@ fn all_real_sessions_have_hermes_agent_tag() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in &events {
@@ -796,6 +850,7 @@ fn all_real_sessions_have_unique_event_ids() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         let ids: Vec<&str> = events.iter().map(|e| e.id.as_str()).collect();
@@ -820,6 +875,7 @@ fn all_real_sessions_start_and_end_correctly() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         assert!(events.len() >= 4, "{} should have at least 4 events", fixture);
@@ -850,6 +906,7 @@ fn no_real_session_has_tool_name_on_tool_results() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
@@ -876,6 +933,7 @@ fn no_real_session_has_non_null_reasoning() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         let thinking: Vec<&CloudEvent> = events.iter()
@@ -901,6 +959,7 @@ fn all_tool_results_content_is_valid_json() {
         "real_delegate.jsonl",
         "real_code_review_patch.jsonl",
         "real_execute_code.jsonl",
+        "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
