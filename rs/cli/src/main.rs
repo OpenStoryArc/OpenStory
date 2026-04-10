@@ -258,6 +258,13 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Hermes watch dir from env var (config.toml also works)
+            if config.hermes_watch_dir.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_HERMES_WATCH_DIR") {
+                    config.hermes_watch_dir = v;
+                }
+            }
+
             let host = config.host.clone();
             let port = config.port;
             let nats_url = config.nats_url.clone();

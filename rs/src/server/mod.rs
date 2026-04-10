@@ -53,6 +53,7 @@ pub async fn run_server(
     let is_consumer = matches!(role, Role::Consumer | Role::Full);
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
+    let hermes_watch_dir = config.hermes_watch_dir.clone();
 
     let state = create_state(data_dir, watch_dir, bus.clone(), config).await?;
 
@@ -368,6 +369,56 @@ pub async fn run_server(
                 });
             }
             eprintln!("  \x1b[2mPi watch dir:\x1b[0m   {}", pi_watch_dir);
+        }
+    }
+
+    // ── Hermes watcher (optional third watch directory) ──
+    if is_publisher && !hermes_watch_dir.is_empty() {
+        let hermes_dir = std::path::PathBuf::from(&hermes_watch_dir);
+        if hermes_dir.exists() {
+            if bus.is_active() {
+                let watcher_bus = bus.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::watcher::watch_with_callback(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
+                        let batch = IngestBatch {
+                            session_id: session_id.to_string(),
+                            project_id: project_id.unwrap_or("").to_string(),
+                            events: events.to_vec(),
+                        };
+                        let rt = tokio::runtime::Handle::current();
+                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                            eprintln!("Hermes bus publish error: {e}");
+                        }
+                    }) {
+                        eprintln!("Hermes watcher error: {}", e);
+                    }
+                });
+            } else {
+                let watcher_state = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::watcher::watch_with_callback(&hermes_dir, backfill_window, |session_id, project_id, _subject, events| {
+                        let summary = event_type_summary(&events);
+                        let rt = tokio::runtime::Handle::current();
+                        let result = rt.block_on(async {
+                            let mut s = watcher_state.write().await;
+                            let result = ingest_events(&mut s, session_id, &events, project_id).await;
+                            for change in &result.changes {
+                                let _ = s.broadcast_tx.send(change.clone());
+                            }
+                            result
+                        });
+                        if result.count > 0 {
+                            log_event("hermes", &format!(
+                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                short_id(session_id), result.count, summary
+                            ));
+                        }
+                    }) {
+                        eprintln!("Hermes watcher error: {}", e);
+                    }
+                });
+            }
+            eprintln!("  \x1b[2mHermes watch dir:\x1b[0m {}", hermes_watch_dir);
         }
     }
 
