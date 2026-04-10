@@ -364,7 +364,6 @@ def _make_tool_result(
             "tool": msg.get("tool_name", ""),
             "tool_use_id": msg.get("tool_call_id", ""),
             "text": _extract_text(msg),
-            "is_error": False,  # not represented in the wire format
         },
     )
 

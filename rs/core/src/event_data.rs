@@ -194,7 +194,7 @@ impl EventData {
 /// not from the transcript. Enough to dispatch, nothing more.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayloadMeta {
-    /// SICP type tag: "claude-code" or "pi-mono".
+    /// SICP type tag: "claude-code", "pi-mono", or "hermes".
     pub agent: String,
 }
 

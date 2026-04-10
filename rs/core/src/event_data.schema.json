@@ -27,7 +27,8 @@
       "description": "The monadic lift. None (absent) = unknown agent or parse failure — you still have raw. Some = the translator successfully extracted typed fields. Dispatch on meta.agent to determine which variant.",
       "oneOf": [
         { "$ref": "#/$defs/claude_code_payload" },
-        { "$ref": "#/$defs/pi_mono_payload" }
+        { "$ref": "#/$defs/pi_mono_payload" },
+        { "$ref": "#/$defs/hermes_payload" }
       ]
     }
   },
@@ -41,7 +42,7 @@
       "type": "object",
       "required": ["agent"],
       "properties": {
-        "agent": { "type": "string", "description": "Discriminant for dispatch. 'claude-code' or 'pi-mono'. This is the SICP type tag." }
+        "agent": { "type": "string", "description": "Discriminant for dispatch. 'claude-code', 'pi-mono', or 'hermes'. This is the SICP type tag." }
       },
       "additionalProperties": false
     },
@@ -181,6 +182,51 @@
         "first_kept_entry_id": { "type": "string", "description": "First entry ID kept after compaction." }
       },
       "additionalProperties": true
+    },
+
+    "hermes_payload": {
+      "description": "Typed extraction for Hermes Agent (NousResearch/hermes-agent) events. Hermes is provider-polymorphic but stores all messages in OpenAI shape internally. Verified against hermes-agent commit 6e3f7f36 and 5 real sessions against Anthropic claude-sonnet-4-20250514.",
+      "type": "object",
+      "required": ["meta"],
+      "properties": {
+
+        "meta": {
+          "allOf": [{ "$ref": "#/$defs/payload_meta" }],
+          "properties": {
+            "agent": { "const": "hermes" }
+          }
+        },
+
+        "seq":                     { "type": "integer", "description": "Plugin-side monotonic per-session sequence number from the input envelope." },
+        "timestamp":               { "type": "string", "description": "Event timestamp. Plugin path uses UTC-Z (2026-04-10T10:55:02Z). Snapshot path uses naive ISO-8601 (2026-04-10T10:55:02.359248, no timezone)." },
+
+        "model":                   { "type": "string", "description": "Model ID (e.g., claude-sonnet-4-20250514). Present on session_start and available per-turn via hook kwargs." },
+        "platform":                { "type": "string", "description": "Agent platform — 'cli' or 'gateway' (telegram, discord, etc.)." },
+        "hermes_version":          { "type": "string", "description": "Hermes Agent version (e.g., '0.8.0'). Present on session_start." },
+        "system_prompt_preview":   { "type": "string", "description": "First 500 chars of system prompt. Present on session_start." },
+        "tools":                   { "type": "array", "items": { "type": "string" }, "description": "Tool names available in the session (e.g., ['read_file', 'write_file', 'terminal', ...]). Present on session_start." },
+
+        "text":                    { "type": "string", "description": "Message text content. User prompts, assistant responses, and tool result content (which is always a JSON string wrapping structured output — see tool_result_shapes)." },
+        "stop_reason":             { "type": "string", "description": "finish_reason from the assistant message — 'stop' for final text, 'tool_calls' when tools are invoked." },
+
+        "tool":                    { "type": "string", "description": "Tool name from function.name in the OpenAI tool_calls shape. Hermes tool names: read_file, write_file, search_files, terminal, delegate_task, patch, execute_code, etc." },
+        "args":                    { "type": "object", "description": "Parsed tool arguments. Wire format is a JSON string in function.arguments; the translator parses it into a structured object. Falls back to {\"_raw\": \"...\"} if the JSON string is malformed.", "additionalProperties": true },
+        "tool_use_id":             { "type": "string", "description": "Tool call ID from tool_calls[i].id. Anthropic-provider sessions use 'toolu_*' prefix. Links tool_use events to their tool_result." },
+        "preceding_text":          { "type": ["string", "null"], "description": "Assistant text content that preceded the tool call in the same turn (eval phase before apply). Null when the assistant message had empty content alongside tool_calls." },
+
+        "tool_call_id":            { "type": "string", "description": "On tool result messages: links back to the originating tool_use via tool_calls[i].id. Canonical key — Hermes never uses 'id' as an alias." },
+        "tool_name":               { "type": ["string", "null"], "description": "Optional tool name on tool result messages. Verified ABSENT in all 5 real sessions (runtime gap #2 confirmed). The translator reads it defensively but expects null." },
+
+        "reasoning":               { "type": ["string", "null"], "description": "Extended thinking / reasoning content. Top-level string field on assistant messages (not Anthropic-style content blocks — the SDK adapter converts thinking blocks to a flat string before storage). Null when the model does not produce thinking (e.g., Sonnet 4 default mode)." },
+
+        "reason":                  { "type": "string", "description": "Turn-complete reason — 'end_turn', 'completed', 'interrupted', etc." },
+        "completed":               { "type": "boolean", "description": "Whether the agent loop completed normally (from on_session_end hook)." },
+        "interrupted":             { "type": "boolean", "description": "Whether the agent loop was interrupted (from on_session_end hook)." },
+        "message_count":           { "type": "integer", "description": "Number of messages in the session at the time of the turn-complete event." }
+      },
+      "additionalProperties": true,
+
+      "$comment_tool_result_shapes": "Hermes tool results always wrap output in a JSON string. Known shapes: read_file → {content, total_lines, file_size, truncated, is_binary, is_image, error?}, write_file → {bytes_written, dirs_created}, terminal → {output, exit_code, error}, search_files → {matches, ...}, delegate_task → {results: [{task_index, status, summary}]}. Errors are encoded INSIDE the content JSON as an 'error' key — there is no separate is_error field on the tool message."
     }
   }
 }

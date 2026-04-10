@@ -673,6 +673,94 @@ fn real_delegate_result_is_structured_json() {
     );
 }
 
+// ── Code review + patch session ─────────────────────────────────
+
+#[test]
+fn real_code_review_exercises_patch_tool() {
+    let events = translate_fixture("real_code_review_patch.jsonl");
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 2, "read + patch = 2 tool_use events");
+
+    let tool_names: Vec<&str> = tool_uses.iter()
+        .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
+        .collect();
+    assert_eq!(tool_names, vec!["read_file", "patch"]);
+}
+
+#[test]
+fn real_patch_result_has_success_and_diff() {
+    let events = translate_fixture("real_code_review_patch.jsonl");
+    let tool_results: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .collect();
+    // Second tool result is from patch
+    let patch_result = hermes_payload(tool_results[1]);
+    let content = patch_result.text.as_deref().unwrap();
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(
+        parsed["success"].as_bool(),
+        Some(true),
+        "patch result should have success: true"
+    );
+    assert!(
+        parsed.get("diff").is_some(),
+        "patch result should have a diff field"
+    );
+}
+
+#[test]
+fn real_patch_args_contain_old_and_new_string() {
+    let events = translate_fixture("real_code_review_patch.jsonl");
+    let patch_use = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .find(|e| hermes_payload(e).tool.as_deref() == Some("patch"))
+        .expect("should have a patch tool_use");
+    let p = hermes_payload(patch_use);
+    let args = p.args.as_ref().unwrap();
+    assert!(args.get("path").is_some(), "patch should have path arg");
+    assert!(args.get("old_string").is_some(), "patch should have old_string arg");
+    assert!(args.get("new_string").is_some(), "patch should have new_string arg");
+}
+
+// ── Execute code session ────────────────────────────────────────
+
+#[test]
+fn real_execute_code_uses_terminal_tool() {
+    let events = translate_fixture("real_execute_code.jsonl");
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 1);
+    let p = hermes_payload(tool_uses[0]);
+    assert_eq!(p.tool.as_deref(), Some("terminal"));
+    let args = p.args.as_ref().unwrap();
+    assert!(
+        args["command"].as_str().unwrap().contains("python"),
+        "terminal command should run python"
+    );
+}
+
+#[test]
+fn real_execute_code_result_has_output_and_exit_code() {
+    let events = translate_fixture("real_execute_code.jsonl");
+    let tool_result = events.iter()
+        .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .unwrap();
+    let p = hermes_payload(tool_result);
+    let content = p.text.as_deref().unwrap();
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(parsed["exit_code"].as_i64(), Some(0));
+    // Output is the fibonacci sequence + primes — verify it contains numbers
+    let output = parsed["output"].as_str().unwrap();
+    assert!(
+        output.contains("[0, 1, 1, 2, 3, 5, 8"),
+        "should contain fibonacci sequence: {}",
+        output
+    );
+}
+
 // ── Cross-session invariants ────────────────────────────────────
 
 #[test]
@@ -683,6 +771,8 @@ fn all_real_sessions_have_hermes_agent_tag() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in &events {
@@ -704,6 +794,8 @@ fn all_real_sessions_have_unique_event_ids() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         let ids: Vec<&str> = events.iter().map(|e| e.id.as_str()).collect();
@@ -726,6 +818,8 @@ fn all_real_sessions_start_and_end_correctly() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         assert!(events.len() >= 4, "{} should have at least 4 events", fixture);
@@ -754,6 +848,8 @@ fn no_real_session_has_tool_name_on_tool_results() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
@@ -778,6 +874,8 @@ fn no_real_session_has_non_null_reasoning() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         let thinking: Vec<&CloudEvent> = events.iter()
@@ -801,6 +899,8 @@ fn all_tool_results_content_is_valid_json() {
         "real_write_read_chain.jsonl",
         "real_search_bash.jsonl",
         "real_delegate.jsonl",
+        "real_code_review_patch.jsonl",
+        "real_execute_code.jsonl",
     ] {
         let events = translate_fixture(fixture);
         for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {

@@ -264,7 +264,6 @@ def test_canonical_tool_result_shape_from_hermes_test_fixture():
     assert payload["text"] == "search results"
     # tool_name is optional and absent in the canonical fixture
     assert payload["tool"] == ""
-    assert payload["is_error"] is False
 
 
 @test
