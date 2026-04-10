@@ -482,6 +482,343 @@ fn real_session_timestamp_is_naive_iso8601() {
     );
 }
 
+// ── Phase D: hardened real-session battery ────────────────────────────
+//
+// Five sessions against Anthropic claude-sonnet-4-20250514, each exercising
+// a different tool type and message pattern. These tests close runtime gaps
+// and confirm the translator handles the full diversity of Hermes output.
+
+/// Generic helper: load any fixture JSONL and translate.
+fn translate_fixture(name: &str) -> Vec<CloudEvent> {
+    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("tests/fixtures/hermes/{}", name));
+    let content = std::fs::read_to_string(&fixture_path)
+        .unwrap_or_else(|e| panic!("fixture {:?} not found: {}", fixture_path, e));
+
+    let mut state = TranscriptState::new("test".to_string());
+    let mut events: Vec<CloudEvent> = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let parsed: Value = serde_json::from_str(line).unwrap();
+        events.extend(translate_hermes_line(&parsed, &mut state));
+    }
+    events
+}
+
+// ── Tool error session ──────────────────────────────────────────
+
+#[test]
+fn real_tool_error_session_translates_cleanly() {
+    let events = translate_fixture("real_tool_error.jsonl");
+    // start + user + tool_use + tool_result + text + end = 6
+    assert_eq!(events.len(), 6);
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
+    assert_eq!(subtypes, vec![
+        "system.session.start",
+        "message.user.prompt",
+        "message.assistant.tool_use",
+        "message.user.tool_result",
+        "message.assistant.text",
+        "system.turn.complete",
+    ]);
+}
+
+#[test]
+fn real_tool_error_result_contains_error_in_content_json() {
+    // Hermes encodes errors INSIDE the tool result content JSON string.
+    // The `error` key is present in the JSON, NOT as a separate message field.
+    let events = translate_fixture("real_tool_error.jsonl");
+    let tool_result = events.iter()
+        .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .expect("should have tool_result");
+    let p = hermes_payload(tool_result);
+    let content = p.text.as_deref().unwrap();
+    // Content is a JSON string containing an error key
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert!(
+        parsed.get("error").is_some(),
+        "error tool results carry 'error' key inside the content JSON: {}",
+        content
+    );
+    assert!(
+        parsed["error"].as_str().unwrap().contains("File not found"),
+        "error message should mention 'File not found'"
+    );
+}
+
+// ── Write + read chain session ──────────────────────────────────
+
+#[test]
+fn real_write_read_chain_has_two_tool_use_events() {
+    let events = translate_fixture("real_write_read_chain.jsonl");
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 2, "write + read = 2 tool_use events");
+
+    let tool_names: Vec<&str> = tool_uses.iter()
+        .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
+        .collect();
+    assert_eq!(tool_names, vec!["write_file", "read_file"]);
+}
+
+#[test]
+fn real_write_result_is_structured_json() {
+    let events = translate_fixture("real_write_read_chain.jsonl");
+    let tool_results: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .collect();
+    // First tool result is from write_file
+    let write_result = hermes_payload(tool_results[0]);
+    let content = write_result.text.as_deref().unwrap();
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert!(
+        parsed.get("bytes_written").is_some(),
+        "write_file result should have bytes_written: {}",
+        content
+    );
+}
+
+#[test]
+fn real_write_read_chain_subtypes() {
+    let events = translate_fixture("real_write_read_chain.jsonl");
+    // 8 input lines → start + user + tool_use(write) + tool_result(write) +
+    //   tool_use(read) + tool_result(read) + text + end = 8
+    assert_eq!(events.len(), 8);
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
+    assert_eq!(subtypes, vec![
+        "system.session.start",
+        "message.user.prompt",
+        "message.assistant.tool_use",
+        "message.user.tool_result",
+        "message.assistant.tool_use",
+        "message.user.tool_result",
+        "message.assistant.text",
+        "system.turn.complete",
+    ]);
+}
+
+// ── Search + bash session ───────────────────────────────────────
+
+#[test]
+fn real_search_bash_exercises_two_tool_types() {
+    let events = translate_fixture("real_search_bash.jsonl");
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 2);
+
+    let tool_names: Vec<&str> = tool_uses.iter()
+        .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
+        .collect();
+    assert_eq!(tool_names, vec!["search_files", "terminal"]);
+}
+
+#[test]
+fn real_terminal_result_has_exit_code() {
+    let events = translate_fixture("real_search_bash.jsonl");
+    let tool_results: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .collect();
+    // Second tool result is from terminal
+    let terminal_result = hermes_payload(tool_results[1]);
+    let content = terminal_result.text.as_deref().unwrap();
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert_eq!(
+        parsed["exit_code"].as_i64(),
+        Some(0),
+        "terminal result should have exit_code=0"
+    );
+    assert!(
+        parsed.get("output").is_some(),
+        "terminal result should have output field"
+    );
+}
+
+// ── Delegate session ────────────────────────────────────────────
+
+#[test]
+fn real_delegate_exercises_subagent() {
+    let events = translate_fixture("real_delegate.jsonl");
+    let tool_uses: Vec<&CloudEvent> = events.iter()
+        .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(tool_uses.len(), 1);
+    let p = hermes_payload(tool_uses[0]);
+    assert_eq!(p.tool.as_deref(), Some("delegate_task"));
+
+    // Delegate arguments should have a tasks array
+    let args = p.args.as_ref().unwrap();
+    assert!(
+        args.get("tasks").is_some(),
+        "delegate_task should have tasks arg: {}",
+        serde_json::to_string(args).unwrap()
+    );
+}
+
+#[test]
+fn real_delegate_result_is_structured_json() {
+    let events = translate_fixture("real_delegate.jsonl");
+    let tool_result = events.iter()
+        .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        .unwrap();
+    let p = hermes_payload(tool_result);
+    let content = p.text.as_deref().unwrap();
+    let parsed: Value = serde_json::from_str(content).unwrap();
+    assert!(
+        parsed.get("results").is_some(),
+        "delegate result should have results array"
+    );
+}
+
+// ── Cross-session invariants ────────────────────────────────────
+
+#[test]
+fn all_real_sessions_have_hermes_agent_tag() {
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        for ev in &events {
+            assert_eq!(
+                ev.agent.as_deref(),
+                Some("hermes"),
+                "event in {} missing hermes tag",
+                fixture
+            );
+        }
+    }
+}
+
+#[test]
+fn all_real_sessions_have_unique_event_ids() {
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        let ids: Vec<&str> = events.iter().map(|e| e.id.as_str()).collect();
+        let unique: std::collections::HashSet<&str> = ids.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "duplicate IDs in {}: {:?}",
+            fixture,
+            ids
+        );
+    }
+}
+
+#[test]
+fn all_real_sessions_start_and_end_correctly() {
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        assert!(events.len() >= 4, "{} should have at least 4 events", fixture);
+        assert_eq!(
+            events.first().unwrap().subtype.as_deref(),
+            Some("system.session.start"),
+            "{} should start with session.start",
+            fixture
+        );
+        assert_eq!(
+            events.last().unwrap().subtype.as_deref(),
+            Some("system.turn.complete"),
+            "{} should end with turn.complete",
+            fixture
+        );
+    }
+}
+
+#[test]
+fn no_real_session_has_tool_name_on_tool_results() {
+    // Runtime gap #2 CONFIRMED across all 5 real sessions: tool_name is NEVER
+    // present on tool result messages. Only tool_call_id + content.
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
+            let p = hermes_payload(ev);
+            assert!(
+                p.tool_name.is_none(),
+                "{}: tool_name should be None on tool results (gap #2)",
+                fixture
+            );
+        }
+    }
+}
+
+#[test]
+fn no_real_session_has_non_null_reasoning() {
+    // Sonnet 4 without extended thinking: reasoning field is always None.
+    // This confirms gap #4 for non-thinking models. A future test with
+    // an extended-thinking model would verify the non-null path.
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        let thinking: Vec<&CloudEvent> = events.iter()
+            .filter(|e| e.subtype.as_deref() == Some("message.assistant.thinking"))
+            .collect();
+        assert!(
+            thinking.is_empty(),
+            "{}: should have no thinking events (reasoning=None on Sonnet 4)",
+            fixture
+        );
+    }
+}
+
+#[test]
+fn all_tool_results_content_is_valid_json() {
+    // Discovery: Hermes tool results ALWAYS wrap output in a JSON string.
+    // This test confirms every tool result across all sessions parses as JSON.
+    for fixture in &[
+        "real_simple_read.jsonl",
+        "real_tool_error.jsonl",
+        "real_write_read_chain.jsonl",
+        "real_search_bash.jsonl",
+        "real_delegate.jsonl",
+    ] {
+        let events = translate_fixture(fixture);
+        for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
+            let p = hermes_payload(ev);
+            let content = p.text.as_deref().unwrap_or("");
+            if !content.is_empty() {
+                let parsed: Result<Value, _> = serde_json::from_str(content);
+                assert!(
+                    parsed.is_ok(),
+                    "{}: tool result content should be valid JSON: {}",
+                    fixture,
+                    &content[..content.len().min(200)]
+                );
+            }
+        }
+    }
+}
+
 // ── Phase B: testcontainer tests ─────────────────────────────────────
 // These require the Docker image to be built:
 //   docker build -t hermes-fixture:test rs/tests/fixtures/hermes/
