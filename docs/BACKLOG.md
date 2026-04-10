@@ -9,6 +9,9 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 ### Cost & Token Tracking
 Surface token usage (input, output, cache reads/writes) per session with estimated cost calculations based on model pricing. Token timelines and cache hit ratios give financial visibility into agent work. Token usage analytics scripts exist (`scripts/token_usage.py`); this is about surfacing it in the UI.
 
+### Per-Call Model-Aware Cost Estimation
+The model string (`claude-opus-4-6`, `claude-haiku-4-5-20251001`, etc.) is already present in the raw event payload at `data.raw.message.model`. Today `token_usage.py` and the MCP `token_usage` tool apply a single flat pricing tier across all sessions — the user has to guess which model they were running. The fix: extract the model string from each assistant message, map it to a pricing tier, and compute cost per-call at the correct rate. This gives actual spend instead of hypothetical spend. Prototype: `scripts/cost_by_model.py`. Production path: update `token_usage.py` to default to per-call model extraction (with `--model` as an override), update the MCP `token_usage` and `daily_token_usage` tools to return model-aware costs, and add a `model` column to the Rust `token_usage` and `daily_token_usage` analytics queries.
+
 ### Anomaly Detection & Behavioral Alerts
 Rule-based detection for unusual patterns: destructive git commands, high error rates, tool loops, token spikes. Rules are pure functions evaluated during event ingestion, surfacing alerts without interfering with agent execution. Builds on the existing pattern detection pipeline.
 
@@ -248,8 +251,14 @@ The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) enables filterin
 ### Query clock injection for full determinism
 The time-windowed analytics queries (`project_pulse`, `tool_evolution`, `productivity_by_hour`, `token_usage(days, ...)`, `daily_token_usage(days)`) all call `chrono::Utc::now()` internally. This works for backend-parity tests because both backends call `now()` at the same instant during the test, but it makes the queries non-deterministic across test runs and harder to test against fixed data. The right answer is to refactor each query to take an `as_of: DateTime<Utc>` parameter that defaults to `Utc::now()` at the call site, with conformance tests passing a fixed value. Touches all the query method signatures + every API handler + the CLI surface, so it's intentionally deferred from Phase 5 of the MongoDB sink work — see `docs/research/mongo-analytics-parity-plan.md` §10.1 #1.
 
+### Multi-Machine Session Aggregation
+Aggregate session data from multiple computers into a single database. Today OpenStory watches one machine's `~/.claude/projects/`. With NATS as the bus, satellite machines can run a lightweight watcher that publishes to a remote NATS server — events flow to a shared MongoDB (or SQLite) on a central VPS. All sessions from every machine land in one store, enabling cross-machine token analytics (`scripts/token_usage.py`), unified session history, and a single dashboard view of all agent work regardless of which laptop it happened on. The architecture already supports this: NATS is a network protocol (`nats_url` is configurable), MongoDB is remote-capable, and the watcher is read-only with no server dependency. What's needed: (1) a "watcher-only" run mode (no server, no consumers — just watch + translate + publish to remote NATS), (2) documentation for the VPS setup (NATS + Mongo + OpenStory server on Hetzner), (3) auth/TLS for the NATS connection so session data doesn't travel in the clear.
+
 ### Multi-Directory Watcher
 Accept multiple `--watch-dir` roots, backfill concurrently, and resolve project_id correctly across all roots with longest-prefix matching. Currently uses `watch_dir` + `pi_watch_dir` as separate config fields. Generalize to `watch_dirs = [...]` array.
+
+### SQLite as Always-On Analytics Layer
+Today the server uses either SQLite or MongoDB as its EventStore — one or the other. Scripts like `token_usage.py` query SQLite directly, so they break when the server runs with the Mongo backend. SQLite should always be populated regardless of the primary backend, the same way the JSONL backup is always written. The persist consumer would gain a second write path: (1) write to the configured EventStore (Mongo or SQLite), (2) always write to a local SQLite copy for analytics/scripts/FTS. This makes `token_usage.py`, `sessionstory.py`, and `query_store.py` work no matter which backend is active. The SQLite copy is the local analytics layer — cheap, fast, always available — while Mongo is the durable primary for multi-machine aggregation.
 
 ### Real-time LLM API
 Claude-powered analysis: running session summaries updated incrementally via pattern detections, natural language query endpoint `/api/ask`, and cross-session story arc detection.
@@ -268,6 +277,29 @@ Cron job or systemd timer on the server that queries the OpenStory API to detect
 
 ### Starter Configuration
 Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
+
+### Sentence Identity & Query API
+Two pieces: identity and querying.
+
+**Identity.** The sentence detector emits `PatternEvent`s with a deterministic DB key (`{pattern_type}:{started_at}:{session_id}`) but no first-class `sentence_id` field. The MCP server derives this key client-side, which is fragile. Refactor the sentence detector (`rs/patterns/src/sentence.rs`) to emit a `sentence_id: Uuid` — deterministic hash of the sorted `event_ids` — as a field on the `PatternEvent` metadata. This gives sentences a content-addressed identity: same events always produce the same ID regardless of timestamp precision. The sentence ID becomes the stable key for the paragraph/story hierarchy (paragraphs reference sentence IDs, stories reference paragraph IDs — see `openstory-research/memory/` for the fold design).
+
+**Cross-session query endpoint.** `GET /api/sentences` — queries the patterns table for `type = 'turn.sentence'` with filters, not scoped to a single session. This is the foundation for the MCP `session_sentences` tool to support time-range queries ("last 3 days") and cross-session analytics.
+
+Filters (all optional, composable):
+- `days=N` / `since=ISO8601` — time range on `start_time`
+- `session_id=X` — scope to one session
+- `verb=committed` — filter on `metadata.verb` (SQLite `json_extract`, Mongo dotted-path)
+- `entity=patterns.rs` — substring match on `metadata.object`
+- `role=Verificatory` — filter on `metadata.subordinates[].role`
+- `human=benchmark` — FTS or LIKE on `metadata.human.content`
+- `min_duration=120000` — duration threshold on `metadata.duration_ms`
+- `limit=50` / `offset=0` — pagination
+
+Response: lean sentence index (id, turn, session_id, summary, verb, object, human_prompt truncated, started_at, event_count). Full event_ids and metadata available via `GET /api/sentences/{id}` detail endpoint.
+
+**Both backends.** Must be implemented in `SqliteStore` (via `json_extract` + `strftime` + `LIKE`) and `MongoStore` (via dotted-path + `$dateFromString` + `$regex`). Add conformance helpers following the existing C1/C2/C3 parity model in `rs/store/tests/event_store_conformance.rs`.
+
+Estimate: ~30 lines in detector for sentence_id, ~150 lines per backend for the query, ~50 lines API handler, ~100 lines conformance tests, MCP tool update.
 
 ### Eval-Apply Cycle Detector (Rust)
 Add `turn.cycle` as a new pattern type alongside `turn.sentence`. Each eval-apply cycle (model evaluates → dispatches tools → gets results) becomes a detectable pattern. Currently cycles are derived client-side via `extractCycles()` in `ui/src/lib/eval-apply.ts`. Moving to Rust enables real-time cycle streaming via the patterns consumer. Key insight from data: main agents and subagents have identical cycle structure — subagents just lack `turn.complete` markers.

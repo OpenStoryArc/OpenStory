@@ -18,7 +18,7 @@ def fetch(base_url: str, path: str):
 
 
 def analyze_payloads(base_url: str) -> None:
-    sessions = fetch(base_url, "/api/sessions")
+    sessions = fetch(base_url, "/api/sessions")["sessions"]
     main_sessions = [s for s in sessions if not s["session_id"].startswith("agent-")]
 
     print(f"Analyzing {len(main_sessions)} main sessions")

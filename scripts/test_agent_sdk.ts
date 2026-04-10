@@ -102,10 +102,11 @@ async function main() {
   let results = 0;
   let failures = 0;
 
-  const sessions = (await fetchJson("/api/sessions")) as Array<{
-    session_id: string;
-    event_count?: number;
-  }>;
+  const sessionsResp = (await fetchJson("/api/sessions")) as {
+    sessions: Array<{ session_id: string; event_count?: number }>;
+    total: number;
+  };
+  const sessions = sessionsResp.sessions;
   console.log(`Sessions found: ${sessions.length}`);
 
   // Test 1: At least one session

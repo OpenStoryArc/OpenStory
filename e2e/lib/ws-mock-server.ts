@@ -306,13 +306,14 @@ export async function createMockServer(config: MockServerConfig = {}): Promise<M
   const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (req.url === "/api/sessions") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(sessionIds.map((sid, i) => ({
+      const sessionsArr = sessionIds.map((sid, i) => ({
         session_id: sid,
         status: "ongoing",
         event_count: initialRecords / sessions,
         project_id: "project-perf-test",
         project_name: "perf-test",
-      }))));
+      }));
+      res.end(JSON.stringify({ sessions: sessionsArr, total: sessionsArr.length }));
     } else {
       res.writeHead(404);
       res.end("Not found");

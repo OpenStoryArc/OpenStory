@@ -76,9 +76,9 @@ export function ExploreSidebar({ selectedSessionId, onSelectSession }: ExploreSi
     setLoading(true);
     fetch("/api/sessions")
       .then((r) => r.json())
-      .then((data: SessionSummary[]) => {
+      .then((data: { sessions: SessionSummary[]; total: number }) => {
         if (!cancelled) {
-          setSessions(data);
+          setSessions(data.sessions);
           setLoading(false);
         }
       })
