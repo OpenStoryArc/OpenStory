@@ -46,7 +46,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   const object = (m.object as string) ?? "";
   const adverbial = m.adverbial as string | null;
   const predicate = (m.predicate as string) ?? "answered";
-  const subject = pattern.summary?.split(/\s+/)[0] || "Claude";
+  const subject = (m.subject as string) ?? "Claude";
   const subordinates = (m.subordinates as Array<{ role: string; verb: string; object: string; tool_calls: number }>) ?? [];
   const human = m.human as { content: string; timestamp: string } | null;
   const thinking = m.thinking as { summary: string } | null;
