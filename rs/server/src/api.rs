@@ -233,9 +233,52 @@ pub async fn get_transcript(
             }
         }
         None => {
+            // Fallback: reconstruct transcript from stored events.
+            // Hermes sessions (and any agent that ingests via the plugin/watcher
+            // path) don't have a transcript_path — the events ARE the transcript.
+            let mut entries: Vec<Value> = Vec::new();
+            for ev in &events {
+                let raw = ev.get("data").and_then(|d| d.get("raw")).unwrap_or(ev);
+                let data = raw.get("data").unwrap_or(raw);
+                let role = data.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                if role.is_empty() {
+                    continue;
+                }
+                let content = data.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let subtype = ev.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                let kind = if subtype.contains("tool_use") {
+                    "tool_call"
+                } else if subtype.contains("tool_result") {
+                    "tool_result"
+                } else if subtype.contains("thinking") {
+                    "thinking"
+                } else {
+                    "text"
+                };
+                let mut entry = json!({
+                    "role": match role {
+                        "tool" => "user",
+                        _ => role,
+                    },
+                    "kind": kind,
+                    "content": content,
+                });
+                // Add tool info if present
+                if let Some(ap) = ev.get("data").and_then(|d| d.get("agent_payload")) {
+                    if let Some(tool) = ap.get("tool").and_then(|v| v.as_str()) {
+                        entry["tool"] = json!(tool);
+                    }
+                    if let Some(args) = ap.get("args") {
+                        entry["args"] = args.clone();
+                    }
+                }
+                if !query.assistant_only || (role == "assistant" && kind == "text") {
+                    entries.push(entry);
+                }
+            }
             return Json(json!({
-                "error": "no transcript_path found in session events",
-                "entries": []
+                "source": "events",
+                "entries": entries,
             }));
         }
     };
