@@ -49,6 +49,10 @@ pub struct StructuralTurn {
     pub timestamp: String,
     pub duration_ms: Option<f64>,
     pub event_ids: Vec<String>,
+    /// Agent platform that produced this turn (e.g., "claude-code", "hermes").
+    /// Used by the sentence builder to generate agent-appropriate subjects.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 /// The human message that prompted this turn.
@@ -113,6 +117,9 @@ pub struct Accumulator {
     pub scope_depth: u32,
     pub env_size: u32,
     pub session_id: String,
+    /// Agent platform (e.g., "claude-code", "hermes"). Set from the first
+    /// event's agent field and carried through to StructuralTurn.
+    pub agent: Option<String>,
     /// Turn being assembled.
     pub pending_human: Option<HumanInput>,
     pub pending_thinking: Option<ThinkingRecord>,
@@ -142,6 +149,7 @@ impl Default for Accumulator {
             scope_depth: 0,
             env_size: 0,
             session_id: String::new(),
+            agent: None,
             pending_human: None,
             pending_thinking: None,
             pending_eval: None,
@@ -196,9 +204,12 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
     let ap = event.data.agent_payload.as_ref();
     let mut patterns = Vec::new();
 
-    // Track session
+    // Track session + agent
     if acc.session_id.is_empty() {
         acc.session_id = event.data.session_id.clone();
+    }
+    if acc.agent.is_none() {
+        acc.agent = event.agent.clone();
     }
 
     // Track event IDs and timestamps
@@ -233,11 +244,25 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 acc.pending_applies.remove(0);
                 let output_summary = ap.and_then(|p| p.text()).unwrap_or("").to_string();
                 let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
-                // Derive is_error from tool_outcome — the outcome already encodes success/failure
+                // Derive is_error from tool_outcome — the outcome already encodes success/failure.
+                // For Hermes (which has no typed ToolOutcome), fall back to checking the
+                // tool result content JSON for an "error" key — Hermes encodes errors
+                // inside the content string (e.g., {"error": "File not found: ..."}).
                 let is_error = match &tool_outcome {
                     Some(ToolOutcome::FileWriteFailed { .. }) => true,
                     Some(ToolOutcome::FileReadFailed { .. }) => true,
                     Some(ToolOutcome::CommandExecuted { succeeded, .. }) => !succeeded,
+                    None => {
+                        // Hermes fallback: check if content JSON has a non-null "error" key
+                        let text = ap.and_then(|p| p.text()).unwrap_or("");
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+                            v.get("error")
+                                .map(|e| !e.is_null() && e.as_str() != Some(""))
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        }
+                    }
                     _ => false,
                 };
                 acc.completed_applies.push(ApplyRecord {
@@ -367,6 +392,7 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 timestamp: start,
                 duration_ms,
                 event_ids,
+                agent: acc.agent.clone(),
             };
 
             // Reset for next turn
@@ -507,6 +533,7 @@ impl EvalApplyDetector {
                 timestamp: self.acc.start_ts.take().unwrap_or_default(),
                 duration_ms: None,
                 event_ids: std::mem::take(&mut self.acc.event_ids),
+                agent: self.acc.agent.clone(),
             };
             vec![turn]
         } else {

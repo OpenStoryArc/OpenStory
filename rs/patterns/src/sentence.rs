@@ -113,7 +113,11 @@ fn regex_match_any(haystack: &str, needles: &[&str]) -> bool {
 /// Build a sentence from a StructuralTurn.
 /// Prototype source: sentence.ts:72-109
 pub fn build_sentence(turn: &StructuralTurn) -> TurnSentence {
-    let subject = "Claude".to_string();
+    let subject = match turn.agent.as_deref() {
+        Some("hermes") => "Hermes".to_string(),
+        Some("pi-mono") => "Pi".to_string(),
+        _ => "Claude".to_string(),
+    };
 
     // Classify all tools
     let classified: Vec<(&ApplyRecord, ToolRole)> = turn
@@ -597,6 +601,7 @@ mod tests {
             timestamp: "2026-04-03T01:00:00Z".to_string(),
             duration_ms: None,
             event_ids: vec![],
+            agent: None,
         };
         overrides(&mut turn);
         turn
