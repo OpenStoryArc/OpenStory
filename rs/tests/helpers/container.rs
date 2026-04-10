@@ -41,9 +41,16 @@ impl OpenStoryContainer {
         let url = format!("{}/api/sessions", self.base_url());
         for _ in 0..20 {
             if let Ok(resp) = reqwest::get(&url).await {
-                if let Ok(sessions) = resp.json::<Vec<serde_json::Value>>().await {
-                    if !sessions.is_empty() {
-                        return;
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    // Handle both `[...]` and `{ sessions: [...] }` response shapes
+                    let sessions = body
+                        .get("sessions")
+                        .and_then(|s| s.as_array())
+                        .or_else(|| body.as_array());
+                    if let Some(arr) = sessions {
+                        if !arr.is_empty() {
+                            return;
+                        }
                     }
                 }
             }

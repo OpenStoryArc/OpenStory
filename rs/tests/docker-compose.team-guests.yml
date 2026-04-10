@@ -1,0 +1,205 @@
+# Deployment state: Team + Guests
+#
+# Full team deployment with read-only guest viewers.
+#   - VPS: NATS hub + Open Story (common dashboard)
+#   - Machine A: NATS leaf + Open Story (alice's sessions)
+#   - Machine B: NATS leaf + Open Story (bob's sessions)
+#   - Guest: Open Story viewer (no watcher, no leaf — reads from hub NATS only)
+#
+# Guests connect to the hub NATS directly (via Tailscale in production).
+# They see all sessions but never publish. In this test compose they
+# connect to nats-hub on the Docker network.
+#
+# Prerequisites:
+#   docker build -t open-story:test ./rs
+
+services:
+  # ── VPS ─────────────────────────────────────────────
+  nats-hub:
+    image: nats:2-alpine
+    ports:
+      - "4222"
+      - "7422"
+    volumes:
+      - hub-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/nats.conf <<'EOF'
+        listen: 0.0.0.0:4222
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 256MB
+          max_file: 2GB
+        }
+        max_payload: 8MB
+        authorization {
+          token: "test-cluster-token"
+        }
+        leafnodes {
+          listen: "0.0.0.0:7422"
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf
+
+  hub-server:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch-empty"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-hub:4222"
+    ports:
+      - "3002"
+    volumes:
+      - hub-os-data:/data
+      - hub-empty-watch:/watch-empty
+    depends_on:
+      - nats-hub
+
+  # ── Machine A ───────────────────────────────────────
+  nats-leaf-a:
+    image: nats:2-alpine
+    ports:
+      - "4222"
+    volumes:
+      - leaf-a-data:/data
+    depends_on:
+      - nats-hub
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/nats.conf <<'EOF'
+        listen: 0.0.0.0:4222
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 256MB
+          max_file: 2GB
+        }
+        max_payload: 8MB
+        leafnodes {
+          remotes [
+            {
+              url: "nats://test-cluster-token@nats-hub:7422"
+            }
+          ]
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf
+
+  leaf-server-a:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-leaf-a:4222"
+    ports:
+      - "3002"
+    volumes:
+      - leaf-a-os-data:/data
+      - ${FIXTURE_DIR_A:-.}:/watch:ro
+    depends_on:
+      - nats-leaf-a
+
+  # ── Machine B ───────────────────────────────────────
+  nats-leaf-b:
+    image: nats:2-alpine
+    ports:
+      - "4222"
+    volumes:
+      - leaf-b-data:/data
+    depends_on:
+      - nats-hub
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/nats.conf <<'EOF'
+        listen: 0.0.0.0:4222
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 256MB
+          max_file: 2GB
+        }
+        max_payload: 8MB
+        leafnodes {
+          remotes [
+            {
+              url: "nats://test-cluster-token@nats-hub:7422"
+            }
+          ]
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf
+
+  leaf-server-b:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-leaf-b:4222"
+    ports:
+      - "3002"
+    volumes:
+      - leaf-b-os-data:/data
+      - ${FIXTURE_DIR_B:-.}:/watch:ro
+    depends_on:
+      - nats-leaf-b
+
+  # ── Guest viewer ────────────────────────────────────
+  # No watcher, no leaf node. Connects directly to hub NATS.
+  # Subscribes to the hub's event stream — sees everything, publishes nothing.
+  guest-viewer:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch-empty"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-hub:4222"
+    ports:
+      - "3002"
+    volumes:
+      - guest-os-data:/data
+      - guest-empty-watch:/watch-empty
+    depends_on:
+      - nats-hub
+
+volumes:
+  hub-data:
+  leaf-a-data:
+  leaf-b-data:
+  hub-os-data:
+  leaf-a-os-data:
+  leaf-b-os-data:
+  hub-empty-watch:
+  guest-os-data:
+  guest-empty-watch:
