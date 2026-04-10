@@ -131,7 +131,7 @@ async fn synthetic_data_survives_full_lifecycle() {
     assert_eq!(resp.status(), 200);
     let sessions_json: Value = body_json(resp).await;
     assert_eq!(
-        sessions_json.as_array().unwrap().len(), 3,
+        sessions_json["sessions"].as_array().unwrap().len(), 3,
         "session list should show all 3 sessions after SQLite boot"
     );
 }

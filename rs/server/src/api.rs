@@ -17,20 +17,54 @@ use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
 use crate::transcript::{find_transcript_path, read_transcript};
 
-pub async fn list_sessions(State(state): State<SharedState>) -> Json<Value> {
+#[derive(Deserialize)]
+pub struct SessionListQuery {
+    /// Maximum number of sessions to return (default: all).
+    pub limit: Option<usize>,
+    /// Number of sessions to skip (default: 0). Applied after sort by last_event DESC.
+    pub offset: Option<usize>,
+    /// Only include sessions with activity at or after this timestamp (RFC 3339).
+    pub since: Option<String>,
+}
+
+pub async fn list_sessions(
+    State(state): State<SharedState>,
+    Query(query): Query<SessionListQuery>,
+) -> Json<Value> {
     let s = state.read().await;
-    let session_ids: Vec<String> = s.store.event_store.list_sessions()
+    let all_rows = s.store.event_store.list_sessions()
         .await
-        .unwrap_or_default()
-        .iter()
-        .map(|r| r.id.clone())
-        .collect();
-    log_event("api", &format!("GET /api/sessions ({} sessions)", session_ids.len()));
-    let now = Some(Utc::now());
+        .unwrap_or_default();
+
+    // Filter by `since` if provided (compare last_event timestamp strings lexicographically —
+    // they're RFC 3339 so lexicographic order == chronological order).
+    let filtered: Vec<&_> = if let Some(ref since) = query.since {
+        all_rows.iter()
+            .filter(|r| r.last_event.as_deref().unwrap_or("") >= since.as_str())
+            .collect()
+    } else {
+        all_rows.iter().collect()
+    };
+    let total = filtered.len();
+
+    // Apply offset/limit (sessions already sorted by last_event DESC from store)
+    let offset = query.offset.unwrap_or(0);
+    let page: Vec<&&_> = match query.limit {
+        Some(limit) => filtered.iter().skip(offset).take(limit).collect(),
+        None => filtered.iter().skip(offset).collect(),
+    };
+
+    log_event("api", &format!(
+        "GET /api/sessions ({}/{} sessions, offset={}, limit={:?})",
+        page.len(), total, offset, query.limit,
+    ));
+
+    // Build response from SessionRow + projections (no per-session event loading).
+    // Detailed fields (tool_calls, files_edited, model, etc.) are available via
+    // GET /api/sessions/{id}/summary when a specific session is selected.
     let mut result = Vec::new();
-    for sid in &session_ids {
-        let events = s.store.event_store.session_events(sid).await.unwrap_or_default();
-        let summary = session_summary(sid, &events, now);
+    for row in &page {
+        let sid = row.id.as_str();
         let project_id = s.store.session_projects.get(sid);
         let project_name = s.store.session_project_names.get(sid);
         let (label, branch, total_input_tokens, total_output_tokens) =
@@ -43,26 +77,38 @@ pub async fn list_sessions(State(state): State<SharedState>) -> Json<Value> {
                 ),
                 None => (None, None, 0, 0),
             };
+        // Derive status from last_event timestamp (stale if >5min old)
+        let status = match row.last_event.as_deref() {
+            Some(ts) => {
+                if let Ok(t) = chrono::DateTime::parse_from_rfc3339(ts) {
+                    if Utc::now().signed_duration_since(t).num_seconds() > 300 {
+                        "completed"
+                    } else {
+                        "ongoing"
+                    }
+                } else {
+                    "completed"
+                }
+            }
+            None => "completed",
+        };
         result.push(json!({
             "session_id": sid,
-            "status": summary.status,
-            "start_time": summary.start_time,
-            "event_count": summary.event_count,
-            "tool_calls": summary.tool_calls,
-            "files_edited": summary.files_edited,
-            "model": summary.model,
-            "duration_ms": summary.duration_ms,
-            "first_prompt": summary.first_prompt,
-            "cwd": summary.cwd,
-            "project_id": project_id,
-            "project_name": project_name,
-            "label": label,
+            "status": status,
+            "start_time": row.first_event,
+            "event_count": row.event_count,
+            "project_id": project_id.or(row.project_id.as_ref()),
+            "project_name": project_name.or(row.project_name.as_ref()),
+            "label": label.or(row.label.clone()),
             "branch": branch,
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
         }));
     }
-    Json(Value::Array(result))
+    Json(json!({
+        "sessions": result,
+        "total": total,
+    }))
 }
 
 pub async fn get_events(

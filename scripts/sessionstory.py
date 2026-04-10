@@ -287,8 +287,8 @@ def fmt_json(f: SessionFacts) -> str:
 def resolve_session_id(base_url: str, arg: str) -> str:
     if arg and arg != "latest":
         return arg
-    sessions = fetch(base_url, "/api/sessions")
-    if not isinstance(sessions, list) or not sessions:
+    sessions = fetch(base_url, "/api/sessions").get("sessions", [])
+    if not sessions:
         sys.stderr.write("error: no sessions found\n")
         sys.exit(2)
     sessions.sort(key=lambda s: s.get("start_time", ""), reverse=True)
@@ -296,8 +296,8 @@ def resolve_session_id(base_url: str, arg: str) -> str:
 
 
 def list_sessions(base_url: str, limit: int = 10) -> None:
-    sessions = fetch(base_url, "/api/sessions")
-    if not isinstance(sessions, list):
+    sessions = fetch(base_url, "/api/sessions").get("sessions", [])
+    if not sessions:
         return
     sessions.sort(key=lambda s: s.get("start_time", ""), reverse=True)
     for s in sessions[:limit]:

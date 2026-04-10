@@ -127,7 +127,7 @@ def print_analysis(result):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--all":
-        sessions = fetch_json(f"{API}/api/sessions")
+        sessions = fetch_json(f"{API}/api/sessions")["sessions"]
         all_classes = Counter()
         all_shapes = Counter()
         total_turns = 0
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     elif len(sys.argv) > 1 and sys.argv[1] == "--test":
         print("Running data contract tests against running server...")
-        sessions = fetch_json(f"{API}/api/sessions")
+        sessions = fetch_json(f"{API}/api/sessions")["sessions"]
         assert len(sessions) > 0, "should have sessions"
 
         # Pick a session with turns
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     else:
         session_id = sys.argv[1] if len(sys.argv) > 1 else None
         if not session_id:
-            sessions = fetch_json(f"{API}/api/sessions")
+            sessions = fetch_json(f"{API}/api/sessions")["sessions"]
             session_id = max(sessions, key=lambda s: s.get("event_count", 0))["session_id"]
             print(f"Using largest session: {session_id[:12]}")
         result = analyze_session(session_id)

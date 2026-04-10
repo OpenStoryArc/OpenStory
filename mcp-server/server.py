@@ -77,7 +77,8 @@ def list_sessions() -> str:
     files edited, model, duration, first prompt, project, and branch.
     Use this to find a session ID for deeper queries.
     """
-    sessions = _get("/api/sessions")
+    resp = _get("/api/sessions")
+    sessions = resp.get("sessions", resp) if isinstance(resp, dict) else resp
     # Return a concise summary rather than the full payload
     result = []
     for s in sessions:

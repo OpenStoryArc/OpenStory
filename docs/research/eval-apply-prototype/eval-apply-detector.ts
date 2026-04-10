@@ -447,7 +447,7 @@ async function main() {
   if (!sessionId) {
     const api = process.env.OPEN_STORY_API_URL ?? "http://localhost:3002";
     const resp = await fetch(`${api}/api/sessions`);
-    const sessions = await resp.json() as any[];
+    const { sessions } = await resp.json() as { sessions: any[]; total: number };
     console.log("\nAvailable sessions:\n");
     for (const s of sessions.slice(0, 15)) {
       const label = (s.label ?? s.first_prompt ?? "").slice(0, 60);
@@ -460,7 +460,7 @@ async function main() {
   const api = process.env.OPEN_STORY_API_URL ?? "http://localhost:3002";
 
   const sessionsResp = await fetch(`${api}/api/sessions`);
-  const sessions = await sessionsResp.json() as any[];
+  const { sessions } = await sessionsResp.json() as { sessions: any[]; total: number };
   const sessionInfo = sessions.find((s: any) => s.session_id === sessionId);
 
   const resp = await fetch(`${api}/api/sessions/${sessionId}/records`);

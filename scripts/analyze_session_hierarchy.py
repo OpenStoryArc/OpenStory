@@ -19,7 +19,7 @@ from collections import defaultdict
 
 def fetch_sessions(base_url: str) -> list[dict]:
     data = urllib.request.urlopen(f"{base_url}/api/sessions").read()
-    return json.loads(data)
+    return json.loads(data)["sessions"]
 
 
 def classify_sessions(sessions: list[dict]) -> dict:

@@ -337,9 +337,9 @@ async fn ingest_many_sessions_no_crash() {
         .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    let sessions: Value = body_json(resp).await;
+    let body: Value = body_json(resp).await;
     assert_eq!(
-        sessions.as_array().unwrap().len(),
+        body["sessions"].as_array().unwrap().len(),
         num_sessions,
         "API should serve all sessions"
     );
