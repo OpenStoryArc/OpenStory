@@ -1,5 +1,6 @@
 //! REST API handlers — all /api/* routes.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use axum::extract::{Path as AxumPath, Query, State};
@@ -1111,30 +1112,112 @@ pub async fn agent_search(
 
 /// GET /api/sessions/{session_id}/records
 ///
-/// Returns session events as WireRecords from in-memory projections.
+/// Returns session events as WireRecords read directly from the EventStore.
+///
 /// This is the same format the Timeline renders — includes depth,
-/// parent_uuid, and truncation metadata. Returns empty array if
-/// session not found.
+/// parent_uuid, and truncation metadata. Returns empty array if the
+/// session has no events.
+///
+/// Reads from `event_store.session_events()` (the single source of truth)
+/// rather than any in-memory cache, so any event persisted to the store
+/// is visible here regardless of which ingest path wrote it.
 pub async fn get_session_records(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
+    use open_story_views::from_cloud_event::from_cloud_event;
+    use open_story_views::unified::RecordBody;
+    use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THRESHOLD};
+
     log_event("api", &format!("GET /api/sessions/{}/records", short_id(&session_id)));
     let s = state.read().await;
 
-    let records: Vec<Value> = match s.store.projections.get(&session_id) {
-        Some(proj) => {
-            proj.timeline_rows()
-                .iter()
-                .map(|vr| {
-                    let wire = open_story_store::ingest::to_wire_record(vr, proj);
-                    serde_json::to_value(wire).unwrap_or(json!({}))
-                })
-                .collect()
-        }
-        None => Vec::new(),
-    };
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
 
+    // Build parent_map from raw events — one entry per stored CloudEvent.
+    // Fan-out ViewRecords (e.g., parallel tool_use blocks) inherit the
+    // same parent_uuid via suffix stripping at lookup time.
+    let mut parent_map: HashMap<String, Option<String>> = HashMap::with_capacity(events.len());
+    for event in &events {
+        let id = match event.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let parent = event
+            .get("data")
+            .and_then(|d| d.get("agent_payload"))
+            .and_then(|ap| ap.get("parent_uuid"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        parent_map.insert(id, parent);
+    }
+
+    // Depth: walk the parent chain. Capped at 64 to bound cost on
+    // pathological inputs (production trees are shallow).
+    fn depth_of(id: &str, parent_map: &HashMap<String, Option<String>>) -> u16 {
+        // Strip fan-out suffix: "evt-1:2" → "evt-1"
+        let base_id = id.split(':').next().unwrap_or(id);
+        let mut depth: u16 = 0;
+        let mut current = match parent_map.get(base_id).and_then(|p| p.as_deref()) {
+            Some(p) => p.to_string(),
+            None => return 0,
+        };
+        for _ in 0..64 {
+            depth += 1;
+            match parent_map.get(current.as_str()).and_then(|p| p.as_deref()) {
+                Some(next) => current = next.to_string(),
+                None => return depth,
+            }
+        }
+        depth
+    }
+
+    let mut records: Vec<Value> = Vec::new();
+    for event in &events {
+        let ce = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()) {
+            Ok(ce) => ce,
+            Err(_) => continue,
+        };
+        for vr in from_cloud_event(&ce) {
+            // Parent lookup uses base id (strip fan-out suffix).
+            let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
+            let parent_uuid = parent_map
+                .get(&base_id)
+                .and_then(|p| p.clone());
+            let depth = depth_of(&vr.id, &parent_map);
+
+            // Truncation: same rule as the pre-refactor to_wire_record.
+            let (truncated, payload_bytes) = match &vr.body {
+                RecordBody::ToolResult(tr) => match &tr.output {
+                    Some(output) => {
+                        let result = truncate_payload(output, TRUNCATION_THRESHOLD);
+                        (result.truncated, result.original_bytes as u64)
+                    }
+                    None => (false, 0),
+                },
+                _ => (false, 0),
+            };
+
+            let wire = WireRecord {
+                record: vr,
+                depth,
+                parent_uuid,
+                truncated,
+                payload_bytes,
+            };
+            if let Ok(v) = serde_json::to_value(wire) {
+                records.push(v);
+            }
+        }
+    }
+
+    // Events come out of session_events() sorted by (seq, time) per the
+    // store contract, which matches the view_records fan-out order.
     Json(Value::Array(records))
 }
 
