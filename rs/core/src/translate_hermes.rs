@@ -190,10 +190,11 @@ fn translate_assistant_message(
     }
 
     // ── Tool calls — fan out one event per call ──
+    // Each tool call gets a unique index to avoid ID collisions (B2).
     if let Some(tcs) = tool_calls {
         let preceding = if text.is_empty() { None } else { Some(text.clone()) };
-        for tc in tcs {
-            out.push(build_tool_use(ctx, tc, &preceding, state));
+        for (i, tc) in tcs.iter().enumerate() {
+            out.push(build_tool_use(ctx, tc, &preceding, i, state));
         }
     }
 
@@ -299,6 +300,7 @@ fn build_tool_use(
     ctx: &LineCtx<'_>,
     tc: &Value,
     preceding_text: &Option<String>,
+    tool_index: usize,
     state: &mut TranscriptState,
 ) -> CloudEvent {
     // Canonical OpenAI shape:
@@ -321,8 +323,34 @@ fn build_tool_use(
     payload.tool_use_id = Some(tool_use_id);
     payload.args = Some(args);
     payload.preceding_text = preceding_text.clone();
-    payload.stop_reason = Some("tool_use".to_string());
-    build_event(ctx, "message.assistant.tool_use", payload, state)
+    // Preserve Hermes's actual finish_reason ("tool_calls"), don't override
+    // with "tool_use" which is an Anthropic convention. (Review concern C2.)
+    payload.stop_reason = Some("tool_calls".to_string());
+
+    // Use indexed ID derivation to avoid collisions when a single message
+    // fans out to multiple tool_use CloudEvents. (Review blocker B2.)
+    let event_id = derive_event_id_indexed(ctx.session_id, ctx.env_seq, "message.assistant.tool_use", tool_index);
+    payload.seq = Some(ctx.env_seq);
+    payload.timestamp = ctx.timestamp.clone();
+
+    let data = EventData::with_payload(
+        ctx.raw.clone(),
+        state.next_seq(),
+        ctx.session_id.to_string(),
+        AgentPayload::Hermes(payload),
+    );
+
+    CloudEvent::new(
+        ctx.source.to_string(),
+        IO_ARC_EVENT.to_string(),
+        data,
+        Some("message.assistant.tool_use".to_string()),
+        Some(event_id),
+        ctx.timestamp.clone(),
+        None,
+        None,
+        Some("hermes".to_string()),
+    )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -411,9 +439,23 @@ fn build_event(
     )
 }
 
+/// Derive a deterministic event ID from (session, seq, subtype, index).
+///
+/// The `index` parameter disambiguates fan-out events: when a single
+/// Hermes assistant message has N tool_calls, each produces a separate
+/// CloudEvent with the same (session_id, env_seq, subtype). Without
+/// an index, they'd collide. (Review blocker B2.)
 fn derive_event_id(session_id: &str, env_seq: u64, subtype: &str) -> String {
+    derive_event_id_indexed(session_id, env_seq, subtype, 0)
+}
+
+fn derive_event_id_indexed(session_id: &str, env_seq: u64, subtype: &str, index: usize) -> String {
     let namespace = Uuid::from_bytes(NAMESPACE_URL_BYTES);
-    let name = format!("hermes:{}:{}:{}", session_id, env_seq, subtype);
+    let name = if index == 0 {
+        format!("hermes:{}:{}:{}", session_id, env_seq, subtype)
+    } else {
+        format!("hermes:{}:{}:{}:{}", session_id, env_seq, subtype, index)
+    };
     Uuid::new_v5(&namespace, name.as_bytes()).to_string()
 }
 
