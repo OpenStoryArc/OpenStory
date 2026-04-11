@@ -985,15 +985,29 @@ fn all_tool_results_content_is_valid_json() {
 // They are skipped when the image is not available (same pattern as
 // the open-story:test container tests).
 
+// ── Testcontainer tests ──────────────────────────────────────────────
+//
+// These require Docker images to be built:
+//   docker build -t hermes-fixture:test rs/tests/fixtures/hermes/
+//   docker build -t open-story:test ./rs
+//
+// Run with:
+//   cargo test -p open-story --features hermes_container --test test_hermes_translator -- container
+//
+// The tests verify the full containerized pipeline:
+//   hermes-fixture container → JSONL/snapshot output → translator → CloudEvents
+//   hermes-fixture → open-story container → REST API responses
+
 #[cfg(feature = "hermes_container")]
 mod container_tests {
     use super::*;
+    use open_story_core::event_data::AgentPayload;
     use testcontainers::core::Mount;
     use testcontainers::runners::AsyncRunner;
     use testcontainers::{GenericImage, ImageExt};
 
-    #[tokio::test]
-    async fn container_produces_valid_jsonl() {
+    /// Run the hermes-fixture container, return (jsonl_content, snapshot_content).
+    async fn run_fixture_container() -> (String, String) {
         let image = GenericImage::new("hermes-fixture", "test");
         let tmp = tempfile::tempdir().unwrap();
         let output_mount = Mount::bind_mount(
@@ -1007,49 +1021,212 @@ mod container_tests {
             .await
             .expect("failed to start hermes-fixture container");
 
-        // Wait for it to exit (it's a one-shot script)
         container
             .stop()
             .await
             .expect("container didn't stop cleanly");
 
-        // Read the JSONL from the temp dir
         let jsonl_path = tmp.path().join("session_plugin.jsonl");
-        assert!(
-            jsonl_path.exists(),
-            "container should have written session_plugin.jsonl"
-        );
+        let snapshot_path = tmp.path().join("session_snapshot.json");
 
-        let content = std::fs::read_to_string(&jsonl_path).unwrap();
+        let jsonl = std::fs::read_to_string(&jsonl_path)
+            .expect("container should have written session_plugin.jsonl");
+        let snapshot = std::fs::read_to_string(&snapshot_path)
+            .expect("container should have written session_snapshot.json");
+
+        (jsonl, snapshot)
+    }
+
+    #[tokio::test]
+    async fn container_produces_valid_jsonl() {
+        let (jsonl, _) = run_fixture_container().await;
         let mut state = TranscriptState::new("container-test".to_string());
         let mut events: Vec<CloudEvent> = Vec::new();
 
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
+        for line in jsonl.lines() {
+            if line.trim().is_empty() { continue; }
             let parsed: Value = serde_json::from_str(line).unwrap();
             assert!(is_hermes_format(&parsed));
             events.extend(translate_hermes_line(&parsed, &mut state));
         }
 
-        // Same structural checks as the static fixture tests
         assert_eq!(events.len(), 7);
-        let subtypes: Vec<&str> = events
-            .iter()
-            .filter_map(|e| e.subtype.as_deref())
-            .collect();
-        assert_eq!(
-            subtypes,
-            vec![
-                "system.session.start",
-                "message.user.prompt",
-                "message.assistant.thinking",
-                "message.assistant.tool_use",
-                "message.user.tool_result",
-                "message.assistant.text",
-                "system.turn.complete",
-            ]
-        );
+        let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
+        assert_eq!(subtypes, vec![
+            "system.session.start",
+            "message.user.prompt",
+            "message.assistant.thinking",
+            "message.assistant.tool_use",
+            "message.user.tool_result",
+            "message.assistant.text",
+            "system.turn.complete",
+        ]);
+    }
+
+    #[tokio::test]
+    async fn container_events_all_carry_hermes_tag() {
+        let (jsonl, _) = run_fixture_container().await;
+        let mut state = TranscriptState::new("container-tag".to_string());
+        for line in jsonl.lines() {
+            if line.trim().is_empty() { continue; }
+            let parsed: Value = serde_json::from_str(line).unwrap();
+            for ev in translate_hermes_line(&parsed, &mut state) {
+                assert_eq!(ev.agent.as_deref(), Some("hermes"), "all events must carry hermes agent tag");
+                match ev.data.agent_payload.as_ref() {
+                    Some(AgentPayload::Hermes(_)) => {},
+                    other => panic!("expected Hermes payload, got {:?}", other),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn container_event_ids_are_unique() {
+        let (jsonl, _) = run_fixture_container().await;
+        let mut state = TranscriptState::new("container-ids".to_string());
+        let mut ids: Vec<String> = Vec::new();
+        for line in jsonl.lines() {
+            if line.trim().is_empty() { continue; }
+            let parsed: Value = serde_json::from_str(line).unwrap();
+            for ev in translate_hermes_line(&parsed, &mut state) {
+                ids.push(ev.id.clone());
+            }
+        }
+        let unique: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
+        assert_eq!(unique.len(), ids.len(), "container event IDs must be unique");
+    }
+
+    #[tokio::test]
+    async fn container_event_ids_are_deterministic() {
+        let (jsonl, _) = run_fixture_container().await;
+
+        let translate = |seed: &str| -> Vec<String> {
+            let mut state = TranscriptState::new(seed.to_string());
+            let mut ids = Vec::new();
+            for line in jsonl.lines() {
+                if line.trim().is_empty() { continue; }
+                let parsed: Value = serde_json::from_str(line).unwrap();
+                for ev in translate_hermes_line(&parsed, &mut state) {
+                    ids.push(ev.id.clone());
+                }
+            }
+            ids
+        };
+
+        let run1 = translate("det-1");
+        let run2 = translate("det-2");
+        // Same input → same IDs (deterministic uuid5)
+        // Note: seed differs but that only affects TranscriptState.session_id,
+        // not the derive_event_id which uses the envelope's session_id.
+        assert_eq!(run1, run2, "same JSONL input must produce same event IDs");
+    }
+
+    #[tokio::test]
+    async fn container_snapshot_has_valid_structure() {
+        let (_, snapshot) = run_fixture_container().await;
+        let snap: Value = serde_json::from_str(&snapshot).unwrap();
+
+        assert!(snap["session_id"].is_string());
+        assert!(snap["model"].is_string());
+        assert!(snap["platform"].is_string());
+        assert!(snap["session_start"].is_string());
+        assert!(snap["last_updated"].is_string());
+        assert!(snap["system_prompt"].is_string());
+        assert!(snap["tools"].is_array());
+        assert!(snap["message_count"].is_number());
+        assert!(snap["messages"].is_array());
+
+        let messages = snap["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), snap["message_count"].as_u64().unwrap() as usize);
+    }
+
+    #[tokio::test]
+    async fn container_snapshot_works_with_snapshot_watcher() {
+        let (_, snapshot_content) = run_fixture_container().await;
+
+        // Write the snapshot to a temp file as the watcher would see it
+        let dir = tempfile::tempdir().unwrap();
+        let snap: Value = serde_json::from_str(&snapshot_content).unwrap();
+        let sid = snap["session_id"].as_str().unwrap();
+        let path = dir.path().join(format!("session_{}.json", sid));
+        std::fs::write(&path, &snapshot_content).unwrap();
+
+        // Process through the snapshot watcher
+        let mut states = std::collections::HashMap::new();
+        let events = open_story::snapshot_watcher::process_snapshot(&path, &mut states).unwrap();
+
+        assert!(!events.is_empty(), "snapshot watcher should produce events");
+
+        let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
+        assert!(subtypes.contains(&"system.session.start"));
+        assert!(subtypes.contains(&"message.user.prompt"));
+        assert!(subtypes.contains(&"message.assistant.tool_use"));
+
+        // All events should be Hermes
+        for ev in &events {
+            assert_eq!(ev.agent.as_deref(), Some("hermes"));
+        }
+    }
+
+    #[tokio::test]
+    async fn container_tool_call_result_linkage() {
+        let (jsonl, _) = run_fixture_container().await;
+        let mut state = TranscriptState::new("container-link".to_string());
+        let mut events: Vec<CloudEvent> = Vec::new();
+        for line in jsonl.lines() {
+            if line.trim().is_empty() { continue; }
+            let parsed: Value = serde_json::from_str(line).unwrap();
+            events.extend(translate_hermes_line(&parsed, &mut state));
+        }
+
+        // Collect tool_use_ids and tool_call_ids
+        let mut tool_use_ids: Vec<String> = Vec::new();
+        let mut tool_call_ids: Vec<String> = Vec::new();
+
+        for ev in &events {
+            if let Some(AgentPayload::Hermes(h)) = ev.data.agent_payload.as_ref() {
+                if let Some(ref id) = h.tool_use_id {
+                    tool_use_ids.push(id.clone());
+                }
+                if let Some(ref id) = h.tool_call_id {
+                    tool_call_ids.push(id.clone());
+                }
+            }
+        }
+
+        assert!(!tool_use_ids.is_empty(), "should have tool_use events");
+        assert!(!tool_call_ids.is_empty(), "should have tool_result events");
+
+        // Every tool_call_id should match a tool_use_id
+        for call_id in &tool_call_ids {
+            assert!(
+                tool_use_ids.contains(call_id),
+                "tool_call_id {} should match a tool_use_id",
+                call_id
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn container_raw_field_preserved() {
+        let (jsonl, _) = run_fixture_container().await;
+        let mut state = TranscriptState::new("container-raw".to_string());
+        for line in jsonl.lines() {
+            if line.trim().is_empty() { continue; }
+            let parsed: Value = serde_json::from_str(line).unwrap();
+            for ev in translate_hermes_line(&parsed, &mut state) {
+                // raw should be the original input line
+                assert!(
+                    !ev.data.raw.is_null(),
+                    "raw field should be preserved for subtype {:?}",
+                    ev.subtype
+                );
+                // raw should contain the envelope
+                assert!(
+                    ev.data.raw.get("envelope").is_some() || ev.data.raw.get("data").is_some(),
+                    "raw should contain the Hermes envelope structure"
+                );
+            }
+        }
     }
 }

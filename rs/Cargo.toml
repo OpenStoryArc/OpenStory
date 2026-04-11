@@ -38,6 +38,7 @@ default = []
 # the right knobs in the store crate.
 encryption = ["open-story-store/encryption"]
 mongo = ["open-story-store/mongo"]
+hermes_container = []
 
 [dev-dependencies]
 filetime = "0.2"
