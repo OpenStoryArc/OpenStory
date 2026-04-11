@@ -1,0 +1,47 @@
+# Test compose: Open Story + openclaw-mcp container.
+#
+# Verifies that the openclaw-mcp image contains a working OpenStory MCP server
+# that can reach an Open Story instance over the Docker network.
+#
+# The openclaw-mcp container just idles — the test execs into it to spawn
+# the MCP server via stdio and sends JSON-RPC directly. This isolates the
+# MCP-tool path from OpenClaw's full gateway (which needs an API key).
+#
+# Prerequisites:
+#   docker build -t open-story:test ./rs
+#   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
+
+services:
+  open-story:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+    ports:
+      - "3002"
+    volumes:
+      - os-data:/data
+      - ${FIXTURE_DIR:-.}:/watch:ro
+
+  openclaw-mcp:
+    image: openclaw-mcp:latest
+    # Override OpenClaw's default entrypoint — we just need a long-running
+    # container where we can exec `uv run python server.py` as a subprocess.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "tail -f /dev/null"
+    environment:
+      - OPENSTORY_URL=http://open-story:3002
+      - OPENSTORY_LABEL=local-test
+    depends_on:
+      - open-story
+
+volumes:
+  os-data:

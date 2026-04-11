@@ -146,12 +146,15 @@ Install the Docker BuildKit plugin (required for OpenClaw):
 sudo apt-get install -y docker-buildx-plugin
 ```
 
-Build both images (OpenClaw takes ~4 min, Open Story takes ~10 min):
+Build all three images (OpenClaw ~4 min, openclaw-mcp ~2 min, Open Story ~10 min):
 
 ```bash
 docker build -t openclaw:latest ~/openclaw
+docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 docker build -f Dockerfile.prod -t open-story:prod .
 ```
+
+**`openclaw-mcp:latest`** extends `openclaw:latest` with Python 3 + `uv` + the OpenStory MCP server source. It's the image the `openclaw` service in `docker-compose.prod.yml` actually runs — it lets the OpenClaw agent spawn an `openstory` MCP server as a stdio subprocess and query its own local Open Story instance via the 19 MCP tools. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
 
 **Warning**: Docker builds create millions of temporary files that consume filesystem inodes. If you see "no space left on device" errors but `df -h` shows free space, check `df -i /` for inode exhaustion. Fix with `docker system prune -a --force`.
 
@@ -225,6 +228,55 @@ For full docs, have the agent clone the repo into its workspace:
 ```
 Clone https://github.com/OpenStoryArc/OpenStory.git into /home/node/.openclaw/workspace/openstory and read CLAUDE.md
 ```
+
+## Upgrading an existing VPS
+
+If the VPS is already running an older version of the stack (e.g., pre-NATS, pre-MCP), follow these steps. Data in `openclaw-state`, `openclaw-workspace`, and `os-data` volumes is preserved across rebuilds.
+
+```bash
+# 1. Pull the latest code
+ssh deploy@<vps-ip>
+cd ~/openstory
+git fetch && git checkout master && git pull
+
+# 2. Add new env vars to .env (one-time)
+nano .env
+# Add:
+#   NATS_LEAF_TOKEN=<openssl rand -hex 24>
+#   TAILSCALE_IP=<tailscale ip -4>
+
+# 3. Rebuild images in order (each builds on the previous)
+docker build -t openclaw:latest ~/openclaw
+docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
+docker build -f Dockerfile.prod -t open-story:prod .
+
+# 4. Bring up the new stack — only changed services are recreated
+docker compose -f docker-compose.prod.yml up -d
+
+# 5. Verify
+docker compose -f docker-compose.prod.yml ps
+# You should see: nats, openclaw, open-story, telegram-bot — all healthy
+```
+
+**What changes, what doesn't:**
+
+- `openclaw` is recreated because its image changed to `openclaw-mcp:latest` and the openclaw.json template now includes `mcp.servers.openstory`
+- `open-story` is recreated to pick up the `NATS_URL` env var
+- `nats` is started fresh (new service)
+- `telegram-bot` is untouched (no changes to its service definition)
+- All Docker volumes persist — no session data loss
+
+**Verifying the MCP integration:**
+
+From inside the OpenClaw container, you can confirm Python + uv + mcp-server are present:
+
+```bash
+docker exec <openclaw-container-id> sh -c 'ls /opt/mcp-server && which uv && which python3'
+```
+
+You should see `server.py`, `SKILL.md`, `pyproject.toml`, and valid paths for `uv` and `python3`.
+
+The agent itself doesn't need any configuration — when it starts a turn, OpenClaw reads `openclaw.json`, sees the `mcp.servers.openstory` block, and spawns the subprocess. Tools from the `openstory` server automatically appear in the agent's tool list alongside its built-in ones.
 
 ## Operations
 
