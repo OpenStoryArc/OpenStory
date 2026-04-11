@@ -35,17 +35,20 @@ from fastmcp import FastMCP
 
 BASE_URL = os.environ.get("OPENSTORY_URL", "http://localhost:3002")
 API_TOKEN = os.environ.get("OPENSTORY_API_TOKEN", "")
+INSTANCE_LABEL = os.environ.get("OPENSTORY_LABEL", "")
 _SESSIONSTORY_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "sessionstory.py"
 
-mcp = FastMCP(
-    "OpenStory",
-    instructions=(
-        "OpenStory gives you visibility into your own coding sessions. "
-        "Use these tools to understand what happened in past sessions, "
-        "search across your history, and check token usage. "
-        "All data is read-only — these tools observe, they never interfere."
-    ),
+_name = f"OpenStory ({INSTANCE_LABEL})" if INSTANCE_LABEL else "OpenStory"
+_instructions = (
+    "OpenStory gives you visibility into your own coding sessions. "
+    "Use these tools to understand what happened in past sessions, "
+    "search across your history, and check token usage. "
+    "All data is read-only — these tools observe, they never interfere."
 )
+if INSTANCE_LABEL:
+    _instructions += f" This instance connects to: {INSTANCE_LABEL} ({BASE_URL})."
+
+mcp = FastMCP(_name, instructions=_instructions)
 
 # ---------------------------------------------------------------------------
 # HTTP helper

@@ -222,8 +222,21 @@ The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) enables filterin
 ### Query clock injection for full determinism
 The time-windowed analytics queries (`project_pulse`, `tool_evolution`, `productivity_by_hour`, `token_usage(days, ...)`, `daily_token_usage(days)`) all call `chrono::Utc::now()` internally. This works for backend-parity tests because both backends call `now()` at the same instant during the test, but it makes the queries non-deterministic across test runs and harder to test against fixed data. The right answer is to refactor each query to take an `as_of: DateTime<Utc>` parameter that defaults to `Utc::now()` at the call site, with conformance tests passing a fixed value. Touches all the query method signatures + every API handler + the CLI surface, so it's intentionally deferred from Phase 5 of the MongoDB sink work — see `docs/research/mongo-analytics-parity-plan.md` §10.1 #1.
 
-### Multi-Machine Session Aggregation
-Aggregate session data from multiple computers into a single database. Today OpenStory watches one machine's `~/.claude/projects/`. With NATS as the bus, satellite machines can run a lightweight watcher that publishes to a remote NATS server — events flow to a shared MongoDB (or SQLite) on a central VPS. All sessions from every machine land in one store, enabling cross-machine token analytics (`scripts/token_usage.py`), unified session history, and a single dashboard view of all agent work regardless of which laptop it happened on. The architecture already supports this: NATS is a network protocol (`nats_url` is configurable), MongoDB is remote-capable, and the watcher is read-only with no server dependency. What's needed: (1) a "watcher-only" run mode (no server, no consumers — just watch + translate + publish to remote NATS), (2) documentation for the VPS setup (NATS + Mongo + OpenStory server on Hetzner), (3) auth/TLS for the NATS connection so session data doesn't travel in the clear.
+### Multi-Machine Session Aggregation — SHIPPED
+Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. All sessions from all machines land on every node (JetStream propagates bidirectionally). Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
+
+### Distributed Deployment Security Hardening
+With NATS leaf node streaming, every machine gets a full copy of all team data (sessions, prompts, file contents, tool outputs). This is the correct sovereignty behavior but raises security concerns for team deployments. Items to address:
+
+**NATS accounts for team partitioning.** Today all leaf nodes share a single NATS account — everyone sees everything. NATS accounts would let each team member publish to their own subject namespace and selectively subscribe to others. This enables the "Team Partitioned" deployment state where alice sees only her sessions locally unless she explicitly subscribes to bob's. Requires NATS account configuration on the hub and per-user credentials on each leaf.
+
+**Credential files instead of token-in-URL.** The NATS token currently appears in the URL (`nats://TOKEN@host:port`), which shows up in process listings, Docker inspect, and Open Story's startup log. NATS supports credential files (`.creds`) that keep secrets out of command-line args and environment variables. Update `NatsBus::connect()` to accept a `--nats-creds` path.
+
+**SQLCipher for local stores.** Every machine's SQLite database contains all team sessions in plaintext. The `db_key` config field already exists but isn't exercised in the distributed deployment. Document and test SQLCipher with the leaf node setup so stolen laptops don't leak team data.
+
+**API auth on the hub dashboard.** The VPS hub serves the common dashboard. Without `OPEN_STORY_API_TOKEN`, anyone on the Tailscale network can browse all sessions. Document setting the token and update the Caddy config to pass auth headers.
+
+**Redact tokens from startup logs.** `NatsBus::connect()` logs the full NATS URL including the token. Mask the userinfo portion in log output.
 
 ### Multi-Directory Watcher
 Accept multiple `--watch-dir` roots, backfill concurrently, and resolve project_id correctly across all roots with longest-prefix matching. Currently uses `watch_dir` + `pi_watch_dir` as separate config fields. Generalize to `watch_dirs = [...]` array.

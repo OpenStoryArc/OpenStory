@@ -1,0 +1,121 @@
+# Test compose for NATS hub-leaf cluster: hub + leaf + two Open Story instances.
+#
+# Verifies that events published on the leaf forward to the hub,
+# and both Open Story instances see the appropriate sessions.
+#
+# Used by test_leaf_cluster.rs integration tests.
+# FIXTURE_DIR is set by the test harness to point at test fixtures.
+#
+# Prerequisites:
+#   docker build -t open-story:test ./rs
+
+services:
+  # NATS hub — central JetStream broker, accepts leaf connections on :7422
+  nats-hub:
+    image: nats:2-alpine
+    ports:
+      - "4222"
+      - "7422"
+    volumes:
+      - hub-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/nats.conf <<'EOF'
+        listen: 0.0.0.0:4222
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 256MB
+          max_file: 2GB
+        }
+        max_payload: 8MB
+        authorization {
+          token: "test-cluster-token"
+        }
+        leafnodes {
+          listen: "0.0.0.0:7422"
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf
+
+  # NATS leaf — connects to hub, forwards events
+  nats-leaf:
+    image: nats:2-alpine
+    ports:
+      - "4222"
+    volumes:
+      - leaf-data:/data
+    depends_on:
+      - nats-hub
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        cat > /tmp/nats.conf <<'EOF'
+        listen: 0.0.0.0:4222
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 256MB
+          max_file: 2GB
+        }
+        max_payload: 8MB
+        leafnodes {
+          remotes [
+            {
+              url: "nats://test-cluster-token@nats-hub:7422"
+            }
+          ]
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf
+
+  # Open Story on the hub — sees ALL events (common dashboard)
+  hub-server:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch-empty"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-hub:4222"
+    ports:
+      - "3002"
+    volumes:
+      - hub-os-data:/data
+      - hub-empty-watch:/watch-empty
+    depends_on:
+      - nats-hub
+  # Open Story on the leaf — watches local fixtures, publishes to leaf NATS.
+  leaf-server:
+    image: open-story:test
+    command:
+      - "serve"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "3002"
+      - "--data-dir"
+      - "/data"
+      - "--watch-dir"
+      - "/watch"
+      - "--nats-url"
+      - "nats://test-cluster-token@nats-leaf:4222"
+    ports:
+      - "3002"
+    volumes:
+      - leaf-os-data:/data
+      - ${FIXTURE_DIR:-.}:/watch:ro
+    depends_on:
+      - nats-leaf
+
+volumes:
+  hub-data:
+  leaf-data:
+  hub-os-data:
+  leaf-os-data:
+  hub-empty-watch:

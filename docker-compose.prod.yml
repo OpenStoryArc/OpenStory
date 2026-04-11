@@ -13,10 +13,30 @@
 #   TELEGRAM_BOT_TOKEN=<from-botfather>
 #   TELEGRAM_ALLOWED_USER_ID=<your-telegram-user-id>
 #
+# Also set for NATS leaf node auth:
+#   NATS_LEAF_TOKEN=<openssl rand -hex 24>
+#   TAILSCALE_IP=<your Tailscale IP, e.g. 100.x.y.z>
+#
 # Start:
 #   docker compose -f docker-compose.prod.yml up -d
 
 services:
+  nats:
+    image: nats:2-alpine
+    command: ["-c", "/etc/nats/nats-hub.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+      - "${TAILSCALE_IP:-0.0.0.0}:7422:7422"
+    volumes:
+      - nats-data:/data
+      - ./deploy/nats-hub.conf:/etc/nats/nats-hub.conf:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
   openclaw:
     image: openclaw:latest
     user: "0:0"
@@ -66,6 +86,7 @@ services:
       - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
       - OPEN_STORY_METRICS_ENABLED=true
       - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
+      - NATS_URL=nats://${NATS_LEAF_TOKEN}@nats:4222
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
       interval: 10s
@@ -75,6 +96,8 @@ services:
     depends_on:
       openclaw:
         condition: service_healthy
+      nats:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -100,6 +123,7 @@ services:
           memory: 256M
 
 volumes:
+  nats-data:
   os-data:
   openclaw-state:
   openclaw-workspace:

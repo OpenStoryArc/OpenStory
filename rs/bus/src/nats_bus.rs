@@ -22,14 +22,47 @@ pub struct NatsBus {
 
 impl NatsBus {
     /// Connect to NATS and set up JetStream.
+    ///
+    /// Supports token auth via URL userinfo: `nats://TOKEN@host:port`.
     pub async fn connect(nats_url: &str) -> Result<Self> {
-        let client = async_nats::connect(nats_url)
-            .await
-            .with_context(|| format!("failed to connect to NATS at {nats_url}"))?;
+        let client = if let Some(token) = Self::extract_token(nats_url) {
+            let clean_url = Self::strip_userinfo(nats_url);
+            async_nats::ConnectOptions::with_token(token)
+                .connect(&clean_url)
+                .await
+                .with_context(|| format!("failed to connect to NATS at {clean_url} (with token)"))?
+        } else {
+            async_nats::connect(nats_url)
+                .await
+                .with_context(|| format!("failed to connect to NATS at {nats_url}"))?
+        };
 
         let jetstream = jetstream::new(client);
 
         Ok(Self { jetstream })
+    }
+
+    /// Extract token from `nats://TOKEN@host:port` URL.
+    fn extract_token(url: &str) -> Option<String> {
+        let after_scheme = url.strip_prefix("nats://")?;
+        let at_pos = after_scheme.find('@')?;
+        let userinfo = &after_scheme[..at_pos];
+        // Only treat as token if there's no colon (user:pass is different)
+        if userinfo.contains(':') {
+            None
+        } else {
+            Some(userinfo.to_string())
+        }
+    }
+
+    /// Strip userinfo from URL: `nats://token@host:port` → `nats://host:port`.
+    fn strip_userinfo(url: &str) -> String {
+        if let Some(after_scheme) = url.strip_prefix("nats://") {
+            if let Some(at_pos) = after_scheme.find('@') {
+                return format!("nats://{}", &after_scheme[at_pos + 1..]);
+            }
+        }
+        url.to_string()
     }
 
     /// Ensure the "events" stream exists with durable retention.

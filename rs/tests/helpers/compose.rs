@@ -19,6 +19,8 @@ pub enum TestConfig {
     Full,
     /// Split: publisher + NATS + consumer (docker-compose.split.yml)
     Split,
+    /// Leaf cluster: hub NATS + leaf NATS + two Open Story instances
+    LeafCluster,
 }
 
 /// A running test stack with discovered ports.
@@ -28,6 +30,8 @@ pub struct TestStack {
     pub project_name: String,
     pub server_port: u16,
     pub publisher_port: Option<u16>,
+    /// For LeafCluster: the hub server's port (common dashboard).
+    pub hub_server_port: Option<u16>,
 }
 
 #[allow(dead_code)]
@@ -105,6 +109,7 @@ fn compose_file(config: TestConfig) -> PathBuf {
         TestConfig::Minimal | TestConfig::Bus => "docker-compose.test.yml",
         TestConfig::Full => "docker-compose.full.yml",
         TestConfig::Split => "docker-compose.split.yml",
+        TestConfig::LeafCluster => "docker-compose.leafcluster.yml",
     };
     PathBuf::from(format!("{manifest}/tests/{filename}"))
 }
@@ -187,6 +192,7 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
             TestConfig::Bus => "bus",
             TestConfig::Full => "full",
             TestConfig::Split => "split",
+            TestConfig::LeafCluster => "leaf",
         },
         std::process::id(),
         rand_suffix()
@@ -210,9 +216,12 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
     // Wait a moment for containers to start and ports to be assigned
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // For split mode, the "consumer" service serves the API. Otherwise "server".
+    // For split mode, the "consumer" service serves the API.
+    // For leaf cluster, the "leaf-server" is the primary (watches fixtures).
+    // Otherwise "server".
     let api_service = match config {
         TestConfig::Split => "consumer",
+        TestConfig::LeafCluster => "leaf-server",
         _ => "server",
     };
 
@@ -223,6 +232,14 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         TestConfig::Split => {
             Some(get_host_port(&project_name, "publisher", 3002)
                 .expect("failed to get publisher port"))
+        }
+        _ => None,
+    };
+
+    let hub_server_port = match config {
+        TestConfig::LeafCluster => {
+            Some(get_host_port(&project_name, "hub-server", 3002)
+                .expect("failed to get hub-server port"))
         }
         _ => None,
     };
@@ -240,10 +257,22 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
+    // For leaf cluster, also wait for hub server
+    if let Some(hub_port) = hub_server_port {
+        let hub_url = format!("http://localhost:{hub_port}/api/sessions");
+        for _ in 0..30 {
+            if reqwest::get(&hub_url).await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+
     TestStack {
         compose_file: compose_path,
         project_name,
         server_port,
         publisher_port,
+        hub_server_port,
     }
 }
