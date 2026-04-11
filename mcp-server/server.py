@@ -20,14 +20,20 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
-import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
+
+# Allow `from sessionstory import summarize` — sessionstory.py is a sibling
+# script that exposes a pure summarize() function we reuse for session_story.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from sessionstory import summarize  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Config
@@ -36,7 +42,16 @@ from fastmcp import FastMCP
 BASE_URL = os.environ.get("OPENSTORY_URL", "http://localhost:3002")
 API_TOKEN = os.environ.get("OPENSTORY_API_TOKEN", "")
 INSTANCE_LABEL = os.environ.get("OPENSTORY_LABEL", "")
-_SESSIONSTORY_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "sessionstory.py"
+
+logging.basicConfig(
+    level=getattr(
+        logging,
+        os.environ.get("OPENSTORY_LOG_LEVEL", "WARNING").upper(),
+        logging.WARNING,
+    ),
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+log = logging.getLogger("openstory.mcp")
 
 _name = f"OpenStory ({INSTANCE_LABEL})" if INSTANCE_LABEL else "OpenStory"
 _instructions = (
@@ -51,21 +66,56 @@ if INSTANCE_LABEL:
 mcp = FastMCP(_name, instructions=_instructions)
 
 # ---------------------------------------------------------------------------
-# HTTP helper
+# HTTP helper — singleton client + structured errors
 # ---------------------------------------------------------------------------
 
-def _client() -> httpx.Client:
-    headers = {}
-    if API_TOKEN:
-        headers["Authorization"] = f"Bearer {API_TOKEN}"
-    return httpx.Client(base_url=BASE_URL, headers=headers, timeout=30)
+_http: httpx.Client | None = None
+
+
+def _get_client() -> httpx.Client:
+    """Return a process-wide httpx.Client with connection-level retries.
+
+    HTTPTransport(retries=3) handles transient network failures (refused
+    connections, resets, DNS hiccups) automatically. The singleton pattern
+    keeps the connection pool alive across tool calls.
+    """
+    global _http
+    if _http is None:
+        headers = {}
+        if API_TOKEN:
+            headers["Authorization"] = f"Bearer {API_TOKEN}"
+        transport = httpx.HTTPTransport(retries=3)
+        _http = httpx.Client(
+            base_url=BASE_URL, headers=headers, timeout=30, transport=transport
+        )
+    return _http
 
 
 def _get(path: str, params: dict | None = None) -> dict | list:
-    with _client() as client:
-        resp = client.get(path, params=params)
+    """GET against the OpenStory REST API.
+
+    Returns parsed JSON on success. On failure, returns a structured error
+    dict — never raises — so tools can json.dumps() the result without
+    crashing the MCP call.
+    """
+    log.info("GET %s params=%s", path, params or {})
+    try:
+        resp = _get_client().get(path, params=params)
         resp.raise_for_status()
         return resp.json()
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        log.warning("HTTP %s for %s", code, path)
+        return {"error": f"API returned HTTP {code}", "status_code": code}
+    except httpx.ConnectError as e:
+        log.warning("Connect error for %s: %s", BASE_URL, e)
+        return {
+            "error": f"Cannot connect to OpenStory at {BASE_URL}",
+            "status_code": None,
+        }
+    except httpx.TimeoutException as e:
+        log.warning("Timeout for %s: %s", path, e)
+        return {"error": f"Request timed out: {path}", "status_code": None}
 
 
 # ---------------------------------------------------------------------------
@@ -374,36 +424,33 @@ def session_story(session_id: str) -> str:
 
     Returns aggregated SessionFacts: shape (records, turns, duration),
     tool histogram, pattern counts, turn phase mix, up to 8 sample
-    sentences from the detector, and a prompt timeline. Wraps the
-    sessionstory.py analysis script.
+    sentences from the detector, and a prompt timeline. Reuses the
+    pure summarize() function from scripts/sessionstory.py — no
+    subprocess.
 
     Args:
         session_id: The session to analyze.
     """
-    script = _SESSIONSTORY_SCRIPT
-    if not script.exists():
-        return json.dumps({"error": f"sessionstory.py not found at {script}"})
-    try:
-        result = subprocess.run(
-            [sys.executable, str(script), session_id, "--json",
-             "--url", BASE_URL],
-            capture_output=True, text=True, timeout=60,
-        )
-    except subprocess.TimeoutExpired:
-        return json.dumps({"error": "sessionstory.py timed out after 60s"})
-    if result.returncode != 0:
-        return json.dumps({
-            "error": f"sessionstory.py exited with code {result.returncode}",
-            "stderr": result.stderr[:500],
-        })
-    try:
-        parsed = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return json.dumps({
-            "error": "sessionstory.py returned invalid JSON",
-            "raw_output": result.stdout[:1000],
-        })
-    return json.dumps(parsed, indent=2)
+    records_resp = _get(f"/api/sessions/{session_id}/records")
+    if isinstance(records_resp, dict) and "error" in records_resp:
+        return json.dumps(records_resp)
+    records = (
+        records_resp
+        if isinstance(records_resp, list)
+        else records_resp.get("records", [])
+    )
+
+    patterns_resp = _get(f"/api/sessions/{session_id}/patterns")
+    if isinstance(patterns_resp, dict) and "error" in patterns_resp:
+        return json.dumps(patterns_resp)
+    patterns = (
+        patterns_resp
+        if isinstance(patterns_resp, list)
+        else patterns_resp.get("patterns", [])
+    )
+
+    facts = summarize(records, patterns, session_id)
+    return json.dumps(asdict(facts), indent=2, default=str)
 
 
 @mcp.tool
@@ -440,6 +487,25 @@ def session_sentences(session_id: str, limit: int = 50) -> str:
             "started_at": started,
         })
     return json.dumps({"count": len(sentences), "sentences": sentences}, indent=2)
+
+
+@mcp.tool
+def health_check() -> str:
+    """Check whether the OpenStory server is reachable.
+
+    Returns {"status": "ok", "url": ...} if the API responds, or
+    {"status": "unreachable", "url": ..., "error": ...} otherwise.
+    Useful as a first call when other tools are failing — disambiguates
+    "server is down" from "query has no results".
+    """
+    try:
+        resp = _get_client().get("/api/sessions", timeout=5)
+        resp.raise_for_status()
+        return json.dumps({"status": "ok", "url": BASE_URL})
+    except Exception as e:
+        return json.dumps(
+            {"status": "unreachable", "url": BASE_URL, "error": str(e)}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +552,7 @@ def _self_test():
         "productivity",
         "session_transcript",
         "session_plans",
+        "health_check",
     }
     missing = expected - registered
     extra = registered - expected

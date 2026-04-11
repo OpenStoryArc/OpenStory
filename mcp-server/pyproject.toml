@@ -8,5 +8,10 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 openstory-mcp = "server:main"
