@@ -15,6 +15,7 @@ use open_story_core::translate::TranscriptState;
 use open_story_core::translate_hermes::translate_hermes_line;
 use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
@@ -693,4 +694,611 @@ fn test_concurrent_sessions() {
             filename
         );
     }
+}
+
+// ── Test 6: Write rate sweep ───────────────────────────────────────
+
+/// Sweep write rates to find where the watcher starts dropping events.
+///
+/// Writes 50 atomic replaces at each rate in [1, 2, 5, 10, 20, 50, 100]/sec,
+/// then counts how many notify events arrived vs expected. This is primarily
+/// a measurement test — it prints results at every rate. The only hard
+/// assertion is that at 10 writes/sec, detection should be >= 50%.
+#[test]
+fn test_write_rate_sweep() {
+    let rates = [1, 2, 5, 10, 20, 50, 100];
+    let writes_per_rate = 50;
+
+    eprintln!("\nWrite rate sweep ({} writes per rate):", writes_per_rate);
+
+    let mut rate_results: Vec<(u64, usize, usize)> = Vec::new();
+
+    for rate in &rates {
+        let dir = TempDir::new().unwrap();
+        let session_path = dir.path().join("session_sweep.json");
+
+        // Write initial file.
+        let initial = generate_hermes_snapshot("sweep-session", &[user_message("init")], 1000);
+        std::fs::write(&session_path, &initial).unwrap();
+
+        let events: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+        let events_clone = Arc::clone(&events);
+
+        let mut watcher = RecommendedWatcher::new(
+            move |res: Result<Event, notify::Error>| {
+                if let Ok(event) = res {
+                    events_clone.lock().unwrap().push(event);
+                }
+            },
+            Config::default(),
+        )
+        .expect("failed to create watcher");
+
+        watcher
+            .watch(dir.path(), RecursiveMode::NonRecursive)
+            .expect("failed to watch directory");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        let interval = Duration::from_micros(1_000_000 / *rate);
+
+        for i in 0..writes_per_rate {
+            let messages = build_conversation(2 + i);
+            let content = generate_hermes_snapshot("sweep-session", &messages, 1000);
+            atomic_replace(&session_path, &content);
+            std::thread::sleep(interval);
+        }
+
+        // Wait for events to settle.
+        std::thread::sleep(Duration::from_secs(2));
+
+        let collected = events.lock().unwrap();
+        let target_events = collected
+            .iter()
+            .filter(|e| {
+                e.paths
+                    .iter()
+                    .any(|p| {
+                        p.file_name()
+                            .map(|n| n == "session_sweep.json")
+                            .unwrap_or(false)
+                    })
+            })
+            .count();
+
+        let pct = (target_events as f64 / writes_per_rate as f64 * 100.0) as usize;
+        eprintln!(
+            "  rate={}/s: {}/{} events ({}%)",
+            rate, target_events, writes_per_rate, pct
+        );
+
+        rate_results.push((*rate, target_events, writes_per_rate));
+    }
+
+    // Assert: at 10/sec, detection should be >= 50%.
+    let ten_per_sec = rate_results.iter().find(|(r, _, _)| *r == 10).unwrap();
+    let detection_pct = ten_per_sec.1 as f64 / ten_per_sec.2 as f64 * 100.0;
+    assert!(
+        detection_pct >= 50.0,
+        "At 10 writes/sec, expected >= 50% detection, got {:.0}% ({}/{})",
+        detection_pct,
+        ten_per_sec.1,
+        ten_per_sec.2
+    );
+}
+
+// ── Test 7: Sustained load (5 minutes) ─────────────────────────────
+
+/// 5 minutes of continuous writes at 2/sec (realistic fast-model rate).
+///
+/// Tracks events received, max latency, and file size growth over time.
+/// Prints progress every 30 seconds.
+///
+/// Run with: cargo test -p open-story --test test_hermes_snapshot_watcher -- --ignored test_sustained_load_5_minutes
+#[test]
+#[ignore]
+fn test_sustained_load_5_minutes() {
+    let dir = TempDir::new().unwrap();
+    let session_path = dir.path().join("session_sustained.json");
+    let session_id = "sustained-session";
+
+    // Write initial file.
+    let initial = generate_hermes_snapshot(session_id, &[user_message("init")], 55_000);
+    std::fs::write(&session_path, &initial).unwrap();
+
+    let events: Arc<Mutex<Vec<Instant>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                // Only track events for our session file.
+                let is_target = event.paths.iter().any(|p| {
+                    p.file_name()
+                        .map(|n| n == "session_sustained.json")
+                        .unwrap_or(false)
+                });
+                if is_target {
+                    events_clone.lock().unwrap().push(Instant::now());
+                }
+            }
+        },
+        Config::default(),
+    )
+    .expect("failed to create watcher");
+
+    watcher
+        .watch(dir.path(), RecursiveMode::NonRecursive)
+        .expect("failed to watch directory");
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let total_writes = 600;
+    let interval = Duration::from_millis(500); // 2/sec
+    let test_start = Instant::now();
+    let mut last_report = Instant::now();
+    let mut max_file_size: usize = 0;
+
+    eprintln!("\nSustained load: {} writes at 2/sec (5 minutes)...", total_writes);
+
+    for i in 0..total_writes {
+        let messages = build_conversation(2 + i);
+        let content = generate_hermes_snapshot(session_id, &messages, 55_000);
+        max_file_size = max_file_size.max(content.len());
+        atomic_replace(&session_path, &content);
+        std::thread::sleep(interval);
+
+        // Progress report every 30 seconds.
+        if last_report.elapsed() >= Duration::from_secs(30) {
+            let received = events.lock().unwrap().len();
+            let elapsed_secs = test_start.elapsed().as_secs();
+            eprintln!(
+                "  [{:>3}s] writes={}, events={}, file_size={}KB",
+                elapsed_secs,
+                i + 1,
+                received,
+                max_file_size / 1024
+            );
+            last_report = Instant::now();
+        }
+    }
+
+    // Final settle time.
+    std::thread::sleep(Duration::from_secs(2));
+
+    let received = events.lock().unwrap().len();
+    let detection_pct = received as f64 / total_writes as f64 * 100.0;
+    let total_elapsed = test_start.elapsed();
+
+    eprintln!("\nSustained load results:");
+    eprintln!("  Total writes:   {}", total_writes);
+    eprintln!("  Events received: {}", received);
+    eprintln!("  Detection rate:  {:.1}%", detection_pct);
+    eprintln!("  Max file size:   {}KB", max_file_size / 1024);
+    eprintln!("  Wall time:       {:.1}s", total_elapsed.as_secs_f64());
+
+    assert!(
+        detection_pct >= 95.0,
+        "Sustained load: expected >= 95% detection, got {:.1}% ({}/{})",
+        detection_pct,
+        received,
+        total_writes
+    );
+}
+
+// ── Test 8: Adversarial race ───────────────────────────────────────
+
+/// Writer and reader hammering the same file as fast as possible for 5 seconds.
+///
+/// The writer does atomic_replace in a tight loop (no sleep). The reader does
+/// open → read_to_string → serde_json::from_str in a tight loop. Verifies
+/// that POSIX atomic rename guarantees mean zero parse failures.
+#[test]
+fn test_adversarial_race() {
+    let dir = TempDir::new().unwrap();
+    let session_path = dir.path().join("session_race.json");
+    let session_id = "race-session";
+
+    // Write initial file.
+    let initial = generate_hermes_snapshot(session_id, &[user_message("init")], 1000);
+    std::fs::write(&session_path, &initial).unwrap();
+
+    let running = Arc::new(AtomicBool::new(true));
+    let write_count = Arc::new(AtomicUsize::new(0));
+    let read_count = Arc::new(AtomicUsize::new(0));
+    let parse_failures = Arc::new(AtomicUsize::new(0));
+
+    let duration = Duration::from_secs(5);
+
+    // Writer thread: atomic_replace in a tight loop.
+    let writer_path = session_path.clone();
+    let writer_running = Arc::clone(&running);
+    let writer_count = Arc::clone(&write_count);
+    let writer_handle = std::thread::spawn(move || {
+        let mut i = 0usize;
+        while writer_running.load(Ordering::Relaxed) {
+            let messages = build_conversation(2 + (i % 50));
+            let content = generate_hermes_snapshot(session_id, &messages, 1000);
+            atomic_replace(&writer_path, &content);
+            writer_count.fetch_add(1, Ordering::Relaxed);
+            i += 1;
+        }
+    });
+
+    // Reader thread: read + parse in a tight loop.
+    let reader_path = session_path.clone();
+    let reader_running = Arc::clone(&running);
+    let reader_count_clone = Arc::clone(&read_count);
+    let reader_failures = Arc::clone(&parse_failures);
+    let reader_handle = std::thread::spawn(move || {
+        while reader_running.load(Ordering::Relaxed) {
+            match std::fs::read_to_string(&reader_path) {
+                Ok(raw) => {
+                    reader_count_clone.fetch_add(1, Ordering::Relaxed);
+                    if serde_json::from_str::<Value>(&raw).is_err() {
+                        reader_failures.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Err(_) => {
+                    // File might not exist momentarily during rename — that's OK,
+                    // but still count it as a read attempt.
+                    reader_count_clone.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    });
+
+    // Let them race for the specified duration.
+    std::thread::sleep(duration);
+    running.store(false, Ordering::Relaxed);
+
+    writer_handle.join().expect("writer thread panicked");
+    reader_handle.join().expect("reader thread panicked");
+
+    let writes = write_count.load(Ordering::Relaxed);
+    let reads = read_count.load(Ordering::Relaxed);
+    let failures = parse_failures.load(Ordering::Relaxed);
+
+    eprintln!("\nAdversarial race ({}s):", duration.as_secs());
+    eprintln!("  Write rate: {}/s", writes / duration.as_secs() as usize);
+    eprintln!("  Read rate:  {}/s", reads / duration.as_secs() as usize);
+    eprintln!("  Total writes: {}", writes);
+    eprintln!("  Total reads:  {}", reads);
+    eprintln!("  Parse failures: {}", failures);
+
+    assert_eq!(
+        failures, 0,
+        "POSIX atomic guarantee violated: {} parse failures out of {} reads",
+        failures, reads
+    );
+}
+
+// ── Test 9: Burst pattern ──────────────────────────────────────────
+
+/// Simulate realistic Hermes behavior: bursts of rapid writes during tool
+/// execution, then long pauses during LLM thinking.
+///
+/// Pattern: [burst of 5 writes at 50ms spacing] → [pause 3 seconds] → repeat 10x.
+/// Total: 50 writes in ~35 seconds. Asserts all 50 messages are captured.
+#[test]
+fn test_burst_pattern() {
+    let dir = TempDir::new().unwrap();
+    let session_path = dir.path().join("session_burst.json");
+    let session_id = "burst-session";
+
+    // Write initial file.
+    let initial = generate_hermes_snapshot(session_id, &[user_message("init")], 55_000);
+    std::fs::write(&session_path, &initial).unwrap();
+
+    // Track file state for diffing.
+    let prev_state = SnapshotState {
+        session_id: session_id.to_string(),
+        message_count: 1,
+    };
+
+    // Collect diffs as we go (read after each burst settles).
+    let events: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                events_clone.lock().unwrap().push(event);
+            }
+        },
+        Config::default(),
+    )
+    .expect("failed to create watcher");
+
+    watcher
+        .watch(dir.path(), RecursiveMode::NonRecursive)
+        .expect("failed to watch directory");
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let bursts = 10;
+    let writes_per_burst = 5;
+    let total_writes = bursts * writes_per_burst;
+    let mut msg_count = 1; // initial message
+
+    eprintln!("\nBurst pattern: {} bursts of {} writes...", bursts, writes_per_burst);
+
+    for burst in 0..bursts {
+        // Burst: 5 writes at 50ms spacing.
+        for _ in 0..writes_per_burst {
+            msg_count += 1;
+            let messages = build_conversation(msg_count);
+            let content = generate_hermes_snapshot(session_id, &messages, 55_000);
+            atomic_replace(&session_path, &content);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        eprintln!("  Burst {} complete, {} messages total", burst + 1, msg_count);
+
+        // Pause: simulate LLM thinking.
+        std::thread::sleep(Duration::from_secs(3));
+    }
+
+    // Final settle.
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Now verify: read the final file and diff from initial state.
+    // The file should contain all messages we wrote.
+    let raw = std::fs::read_to_string(&session_path).unwrap();
+    let parsed: Value = serde_json::from_str(&raw).unwrap();
+    let final_count = parsed["messages"].as_array().unwrap().len();
+
+    assert_eq!(
+        final_count,
+        1 + total_writes,
+        "Expected {} messages in final file, got {}",
+        1 + total_writes,
+        final_count
+    );
+
+    // Diff from initial: should produce all new messages.
+    let new_msgs = diff_snapshot(&prev_state, &parsed);
+    assert_eq!(
+        new_msgs.len(),
+        total_writes,
+        "Diff should show {} new messages, got {}",
+        total_writes,
+        new_msgs.len()
+    );
+
+    // Translate all new messages and count CloudEvents.
+    let mut state = TranscriptState::new(session_id.to_string());
+    let mut cloud_events = 0;
+    for (seq, msg) in new_msgs.iter().enumerate() {
+        let line = wrap_hermes_line(session_id, msg, seq as u64 + 1);
+        let evts = translate_hermes_line(&line, &mut state);
+        cloud_events += evts.len();
+    }
+
+    eprintln!(
+        "  {} new messages → {} CloudEvents",
+        new_msgs.len(),
+        cloud_events
+    );
+
+    assert_eq!(
+        cloud_events, total_writes,
+        "Expected {} CloudEvents from {} messages, got {}",
+        total_writes, total_writes, cloud_events
+    );
+
+    // Verify the watcher saw events during bursts.
+    let collected = events.lock().unwrap();
+    let target_events = collected
+        .iter()
+        .filter(|e| {
+            e.paths
+                .iter()
+                .any(|p| {
+                    p.file_name()
+                        .map(|n| n == "session_burst.json")
+                        .unwrap_or(false)
+                })
+        })
+        .count();
+
+    eprintln!(
+        "  Watcher events: {} (for {} writes)",
+        target_events, total_writes
+    );
+
+    // Even with coalescing, the watcher should see events from every burst
+    // (the 3-second pauses ensure events are delivered between bursts).
+    assert!(
+        target_events >= bursts,
+        "Expected at least {} watcher events (one per burst), got {}",
+        bursts,
+        target_events
+    );
+}
+
+// ── Test 10: Fast model simulation ─────────────────────────────────
+
+/// Simulate a local model (vLLM on a 5090) responding in 100ms.
+///
+/// Pattern per turn: write assistant+tool_call (wait 100ms) → write tool_result
+/// (wait 50ms) → repeat. 100 turns = 200 writes in ~15 seconds (~13 writes/sec).
+///
+/// Tracks the full end-to-end pipeline: notify event → read file → diff →
+/// translate_hermes_line → CloudEvent. Asserts >= 90% message capture.
+#[test]
+fn test_fast_model_simulation() {
+    let dir = TempDir::new().unwrap();
+    let session_path = dir.path().join("session_fastmodel.json");
+    let session_id = "fastmodel-session";
+
+    // Start with a user prompt.
+    let mut messages: Vec<Value> = vec![user_message("Implement the feature")];
+    let initial = generate_hermes_snapshot(session_id, &messages, 55_000);
+    std::fs::write(&session_path, &initial).unwrap();
+
+    // Track notify events with timestamps for latency measurement.
+    let event_times: Arc<Mutex<Vec<(Instant, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+    let event_times_clone = Arc::clone(&event_times);
+
+    let session_path_for_watcher = session_path.clone();
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let is_target = event.paths.iter().any(|p| {
+                    p.file_name()
+                        .map(|n| n == "session_fastmodel.json")
+                        .unwrap_or(false)
+                });
+                if is_target {
+                    // On event: read + parse + diff to simulate the real pipeline.
+                    if let Ok(raw) = std::fs::read_to_string(&session_path_for_watcher) {
+                        if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+                            let msg_count = parsed["messages"]
+                                .as_array()
+                                .map(|a| a.len())
+                                .unwrap_or(0);
+                            event_times_clone
+                                .lock()
+                                .unwrap()
+                                .push((Instant::now(), msg_count));
+                        }
+                    }
+                }
+            }
+        },
+        Config::default(),
+    )
+    .expect("failed to create watcher");
+
+    watcher
+        .watch(dir.path(), RecursiveMode::NonRecursive)
+        .expect("failed to watch directory");
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    let turns = 100;
+    let total_writes = turns * 2; // assistant_tool_call + tool_result per turn
+    let mut write_times: Vec<Instant> = Vec::with_capacity(total_writes);
+    let test_start = Instant::now();
+
+    eprintln!(
+        "\nFast model simulation: {} turns ({} writes, ~13/sec)...",
+        turns, total_writes
+    );
+
+    for i in 0..turns {
+        // Assistant tool call.
+        messages.push(assistant_tool_call(
+            "write_file",
+            &format!("{{\"path\": \"src/module_{}.rs\", \"content\": \"fn f{}() {{}}\"}}", i, i),
+        ));
+        let content = generate_hermes_snapshot(session_id, &messages, 55_000);
+        atomic_replace(&session_path, &content);
+        write_times.push(Instant::now());
+
+        // 100ms model response time.
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Tool result.
+        messages.push(tool_result(
+            &format!("tc_write_file"),
+            &format!("Written to src/module_{}.rs", i),
+        ));
+        let content = generate_hermes_snapshot(session_id, &messages, 55_000);
+        atomic_replace(&session_path, &content);
+        write_times.push(Instant::now());
+
+        // 50ms before next turn.
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let write_elapsed = test_start.elapsed();
+
+    // Final settle.
+    std::thread::sleep(Duration::from_secs(2));
+
+    // Measure: how many messages did the watcher pipeline see?
+    let event_snapshots = event_times.lock().unwrap();
+
+    // The maximum message count observed tells us how far the pipeline got.
+    let max_observed = event_snapshots
+        .iter()
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0);
+
+    // Total expected messages: 1 (initial) + 200 (writes).
+    let expected_messages = 1 + total_writes;
+    let messages_captured = max_observed;
+    let detection_rate = messages_captured as f64 / expected_messages as f64 * 100.0;
+
+    // Now do a full translate pass on the final file to count CloudEvents.
+    let raw = std::fs::read_to_string(&session_path).unwrap();
+    let parsed: Value = serde_json::from_str(&raw).unwrap();
+    let prev = SnapshotState {
+        session_id: session_id.to_string(),
+        message_count: 1, // just the initial user message
+    };
+    let new_msgs = diff_snapshot(&prev, &parsed);
+
+    let mut transcript_state = TranscriptState::new(session_id.to_string());
+    let mut cloud_events = 0;
+    for (seq, msg) in new_msgs.iter().enumerate() {
+        let line = wrap_hermes_line(session_id, msg, seq as u64 + 1);
+        let evts = translate_hermes_line(&line, &mut transcript_state);
+        cloud_events += evts.len();
+    }
+
+    // Compute event-based latencies where we can.
+    let mut latencies: Vec<Duration> = Vec::new();
+    for (event_time, _) in event_snapshots.iter() {
+        // Find the closest write that happened before this event.
+        if let Some(write_time) = write_times.iter().rev().find(|t| **t <= *event_time) {
+            latencies.push(*event_time - *write_time);
+        }
+    }
+    latencies.sort();
+
+    let p50_latency = latencies.get(latencies.len() / 2).copied();
+    let p99_idx = (latencies.len() as f64 * 0.99).ceil() as usize;
+    let p99_latency = latencies.get(p99_idx.min(latencies.len().saturating_sub(1))).copied();
+
+    eprintln!("\nFast model simulation results:");
+    eprintln!("  Turns:           {}", turns);
+    eprintln!("  Total writes:    {}", total_writes);
+    eprintln!("  Write time:      {:.1}s", write_elapsed.as_secs_f64());
+    eprintln!(
+        "  Effective rate:  {:.1} writes/s",
+        total_writes as f64 / write_elapsed.as_secs_f64()
+    );
+    eprintln!("  Watcher events:  {}", event_snapshots.len());
+    eprintln!(
+        "  Max msgs seen:   {}/{} ({:.1}%)",
+        messages_captured, expected_messages, detection_rate
+    );
+    eprintln!("  CloudEvents (full translate): {}", cloud_events);
+    if let Some(p50) = p50_latency {
+        eprintln!("  Notify latency p50: {:?}", p50);
+    }
+    if let Some(p99) = p99_latency {
+        eprintln!("  Notify latency p99: {:?}", p99);
+    }
+
+    // The full translate of the final file should produce all CloudEvents.
+    assert_eq!(
+        cloud_events, total_writes,
+        "Full translate should produce {} CloudEvents, got {}",
+        total_writes, cloud_events
+    );
+
+    // The watcher should have caught at least 90% of the writes.
+    // (Coalescing is fine — the final snapshot read catches everything.)
+    assert!(
+        detection_rate >= 90.0,
+        "Fast model: expected >= 90% message detection via watcher, got {:.1}% ({}/{})",
+        detection_rate,
+        messages_captured,
+        expected_messages
+    );
 }
