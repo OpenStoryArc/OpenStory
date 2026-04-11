@@ -372,14 +372,22 @@ pub async fn run_server(
         }
     }
 
-    // ── Hermes watcher (optional third watch directory) ──
+    // ── Hermes snapshot watcher (separate actor from JSONL watcher) ──
+    //
+    // Hermes Agent writes session_*.json as atomic snapshots (temp → fsync →
+    // os.replace). This is a fundamentally different model from Claude Code's
+    // append-only JSONL. The snapshot_watcher is a separate actor that diffs
+    // the snapshot against previously-seen state and emits new messages.
+    //
+    // Config: hermes_watch_dir points to ~/.hermes/sessions/ (or wherever
+    // Hermes writes its session_*.json files).
     if is_publisher && !hermes_watch_dir.is_empty() {
         let hermes_dir = std::path::PathBuf::from(&hermes_watch_dir);
         if hermes_dir.exists() {
             if bus.is_active() {
                 let watcher_bus = bus.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
+                    if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
@@ -390,18 +398,18 @@ pub async fn run_server(
                             eprintln!("Hermes bus publish error: {e}");
                         }
                     }) {
-                        eprintln!("Hermes watcher error: {}", e);
+                        eprintln!("Hermes snapshot watcher error: {}", e);
                     }
                 });
             } else {
                 let watcher_state = state.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&hermes_dir, backfill_window, |session_id, project_id, _subject, events| {
+                    if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, _project_id, _subject, events| {
                         let summary = event_type_summary(&events);
                         let rt = tokio::runtime::Handle::current();
                         let result = rt.block_on(async {
                             let mut s = watcher_state.write().await;
-                            let result = ingest_events(&mut s, session_id, &events, project_id).await;
+                            let result = ingest_events(&mut s, session_id, &events, None).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }
@@ -414,11 +422,11 @@ pub async fn run_server(
                             ));
                         }
                     }) {
-                        eprintln!("Hermes watcher error: {}", e);
+                        eprintln!("Hermes snapshot watcher error: {}", e);
                     }
                 });
             }
-            eprintln!("  \x1b[2mHermes watch dir:\x1b[0m {}", hermes_watch_dir);
+            eprintln!("  \x1b[2mHermes watch dir:\x1b[0m {} (snapshot mode)", hermes_watch_dir);
         }
     }
 
