@@ -305,7 +305,12 @@ where
             match process_snapshot(path, &mut states) {
                 Ok(events) if !events.is_empty() => {
                     total += events.len() as u64;
-                    let sid = session_id_from_path(path);
+                    // Use the session_id from the snapshot JSON, not the filename.
+                    // Hermes filenames are `session_<id>.json` but the JSON session_id
+                    // is just `<id>` (without the `session_` prefix).
+                    let sid = states.get(path)
+                        .map(|s| s.session_id.clone())
+                        .unwrap_or_else(|| session_id_from_path(path));
                     let subject = format!("events.hermes.{}.main", sid);
                     on_events(&sid, None, &subject, events);
                 }
@@ -337,7 +342,9 @@ where
                     for path in &event.paths {
                         match process_snapshot(path, &mut states) {
                             Ok(events) if !events.is_empty() => {
-                                let sid = session_id_from_path(path);
+                                let sid = states.get(path.as_path())
+                                    .map(|s| s.session_id.clone())
+                                    .unwrap_or_else(|| session_id_from_path(path));
                                 let subject = format!("events.hermes.{}.main", sid);
                                 on_events(&sid, None, &subject, events);
                             }
