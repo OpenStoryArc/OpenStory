@@ -1,0 +1,47 @@
+# OpenClaw image with Python + uv + OpenStory MCP server.
+#
+# OpenClaw's MCP support is stdio-only: it spawns a subprocess and talks
+# JSON-RPC over stdin/stdout. To let OpenClaw agents call OpenStory's MCP
+# tools, the MCP server has to run inside the OpenClaw container.
+#
+# This image extends the stock openclaw:latest with:
+#   - Python 3.11+ from Debian
+#   - uv (astral.sh) for fast dependency management
+#   - The mcp-server source at /opt/mcp-server
+#
+# Usage:
+#   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
+#
+# Prerequisites: openclaw:latest must already be built.
+
+FROM openclaw:latest
+
+USER root
+
+# Install Python 3 + pip + curl (for uv installer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+        python3-pip \
+        curl \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (standalone binary, no Python deps)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.local/bin/uv /usr/local/bin/uv \
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx \
+    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx
+
+# Copy the MCP server source into the image
+COPY mcp-server/ /opt/mcp-server/
+
+# Pre-install the MCP server dependencies so the first agent call doesn't
+# pay the cold-start cost of resolving fastmcp + httpx.
+RUN cd /opt/mcp-server && uv sync --frozen
+
+# The OpenClaw container runs as user 'node' (uid 1000). Make sure the
+# mcp-server directory and its .venv are readable by that user.
+RUN chown -R node:node /opt/mcp-server
+
+USER node

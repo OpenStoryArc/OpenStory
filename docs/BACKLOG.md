@@ -222,6 +222,28 @@ The `agent` field on CloudEvents (`"claude-code"`, `"pi-mono"`) enables filterin
 ### Query clock injection for full determinism
 The time-windowed analytics queries (`project_pulse`, `tool_evolution`, `productivity_by_hour`, `token_usage(days, ...)`, `daily_token_usage(days)`) all call `chrono::Utc::now()` internally. This works for backend-parity tests because both backends call `now()` at the same instant during the test, but it makes the queries non-deterministic across test runs and harder to test against fixed data. The right answer is to refactor each query to take an `as_of: DateTime<Utc>` parameter that defaults to `Utc::now()` at the call site, with conformance tests passing a fixed value. Touches all the query method signatures + every API handler + the CLI surface, so it's intentionally deferred from Phase 5 of the MongoDB sink work — see `docs/research/mongo-analytics-parity-plan.md` §10.1 #1.
 
+### HOTFIX: Redact NATS token from startup logs
+Verified on the Hetzner production deploy on 2026-04-11: `open-story serve` prints the full NATS URL to stderr at boot, including the shared secret:
+
+```
+NATS bus: nats://44a08379a1eae2cecb5e1dcadea358e6bed9dd1eb59e5f89@nats:4222
+```
+
+The offending line is in `rs/cli/src/main.rs` at the bus-connect log: `eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url}");`. Any token present in the URL userinfo is written verbatim to `docker logs openstory-open-story-1` and persisted in the journald buffer for as long as the container runs.
+
+**Exposure on this deploy:** limited — logs live inside the `open-story:prod` container on the VPS, reachable only via SSH as `deploy@` or by anyone who can `docker exec`. Not in git, not in CI, not in OpenStory's own session capture (the server's stderr doesn't flow into the event stream). But the token has now been in plaintext in at least one set of container logs since the deploy, so treat it as compromised the moment this hotfix lands.
+
+**Fix (tiny):** extend `NatsBus` (or `rs/cli/src/main.rs` at the log site) with a `redact_userinfo(url: &str) -> String` helper that replaces anything between `://` and `@` with `<redacted>`. Apply it to both the success log and the error log paths. ~10 lines + a unit test. Can land as a standalone PR to master, ahead of the broader "Distributed Deployment Security Hardening" item — they cover the same concern, but this one is a one-shot scope-isolated change the deploy docs already expect.
+
+**Rotation procedure after the fix ships:**
+1. SSH to VPS, generate a new token: `NEW=$(openssl rand -hex 24)`
+2. `sed -i "s/^NATS_LEAF_TOKEN=.*/NATS_LEAF_TOKEN=$NEW/" .env`
+3. `sed -i "s|token: \".*\"|token: \"$NEW\"|" deploy/nats-hub.conf`
+4. `docker compose -f docker-compose.prod.yml restart nats open-story`
+5. Update the token on every leaf node that was using the old value (local Mac, friends' machines).
+
+Related to the broader "Distributed Deployment Security Hardening" item below, but split out because it's (a) a verified live exposure, (b) a trivial fix, and (c) should land before any further deploys create more contaminated log buffers.
+
 ### Multi-Machine Session Aggregation — SHIPPED
 Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. All sessions from all machines land on every node (JetStream propagates bidirectionally). Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
 
@@ -230,13 +252,11 @@ With NATS leaf node streaming, every machine gets a full copy of all team data (
 
 **NATS accounts for team partitioning.** Today all leaf nodes share a single NATS account — everyone sees everything. NATS accounts would let each team member publish to their own subject namespace and selectively subscribe to others. This enables the "Team Partitioned" deployment state where alice sees only her sessions locally unless she explicitly subscribes to bob's. Requires NATS account configuration on the hub and per-user credentials on each leaf.
 
-**Credential files instead of token-in-URL.** The NATS token currently appears in the URL (`nats://TOKEN@host:port`), which shows up in process listings, Docker inspect, and Open Story's startup log. NATS supports credential files (`.creds`) that keep secrets out of command-line args and environment variables. Update `NatsBus::connect()` to accept a `--nats-creds` path.
+**Credential files instead of token-in-URL.** The NATS token currently appears in the URL (`nats://TOKEN@host:port`), which shows up in process listings and Docker inspect. NATS supports credential files (`.creds`) that keep secrets out of command-line args and environment variables. Update `NatsBus::connect()` to accept a `--nats-creds` path. (Log-output leakage is covered separately as a hotfix — see "HOTFIX: Redact NATS token from startup logs" above.)
 
 **SQLCipher for local stores.** Every machine's SQLite database contains all team sessions in plaintext. The `db_key` config field already exists but isn't exercised in the distributed deployment. Document and test SQLCipher with the leaf node setup so stolen laptops don't leak team data.
 
 **API auth on the hub dashboard.** The VPS hub serves the common dashboard. Without `OPEN_STORY_API_TOKEN`, anyone on the Tailscale network can browse all sessions. Document setting the token and update the Caddy config to pass auth headers.
-
-**Redact tokens from startup logs.** `NatsBus::connect()` logs the full NATS URL including the token. Mask the userinfo portion in log output.
 
 ### Multi-Directory Watcher
 Accept multiple `--watch-dir` roots, backfill concurrently, and resolve project_id correctly across all roots with longest-prefix matching. Currently uses `watch_dir` + `pi_watch_dir` as separate config fields. Generalize to `watch_dirs = [...]` array.

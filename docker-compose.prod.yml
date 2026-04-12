@@ -6,6 +6,7 @@
 # Prerequisites:
 #   docker build -f Dockerfile.prod -t open-story:prod .
 #   docker build -t openclaw:latest ~/projects/openclaw
+#   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 #
 # Create a .env file with:
 #   ANTHROPIC_API_KEY=sk-ant-...
@@ -38,7 +39,7 @@ services:
           memory: 512M
 
   openclaw:
-    image: openclaw:latest
+    image: openclaw-mcp:latest
     user: "0:0"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -55,8 +56,11 @@ services:
       - "-c"
       - |
         mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
+        # Install OpenStory skill into the workspace so the agent knows the tools exist.
+        mkdir -p /home/node/.openclaw/workspace/.claude/skills/openstory
+        cp /opt/mcp-server/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
         OCEOF
         exec node openclaw.mjs gateway --bind lan --port 18789 --allow-unconfigured
     healthcheck:
