@@ -1,0 +1,93 @@
+# Generic agent template: OpenClaw + Telegram bot.
+#
+# Run one instance per person, each with their own env file and project name.
+# Connects to the shared "openstory" network for access to NATS and Open Story.
+#
+# Prerequisites:
+#   docker build -t openclaw:latest ~/openclaw
+#   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
+#
+# Per-person env file (e.g., deploy/bobby.env):
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   GATEWAY_PORT=18789
+#   TELEGRAM_BOT_TOKEN=<from-botfather>
+#   TELEGRAM_ALLOWED_USER_ID=<telegram-user-id>
+#   OPENCLAW_AUTH_TOKEN=
+#
+# Start/stop/logs:
+#   docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml up -d
+#   docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml logs -f
+#   docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml down
+#
+# Each --project-name gets its own containers and volumes.
+# Volumes are named <project-name>-openclaw-state and <project-name>-openclaw-workspace.
+
+services:
+  openclaw:
+    image: openclaw-mcp:latest
+    user: "0:0"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HOME=/home/node
+      - NODE_OPTIONS=--max-old-space-size=2048
+      - OPEN_STORY_API_URL=http://open-story:3002
+    volumes:
+      - openclaw-state:/home/node/.openclaw
+      - openclaw-workspace:/home/node/.openclaw/workspace
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-18789}:${GATEWAY_PORT:-18789}"
+    entrypoint: /bin/sh
+    command:
+      - "-c"
+      - |
+        mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
+        mkdir -p /home/node/.openclaw/workspace/.claude/skills/openstory
+        cp /opt/mcp-server/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
+        cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
+        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
+        OCEOF
+        exec node openclaw.mjs gateway --bind lan --port ${GATEWAY_PORT:-18789} --allow-unconfigured
+    healthcheck:
+      test: ["CMD", "node", "-e",
+        "fetch('http://127.0.0.1:${GATEWAY_PORT:-18789}/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - openstory
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  telegram-bot:
+    build:
+      context: ./telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_ID}
+      - OPENCLAW_GATEWAY_URL=http://openclaw:${GATEWAY_PORT:-18789}
+      - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-main}
+      - OPENCLAW_AUTH_TOKEN=${OPENCLAW_AUTH_TOKEN:-}
+    depends_on:
+      openclaw:
+        condition: service_healthy
+    networks:
+      - openstory
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  openclaw-state:
+    name: ${COMPOSE_PROJECT_NAME}-openclaw-state
+  openclaw-workspace:
+    name: ${COMPOSE_PROJECT_NAME}-openclaw-workspace
+
+networks:
+  openstory:
+    external: true

@@ -84,18 +84,33 @@ bad()  { printf '  [FAIL] %s\n'   "$1"; fail=1; }
 
 cd "$HOME/openstory" || { bad "cd ~/openstory"; exit 2; }
 
-# 1. compose services present
-svcs=$(docker compose -f docker-compose.prod.yml ps --format '{{.Service}}' 2>/dev/null | sort -u)
-for svc in nats openclaw open-story telegram-bot; do
-    if echo "${svcs}" | grep -qx "${svc}"; then
-        pass "service present: ${svc}"
+# 1. compose services present (infra + all agents)
+infra_svcs=$(docker compose --project-name infra -f docker-compose.infra.yml ps --format '{{.Service}}' 2>/dev/null | sort -u)
+for svc in nats open-story; do
+    if echo "${infra_svcs}" | grep -qx "${svc}"; then
+        pass "infra service present: ${svc}"
     else
-        bad "service missing: ${svc}"
+        bad "infra service missing: ${svc}"
     fi
 done
 
-# 2. health
-status_lines=$(docker compose -f docker-compose.prod.yml ps --format '{{.Service}} {{.Status}}' 2>/dev/null || true)
+# Check each agent
+for envfile in deploy/*.env; do
+    [ -f "$envfile" ] || continue
+    name=$(basename "$envfile" .env)
+    [ "$name" = "infra" ] && continue
+    agent_svcs=$(docker compose --project-name "$name" --env-file "$envfile" -f docker-compose.agent.yml ps --format '{{.Service}}' 2>/dev/null | sort -u)
+    for svc in openclaw telegram-bot; do
+        if echo "${agent_svcs}" | grep -qx "${svc}"; then
+            pass "agent ${name} service present: ${svc}"
+        else
+            bad "agent ${name} service missing: ${svc}"
+        fi
+    done
+done
+
+# 2. health (all containers)
+status_lines=$(docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -E 'infra-|bobby-|katie-' || true)
 while IFS= read -r line; do
     [ -z "${line}" ] && continue
     svc=$(printf '%s' "${line}" | awk '{print $1}')
@@ -114,7 +129,7 @@ while IFS= read -r line; do
 done <<< "${status_lines}"
 
 # 3. NATS leaf listener
-if docker logs openstory-nats-1 2>&1 | grep -q "Listening for leafnode"; then
+if docker logs infra-nats-1 2>&1 | grep -q "Listening for leafnode"; then
     pass "nats leaf listener bound"
 else
     bad "nats leaf listener not found in logs"
@@ -143,24 +158,29 @@ if [ -s /tmp/sm_sessions.$$ ]; then
 fi
 rm -f /tmp/sm_sessions.$$
 
-# 6. openclaw-mcp container: mcp-server source + uv
-if docker exec openstory-openclaw-1 test -f /opt/mcp-server/server.py 2>/dev/null; then
-    pass "openclaw-mcp: /opt/mcp-server/server.py present"
-else
-    bad  "openclaw-mcp: /opt/mcp-server/server.py missing"
-fi
-if docker exec openstory-openclaw-1 uv --version >/dev/null 2>&1; then
-    pass "openclaw-mcp: uv --version"
-else
-    bad  "openclaw-mcp: uv --version failed"
-fi
+# 6 & 7. Per-agent openclaw-mcp checks
+for envfile in deploy/*.env; do
+    [ -f "$envfile" ] || continue
+    name=$(basename "$envfile" .env)
+    [ "$name" = "infra" ] && continue
+    ctr="${name}-openclaw-1"
 
-# 7. openclaw.json contains the openstory MCP block
-if docker exec openstory-openclaw-1 grep -q '"openstory"' /home/node/.openclaw/openclaw.json 2>/dev/null; then
-    pass "openclaw.json: mcp.servers.openstory block present"
-else
-    bad  "openclaw.json: missing mcp.servers.openstory block"
-fi
+    if docker exec "${ctr}" test -f /opt/mcp-server/server.py 2>/dev/null; then
+        pass "${name}: /opt/mcp-server/server.py present"
+    else
+        bad  "${name}: /opt/mcp-server/server.py missing"
+    fi
+    if docker exec "${ctr}" uv --version >/dev/null 2>&1; then
+        pass "${name}: uv --version"
+    else
+        bad  "${name}: uv --version failed"
+    fi
+    if docker exec "${ctr}" grep -q '"openstory"' /home/node/.openclaw/openclaw.json 2>/dev/null; then
+        pass "${name}: openclaw.json mcp.servers.openstory present"
+    else
+        bad  "${name}: openclaw.json missing mcp.servers.openstory block"
+    fi
+done
 
 if [ "${fail}" -ne 0 ]; then
     echo

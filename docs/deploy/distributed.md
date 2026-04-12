@@ -125,7 +125,7 @@ TAILSCALE_IP=<your VPS Tailscale IP, e.g. 100.64.0.1>
 Start the stack:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
 ```
 
 Verify NATS is running:
