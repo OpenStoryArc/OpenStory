@@ -44,7 +44,7 @@ services:
         mkdir -p /home/node/.openclaw/workspace/.claude/skills/openstory
         cp /opt/mcp-server/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
+        {"auth":{"profiles":{"anthropic":{"provider":"anthropic","mode":"token","apiKey":"${ANTHROPIC_API_KEY}"}}},"agents":{"defaults":{"model":{"primary":"anthropic/claude-sonnet-4-5"}},"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
         OCEOF
         exec node openclaw.mjs gateway --bind lan --port ${GATEWAY_PORT:-18789} --allow-unconfigured
     healthcheck:
