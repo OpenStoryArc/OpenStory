@@ -180,16 +180,40 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             status: None,
                         })),
                     }]
+                } else if agent == "pi-mono" {
+                    // Pi-mono (decomposed): each tool_use CloudEvent has typed
+                    // payload fields (tool, tool_call_id, args) from the decomposer.
+                    // Use them directly — same pattern as Hermes above.
+                    let call_id = match ap {
+                        Some(AgentPayload::PiMono(p)) => p.tool_call_id.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    vec![ViewRecord {
+                        id,
+                        seq,
+                        session_id,
+                        timestamp: time,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolCall(Box::new(ToolCall {
+                            call_id,
+                            name: tool_name.to_string(),
+                            input: tool_args.clone(),
+                            raw_input: tool_args.clone(),
+                            typed_input: Some(typed),
+                            status: None,
+                        })),
+                    }]
                 } else {
-                    // Claude Code / pi-mono: check raw for multiple tool_use blocks
+                    // Claude Code: check raw for multiple tool_use blocks
                     let content = raw
                         .get("message")
                         .and_then(|m| m.get("content"));
                     let has_multiple = content
                         .and_then(|c| c.as_array())
                         .map(|arr| {
-                            let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
-                            arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some(tool_type)).count()
+                            arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_use")).count()
                         })
                         .unwrap_or(0);
 
@@ -200,23 +224,18 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             .unwrap_or(Value::Null);
                         extract_tool_calls(raw, &payload_value, agent, &id, seq, &session_id, &time)
                     } else {
-                        // Single tool — use typed fields. We still pull call_id
-                        // from the raw content block, since that's the only place
-                        // it lives — without it the ToolCall can't be linked to
-                        // its ToolResult downstream (call_id is the join key).
+                        // Single tool — use typed fields. Pull call_id from raw content block.
                         let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
-                        let tool_type = if agent == "pi-mono" { "toolCall" } else { "tool_use" };
-                        let id_field = if agent == "pi-mono" { "toolUseId" } else { "id" };
                         let call_id = raw
                             .get("message")
                             .and_then(|m| m.get("content"))
                             .and_then(|c| c.as_array())
                             .and_then(|arr| {
                                 arr.iter().find(|b| {
-                                    b.get("type").and_then(|v| v.as_str()) == Some(tool_type)
+                                    b.get("type").and_then(|v| v.as_str()) == Some("tool_use")
                                 })
                             })
-                            .and_then(|b| b.get(id_field))
+                            .and_then(|b| b.get("id"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
@@ -1394,6 +1413,198 @@ mod tests {
             let json = serde_json::to_value(&records[0]).unwrap();
             assert_eq!(json["agent_id"], "agent-xyz");
             assert_eq!(json["is_sidechain"], true);
+        }
+    }
+
+    // ── Pi-mono decomposed event rendering ──────────────────────────
+    //
+    // These test that decomposed pi-mono CloudEvents render correctly
+    // as ViewRecords. Each decomposed event has typed payload fields
+    // (tool, args, text, tool_call_id) AND the full bundled raw line.
+
+    fn make_pi_mono_event(subtype: &str, data: serde_json::Value) -> CloudEvent {
+        let mut obj = data.as_object().cloned().unwrap_or_default();
+        let seq = obj.remove("seq").unwrap_or(json!(1));
+        let session_id = obj.remove("session_id").unwrap_or(json!("sess-pi"));
+        let raw = obj.remove("raw").unwrap_or(json!({}));
+
+        let mut payload = serde_json::Map::new();
+        payload.insert("_variant".to_string(), json!("pi-mono"));
+        payload.insert("meta".to_string(), json!({"agent": "pi-mono"}));
+        for (k, v) in obj {
+            payload.insert(k, v);
+        }
+
+        let ce: CloudEvent = serde_json::from_value(json!({
+            "specversion": "1.0",
+            "id": "evt-pi-001",
+            "source": "pi://session/sess-pi",
+            "type": "io.arc.event",
+            "time": "2026-04-13T18:00:00Z",
+            "datacontenttype": "application/json",
+            "subtype": subtype,
+            "agent": "pi-mono",
+            "data": {
+                "raw": raw,
+                "seq": seq,
+                "session_id": session_id,
+                "agent_payload": payload,
+            },
+        }))
+        .expect("pi-mono test fixture should deserialize");
+        ce
+    }
+
+    mod pimono_decomposed_thinking {
+        use super::*;
+
+        #[test]
+        fn it_should_produce_reasoning_with_content() {
+            // Decomposed thinking event from [thinking, toolCall, toolCall] line
+            let event = make_pi_mono_event("message.assistant.thinking", json!({
+                "seq": 1,
+                "session_id": "sess-pi",
+                "text": "Let me read both files.",
+                "raw": {
+                    "type": "message", "id": "890b923d",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "thinking": "Let me read both files."},
+                            {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/a.txt"}},
+                            {"type": "toolCall", "id": "tc-2", "name": "read", "arguments": {"path": "/b.txt"}}
+                        ],
+                        "stopReason": "toolUse"
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            assert!(!records.is_empty(), "should produce at least one record");
+            let reasoning = records.iter().find(|r| matches!(&r.body, RecordBody::Reasoning(_)));
+            assert!(reasoning.is_some(), "should have a Reasoning record");
+            match &reasoning.unwrap().body {
+                RecordBody::Reasoning(r) => {
+                    assert_eq!(r.content.as_deref(), Some("Let me read both files."),
+                        "reasoning content should be the thinking text");
+                }
+                _ => panic!("expected Reasoning"),
+            }
+        }
+    }
+
+    mod pimono_decomposed_text {
+        use super::*;
+
+        #[test]
+        fn it_should_produce_assistant_message_with_text() {
+            // Decomposed text event from [thinking, text, toolCall] line
+            let event = make_pi_mono_event("message.assistant.text", json!({
+                "seq": 2,
+                "session_id": "sess-pi",
+                "text": "Let me read the file first.",
+                "model": "claude-opus-4-6",
+                "raw": {
+                    "type": "message", "id": "5e6b8ad0",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "thinking": "reasoning here"},
+                            {"type": "text", "text": "Let me read the file first."},
+                            {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/x"}}
+                        ],
+                        "model": "claude-opus-4-6",
+                        "stopReason": "toolUse"
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            let asst = records.iter().find(|r| matches!(&r.body, RecordBody::AssistantMessage(_)));
+            assert!(asst.is_some(), "should have an AssistantMessage record");
+            match &asst.unwrap().body {
+                RecordBody::AssistantMessage(a) => {
+                    assert!(!a.content.is_empty(), "content should not be empty");
+                    // The text should be the decomposed text, not empty
+                    let has_text = a.content.iter().any(|b| matches!(b, ContentBlock::Text { text } if !text.is_empty()));
+                    assert!(has_text, "AssistantMessage should have non-empty text content, got: {:?}", a.content);
+                }
+                _ => panic!("expected AssistantMessage"),
+            }
+        }
+    }
+
+    mod pimono_decomposed_tool_use {
+        use super::*;
+
+        #[test]
+        fn it_should_produce_tool_call_with_name_and_args() {
+            // Decomposed tool_use event from [thinking, text, toolCall] line
+            let event = make_pi_mono_event("message.assistant.tool_use", json!({
+                "seq": 3,
+                "session_id": "sess-pi",
+                "tool": "read",
+                "tool_call_id": "toolu_01BKoC",
+                "args": {"path": "/tmp/config.toml"},
+                "model": "claude-opus-4-6",
+                "raw": {
+                    "type": "message", "id": "890b923d",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "thinking": "hmm"},
+                            {"type": "text", "text": "reading"},
+                            {"type": "toolCall", "id": "toolu_01BKoC", "name": "read",
+                             "arguments": {"path": "/tmp/config.toml"}}
+                        ],
+                        "model": "claude-opus-4-6",
+                        "stopReason": "toolUse"
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            let tool = records.iter().find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
+            assert!(tool.is_some(), "should have a ToolCall record");
+            match &tool.unwrap().body {
+                RecordBody::ToolCall(tc) => {
+                    assert_eq!(tc.name, "read", "tool name should be 'read', got '{}'", tc.name);
+                    assert!(!tc.input.is_null(), "tool input should not be null");
+                    assert_eq!(tc.input["path"], "/tmp/config.toml");
+                    assert_eq!(tc.call_id, "toolu_01BKoC", "call_id should come from payload, not raw parsing");
+                }
+                _ => panic!("expected ToolCall"),
+            }
+        }
+
+        #[test]
+        fn it_should_use_payload_call_id_not_raw_parsing() {
+            // The call_id should come from agent_payload.tool_call_id,
+            // not from scanning raw.message.content for toolUseId/id
+            let event = make_pi_mono_event("message.assistant.tool_use", json!({
+                "seq": 4,
+                "session_id": "sess-pi",
+                "tool": "read",
+                "tool_call_id": "the-correct-id",
+                "args": {"path": "/foo"},
+                "raw": {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "toolCall", "id": "raw-id-wrong", "name": "read",
+                             "arguments": {"path": "/foo"}}
+                        ],
+                        "stopReason": "toolUse"
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            let tool = records.iter().find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
+            match &tool.unwrap().body {
+                RecordBody::ToolCall(tc) => {
+                    assert_eq!(tc.call_id, "the-correct-id",
+                        "should use payload.tool_call_id, not raw content id");
+                }
+                _ => panic!("expected ToolCall"),
+            }
         }
     }
 }
