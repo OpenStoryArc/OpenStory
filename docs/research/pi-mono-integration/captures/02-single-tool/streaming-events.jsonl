@@ -1,0 +1,5 @@
+{"seq":1,"ts":"2026-04-13T18:37:55.366Z","event_type":"toolcall_start","contentIndex":0}
+{"seq":2,"ts":"2026-04-13T18:37:55.367Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":0}
+{"seq":3,"ts":"2026-04-13T18:37:55.391Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":31}
+{"seq":4,"ts":"2026-04-13T18:37:55.391Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":2}
+{"seq":5,"ts":"2026-04-13T18:37:55.391Z","event_type":"toolcall_end","contentIndex":0,"tool_name":"read","tool_id":"toolu_01GLesFiSiyBes4egsU7aeFV"}

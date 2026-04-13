@@ -1,0 +1,4 @@
+{"seq":1,"ts":"2026-04-13T18:37:50.640Z","event_type":"text_start","contentIndex":0}
+{"seq":2,"ts":"2026-04-13T18:37:50.640Z","event_type":"text_delta","contentIndex":0,"delta_length":6}
+{"seq":3,"ts":"2026-04-13T18:37:50.929Z","event_type":"text_delta","contentIndex":0,"delta_length":36}
+{"seq":4,"ts":"2026-04-13T18:37:50.952Z","event_type":"text_end","contentIndex":0,"content_length":42}

@@ -1,0 +1,18 @@
+{
+  "scenario": "06-thinking-text-tool",
+  "prompt": "Think step by step about what /tmp/test-broken.py does wrong, explain the bug briefly, then read the file.",
+  "hypothesis": "Content: [{type:'thinking'}, {type:'text'}, {type:'toolCall'}]. Translator picks 'tool_use'. Both thinking AND text are INVISIBLE. Worst case.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 22,
+    "block_starts": [
+      "thinking",
+      "text",
+      "toolcall",
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

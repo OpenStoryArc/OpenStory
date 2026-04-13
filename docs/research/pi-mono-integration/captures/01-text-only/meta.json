@@ -1,0 +1,15 @@
+{
+  "scenario": "01-text-only",
+  "prompt": "Say hello in exactly one sentence. Do not use any tools.",
+  "hypothesis": "Assistant message has content: [{type: 'text'}]. Translator should produce message.assistant.text.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 4,
+    "block_starts": [
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

@@ -1,0 +1,16 @@
+{
+  "scenario": "04-thinking-plus-text",
+  "prompt": "Think carefully about why 1+1=2, then give me a one sentence answer.",
+  "hypothesis": "Content: [{type:'thinking'}, {type:'text'}]. Translator picks 'thinking', text is INVISIBLE. This is the bug.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 8,
+    "block_starts": [
+      "thinking",
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

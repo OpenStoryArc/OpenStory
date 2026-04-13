@@ -63,23 +63,28 @@ const DELEGATORY_TOOLS: &[&str] = &["Agent"];
 const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ToolSearch", "ExitPlanMode"];
 
 /// Classify a tool call by its role in the turn's narrative.
-/// Prototype source: sentence.ts:48-66
+/// Case-insensitive matching to support both Claude Code (PascalCase)
+/// and pi-mono (lowercase) tool names.
 pub fn classify_tool(name: &str, input: &str) -> ToolRole {
-    if PREPARATORY_TOOLS.contains(&name) {
+    let lower = name.to_ascii_lowercase();
+
+    if PREPARATORY_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
+        || matches!(lower.as_str(), "find" | "ls")
+    {
         return ToolRole::Preparatory;
     }
-    if CREATIVE_TOOLS.contains(&name) {
+    if CREATIVE_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
         return ToolRole::Creative;
     }
-    if DELEGATORY_TOOLS.contains(&name) {
+    if DELEGATORY_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
         return ToolRole::Delegatory;
     }
-    if INTERACTIVE_TOOLS.contains(&name) {
+    if INTERACTIVE_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
         return ToolRole::Interactive;
     }
 
     // Bash depends on the command
-    if name == "Bash" {
+    if lower == "bash" {
         let lower = input.to_lowercase();
         if regex_match_any(&lower, &["test", "spec", "jest", "vitest", "pytest", "cargo test", "npm test"]) {
             return ToolRole::Verificatory;
@@ -678,6 +683,49 @@ mod tests {
     #[test]
     fn web_search_is_preparatory() {
         assert_eq!(classify_tool("WebSearch", "MIT lambda papers"), ToolRole::Preparatory);
+    }
+
+    // ── Pi-mono tool name compatibility (case-insensitive) ──
+
+    #[test]
+    fn pimono_read_lowercase_is_preparatory() {
+        assert_eq!(classify_tool("read", "/config.toml"), ToolRole::Preparatory);
+    }
+
+    #[test]
+    fn pimono_grep_lowercase_is_preparatory() {
+        assert_eq!(classify_tool("grep", "pattern"), ToolRole::Preparatory);
+    }
+
+    #[test]
+    fn pimono_write_lowercase_is_creative() {
+        assert_eq!(classify_tool("write", "/output.txt"), ToolRole::Creative);
+    }
+
+    #[test]
+    fn pimono_edit_lowercase_is_creative() {
+        assert_eq!(classify_tool("edit", "/main.rs"), ToolRole::Creative);
+    }
+
+    #[test]
+    fn pimono_bash_lowercase_is_verificatory() {
+        assert_eq!(classify_tool("bash", "ls -la"), ToolRole::Verificatory);
+    }
+
+    #[test]
+    fn pimono_bash_lowercase_with_test_is_verificatory() {
+        assert_eq!(classify_tool("bash", "cargo test"), ToolRole::Verificatory);
+    }
+
+    #[test]
+    fn pimono_find_is_preparatory() {
+        // Pi-mono's find tool ≈ Claude's Glob
+        assert_eq!(classify_tool("find", "*.rs"), ToolRole::Preparatory);
+    }
+
+    #[test]
+    fn pimono_ls_is_preparatory() {
+        assert_eq!(classify_tool("ls", "/src"), ToolRole::Preparatory);
     }
 
     // ── Sentence building (8 tests) ──

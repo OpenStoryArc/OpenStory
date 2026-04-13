@@ -1,0 +1,16 @@
+{
+  "scenario": "08-tool-error",
+  "prompt": "Read the file /tmp/does-not-exist.txt",
+  "hypothesis": "toolResult with isError: true. Tests error path preservation.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 9,
+    "block_starts": [
+      "toolcall",
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

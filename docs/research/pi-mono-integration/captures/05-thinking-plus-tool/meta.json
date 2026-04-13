@@ -1,0 +1,17 @@
+{
+  "scenario": "05-thinking-plus-tool",
+  "prompt": "Think about what file to read, then read /tmp/test-config.toml.",
+  "hypothesis": "Content: [{type:'thinking'}, {type:'toolCall'}]. Translator picks 'tool_use', thinking and any text invisible.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 13,
+    "block_starts": [
+      "thinking",
+      "toolcall",
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}
