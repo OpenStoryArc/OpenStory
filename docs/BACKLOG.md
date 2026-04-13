@@ -378,6 +378,9 @@ Prove multiple publishers feed a single consumer via NATS. Verify both sessions 
 ### Testcontainer Improvements
 Fix container test infrastructure: shared container pattern, silent fixture mtime failures, log capture on failure. Add comprehensive endpoint sweep, WebSocket testing, error path coverage.
 
+### Readonly DB Access from OpenClaw Container
+Give the OpenClaw container readonly access to Open Story's SQLite database (or a replica). OpenClaw agents could query their own session history, tool patterns, and behavioral analytics directly — enabling self-reflection without going through the REST API. This is the "let the coalgebra read its own algebra" path for pi-mono, parallel to the Hermes recall tool but using direct DB access instead of HTTP. Design considerations: SQLite WAL mode allows concurrent readers, but cross-container file sharing needs a shared volume. Alternative: a readonly SQLite replica synced from the primary, or a dedicated readonly API endpoint scoped to the agent's own sessions.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
