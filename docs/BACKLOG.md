@@ -137,6 +137,21 @@ Make extracted plans first-class objects in the UI: filterable in the Live timel
 ### Live Token Counter
 Real-time running token accumulator in the session header that ticks up as events arrive. Shows input tokens, output tokens, and estimated cost as a pure UI component subscribing to WebSocket assistant events.
 
+### Agent Context Compaction via Open Story
+
+When an agent's session overflows its context window, the current approach is self-summarization — the LLM tries to summarize its own 300K+ token history, which is expensive, slow, and fails when the context itself is too big to summarize. Open Story already has the answer: structured session analysis (sentences, patterns, tool histograms, prompt timelines) computed incrementally as events arrive.
+
+The idea: instead of a full summary, Open Story provides a **compact map** — a small structured summary (~500 tokens) plus pointers to MCP tools for just-in-time retrieval. The agent carries the map, not the territory. When it needs specifics, it calls `search()`, `session_sentences()`, or `session_patterns()` to recover context on demand.
+
+Shape:
+1. **`session_compact` MCP tool** — takes a session ID + token budget, returns a structured summary (key sentences, tool histogram, prompt timeline, work-in-progress state) sized to fit the budget, plus a "how to find more" section listing the MCP tools and example queries.
+2. **OpenClaw compaction hook** — intercept the `session_compact` extension event and call Open Story instead of the default LLM self-summarization. Falls back to default if Open Story is unreachable.
+3. **Session ID awareness** — the agent needs to know its own session ID. The session header in the JSONL already has it; surface it as an env var or MCP tool.
+
+This is the mirror being useful: Open Story has been watching the whole session, it already did the analysis, and retrieving it costs zero tokens. The agent looks at itself through Open Story and decides what to carry forward.
+
+Motivated by: Bobby's session hit 331K tokens / 1,032 messages and OpenClaw's auto-compaction failed because the summarization request itself exceeded the 200K context limit. Open Story had the structured analysis ready the whole time.
+
 ---
 
 ## Search & Navigation
