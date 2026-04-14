@@ -387,6 +387,9 @@ Give the OpenClaw container readonly access to Open Story's SQLite database (or 
 ### Case-insensitive Tool Map in UI (T1b)
 `ui/src/lib/detect-language.ts:38` TOOL_MAP uses PascalCase keys (`Bash`, `Grep`, `Glob`) — mirror the case-sensitivity bug fixed in `rs/views/src/tool_input.rs` for pi-mono. Lowercase-normalize tool name before lookup, or add lowercase aliases. Low-risk, one-liner.
 
+### NATS Subject Sanitization (T3 from architecture audit)
+`rs/core/src/paths.rs:38` `nats_subject_from_path()` composes subjects via raw string interpolation of project and session names. Path segments containing `.`, ` `, `*`, or `>` flow into the subject unchanged — dots create extra tokens that break `events.{project}.>` hierarchical subscriptions, spaces produce NATS-invalid subjects that fail at publish, and wildcard characters shadow subscription matching. Not hit in practice today (Claude Code / pi-mono default dirs use UUIDs) but a latent footgun. Fix: lightweight sanitizer that replaces the four problem characters with `_` and logs a warning when rewriting. See `docs/research/architecture-audit/T3_NATS_SUBJECT_ALIGNMENT.md` for three design options (sanitize / percent-encode / hash-prefix) and the recommendation. L1 characterization tests are already in place at `paths.rs` `subject_*` tests — they'll catch any divergence when the sanitizer lands.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
