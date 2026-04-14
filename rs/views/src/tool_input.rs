@@ -61,6 +61,7 @@ pub enum ToolInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadInput {
+    #[serde(alias = "path")]
     pub file_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
@@ -72,6 +73,7 @@ pub struct ReadInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditInput {
+    #[serde(alias = "path")]
     pub file_path: String,
     pub old_string: String,
     pub new_string: String,
@@ -81,6 +83,7 @@ pub struct EditInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteInput {
+    #[serde(alias = "path")]
     pub file_path: String,
     pub content: String,
 }
@@ -302,44 +305,49 @@ pub fn parse_tool_input(name: &str, input: Value) -> ToolInput {
             };
         }
 
-        match name {
+        // Normalize tool name for case-insensitive matching.
+        // Claude Code uses PascalCase (Read, Write, Edit, Bash);
+        // pi-mono uses lowercase (read, write, edit, bash).
+        // Match on the lowercase form for cross-agent compatibility.
+        let lower = name.to_ascii_lowercase();
+        match lower.as_str() {
             // File operations
-            "Read" => try_tool!(Read, ReadInput),
-            "Edit" => try_tool!(Edit, EditInput),
-            "Write" => try_tool!(Write, WriteInput),
-            "Glob" => try_tool!(Glob, GlobInput),
-            "Grep" => try_tool!(Grep, GrepInput),
-            "NotebookEdit" => try_tool!(NotebookEdit, NotebookEditInput),
+            "read" => try_tool!(Read, ReadInput),
+            "edit" => try_tool!(Edit, EditInput),
+            "write" => try_tool!(Write, WriteInput),
+            "glob" | "find" => try_tool!(Glob, GlobInput),  // pi-mono uses 'find'
+            "grep" => try_tool!(Grep, GrepInput),
+            "notebookedit" => try_tool!(NotebookEdit, NotebookEditInput),
 
             // Command execution
-            "Bash" => try_tool!(Bash, BashInput),
+            "bash" => try_tool!(Bash, BashInput),
 
             // Search & fetch
-            "WebFetch" => try_tool!(WebFetch, WebFetchInput),
-            "WebSearch" => try_tool!(WebSearch, WebSearchInput),
+            "webfetch" => try_tool!(WebFetch, WebFetchInput),
+            "websearch" => try_tool!(WebSearch, WebSearchInput),
 
             // Agent
-            "Agent" => try_tool!(Agent, AgentInput),
+            "agent" => try_tool!(Agent, AgentInput),
 
             // Task management
-            "TaskCreate" => try_tool!(TaskCreate, TaskCreateInput),
-            "TaskUpdate" => try_tool!(TaskUpdate, TaskUpdateInput),
-            "TaskGet" => try_tool!(TaskGet, TaskGetInput),
-            "TaskList" => unit_tool!(TaskList),
-            "TaskOutput" => try_tool!(TaskOutput, TaskOutputInput),
-            "TaskStop" => try_tool!(TaskStop, TaskStopInput),
+            "taskcreate" => try_tool!(TaskCreate, TaskCreateInput),
+            "taskupdate" => try_tool!(TaskUpdate, TaskUpdateInput),
+            "taskget" => try_tool!(TaskGet, TaskGetInput),
+            "tasklist" => unit_tool!(TaskList),
+            "taskoutput" => try_tool!(TaskOutput, TaskOutputInput),
+            "taskstop" => try_tool!(TaskStop, TaskStopInput),
 
             // Plan / context
-            "EnterPlanMode" => unit_tool!(EnterPlanMode),
-            "ExitPlanMode" => try_tool!(ExitPlanMode, ExitPlanModeInput),
-            "EnterWorktree" => try_tool!(EnterWorktree, EnterWorktreeInput),
-            "Skill" => try_tool!(Skill, SkillInput),
-            "AskUserQuestion" => try_tool!(AskUserQuestion, AskUserQuestionInput),
-            "LSP" => try_tool!(Lsp, LspInput),
-            "ToolSearch" => try_tool!(ToolSearch, ToolSearchInput),
-            "CronCreate" => try_tool!(CronCreate, CronCreateInput),
-            "CronDelete" => try_tool!(CronDelete, CronDeleteInput),
-            "CronList" => unit_tool!(CronList),
+            "enterplanmode" => unit_tool!(EnterPlanMode),
+            "exitplanmode" => try_tool!(ExitPlanMode, ExitPlanModeInput),
+            "enterworktree" => try_tool!(EnterWorktree, EnterWorktreeInput),
+            "skill" => try_tool!(Skill, SkillInput),
+            "askuserquestion" => try_tool!(AskUserQuestion, AskUserQuestionInput),
+            "lsp" => try_tool!(Lsp, LspInput),
+            "toolsearch" => try_tool!(ToolSearch, ToolSearchInput),
+            "croncreate" => try_tool!(CronCreate, CronCreateInput),
+            "crondelete" => try_tool!(CronDelete, CronDeleteInput),
+            "cronlist" => unit_tool!(CronList),
 
             // Unknown / MCP / future tools
             _ => ToolInput::Unknown {
@@ -790,6 +798,102 @@ mod tests {
                 ToolInput::Bash(b) => assert_eq!(b.command, "ls -la"),
                 other => panic!("expected Bash, got {:?}", other),
             }
+        }
+    }
+
+    // ── Pi-mono compatibility: lowercase names, alternate field names ──
+
+    mod pimono_tool_names {
+        use super::*;
+        use crate::tool_input::{parse_tool_input, ToolInput};
+
+        #[test]
+        fn pimono_lowercase_write_parses_as_write() {
+            // Pi-mono uses lowercase "write" and "path" instead of "file_path"
+            let input = json!({"path": "/tmp/snake.py", "content": "print('hi')"});
+            let result = parse_tool_input("write", input);
+            match result {
+                ToolInput::Write(w) => {
+                    assert_eq!(w.file_path, "/tmp/snake.py",
+                        "should accept 'path' as alias for file_path");
+                    assert_eq!(w.content, "print('hi')");
+                }
+                other => panic!("expected Write, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn pimono_lowercase_read_parses_as_read() {
+            let input = json!({"path": "/tmp/config.toml"});
+            let result = parse_tool_input("read", input);
+            match result {
+                ToolInput::Read(r) => {
+                    assert_eq!(r.file_path, "/tmp/config.toml",
+                        "should accept 'path' as alias for file_path");
+                }
+                other => panic!("expected Read, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn pimono_lowercase_edit_parses_as_edit() {
+            let input = json!({
+                "path": "/tmp/x.rs",
+                "old_string": "fn foo",
+                "new_string": "fn bar",
+            });
+            let result = parse_tool_input("edit", input);
+            match result {
+                ToolInput::Edit(e) => {
+                    assert_eq!(e.file_path, "/tmp/x.rs");
+                    assert_eq!(e.old_string, "fn foo");
+                    assert_eq!(e.new_string, "fn bar");
+                }
+                other => panic!("expected Edit, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn pimono_lowercase_bash_parses_as_bash() {
+            let input = json!({"command": "python3 /tmp/snake.py"});
+            let result = parse_tool_input("bash", input);
+            match result {
+                ToolInput::Bash(b) => assert_eq!(b.command, "python3 /tmp/snake.py"),
+                other => panic!("expected Bash, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn pimono_find_parses_as_glob() {
+            // Pi-mono's find tool ≈ Claude's Glob
+            let input = json!({"pattern": "**/*.rs"});
+            let result = parse_tool_input("find", input);
+            match result {
+                ToolInput::Glob(g) => assert_eq!(g.pattern, "**/*.rs"),
+                other => panic!("expected Glob, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn pimono_grep_lowercase_parses_as_grep() {
+            let input = json!({"pattern": "TODO", "path": "/src"});
+            let result = parse_tool_input("grep", input);
+            match result {
+                ToolInput::Grep(_) => {}
+                other => panic!("expected Grep, got {:?}", other),
+            }
+        }
+
+        #[test]
+        fn claude_code_pascalcase_still_works() {
+            // Regression check — Claude Code's PascalCase tool names still parse
+            let input = json!({"file_path": "/tmp/x.py", "content": "pass"});
+            let result = parse_tool_input("Write", input);
+            assert!(matches!(result, ToolInput::Write(_)));
+
+            let input = json!({"file_path": "/tmp/x.py"});
+            let result = parse_tool_input("Read", input);
+            assert!(matches!(result, ToolInput::Read(_)));
         }
     }
 }
