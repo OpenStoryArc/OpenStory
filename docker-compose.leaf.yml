@@ -23,7 +23,7 @@ services:
       - "127.0.0.1:8222:8222"
     volumes:
       - nats-data:/tmp/nats-jetstream-leaf
-      - ./deploy/nats-leaf.conf:/etc/nats/nats-leaf.conf:ro
+      - ./deploy/nats-leaf.local.conf:/etc/nats/nats-leaf.conf:ro
     restart: unless-stopped
     deploy:
       resources:
@@ -41,6 +41,7 @@ services:
     environment:
       - NATS_URL=nats://nats:4222
       - OPEN_STORY_WATCH_DIR=/watch
+      - OPEN_STORY_WATCH_BACKFILL_HOURS=${OPEN_STORY_WATCH_BACKFILL_HOURS:-0}
       - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
       - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
     depends_on:
@@ -49,7 +50,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 8G
 
 volumes:
   nats-data:

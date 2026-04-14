@@ -326,7 +326,7 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `mongo_db` | `openstory` | MongoDB database name (used only when `data_backend = "mongo"`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
-| `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
+| `watch_backfill_hours` | `24` | Hours of history to backfill from JSONL on boot (file mtime filter; `0` disables the filter and loads every file) |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
 | `metrics_enabled` | `false` | Enable Prometheus `/metrics` endpoint |

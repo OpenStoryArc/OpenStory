@@ -46,6 +46,7 @@ __pycache__/
 .anthropic_api_key
 .open_story_token
 *.secret
+deploy/*.local.conf
 
 # Generated history
 history/
