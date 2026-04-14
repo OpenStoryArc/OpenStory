@@ -118,3 +118,77 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
     Ok(events)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    // ── T4: partial-line contract (architecture audit) ─────────────────
+    // The reader advances byte_offset only past \n-terminated lines.
+    // Partial lines leave offset unchanged so the next read picks up the
+    // full line once it lands. Invalid JSON in a complete line is
+    // skipped but the offset still advances (the line is complete; it
+    // just can't be translated).
+
+    #[test]
+    fn read_returns_no_events_on_partial_line() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), r#"{"type":"message","id":"a"#).unwrap();
+
+        let mut state = TranscriptState::new("t4".to_string());
+        let events = read_new_lines(tmp.path(), &mut state).unwrap();
+
+        assert_eq!(events.len(), 0, "partial line should yield zero events");
+        assert_eq!(state.byte_offset, 0, "offset must not advance past partial line");
+    }
+
+    #[test]
+    fn read_picks_up_after_partial_completes() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), r#"{"type":"message","id":"a"#).unwrap();
+
+        let mut state = TranscriptState::new("t4".to_string());
+        let _ = read_new_lines(tmp.path(), &mut state).unwrap();
+        assert_eq!(state.byte_offset, 0);
+
+        let mut f = std::fs::OpenOptions::new().append(true).open(tmp.path()).unwrap();
+        writeln!(f, r#"bc","message":{{"role":"user","content":"hi"}}}}"#).unwrap();
+
+        let _ = read_new_lines(tmp.path(), &mut state).unwrap();
+        assert!(state.byte_offset > 0, "offset must advance past the completed line");
+    }
+
+    #[test]
+    fn read_advances_past_invalid_json_but_complete_line() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "not valid json at all\n").unwrap();
+
+        let mut state = TranscriptState::new("t4".to_string());
+        let events = read_new_lines(tmp.path(), &mut state).unwrap();
+
+        assert_eq!(events.len(), 0, "invalid JSON yields no events");
+        assert_eq!(
+            state.byte_offset,
+            "not valid json at all\n".len() as u64,
+            "offset must advance past a complete line even when unparseable"
+        );
+    }
+
+    #[test]
+    fn read_handles_mixed_complete_and_partial() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let complete = "not json but complete\n";
+        let partial = r#"{"half":"written"#;
+        std::fs::write(tmp.path(), format!("{complete}{partial}")).unwrap();
+
+        let mut state = TranscriptState::new("t4".to_string());
+        let _ = read_new_lines(tmp.path(), &mut state).unwrap();
+
+        assert_eq!(
+            state.byte_offset,
+            complete.len() as u64,
+            "offset must land exactly at the boundary of the last complete line"
+        );
+    }
+}
