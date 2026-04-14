@@ -45,6 +45,19 @@ fn pi_mono_fixture_dir() -> std::path::PathBuf {
     path
 }
 
+/// Fixture dir holding scenario_07 (two parallel toolCalls in one line).
+/// Filename keeps "pi_mono" so `find_pi_session` matches.
+fn pi_mono_scenario_07_dir() -> std::path::PathBuf {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let tmp = tempfile::TempDir::new().expect("create temp dir");
+    let src = fixtures.join("pi_mono/scenario_07_multi_tool.jsonl");
+    let dst = tmp.path().join("pi_mono_scenario_07.jsonl");
+    std::fs::copy(&src, &dst).expect("copy scenario 07 fixture");
+    let path = tmp.path().to_path_buf();
+    std::mem::forget(tmp);
+    path
+}
+
 /// Helper: find the pi-mono session in the sessions list.
 fn find_pi_session(sessions: &[Value]) -> &Value {
     sessions
@@ -520,5 +533,93 @@ async fn pi_mono_decomposed_assistant_message_in_view_records() {
         record_types.contains(&"assistant_message"),
         "should have assistant_message records from decomposed text blocks, got: {:?}",
         record_types
+    );
+}
+
+// ── T2: multi-tool decomposition end-to-end (architecture audit) ───────
+//
+// Parallel toolCalls in one assistant line must survive translator →
+// NATS → SQLite → views → REST as N distinct records with unique
+// call_ids, each paired with its ToolResult.
+
+#[tokio::test]
+async fn pi_mono_parallel_tool_calls_preserved_end_to_end() {
+    let fixture_dir = pi_mono_scenario_07_dir();
+    let server = start_open_story(&fixture_dir).await;
+    server.wait_for_sessions().await;
+
+    let sessions = get_sessions(&server.base_url()).await;
+    let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
+
+    // Hop 7/8: SQLite via REST — exactly two tool_use events from the one
+    // assistant line that bundled two parallel toolCalls.
+    let events: Vec<Value> = reqwest::get(format!(
+        "{}/api/sessions/{}/events",
+        server.base_url(),
+        session_id
+    ))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+
+    let tool_uses: Vec<&Value> = events
+        .iter()
+        .filter(|e| e.get("subtype").and_then(|v| v.as_str()) == Some("message.assistant.tool_use"))
+        .collect();
+    assert_eq!(
+        tool_uses.len(),
+        2,
+        "parallel toolCalls should yield 2 tool_use events, got {}",
+        tool_uses.len()
+    );
+
+    let event_ids: std::collections::HashSet<&str> = tool_uses
+        .iter()
+        .filter_map(|e| e.get("id").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(event_ids.len(), 2, "decomposed event IDs must be unique");
+
+    // Hop 9: ViewRecord pairing — two ToolCall records, two ToolResult
+    // records, and every call_id on the call side has a match on the
+    // result side.
+    let records: Vec<Value> = reqwest::get(format!(
+        "{}/api/sessions/{}/records",
+        server.base_url(),
+        session_id
+    ))
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+
+    let tool_calls: Vec<&Value> = records
+        .iter()
+        .filter(|r| r.get("record_type").and_then(|v| v.as_str()) == Some("tool_call"))
+        .collect();
+    let tool_results: Vec<&Value> = records
+        .iter()
+        .filter(|r| r.get("record_type").and_then(|v| v.as_str()) == Some("tool_result"))
+        .collect();
+
+    assert_eq!(tool_calls.len(), 2, "expected 2 tool_call records");
+    assert_eq!(tool_results.len(), 2, "expected 2 tool_result records");
+
+    // WireRecord serializes ViewRecord.body as "payload"
+    let call_ids_from_calls: std::collections::HashSet<&str> = tool_calls
+        .iter()
+        .filter_map(|r| r.get("payload").and_then(|b| b.get("call_id")).and_then(|v| v.as_str()))
+        .collect();
+    let call_ids_from_results: std::collections::HashSet<&str> = tool_results
+        .iter()
+        .filter_map(|r| r.get("payload").and_then(|b| b.get("call_id")).and_then(|v| v.as_str()))
+        .collect();
+
+    assert_eq!(call_ids_from_calls.len(), 2, "call_ids from ToolCall side must be unique");
+    assert_eq!(
+        call_ids_from_calls, call_ids_from_results,
+        "every ToolCall must have a matching ToolResult by call_id"
     );
 }
