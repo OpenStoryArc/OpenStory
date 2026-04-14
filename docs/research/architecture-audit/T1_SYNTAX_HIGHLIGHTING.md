@@ -113,3 +113,33 @@ The assertion `tool_result.language_hint() == Some("rust")` is the one that fail
 - Manual UI check: reading `persist.rs` shows Rust syntax highlighting
 - `docs/research/architecture-audit/T1_SYNTAX_HIGHLIGHTING.md` updated with outcome (which hypothesis was right, what the fix was, what was surprising)
 - Commit on `research/architecture-audit`
+
+## Reconnaissance outcome (2026-04-14)
+
+Did a 5-minute recon before building the harness. Result: **H1 confirmed** — `ToolResult` ViewRecord has no path/language/toolName field (`rs/views/src/unified.rs:155`). The UI infrastructure is otherwise healthy:
+
+- `ui/src/lib/detect-language.ts:11` maps `.rs → rust` correctly
+- `ui/src/components/RecordDetail.tsx:61` defines `CodeBlock` with `lang`/`filePath`/`toolName` props that flow into `SyntaxHighlighter`
+- `ui/src/components/RecordDetail.tsx:252` renders ToolResult output as `<CodeBlock>{displayOutput}</CodeBlock>` — **no props passed**, so `detectLanguage` returns `"text"`.
+
+The line numbers seen in the screenshot are not from the highlighter — they're baked into pi-mono's Read tool output text itself (`1\t//! Persist consumer...`). That's why `strip-line-numbers.ts` exists in the UI but isn't wired into this path.
+
+### Two fix shapes
+
+**Fix A (UI-only):** In `ToolResultDetail`, look up the paired `ToolCall` by `call_id` (parent already has the record list) and pass `filePath` / `toolName` down to `CodeBlock`. Also strip baked-in line numbers via the existing `strip-line-numbers.ts` before passing to the highlighter. Smallest diff.
+
+**Fix B (views layer):** Enrich `ToolResult` body with `tool_name` and `file_path` at pairing time (`rs/views/src/pair.rs` already pairs them for turn display). UI gets the info for free. Bigger change, but the data is honestly *about* that tool call — the pair belongs together.
+
+**Recommendation:** Fix A. The ViewRecord is a faithful transform of the CloudEvent; enriching it at pairing time couples the view to the pairing pass, which isn't always run (search results, for instance). UI prop-drilling is the honest place for this join.
+
+### Secondary finding — case-sensitive TOOL_MAP
+
+`ui/src/lib/detect-language.ts:38` TOOL_MAP uses PascalCase keys (`Bash`, `Grep`, `Glob`) — mirrors the same case-sensitivity bug we fixed in `rs/views/src/tool_input.rs` for pi-mono. Should lowercase-normalize here too, or at least add lowercase aliases. File as T1b (follow-up).
+
+### Revised exit plan
+
+1. Write UI unit test for ToolResult rendering with a paired ToolCall carrying `.rs` path — expect `language="rust"` on the highlighter
+2. Implement Fix A (prop drilling + strip-line-numbers)
+3. Manual UI verification
+4. T1b: case-insensitive TOOL_MAP
+5. Harness still gets built, but for T2 (multi-tool explosion) where the assertion is harder to reach without containers
