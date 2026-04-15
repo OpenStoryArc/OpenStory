@@ -7,7 +7,7 @@
 //! They are pure read-only SQL queries — no mutation, no side effects.
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 // ── Canonical timestamp format ───────────────────────────────────────
 //
@@ -33,7 +33,7 @@ pub(crate) fn format_ts(dt: chrono::DateTime<chrono::Utc>) -> String {
 // ── FTS5 Search ────────────────────────────────────────────────────
 
 /// Result from a full-text search query.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct FtsSearchResult {
     pub event_id: String,
     pub session_id: String,

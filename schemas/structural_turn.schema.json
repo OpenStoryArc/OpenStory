@@ -1,0 +1,380 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ApplyRecord": {
+      "description": "One tool dispatch (apply phase).",
+      "properties": {
+        "input_summary": {
+          "type": "string"
+        },
+        "is_agent": {
+          "type": "boolean"
+        },
+        "is_error": {
+          "type": "boolean"
+        },
+        "output_summary": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "tool_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "input_summary",
+        "is_agent",
+        "is_error",
+        "output_summary",
+        "tool_name"
+      ],
+      "type": "object"
+    },
+    "EvalOutput": {
+      "description": "The model's response (eval phase output).",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "decision",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "HumanInput": {
+      "description": "The human message that prompted this turn.",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "ThinkingRecord": {
+      "description": "The model's reasoning (thinking phase).",
+      "properties": {
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    },
+    "ToolOutcome": {
+      "description": "What a tool call changed in the world. Deterministic projection: tool name + input + result → ToolOutcome.",
+      "oneOf": [
+        {
+          "description": "Write tool + \"created successfully\" in result",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileCreated"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write tool + \"updated successfully\", or any Edit tool",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileModified"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool (successful)",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileRead"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write/Edit tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileWriteFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileReadFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Grep, Glob, WebSearch, WebFetch",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SearchPerformed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "source",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Bash tool",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "succeeded": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "CommandExecuted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "succeeded",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Agent tool — agent_id links to the subagent session (\"agent-{agent_id}\")",
+          "properties": {
+            "agent_id": {
+              "default": "",
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SubAgentSpawned"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "description": "One step of the eval-apply coalgebra, fully resolved.",
+  "properties": {
+    "agent": {
+      "default": null,
+      "description": "Agent platform that produced this turn (e.g., \"claude-code\", \"hermes\"). Used by the sentence builder to generate agent-appropriate subjects.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "applies": {
+      "items": {
+        "$ref": "#/definitions/ApplyRecord"
+      },
+      "type": "array"
+    },
+    "duration_ms": {
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "env_delta": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "env_size": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "eval": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/EvalOutput"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "event_ids": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "human": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/HumanInput"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "is_terminal": {
+      "type": "boolean"
+    },
+    "scope_depth": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "stop_reason": {
+      "type": "string"
+    },
+    "thinking": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ThinkingRecord"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "turn_number": {
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "applies",
+    "env_delta",
+    "env_size",
+    "event_ids",
+    "is_terminal",
+    "scope_depth",
+    "session_id",
+    "stop_reason",
+    "timestamp",
+    "turn_number"
+  ],
+  "title": "StructuralTurn",
+  "type": "object"
+}

@@ -33,7 +33,7 @@ use crate::PatternEvent;
 // Prototype source: types.ts:127-157
 
 /// One step of the eval-apply coalgebra, fully resolved.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StructuralTurn {
     pub session_id: String,
     pub turn_number: u32,
@@ -56,20 +56,20 @@ pub struct StructuralTurn {
 }
 
 /// The human message that prompted this turn.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HumanInput {
     pub content: String,
     pub timestamp: String,
 }
 
 /// The model's reasoning (thinking phase).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ThinkingRecord {
     pub summary: String,
 }
 
 /// The model's response (eval phase output).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EvalOutput {
     pub content: String,
     pub timestamp: String,
@@ -78,7 +78,7 @@ pub struct EvalOutput {
 }
 
 /// One tool dispatch (apply phase).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ApplyRecord {
     pub tool_name: String,
     pub input_summary: String,

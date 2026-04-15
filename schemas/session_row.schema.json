@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Summary row for a session — materialized from SessionProjection.",
+  "properties": {
+    "branch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "custom_label": {
+      "description": "User-set custom name. Takes precedence over auto-generated label. Boot replay never overwrites this field.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "event_count": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "first_event": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_event": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "project_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "event_count",
+    "id"
+  ],
+  "title": "SessionRow",
+  "type": "object"
+}

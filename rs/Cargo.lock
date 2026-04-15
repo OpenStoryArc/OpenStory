@@ -2770,6 +2770,7 @@ dependencies = [
  "async-trait",
  "futures",
  "open-story-core",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "tokio",
@@ -2810,6 +2811,7 @@ version = "0.1.0"
 dependencies = [
  "open-story-core",
  "open-story-views",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
 ]
@@ -2820,8 +2822,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "jsonschema",
+ "open-story-bus",
  "open-story-core",
  "open-story-patterns",
+ "open-story-server",
+ "open-story-store",
  "open-story-views",
  "reqwest 0.12.28",
  "schemars 0.8.22",
@@ -2847,6 +2852,7 @@ dependencies = [
  "open-story-store",
  "open-story-views",
  "regex",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "tempfile",
@@ -2875,6 +2881,7 @@ dependencies = [
  "open-story-views",
  "regex",
  "rusqlite",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "tempfile",
