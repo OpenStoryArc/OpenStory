@@ -1,0 +1,785 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentPayload": {
+      "description": "Tagged union of agent-specific payloads. Dispatch on `meta.agent` to determine variant.\n\nSerializes as: `{ \"meta\": { \"agent\": \"claude-code\" }, \"text\": \"...\", ... }` The tag is inside the payload, making it self-describing.",
+      "oneOf": [
+        {
+          "additionalProperties": true,
+          "description": "Typed extraction for Claude Code events. All fields translated from the agent transcript — no interpretation.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "claude-code"
+              ],
+              "type": "string"
+            },
+            "agent_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "args": true,
+            "content_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration_ms": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "git_branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hook_count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "is_sidechain": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "message_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PayloadMeta"
+                }
+              ],
+              "description": "The tag."
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_tool_use_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_uuid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "prevented_continuation": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "progress_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "slug": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stop_reason": true,
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token_usage": true,
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ToolOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "user_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "uuid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "_variant",
+            "meta"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "description": "Typed extraction for pi-mono (OpenClaw) events. All fields translated from the agent transcript — no interpretation.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "pi-mono"
+              ],
+              "type": "string"
+            },
+            "args": true,
+            "command": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "content_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "exit_code": true,
+            "first_kept_entry_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "is_error": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PayloadMeta"
+                }
+              ],
+              "description": "The tag."
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "output": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "parent_uuid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "provider": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stop_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "thinking_level": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token_usage": true,
+            "tokens_before": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_call_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ToolOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "uuid": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": true
+          },
+          "required": [
+            "_variant",
+            "meta"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "description": "Typed extraction for Hermes Agent (NousResearch/hermes-agent) events.\n\nHermes is a self-improving agent that stores conversations in OpenAI shape regardless of which provider produced the response. The Anthropic adapter at `tests/agent/test_anthropic_adapter.py:575` is a one-way translator at the API boundary; persisted state is always OpenAI shape (assistant `tool_calls: [{id, function: {name, arguments}}]`, tool messages with `tool_call_id` and optional `tool_name`, reasoning as a top-level string field on the assistant message).\n\nVerified against hermes-agent commit 6e3f7f36 on 2026-04-08. See `docs/research/hermes-integration/SOURCE_VERIFICATION.md`.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "hermes"
+              ],
+              "type": "string"
+            },
+            "args": {
+              "description": "Parsed JSON args from `tool_calls[i].function.arguments` (which is a JSON string in the wire format)."
+            },
+            "completed": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "hermes_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "interrupted": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "message_count": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PayloadMeta"
+                }
+              ],
+              "description": "The tag."
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "platform": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "preceding_text": {
+              "description": "Text content the assistant emitted alongside the tool call (eval phase preceding apply).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reasoning": {
+              "description": "Reasoning content. Hermes stores this as a top-level string field on the assistant message (verified). The Anthropic SDK adapter converts `content_block_delta` thinking blocks to a flat string before storage.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "seq": {
+              "description": "Plugin-side monotonic per-session sequence number from the input envelope.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "stop_reason": {
+              "description": "Stop reason (`finish_reason`) — usually `\"stop\"` or `\"tool_calls\"`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "system_prompt_preview": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "description": "Canonical OpenAI shape: tool name from `tool_calls[i].function.name`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_call_id": {
+              "description": "`tool_call_id` from the tool message — links back to the originating tool_use.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_name": {
+              "description": "`tool_name` is OPTIONAL in Hermes — present in some code paths, absent in others.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_use_id": {
+              "description": "`tool_calls[i].id` — used to link the tool_use to its later tool_result.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tools": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "_variant",
+            "meta"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EventData": {
+      "description": "The event data envelope. Foundation is always present. The agent_payload is the monadic lift — absent means \"couldn't type it.\"",
+      "properties": {
+        "agent_payload": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The lift: typed agent-specific payload. None = unknown agent or parse failure."
+        },
+        "raw": {
+          "description": "Original transcript line, never mutated. The foundation."
+        },
+        "seq": {
+          "description": "Sequence number within the translation session.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "Session identifier.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "raw",
+        "seq",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "PayloadMeta": {
+      "description": "Payload metadata — just the tag. Determined by format auto-detection, not from the transcript. Enough to dispatch, nothing more.",
+      "properties": {
+        "agent": {
+          "description": "SICP type tag: \"claude-code\", \"pi-mono\", or \"hermes\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "type": "object"
+    },
+    "ToolOutcome": {
+      "description": "What a tool call changed in the world. Deterministic projection: tool name + input + result → ToolOutcome.",
+      "oneOf": [
+        {
+          "description": "Write tool + \"created successfully\" in result",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileCreated"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write tool + \"updated successfully\", or any Edit tool",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileModified"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool (successful)",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileRead"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write/Edit tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileWriteFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileReadFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Grep, Glob, WebSearch, WebFetch",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SearchPerformed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "source",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Bash tool",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "succeeded": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "CommandExecuted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "succeeded",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Agent tool — agent_id links to the subagent session (\"agent-{agent_id}\")",
+          "properties": {
+            "agent_id": {
+              "default": "",
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SubAgentSpawned"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "agent": {
+      "description": "Agent platform that produced this event (e.g., \"claude-code\", \"pi-mono\"). CloudEvent extension attribute — not part of the spec, but allowed.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {
+      "$ref": "#/definitions/EventData"
+    },
+    "datacontenttype": {
+      "type": "string"
+    },
+    "dataschema": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "specversion": {
+      "type": "string"
+    },
+    "subject": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "subtype": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "time": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "data",
+    "datacontenttype",
+    "id",
+    "source",
+    "specversion",
+    "time",
+    "type"
+  ],
+  "title": "CloudEvent",
+  "type": "object"
+}

@@ -2823,9 +2823,11 @@ dependencies = [
  "open-story-core",
  "open-story-patterns",
  "open-story-views",
+ "reqwest 0.12.28",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

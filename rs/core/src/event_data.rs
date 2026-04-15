@@ -23,7 +23,7 @@ use serde_json::Value;
 
 /// What a tool call changed in the world.
 /// Deterministic projection: tool name + input + result → ToolOutcome.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[serde(tag = "type")]
 pub enum ToolOutcome {
     /// Write tool + "created successfully" in result
@@ -153,7 +153,7 @@ pub fn derive_tool_outcome(
 
 /// The event data envelope. Foundation is always present.
 /// The agent_payload is the monadic lift — absent means "couldn't type it."
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EventData {
     /// Original transcript line, never mutated. The foundation.
     pub raw: Value,
@@ -192,7 +192,7 @@ impl EventData {
 
 /// Payload metadata — just the tag. Determined by format auto-detection,
 /// not from the transcript. Enough to dispatch, nothing more.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PayloadMeta {
     /// SICP type tag: "claude-code", "pi-mono", or "hermes".
     pub agent: String,
@@ -205,7 +205,7 @@ pub struct PayloadMeta {
 ///
 /// Serializes as: `{ "meta": { "agent": "claude-code" }, "text": "...", ... }`
 /// The tag is inside the payload, making it self-describing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "_variant")]
 pub enum AgentPayload {
     #[serde(rename = "claude-code")]
@@ -220,7 +220,7 @@ pub enum AgentPayload {
 
 /// Typed extraction for Claude Code events.
 /// All fields translated from the agent transcript — no interpretation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ClaudeCodePayload {
     /// The tag.
     pub meta: PayloadMeta,
@@ -342,7 +342,7 @@ impl ClaudeCodePayload {
 
 /// Typed extraction for pi-mono (OpenClaw) events.
 /// All fields translated from the agent transcript — no interpretation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PiMonoPayload {
     /// The tag.
     pub meta: PayloadMeta,
@@ -478,7 +478,7 @@ impl PiMonoPayload {
 ///
 /// Verified against hermes-agent commit 6e3f7f36 on 2026-04-08.
 /// See `docs/research/hermes-integration/SOURCE_VERIFICATION.md`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HermesPayload {
     /// The tag.
     pub meta: PayloadMeta,
