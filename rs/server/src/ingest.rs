@@ -761,6 +761,160 @@ mod tests {
         );
     }
 
+    // ── Dual-write characterization (architecture audit) ──────────────
+    //
+    // These tests document work that ingest_events still does AND that an
+    // actor also does. They capture the current reality so that when
+    // Actor 4 is fully decomposed (see BACKLOG.md "Decompose Actor 4"),
+    // flipping ingest_events to NOT do these things is a visible change
+    // to these tests — no hidden regression. See
+    // docs/research/architecture-audit/DUAL_WRITE_AUDIT.md for the full
+    // side-effect table.
+
+    fn make_tool_result_event(id: &str, output: &str) -> CloudEvent {
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some(output.to_string());
+        payload.tool = Some("Read".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({
+                "type": "user",
+                "message": {
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_x",
+                        "content": output
+                    }]
+                }
+            }),
+            1,
+            "sess-dw".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test".to_string(),
+            "io.arc.event".to_string(),
+            data,
+            Some("message.user.tool_result".to_string()),
+            Some(id.to_string()),
+            Some("2025-01-13T00:00:00Z".to_string()),
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[tokio::test]
+    async fn ingest_still_indexes_fts_for_durable_events_dual_write_with_actor_1() {
+        // DOCUMENTED DUAL-WRITE: idempotent via INSERT OR IGNORE.
+        // Flip this assertion when Actor 4 decomposes and FTS ownership
+        // moves exclusively to PersistConsumer.
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // Build a user prompt with a typed payload so from_cloud_event
+        // produces a non-empty UserMessage (which is what FTS extracts from).
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("find this phrase please".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            1,
+            "sess-fts-dw".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some("evt-fts-dw".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None,
+            None,
+            None,
+        );
+
+        ingest_events(&mut state, "sess-fts-dw", &[event], None).await;
+
+        let results = state
+            .store
+            .event_store
+            .search_fts("find this phrase", 10, None)
+            .await
+            .unwrap();
+        assert!(
+            results.iter().any(|r| r.event_id == "evt-fts-dw"),
+            "ingest_events currently dual-writes to FTS — this test flips when Actor 4 decomposes"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_does_not_index_fts_for_ephemeral_events() {
+        // The is_ephemeral filter at ingest.rs:180-183 is guardrail for
+        // progress.* events. Neither ingest_events nor PersistConsumer
+        // should index these.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // Build a progress.bash event — ephemeral by subtype
+        let mut payload = open_story_core::event_data::ClaudeCodePayload::new();
+        payload.text = Some("some streaming output don't index me".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({"text": "some streaming output don't index me"}),
+            1,
+            "sess-eph".to_string(),
+            open_story_core::event_data::AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("progress.bash".into()),
+            Some("evt-eph-1".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None, None,
+        );
+
+        ingest_events(&mut state, "sess-eph", &[event], None).await;
+
+        let results = state
+            .store
+            .event_store
+            .search_fts("streaming output", 10, None)
+            .await
+            .unwrap();
+        assert!(
+            !results.iter().any(|r| r.event_id == "evt-eph-1"),
+            "progress.* events are ephemeral — must not appear in FTS"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_populates_full_payloads_cache_for_truncated_tool_results() {
+        // full_payloads is a dead parallel state: ingest_events fills
+        // state.store.full_payloads; BroadcastConsumer (unwired today)
+        // defines its own HashMap for the same purpose. This test locks in
+        // what ingest_events actually does with the cache so the
+        // decomposition can swap the owner without silent behavior change.
+        use open_story_views::wire_record::TRUNCATION_THRESHOLD;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // Build a tool_result with output > TRUNCATION_THRESHOLD so it
+        // gets cached.
+        let big = "x".repeat(TRUNCATION_THRESHOLD + 1000);
+        let event = make_tool_result_event("evt-big-1", &big);
+
+        ingest_events(&mut state, "sess-dw", &[event], None).await;
+
+        let cache = state.store.full_payloads.get("sess-dw");
+        assert!(
+            cache.is_some() && !cache.unwrap().is_empty(),
+            "full_payloads cache should have an entry for the big tool_result"
+        );
+    }
+
     #[tokio::test]
     async fn ingest_populates_projection() {
         let tmp = tempfile::tempdir().unwrap();
