@@ -915,6 +915,249 @@ mod tests {
         );
     }
 
+    // ── Pre-Actor-4-decomposition regression net ──────────────────────
+    //
+    // These tests pin behavior that today flows from ingest_events but
+    // will cross actor boundaries after the decomposition lands. Every
+    // one of them should still pass after the refactor; any flip from
+    // green to red means a behavioral regression, not just code motion.
+    //
+    // See docs/research/architecture-audit/DUAL_WRITE_AUDIT.md and the
+    // BACKLOG entry "Decompose Actor 4 (Broadcast Consumer) from Shared
+    // AppState" for the context.
+
+    fn make_assistant_event_with_tokens(id: &str, text: &str, input_toks: u64, output_toks: u64) -> CloudEvent {
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some(text.to_string());
+        payload.model = Some("claude-opus-4-6".to_string());
+        payload.token_usage = Some(serde_json::json!({
+            "input_tokens": input_toks,
+            "output_tokens": output_toks,
+            "total_tokens": input_toks + output_toks,
+        }));
+        let data = EventData::with_payload(
+            serde_json::json!({
+                "type": "assistant",
+                "message": {"model": "claude-opus-4-6", "content": [{"type": "text", "text": text}]}
+            }),
+            1,
+            "sess-regr".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.assistant.text".into()),
+            Some(id.to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None,
+            Some("claude-code".into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn broadcast_assembly_preserves_session_label_on_first_prompt() {
+        // Contract: the first user prompt sets the projection's label,
+        // and the resulting BroadcastMessage::Enriched carries that label
+        // so sidebars / session lists get it without refetching.
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("Implement the feature thing".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            1,
+            "sess-label".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some("evt-label-1".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None, None,
+        );
+
+        let result = ingest_events(&mut state, "sess-label", &[event], None).await;
+        assert!(!result.changes.is_empty());
+        match &result.changes[0] {
+            BroadcastMessage::Enriched { session_label, .. } => {
+                assert!(
+                    session_label.is_some(),
+                    "first prompt must propagate session_label into the broadcast payload"
+                );
+                let label = session_label.as_ref().unwrap();
+                assert!(
+                    label.contains("Implement"),
+                    "label should derive from prompt text, got {label:?}"
+                );
+            }
+            other => panic!("expected Enriched, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn broadcast_assembly_preserves_token_totals_across_batch() {
+        // Contract: when a batch contains a TokenUsage-producing event,
+        // the broadcast message surfaces the session's running totals.
+        // Today these come from state.store.projections; post-
+        // decomposition they'll come from whatever projection Actor 4
+        // reads. The test asserts the behavior, not the source.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+        let event = make_assistant_event_with_tokens("evt-tok-1", "response text", 1000, 250);
+
+        let result = ingest_events(&mut state, "sess-tok", &[event], None).await;
+        assert!(!result.changes.is_empty());
+        match &result.changes[0] {
+            BroadcastMessage::Enriched {
+                total_input_tokens,
+                total_output_tokens,
+                ..
+            } => {
+                assert_eq!(
+                    *total_input_tokens,
+                    Some(1000),
+                    "total_input_tokens must reach the broadcast payload"
+                );
+                assert_eq!(*total_output_tokens, Some(250));
+            }
+            other => panic!("expected Enriched, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wire_records_arrive_in_seq_order_under_batched_ingest() {
+        // Contract: BroadcastMessages returned from a batch ingest
+        // preserve event order. Decomposition must not reorder — UI
+        // renders a linear timeline that depends on this.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        let events: Vec<CloudEvent> = (0..5)
+            .map(|i| make_user_prompt_event(&format!("evt-order-{i}"), &format!("msg {i}")))
+            .collect();
+
+        let result = ingest_events(&mut state, "sess-order", &events, None).await;
+
+        // Each durable event produces one Enriched message. Flatten the
+        // WireRecord ids we receive and compare to input order.
+        let mut ids_in_order: Vec<String> = Vec::new();
+        for change in &result.changes {
+            if let BroadcastMessage::Enriched { records, .. } = change {
+                for wr in records {
+                    ids_in_order.push(wr.record.id.clone());
+                }
+            }
+        }
+        // Note: make_user_prompt_event uses EventData::new (no typed
+        // payload). from_cloud_event still emits a UserMessage record,
+        // so we'll see one WireRecord per event — five total in order.
+        let expected: Vec<String> = (0..5).map(|i| format!("evt-order-{i}")).collect();
+        assert_eq!(
+            ids_in_order, expected,
+            "wire records must arrive in the order the events were ingested"
+        );
+    }
+
+    #[tokio::test]
+    async fn full_payload_lazy_load_returns_stored_output_after_truncation() {
+        // Contract: the /content/:event_id endpoint resolves the full
+        // output by looking first in state.store.full_payloads, then in
+        // EventStore. Post-decomposition, the `full_payloads` cache may
+        // move to Actor 4's own state — this test locks in what the
+        // endpoint currently serves, so the move can't silently break it.
+        use open_story_views::wire_record::TRUNCATION_THRESHOLD;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+        let big = "y".repeat(TRUNCATION_THRESHOLD + 500);
+        let event = make_tool_result_event("evt-big-lazy-1", &big);
+
+        ingest_events(&mut state, "sess-lazy", &[event], None).await;
+
+        // Mirror the endpoint's lookup sequence (api.rs::get_event_content).
+        let cached = state
+            .store
+            .full_payloads
+            .get("sess-lazy")
+            .and_then(|m| m.get("evt-big-lazy-1"))
+            .cloned();
+        assert_eq!(
+            cached.as_deref().map(|s| s.len()),
+            Some(big.len()),
+            "full_payloads cache must return the full, untruncated output"
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_and_projections_consumers_see_identical_event_stream() {
+        // Two-subscriber composition: if Actor 4 is decomposed into an
+        // independent NATS subscriber, its view must agree with Actor 1
+        // and Actor 3 on what events the stream contained. Today this is
+        // trivially true because everything runs in one loop; post-
+        // decomposition the test exercises the composition.
+        use crate::consumers::persist::PersistConsumer;
+        use crate::consumers::projections::ProjectionsConsumer;
+        use open_story_store::persistence::SessionStore;
+        use open_story_store::sqlite_store::SqliteStore;
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let session_store = SessionStore::new(tmp.path()).unwrap();
+        let event_store: Arc<dyn open_story_store::event_store::EventStore> =
+            Arc::new(SqliteStore::new(tmp.path()).unwrap());
+
+        let mut persist = PersistConsumer::new(event_store.clone(), session_store);
+        let mut projections = ProjectionsConsumer::new();
+
+        let events: Vec<CloudEvent> = (0..3)
+            .map(|i| make_assistant_event_with_tokens(
+                &format!("evt-comp-{i}"),
+                &format!("assistant msg {i}"),
+                100,
+                50,
+            ))
+            .collect();
+
+        // Both subscribers see the same batch independently.
+        let persist_result = persist.process_batch("sess-comp", &events).await;
+        let _ = projections.process_batch("sess-comp", &events);
+
+        // EventStore side (Actor 1's side of the stream).
+        let stored = event_store
+            .session_events("sess-comp")
+            .await
+            .unwrap();
+        let stored_ids: Vec<String> = stored
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        // ProjectionsConsumer side (Actor 3's projection).
+        let proj = projections.projection("sess-comp").expect("projection created");
+
+        assert_eq!(persist_result.persisted, 3);
+        assert_eq!(stored_ids.len(), 3);
+        assert_eq!(
+            proj.event_count(),
+            3,
+            "projections consumer must see the same event count as persist"
+        );
+        // Order invariant: if the stream is linear, both consumers see
+        // the same prefix. Asserting on count + id-set (not sequence)
+        // here — sequence ordering is the previous test's job.
+        use std::collections::HashSet;
+        let stored_set: HashSet<&str> = stored_ids.iter().map(|s| s.as_str()).collect();
+        let expected: HashSet<&str> = ["evt-comp-0", "evt-comp-1", "evt-comp-2"].iter().copied().collect();
+        assert_eq!(stored_set, expected);
+    }
+
     #[tokio::test]
     async fn ingest_populates_projection() {
         let tmp = tempfile::tempdir().unwrap();
