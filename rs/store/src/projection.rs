@@ -393,6 +393,273 @@ impl SessionProjection {
     }
 }
 
+// ── Inline tests (audit walk #5, 2026-04-15) ──────────────────────
+//
+// 402-line file, zero #[cfg(test)] mod before this commit. Filter logic
+// is ~100 LOC of pure string-matching that drives sidebar counts and
+// the saved-filter UI. Untested means a typo in a substring breaks
+// classification silently. These tests lock the boundary table per
+// filter so additions/removals are explicit.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use open_story_views::unified::{
+        AssistantMessage, ContentBlock, ErrorRecord, MessageContent, RecordBody,
+        Reasoning, ToolCall, ToolResult, UserMessage,
+    };
+    use serde_json::json;
+
+    fn vr_with(body: RecordBody) -> ViewRecord {
+        ViewRecord {
+            id: "evt".to_string(),
+            seq: 1,
+            session_id: "s".to_string(),
+            timestamp: "2026-04-15T00:00:00Z".to_string(),
+            agent_id: None,
+            is_sidechain: false,
+            body,
+        }
+    }
+
+    fn user_msg(text: &str) -> ViewRecord {
+        vr_with(RecordBody::UserMessage(UserMessage {
+            content: MessageContent::Text(text.to_string()),
+            images: vec![],
+        }))
+    }
+
+    fn asst_msg(text: &str) -> ViewRecord {
+        vr_with(RecordBody::AssistantMessage(Box::new(AssistantMessage {
+            model: "x".to_string(),
+            content: vec![ContentBlock::Text { text: text.to_string() }],
+            stop_reason: None,
+            end_turn: None,
+            phase: None,
+        })))
+    }
+
+    fn tool_call(name: &str, input: serde_json::Value) -> ViewRecord {
+        vr_with(RecordBody::ToolCall(Box::new(ToolCall {
+            call_id: "c".to_string(),
+            name: name.to_string(),
+            input: input.clone(),
+            raw_input: input,
+            typed_input: None,
+            status: None,
+        })))
+    }
+
+    fn tool_result(output: &str, is_error: bool) -> ViewRecord {
+        vr_with(RecordBody::ToolResult(ToolResult {
+            call_id: "c".to_string(),
+            output: Some(output.to_string()),
+            is_error,
+            tool_outcome: None,
+        }))
+    }
+
+    fn reasoning() -> ViewRecord {
+        vr_with(RecordBody::Reasoning(Reasoning {
+            summary: vec![],
+            content: Some("thinking".to_string()),
+            encrypted: false,
+        }))
+    }
+
+    fn error_record() -> ViewRecord {
+        vr_with(RecordBody::Error(ErrorRecord {
+            code: "x".to_string(),
+            message: "boom".to_string(),
+            details: None,
+        }))
+    }
+
+    // ── filter_matches: family-level coverage ─────────────────────────
+
+    #[test]
+    fn filter_all_accepts_everything() {
+        assert!(filter_matches("all", &user_msg("hi")));
+        assert!(filter_matches("all", &asst_msg("yo")));
+        assert!(filter_matches("all", &reasoning()));
+    }
+
+    #[test]
+    fn filter_user_accepts_only_user_messages() {
+        assert!(filter_matches("user", &user_msg("hi")));
+        assert!(!filter_matches("user", &asst_msg("yo")));
+        assert!(!filter_matches("user", &reasoning()));
+    }
+
+    #[test]
+    fn filter_narrative_accepts_user_and_assistant_messages() {
+        assert!(filter_matches("narrative", &user_msg("hi")));
+        assert!(filter_matches("narrative", &asst_msg("yo")));
+        assert!(!filter_matches("narrative", &reasoning()));
+        assert!(!filter_matches("narrative", &tool_call("Read", json!({}))));
+    }
+
+    #[test]
+    fn filter_tools_accepts_call_or_result() {
+        assert!(filter_matches("tools", &tool_call("Read", json!({}))));
+        assert!(filter_matches("tools", &tool_result("ok", false)));
+        assert!(!filter_matches("tools", &user_msg("hi")));
+    }
+
+    #[test]
+    fn filter_thinking_only_reasoning() {
+        assert!(filter_matches("thinking", &reasoning()));
+        assert!(!filter_matches("thinking", &user_msg("hmm")));
+    }
+
+    #[test]
+    fn filter_errors_includes_error_record_and_failing_tool_results() {
+        assert!(filter_matches("errors", &error_record()));
+        assert!(filter_matches("errors", &tool_result("oops", true)));
+        assert!(!filter_matches("errors", &tool_result("ok", false)));
+        assert!(!filter_matches("errors", &user_msg("hi")));
+    }
+
+    // ── tool-name filters ─────────────────────────────────────────────
+
+    #[test]
+    fn filter_reading_matches_read_glob_grep() {
+        for name in ["Read", "Glob", "Grep"] {
+            assert!(filter_matches("reading", &tool_call(name, json!({}))), "tool {name}");
+        }
+        assert!(!filter_matches("reading", &tool_call("Bash", json!({"command": "ls"}))));
+        assert!(!filter_matches("reading", &tool_call("Edit", json!({}))));
+    }
+
+    #[test]
+    fn filter_editing_matches_edit_and_write() {
+        assert!(filter_matches("editing", &tool_call("Edit", json!({}))));
+        assert!(filter_matches("editing", &tool_call("Write", json!({}))));
+        assert!(!filter_matches("editing", &tool_call("Read", json!({}))));
+    }
+
+    #[test]
+    fn filter_deep_matches_agent_tool() {
+        assert!(filter_matches("deep", &tool_call("Agent", json!({}))));
+        assert!(!filter_matches("deep", &tool_call("Bash", json!({}))));
+    }
+
+    // ── bash command filters ──────────────────────────────────────────
+
+    #[test]
+    fn filter_bash_git_matches_git_commands() {
+        let bash = |cmd: &str| tool_call("Bash", json!({"command": cmd}));
+        assert!(filter_matches("bash.git", &bash("git status")));
+        assert!(filter_matches("bash.git", &bash("git log --oneline")));
+        // Substring match: "git " requires the trailing space.
+        // This intentionally excludes "github" or "gitignore".
+        assert!(!filter_matches("bash.git", &bash("github-cli pr list")));
+        assert!(!filter_matches("bash.git", &bash("ls")));
+    }
+
+    #[test]
+    fn filter_bash_test_matches_known_runners() {
+        let bash = |cmd: &str| tool_call("Bash", json!({"command": cmd}));
+        assert!(filter_matches("bash.test", &bash("cargo test")));
+        assert!(filter_matches("bash.test", &bash("npm test --silent")));
+        assert!(filter_matches("bash.test", &bash("pytest -k foo")));
+        assert!(!filter_matches("bash.test", &bash("cargo build")));
+    }
+
+    #[test]
+    fn filter_bash_only_matches_bash_tool() {
+        // git as command outside a Bash tool should not match
+        let other = tool_call("Read", json!({"command": "git status"}));
+        assert!(!filter_matches("bash.git", &other));
+    }
+
+    // ── result-output filters (the heuristic-y ones) ──────────────────
+
+    #[test]
+    fn filter_compile_error_matches_known_signatures() {
+        assert!(filter_matches("compile_error", &tool_result("error[E0277]: trait not satisfied", true)));
+        assert!(filter_matches("compile_error", &tool_result("TS2345 incompatible types", true)));
+        assert!(filter_matches("compile_error", &tool_result("SyntaxError: unexpected token", true)));
+        assert!(!filter_matches("compile_error", &tool_result("compiled successfully", false)));
+    }
+
+    #[test]
+    fn filter_test_pass_matches_pass_signatures() {
+        assert!(filter_matches("test_pass", &tool_result("test result: ok. 5 passed; 0 failed", false)));
+        assert!(filter_matches("test_pass", &tool_result("Tests  3 passed", false)));
+        assert!(!filter_matches("test_pass", &tool_result("compiling", false)));
+    }
+
+    #[test]
+    fn filter_test_fail_distinguishes_failure_from_zero_failed() {
+        // "0 failed" should NOT trigger test_fail
+        assert!(!filter_matches(
+            "test_fail",
+            &tool_result("Tests  3 passed, 0 failed", false)
+        ));
+        // Real failure should trigger
+        assert!(filter_matches(
+            "test_fail",
+            &tool_result("Tests  1 failed, 2 passed", true)
+        ));
+        // Rust's FAILED uppercase
+        assert!(filter_matches(
+            "test_fail",
+            &tool_result("test cycle::tests::it_works ... FAILED", true)
+        ));
+    }
+
+    // ── pattern-based filters (always-false today) ────────────────────
+
+    #[test]
+    fn pattern_filters_are_currently_always_false() {
+        // Documented to return false until pattern detection wires in.
+        // If this ever changes, the change is visible here.
+        for name in ["patterns", "tests", "agents", "git"] {
+            assert!(!filter_matches(name, &user_msg("anything")));
+            assert!(!filter_matches(name, &tool_call("Bash", json!({"command": "git status"}))));
+        }
+    }
+
+    // ── unknown filter names ──────────────────────────────────────────
+
+    #[test]
+    fn unknown_filter_name_returns_false_silently() {
+        // Documenting the behavior — unknown filters don't error,
+        // they just match nothing. This is the safe default but
+        // means typos in client filter requests are silent.
+        assert!(!filter_matches("nonexistent_filter", &user_msg("hi")));
+    }
+
+    // ── SessionProjection: depth contract ─────────────────────────────
+
+    #[test]
+    fn projection_depth_is_zero_for_orphan_events() {
+        // Latent contract: if a child event arrives BEFORE its parent,
+        // the parent isn't in `depths` yet. Code at projection.rs:232
+        // does `depths.get(pid).unwrap_or(0) + 1` — orphan child gets
+        // depth 1, not "depth = parent+1 (currently unknown)".
+        //
+        // In production, events arrive in monotonic order from one
+        // watcher, so this isn't hit. Documenting the assumption.
+        let mut proj = SessionProjection::new("s");
+        let orphan = json!({
+            "id": "evt-child",
+            "data": {
+                "agent_payload": {
+                    "_variant": "claude-code",
+                    "meta": {"agent": "claude-code"},
+                    "parent_uuid": "evt-parent-not-yet-seen",
+                    "text": "hi"
+                }
+            }
+        });
+        proj.append(&orphan);
+        // Reads back as 1 (default-0 + 1), not as some "unknown" sentinel.
+        assert_eq!(proj.node_depth("evt-child"), 1);
+    }
+}
+
 /// Classify whether an event subtype is ephemeral (progress) or durable.
 /// Ephemeral events are shown transiently in the UI but not accumulated in state.
 pub fn is_ephemeral(subtype: Option<&str>) -> bool {
