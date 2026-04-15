@@ -941,7 +941,10 @@ pub async fn search_events(
         }
     };
 
-    log_event("api", &format!("GET /api/search?q={}", &q[..q.len().min(50)]));
+    log_event(
+        "api",
+        &format!("GET /api/search?q={}", crate::logging::truncate_at_char_boundary(&q, 50)),
+    );
 
     let s = state.read().await;
     let results = s.store.event_store

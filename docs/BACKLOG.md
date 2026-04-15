@@ -425,6 +425,12 @@ Fix: extend `PendingApply` with `call_id: String`, capture from `assistant.tool_
 ### WebSocket Lagged Notification (WS walk F-1)
 `rs/server/src/ws.rs:180-183` swallows `RecvError::Lagged(n)` with only a `log_event` line. The UI never knows it missed `n` broadcast messages — sidebar counts, timeline, and token totals silently diverge from server truth until a manual page reload triggers a fresh `initial_state`. Fix: send a `{kind: "lagged", skipped: n}` notification so the UI can refetch (cheapest), or close the socket so the client reconnects (most honest). See `docs/research/architecture-audit/WS_LAYER_WALK.md` F-1.
 
+### `delete_session` Should Probably Remove the JSONL Backup (API walk F-2)
+`DELETE /api/sessions/{id}` (`rs/server/src/api.rs:1230`) removes events from EventStore + projections + caches + project mappings, but leaves `data/{session_id}.jsonl` (the SessionStore backup file) on disk. The file is inert (boot replay reads from EventStore, not JSONL) so the session doesn't resurrect, but the local trace remains until manually `rm`'d. Decide: should DELETE be a "forget completely" operation, or does sovereignty mean we never touch the user's local backup? If "forget completely," add `SessionStore::delete_session(sid)` and call it from the API handler. If sovereignty wins, document it explicitly in the endpoint doc comment so users know the file remains. See `docs/research/architecture-audit/API_WALK.md` F-2.
+
+### Cap `search_events.limit` at a sane upper bound (API walk F-4)
+`/api/search?limit=` is an unbounded `usize` (`rs/server/src/api.rs:932`). `limit=1000000` returns up to 1M FTS5 hits, killing the client and the server's response-serialization. Trivial fix: `query.limit.min(MAX_SEARCH_LIMIT)` where `MAX_SEARCH_LIMIT = 500` or similar. See `docs/research/architecture-audit/API_WALK.md` F-4.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
