@@ -396,6 +396,15 @@ Today's broadcast path at `rs/server/src/ingest.rs:136-253` calls `proj.append(&
 ### Promote Agent Payload Round-Trip Tests into Conformance Suite (T6 from architecture audit)
 Three inline tests in `rs/store/src/sqlite_store.rs` (`t6_pi_mono_agent_payload_round_trips`, `t6_claude_code_agent_payload_round_trips`, `t6_hermes_agent_payload_round_trips`) cover AgentPayload variant + typed-field round-trip for SQLite. Move them (with a backend-agnostic builder helper) into `rs/store/tests/event_store_conformance.rs` so MongoStore inherits the same guarantees. Mongo uses BSON which has real type-width quirks (i32 vs i64, datetime coercion) that a blob-TEXT SQLite pass can hide — this is the natural place to catch them. Low risk; one builder refactor.
 
+### JSONL Escape-Hatch Append Integrity (surfaced by schema registry capstone)
+**Severity: high — violates the sovereignty contract.** Running `cargo test -p open-story-schemas --test test_jsonl_escape_hatch -- --ignored` against real committed data surfaces 273 malformed lines across 3 of 40 sampled session files. Failure is not a schema mismatch — `serde_json::from_str` fails on "trailing characters," meaning two CloudEvents were written to a single line with no newline between them. Worst offenders: `55ceca28-...jsonl` (169 bad lines), `06907d46-...jsonl` (137), `0f7b6541-...jsonl` (129). All written 2026-04-07 — this is a current bug, not ancient history.
+
+Suspected root cause: concurrent writes into the `SessionStore` JSONL appender without locking, or a torn write followed by unlocked append. Per CLAUDE.md the JSONL backup is explicitly the sovereignty escape hatch: "your data is always grep-able from outside the database." Torn lines break `jq`, `grep -c`, any external tool that trusts the one-event-per-line invariant.
+
+Fix approach: audit `rs/store/src/persistence.rs::SessionStore::append`. Confirm it acquires an exclusive lock (advisory `fcntl`/`flock` on Unix, or equivalent), holds it across the `write + newline` pair, and fsyncs. Also: the appender should never silently drop — if it can't write a full line, the error must surface, not truncate.
+
+Test in place at `rs/schemas/tests/test_jsonl_escape_hatch.rs` — will go green the day this is fixed.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
