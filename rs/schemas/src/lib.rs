@@ -12,6 +12,7 @@
 //!   cargo run -p open-story-schemas --bin generate
 
 use anyhow::{Context, Result};
+use schemars::{schema_for, JsonSchema};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -42,6 +43,23 @@ pub fn load_json(path: &Path) -> Result<Value> {
     let value = serde_json::from_slice(&bytes)
         .with_context(|| format!("parsing {} as JSON", path.display()))?;
     Ok(value)
+}
+
+/// Generate a fresh JSON Schema from a Rust type and return it as a Value.
+pub fn generate<T: JsonSchema>() -> Value {
+    serde_json::to_value(schema_for!(T)).expect("schema → json")
+}
+
+/// Write a generated schema to `/schemas/{basename}` with pretty formatting.
+pub fn write_schema<T: JsonSchema>(basename: &str) -> Result<()> {
+    let dir = schema_dir();
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(basename);
+    let schema = generate::<T>();
+    let pretty = serde_json::to_string_pretty(&schema)?;
+    std::fs::write(&path, format!("{pretty}\n"))
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
 }
 
 /// Canonicalize a JSON value so formatting changes in committed schemas don't

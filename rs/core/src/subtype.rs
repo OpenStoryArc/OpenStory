@@ -6,6 +6,7 @@
 //! See `docs/research/architecture-audit/SCHEMA_MAP.md` §Layer H for the
 //! full list and rationale.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -15,7 +16,7 @@ use std::str::FromStr;
 /// The dot-separated string form is what flows over the wire; the enum
 /// variants give us exhaustive matching at compile time and one single
 /// source of truth for the JSON Schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub enum Subtype {
     // ── message.* — conversation ──
     #[serde(rename = "message.user.prompt")]

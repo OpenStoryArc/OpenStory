@@ -2795,9 +2795,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "reqwest 0.12.28",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "uuid",
 ]
 

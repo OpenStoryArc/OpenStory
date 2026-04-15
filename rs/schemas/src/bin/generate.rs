@@ -5,21 +5,15 @@
 //! Drift-check in CI: run this, then `git diff --exit-code schemas/`.
 
 use anyhow::Result;
-use open_story_schemas::schema_dir;
+use open_story_core::subtype::Subtype;
+use open_story_schemas::{schema_dir, write_schema};
 
 fn main() -> Result<()> {
     let dir = schema_dir();
     std::fs::create_dir_all(&dir)?;
 
-    // Schemas land here as each TDD cycle completes. Empty for now —
-    // the scaffolding commit only establishes the crate + binary.
-    //
-    // Next cycle (Subtype refactor + CloudEvent) adds:
-    //   write_schema::<CloudEvent>(&dir, "cloud_event.schema.json")?;
+    write_schema::<Subtype>("subtype.schema.json")?;
 
-    eprintln!(
-        "schema generator scaffolded at {} — no schemas written yet",
-        dir.display()
-    );
+    eprintln!("schemas written to {}", dir.display());
     Ok(())
 }
