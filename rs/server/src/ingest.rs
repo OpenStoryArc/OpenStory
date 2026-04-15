@@ -92,21 +92,13 @@ pub async fn ingest_events(
             // sole ingestion source.
 
             // Detect subagent → parent relationship.
-            // The event's data.session_id comes from the transcript's sessionId field,
-            // which is the PARENT session. The session_id parameter is the subagent's
-            // own ID (from filename or hook payload). When they differ, record the mapping.
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != session_id && !state.store.subagent_parents.contains_key(session_id) {
-                    state.store.subagent_parents.insert(session_id.to_string(), data_sid.to_string());
-                    state.store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(session_id.to_string());
-                }
-            }
+            // Detect subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                &val,
+                session_id,
+                &mut state.store.subagent_parents,
+                &mut state.store.session_children,
+            );
 
             // Persist to EventStore (SQLite default, JSONL fallback). The
             // EventStore PK is the dedup boundary now — if it returns false,
@@ -342,19 +334,13 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
             // Events are already in EventStore (that's where we read them from).
             // No need to re-insert — just replay through projections and patterns.
 
-            // Detect subagent → parent relationship during replay
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != sid && !state.store.subagent_parents.contains_key(sid.as_str()) {
-                    state.store.subagent_parents.insert(sid.clone(), data_sid.to_string());
-                    state.store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(sid.clone());
-                }
-            }
+            // Detect subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                val,
+                sid,
+                &mut state.store.subagent_parents,
+                &mut state.store.session_children,
+            );
 
             // Update projection
             let proj = state

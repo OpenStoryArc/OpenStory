@@ -17,6 +17,44 @@ use crate::plan_store::PlanStore;
 use crate::projection::SessionProjection;
 use crate::sqlite_store::SqliteStore;
 
+/// Detect a subagent → parent relationship from one event and update the maps.
+///
+/// The convention is that an event's `data.session_id` carries the **parent**
+/// session id while the surrounding context (filename / hook envelope /
+/// ingest call) carries the **subagent's own** session id. When they differ,
+/// the subagent has a parent; record the relationship once per subagent.
+///
+/// Extracted 2026-04-15 from four byte-identical copies (audit walk):
+///   - rs/server/src/ingest.rs:102 (live ingest)
+///   - rs/server/src/ingest.rs:350 (replay_boot_sessions)
+///   - rs/server/src/state.rs:138 (boot_from_sqlite)
+///   - rs/server/src/consumers/projections.rs:78 (Actor 3, dead state)
+///
+/// All four had the same logic with different variable names — a refactor
+/// that adds a third condition (e.g., explicit subagent flag) needs to land
+/// in one place, not four.
+pub fn detect_subagent_relationship(
+    event: &serde_json::Value,
+    own_session_id: &str,
+    parents: &mut HashMap<String, String>,
+    children: &mut HashMap<String, Vec<String>>,
+) {
+    let Some(data_sid) = event
+        .get("data")
+        .and_then(|d| d.get("session_id"))
+        .and_then(|v| v.as_str())
+    else {
+        return;
+    };
+    if data_sid != own_session_id && !parents.contains_key(own_session_id) {
+        parents.insert(own_session_id.to_string(), data_sid.to_string());
+        children
+            .entry(data_sid.to_string())
+            .or_default()
+            .push(own_session_id.to_string());
+    }
+}
+
 /// Store state — event storage, projections, patterns, and project resolution.
 pub struct StoreState {
     // ── event store (SQLite default, JSONL fallback) ──
@@ -337,5 +375,59 @@ mod tests {
 
         // PlanStore should be able to list plans (empty)
         assert!(state.plan_store.list_plans().is_empty());
+    }
+
+    // ── detect_subagent_relationship — extracted from 4 call sites ────
+
+    #[test]
+    fn subagent_relationship_records_when_data_session_differs() {
+        let event = serde_json::json!({"data": {"session_id": "parent-123"}});
+        let mut parents: HashMap<String, String> = HashMap::new();
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        detect_subagent_relationship(&event, "agent-456", &mut parents, &mut children);
+
+        assert_eq!(parents.get("agent-456").map(String::as_str), Some("parent-123"));
+        assert_eq!(children.get("parent-123"), Some(&vec!["agent-456".to_string()]));
+    }
+
+    #[test]
+    fn subagent_relationship_skips_when_data_session_matches() {
+        // Normal session — its own session_id equals data.session_id.
+        // No subagent relationship to record.
+        let event = serde_json::json!({"data": {"session_id": "sess-1"}});
+        let mut parents: HashMap<String, String> = HashMap::new();
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        detect_subagent_relationship(&event, "sess-1", &mut parents, &mut children);
+
+        assert!(parents.is_empty());
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn subagent_relationship_only_records_first_event_per_subagent() {
+        // The condition `!parents.contains_key(own)` means we only record
+        // once per subagent. Subsequent events from the same subagent
+        // don't add duplicate child entries.
+        let e1 = serde_json::json!({"data": {"session_id": "p"}});
+        let e2 = serde_json::json!({"data": {"session_id": "p"}});
+        let mut parents: HashMap<String, String> = HashMap::new();
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+
+        detect_subagent_relationship(&e1, "a", &mut parents, &mut children);
+        detect_subagent_relationship(&e2, "a", &mut parents, &mut children);
+
+        assert_eq!(children.get("p").map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn subagent_relationship_handles_missing_data_field() {
+        // Event without data.session_id — should be a no-op, not panic.
+        let event = serde_json::json!({"id": "evt-1"});
+        let mut parents: HashMap<String, String> = HashMap::new();
+        let mut children: HashMap<String, Vec<String>> = HashMap::new();
+        detect_subagent_relationship(&event, "a", &mut parents, &mut children);
+
+        assert!(parents.is_empty());
+        assert!(children.is_empty());
     }
 }

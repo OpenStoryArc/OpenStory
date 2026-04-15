@@ -70,19 +70,13 @@ impl ProjectionsConsumer {
         for ce in events {
             let Ok(val) = serde_json::to_value(ce) else { continue };
 
-            // Track subagent → parent relationship
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != session_id && !self.subagent_parents.contains_key(session_id) {
-                    self.subagent_parents.insert(session_id.to_string(), data_sid.to_string());
-                    self.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(session_id.to_string());
-                }
-            }
+            // Track subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                &val,
+                session_id,
+                &mut self.subagent_parents,
+                &mut self.session_children,
+            );
 
             // Update projection
             let proj = self.projections
