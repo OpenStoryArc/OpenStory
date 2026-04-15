@@ -1,0 +1,22 @@
+[package]
+name = "open-story-schemas"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "JSON Schema artifacts derived from open-story types — source of truth for every serialization boundary"
+
+[dependencies]
+anyhow = "1"
+open-story-core = { path = "../core" }
+open-story-views = { path = "../views" }
+open-story-patterns = { path = "../patterns" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = { version = "0.8", features = ["uuid1", "chrono"] }
+
+[dev-dependencies]
+jsonschema = "0.28"
+
+[[bin]]
+name = "generate"
+path = "src/bin/generate.rs"
