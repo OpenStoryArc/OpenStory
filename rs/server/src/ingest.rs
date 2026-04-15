@@ -123,9 +123,13 @@ pub async fn ingest_events(
             if !inserted {
                 continue;
             }
-            // Append to JSONL only on a successful (non-duplicate) insert
-            // — duplicates shouldn't pollute the sovereignty escape hatch.
-            let _ = state.store.session_store.append(session_id, &val);
+            // JSONL append belongs exclusively to Actor 1 (PersistConsumer)
+            // — `consumers/persist.rs` owns session_store per the actor
+            // contract. Calling session_store.append here too was a
+            // pre-decomposition dual-write that raced against Actor 1 and
+            // produced torn lines in real data (see BACKLOG.md "JSONL
+            // Escape-Hatch Append Integrity" and the capstone test at
+            // rs/schemas/tests/test_jsonl_escape_hatch.rs).
 
             // Update projection
             let proj = state
@@ -515,23 +519,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_persists_to_session_store() {
+    async fn ingest_persists_to_event_store_but_not_session_store() {
+        // Contract after the dual-write removal: `ingest_events` writes to
+        // the EventStore (durable, dedup'd) and updates projections, but
+        // does NOT write to the JSONL session store — that's Actor 1
+        // (PersistConsumer)'s exclusive responsibility. Two writers to the
+        // same JSONL file produced torn lines in real data.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-persist-1", "persist me");
 
         ingest_events(&mut state, "sess-persist", &[event], None).await;
 
-        // In-memory sessions
-        assert!(!state.store.event_store.session_events("sess-persist").await.unwrap().is_empty());
+        // EventStore: ingest_events writes here
         assert_eq!(state.store.event_store.session_events("sess-persist").await.unwrap().len(), 1);
 
-        // Persisted to store (load from disk)
-        let loaded = state.store.session_store.load_session("sess-persist");
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(
-            loaded[0].get("id").and_then(|v| v.as_str()),
-            Some("evt-persist-1")
+        // SessionStore: ingest_events does NOT write here. Empty is correct.
+        // In production the PersistConsumer subscribes to the same events
+        // and owns this appender exclusively.
+        assert!(
+            state.store.session_store.load_session("sess-persist").is_empty(),
+            "ingest_events must not write to session_store — that path is Actor 1's"
         );
     }
 

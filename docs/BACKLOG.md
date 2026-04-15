@@ -396,6 +396,15 @@ Today's broadcast path at `rs/server/src/ingest.rs:136-253` calls `proj.append(&
 ### Promote Agent Payload Round-Trip Tests into Conformance Suite (T6 from architecture audit)
 Three inline tests in `rs/store/src/sqlite_store.rs` (`t6_pi_mono_agent_payload_round_trips`, `t6_claude_code_agent_payload_round_trips`, `t6_hermes_agent_payload_round_trips`) cover AgentPayload variant + typed-field round-trip for SQLite. Move them (with a backend-agnostic builder helper) into `rs/store/tests/event_store_conformance.rs` so MongoStore inherits the same guarantees. Mongo uses BSON which has real type-width quirks (i32 vs i64, datetime coercion) that a blob-TEXT SQLite pass can hide — this is the natural place to catch them. Low risk; one builder refactor.
 
+### Decompose Actor 4 (Broadcast Consumer) from Shared AppState
+Documented in-code at `rs/src/server/mod.rs:240`: "Actor 4: broadcast consumer (uses ingest_events for now) — Still uses shared AppState because BroadcastMessage assembly depends on projection state. **This is the last consumer to decompose.**" Actors 1–3 (persist, patterns, projections) own their state and talk only to NATS. Actor 4 still reaches into `state.store.projections`, `state.store.full_payloads`, `state.store.session_projects`, etc. via `ingest_events`, which keeps a monolithic code path alive in a system that's otherwise actor-sharded.
+
+Work: move broadcast onto its own independent NATS subscription, owning its own state needed for WireRecord assembly (truncation cache, full_payloads). Two sub-concerns baked in:
+- **Projection freshness** (T5): once Actor 4 can't read Actor 1's projection synchronously, a barrier is needed so wire records never reference a parent_uuid the projection hasn't seen.
+- **Single-owner invariants**: `ingest_events` currently does work that rightfully belongs to Actors 1–3 — the JSONL append was one (fixed 2026-04-15), but FTS indexing and plan extraction still live there. Each needs to move to its rightful owner or be explicitly declared dual-write with a justification.
+
+The JSONL torn-line bug at BACKLOG entry "JSONL Escape-Hatch Append Integrity" is the first of these to get caught in the wild — expect more as the decomposition work surfaces them. Track additions here as they land.
+
 ### JSONL Escape-Hatch Append Integrity (surfaced by schema registry capstone)
 **Severity: high — violates the sovereignty contract.** Running `cargo test -p open-story-schemas --test test_jsonl_escape_hatch -- --ignored` against real committed data surfaces 273 malformed lines across 3 of 40 sampled session files. Failure is not a schema mismatch — `serde_json::from_str` fails on "trailing characters," meaning two CloudEvents were written to a single line with no newline between them. Worst offenders: `55ceca28-...jsonl` (169 bad lines), `06907d46-...jsonl` (137), `0f7b6541-...jsonl` (129). All written 2026-04-07 — this is a current bug, not ancient history.
 
