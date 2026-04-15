@@ -7,7 +7,7 @@ use serde_json::Value;
 
 /// Typed tool input — exhaustive over known Claude Code tools.
 /// `Unknown` handles MCP tools, custom tools, and future additions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "tool", rename_all = "snake_case")]
 pub enum ToolInput {
     // -- File operations --
@@ -59,7 +59,7 @@ pub enum ToolInput {
 // File operations
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReadInput {
     #[serde(alias = "path")]
     pub file_path: String,
@@ -71,7 +71,7 @@ pub struct ReadInput {
     pub pages: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EditInput {
     #[serde(alias = "path")]
     pub file_path: String,
@@ -81,21 +81,21 @@ pub struct EditInput {
     pub replace_all: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WriteInput {
     #[serde(alias = "path")]
     pub file_path: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GlobInput {
     pub pattern: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GrepInput {
     pub pattern: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,7 +124,7 @@ pub struct GrepInput {
     pub offset: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct NotebookEditInput {
     pub notebook_path: String,
     pub new_source: String,
@@ -140,7 +140,7 @@ pub struct NotebookEditInput {
 // Command execution
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct BashInput {
     pub command: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,14 +155,14 @@ pub struct BashInput {
 // Search & fetch
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WebFetchInput {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WebSearchInput {
     pub query: String,
 }
@@ -171,7 +171,7 @@ pub struct WebSearchInput {
 // Agent
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentInput {
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,13 +190,13 @@ pub struct AgentInput {
 // Task management
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskCreateInput {
     pub subject: String,
     pub description: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskUpdateInput {
     pub task_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -205,12 +205,12 @@ pub struct TaskUpdateInput {
     pub subject: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskGetInput {
     pub task_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskOutputInput {
     pub task_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -219,7 +219,7 @@ pub struct TaskOutputInput {
     pub timeout: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskStopInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
@@ -229,50 +229,50 @@ pub struct TaskStopInput {
 // Plan / context
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ExitPlanModeInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EnterWorktreeInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SkillInput {
     pub skill: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AskUserQuestionInput {
     pub question: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LspInput {
     #[serde(flatten)]
     pub fields: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ToolSearchInput {
     pub query: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CronCreateInput {
     pub schedule: String,
     pub command: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CronDeleteInput {
     pub id: String,
 }

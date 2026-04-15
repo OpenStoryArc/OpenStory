@@ -12,7 +12,7 @@ use crate::view_record::ViewRecord;
 pub const TRUNCATION_THRESHOLD: usize = 2000;
 
 /// WireRecord = ViewRecord + tree metadata + truncation info.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WireRecord {
     /// The underlying ViewRecord (flattened into the same JSON object).
     #[serde(flatten)]
