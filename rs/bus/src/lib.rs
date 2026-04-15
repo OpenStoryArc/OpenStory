@@ -91,6 +91,55 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    // ── NoopBus contract tests (audit walk #6) ────────────────────────
+    //
+    // NoopBus is the test-default Bus. Several call sites depend on
+    // specific behaviors:
+    //   - publish() succeeds silently (test code can ignore Result)
+    //   - subscribe() returns a never-receiving channel (test code can
+    //     hold a subscription without expecting events)
+    //   - replay() returns empty (boot-replay paths reach the "no
+    //     historical events" branch without erroring)
+    //   - is_active() is false (callers branch on this to avoid the
+    //     bus when running standalone)
+    //
+    // None of these were directly tested before this commit.
+
+    #[tokio::test]
+    async fn noop_bus_publish_succeeds_silently() {
+        let bus = noop_bus::NoopBus;
+        let batch = IngestBatch {
+            session_id: "s".into(),
+            project_id: "p".into(),
+            events: vec![],
+        };
+        assert!(bus.publish("events.s", &batch).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn noop_bus_subscribe_returns_never_receiving_channel() {
+        let bus = noop_bus::NoopBus;
+        let mut sub = bus.subscribe("events.>").await.expect("noop subscribe always Ok");
+        // The channel sender side is dropped immediately, so try_recv
+        // returns Disconnected — never any events.
+        assert!(sub.receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn noop_bus_replay_returns_empty_vec() {
+        let bus = noop_bus::NoopBus;
+        let batches = bus.replay("events.>").await.expect("noop replay always Ok");
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn noop_bus_is_active_returns_false() {
+        // Callers branch on is_active() to decide whether to skip the
+        // bus entirely (e.g., direct ingest in tests). Locking this in.
+        let bus = noop_bus::NoopBus;
+        assert!(!bus.is_active());
+    }
+
     #[test]
     fn ingest_batch_with_events_round_trip() {
         use open_story_core::cloud_event::CloudEvent;
