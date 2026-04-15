@@ -7,26 +7,15 @@ use chrono::Local;
 ///
 /// `id[..id.len().min(8)]` panics when byte 8 falls in the middle of a
 /// multi-byte char. Session IDs from agents are typically UUIDs (ASCII),
-/// but custom session ids and project ids can be unicode — and the same
-/// helper is used to truncate user-supplied search queries elsewhere.
-/// Bug found 2026-04-15 during audit walk #9. See
+/// but custom session ids and project ids can be unicode. Bug found
+/// 2026-04-15 during audit walk #9. See
 /// docs/research/architecture-audit/API_WALK.md F-1.
 pub fn short_id(id: &str) -> &str {
-    truncate_at_char_boundary(id, 8)
+    open_story_core::strings::truncate_at_char_boundary(id, 8)
 }
 
-/// Truncate a string slice at the largest char boundary <= `max_bytes`.
-/// Pure helper — no allocation, no panic on multi-byte boundaries.
-pub fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
+/// Re-export for callers that import via this module.
+pub use open_story_core::strings::truncate_at_char_boundary;
 
 /// Format a log line with timestamp, category label, and message.
 pub fn log_event(category: &str, message: &str) {

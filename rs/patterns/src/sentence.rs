@@ -465,17 +465,10 @@ fn extract_topic(content: &str) -> String {
     }
 }
 
-/// Truncate a string to at most `max_bytes` bytes at a char boundary.
-fn truncate_str(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
+/// Truncate at char boundary. Re-export of the shared core helper —
+/// previously a duplicated implementation here, consolidated 2026-04-15
+/// during audit walk #10. See `open_story_core::strings`.
+use open_story_core::strings::truncate_at_char_boundary as truncate_str;
 
 fn ext_to_language(ext: &str) -> &str {
     match ext {
