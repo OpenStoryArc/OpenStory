@@ -422,6 +422,9 @@ Fix: extend `PendingApply` with `call_id: String`, capture from `assistant.tool_
 ### Accumulate Assistant Text Across Multi-Event Turns (eval-apply walk F-2)
 `rs/patterns/src/eval_apply.rs:282-336` overwrites `pending_eval.content` on each `message.assistant.*` event. For pi-mono decomposed turns where `assistant.text` and `assistant.tool_use` both arrive, the second overwrites the first — narrative content is silently dropped. Fix: append rather than replace, OR push into a `Vec<String>` and join at `turn_complete`. Test `assistant_text_then_tool_use_overwrites_pending_eval_content` characterizes today's behavior. See `docs/research/architecture-audit/EVAL_APPLY_WALK.md` F-2.
 
+### WebSocket Lagged Notification (WS walk F-1)
+`rs/server/src/ws.rs:180-183` swallows `RecvError::Lagged(n)` with only a `log_event` line. The UI never knows it missed `n` broadcast messages — sidebar counts, timeline, and token totals silently diverge from server truth until a manual page reload triggers a fresh `initial_state`. Fix: send a `{kind: "lagged", skipped: n}` notification so the UI can refetch (cheapest), or close the socket so the client reconnects (most honest). See `docs/research/architecture-audit/WS_LAYER_WALK.md` F-1.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
