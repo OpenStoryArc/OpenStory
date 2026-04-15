@@ -379,7 +379,9 @@ async fn test_get_transcript_no_transcript_path() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert!(body["error"].is_string());
+    // Hermes/event-sourced sessions have no transcript_path — events are the
+    // transcript. The endpoint reconstructs from events instead of erroring.
+    assert_eq!(body["source"], "events");
     assert_eq!(body["entries"], serde_json::json!([]));
 }
 
