@@ -414,6 +414,14 @@ Fix approach: audit `rs/store/src/persistence.rs::SessionStore::append`. Confirm
 
 Test in place at `rs/schemas/tests/test_jsonl_escape_hatch.rs` — will go green the day this is fixed.
 
+### Pair tool_result to pending_apply by call_id (eval-apply walk F-1)
+**Severity: medium — silent data corruption on pi-mono parallel tools.** `rs/patterns/src/eval_apply.rs:240-280` resolves each `message.user.tool_result` event against `pending_applies.first().clone()` and drains FIFO, ignoring `tool_call_id`. Sequential tool use is fine; **parallel tool use** (pi-mono's bundled `[toolCall, toolCall]` decomposing into 2 assistant events + 2 result events) corrupts when results arrive in completion order rather than call order — the fast tool's outcome attaches to the slow tool's call and vice versa.
+
+Fix: extend `PendingApply` with `call_id: String`, capture from `assistant.tool_use` event's `agent_payload.tool_use_id`/`tool_call_id` (depending on agent), and on `tool_result` find by id rather than `[0]`. ~30 LOC. Test `parallel_tool_results_out_of_call_order_currently_misattribute` characterizes the bug today; flips green → red on fix; delete it then. See `docs/research/architecture-audit/EVAL_APPLY_WALK.md` F-1.
+
+### Accumulate Assistant Text Across Multi-Event Turns (eval-apply walk F-2)
+`rs/patterns/src/eval_apply.rs:282-336` overwrites `pending_eval.content` on each `message.assistant.*` event. For pi-mono decomposed turns where `assistant.text` and `assistant.tool_use` both arrive, the second overwrites the first — narrative content is silently dropped. Fix: append rather than replace, OR push into a `Vec<String>` and join at `turn_complete`. Test `assistant_text_then_tool_use_overwrites_pending_eval_content` characterizes today's behavior. See `docs/research/architecture-audit/EVAL_APPLY_WALK.md` F-2.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 

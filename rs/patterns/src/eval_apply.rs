@@ -753,4 +753,241 @@ mod tests {
         assert!(turns[0].human.is_some());
         assert!(turns[0].eval.is_some());
     }
+
+    // ── Audit walk #7 (2026-04-15) — coverage for state-machine edges ─
+
+    // F-1 (real bug): tool_result pairing is FIFO with no call_id check.
+    // For pi-mono parallel toolCalls where results arrive in different
+    // order than calls, the wrong outcome attaches to the wrong call.
+
+    #[test]
+    fn parallel_tool_results_in_call_order_pair_correctly() {
+        // Baseline: when results arrive in the same order as calls,
+        // FIFO works and is_error matches the right call. This test
+        // passes today and should keep passing under any fix.
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("Read both files"));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "reading foo",
+            "Read",
+            serde_json::json!({"file_path": "/foo.rs"}),
+        ));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "reading bar",
+            "Read",
+            serde_json::json!({"file_path": "/bar.rs"}),
+        ));
+        // Results in CALL order
+        det.feed_cloud_event(&tool_result_ce(
+            "foo content",
+            Some(ToolOutcome::FileRead { path: "/foo.rs".to_string() }),
+        ));
+        det.feed_cloud_event(&tool_result_ce(
+            "bar content",
+            Some(ToolOutcome::FileRead { path: "/bar.rs".to_string() }),
+        ));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        let t = &turns[0];
+        assert_eq!(t.applies.len(), 2);
+        // Both should match: input_summary (call) ↔ tool_outcome.path (result)
+        if let Some(ToolOutcome::FileRead { path }) = &t.applies[0].tool_outcome {
+            assert_eq!(path, "/foo.rs", "first call's outcome should be foo");
+            assert_eq!(t.applies[0].input_summary, "/foo.rs");
+        } else {
+            panic!("expected FileRead outcome");
+        }
+        if let Some(ToolOutcome::FileRead { path }) = &t.applies[1].tool_outcome {
+            assert_eq!(path, "/bar.rs", "second call's outcome should be bar");
+            assert_eq!(t.applies[1].input_summary, "/bar.rs");
+        } else {
+            panic!("expected FileRead outcome");
+        }
+    }
+
+    #[test]
+    fn parallel_tool_results_out_of_call_order_currently_misattribute() {
+        // BUG CHARACTERIZATION (not aspiration): with results arriving
+        // in REVERSE order vs calls, the FIFO matching at line 243
+        // attaches the wrong outcome to each call. Documents today's
+        // broken behavior so a fix that switches to call_id-based
+        // matching flips this test red — and the developer can then
+        // delete it.
+        //
+        // See docs/research/architecture-audit/EVAL_APPLY_WALK.md F-1.
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("Read both"));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "reading foo",
+            "Read",
+            serde_json::json!({"file_path": "/foo.rs"}),
+        ));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "reading bar",
+            "Read",
+            serde_json::json!({"file_path": "/bar.rs"}),
+        ));
+        // Results in REVERSE order — bar finishes first
+        det.feed_cloud_event(&tool_result_ce(
+            "bar content",
+            Some(ToolOutcome::FileRead { path: "/bar.rs".to_string() }),
+        ));
+        det.feed_cloud_event(&tool_result_ce(
+            "foo content",
+            Some(ToolOutcome::FileRead { path: "/foo.rs".to_string() }),
+        ));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        let t = &turns[0];
+        assert_eq!(t.applies.len(), 2);
+
+        // CURRENT (broken) BEHAVIOR: foo's input is paired with bar's outcome
+        // because pending_applies[0] = foo and the first arriving result
+        // (which was bar's) gets popped off the front.
+        assert_eq!(t.applies[0].input_summary, "/foo.rs", "call order preserved");
+        if let Some(ToolOutcome::FileRead { path }) = &t.applies[0].tool_outcome {
+            assert_eq!(
+                path, "/bar.rs",
+                "BUG: first call (foo) gets attributed bar's outcome — \
+                 fix should switch to call_id-based matching"
+            );
+        }
+    }
+
+    // F-2 (medium): assistant text + tool_use in the same turn — only
+    // the LAST one's content survives in pending_eval. For pi-mono
+    // decomposed events where text + tool_use both arrive in one turn,
+    // the text content is silently dropped.
+
+    #[test]
+    fn assistant_text_then_tool_use_overwrites_pending_eval_content() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("List the files please"));
+        det.feed_cloud_event(&assistant_text_ce("I'll check the directory."));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "", // empty text on the tool_use
+            "Bash",
+            serde_json::json!({"command": "ls"}),
+        ));
+        det.feed_cloud_event(&tool_result_ce(
+            "file1.rs",
+            Some(ToolOutcome::CommandExecuted {
+                command: "ls".to_string(),
+                succeeded: true,
+            }),
+        ));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        let eval = turns[0].eval.as_ref().expect("eval present");
+        // CURRENT: tool_use's empty text overwrites the prior text content.
+        // The "I'll check the directory." narrative is lost from eval.content.
+        assert_eq!(
+            eval.content, "",
+            "BUG: tool_use overwrote text's content — eval narrative lost"
+        );
+    }
+
+    // F-3 (info): system.compact emits a pattern but doesn't shrink env_size.
+    // After compaction the accumulator's env_size is still the pre-compact
+    // count. Worth a test so a future fix that decrements env_size has a
+    // visible flip.
+
+    #[test]
+    fn system_compact_does_not_decrement_env_size() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("p1"));
+        det.feed_cloud_event(&assistant_text_ce("a1"));
+        det.feed_cloud_event(&turn_complete_ce());
+        det.feed_cloud_event(&user_prompt_ce("p2"));
+        det.feed_cloud_event(&assistant_text_ce("a2"));
+        det.feed_cloud_event(&turn_complete_ce());
+        // Now env_size = 4. Compact would normally shrink that.
+        det.feed_cloud_event(&make_cloud_event("system.compact", |_| {}));
+        det.feed_cloud_event(&user_prompt_ce("p3"));
+        det.feed_cloud_event(&assistant_text_ce("a3"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        // env_size on the third turn is 6 (4 + 2), not 2 (post-compact + 2)
+        // because system.compact didn't reset env_size.
+        assert_eq!(
+            turns[2].env_size, 6,
+            "compact does not shrink env_size today — accumulator carries \
+             pre-compact count forward; documented gap"
+        );
+    }
+
+    // F-4 (info): turn_complete with no events accumulated. What happens?
+
+    #[test]
+    fn turn_complete_with_no_prior_events_emits_empty_terminal_turn() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&turn_complete_ce());
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        let t = &turns[0];
+        assert!(t.is_terminal);
+        assert!(t.human.is_none());
+        assert!(t.eval.is_none());
+        assert!(t.applies.is_empty());
+        // turn_number incremented to 1 from 0
+        assert_eq!(t.turn_number, 1);
+    }
+
+    // F-5 (test gap): summarize_tool_input was 50 LOC of pure helper with
+    // zero direct tests. Coverage was indirect via the turn assertions.
+
+    #[test]
+    fn summarize_tool_input_extracts_file_path_for_file_tools() {
+        for tool in ["Read", "Write", "Edit"] {
+            let s = summarize_tool_input(tool, &serde_json::json!({"file_path": "/x.rs"}));
+            assert_eq!(s, "/x.rs", "{tool} should extract file_path");
+        }
+    }
+
+    #[test]
+    fn summarize_tool_input_truncates_long_bash_commands() {
+        let long_cmd = "echo ".to_string() + &"x".repeat(200);
+        let s = summarize_tool_input("Bash", &serde_json::json!({"command": long_cmd}));
+        assert!(s.ends_with("..."), "long bash should end in ellipsis");
+        assert_eq!(s.chars().count(), 80, "truncated to 80 chars including ellipsis");
+    }
+
+    #[test]
+    fn summarize_tool_input_extracts_pattern_for_search_tools() {
+        for tool in ["Grep", "Glob"] {
+            let s = summarize_tool_input(tool, &serde_json::json!({"pattern": "fn main"}));
+            assert_eq!(s, "fn main", "{tool} should extract pattern");
+        }
+    }
+
+    #[test]
+    fn summarize_tool_input_extracts_query_for_websearch_and_url_for_webfetch() {
+        let s = summarize_tool_input("WebSearch", &serde_json::json!({"query": "rust async"}));
+        assert_eq!(s, "rust async");
+        let s = summarize_tool_input("WebFetch", &serde_json::json!({"url": "https://example.com"}));
+        assert_eq!(s, "https://example.com");
+    }
+
+    #[test]
+    fn summarize_tool_input_extracts_description_for_agent() {
+        let s = summarize_tool_input("Agent", &serde_json::json!({"description": "do the thing"}));
+        assert_eq!(s, "do the thing");
+    }
+
+    #[test]
+    fn summarize_tool_input_falls_back_to_json_for_unknown_tools() {
+        let s = summarize_tool_input("CustomTool", &serde_json::json!({"foo": "bar"}));
+        assert_eq!(s, r#"{"foo":"bar"}"#);
+    }
+
+    #[test]
+    fn summarize_tool_input_handles_missing_fields_gracefully() {
+        // Read without file_path → empty string, not panic
+        let s = summarize_tool_input("Read", &serde_json::json!({}));
+        assert_eq!(s, "");
+    }
 }
