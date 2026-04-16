@@ -16,6 +16,7 @@ pub mod logging;
 pub mod metrics;
 pub mod router;
 pub mod state;
+pub mod telemetry;
 pub mod tool_schemas;
 pub mod transcript;
 pub mod ws;

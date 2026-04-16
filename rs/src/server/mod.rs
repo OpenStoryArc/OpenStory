@@ -49,6 +49,7 @@ pub async fn run_server(
     bus: Arc<dyn Bus>,
     config: Config,
 ) -> Result<()> {
+    let _otel_guard = open_story_server::telemetry::init()?;
     let role = config.role;
     let is_consumer = matches!(role, Role::Consumer | Role::Full);
     let is_publisher = matches!(role, Role::Publisher | Role::Full);

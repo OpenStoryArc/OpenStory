@@ -7,10 +7,22 @@
 # Adds Prometheus, Grafana, and NATS exporter for monitoring the pipeline.
 
 services:
-  # Override: enable metrics on the server
+  # Override: enable metrics + OTel tracing on the server
   server:
     environment:
       - OPEN_STORY_METRICS=true
+      - OPEN_STORY_OTEL_ENABLED=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC receiver
 
   prometheus:
     image: prom/prometheus:latest

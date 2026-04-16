@@ -7,6 +7,7 @@ use axum::middleware;
 use axum::Router;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
 use crate::state::SharedState;
@@ -87,6 +88,7 @@ pub fn build_publisher_router(state: SharedState, config: &Config) -> Router {
         }))
         .layer(cors)
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -210,6 +212,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         }))
         .layer(cors)
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+        .layer(TraceLayer::new_for_http())
         .with_state(state);
 
     // Add /metrics endpoint if enabled (outside auth — Prometheus scrapes without tokens)
