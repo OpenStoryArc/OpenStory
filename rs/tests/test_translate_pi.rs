@@ -30,8 +30,12 @@ fn reader_detects_pi_mono_and_translates() {
     // Format should be detected as PiMono
     assert_eq!(state.format, TranscriptFormat::PiMono);
 
-    // 10 JSONL lines → 12 CloudEvents (2 lines decompose: [text,toolCall]→2, [thinking,text]→2)
-    assert_eq!(events.len(), 12, "expected 12 events from fixture (decomposed)");
+    // 10 JSONL lines → 14 CloudEvents:
+    //   - 2 lines decompose: [text,toolCall]→2, [thinking,text]→2 (8 total from singletons)
+    //   - 2 assistant messages have stopReason="stop" → +2 synthetic system.turn.complete
+    //     (lines 5 and 10) so eval-apply gets a turn boundary
+    // See translate_pi.rs::decompose_assistant for the synthesis rule.
+    assert_eq!(events.len(), 14, "expected 14 events (12 decomposed + 2 synthetic turn.complete)");
 
     // Verify subtypes in order
     let subtypes: Vec<&str> = events
@@ -44,15 +48,17 @@ fn reader_detects_pi_mono_and_translates() {
             "system.session_start",        // line 1: session
             "message.user.prompt",         // line 2: user
             "message.assistant.text",      // line 3: [text, toolCall] → decomposed
-            "message.assistant.tool_use",  //   (second block from line 3)
+            "message.assistant.tool_use",  //   (toolUse → no synthetic)
             "message.user.tool_result",    // line 4: toolResult
             "message.assistant.thinking",  // line 5: [thinking, text] → decomposed
-            "message.assistant.text",      //   (second block from line 5)
-            "system.model_change",         // line 6: model_change
-            "message.user.prompt",         // line 7: user
-            "progress.bash",              // line 8: bashExecution
-            "system.compact",             // line 9: compaction
-            "message.assistant.text",      // line 10: [text] → 1 event
+            "message.assistant.text",      //
+            "system.turn.complete",        //   (line 5 synthetic — stopReason="stop")
+            "system.model_change",         // line 6
+            "message.user.prompt",         // line 7
+            "progress.bash",              // line 8
+            "system.compact",             // line 9
+            "message.assistant.text",      // line 10: [text] → 1 decomposed
+            "system.turn.complete",        //   (line 10 synthetic — stopReason="stop")
         ]
     );
 
@@ -169,19 +175,23 @@ fn reader_pi_mono_field_extraction() {
     let p6 = pi_payload(&events[6]);
     assert_eq!(p6.text.as_deref(), Some("This is a TOML configuration file with a server section. It binds to localhost on port 3002."));
 
-    // Model change (index 7)
-    let p7 = pi_payload(&events[7]);
-    assert_eq!(p7.provider.as_deref(), Some("openai"));
-    assert_eq!(p7.model.as_deref(), Some("gpt-4o"));
+    // Index 7 is a synthetic system.turn.complete (line 5's stopReason="stop").
+    // Real-line indices below shift by +1 (and +2 after line 10's synthetic).
+    assert_eq!(events[7].subtype.as_deref(), Some("system.turn.complete"));
 
-    // Bash execution (index 9)
-    let p9 = pi_payload(&events[9]);
-    assert_eq!(p9.command.as_deref(), Some("cargo test"));
-    assert_eq!(p9.exit_code, Some(serde_json::json!(0)));
+    // Model change (index 8 — was 7 before the synthetic event)
+    let p8 = pi_payload(&events[8]);
+    assert_eq!(p8.provider.as_deref(), Some("openai"));
+    assert_eq!(p8.model.as_deref(), Some("gpt-4o"));
 
-    // Compaction (index 10)
+    // Bash execution (index 10 — was 9)
     let p10 = pi_payload(&events[10]);
-    assert_eq!(p10.summary.as_deref(), Some("Read config file and explained TOML structure"));
+    assert_eq!(p10.command.as_deref(), Some("cargo test"));
+    assert_eq!(p10.exit_code, Some(serde_json::json!(0)));
+
+    // Compaction (index 11 — was 10)
+    let p11 = pi_payload(&events[11]);
+    assert_eq!(p11.summary.as_deref(), Some("Read config file and explained TOML structure"));
 }
 
 // ── Real captured scenario tests ─────────────────────────────────

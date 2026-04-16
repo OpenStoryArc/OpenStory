@@ -126,15 +126,17 @@ async fn pi_mono_exact_event_count_in_sqlite() {
     .await
     .unwrap();
 
-    // Fixture has 10 JSONL lines but 2 lines decompose:
-    //   line 3: [text, toolCall] → 2 events
-    //   line 5: [thinking, text] → 2 events
-    // Total: 10 + 2 = 12 CloudEvents from translator
-    // Note: container watcher may report 11 if the last line is read before
-    // being fully committed to disk (file-watching race). Accept 11 or 12.
+    // Fixture has 10 JSONL lines:
+    //   - line 3: [text, toolCall] → 2 events                      (toolUse, no synthetic)
+    //   - line 5: [thinking, text] → 2 events + synthetic turn.complete (stop)
+    //   - line 10: [text] → 1 event + synthetic turn.complete       (stop)
+    //   - 8 single-event lines
+    // Total: 10 single-line + 2 extra from decomposition + 2 synthetic = 14 CloudEvents
+    // Note: container watcher may report 13 if the last line is read before
+    // being fully committed to disk (file-watching race). Accept 13 or 14.
     assert!(
-        events.len() >= 11 && events.len() <= 12,
-        "expected 11-12 events from pi_mono_session.jsonl, got {}",
+        events.len() >= 13 && events.len() <= 14,
+        "expected 13-14 events from pi_mono_session.jsonl, got {}",
         events.len()
     );
 }
@@ -181,6 +183,14 @@ async fn pi_mono_subtype_distribution_matches_fixture() {
     assert!(subtypes.contains(&"message.user.tool_result"), "should have tool result");
     assert!(subtypes.contains(&"system.session_start"), "should have session start");
     assert!(subtypes.contains(&"system.model_change"), "should have model change");
+    // Synthetic turn boundaries from the recursion-principle fix:
+    // assistant messages with stopReason="stop" emit a synthetic
+    // system.turn.complete so eval-apply can crystallize a turn.
+    // The fixture has 2 such lines (lines 5 and 10).
+    assert!(
+        subtypes.contains(&"system.turn.complete"),
+        "should have synthetic system.turn.complete from stopReason=stop messages"
+    );
 }
 
 /// Every event has required CloudEvent fields persisted in SQLite.
