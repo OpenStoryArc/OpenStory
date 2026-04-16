@@ -33,6 +33,7 @@ broader invariant.
 | 1 | Observe, never interfere | `rs/tests/test_principle_observe_never_interfere.rs` | grep — forbidden write-op patterns on watch_dir-adjacent lines |
 | 3 | Actor systems and message-passing | `rs/tests/test_principle_actor_isolation.rs` | grep — forbidden cross-module imports in consumer actors |
 | 4 | Functional-first, side effects at edges | `rs/tests/test_principle_functional_purity.rs` | grep — forbidden I/O patterns in declared-pure modules |
+| 1 (recursive) | OpenStory observes its own development legibly | `rs/tests/test_principle_recursive_observability.rs` | live-data — queries OpenStory's REST API, validates that turn.sentence patterns exist and parse as legible SVO |
 
 Three tests. ~400 LOC total. They execute in under 3 seconds combined.
 

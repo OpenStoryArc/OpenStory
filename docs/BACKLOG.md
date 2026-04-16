@@ -431,6 +431,12 @@ Fix: extend `PendingApply` with `call_id: String`, capture from `assistant.tool_
 ### Cap `search_events.limit` at a sane upper bound (API walk F-4)
 `/api/search?limit=` is an unbounded `usize` (`rs/server/src/api.rs:932`). `limit=1000000` returns up to 1M FTS5 hits, killing the client and the server's response-serialization. Trivial fix: `query.limit.min(MAX_SEARCH_LIMIT)` where `MAX_SEARCH_LIMIT = 500` or similar. See `docs/research/architecture-audit/API_WALK.md` F-4.
 
+### Pi-Mono Sessions Have No Story (Recursion Principle Test, F-1)
+The recursive-observability principle test surfaces this: pi-mono sessions never produce `turn.sentence` patterns because pi-mono doesn't emit `system.turn.complete`. The eval-apply state machine waits for that subtype to crystallize a `StructuralTurn`; without it, no turns, no sentences, no story. Pi-mono visibility in the UI was fixed during the hermes-integration branch (the line-is-unbroken commit), but pi-mono *narration* — the rendered SVO sentence per turn — still doesn't work. Fix shape: derive a turn boundary from pi-mono's own signals (e.g., `stop_reason: "stop"` on the assistant message, OR end-of-response marker, OR session timeout). See `rs/tests/test_principle_recursive_observability.rs` for the test that catches this.
+
+### Story-Rendering Catch-Up for Sessions Without Hooks (Recursion Principle Test, F-2)
+~40 historical claude-code sessions in the local instance have ZERO `system.turn.complete` events because they were ingested via the watcher path without the Stop hook configured. They have full event history but no turn boundaries → no sentences. New sessions with hooks work fine. Fix shapes (any of): (1) infer turn boundaries from event clustering on watcher-only sessions; (2) document hook setup in onboarding so this doesn't keep happening; (3) backfill turn.complete events on a re-ingest pass. Surfaced by the recursion test.
+
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
