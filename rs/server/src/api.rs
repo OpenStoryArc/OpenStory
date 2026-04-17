@@ -97,6 +97,7 @@ pub async fn list_sessions(
             "session_id": sid,
             "status": status,
             "start_time": row.first_event,
+            "last_event": row.last_event,
             "event_count": row.event_count,
             "project_id": project_id.or(row.project_id.as_ref()),
             "project_name": project_name.or(row.project_name.as_ref()),

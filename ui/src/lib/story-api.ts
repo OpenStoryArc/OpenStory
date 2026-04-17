@@ -14,6 +14,8 @@ export interface StorySession {
   branch?: string | null;
   status?: string;
   start_time?: string;
+  /** Most recent event timestamp. Sessions arrive sorted by this (DESC) from the API. */
+  last_event?: string | null;
   event_count?: number;
   total_input_tokens?: number;
   total_output_tokens?: number;
