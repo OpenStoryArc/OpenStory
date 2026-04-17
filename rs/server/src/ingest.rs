@@ -100,36 +100,27 @@ pub async fn ingest_events(
                 &mut state.store.session_children,
             );
 
-            // Persist to EventStore (SQLite default, JSONL fallback). The
-            // EventStore PK is the dedup boundary now — if it returns false,
-            // the event was already stored and we skip the rest of the loop
-            // (no JSONL append, no projection update, no pattern detection,
-            // no broadcast). This makes ingest_events idempotent without an
-            // in-memory HashSet.
-            let inserted = state
-                .store
-                .event_store
-                .insert_event(session_id, &val)
-                .await
-                .unwrap_or(false);
-            if !inserted {
-                continue;
-            }
-            // JSONL append belongs exclusively to Actor 1 (PersistConsumer)
-            // — `consumers/persist.rs` owns session_store per the actor
-            // contract. Calling session_store.append here too was a
-            // pre-decomposition dual-write that raced against Actor 1 and
-            // produced torn lines in real data (see BACKLOG.md "JSONL
-            // Escape-Hatch Append Integrity" and the capstone test at
-            // rs/schemas/tests/test_jsonl_escape_hatch.rs).
+            // Persistence belongs exclusively to Actor 1 (PersistConsumer):
+            //   - insert_event   → EventStore PK dedup
+            //   - session_store.append → JSONL backup
+            //   - index_fts     → full-text search
+            // Those dual-writes were removed from ingest_events during the
+            // Actor 4 decomposition (see DUAL_WRITE_AUDIT.md). Dedup is now
+            // handled by the projection's own `seen_ids: HashSet<String>` —
+            // `append()` returns `AppendResult::empty()` for duplicate IDs.
 
-            // Update projection
+            // Update projection (dedup happens here now via seen_ids).
             let proj = state
                 .store
                 .projections
                 .entry(session_id.to_string())
                 .or_insert_with(|| projection::SessionProjection::new(session_id));
             let append_result = proj.append(&val);
+            if append_result.is_empty() {
+                // Duplicate event (seen_ids caught it) or unparseable CloudEvent.
+                // Skip broadcast — Actor 1 handles persistence independently.
+                continue;
+            }
 
             // Plan extraction
             if is_plan_event(&val) {
@@ -191,15 +182,10 @@ pub async fn ingest_events(
             // branch's work. See backlog: stream architecture rewrite.
             let detected_patterns: Vec<open_story_patterns::PatternEvent> = Vec::new();
 
-            // Index in FTS5 for full-text search (durable events only)
-            if !ephemeral {
-                for vr in &view_records {
-                    if let Some(text) = open_story_store::extract::extract_text(vr) {
-                        let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, session_id, record_type, &text).await;
-                    }
-                }
-            }
+            // FTS indexing belongs to Actor 1 (PersistConsumer).
+            // Removed from ingest_events during the Actor 4 decomposition.
+            // See: docs/research/architecture-audit/DUAL_WRITE_AUDIT.md
+            let _ = ephemeral; // used for broadcast classification below
 
             // Collect label changes for this event
             let session_label = if append_result.label_changed {
@@ -490,7 +476,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_deduplicates_by_event_id() {
+    async fn ingest_deduplicates_by_projection_seen_ids() {
+        // After the Actor 4 decomposition, dedup moved from EventStore PK
+        // (insert_event returning Ok(false)) to SessionProjection::seen_ids.
+        // The projection's HashSet catches the duplicate and returns
+        // AppendResult::empty(), so the broadcast loop skips the event.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-dup-1", "hello");
@@ -499,33 +489,37 @@ mod tests {
         assert_eq!(result1.count, 1);
 
         let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;
-        assert_eq!(result2.count, 0, "duplicate event should be skipped");
-
-        assert_eq!(state.store.event_store.session_events("sess-1").await.unwrap().len(), 1);
+        assert_eq!(result2.count, 0, "duplicate event should be skipped via projection seen_ids");
     }
 
     #[tokio::test]
-    async fn ingest_persists_to_event_store_but_not_session_store() {
-        // Contract after the dual-write removal: `ingest_events` writes to
-        // the EventStore (durable, dedup'd) and updates projections, but
-        // does NOT write to the JSONL session store — that's Actor 1
-        // (PersistConsumer)'s exclusive responsibility. Two writers to the
-        // same JSONL file produced torn lines in real data.
+    async fn ingest_does_not_persist_at_all_after_actor_4_decomposition() {
+        // After the full Actor 4 decomposition, ingest_events is a
+        // broadcast-only function. It does NOT write to EventStore,
+        // SessionStore, or FTS. ALL persistence is Actor 1's job.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-persist-1", "persist me");
 
         ingest_events(&mut state, "sess-persist", &[event], None).await;
 
-        // EventStore: ingest_events writes here
-        assert_eq!(state.store.event_store.session_events("sess-persist").await.unwrap().len(), 1);
+        // EventStore: NOT written by ingest_events anymore.
+        assert!(
+            state.store.event_store.session_events("sess-persist").await.unwrap().is_empty(),
+            "ingest_events must NOT write to EventStore — Actor 1 owns persistence"
+        );
 
-        // SessionStore: ingest_events does NOT write here. Empty is correct.
-        // In production the PersistConsumer subscribes to the same events
-        // and owns this appender exclusively.
+        // SessionStore: NOT written (confirmed earlier in the JSONL fix).
         assert!(
             state.store.session_store.load_session("sess-persist").is_empty(),
-            "ingest_events must not write to session_store — that path is Actor 1's"
+            "ingest_events must NOT write to SessionStore — Actor 1 owns JSONL"
+        );
+
+        // But: projections SHOULD be populated (ingest_events still owns
+        // in-memory projection state for wire-record enrichment).
+        assert!(
+            state.store.projections.contains_key("sess-persist"),
+            "ingest_events must still update projections for broadcast assembly"
         );
     }
 
@@ -791,16 +785,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_still_indexes_fts_for_durable_events_dual_write_with_actor_1() {
-        // DOCUMENTED DUAL-WRITE: idempotent via INSERT OR IGNORE.
-        // Flip this assertion when Actor 4 decomposes and FTS ownership
-        // moves exclusively to PersistConsumer.
+    async fn ingest_no_longer_indexes_fts_after_decomposition() {
+        // FLIPPED: this was `ingest_still_indexes_fts_for_durable_events_
+        // dual_write_with_actor_1` — the characterization test we wrote
+        // during the audit specifically to flip green→red on the day
+        // the dual-write was removed. That day is today.
+        //
+        // FTS indexing now belongs exclusively to Actor 1
+        // (PersistConsumer). ingest_events is broadcast-only.
         use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
 
-        // Build a user prompt with a typed payload so from_cloud_event
-        // produces a non-empty UserMessage (which is what FTS extracts from).
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("find this phrase please".to_string());
         let data = EventData::with_payload(
@@ -830,8 +826,8 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            results.iter().any(|r| r.event_id == "evt-fts-dw"),
-            "ingest_events currently dual-writes to FTS — this test flips when Actor 4 decomposes"
+            !results.iter().any(|r| r.event_id == "evt-fts-dw"),
+            "ingest_events must NOT index FTS — Actor 1 owns that exclusively"
         );
     }
 
