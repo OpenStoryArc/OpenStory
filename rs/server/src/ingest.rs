@@ -4,6 +4,7 @@
 //! open-story-store::ingest and are re-exported here. This module retains the
 //! stateful orchestration (ingest_events, replay_boot_sessions) that depends on AppState.
 
+use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
 use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
@@ -85,13 +86,14 @@ pub async fn ingest_events(
     let mut changes: Vec<BroadcastMessage> = Vec::new();
 
     for ce in events {
-        if let Ok(val) = serde_json::to_value(ce) {
-            // Dedup is now solely the EventStore PK's job — the legacy
-            // in-memory `seen_event_ids` HashSet was retired alongside
-            // the /hooks endpoint that needed it. The watcher is the
-            // sole ingestion source.
-
-            // Detect subagent → parent relationship.
+        let val = match serde_json::to_value(ce) {
+            Ok(v) => v,
+            Err(e) => {
+                log_event("ingest", &format!("⚠ event serialization failed: {e}"));
+                continue;
+            }
+        };
+        {
             // Detect subagent → parent relationship (shared helper).
             open_story_store::state::detect_subagent_relationship(
                 &val,
@@ -119,6 +121,10 @@ pub async fn ingest_events(
             if append_result.is_empty() {
                 // Duplicate event (seen_ids caught it) or unparseable CloudEvent.
                 // Skip broadcast — Actor 1 handles persistence independently.
+                // Log for observability so silent drops are visible.
+                let eid = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let st = val.get("subtype").and_then(|v| v.as_str()).unwrap_or("?");
+                log_event("ingest", &format!("⚠ event {eid} ({st}) dedup'd or empty — skipped broadcast"));
                 continue;
             }
 

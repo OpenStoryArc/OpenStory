@@ -403,8 +403,28 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         _ => {
-            // Unknown subtype — skip
-            vec![]
+            // Fuzzy pipe: unknown subtypes still produce a record so the
+            // event flows through the broadcast path. The raw data is on
+            // the CloudEvent; this record makes the event visible in the
+            // UI as a SystemEvent with the unrecognized subtype shown as
+            // the label. The pipeline enriches what it can, never drops
+            // what it can't.
+            //
+            // See rs/tests/test_fuzzy_pipe.rs for the test that enforces
+            // this: totally_unknown_prefix_still_produces_records.
+            vec![ViewRecord {
+                id,
+                seq,
+                session_id,
+                timestamp: time,
+                agent_id: None,
+                is_sidechain: false,
+                body: RecordBody::SystemEvent(SystemEvent {
+                    subtype: subtype.to_string(),
+                    message: None,
+                    duration_ms: None,
+                }),
+            }]
         }
     };
 
