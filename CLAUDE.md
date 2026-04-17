@@ -126,13 +126,14 @@ Full list with context: `docs/soul/patterns.md`
 ## Project Structure
 
 ```
-rs/           — Rust workspace (8 crates)
+rs/           — Rust workspace (9 crates)
   .           — open-story: orchestration library (watcher + server wiring)
   core/       — open-story-core: CloudEvent types, per-agent translators, reader, paths
   bus/        — open-story-bus: NATS JetStream event bus abstraction
   store/      — open-story-store: persistence, analysis, projection, FTS5 search
   views/      — open-story-views: CloudEvent → ViewRecord BFF transform
-  patterns/   — open-story-patterns: streaming pattern detection (7 detectors)
+  patterns/   — open-story-patterns: streaming pattern detection (eval-apply + sentence)
+  schemas/    — open-story-schemas: JSON Schema generation, drift tests, dogfood validation
   server/     — open-story-server: HTTP/WS server, API, hooks, consumer actors
   cli/        — open-story-cli: thin CLI binary
   tests/      — integration tests
@@ -140,7 +141,7 @@ ui/           — React dashboard (Vite, TailwindCSS v4, RxJS, Recharts)
 e2e/          — Playwright E2E tests
 ```
 
-The Rust codebase is a **workspace with 8 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `patterns`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+The Rust codebase is a **workspace with 9 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `patterns`, `schemas`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
 
 > **Note on `rs/semantic/`:** This directory exists on disk with its own `Cargo.toml` but is **not** a workspace member. It's vestigial Qdrant-based semantic search code from before SQLite FTS5 replaced it. Search now goes through `rs/store/src/sqlite_store.rs` (`events_fts` virtual table, `search_fts()` function). The orphaned `semantic/` directory is slated for removal — see BACKLOG: "Remove orphaned semantic crate."
 

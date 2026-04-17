@@ -78,14 +78,14 @@ See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, an
 
 ## How it works
 
-The file watcher detects JSONL transcript changes, translates them into CloudEvents via `translate_line()`, and publishes to NATS JetStream with hierarchical subjects (`events.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
+The file watcher detects JSONL transcript changes, auto-detects the agent format (Claude Code, pi-mono, or Hermes), translates each line into CloudEvents via agent-specific translators, and publishes to NATS JetStream with hierarchical subjects (`events.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
 
-- **persist** — dedup + durable event store (SQLite default, MongoDB optional via `--features mongo`) + JSONL backup + full-text search index
-- **patterns** — eval-apply cycle detection → sentence generation → PatternEvents
+- **persist** — dedup + durable event store (SQLite default, MongoDB optional via `--features mongo`) + JSONL sovereignty backup + full-text search index
+- **patterns** — eval-apply cycle detection → sentence generation → PatternEvents (2 streaming detectors: EvalApplyDetector + SentenceDetector)
 - **projections** — session metadata (tokens, labels, branches, agent relationships)
 - **broadcast** — CloudEvent → ViewRecord → WireRecord → WebSocket to UI
 
-HTTP hooks provide an additional near-real-time ingestion path for Claude Code events.
+The pipeline is a **fuzzy pipe**: events with unknown subtypes flow through as SystemEvent passthroughs rather than being silently dropped. Runtime envelope schema validation classifies events into three tiers — full enrichment (known subtypes), passthrough (valid envelope, unknown content), or broken (below the sovereignty floor). See `schemas/cloud_event_envelope.schema.json` for the minimum viable CloudEvent contract.
 
 Each actor is an independent tokio task with its own state and NATS subscription. No shared locks between actors — if pattern detection is slow, persistence and broadcast continue unblocked. NATS JetStream provides durable delivery, replay on restart, and hierarchical subject filtering. `just up` starts NATS automatically; `nats.conf` at the project root configures JetStream with 8MB max payload for large sessions.
 
@@ -94,6 +94,50 @@ Each actor is an independent tokio task with its own state and NATS subscription
 Agent sessions have recursive structure. A **turn** (one human prompt → complete response) contains multiple **eval-apply cycles** — each cycle is the model evaluating what it knows, dispatching tools, and processing results. Subagents spawned via the Agent tool have the same recursive cycle structure, just nested one level deeper.
 
 The Story tab renders this as paragraphs (turns) containing sentences (cycles). Subagent work nests inside parent turns. The same `CycleCard` component renders at every depth — it's the recursive visual unit of agent work.
+
+### Multi-agent support
+
+Open Story observes multiple coding agents simultaneously. Each agent has its own translator and watch directory. The `agent` field on every CloudEvent identifies the source platform:
+
+- **`claude-code`** — Claude Code sessions from `~/.claude/projects/`
+- **`pi-mono`** — pi-mono (OpenClaw) sessions from `~/.pi/agent/sessions/`
+- **`hermes`** — Hermes agent sessions
+
+Format detection is automatic (per-file, based on the first JSONL line). Pi-mono bundles multiple content blocks per line (`[thinking, text, toolCall]`); the translator decomposes these into N CloudEvents and synthesizes `system.turn.complete` boundaries from `stopReason` so the sentence detector can narrate pi-mono sessions. All agents' sessions appear in the same dashboard with full sentence rendering.
+
+### Schema registry
+
+Every serialization boundary has a committed JSON Schema at `/schemas/`. The schemas are **generated from the Rust types** (`open-story-schemas` crate) — they're artifacts, not hand-authored. Drift is caught by test: regenerate and diff.
+
+```
+schemas/
+├── cloud_event.schema.json          — full CloudEvent envelope + AgentPayload variants
+├── cloud_event_envelope.schema.json — minimum viable (id + type + time + data.raw)
+├── view_record.schema.json          — BFF output (13 RecordBody variants)
+├── wire_record.schema.json          — WebSocket payload (ViewRecord + tree metadata)
+├── broadcast_message.schema.json    — WS envelope (3 message kinds)
+├── subtype.schema.json              — closed enum of 21 event subtypes
+├── pattern_event.schema.json        — detected behavioral patterns
+├── structural_turn.schema.json      — eval-apply turn data
+├── ingest_batch.schema.json         — NATS message envelope
+├── session_row.schema.json          — session list entry
+└── fts_search_result.schema.json    — full-text search result
+```
+
+The `Subtype` enum in `open-story-core` is the typed source of truth for the 21 event subtypes (`message.user.prompt`, `message.assistant.tool_use`, etc.). Dogfood-validated against live production data.
+
+### Principle tests
+
+Four auditable principles from `CLAUDE.md` have executable test guards:
+
+| Principle | Test | What it checks |
+|-----------|------|----------------|
+| Observe, never interfere | `test_principle_observe_never_interfere` | No write operations on watch_dir paths in production code |
+| Functional purity | `test_principle_functional_purity` | No filesystem/network I/O in 20 declared-pure modules |
+| Actor isolation | `test_principle_actor_isolation` | No cross-actor imports in consumer modules |
+| Recursive observability | `test_principle_recursive_observability` | OpenStory produces legible sentences for its own development sessions |
+
+Run with `cargo test --test test_principle_observe_never_interfere` (etc.) or `-- --ignored` for the live-data recursion test.
 
 ### For agents: using OpenStory
 
@@ -123,7 +167,6 @@ Open Story can observe autonomous agents running in containers. The `docker-comp
 
 ```
 claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API/dashboard)
-              ──HTTP hooks──►
 ```
 
 The listener runs as root (to read Claude's mode-600 transcript files), watches the shared volume, translates events, and publishes to NATS. The consumer runs separately with its own data volume, subscribes from NATS, and serves the dashboard. Start with:
@@ -210,48 +253,15 @@ Run the full stack (server + UI + NATS) in containers:
 docker compose up        # or: podman compose up
 ```
 
-This starts NATS on `:4222`/`:8222`, the server on `:3002`, and the UI on `:5173`. The server watches `~/.claude/projects/` (mounted read-only) and accepts hooks.
+This starts NATS on `:4222`/`:8222`, the server on `:3002`, and the UI on `:5173`. The server watches `~/.claude/projects/` (mounted read-only).
 
 **Container runtime:** [Podman](https://podman.io/) is recommended on Windows — it's a drop-in Docker replacement that runs on WSL2 without Docker Desktop. Install with `winget install RedHat.Podman`, then `podman machine init --rootful && podman machine start`. Existing Dockerfiles and docker-compose files work as-is.
 
-### Configure Claude Code hooks (recommended)
+### Event ingestion
 
-Hooks give near-real-time event delivery. Add this to `~/.claude/settings.json`:
+Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents. No additional configuration needed beyond setting the watch directory.
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          { "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          { "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }
-        ]
-      }
-    ]
-  }
-}
-```
-
-- **Stop** — captures final response after each turn (low frequency, high value)
-- **PostToolUse** — fires after every tool call for near-real-time updates
-- **SubagentStop** — captures work from subagents (Task tool spawns)
-- **timeout: 5** — 5 second timeout; failures are non-blocking, Claude Code continues normally
-
-**WSL / Linux:** Same config at `~/.claude/settings.json`. If the Open Story server runs on Windows and Claude Code runs in WSL, hooks still work — WSL can reach Windows `localhost`. The file watcher won't see WSL transcripts (different filesystem), so hooks are the only event path for cross-OS setups.
+> **Note:** An HTTP `/hooks` endpoint existed in earlier versions for near-real-time Claude Code event delivery. It was retired — the file watcher provides sufficient coverage. If you have `hooks` configured in `~/.claude/settings.json` pointing at `localhost:3002/hooks`, they will receive 404s and fail silently (non-blocking). Remove them if present.
 
 ### Verify it works
 
@@ -363,22 +373,23 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | DELETE | `/api/sessions/{id}` | Delete a session |
 | GET | `/api/sessions/{id}/export` | Export session as JSONL |
 | GET | `/ws` | WebSocket for live event streaming |
-| POST | `/hooks` | Coding agent hook receiver |
 
 ## Project Layout
 
 ```
 open-story/
-├── rs/                          Rust workspace (8 crates)
-│   ├── core/                    open-story-core (CloudEvent types, translate, reader)
+├── rs/                          Rust workspace (9 crates)
+│   ├── core/                    open-story-core (CloudEvent types, translators, Subtype enum)
 │   ├── bus/                     open-story-bus (NATS JetStream event bus)
 │   ├── store/                   open-story-store (persistence, projection, FTS5 search)
-│   ├── views/                   open-story-views (BFF: CloudEvent → ViewRecord)
-│   ├── patterns/                open-story-patterns (7 streaming detectors)
-│   ├── server/                  open-story-server (HTTP/WS, API, hooks, consumer actors)
+│   ├── views/                   open-story-views (BFF: CloudEvent → ViewRecord, runtime schema validation)
+│   ├── patterns/                open-story-patterns (eval-apply + sentence detection)
+│   ├── schemas/                 open-story-schemas (JSON Schema generation, drift tests, dogfood)
+│   ├── server/                  open-story-server (HTTP/WS, API, consumer actors)
 │   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
-│   └── tests/                   Integration tests
+│   └── tests/                   Integration + principle tests
+├── schemas/                     Committed JSON Schema files (11 — source of truth)
 ├── ui/                          React dashboard
 │   ├── src/
 │   │   ├── streams/             RxJS observable state management
