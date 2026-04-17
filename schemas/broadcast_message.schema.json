@@ -1,0 +1,2122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AssistantMessage": {
+      "properties": {
+        "content": {
+          "items": {
+            "$ref": "#/definitions/ContentBlock"
+          },
+          "type": "array"
+        },
+        "end_turn": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "phase": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stop_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "content",
+        "model"
+      ],
+      "type": "object"
+    },
+    "ContentBlock": {
+      "oneOf": [
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "text"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "language": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "code_block"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "source": true,
+            "type": {
+              "enum": [
+                "image"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ContextCompaction": {
+      "properties": {
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ErrorRecord": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "details": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "FileSnapshot": {
+      "properties": {
+        "git_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "git_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracked_files": true
+      },
+      "type": "object"
+    },
+    "GitInfo": {
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MessageContent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/ContentBlock"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "PatternEvent": {
+      "description": "Higher-order event emitted by pattern detectors. Represents a recognized behavioral pattern spanning multiple events.",
+      "properties": {
+        "ended_at": {
+          "description": "Timestamp of the last event in the pattern.",
+          "type": "string"
+        },
+        "event_ids": {
+          "description": "Event IDs that compose this pattern.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "default": null,
+          "description": "Detector-specific metadata."
+        },
+        "pattern_type": {
+          "description": "Pattern type identifier (e.g., \"eval_apply.eval\", \"turn.sentence\").",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "Session this pattern belongs to.",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "Timestamp of the first event in the pattern.",
+          "type": "string"
+        },
+        "summary": {
+          "description": "Human-readable one-line summary.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ended_at",
+        "event_ids",
+        "pattern_type",
+        "session_id",
+        "started_at",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "Reasoning": {
+      "properties": {
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "encrypted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "summary": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "SessionMeta": {
+      "properties": {
+        "cwd": {
+          "default": "",
+          "type": "string"
+        },
+        "git": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GitInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "default": "",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SystemEvent": {
+      "properties": {
+        "duration_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subtype": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subtype"
+      ],
+      "type": "object"
+    },
+    "TokenScope": {
+      "enum": [
+        "turn",
+        "session_total"
+      ],
+      "type": "string"
+    },
+    "TokenUsage": {
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/definitions/TokenScope"
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
+    "ToolCall": {
+      "properties": {
+        "call_id": {
+          "type": "string"
+        },
+        "input": {
+          "description": "Raw tool input as JSON value."
+        },
+        "name": {
+          "type": "string"
+        },
+        "raw_input": {
+          "description": "Preserved original input for display/debugging."
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typed_input": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolInput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Typed tool input, populated by `resolve_typed_input()`."
+        }
+      },
+      "required": [
+        "call_id",
+        "input",
+        "name",
+        "raw_input"
+      ],
+      "type": "object"
+    },
+    "ToolInput": {
+      "description": "Typed tool input — exhaustive over known Claude Code tools. `Unknown` handles MCP tools, custom tools, and future additions.",
+      "oneOf": [
+        {
+          "properties": {
+            "file_path": {
+              "type": "string"
+            },
+            "limit": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "offset": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pages": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "read"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "file_path": {
+              "type": "string"
+            },
+            "new_string": {
+              "type": "string"
+            },
+            "old_string": {
+              "type": "string"
+            },
+            "replace_all": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "edit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path",
+            "new_string",
+            "old_string",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "file_path": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "write"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "file_path",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "glob"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "-A": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "-B": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "-C": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "-i": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "-n": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "glob": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "head_limit": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "multiline": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "offset": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "output_mode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pattern": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "grep"
+              ],
+              "type": "string"
+            },
+            "type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pattern",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cell_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cell_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "edit_mode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "new_source": {
+              "type": "string"
+            },
+            "notebook_path": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "notebook_edit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "new_source",
+            "notebook_path",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "run_in_background": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "timeout": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "bash"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "prompt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "web_fetch"
+              ],
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "web_search"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "query",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "isolation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "resume": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "run_in_background": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "subagent_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "agent"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "prompt",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "task_create"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "subject",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subject": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "task_update"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "task_get"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "tool": {
+              "enum": [
+                "task_list"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "block": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "timeout": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "task_output"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "task_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "task_stop"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "tool": {
+              "enum": [
+                "enter_plan_mode"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "plan": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "exit_plan_mode"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool": {
+              "enum": [
+                "enter_worktree"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "args": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "skill": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "skill"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "skill",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "question": true,
+            "tool": {
+              "enum": [
+                "ask_user_question"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "question",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "tool": {
+              "enum": [
+                "lsp"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "max_results": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "tool_search"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "query",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "schedule": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "cron_create"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "schedule",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "tool": {
+              "enum": [
+                "cron_delete"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "tool": {
+              "enum": [
+                "cron_list"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "raw": true,
+            "tool": {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "raw",
+            "tool"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToolOutcome": {
+      "description": "What a tool call changed in the world. Deterministic projection: tool name + input + result → ToolOutcome.",
+      "oneOf": [
+        {
+          "description": "Write tool + \"created successfully\" in result",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileCreated"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write tool + \"updated successfully\", or any Edit tool",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileModified"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool (successful)",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileRead"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Write/Edit tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileWriteFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Read tool with is_error",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "FileReadFailed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Grep, Glob, WebSearch, WebFetch",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SearchPerformed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "source",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Bash tool",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "succeeded": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "CommandExecuted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "succeeded",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Agent tool — agent_id links to the subagent session (\"agent-{agent_id}\")",
+          "properties": {
+            "agent_id": {
+              "default": "",
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "SubAgentSpawned"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ToolResult": {
+      "properties": {
+        "call_id": {
+          "type": "string"
+        },
+        "is_error": {
+          "default": false,
+          "type": "boolean"
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ToolOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Domain event: what this tool call changed in the world. Derived from the tool_call + result pair in the translate layer."
+        }
+      },
+      "required": [
+        "call_id"
+      ],
+      "type": "object"
+    },
+    "TurnEnd": {
+      "properties": {
+        "duration_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turn_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TurnStart": {
+      "properties": {
+        "turn_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "UserMessage": {
+      "properties": {
+        "content": {
+          "$ref": "#/definitions/MessageContent"
+        },
+        "images": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    },
+    "ViewRecord": {
+      "description": "Open-story metadata + typed record body. This is what the server emits and the UI consumes.",
+      "oneOf": [
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/SessionMeta"
+            },
+            "record_type": {
+              "enum": [
+                "session_meta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TurnStart"
+            },
+            "record_type": {
+              "enum": [
+                "turn_start"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TurnEnd"
+            },
+            "record_type": {
+              "enum": [
+                "turn_end"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/UserMessage"
+            },
+            "record_type": {
+              "enum": [
+                "user_message"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/AssistantMessage"
+            },
+            "record_type": {
+              "enum": [
+                "assistant_message"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/Reasoning"
+            },
+            "record_type": {
+              "enum": [
+                "reasoning"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ToolCall"
+            },
+            "record_type": {
+              "enum": [
+                "tool_call"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ToolResult"
+            },
+            "record_type": {
+              "enum": [
+                "tool_result"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TokenUsage"
+            },
+            "record_type": {
+              "enum": [
+                "token_usage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ContextCompaction"
+            },
+            "record_type": {
+              "enum": [
+                "context_compaction"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/FileSnapshot"
+            },
+            "record_type": {
+              "enum": [
+                "file_snapshot"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/SystemEvent"
+            },
+            "record_type": {
+              "enum": [
+                "system_event"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ErrorRecord"
+            },
+            "record_type": {
+              "enum": [
+                "error"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "agent_id": {
+          "description": "Subagent identity: which agent produced this event (None = main agent).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "CloudEvent ID (UUID) — used as React key, selection, dedup.",
+          "type": "string"
+        },
+        "is_sidechain": {
+          "default": false,
+          "description": "Whether this event belongs to a sidechain (subagent file).",
+          "type": "boolean"
+        },
+        "seq": {
+          "description": "Sequence number from open-story's ingest pipeline.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "Session this record belongs to.",
+          "type": "string"
+        },
+        "timestamp": {
+          "description": "When this record was created.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "session_id",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "WireRecord": {
+      "description": "WireRecord = ViewRecord + tree metadata + truncation info.",
+      "oneOf": [
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/SessionMeta"
+            },
+            "record_type": {
+              "enum": [
+                "session_meta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TurnStart"
+            },
+            "record_type": {
+              "enum": [
+                "turn_start"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TurnEnd"
+            },
+            "record_type": {
+              "enum": [
+                "turn_end"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/UserMessage"
+            },
+            "record_type": {
+              "enum": [
+                "user_message"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/AssistantMessage"
+            },
+            "record_type": {
+              "enum": [
+                "assistant_message"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/Reasoning"
+            },
+            "record_type": {
+              "enum": [
+                "reasoning"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ToolCall"
+            },
+            "record_type": {
+              "enum": [
+                "tool_call"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ToolResult"
+            },
+            "record_type": {
+              "enum": [
+                "tool_result"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/TokenUsage"
+            },
+            "record_type": {
+              "enum": [
+                "token_usage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ContextCompaction"
+            },
+            "record_type": {
+              "enum": [
+                "context_compaction"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/FileSnapshot"
+            },
+            "record_type": {
+              "enum": [
+                "file_snapshot"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/SystemEvent"
+            },
+            "record_type": {
+              "enum": [
+                "system_event"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "payload": {
+              "$ref": "#/definitions/ErrorRecord"
+            },
+            "record_type": {
+              "enum": [
+                "error"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "payload",
+            "record_type"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "agent_id": {
+          "description": "Subagent identity: which agent produced this event (None = main agent).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "depth": {
+          "description": "Tree depth (0 = root node).",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "CloudEvent ID (UUID) — used as React key, selection, dedup.",
+          "type": "string"
+        },
+        "is_sidechain": {
+          "default": false,
+          "description": "Whether this event belongs to a sidechain (subagent file).",
+          "type": "boolean"
+        },
+        "parent_uuid": {
+          "description": "Parent event UUID, if not a root node.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload_bytes": {
+          "description": "Original payload size in bytes (before truncation).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "seq": {
+          "description": "Sequence number from open-story's ingest pipeline.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "Session this record belongs to.",
+          "type": "string"
+        },
+        "timestamp": {
+          "description": "When this record was created.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Whether the payload was truncated for wire transfer.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "depth",
+        "id",
+        "payload_bytes",
+        "seq",
+        "session_id",
+        "timestamp",
+        "truncated"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Messages broadcast to WebSocket subscribers.\n\nThis is the BFF (Backend-For-Frontend) boundary: the server transforms raw CloudEvents into typed ViewRecords before broadcasting. The UI receives pre-typed data and never parses raw transcript formats.",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "enum": [
+            "view_records"
+          ],
+          "type": "string"
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "view_records": {
+          "items": {
+            "$ref": "#/definitions/ViewRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "session_id",
+        "view_records"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Enriched broadcast: durable WireRecords + ephemeral ViewRecords + filter deltas + patterns. Phase 3: separates persistent records from transient progress events.",
+      "properties": {
+        "ephemeral": {
+          "description": "Ephemeral records (UI shows transiently, doesn't store).",
+          "items": {
+            "$ref": "#/definitions/ViewRecord"
+          },
+          "type": "array"
+        },
+        "filter_deltas": {
+          "additionalProperties": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "description": "Incremental filter count changes from this batch.",
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "enriched"
+          ],
+          "type": "string"
+        },
+        "patterns": {
+          "description": "Patterns detected from this batch of events.",
+          "items": {
+            "$ref": "#/definitions/PatternEvent"
+          },
+          "type": "array"
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "records": {
+          "description": "Durable records (UI accumulates these in state).",
+          "items": {
+            "$ref": "#/definitions/WireRecord"
+          },
+          "type": "array"
+        },
+        "session_branch": {
+          "description": "Git branch, sent when first captured.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "session_label": {
+          "description": "Session label (first user prompt), sent when first set.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "total_input_tokens": {
+          "description": "Accumulated input tokens for this session (sent when changed).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_output_tokens": {
+          "description": "Accumulated output tokens for this session (sent when changed).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ephemeral",
+        "filter_deltas",
+        "kind",
+        "records",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "enum": [
+            "plan_saved"
+          ],
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "session_id"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "BroadcastMessage"
+}

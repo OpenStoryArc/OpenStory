@@ -532,4 +532,99 @@ mod tests {
         assert!(!wire.truncated);
         assert_eq!(wire.payload_bytes, 0);
     }
+
+    // ── T5: wire ↔ projection sync invariant (architecture audit) ──────
+    // Today's wiring (rs/server/src/ingest.rs:136 then :253) calls
+    // proj.append(&val) synchronously before to_wire_record(vr, proj)
+    // inside the same loop iteration, so no race exists. These tests
+    // document the invariant and the failure mode for the day Actor 4
+    // is decomposed from shared state onto the NATS-subscribed
+    // projection consumer — at which point this boundary grows a real
+    // scheduling concern. See
+    // docs/research/architecture-audit/T5_WIRE_PROJECTION_SYNC.md
+
+    #[test]
+    fn t5_wire_record_without_projection_append_has_zero_depth() {
+        // Failure mode: forget to append to projection before building the
+        // wire record. Wire carries depth=0 and parent_uuid=None — silent
+        // data loss, no error. This is the exact shape that regresses if
+        // the two actions cross an async boundary without a barrier.
+        use open_story_views::unified::{MessageContent, UserMessage};
+
+        let proj = SessionProjection::new("t5-empty");
+        let vr = ViewRecord {
+            id: "unprojected".to_string(),
+            seq: 1,
+            session_id: "t5-empty".to_string(),
+            timestamp: "2026-04-14T00:00:00Z".to_string(),
+            agent_id: None,
+            is_sidechain: false,
+            body: RecordBody::UserMessage(UserMessage {
+                content: MessageContent::Text("hi".to_string()),
+                images: vec![],
+            }),
+        };
+
+        let wire = to_wire_record(&vr, &proj);
+        assert_eq!(wire.depth, 0, "depth defaults to 0 when event unprojected");
+        assert_eq!(wire.parent_uuid, None, "parent_uuid is None when event unprojected");
+    }
+
+    #[test]
+    fn t5_wire_record_reflects_projection_state_when_parent_present() {
+        // Invariant: to_wire_record sees the projection AFTER the event
+        // has been appended. The wire record reports the correct parent.
+        let mut proj = SessionProjection::new("t5-synced");
+
+        let parent = json!({
+            "id": "evt-parent-t5",
+            "type": "io.arc.event",
+            "subtype": "message.user.prompt",
+            "source": "arc://test",
+            "time": "2026-04-14T00:00:00Z",
+            "data": {
+                "agent_payload": { "text": "hi" },
+                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
+            }
+        });
+        proj.append(&parent);
+
+        let child = json!({
+            "id": "evt-child-t5",
+            "type": "io.arc.event",
+            "subtype": "message.assistant.tool_use",
+            "source": "arc://test",
+            "time": "2026-04-14T00:00:01Z",
+            "data": {
+                "agent_payload": {
+                    "parent_uuid": "evt-parent-t5",
+                    "tool": "Bash",
+                    "args": {"command": "ls"}
+                },
+                "raw": {"type": "assistant", "message": {"model": "claude-4", "content": [
+                    {"type": "tool_use", "id": "toolu_x", "name": "Bash", "input": {"command": "ls"}}
+                ]}}
+            }
+        });
+
+        // Build the wire record BEFORE appending the child. Today's
+        // ingest_events does it in the other order, so this test
+        // characterizes the wrong order's failure mode.
+        let child_event = to_cloud_event(&child);
+        let vrs = from_cloud_event(&child_event);
+        let wire_before = to_wire_record(&vrs[0], &proj);
+        assert_eq!(
+            wire_before.parent_uuid, None,
+            "before append, projection has no record of this event — parent_uuid is None"
+        );
+
+        // Now append, then build again — this is the live contract.
+        proj.append(&child);
+        let wire_after = to_wire_record(&vrs[0], &proj);
+        assert_eq!(
+            wire_after.parent_uuid,
+            Some("evt-parent-t5".to_string()),
+            "after append, wire record carries correct parent"
+        );
+    }
 }

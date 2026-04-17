@@ -6,7 +6,7 @@ use crate::unified::RecordBody;
 
 /// Open-story metadata + typed record body.
 /// This is what the server emits and the UI consumes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ViewRecord {
     /// CloudEvent ID (UUID) — used as React key, selection, dedup.
     pub id: String,

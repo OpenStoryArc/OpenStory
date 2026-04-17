@@ -700,6 +700,8 @@ mod tests {
     fn test_event(id: &str, timestamp: &str) -> Value {
         json!({
             "id": id,
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
             "type": "io.arc.event",
             "subtype": "message.user.prompt",
             "time": timestamp,
@@ -1229,5 +1231,142 @@ mod tests {
 
         let results = store.search_fts("common", 3, None).await.unwrap();
         assert_eq!(results.len(), 3);
+    }
+
+    // ── T6: agent payload round-trip (architecture audit) ──────────────
+    // The existing `it_round_trips_an_event_payload_losslessly` in the
+    // conformance suite uses a generic event. These tests round-trip a
+    // fully-populated AgentPayload per variant, catching regressions in
+    // serde tag/rename attrs, missing #[serde(default)], and silent
+    // field loss. See docs/research/architecture-audit/T6_SQLITE_ROUND_TRIP.md
+
+    async fn round_trip_event(event: Value) -> Value {
+        let store = SqliteStore::in_memory().unwrap();
+        store.insert_event("t6-sess", &event).await.unwrap();
+        let events = store.session_events("t6-sess").await.unwrap();
+        assert_eq!(events.len(), 1);
+        events.into_iter().next().unwrap()
+    }
+
+    #[tokio::test]
+    async fn t6_pi_mono_agent_payload_round_trips() {
+        let event = json!({
+            "id": "t6-pi-1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "type": "io.arc.event",
+            "subtype": "message.assistant.tool_use",
+            "time": "2026-04-14T12:00:00Z",
+            "source": "arc://test",
+            "agent": "pi-mono",
+            "data": {
+                "seq": 1,
+                "session_id": "t6-sess",
+                "raw": {"type": "message", "message": {"role": "assistant"}},
+                "agent_payload": {
+                    "_variant": "pi-mono",
+                    "meta": {"agent": "pi-mono"},
+                    "uuid": "a1f500c7",
+                    "parent_uuid": "775d79e9",
+                    "model": "claude-opus-4-6",
+                    "tool": "read",
+                    "tool_call_id": "toolu_01XoH5S",
+                    "args": {"path": "/tmp/config.toml"},
+                    "stop_reason": "toolUse"
+                }
+            }
+        });
+        let back = round_trip_event(event.clone()).await;
+        let ap = &back["data"]["agent_payload"];
+        assert_eq!(ap["_variant"], "pi-mono", "variant tag must survive");
+        assert_eq!(ap["tool"], "read", "tool field must survive");
+        assert_eq!(ap["tool_call_id"], "toolu_01XoH5S");
+        assert_eq!(ap["args"]["path"], "/tmp/config.toml");
+        assert_eq!(ap["parent_uuid"], "775d79e9");
+
+        // Deserialize back into a typed CloudEvent to prove the enum
+        // variant resolves correctly.
+        let ce: open_story_core::cloud_event::CloudEvent =
+            serde_json::from_value(back).expect("must deserialize as CloudEvent");
+        match ce.data.agent_payload {
+            Some(open_story_core::event_data::AgentPayload::PiMono(p)) => {
+                assert_eq!(p.tool.as_deref(), Some("read"));
+                assert_eq!(p.tool_call_id.as_deref(), Some("toolu_01XoH5S"));
+            }
+            other => panic!("expected PiMono variant, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn t6_claude_code_agent_payload_round_trips() {
+        let event = json!({
+            "id": "t6-cc-1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "type": "io.arc.event",
+            "subtype": "message.assistant.tool_use",
+            "time": "2026-04-14T12:00:01Z",
+            "source": "arc://test",
+            "agent": "claude-code",
+            "data": {
+                "seq": 1,
+                "session_id": "t6-sess",
+                "raw": {},
+                "agent_payload": {
+                    "_variant": "claude-code",
+                    "meta": {"agent": "claude-code"},
+                    "uuid": "cc-uuid-1",
+                    "parent_uuid": "cc-parent",
+                    "tool": "Bash",
+                    "args": {"command": "ls"}
+                }
+            }
+        });
+        let back = round_trip_event(event).await;
+        let ce: open_story_core::cloud_event::CloudEvent =
+            serde_json::from_value(back).expect("must deserialize as CloudEvent");
+        match ce.data.agent_payload {
+            Some(open_story_core::event_data::AgentPayload::ClaudeCode(p)) => {
+                assert_eq!(p.tool.as_deref(), Some("Bash"));
+                assert_eq!(p.args.as_ref().and_then(|a| a.get("command")).and_then(|v| v.as_str()), Some("ls"));
+            }
+            other => panic!("expected ClaudeCode variant, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn t6_hermes_agent_payload_round_trips() {
+        let event = json!({
+            "id": "t6-hm-1",
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "type": "io.arc.event",
+            "subtype": "message.assistant.tool_use",
+            "time": "2026-04-14T12:00:02Z",
+            "source": "arc://test",
+            "agent": "hermes",
+            "data": {
+                "seq": 1,
+                "session_id": "t6-sess",
+                "raw": {},
+                "agent_payload": {
+                    "_variant": "hermes",
+                    "meta": {"agent": "hermes"},
+                    "tool": "read_file",
+                    "tool_use_id": "hm-call-1",
+                    "args": {"path": "foo.rs"}
+                }
+            }
+        });
+        let back = round_trip_event(event).await;
+        let ce: open_story_core::cloud_event::CloudEvent =
+            serde_json::from_value(back).expect("must deserialize as CloudEvent");
+        match ce.data.agent_payload {
+            Some(open_story_core::event_data::AgentPayload::Hermes(p)) => {
+                assert_eq!(p.tool.as_deref(), Some("read_file"));
+                assert_eq!(p.tool_use_id.as_deref(), Some("hm-call-1"));
+            }
+            other => panic!("expected Hermes variant, got {:?}", other),
+        }
     }
 }

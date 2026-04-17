@@ -39,6 +39,25 @@ fn process_file_raw(
     read_new_lines(path, state)
 }
 
+/// Decide whether a file's mtime falls within the backfill window.
+///
+/// `window` semantics:
+///   - `None` — no upper bound; every file qualifies (`true`)
+///   - `Some(d)` — file qualifies only when `now - mtime <= d`
+///
+/// Pure function — extracted from `watch_with_callback` so the
+/// boundary table can be tested without spinning up a watcher.
+fn is_in_backfill_window(
+    window: Option<Duration>,
+    mtime: SystemTime,
+    now: SystemTime,
+) -> bool {
+    match window {
+        None => true,
+        Some(w) => now.duration_since(mtime).unwrap_or(Duration::ZERO) <= w,
+    }
+}
+
 /// Process a single file: read new lines, emit events.
 fn process_file(
     path: &Path,
@@ -115,17 +134,10 @@ where
                 continue;
             }
 
-            // Skip files older than the configured backfill window. None = no filter.
-            let in_window = match window {
-                None => true,
-                Some(w) => entry
-                    .metadata()
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .map(|mtime| {
-                        now.duration_since(mtime).unwrap_or(Duration::ZERO) <= w
-                    })
-                    .unwrap_or(false),
+            // Skip files older than the configured backfill window.
+            let in_window = match entry.metadata().ok().and_then(|m| m.modified().ok()) {
+                Some(mtime) => is_in_backfill_window(window, mtime, now),
+                None => false, // can't read mtime → safest to skip
             };
 
             if !in_window {
@@ -190,6 +202,98 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── process_file_raw — file detection + state initialization ──────
+
+    #[test]
+    fn process_file_raw_returns_empty_for_non_jsonl() {
+        let tmp = tempfile::NamedTempFile::with_suffix(".txt").unwrap();
+        std::fs::write(tmp.path(), "not a jsonl file\n").unwrap();
+        let mut states = HashMap::new();
+        let events = process_file_raw(tmp.path(), &mut states).unwrap();
+        assert_eq!(events.len(), 0);
+        assert!(states.is_empty(), "non-jsonl file must not initialize state");
+    }
+
+    #[test]
+    fn process_file_raw_initializes_state_on_first_call() {
+        let tmp = tempfile::NamedTempFile::with_suffix(".jsonl").unwrap();
+        std::fs::write(tmp.path(), "").unwrap(); // empty jsonl is valid
+        let mut states = HashMap::new();
+
+        let _ = process_file_raw(tmp.path(), &mut states).unwrap();
+        assert_eq!(
+            states.len(),
+            1,
+            "first call on a jsonl path must initialize TranscriptState"
+        );
+    }
+
+    #[test]
+    fn process_file_raw_reuses_state_across_calls() {
+        // Two calls on the same file should share state — that's what
+        // gives us incremental reads (byte_offset advances). If a
+        // future change recreated state on each call, every poll would
+        // re-emit every event from byte 0.
+        let tmp = tempfile::NamedTempFile::with_suffix(".jsonl").unwrap();
+        std::fs::write(tmp.path(), "").unwrap();
+        let mut states = HashMap::new();
+
+        process_file_raw(tmp.path(), &mut states).unwrap();
+        process_file_raw(tmp.path(), &mut states).unwrap();
+
+        assert_eq!(states.len(), 1, "state must be reused, not recreated");
+    }
+
+    // ── is_in_backfill_window — boundary table ────────────────────────
+
+    fn now_minus(secs: u64) -> SystemTime {
+        SystemTime::now() - Duration::from_secs(secs)
+    }
+
+    #[test]
+    fn backfill_window_none_accepts_every_file() {
+        // `window = None` is the test/explicit-load case ("load every
+        // JSONL the watcher sees, regardless of age"). Every mtime
+        // qualifies, including ancient files.
+        let now = SystemTime::now();
+        assert!(is_in_backfill_window(None, now_minus(0), now));
+        assert!(is_in_backfill_window(None, now_minus(60), now));
+        assert!(is_in_backfill_window(None, now_minus(86_400 * 365), now));
+    }
+
+    #[test]
+    fn backfill_window_some_accepts_within_bound() {
+        let now = SystemTime::now();
+        let one_hour = Some(Duration::from_secs(3600));
+        // mtime 30 minutes ago is within a 1-hour window
+        assert!(is_in_backfill_window(one_hour, now_minus(1800), now));
+    }
+
+    #[test]
+    fn backfill_window_some_rejects_outside_bound() {
+        let now = SystemTime::now();
+        let one_hour = Some(Duration::from_secs(3600));
+        // mtime 2 hours ago is outside a 1-hour window
+        assert!(!is_in_backfill_window(one_hour, now_minus(7200), now));
+    }
+
+    #[test]
+    fn backfill_window_handles_clock_skew_gracefully() {
+        // mtime in the future (clock skew, file copy preserving mtime
+        // from a faster machine, etc.) — `duration_since` errs, we
+        // fall back to ZERO, and the file is considered in-window
+        // (treated as "newer than now"). Documenting the choice:
+        // safest to include rather than silently drop.
+        let now = SystemTime::now();
+        let future_mtime = now + Duration::from_secs(60);
+        assert!(is_in_backfill_window(Some(Duration::from_secs(3600)), future_mtime, now));
+    }
 }
 
 /// Watch a directory for JSONL file changes and emit CloudEvents.

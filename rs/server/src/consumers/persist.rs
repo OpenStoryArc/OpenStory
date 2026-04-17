@@ -164,4 +164,71 @@ mod tests {
         assert_eq!(result2.persisted, 0);
         assert_eq!(result2.skipped, 1);
     }
+
+    // ── Actor ownership contract tests ────────────────────────────────
+    //
+    // Locks in that PersistConsumer is the single owner of these three
+    // side effects. The sibling tests in server/src/ingest.rs currently
+    // show ingest_events doing two of them in parallel (insert_event +
+    // index_fts) — that's the documented dual-write that's safe via
+    // idempotence but queued for removal when Actor 4 decomposes. JSONL
+    // append was the third and was removed 2026-04-15 because it wasn't
+    // idempotent. See docs/research/architecture-audit/DUAL_WRITE_AUDIT.md.
+
+    #[tokio::test]
+    async fn persist_consumer_owns_jsonl_append() {
+        let (mut consumer, tmp) = make_consumer();
+        let e1 = test_event("evt-persist-jsonl-1");
+        consumer.process_batch("sess-j", &[e1]).await;
+
+        // JSONL file must exist and contain the event. PersistConsumer is
+        // the only writer after the 2026-04-15 fix.
+        let jsonl_path = tmp.path().join("sess-j.jsonl");
+        assert!(jsonl_path.exists(), "PersistConsumer must create the JSONL");
+        let lines: Vec<String> = std::fs::read_to_string(&jsonl_path)
+            .unwrap()
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(lines.len(), 1, "one event → one line");
+        let parsed: serde_json::Value = serde_json::from_str(&lines[0])
+            .expect("PersistConsumer must write valid JSON per line");
+        assert_eq!(parsed["id"].as_str(), Some("evt-persist-jsonl-1"));
+    }
+
+    #[tokio::test]
+    async fn persist_consumer_indexes_fts_for_durable_events() {
+        let (mut consumer, _tmp) = make_consumer();
+        let e1 = test_event("evt-fts-1");
+        consumer.process_batch("sess-fts", &[e1]).await;
+
+        // FTS is shared with ingest_events today (documented dual-write,
+        // idempotent via INSERT OR IGNORE). This test ensures PersistConsumer
+        // fulfils its half of the contract.
+        let results = consumer
+            .event_store
+            .search_fts("test content", 10, None)
+            .await
+            .unwrap();
+        assert!(
+            results.iter().any(|r| r.event_id == "evt-fts-1"),
+            "PersistConsumer must index durable events into FTS5"
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_consumer_inserts_into_event_store() {
+        let (mut consumer, _tmp) = make_consumer();
+        let e1 = test_event("evt-insert-1");
+        let result = consumer.process_batch("sess-ins", &[e1]).await;
+
+        assert_eq!(result.persisted, 1);
+        let events = consumer
+            .event_store
+            .session_events("sess-ins")
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["id"].as_str(), Some("evt-insert-1"));
+    }
 }

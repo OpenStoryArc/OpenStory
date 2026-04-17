@@ -8,7 +8,7 @@ use helpers::{body_json, make_event, send_request, test_state};
 use tempfile::TempDir;
 
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story::server::ingest_events;
+use helpers::seed_and_ingest;
 
 #[tokio::test]
 async fn test_list_sessions_empty() {
@@ -39,12 +39,12 @@ async fn test_list_sessions_with_data() {
             make_event("io.arc.event", "session-a"),
             make_event("io.arc.event", "session-a"),
         ];
-        ingest_events(&mut s, "session-a", &events_a, None).await;
+        seed_and_ingest(&mut s, "session-a", &events_a, None).await;
 
         let events_b = vec![
             make_event("io.arc.event", "session-b"),
         ];
-        ingest_events(&mut s, "session-b", &events_b, None).await;
+        seed_and_ingest(&mut s, "session-b", &events_b, None).await;
     }
 
     let req = Request::get("/api/sessions")
@@ -77,7 +77,7 @@ async fn test_get_events_existing_session() {
         let events: Vec<_> = (0..5)
             .map(|_| make_event("io.arc.event", "sess-events"))
             .collect();
-        ingest_events(&mut s, "sess-events", &events, None).await;
+        seed_and_ingest(&mut s, "sess-events", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-events/events")
@@ -121,7 +121,7 @@ async fn test_get_summary() {
             make_event("io.arc.event", "sess-summary"),
             make_event("io.arc.event", "sess-summary"),
         ];
-        ingest_events(&mut s, "sess-summary", &events, None).await;
+        seed_and_ingest(&mut s, "sess-summary", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-summary/summary")
@@ -161,10 +161,10 @@ async fn test_list_sessions_includes_project_id() {
     {
         let mut s = state.write().await;
         let events = vec![make_event("io.arc.event", "session-with-project")];
-        ingest_events(&mut s, "session-with-project", &events, Some("my-project")).await;
+        seed_and_ingest(&mut s, "session-with-project", &events, Some("my-project")).await;
 
         let events2 = vec![make_event("io.arc.event", "session-no-project")];
-        ingest_events(&mut s, "session-no-project", &events2, None).await;
+        seed_and_ingest(&mut s, "session-no-project", &events2, None).await;
     }
 
     let req = Request::get("/api/sessions")
@@ -196,7 +196,7 @@ async fn test_get_summary_includes_project_id() {
     {
         let mut s = state.write().await;
         let events = vec![make_event("io.arc.event", "sess-proj")];
-        ingest_events(&mut s, "sess-proj", &events, Some("open-story")).await;
+        seed_and_ingest(&mut s, "sess-proj", &events, Some("open-story")).await;
     }
 
     let req = Request::get("/api/sessions/sess-proj/summary")
@@ -280,7 +280,7 @@ async fn test_get_activity() {
             make_rich_event("io.arc.event", "sess-act", Some("message.assistant.tool_use")),
             make_rich_event("io.arc.event", "sess-act", Some("message.assistant.text")),
         ];
-        ingest_events(&mut s, "sess-act", &events, None).await;
+        seed_and_ingest(&mut s, "sess-act", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-act/activity")
@@ -328,7 +328,7 @@ async fn test_get_tools() {
             make_rich_event("io.arc.event", "sess-tools", Some("message.assistant.tool_use")),
             make_rich_event("io.arc.event", "sess-tools", Some("message.assistant.tool_use")),
         ];
-        ingest_events(&mut s, "sess-tools", &events, None).await;
+        seed_and_ingest(&mut s, "sess-tools", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-tools/tools")
@@ -368,7 +368,7 @@ async fn test_get_transcript_no_transcript_path() {
     {
         let mut s = state.write().await;
         let events = vec![make_event("io.arc.event", "sess-no-tr")];
-        ingest_events(&mut s, "sess-no-tr", &events, None).await;
+        seed_and_ingest(&mut s, "sess-no-tr", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-no-tr/transcript")
@@ -444,7 +444,7 @@ async fn test_session_plans_includes_subagent_plans() {
 
         // Ingest a normal event into the parent session
         let parent_event = helpers::make_user_prompt("parent-sess", "evt-parent-1");
-        ingest_events(&mut s, "parent-sess", &[parent_event], None).await;
+        seed_and_ingest(&mut s, "parent-sess", &[parent_event], None).await;
 
         // Ingest an ExitPlanMode event into the subagent session.
         // The event's data.session_id = "parent-sess" (the parent),
@@ -480,7 +480,7 @@ async fn test_session_plans_includes_subagent_plans() {
             None,
             None,
         );
-        ingest_events(&mut s, "agent-sub", &[plan_event], None).await;
+        seed_and_ingest(&mut s, "agent-sub", &[plan_event], None).await;
     }
 
     // Query plans for the PARENT session — should include the subagent's plan
@@ -514,7 +514,7 @@ async fn test_list_sessions_includes_label_branch_and_tokens() {
         let mut s = state.write().await;
         // Use a user prompt event so the projection extracts a label
         let event = helpers::make_user_prompt("sess-fields", "evt-fields-1");
-        ingest_events(&mut s, "sess-fields", &[event], Some("my-project")).await;
+        seed_and_ingest(&mut s, "sess-fields", &[event], Some("my-project")).await;
     }
 
     let req = Request::get("/api/sessions")
@@ -570,7 +570,7 @@ async fn test_list_sessions_returns_wrapped_format() {
     {
         let mut s = state.write().await;
         let events = vec![make_event("io.arc.event", "sess-fmt")];
-        ingest_events(&mut s, "sess-fmt", &events, None).await;
+        seed_and_ingest(&mut s, "sess-fmt", &events, None).await;
     }
 
     let req = Request::get("/api/sessions")
@@ -598,7 +598,7 @@ async fn test_list_sessions_limit() {
         for i in 0..5 {
             let sid = format!("sess-{}", i);
             let events = vec![make_event("io.arc.event", &sid)];
-            ingest_events(&mut s, &sid, &events, None).await;
+            seed_and_ingest(&mut s, &sid, &events, None).await;
         }
     }
 
@@ -624,7 +624,7 @@ async fn test_list_sessions_offset() {
         for i in 0..5 {
             let sid = format!("sess-{}", i);
             let events = vec![make_event("io.arc.event", &sid)];
-            ingest_events(&mut s, &sid, &events, None).await;
+            seed_and_ingest(&mut s, &sid, &events, None).await;
         }
     }
 
@@ -833,7 +833,7 @@ async fn test_delete_session_removes_session() {
             make_event("io.arc.event", "sess-del"),
             make_event("io.arc.event", "sess-del"),
         ];
-        ingest_events(&mut s, "sess-del", &events, None).await;
+        seed_and_ingest(&mut s, "sess-del", &events, None).await;
     }
 
     // DELETE it
@@ -890,7 +890,7 @@ async fn test_export_session_returns_jsonl() {
             make_event("io.arc.event", "sess-exp"),
             make_event("io.arc.event", "sess-exp"),
         ];
-        ingest_events(&mut s, "sess-exp", &events, None).await;
+        seed_and_ingest(&mut s, "sess-exp", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-exp/export")
@@ -933,7 +933,7 @@ async fn test_synopsis_returns_data() {
             helpers::make_tool_use("sess-syn", "evt-syn-2", None, "Read", "cat foo.txt"),
             helpers::make_assistant_text("sess-syn", "evt-syn-3", None, "Here is the file content"),
         ];
-        ingest_events(&mut s, "sess-syn", &events, Some("my-proj")).await;
+        seed_and_ingest(&mut s, "sess-syn", &events, Some("my-proj")).await;
     }
 
     let req = Request::get("/api/sessions/sess-syn/synopsis")
@@ -976,7 +976,7 @@ async fn test_tool_journey_returns_sequence() {
             helpers::make_tool_use("sess-tj", "evt-tj-2", None, "Edit", "edit bar.rs"),
             helpers::make_tool_use("sess-tj", "evt-tj-3", None, "Bash", "cargo test"),
         ];
-        ingest_events(&mut s, "sess-tj", &events, None).await;
+        seed_and_ingest(&mut s, "sess-tj", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-tj/tool-journey")
@@ -1019,7 +1019,7 @@ async fn test_file_impact_returns_data() {
             helpers::make_tool_use("sess-fi", "evt-fi-1", None, "Read", "/src/main.rs"),
             helpers::make_tool_use("sess-fi", "evt-fi-2", None, "Edit", "/src/lib.rs"),
         ];
-        ingest_events(&mut s, "sess-fi", &events, None).await;
+        seed_and_ingest(&mut s, "sess-fi", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-fi/file-impact")
@@ -1062,7 +1062,7 @@ async fn test_errors_returns_error_events() {
             make_error_event("sess-err", "evt-err-2"),
             helpers::make_user_prompt("sess-err", "evt-err-3"),
         ];
-        ingest_events(&mut s, "sess-err", &events, None).await;
+        seed_and_ingest(&mut s, "sess-err", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-err/errors")
@@ -1106,7 +1106,7 @@ async fn test_pulse_returns_aggregation() {
             helpers::make_user_prompt("sess-pulse", "evt-pulse-1"),
             helpers::make_tool_use("sess-pulse", "evt-pulse-2", None, "Read", "cat foo.txt"),
         ];
-        ingest_events(&mut s, "sess-pulse", &events, Some("my-proj")).await;
+        seed_and_ingest(&mut s, "sess-pulse", &events, Some("my-proj")).await;
     }
 
     let req = Request::get("/api/insights/pulse")
@@ -1181,7 +1181,7 @@ async fn test_project_context_returns_sessions() {
             helpers::make_user_prompt("sess-ctx", "evt-ctx-1"),
             helpers::make_tool_use("sess-ctx", "evt-ctx-2", None, "Read", "cat main.rs"),
         ];
-        ingest_events(&mut s, "sess-ctx", &events, Some("my-proj")).await;
+        seed_and_ingest(&mut s, "sess-ctx", &events, Some("my-proj")).await;
     }
 
     let req = Request::get("/api/agent/project-context?project=my-proj")
@@ -1224,7 +1224,7 @@ async fn test_recent_files_returns_modified_files() {
             helpers::make_tool_use("sess-rf", "evt-rf-1", None, "Edit", "/src/main.rs"),
             helpers::make_tool_use("sess-rf", "evt-rf-2", None, "Write", "/src/lib.rs"),
         ];
-        ingest_events(&mut s, "sess-rf", &events, Some("my-proj")).await;
+        seed_and_ingest(&mut s, "sess-rf", &events, Some("my-proj")).await;
     }
 
     let req = Request::get("/api/agent/recent-files?project=my-proj")
@@ -1285,7 +1285,7 @@ async fn test_meta_returns_projection_data() {
             helpers::make_tool_use("sess-meta", "evt-meta-2", None, "Read", "cat foo.txt"),
             helpers::make_assistant_text("sess-meta", "evt-meta-3", None, "done"),
         ];
-        ingest_events(&mut s, "sess-meta", &events, None).await;
+        seed_and_ingest(&mut s, "sess-meta", &events, None).await;
     }
 
     let req = Request::get("/api/sessions/sess-meta/meta")

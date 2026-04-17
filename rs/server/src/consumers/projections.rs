@@ -70,19 +70,13 @@ impl ProjectionsConsumer {
         for ce in events {
             let Ok(val) = serde_json::to_value(ce) else { continue };
 
-            // Track subagent → parent relationship
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != session_id && !self.subagent_parents.contains_key(session_id) {
-                    self.subagent_parents.insert(session_id.to_string(), data_sid.to_string());
-                    self.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(session_id.to_string());
-                }
-            }
+            // Track subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                &val,
+                session_id,
+                &mut self.subagent_parents,
+                &mut self.session_children,
+            );
 
             // Update projection
             let proj = self.projections
@@ -170,5 +164,61 @@ mod tests {
         consumer.process_batch("sess-2", &[make_event("sess-2", "message.user.prompt")]);
         assert!(consumer.projection("sess-1").is_some());
         assert!(consumer.projection("sess-2").is_some());
+    }
+
+    // ── Dead-state characterization (architecture audit) ──────────────
+    //
+    // ProjectionsConsumer builds its own SessionProjection on the NATS
+    // subscription. Nothing in the live server reads from it — all
+    // downstream consumers (wire-record enrichment, label/branch
+    // lookups, session metadata endpoints) read from `state.store.
+    // projections`, which is mutated by ingest_events on Actor 4's
+    // path. So this consumer's state is dead work today.
+    //
+    // The T5 backlog entry "Wire ↔ Projection Sync When Decomposing
+    // Broadcast" and the "Decompose Actor 4" entry both depend on
+    // changing this. These tests lock in today's isolation so the
+    // swap is a visible change.
+
+    #[test]
+    fn consumer_state_is_isolated_from_external_projection_map() {
+        // ProjectionsConsumer has no API to accept or sync a foreign
+        // projection map. Only its own internal state exists. If this
+        // test ever needs to assert a bridge/sync method, that's the
+        // signal that the decomposition is landing and T5 barriers
+        // must go in place.
+        let mut consumer = ProjectionsConsumer::new();
+        consumer.process_batch("sess-x", &[make_event("sess-x", "message.user.prompt")]);
+
+        // Sanity: no public methods named sync_with, bridge_to, etc.
+        // The consumer's only outputs are projection() / all_projections() /
+        // parent_session() / children() — all read-only accessors from
+        // its own state. Nothing accepts an external store.
+        assert!(consumer.projection("sess-x").is_some());
+        assert_eq!(consumer.all_projections().len(), 1);
+    }
+
+    #[test]
+    fn processing_the_same_event_twice_is_deduped_internally_by_seen_ids() {
+        // CORRECTED from an initial wrong assumption: SessionProjection::
+        // append does dedup via its own `seen_ids: HashSet<String>` — see
+        // rs/store/src/projection.rs:220. So this consumer is internally
+        // robust to double-delivery (NATS at-least-once is fine).
+        //
+        // The dead-state concern is therefore NOT "the consumer would
+        // drift if re-delivered" — it's simply that its accurate
+        // in-memory projection is never read by any caller today. The
+        // decomposition work needs to make it read, not make it correct.
+        let mut consumer = ProjectionsConsumer::new();
+        let ev = make_event("sess-dup", "message.user.prompt");
+        consumer.process_batch("sess-dup", &[ev.clone()]);
+        consumer.process_batch("sess-dup", &[ev]);
+
+        let proj = consumer.projection("sess-dup").unwrap();
+        assert_eq!(
+            proj.event_count(),
+            1,
+            "SessionProjection.seen_ids dedups double-delivery internally"
+        );
     }
 }

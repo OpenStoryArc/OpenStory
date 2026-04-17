@@ -97,6 +97,7 @@ pub async fn list_sessions(
             "session_id": sid,
             "status": status,
             "start_time": row.first_event,
+            "last_event": row.last_event,
             "event_count": row.event_count,
             "project_id": project_id.or(row.project_id.as_ref()),
             "project_name": project_name.or(row.project_name.as_ref()),
@@ -941,7 +942,10 @@ pub async fn search_events(
         }
     };
 
-    log_event("api", &format!("GET /api/search?q={}", &q[..q.len().min(50)]));
+    log_event(
+        "api",
+        &format!("GET /api/search?q={}", crate::logging::truncate_at_char_boundary(&q, 50)),
+    );
 
     let s = state.read().await;
     let results = s.store.event_store

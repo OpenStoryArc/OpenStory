@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 /// Server role — determines which subsystems start.
 ///
 /// - `Full`: watcher + consumer + API (default, current behavior)
-/// - `Publisher`: watcher + hooks server, publishes to NATS, no local store
+/// - `Publisher`: watcher only — publishes events to NATS, no local store
+///   or API. (Pre-2026-04 this also exposed a `/hooks` HTTP endpoint;
+///   that's been retired — only `/health` remains on this role.)
 /// - `Consumer`: subscribes from NATS, runs ingest + API, no watcher
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]

@@ -345,6 +345,57 @@ fn decompose_assistant(
         ));
     }
 
+    // Synthetic turn boundary.
+    //
+    // Pi-mono never emits `system.turn.complete` natively. Without it,
+    // the eval-apply state machine in `open-story-patterns` can't
+    // crystallize a `StructuralTurn` from pi-mono events, so the
+    // sentence detector never fires and pi-mono sessions get NO
+    // narrated story in the UI.
+    //
+    // Pi-mono's `message.stopReason` is the matching signal — across
+    // every captured fixture it's exactly `"stop"` (turn ended, nothing
+    // more coming until the user prompts again) or `"toolUse"` (more
+    // assistant content coming after the tool result). We synthesize a
+    // turn.complete event after the last decomposed block iff
+    // stopReason == "stop", which mirrors when Claude Code's Stop hook
+    // fires.
+    //
+    // Surfaced by the recursion test in
+    // `rs/tests/test_principle_recursive_observability.rs`.
+    if stop_reason.as_deref() == Some("stop") && !events.is_empty() {
+        let mut p = PiMonoPayload::new();
+        apply_pi_envelope(&mut p, line);
+        p.model = model.clone();
+        p.stop_reason = Some("stop".to_string());
+
+        let derived_id = derive_block_event_id(
+            &state.session_id,
+            eid_str,
+            content.len(), // index past the last block
+            "system.turn.complete",
+        );
+
+        let data = EventData::with_payload(
+            line.clone(),
+            state.next_seq(),
+            state.session_id.clone(),
+            AgentPayload::PiMono(p),
+        );
+
+        events.push(CloudEvent::new(
+            source.to_string(),
+            IO_ARC_EVENT.to_string(),
+            data,
+            Some("system.turn.complete".to_string()),
+            Some(derived_id),
+            timestamp.clone(),
+            None,
+            None,
+            Some("pi-mono".to_string()),
+        ));
+    }
+
     events
 }
 
@@ -619,11 +670,20 @@ mod tests {
         for (desc, input, expected_subtype) in cases {
             let mut s = state();
             let events = translate_pi_line(&input, &mut s);
-            assert_eq!(events.len(), 1, "{desc}: expected 1 event");
+            // The boundary table is testing PRIMARY subtype dispatch.
+            // Assistant messages with stopReason="stop" also emit a
+            // synthetic system.turn.complete (post-decomposition) — that
+            // behavior is exercised in the decomposition tests below.
+            // Here we just assert the FIRST event has the expected
+            // primary subtype.
+            assert!(
+                !events.is_empty(),
+                "{desc}: expected at least 1 event, got 0"
+            );
             assert_eq!(
                 events[0].subtype.as_deref(),
                 Some(expected_subtype),
-                "{desc}: wrong subtype"
+                "{desc}: wrong primary subtype"
             );
             assert_eq!(events[0].event_type, IO_ARC_EVENT, "{desc}: wrong event type");
             assert!(
@@ -997,8 +1057,11 @@ mod tests {
     // multiple content blocks → multiple CloudEvents.
 
     #[test]
-    fn test_decompose_thinking_text_produces_two_events() {
-        // [thinking, text] → 2 CloudEvents
+    fn test_decompose_thinking_text_produces_two_events_plus_turn_complete() {
+        // [thinking, text] with stopReason="stop" → 2 decomposed events
+        // + 1 synthetic system.turn.complete (so eval-apply gets a turn
+        // boundary). The synthetic event is the recursion-test fix —
+        // pi-mono never emits turn.complete natively.
         let line = json!({
             "type": "message", "id": "dec-01",
             "timestamp": "2025-01-01T00:00:00Z",
@@ -1015,9 +1078,10 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events.len(), 2, "thinking+text should produce 2 events");
+        assert_eq!(events.len(), 3, "thinking+text+stop → 2 decomposed + 1 synthetic turn.complete");
         assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
         assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.text"));
+        assert_eq!(events[2].subtype.as_deref(), Some("system.turn.complete"));
     }
 
     #[test]
@@ -1073,8 +1137,10 @@ mod tests {
     }
 
     #[test]
-    fn test_decompose_single_text_still_one_event() {
-        // [text] → 1 CloudEvent (no regression)
+    fn test_decompose_single_text_with_stop_produces_text_plus_turn_complete() {
+        // [text] with stopReason="stop" → 1 decomposed event + 1 synthetic
+        // turn.complete. The decomposed text passes through unchanged;
+        // the synthetic event closes the turn for eval-apply.
         let line = json!({
             "type": "message", "id": "dec-04",
             "timestamp": "2025-01-01T00:00:00Z",
@@ -1087,8 +1153,9 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events.len(), 1, "single text should still produce 1 event");
+        assert_eq!(events.len(), 2, "text+stop → 1 decomposed + 1 synthetic turn.complete");
         assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.text"));
+        assert_eq!(events[1].subtype.as_deref(), Some("system.turn.complete"));
     }
 
     #[test]
@@ -1221,6 +1288,73 @@ mod tests {
         assert_eq!(pm2.token_usage.as_ref().unwrap()["input"], 100);
     }
 
+    // ── Synthetic turn.complete tests (recursion principle fix) ──
+    //
+    // Pi-mono never emits system.turn.complete. The decomposer
+    // synthesizes one when stopReason="stop" so eval-apply can
+    // crystallize a StructuralTurn and SentenceDetector can render
+    // a turn.sentence. See docs/research/architecture-audit/PRINCIPLES.md
+    // and rs/tests/test_principle_recursive_observability.rs.
+
+    #[test]
+    fn test_synthetic_turn_complete_only_when_stop_reason_is_stop() {
+        // stopReason="toolUse" → assistant called a tool, more LLM
+        // round trips coming. Turn continues. NO synthetic turn.complete.
+        let line = json!({
+            "type": "message", "id": "syn-tool",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 1, "toolUse → no synthetic turn.complete");
+        assert_ne!(
+            events.last().unwrap().subtype.as_deref(),
+            Some("system.turn.complete"),
+            "toolUse must NOT emit turn.complete"
+        );
+    }
+
+    #[test]
+    fn test_synthetic_turn_complete_carries_pi_mono_agent_and_raw() {
+        // The synthetic event must look like a real pi-mono CloudEvent:
+        // - agent = "pi-mono"
+        // - data.raw = same as the bundle (sovereignty: raw preserved)
+        // - data.agent_payload.stop_reason = "stop"
+        // - unique deterministic id derived from session+entry+index+subtype
+        let line = json!({
+            "type": "message", "id": "syn-stop",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "done"}],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let tc = events.last().expect("at least one event");
+        assert_eq!(tc.subtype.as_deref(), Some("system.turn.complete"));
+        assert_eq!(tc.agent.as_deref(), Some("pi-mono"));
+        // Raw preserved
+        let raw_str = serde_json::to_string(&tc.data.raw).unwrap();
+        assert!(raw_str.contains("\"stopReason\":\"stop\""), "synthetic event preserves bundled raw");
+        // Stop reason on the typed payload
+        let pm = pi_payload(tc);
+        assert_eq!(pm.stop_reason.as_deref(), Some("stop"));
+        // ID is unique vs the decomposed text event
+        assert_ne!(events[0].id, events[1].id, "synthetic event has its own id");
+    }
+
     #[test]
     fn test_decompose_dedup_skips_entire_line() {
         // If a line's entry id is already seen, ALL decomposed events are skipped
@@ -1241,7 +1375,8 @@ mod tests {
         let mut s = state();
         let first = translate_pi_line(&line, &mut s);
         let second = translate_pi_line(&line, &mut s);
-        assert_eq!(first.len(), 2, "first should produce 2 decomposed events");
+        // 2 decomposed (thinking, text) + 1 synthetic turn.complete (stopReason="stop") = 3
+        assert_eq!(first.len(), 3, "first should produce 2 decomposed + 1 turn.complete");
         assert_eq!(second.len(), 0, "duplicate should produce 0 events");
     }
 

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bus", "cli", "core", "patterns", "server", "store", "views"]
+members = [".", "bus", "cli", "core", "patterns", "schemas", "server", "store", "views"]
 
 [package]
 name = "open-story"

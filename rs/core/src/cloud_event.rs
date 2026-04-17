@@ -1,12 +1,13 @@
 //! CloudEvents 1.0 compliant struct and builder.
 
 use chrono::Utc;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::event_data::EventData;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CloudEvent {
     pub specversion: String,
     pub id: String,

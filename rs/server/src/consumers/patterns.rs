@@ -66,9 +66,11 @@ impl PatternsConsumer {
         let mut all_turns = Vec::new();
 
         for ce in events {
-            // Skip ephemeral events (progress, hooks)
+            // Skip events that don't contribute to the eval-apply turn shape
+            // (progress, hooks, queue lifecycle, file snapshots). See the
+            // predicate's doc comment for why each is excluded.
             let subtype = ce.subtype.as_deref().unwrap_or("");
-            if is_ephemeral(subtype) {
+            if should_skip_pattern_detection(subtype) {
                 continue;
             }
 
@@ -122,21 +124,26 @@ impl PatternsConsumer {
     }
 }
 
-/// Check if a subtype is ephemeral (not fed to pattern detection).
+/// True for subtypes that must not feed the eval-apply pattern detector.
 ///
-/// Ephemeral events are observation metadata that don't represent agent
-/// reasoning or action — the eval_apply detector should never see them
-/// because (a) they don't contribute to the structural turn shape and
-/// (b) some of them lack a stable `event.time`, which would corrupt
-/// `start_ts` if they were picked as the first event of a turn.
+/// This is NOT the same concept as `projection::is_ephemeral` or
+/// `Subtype::is_ephemeral`, which both mean "not stored durably" and
+/// cover only `progress.*`. This predicate is broader — it also filters
+/// metadata events that are durable but do not contribute to the
+/// structural turn shape, plus events that lack a stable `event.time`.
 ///
-/// `file.snapshot` is the load-bearing one: file snapshots arrive as
-/// metadata before/around tool calls and have no timestamp from the
-/// source JSONL. Before this filter was added, they were stamping
-/// turn `start_ts` with wall-clock-at-detection-time, causing every
-/// boot replay to emit a fresh sentence row for the same logical turn
-/// (the H2 case in scripts/inspect_sentence_dedup.py — 1.50× ratio).
-fn is_ephemeral(subtype: &str) -> bool {
+/// The axes diverged enough that sharing the name `is_ephemeral`
+/// invited silent drift — see
+/// `docs/research/architecture-audit/IS_EPHEMERAL_DIVERGENCE.md`.
+/// Renamed 2026-04-15.
+///
+/// `file.snapshot` is the load-bearing member: file snapshots arrive
+/// as metadata before/around tool calls and have no timestamp from the
+/// source JSONL. Before this filter was added they were stamping turn
+/// `start_ts` with wall-clock-at-detection-time, causing every boot
+/// replay to emit a fresh sentence row for the same logical turn (the
+/// H2 case in scripts/inspect_sentence_dedup.py — 1.50× ratio).
+fn should_skip_pattern_detection(subtype: &str) -> bool {
     subtype.starts_with("progress.")
         || subtype == "system.hook"
         || subtype == "queue.enqueue"
@@ -211,5 +218,38 @@ mod tests {
         // Each session has its own pipeline
         assert!(consumer.pipelines.contains_key("sess-1"));
         assert!(consumer.pipelines.contains_key("sess-2"));
+    }
+
+    // ── Audit: divergence from Subtype::is_ephemeral ──────────────────
+    // See docs/research/architecture-audit/IS_EPHEMERAL_DIVERGENCE.md.
+    // This test locks in the intentional mismatch: the pattern-detection
+    // filter is broader than the "not durably stored" predicate because
+    // it also excludes events that ARE stored but shouldn't feed
+    // eval-apply. If the two ever converge, this test is where to
+    // read WHY they differed and decide whether convergence is safe.
+
+    #[test]
+    fn pattern_detection_filter_is_broader_than_subtype_is_ephemeral() {
+        use open_story_core::subtype::Subtype;
+        use std::str::FromStr;
+
+        // Subtype::is_ephemeral covers only progress.*
+        assert!(Subtype::from_str("progress.bash").unwrap().is_ephemeral());
+        assert!(!Subtype::from_str("file.snapshot").unwrap().is_ephemeral());
+        assert!(!Subtype::from_str("queue.remove").unwrap().is_ephemeral());
+        assert!(!Subtype::from_str("system.hook").unwrap().is_ephemeral());
+
+        // This predicate is broader.
+        assert!(should_skip_pattern_detection("progress.bash"));
+        assert!(should_skip_pattern_detection("file.snapshot"));
+        assert!(should_skip_pattern_detection("queue.remove"));
+        assert!(should_skip_pattern_detection("queue.popAll"));
+        assert!(should_skip_pattern_detection("system.hook"));
+
+        // And narrower too — user prompts and assistant messages pass
+        // through here, then do their real lifting in eval-apply.
+        assert!(!should_skip_pattern_detection("message.user.prompt"));
+        assert!(!should_skip_pattern_detection("message.assistant.text"));
+        assert!(!should_skip_pattern_detection("message.assistant.tool_use"));
     }
 }
