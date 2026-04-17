@@ -30,9 +30,26 @@ static ENVELOPE_VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
 
 fn envelope_schema() -> &'static jsonschema::Validator {
     ENVELOPE_VALIDATOR.get_or_init(|| {
-        let schema_str = include_str!("../../../schemas/cloud_event_envelope.schema.json");
-        let schema: Value = serde_json::from_str(schema_str)
-            .expect("parse envelope schema");
+        // Inlined because the Docker build context is rs/ and the schema
+        // files live at the repo root. The canonical copy is at
+        // schemas/cloud_event_envelope.schema.json — keep in sync.
+        let schema = serde_json::json!({
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "required": ["id", "type", "time", "data"],
+            "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "type": { "type": "string" },
+                "time": { "type": "string" },
+                "data": {
+                    "type": "object",
+                    "required": ["raw"],
+                    "properties": {
+                        "raw": { "type": "object" }
+                    }
+                }
+            }
+        });
         jsonschema::validator_for(&schema)
             .expect("compile envelope schema")
     })

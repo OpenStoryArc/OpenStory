@@ -72,13 +72,20 @@ async fn start_compose_stack() -> (DockerCompose, u16) {
 }
 
 /// Wait for at least one session to appear.
+/// Handles both `[...]` and `{"sessions": [...]}` response shapes.
 async fn wait_for_sessions(port: u16) {
     let url = format!("http://localhost:{port}/api/sessions");
     for _ in 0..30 {
         if let Ok(resp) = reqwest::get(&url).await {
-            if let Ok(sessions) = resp.json::<Vec<Value>>().await {
-                if !sessions.is_empty() {
-                    return;
+            if let Ok(body) = resp.json::<Value>().await {
+                let sessions = body
+                    .get("sessions")
+                    .and_then(|v| v.as_array())
+                    .or_else(|| body.as_array());
+                if let Some(arr) = sessions {
+                    if !arr.is_empty() {
+                        return;
+                    }
                 }
             }
         }
@@ -117,12 +124,15 @@ async fn compose_sessions_load_via_nats_bus() {
 
     wait_for_sessions(port).await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("http://localhost:{port}/api/sessions"))
+    let body: Value = reqwest::get(format!("http://localhost:{port}/api/sessions"))
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
+    let sessions = body.get("sessions").and_then(|v| v.as_array())
+        .or_else(|| body.as_array())
+        .expect("sessions array");
 
     assert!(
         !sessions.is_empty(),
@@ -137,12 +147,15 @@ async fn compose_view_records_via_nats_bus() {
 
     wait_for_sessions(port).await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("http://localhost:{port}/api/sessions"))
+    let body: Value = reqwest::get(format!("http://localhost:{port}/api/sessions"))
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
+    let sessions = body.get("sessions").and_then(|v| v.as_array())
+        .or_else(|| body.as_array())
+        .expect("sessions array");
 
     assert!(!sessions.is_empty(), "no sessions loaded");
 
