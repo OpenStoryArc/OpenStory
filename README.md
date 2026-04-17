@@ -74,6 +74,8 @@ inside the EVAL phase below:
 
 Open Story is a mirror, not a leash. It observes but never interferes — it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours: CloudEvents 1.0, JSONL, Markdown. Open formats, portable, unencumbered.
 
+**The sovereignty escape hatch:** regardless of which backend you choose (SQLite or MongoDB), every event is always appended to a per-session JSONL file in `data/`. Your data is always `grep`-able from outside the database, always portable, never locked in.
+
 See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, and patterns we've learned building this system.
 
 ## How it works
@@ -245,6 +247,35 @@ OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions just up
 
 Both watchers run simultaneously — sessions from all configured coding agents appear in the same dashboard. Format detection is automatic (per-file, based on the first JSONL line). Each event carries an `agent` field identifying its source.
 
+### Watch Hermes sessions (optional)
+
+```bash
+OPEN_STORY_HERMES_WATCH_DIR=/path/to/hermes/sessions just up
+# Or add to data/config.toml:
+# hermes_watch_dir = "/path/to/hermes/sessions"
+```
+
+### MongoDB backend (optional)
+
+SQLite is the default. For distributed or high-volume deployments, switch to MongoDB:
+
+```bash
+# Build with mongo support
+cd rs && cargo build --release -p open-story-cli --features mongo
+
+# Configure
+export OPEN_STORY_DATA_BACKEND=mongo
+export OPEN_STORY_MONGO_URI=mongodb://localhost:27017
+export OPEN_STORY_MONGO_DB=openstory
+
+# Or add to data/config.toml:
+# data_backend = "mongo"
+# mongo_uri = "mongodb://localhost:27017"
+# mongo_db = "openstory"
+```
+
+Both backends implement the same `EventStore` trait — the conformance suite (94 tests) runs against both.
+
 ### With Docker/Podman
 
 Run the full stack (server + UI + NATS) in containers:
@@ -357,6 +388,9 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | GET | `/api/plans` | List all plans |
 | GET | `/api/plans/{id}` | Get a specific plan |
 | GET | `/api/tool-schemas` | Tool schema definitions |
+| GET | `/api/sessions/{id}/turns` | Eval-apply structural turns |
+| GET | `/api/insights/token-usage` | Token usage summary across sessions |
+| GET | `/api/insights/token-usage/daily` | Daily token usage trends |
 | GET | `/api/search?q=` | Semantic search over events |
 | GET | `/api/agent/search?q=` | Session-grouped semantic search (agentic) |
 | GET | `/api/agent/tools` | Agent tool definitions (MCP-style) |
@@ -473,6 +507,11 @@ Run `just` to see all available commands. Key ones:
 | `just test-rs` | Run Rust tests only |
 | `just test-ui` | Run UI tests only |
 | `just e2e` | Run Playwright E2E tests |
+| `just docker-build` | Build the test Docker image |
+| `just test-container` | Run container integration tests |
+| `just test-compose` | Run compose tests (full NATS bus path) |
+| `just observe` | Start full stack + Prometheus + Grafana |
+| `just mongo` | Start MongoDB container |
 | `just explore` | Launch Jupyter notebook for data exploration |
 | `just events` | Live event viewer (pretty-print event log) |
 
