@@ -4,6 +4,8 @@
 //   from_cloud_event(&CloudEvent) — typed access, preferred
 //   from_cloud_event_value(&Value) — for stored JSON (deserializes and delegates)
 
+use std::sync::OnceLock;
+
 use serde_json::Value;
 
 use open_story_core::cloud_event::CloudEvent;
@@ -12,6 +14,84 @@ use open_story_core::event_data::AgentPayload;
 use crate::tool_input;
 use crate::unified::*;
 use crate::view_record::ViewRecord;
+
+// ── Envelope schema — compiled once, cached forever ────────────────────
+//
+// The minimum viable CloudEvent contract: id + type + time + data.raw.
+// Used by from_cloud_event_value to classify events that can't fully
+// deserialize as typed CloudEvent structs. Events passing the envelope
+// get a SystemEvent passthrough (Tier B); events failing it are truly
+// broken (Tier C).
+//
+// include_str! embeds the schema at compile time — no filesystem access,
+// no file-not-found. OnceLock compiles the validator on first use.
+
+static ENVELOPE_VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
+
+fn envelope_schema() -> &'static jsonschema::Validator {
+    ENVELOPE_VALIDATOR.get_or_init(|| {
+        let schema_str = include_str!("../../../schemas/cloud_event_envelope.schema.json");
+        let schema: Value = serde_json::from_str(schema_str)
+            .expect("parse envelope schema");
+        jsonschema::validator_for(&schema)
+            .expect("compile envelope schema")
+    })
+}
+
+/// Transform a raw JSON Value into ViewRecords, using schema-based
+/// classification when typed deserialization fails.
+///
+/// This is the fuzzy-pipe entry point for stored/received JSON:
+///   - Tier A: deserializes as typed CloudEvent → full enrichment via from_cloud_event
+///   - Tier B: fails deserialization, passes envelope schema → SystemEvent passthrough
+///   - Tier C: fails envelope → truly broken, empty
+pub fn from_cloud_event_value(event_json: &Value) -> Vec<ViewRecord> {
+    match serde_json::from_value::<CloudEvent>(event_json.clone()) {
+        Ok(ce) => from_cloud_event(&ce),
+        Err(_) => {
+            if envelope_schema().is_valid(event_json) {
+                // Tier B: valid envelope but can't fully type.
+                // Produce a passthrough record carrying the subtype + raw.
+                let id = event_json.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let time = event_json.get("time")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let subtype = event_json.get("subtype")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let session_id = event_json.pointer("/data/session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let seq = event_json.pointer("/data/seq")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+
+                vec![ViewRecord {
+                    id,
+                    seq,
+                    session_id,
+                    timestamp: time,
+                    agent_id: None,
+                    is_sidechain: false,
+                    body: RecordBody::SystemEvent(SystemEvent {
+                        subtype,
+                        message: Some("event passed envelope validation but could not be fully typed".to_string()),
+                        duration_ms: None,
+                    }),
+                }]
+            } else {
+                // Tier C: below the sovereignty floor.
+                vec![]
+            }
+        }
+    }
+}
 
 /// Normalize legacy CloudEvent type+subtype to unified hierarchical subtype.
 ///
