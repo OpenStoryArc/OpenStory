@@ -184,9 +184,20 @@ See `docker-compose.openclaw.yml` for full setup including API key configuration
 Requires:
 - [Rust](https://rustup.rs/) (stable, edition 2021)
 - [Node.js](https://nodejs.org/) 20+
-- [NATS Server](https://nats.io/) — `brew install nats-server` (event bus, hard dependency)
+- [NATS Server](https://nats.io/) — `brew install nats-server` (event bus — strongly preferred, see below)
 - [just](https://github.com/casey/just) — command runner (recommended)
 - [Docker](https://docker.com/) or [Podman](https://podman.io/) — for E2E/container tests only
+
+> **Why NATS is strongly preferred.** Open Story is a *reactive* system: four
+> independent actor-consumers (persist, patterns, projections, broadcast) each
+> own one responsibility and subscribe to the same `events.>` stream. That
+> decomposition is what makes the dashboard feel live, what lets pattern
+> detection run unblocked while persistence is slow, and what gives you
+> JetStream replay on restart. Without NATS, Open Story falls back to a
+> single inline pipeline suitable for a quick demo — it still works, but
+> the reactive actor model is collapsed into one synchronous path and you
+> lose durable replay, distributed deployments, and the clean boundaries
+> that make the system auditable.
 
 ### With `openstory` command
 
