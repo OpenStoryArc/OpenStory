@@ -163,6 +163,23 @@ async fn compose_view_records_via_nats_bus() {
         .as_str()
         .expect("session_id should be a string");
 
+    // The session row appears via the projection consumer before events are
+    // flushed by PersistConsumer. Poll /events to cross that gap.
+    let events_url = format!("http://localhost:{port}/api/sessions/{session_id}/events");
+    let mut have_events = false;
+    for _ in 0..60 {
+        if let Ok(resp) = reqwest::get(&events_url).await {
+            if let Ok(events) = resp.json::<Vec<Value>>().await {
+                if !events.is_empty() {
+                    have_events = true;
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(have_events, "events never arrived for session {session_id}");
+
     let records: Vec<Value> = reqwest::get(format!(
         "http://localhost:{port}/api/sessions/{session_id}/view-records"
     ))
