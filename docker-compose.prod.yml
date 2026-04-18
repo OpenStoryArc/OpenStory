@@ -6,6 +6,7 @@
 # Prerequisites:
 #   docker build -f Dockerfile.prod -t open-story:prod .
 #   docker build -t openclaw:latest ~/projects/openclaw
+#   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 #
 # Create a .env file with:
 #   ANTHROPIC_API_KEY=sk-ant-...
@@ -13,12 +14,32 @@
 #   TELEGRAM_BOT_TOKEN=<from-botfather>
 #   TELEGRAM_ALLOWED_USER_ID=<your-telegram-user-id>
 #
+# Also set for NATS leaf node auth:
+#   NATS_LEAF_TOKEN=<openssl rand -hex 24>
+#   TAILSCALE_IP=<your Tailscale IP, e.g. 100.x.y.z>
+#
 # Start:
 #   docker compose -f docker-compose.prod.yml up -d
 
 services:
+  nats:
+    image: nats:2-alpine
+    command: ["-c", "/etc/nats/nats-hub.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+      - "${TAILSCALE_IP:-0.0.0.0}:7422:7422"
+    volumes:
+      - nats-data:/data
+      - ./deploy/nats-hub.conf:/etc/nats/nats-hub.conf:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
   openclaw:
-    image: openclaw:latest
+    image: openclaw-mcp:latest
     user: "0:0"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -35,8 +56,11 @@ services:
       - "-c"
       - |
         mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
+        # Install OpenStory skill into the workspace so the agent knows the tools exist.
+        mkdir -p /home/node/.openclaw/workspace/.claude/skills/openstory
+        cp /opt/mcp-server/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]}}
+        {"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"agents":{"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
         OCEOF
         exec node openclaw.mjs gateway --bind lan --port 18789 --allow-unconfigured
     healthcheck:
@@ -66,6 +90,7 @@ services:
       - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
       - OPEN_STORY_METRICS_ENABLED=true
       - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
+      - NATS_URL=nats://${NATS_LEAF_TOKEN}@nats:4222
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
       interval: 10s
@@ -75,6 +100,8 @@ services:
     depends_on:
       openclaw:
         condition: service_healthy
+      nats:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -100,6 +127,7 @@ services:
           memory: 256M
 
 volumes:
+  nats-data:
   os-data:
   openclaw-state:
   openclaw-workspace:

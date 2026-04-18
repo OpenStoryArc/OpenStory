@@ -42,9 +42,10 @@ impl OpenStoryContainer {
         for _ in 0..40 {
             if let Ok(resp) = reqwest::get(&url).await {
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
-                    // API returns either {"sessions": [...]} or [...] depending on version
-                    let sessions = body.get("sessions")
-                        .and_then(|v| v.as_array())
+                    // Handle both `[...]` and `{ sessions: [...] }` response shapes
+                    let sessions = body
+                        .get("sessions")
+                        .and_then(|s| s.as_array())
                         .or_else(|| body.as_array());
                     if let Some(arr) = sessions {
                         if !arr.is_empty() {
