@@ -128,6 +128,31 @@ pub async fn ingest_events(
                 continue;
             }
 
+            // Demo-mode persistence: when no event bus is active, the
+            // actor-consumers (persist, patterns, projections, broadcast)
+            // are never spawned — there is no one to deliver events to.
+            // Persist inline so `/api/sessions/{id}/events` and FTS still
+            // work. Under NATS, PersistConsumer owns these writes and
+            // this block is skipped to keep the actor decomposition clean.
+            if !state.bus.is_active() {
+                let _ = state
+                    .store
+                    .event_store
+                    .insert_event(session_id, &val)
+                    .await;
+                let _ = state.store.session_store.append(session_id, &val);
+                for vr in from_cloud_event(ce).iter() {
+                    if let Some(text) = open_story_store::extract::extract_text(vr) {
+                        let rt = open_story_store::extract::record_type_str(&vr.body);
+                        let _ = state
+                            .store
+                            .event_store
+                            .index_fts(&vr.id, session_id, rt, &text)
+                            .await;
+                    }
+                }
+            }
+
             // Plan extraction
             if is_plan_event(&val) {
                 let plan_content = extract_plan_content(&val).or_else(|| {
