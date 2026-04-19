@@ -21,7 +21,7 @@ use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
 use open_story_views::view_record::ViewRecord;
 use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
-use open_story_store::projection::SessionProjection;
+use open_story_store::projection::{is_ephemeral, SessionProjection};
 
 use crate::broadcast::BroadcastMessage;
 use open_story_store::ingest::to_wire_record;
@@ -99,6 +99,93 @@ impl BroadcastConsumer {
             .get(session_id)
             .and_then(|m| m.get(event_id))
             .map(|s| s.as_str())
+    }
+
+    /// Full BFF pipeline: CloudEvents → BroadcastMessages for WebSocket.
+    ///
+    /// Mirrors the broadcast-assembly half of `ingest_events` (the function
+    /// that commit 1.6 will delete). Works against a pre-updated projection
+    /// — the caller is expected to run `projection.append(event)` for each
+    /// event first (ProjectionsConsumer does this in the NATS path).
+    ///
+    /// `project_id` / `project_name` come from the enclosing `AppState`'s
+    /// project-resolution maps; pass `None` when unknown.
+    ///
+    /// Returns one `BroadcastMessage::Enriched` per event that produced
+    /// ViewRecords. Events that produce nothing (empty view_records, no
+    /// filter deltas) are skipped — same as ingest_events.
+    pub fn process_batch(
+        &mut self,
+        session_id: &str,
+        events: &[CloudEvent],
+        projection: &SessionProjection,
+        project_id: Option<String>,
+        project_name: Option<String>,
+    ) -> Vec<BroadcastMessage> {
+        let mut messages = Vec::new();
+
+        for ce in events {
+            let Ok(val) = serde_json::to_value(ce) else { continue };
+
+            let view_records = from_cloud_event(ce);
+
+            // Capture full payloads for truncated records (lazy-load cache).
+            for vr in &view_records {
+                if let RecordBody::ToolResult(tr) = &vr.body {
+                    if let Some(output) = &tr.output {
+                        if output.len() > TRUNCATION_THRESHOLD {
+                            self.full_payloads
+                                .entry(session_id.to_string())
+                                .or_default()
+                                .insert(vr.id.clone(), output.clone());
+                        }
+                    }
+                }
+            }
+
+            if view_records.is_empty() {
+                continue;
+            }
+
+            let subtype = val.get("subtype").and_then(|v| v.as_str());
+            let eph = is_ephemeral(subtype);
+
+            if eph {
+                messages.push(BroadcastMessage::Enriched {
+                    session_id: session_id.to_string(),
+                    records: Vec::new(),
+                    ephemeral: view_records,
+                    filter_deltas: HashMap::new(),
+                    patterns: Vec::new(),
+                    project_id: project_id.clone(),
+                    project_name: project_name.clone(),
+                    session_label: None,
+                    session_branch: None,
+                    total_input_tokens: None,
+                    total_output_tokens: None,
+                });
+            } else {
+                let wire_records: Vec<WireRecord> = view_records
+                    .iter()
+                    .map(|vr| to_wire_record(vr, projection))
+                    .collect();
+                messages.push(BroadcastMessage::Enriched {
+                    session_id: session_id.to_string(),
+                    records: wire_records,
+                    ephemeral: Vec::new(),
+                    filter_deltas: HashMap::new(),
+                    patterns: Vec::new(),
+                    project_id: project_id.clone(),
+                    project_name: project_name.clone(),
+                    session_label: projection.label().map(|s| s.to_string()),
+                    session_branch: projection.branch().map(|s| s.to_string()),
+                    total_input_tokens: Some(projection.total_input_tokens()),
+                    total_output_tokens: Some(projection.total_output_tokens()),
+                });
+            }
+        }
+
+        messages
     }
 }
 
