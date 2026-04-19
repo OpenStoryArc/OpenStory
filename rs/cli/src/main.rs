@@ -19,7 +19,6 @@ use open_story::server::config::{DataBackend, Role};
 use open_story::watcher;
 use open_story_bus::Bus;
 use open_story_bus::nats_bus::NatsBus;
-use open_story_bus::noop_bus::NoopBus;
 use open_story_store::sqlite_store::SqliteStore;
 
 #[derive(Parser, Debug)]
@@ -270,30 +269,36 @@ async fn main() -> Result<()> {
             let nats_url = config.nats_url.clone();
             let watch_dir = PathBuf::from(&config.watch_dir);
 
-            let requires_bus = matches!(config.role, Role::Publisher | Role::Consumer);
-
-            // Connect to NATS event bus (fall back to NoopBus if unavailable)
+            // NATS JetStream is a hard requirement. The reactive actor
+            // decomposition (persist / patterns / projections / broadcast)
+            // subscribes to events.> and owns one responsibility each —
+            // without a real bus the actors are dormant and the pipeline
+            // collapses. Failing fast here keeps the system honest: it
+            // either runs as designed or tells you why it can't.
+            //
+            // To enable a no-NATS demo path in the future, build a
+            // first-class InProcessBus that actually delivers to the
+            // consumers — don't resurrect NoopBus here.
             let bus: Arc<dyn Bus> = match NatsBus::connect(&nats_url).await {
                 Ok(nats_bus) => {
                     if let Err(e) = nats_bus.ensure_streams().await {
-                        if requires_bus {
-                            anyhow::bail!("NATS stream setup failed: {e} (required for --role {})", config.role);
-                        }
-                        eprintln!("  \x1b[33mNATS stream setup failed: {e}\x1b[0m");
-                        eprintln!("  \x1b[33mFalling back to local mode (no bus)\x1b[0m");
-                        Arc::new(NoopBus)
-                    } else {
-                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url}");
-                        Arc::new(nats_bus)
+                        anyhow::bail!(
+                            "NATS stream setup failed: {e}\n\
+                             NATS JetStream is required. Install with `brew install nats-server` \
+                             and start it (`just up` handles this automatically).\n\
+                             NATS URL: {nats_url}"
+                        );
                     }
+                    eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url}");
+                    Arc::new(nats_bus)
                 }
                 Err(e) => {
-                    if requires_bus {
-                        anyhow::bail!("NATS unavailable: {e} (required for --role {})", config.role);
-                    }
-                    eprintln!("  \x1b[33mNATS unavailable ({e})\x1b[0m");
-                    eprintln!("  \x1b[33mRunning in local mode (watcher → direct ingest)\x1b[0m");
-                    Arc::new(NoopBus)
+                    anyhow::bail!(
+                        "NATS unavailable: {e}\n\
+                         NATS JetStream is required. Install with `brew install nats-server` \
+                         and start it (`just up` handles this automatically).\n\
+                         NATS URL: {nats_url}"
+                    );
                 }
             };
 
