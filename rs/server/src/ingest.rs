@@ -312,16 +312,10 @@ pub async fn ingest_events(
         }
     }
 
-    // Flush session projection to EventStore once per batch (not per-event)
-    if count > 0 {
-        if let Some(proj) = state.store.projections.get(session_id) {
-            let _ = state.store.event_store.upsert_session(
-                &crate::event_store_bridge::session_row_from_projection(
-                    session_id, proj.value(), &state.store,
-                ),
-            ).await;
-        }
-    }
+    // Note: `upsert_session` used to live here. Moved to PersistConsumer
+    // at commit 1.5 — PersistConsumer is now the single writer of the
+    // `sessions` table. `ingest_events` is a broadcast-only function
+    // (deleted entirely in commit 1.6).
 
     IngestResult { count, changes }
 }
@@ -1151,9 +1145,18 @@ mod tests {
         let event_store: Arc<dyn open_story_store::event_store::EventStore> =
             Arc::new(SqliteStore::new(tmp.path()).unwrap());
 
-        let mut persist = PersistConsumer::new(event_store.clone(), session_store);
+        let projections_map = std::sync::Arc::new(dashmap::DashMap::new());
+        let session_projects = std::sync::Arc::new(dashmap::DashMap::new());
+        let session_project_names = std::sync::Arc::new(dashmap::DashMap::new());
+        let mut persist = PersistConsumer::new(
+            event_store.clone(),
+            session_store,
+            projections_map.clone(),
+            session_projects.clone(),
+            session_project_names.clone(),
+        );
         let mut projections = ProjectionsConsumer::new(
-            std::sync::Arc::new(dashmap::DashMap::new()),
+            projections_map,
             std::sync::Arc::new(dashmap::DashMap::new()),
             std::sync::Arc::new(dashmap::DashMap::new()),
         );
@@ -1168,7 +1171,7 @@ mod tests {
             .collect();
 
         // Both subscribers see the same batch independently.
-        let persist_result = persist.process_batch("sess-comp", &events).await;
+        let persist_result = persist.process_batch("sess-comp", &events, None).await;
         let _ = projections.process_batch("sess-comp", &events);
 
         // EventStore side (Actor 1's side of the stream).

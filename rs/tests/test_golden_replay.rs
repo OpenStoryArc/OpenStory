@@ -22,10 +22,9 @@ use open_story::cloud_event::CloudEvent;
 use open_story::translate::{translate_line, TranscriptFormat, TranscriptState};
 use open_story_core::translate_hermes::{is_hermes_format, translate_hermes_line};
 use open_story_core::translate_pi::{is_pi_mono_format, translate_pi_line};
-use open_story::server::ingest_events;
 use serde_json::{json, Value};
 
-use helpers::test_state;
+use helpers::bus::TestActors;
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -67,7 +66,11 @@ async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
     let mut next_seq: u64 = 0;
 
     let tmp = tempfile::tempdir().expect("create temp dir");
-    let state_arc = test_state(&tmp);
+    // Drive events through the full four-actor pipeline (persist, projections,
+    // patterns, broadcast) — mirrors production semantics after the Phase 1.5
+    // cutover. Previously this used `ingest_events` directly.
+    let mut actors = TestActors::new(&tmp).await;
+    let state_arc = actors.state.clone();
 
     let text = std::fs::read_to_string(fixture_path)
         .unwrap_or_else(|e| panic!("read fixture {fixture_path:?}: {e}"));
@@ -105,9 +108,8 @@ async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
             })
             .collect();
 
-        let mut state = state_arc.write().await;
-        let result = ingest_events(&mut state, session_id, &events, None).await;
-        for m in result.changes {
+        let result = actors.drive_batch(session_id, &events, None).await;
+        for m in result.messages {
             if let Ok(v) = serde_json::to_value(&m) {
                 all_broadcast_messages.push(v);
             }

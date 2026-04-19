@@ -2,14 +2,8 @@
   "broadcast_messages": [
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "narrative": 1,
-        "user": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 1,
@@ -30,17 +24,14 @@
       ],
       "session_branch": "main",
       "session_id": "synthetic",
-      "session_label": "Hello Claude"
+      "session_label": "Hello Claude",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 2,
-        "narrative": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 2,
@@ -82,20 +73,16 @@
           "truncated": false
         }
       ],
+      "session_branch": "main",
       "session_id": "synthetic",
+      "session_label": "Hello Claude",
       "total_input_tokens": 10,
       "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "reading": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 2,
@@ -124,17 +111,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 3,
@@ -158,7 +144,11 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [
@@ -174,12 +164,8 @@
           "timestamp": "2025-01-05T17:00:04.000Z"
         }
       ],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [],
       "session_id": "synthetic"
     },
@@ -197,12 +183,8 @@
           "timestamp": "2025-01-05T17:00:05.000Z"
         }
       ],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [],
       "session_id": "synthetic"
     },
@@ -220,23 +202,15 @@
           "timestamp": "2025-01-05T17:00:06.000Z"
         }
       ],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [],
       "session_id": "synthetic"
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -255,16 +229,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -282,16 +256,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -309,16 +283,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -336,16 +310,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -366,16 +340,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -393,16 +367,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -420,18 +394,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "narrative": 1,
-        "user": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -450,17 +422,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "narrative": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -484,17 +455,16 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "thinking": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -514,7 +484,11 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     },
     {
       "ephemeral": [
@@ -530,25 +504,15 @@
           "timestamp": "2025-01-05T17:00:17.000Z"
         }
       ],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [],
       "session_id": "synthetic"
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "narrative": 1,
-        "user": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-home-user-project",
-      "project_name": "project",
       "records": [
         {
           "depth": 0,
@@ -567,7 +531,11 @@
           "truncated": false
         }
       ],
-      "session_id": "synthetic"
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
     }
   ],
   "events": [
@@ -1278,13 +1246,13 @@
     {
       "branch": "main",
       "custom_label": null,
-      "event_count": 19,
-      "first_event": "2025-01-05T17:00:00.000Z",
+      "event_count": 18,
+      "first_event": "2025-01-05T17:00:19.000Z",
       "id": "synthetic",
       "label": "Hello Claude",
       "last_event": "2025-01-05T17:00:19.000Z",
-      "project_id": "-home-user-project",
-      "project_name": "project"
+      "project_id": null,
+      "project_name": null
     }
   ]
 }

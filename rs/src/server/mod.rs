@@ -158,19 +158,44 @@ pub async fn run_server(
             }
         });
 
-        // ── Actor 1: persist consumer (owns dedup + storage) ──
+        // ── Actor 1: persist consumer (owns dedup + storage + session row) ──
+        //
+        // As of commit 1.5, PersistConsumer is the single writer of the
+        // SessionRow. It upserts after the batch's events are durable;
+        // ingest_events no longer touches the `sessions` table.
         {
-            let event_store = state.read().await.store.event_store.clone();
-            let data_dir = state.read().await.store.data_dir.clone();
+            let (event_store, data_dir, shared_projections, shared_projects, shared_names) = {
+                let s = state.read().await;
+                (
+                    s.store.event_store.clone(),
+                    s.store.data_dir.clone(),
+                    s.store.projections.clone(),
+                    s.store.session_projects.clone(),
+                    s.store.session_project_names.clone(),
+                )
+            };
             let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
                 .expect("create session store for persist consumer");
             let persist_bus = bus.clone();
             tokio::spawn(async move {
-                let mut actor = consumers::persist::PersistConsumer::new(event_store, session_store);
+                let mut actor = consumers::persist::PersistConsumer::new(
+                    event_store,
+                    session_store,
+                    shared_projections,
+                    shared_projects,
+                    shared_names,
+                );
                 match persist_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
-                            let result = actor.process_batch(&batch.session_id, &batch.events).await;
+                            let project_id = if batch.project_id.is_empty() {
+                                None
+                            } else {
+                                Some(batch.project_id.as_str())
+                            };
+                            let result = actor
+                                .process_batch(&batch.session_id, &batch.events, project_id)
+                                .await;
                             if result.persisted > 0 {
                                 log_event("persist", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
@@ -297,35 +322,76 @@ pub async fn run_server(
             });
         }
 
-        // ── Actor 4: broadcast consumer (uses ingest_events for now) ──
-        // Still uses shared AppState because BroadcastMessage assembly depends
-        // on projection state. This is the last consumer to decompose.
+        // ── Actor 4: broadcast consumer (WebSocket assembly only) ──
+        //
+        // As of commit 1.5, Actor 4 uses `BroadcastConsumer::process_batch`
+        // directly rather than going through the legacy `ingest_events`
+        // orchestrator. It doesn't touch SQLite anymore — PersistConsumer
+        // (Actor 1) owns event rows and the session row. Actor 4 just
+        // transforms CloudEvents → BroadcastMessages and fans them out
+        // to WebSocket clients via `broadcast_tx`.
         {
             let broadcast_state = state.clone();
             let broadcast_bus = bus.clone();
             tokio::spawn(async move {
+                let mut consumer = consumers::broadcast::BroadcastConsumer::new();
                 match broadcast_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
                             let summary = event_type_summary(&batch.events);
                             let session_id = batch.session_id.clone();
-                            // READ lock — ingest_events no longer needs &mut
-                            // now that all of its state lives in Arc<DashMap>s.
-                            // Multiple readers can process concurrently; API
-                            // reads aren't blocked behind a queued writer.
-                            let s = broadcast_state.read().await;
-                            let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                            let result = ingest_events(&s, &batch.session_id, &batch.events, project_id).await;
-                            for change in &result.changes {
-                                let _ = s.broadcast_tx.send(change.clone());
+                            let project_id = if batch.project_id.is_empty() {
+                                None
+                            } else {
+                                Some(batch.project_id.clone())
+                            };
+
+                            // Snapshot projection + project display name from
+                            // the shared DashMaps. Drop the outer read guard
+                            // before invoking process_batch so API readers
+                            // and other actors aren't contended on the tokio
+                            // RwLock.
+                            let (projection, project_name, tx) = {
+                                let s = broadcast_state.read().await;
+                                let proj = s
+                                    .store
+                                    .projections
+                                    .get(&session_id)
+                                    .map(|r| r.value().clone());
+                                let pname = s
+                                    .store
+                                    .session_project_names
+                                    .get(&session_id)
+                                    .map(|r| r.value().clone());
+                                (proj, pname, s.broadcast_tx.clone())
+                            };
+
+                            let Some(proj_snapshot) = projection else {
+                                // ProjectionsConsumer hasn't processed this
+                                // session's first batch yet — skip broadcast
+                                // this tick; the next batch will have a
+                                // snapshot and catch up.
+                                continue;
+                            };
+
+                            let messages = consumer.process_batch(
+                                &session_id,
+                                &batch.events,
+                                &proj_snapshot,
+                                project_id,
+                                project_name,
+                            );
+                            let emitted = messages.len();
+                            for msg in messages {
+                                let _ = tx.send(msg);
                             }
-                            if result.count > 0 {
+
+                            if emitted > 0 {
                                 log_event("broadcast", &format!(
                                     "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                    short_id(&session_id), result.count, summary
+                                    short_id(&session_id), emitted, summary
                                 ));
                             }
-                            drop(s);
                         }
                     }
                     Err(e) => eprintln!("Broadcast consumer error: {e}"),

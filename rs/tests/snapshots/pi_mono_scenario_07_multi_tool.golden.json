@@ -2,12 +2,8 @@
   "broadcast_messages": [
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 0,
@@ -25,16 +21,14 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 0,
@@ -52,18 +46,14 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "narrative": 1,
-        "user": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 1,
@@ -83,17 +73,14 @@
         }
       ],
       "session_id": "scenario_07_multi_tool",
-      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok"
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 2,
@@ -122,17 +109,15 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 2,
@@ -161,17 +146,15 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 1,
@@ -191,17 +174,15 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1,
-        "tools": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 2,
@@ -221,17 +202,15 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 2,
-        "narrative": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 3,
@@ -275,17 +254,14 @@
         }
       ],
       "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
       "total_input_tokens": 1,
       "total_output_tokens": 201
     },
     {
       "ephemeral": [],
-      "filter_deltas": {
-        "all": 1
-      },
+      "filter_deltas": {},
       "kind": "enriched",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono",
       "records": [
         {
           "depth": 3,
@@ -303,7 +279,10 @@
           "truncated": false
         }
       ],
-      "session_id": "scenario_07_multi_tool"
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 1,
+      "total_output_tokens": 201
     }
   ],
   "events": [
@@ -817,13 +796,13 @@
     {
       "branch": null,
       "custom_label": null,
-      "event_count": 9,
-      "first_event": "2026-04-13T18:38:31.910Z",
+      "event_count": 7,
+      "first_event": "2026-04-13T18:38:42.087Z",
       "id": "scenario_07_multi_tool",
       "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
       "last_event": "2026-04-13T18:38:42.087Z",
-      "project_id": "-Users-maxglassie-projects-pi-mono",
-      "project_name": "pi-mono"
+      "project_id": null,
+      "project_name": null
     }
   ]
 }

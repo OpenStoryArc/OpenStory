@@ -63,7 +63,15 @@ pub struct DriveResult {
 impl TestActors {
     pub async fn new(tmp: &TempDir) -> Self {
         let state = test_state(tmp);
-        let (event_store, session_store, shared_projections, shared_parents, shared_children) = {
+        let (
+            event_store,
+            session_store,
+            shared_projections,
+            shared_parents,
+            shared_children,
+            shared_projects,
+            shared_names,
+        ) = {
             let s = state.read().await;
             let ss =
                 SessionStore::new(s.store.data_dir.as_path()).expect("session store for tests");
@@ -73,10 +81,18 @@ impl TestActors {
                 s.store.projections.clone(),
                 s.store.subagent_parents.clone(),
                 s.store.session_children.clone(),
+                s.store.session_projects.clone(),
+                s.store.session_project_names.clone(),
             )
         };
         Self {
-            persist: PersistConsumer::new(event_store, session_store),
+            persist: PersistConsumer::new(
+                event_store,
+                session_store,
+                shared_projections.clone(),
+                shared_projects,
+                shared_names,
+            ),
             patterns: PatternsConsumer::new(),
             projections: ProjectionsConsumer::new(
                 shared_projections,
@@ -104,7 +120,7 @@ impl TestActors {
         events: &[CloudEvent],
         project_id: Option<&str>,
     ) -> DriveResult {
-        let persist_res = self.persist.process_batch(session_id, events).await;
+        let persist_res = self.persist.process_batch(session_id, events, project_id).await;
         let _projection_res = self.projections.process_batch(session_id, events);
         let patterns_res = self.patterns.process_batch(session_id, events);
 
