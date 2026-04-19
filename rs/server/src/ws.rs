@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn initial_state_includes_records_from_each_session() {
         let tmp = TempDir::new().unwrap();
-        let mut state = fresh_app_state(&tmp);
+        let state = fresh_app_state(&tmp);
 
         let mut p1 = SessionProjection::new("sess-1");
         p1.append(&user_event("evt-a", "sess-1", "2026-04-15T00:00:00Z", "first"));
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn initial_state_sorts_records_by_timestamp() {
         let tmp = TempDir::new().unwrap();
-        let mut state = fresh_app_state(&tmp);
+        let state = fresh_app_state(&tmp);
         let mut p = SessionProjection::new("sess-1");
         p.append(&user_event("evt-late", "sess-1", "2026-04-15T00:00:02Z", "later"));
         p.append(&user_event("evt-early", "sess-1", "2026-04-15T00:00:00Z", "earlier"));
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn initial_state_session_labels_carry_label_branch_and_token_totals() {
         let tmp = TempDir::new().unwrap();
-        let mut state = fresh_app_state(&tmp);
+        let state = fresh_app_state(&tmp);
         let mut p = SessionProjection::new("sess-x");
         p.append(&user_event("evt-1", "sess-x", "2026-04-15T00:00:00Z", "implement feature thing"));
         state.store.projections.insert("sess-x".to_string(), p);
@@ -387,7 +387,7 @@ mod tests {
         // are excluded. SessionProjection doesn't store ephemeral
         // events in timeline_rows — characterizing the contract.
         let tmp = TempDir::new().unwrap();
-        let mut state = fresh_app_state(&tmp);
+        let state = fresh_app_state(&tmp);
         let mut p = SessionProjection::new("sess-1");
         p.append(&user_event("evt-real", "sess-1", "2026-04-15T00:00:00Z", "real"));
         state.store.projections.insert("sess-1".to_string(), p);

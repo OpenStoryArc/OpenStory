@@ -3,7 +3,6 @@
 //! This is the store-owned subset of what was previously AppState. The server
 //! composes StoreState with server-specific fields (broadcast_tx, transcript_states, bus).
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

@@ -1237,7 +1237,7 @@ pub async fn delete_session(
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
     log_event("api", &format!("DELETE /api/sessions/{}", short_id(&session_id)));
-    let mut s = state.write().await;
+    let s = state.write().await;
 
     let deleted = s.store.event_store.delete_session(&session_id)
         .await
