@@ -63,16 +63,26 @@ pub struct DriveResult {
 impl TestActors {
     pub async fn new(tmp: &TempDir) -> Self {
         let state = test_state(tmp);
-        let (event_store, session_store, shared_projections) = {
+        let (event_store, session_store, shared_projections, shared_parents, shared_children) = {
             let s = state.read().await;
             let ss =
                 SessionStore::new(s.store.data_dir.as_path()).expect("session store for tests");
-            (s.store.event_store.clone(), ss, s.store.projections.clone())
+            (
+                s.store.event_store.clone(),
+                ss,
+                s.store.projections.clone(),
+                s.store.subagent_parents.clone(),
+                s.store.session_children.clone(),
+            )
         };
         Self {
             persist: PersistConsumer::new(event_store, session_store),
             patterns: PatternsConsumer::new(),
-            projections: ProjectionsConsumer::new(shared_projections),
+            projections: ProjectionsConsumer::new(
+                shared_projections,
+                shared_parents,
+                shared_children,
+            ),
             broadcast: BroadcastConsumer::new(),
             state,
         }

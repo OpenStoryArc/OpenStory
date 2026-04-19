@@ -134,8 +134,8 @@ async fn boot_from_sqlite(
             open_story_store::state::detect_subagent_relationship(
                 event,
                 &row.id,
-                &mut store.subagent_parents,
-                &mut store.session_children,
+                &store.subagent_parents,
+                &store.session_children,
             );
         }
     }

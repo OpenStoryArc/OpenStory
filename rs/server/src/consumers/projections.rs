@@ -37,10 +37,10 @@ pub struct ProjectionsConsumer {
     /// Session → display name mapping (used when wired as independent consumer).
     #[allow(dead_code)]
     session_project_names: HashMap<String, String>,
-    /// Subagent → parent session mapping.
-    subagent_parents: HashMap<String, String>,
-    /// Parent → child session list.
-    session_children: HashMap<String, Vec<String>>,
+    /// Subagent → parent session mapping (shared with StoreState).
+    subagent_parents: Arc<DashMap<String, String>>,
+    /// Parent → child session list (shared with StoreState).
+    session_children: Arc<DashMap<String, Vec<String>>>,
 }
 
 /// Result of processing one batch through projections.
@@ -53,16 +53,20 @@ pub struct ProjectionsResult {
 }
 
 impl ProjectionsConsumer {
-    /// Construct a projections consumer backed by the shared projection
-    /// DashMap from `StoreState`. Pass `state.store.projections.clone()`
-    /// (the `Arc` is cheap to clone — refcount only).
-    pub fn new(projections: Arc<DashMap<String, SessionProjection>>) -> Self {
+    /// Construct a projections consumer backed by shared `StoreState` maps.
+    /// Pass `state.store.projections.clone()` / `subagent_parents.clone()`
+    /// / `session_children.clone()` — Arc clones are cheap (refcount only).
+    pub fn new(
+        projections: Arc<DashMap<String, SessionProjection>>,
+        subagent_parents: Arc<DashMap<String, String>>,
+        session_children: Arc<DashMap<String, Vec<String>>>,
+    ) -> Self {
         Self {
             projections,
             session_projects: HashMap::new(),
             session_project_names: HashMap::new(),
-            subagent_parents: HashMap::new(),
-            session_children: HashMap::new(),
+            subagent_parents,
+            session_children,
         }
     }
 
@@ -81,8 +85,8 @@ impl ProjectionsConsumer {
             open_story_store::state::detect_subagent_relationship(
                 &val,
                 session_id,
-                &mut self.subagent_parents,
-                &mut self.session_children,
+                &self.subagent_parents,
+                &self.session_children,
             );
 
             // Update projection (DashMap: entry().or_insert_with — same shape
@@ -119,16 +123,18 @@ impl ProjectionsConsumer {
     }
 
     /// Get the parent session for a subagent.
-    pub fn parent_session(&self, subagent_id: &str) -> Option<&str> {
-        self.subagent_parents.get(subagent_id).map(|s| s.as_str())
+    pub fn parent_session(&self, subagent_id: &str) -> Option<String> {
+        self.subagent_parents
+            .get(subagent_id)
+            .map(|r| r.value().clone())
     }
 
-    /// Get children (subagents) of a session.
-    pub fn children(&self, session_id: &str) -> &[String] {
+    /// Get children (subagents) of a session (cloned snapshot).
+    pub fn children(&self, session_id: &str) -> Vec<String> {
         self.session_children
             .get(session_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+            .map(|r| r.value().clone())
+            .unwrap_or_default()
     }
 }
 
@@ -159,22 +165,34 @@ mod tests {
         Arc::new(DashMap::new())
     }
 
+    fn empty_parents() -> Arc<DashMap<String, String>> {
+        Arc::new(DashMap::new())
+    }
+
+    fn empty_children() -> Arc<DashMap<String, Vec<String>>> {
+        Arc::new(DashMap::new())
+    }
+
+    fn make_consumer() -> ProjectionsConsumer {
+        ProjectionsConsumer::new(empty_shared_map(), empty_parents(), empty_children())
+    }
+
     #[test]
     fn new_consumer_has_empty_state() {
-        let consumer = ProjectionsConsumer::new(empty_shared_map());
+        let consumer = make_consumer();
         assert_eq!(consumer.projection_count(), 0);
     }
 
     #[test]
     fn creates_projection_on_first_event() {
-        let mut consumer = ProjectionsConsumer::new(empty_shared_map());
+        let mut consumer = make_consumer();
         consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
         assert!(consumer.projection("sess-1").is_some());
     }
 
     #[test]
     fn maintains_separate_projections_per_session() {
-        let mut consumer = ProjectionsConsumer::new(empty_shared_map());
+        let mut consumer = make_consumer();
         consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
         consumer.process_batch("sess-2", &[make_event("sess-2", "message.user.prompt")]);
         assert!(consumer.projection("sess-1").is_some());
@@ -187,7 +205,8 @@ mod tests {
     #[test]
     fn writes_are_visible_via_shared_map() {
         let shared = empty_shared_map();
-        let mut consumer = ProjectionsConsumer::new(shared.clone());
+        let mut consumer =
+            ProjectionsConsumer::new(shared.clone(), empty_parents(), empty_children());
         consumer.process_batch("sess-shared", &[make_event("sess-shared", "message.user.prompt")]);
 
         // The external holder of the Arc sees the same projection.
@@ -201,7 +220,7 @@ mod tests {
     fn processing_the_same_event_twice_is_deduped_internally_by_seen_ids() {
         // SessionProjection::append does dedup via its own seen_ids HashSet —
         // double-delivery from NATS at-least-once is absorbed transparently.
-        let mut consumer = ProjectionsConsumer::new(empty_shared_map());
+        let mut consumer = make_consumer();
         let ev = make_event("sess-dup", "message.user.prompt");
         consumer.process_batch("sess-dup", &[ev.clone()]);
         consumer.process_batch("sess-dup", &[ev]);

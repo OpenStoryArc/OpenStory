@@ -66,8 +66,8 @@ pub async fn list_sessions(
     let mut result = Vec::new();
     for row in &page {
         let sid = row.id.as_str();
-        let project_id = s.store.session_projects.get(sid);
-        let project_name = s.store.session_project_names.get(sid);
+        let project_id = s.store.session_projects.get(sid).map(|r| r.value().clone());
+        let project_name = s.store.session_project_names.get(sid).map(|r| r.value().clone());
         let (label, branch, total_input_tokens, total_output_tokens) =
             match s.store.projections.get(sid) {
                 Some(proj) => (
@@ -99,8 +99,8 @@ pub async fn list_sessions(
             "start_time": row.first_event,
             "last_event": row.last_event,
             "event_count": row.event_count,
-            "project_id": project_id.or(row.project_id.as_ref()),
-            "project_name": project_name.or(row.project_name.as_ref()),
+            "project_id": project_id.as_ref().or(row.project_id.as_ref()),
+            "project_name": project_name.as_ref().or(row.project_name.as_ref()),
             "label": label.or(row.label.clone()),
             "branch": branch,
             "total_input_tokens": total_input_tokens,
@@ -131,7 +131,7 @@ pub async fn get_summary(
     let s = state.read().await;
     let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let summary = session_summary(&session_id, &events, Some(Utc::now()));
-    let project_id = s.store.session_projects.get(&session_id);
+    let project_id = s.store.session_projects.get(&session_id).map(|r| r.value().clone());
     Json(json!({
         "session_id": summary.session_id,
         "status": summary.status,
@@ -423,14 +423,14 @@ pub async fn get_event_content(
         short_id(&session_id), short_id(&event_id)
     ));
     let s = state.read().await;
-    // Try in-memory cache first, then fall back to EventStore
-    if let Some(content) = s
+    // Try in-memory cache first, then fall back to EventStore.
+    // Key is (session_id, event_id) — the DashMap guard derefs to `&String`.
+    if let Some(entry) = s
         .store
         .full_payloads
-        .get(&session_id)
-        .and_then(|m| m.get(&event_id))
+        .get(&(session_id.clone(), event_id.clone()))
     {
-        return Ok(content.clone());
+        return Ok(entry.value().clone());
     }
     // Fall back: extract tool output from full event payload in EventStore
     let payload = s
@@ -536,9 +536,10 @@ pub async fn get_session_plans(
 ) -> Json<Value> {
     let s = state.read().await;
     let mut all_plans = s.store.plan_store.list_for_session(&session_id);
-    // Include plans from subagent sessions
-    if let Some(children) = s.store.session_children.get(&session_id) {
-        for child_id in children {
+    // Include plans from subagent sessions. DashMap::get returns a Ref
+    // guard; deref to &Vec<String> for iteration.
+    if let Some(children_ref) = s.store.session_children.get(&session_id) {
+        for child_id in children_ref.value() {
             all_plans.extend(s.store.plan_store.list_for_session(child_id));
         }
     }
@@ -1056,7 +1057,7 @@ pub async fn agent_search(
             // Project filter: skip sessions not matching the requested project
             if let Some(ref proj) = project_filter {
                 let session_project = session_projects.get(&sid)?;
-                if !session_project.contains(proj) {
+                if !session_project.value().contains(proj) {
                     return None;
                 }
             }
@@ -1077,8 +1078,8 @@ pub async fn agent_search(
                 })
                 .collect();
 
-            let project_name = session_project_names.get(&sid);
-            let project_id = session_projects.get(&sid);
+            let project_name = session_project_names.get(&sid).map(|r| r.value().clone());
+            let project_id = session_projects.get(&sid).map(|r| r.value().clone());
             let label = session_labels.get(&sid);
             let event_count = session_event_counts.get(&sid).copied().unwrap_or(0);
 
@@ -1249,7 +1250,22 @@ pub async fn delete_session(
     // Clean up in-memory state
     s.store.projections.remove(&session_id);
     s.store.detected_patterns.remove(&session_id);
-    s.store.full_payloads.remove(&session_id);
+    // full_payloads is keyed on (session_id, event_id) — walk to prune.
+    let to_drop: Vec<(String, String)> = s
+        .store
+        .full_payloads
+        .iter()
+        .filter_map(|e| {
+            if e.key().0 == session_id {
+                Some(e.key().clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for k in to_drop {
+        s.store.full_payloads.remove(&k);
+    }
     s.store.session_projects.remove(&session_id);
     s.store.session_project_names.remove(&session_id);
 

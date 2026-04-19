@@ -24,10 +24,20 @@ async fn consumer_writes_are_visible_on_store_state_projections() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
-    // Production wiring: hand the shared map to the consumer.
-    let shared: Arc<DashMap<String, SessionProjection>> =
-        state.read().await.store.projections.clone();
-    let mut consumer = ProjectionsConsumer::new(shared.clone());
+    // Production wiring: hand the shared maps to the consumer.
+    let (shared, parents, children): (
+        Arc<DashMap<String, SessionProjection>>,
+        Arc<DashMap<String, String>>,
+        Arc<DashMap<String, Vec<String>>>,
+    ) = {
+        let s = state.read().await;
+        (
+            s.store.projections.clone(),
+            s.store.subagent_parents.clone(),
+            s.store.session_children.clone(),
+        )
+    };
+    let mut consumer = ProjectionsConsumer::new(shared.clone(), parents, children);
 
     let events = vec![
         make_event_with_id("message.user.prompt", "sess-shared", "evt-1"),
@@ -53,8 +63,15 @@ async fn api_layer_observes_consumer_updates_without_sync_step() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
-    let shared = state.read().await.store.projections.clone();
-    let mut consumer = ProjectionsConsumer::new(shared);
+    let (shared, parents, children) = {
+        let s = state.read().await;
+        (
+            s.store.projections.clone(),
+            s.store.subagent_parents.clone(),
+            s.store.session_children.clone(),
+        )
+    };
+    let mut consumer = ProjectionsConsumer::new(shared, parents, children);
 
     consumer.process_batch(
         "sess-api",

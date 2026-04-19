@@ -29,7 +29,7 @@ pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
 pub use open_story_server::router::{build_router, build_publisher_router};
 pub use state::{AppState, SharedState, create_state};
-pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult};
+pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult, ReplayContext};
 
 /// Start the server on the given host:port, with file watcher for live events.
 ///
@@ -56,7 +56,7 @@ pub async fn run_server(
 
     // ── Banner ──
     {
-        let mut s = state.write().await;
+        let s = state.read().await;
         let role_label = match role {
             Role::Full => "full",
             Role::Publisher => "publisher",
@@ -69,10 +69,45 @@ pub async fn run_server(
             let session_count = s.store.event_store.list_sessions().await.unwrap_or_default().len();
             eprintln!("  \x1b[2mSessions loaded:\x1b[0m {session_count}");
             eprintln!("  \x1b[2mData dir:\x1b[0m       {}", data_dir.display());
-
-            // Replay boot-loaded sessions through projections + pattern pipelines
-            replay_boot_sessions(&mut s).await;
         }
+    }
+
+    // ── Async boot replay ──
+    //
+    // Spawn replay_boot_sessions in the background so the HTTP listener
+    // binds immediately. Projections populate asynchronously from SQLite;
+    // REST/WS serve partial state during the replay window (eventually
+    // consistent by design — no data loss since events are durable).
+    //
+    // Previously this ran inline before the bind, making startup
+    // O(lifetime_events) — visibly minutes-long with large data dirs.
+    // Now startup is O(1); full projection rebuild happens concurrently.
+    if is_consumer {
+        // Snapshot everything replay needs and drop the read guard
+        // before spawning. The spawned future owns only `Arc`s and
+        // small owned HashMaps, so it never contends with the outer
+        // `RwLock<AppState>` — API reads stay unblocked during replay.
+        let ctx = {
+            let s = state.read().await;
+            ReplayContext {
+                event_store: s.store.event_store.clone(),
+                projections: s.store.projections.clone(),
+                subagent_parents: s.store.subagent_parents.clone(),
+                session_children: s.store.session_children.clone(),
+                full_payloads: s.store.full_payloads.clone(),
+                session_projects: s.store.session_projects.clone(),
+                session_project_names: s.store.session_project_names.clone(),
+            }
+        };
+        tokio::spawn(async move {
+            let start = std::time::Instant::now();
+            replay_boot_sessions(&ctx).await;
+            let elapsed = start.elapsed();
+            log_event(
+                "boot",
+                &format!("async replay complete in {}s", elapsed.as_secs()),
+            );
+        });
     }
 
     // ── Router ──
@@ -86,32 +121,42 @@ pub async fn run_server(
 
     // ── Independent actor-consumers (consumer + full roles) ──
     if is_consumer && bus.is_active() {
-        // Boot replay: recover state from JetStream event log
-        match bus.replay("events.>").await {
-            Ok(batches) => {
-                if !batches.is_empty() {
-                    let mut s = state.write().await;
-                    let mut total = 0;
-                    for batch in &batches {
-                        let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                        let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
-                        for change in result.changes {
-                            let _ = s.broadcast_tx.send(change);
+        // Boot replay: recover state from JetStream event log.
+        // Spawned in the background — it was previously inline and
+        // blocked the HTTP listener bind until every historical batch
+        // finished replaying through `ingest_events`. With large
+        // JetStream retention this was minutes of "connection refused"
+        // after `just up`. Now replay runs concurrently; REST/WS serve
+        // partial state until it completes.
+        let bus_replay_handle = bus.clone();
+        let bus_replay_state = state.clone();
+        tokio::spawn(async move {
+            match bus_replay_handle.replay("events.>").await {
+                Ok(batches) => {
+                    if !batches.is_empty() {
+                        let s = bus_replay_state.read().await;
+                        let mut total = 0;
+                        for batch in &batches {
+                            let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
+                            let result = ingest_events(&s, &batch.session_id, &batch.events, project_id).await;
+                            for change in result.changes {
+                                let _ = s.broadcast_tx.send(change);
+                            }
+                            total += result.count;
                         }
-                        total += result.count;
-                    }
-                    if total > 0 {
-                        log_event("boot", &format!(
-                            "\x1b[34mbus replay\x1b[0m \x1b[32m+{total}\x1b[0m events from {} batches",
-                            batches.len()
-                        ));
+                        if total > 0 {
+                            log_event("boot", &format!(
+                                "\x1b[34mbus replay\x1b[0m \x1b[32m+{total}\x1b[0m events from {} batches",
+                                batches.len()
+                            ));
+                        }
                     }
                 }
+                Err(e) => {
+                    eprintln!("  \x1b[33mBus replay failed: {e}\x1b[0m (using SessionStore fallback)");
+                }
             }
-            Err(e) => {
-                eprintln!("  \x1b[33mBus replay failed: {e}\x1b[0m (using SessionStore fallback)");
-            }
-        }
+        });
 
         // ── Actor 1: persist consumer (owns dedup + storage) ──
         {
@@ -170,14 +215,16 @@ pub async fn run_server(
                                 // Mirror into AppState.detected_patterns so
                                 // the WebSocket initial_state handshake can
                                 // serve them to fresh clients without a DB
-                                // roundtrip.
+                                // roundtrip. Shared Arc<DashMap> — no outer
+                                // lock needed.
                                 {
-                                    let mut s = patterns_state.write().await;
-                                    s.store
+                                    let s = patterns_state.read().await;
+                                    let mut entry = s
+                                        .store
                                         .detected_patterns
                                         .entry(batch.session_id.clone())
-                                        .or_default()
-                                        .extend(result.patterns.iter().cloned());
+                                        .or_default();
+                                    entry.extend(result.patterns.iter().cloned());
                                 }
 
                                 // Publish to patterns.{project}.{session}
@@ -225,9 +272,20 @@ pub async fn run_server(
         // and other consumers read from that same map. No sync needed.
         {
             let projections_bus = bus.clone();
-            let shared_projections = state.read().await.store.projections.clone();
+            let (shared_projections, shared_parents, shared_children) = {
+                let s = state.read().await;
+                (
+                    s.store.projections.clone(),
+                    s.store.subagent_parents.clone(),
+                    s.store.session_children.clone(),
+                )
+            };
             tokio::spawn(async move {
-                let mut actor = consumers::projections::ProjectionsConsumer::new(shared_projections);
+                let mut actor = consumers::projections::ProjectionsConsumer::new(
+                    shared_projections,
+                    shared_parents,
+                    shared_children,
+                );
                 match projections_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
@@ -251,9 +309,13 @@ pub async fn run_server(
                         while let Some(batch) = sub.receiver.recv().await {
                             let summary = event_type_summary(&batch.events);
                             let session_id = batch.session_id.clone();
-                            let mut s = broadcast_state.write().await;
+                            // READ lock — ingest_events no longer needs &mut
+                            // now that all of its state lives in Arc<DashMap>s.
+                            // Multiple readers can process concurrently; API
+                            // reads aren't blocked behind a queued writer.
+                            let s = broadcast_state.read().await;
                             let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                            let result = ingest_events(&mut s, &batch.session_id, &batch.events, project_id).await;
+                            let result = ingest_events(&s, &batch.session_id, &batch.events, project_id).await;
                             for change in &result.changes {
                                 let _ = s.broadcast_tx.send(change.clone());
                             }

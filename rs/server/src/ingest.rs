@@ -4,6 +4,8 @@
 //! open-story-store::ingest and are re-exported here. This module retains the
 //! stateful orchestration (ingest_events, replay_boot_sessions) that depends on AppState.
 
+use std::sync::Arc;
+
 use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
@@ -37,7 +39,7 @@ pub struct IngestResult {
 /// a list of `BroadcastMessage` changes. The caller is responsible for sending
 /// changes to `broadcast_tx` and/or publishing to the bus change feed.
 pub async fn ingest_events(
-    state: &mut AppState,
+    state: &AppState,
     session_id: &str,
     events: &[CloudEvent],
     project_id: Option<&str>,
@@ -98,8 +100,8 @@ pub async fn ingest_events(
             open_story_store::state::detect_subagent_relationship(
                 &val,
                 session_id,
-                &mut state.store.subagent_parents,
-                &mut state.store.session_children,
+                &state.store.subagent_parents,
+                &state.store.session_children,
             );
 
             // Persistence belongs exclusively to Actor 1 (PersistConsumer):
@@ -181,17 +183,16 @@ pub async fn ingest_events(
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
 
-            // Capture full payloads for truncated records (lazy-load endpoint)
+            // Capture full payloads for truncated records (lazy-load endpoint).
+            // full_payloads is keyed on (session_id, event_id) now.
             for vr in &view_records {
                 if let RecordBody::ToolResult(tr) = &vr.body {
                     if let Some(output) = &tr.output {
                         if output.len() > TRUNCATION_THRESHOLD {
-                            state
-                                .store
-                                .full_payloads
-                                .entry(session_id.to_string())
-                                .or_default()
-                                .insert(vr.id.clone(), output.clone());
+                            state.store.full_payloads.insert(
+                                (session_id.to_string(), vr.id.clone()),
+                                output.clone(),
+                            );
                         }
                     }
                 }
@@ -259,8 +260,8 @@ pub async fn ingest_events(
                         ephemeral: view_records,
                         filter_deltas: append_result.filter_deltas,
                         patterns: Vec::new(),
-                        project_id: state.store.session_projects.get(session_id).cloned(),
-                        project_name: state.store.session_project_names.get(session_id).cloned(),
+                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
+                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
                         session_label: None,
                         session_branch: None,
                         total_input_tokens: None,
@@ -277,8 +278,8 @@ pub async fn ingest_events(
                         ephemeral: Vec::new(),
                         filter_deltas: append_result.filter_deltas,
                         patterns: detected_patterns,
-                        project_id: state.store.session_projects.get(session_id).cloned(),
-                        project_name: state.store.session_project_names.get(session_id).cloned(),
+                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
+                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
                         session_label,
                         session_branch,
                         total_input_tokens: token_fields.0,
@@ -325,14 +326,31 @@ pub async fn ingest_events(
     IngestResult { count, changes }
 }
 
-/// Replay boot-loaded sessions through projections and pattern pipelines.
+/// Inputs for `replay_boot_sessions`. All fields are `Arc`s or owned
+/// snapshots — the caller can spawn replay on a background task without
+/// holding any outer lock. API reads stay unblocked during the
+/// (potentially long) rebuild.
+pub struct ReplayContext {
+    pub event_store: Arc<dyn open_story_store::event_store::EventStore>,
+    pub projections: Arc<dashmap::DashMap<String, projection::SessionProjection>>,
+    pub subagent_parents: Arc<dashmap::DashMap<String, String>>,
+    pub session_children: Arc<dashmap::DashMap<String, Vec<String>>>,
+    pub full_payloads: Arc<dashmap::DashMap<(String, String), String>>,
+    pub session_projects: Arc<dashmap::DashMap<String, String>>,
+    pub session_project_names: Arc<dashmap::DashMap<String, String>>,
+}
+
+/// Rebuild in-memory projections + truncation cache from SQLite.
 ///
-/// Called after `create_state()` to populate projections, filter counts,
-/// and detected patterns from sessions that were loaded from disk.
-/// Without this, `build_initial_state()` would return empty data for
-/// boot-loaded sessions until new events arrive.
-pub async fn replay_boot_sessions(state: &mut AppState) {
-    let session_ids: Vec<String> = state.store.event_store
+/// Replays every event of every known session through the projection
+/// layer so that `build_initial_state()` can serve a populated
+/// WebSocket handshake to newly connected UIs. Reads from SQLite; writes
+/// only to the shared `Arc<DashMap>` fields on `StoreState`.
+pub async fn replay_boot_sessions(ctx: &ReplayContext) {
+    use open_story_store::event_store::SessionRow;
+
+    let session_ids: Vec<String> = ctx
+        .event_store
         .list_sessions()
         .await
         .unwrap_or_default()
@@ -341,64 +359,47 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
         .collect();
     let mut total_events = 0;
 
-    // One-time FTS5 backfill: if the index is empty, populate it during replay
-    let fts_needs_backfill = state.store.event_store.fts_count().await.unwrap_or(0) == 0;
+    // One-time FTS5 backfill: if the index is empty, populate during replay.
+    let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
-        let events = state.store.event_store
-            .session_events(sid)
-            .await
-            .unwrap_or_default();
+        let events = ctx.event_store.session_events(sid).await.unwrap_or_default();
         if events.is_empty() {
             continue;
         }
 
         for val in &events {
-            // Events are already in EventStore (that's where we read them from).
-            // No need to re-insert — just replay through projections and patterns.
-
-            // Detect subagent → parent relationship (shared helper).
             open_story_store::state::detect_subagent_relationship(
                 val,
                 sid,
-                &mut state.store.subagent_parents,
-                &mut state.store.session_children,
+                &ctx.subagent_parents,
+                &ctx.session_children,
             );
 
-            // Update projection. Tight scope — drop the RefMut before any
-            // later `.get()` / `.await` on the same map (deadlock guard).
             {
-                let mut proj = state
-                    .store
+                let mut proj = ctx
                     .projections
                     .entry(sid.clone())
                     .or_insert_with(|| projection::SessionProjection::new(sid));
                 proj.append(val);
             }
 
-            // BFF transform — deserialize stored JSON to typed CloudEvent
             let view_records = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
                 Ok(ce) => from_cloud_event(&ce),
                 Err(_) => vec![],
             };
 
-            // Capture full payloads for truncated records
             for vr in &view_records {
                 if let RecordBody::ToolResult(tr) = &vr.body {
                     if let Some(output) = &tr.output {
                         if output.len() > TRUNCATION_THRESHOLD {
-                            state
-                                .store
-                                .full_payloads
-                                .entry(sid.clone())
-                                .or_default()
-                                .insert(vr.id.clone(), output.clone());
+                            ctx.full_payloads
+                                .insert((sid.clone(), vr.id.clone()), output.clone());
                         }
                     }
                 }
             }
 
-            // FTS5 backfill: index during replay if the index was empty at boot
             let subtype = val.get("subtype").and_then(|v| v.as_str());
             let ephemeral = projection::is_ephemeral(subtype);
 
@@ -406,32 +407,41 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
                 for vr in &view_records {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, sid, record_type, &text).await;
+                        let _ = ctx.event_store.index_fts(&vr.id, sid, record_type, &text).await;
                     }
                 }
             }
 
-            // Pattern detection retired from the boot-replay path. The
-            // patterns consumer (Actor 2) is now the sole pattern detector
-            // and runs over the same NATS replay stream independently.
-            // (Boot replay still needs to drive the projections + storage
-            // layers to get the in-memory state populated for the API.)
             let _ = ephemeral;
-
             total_events += 1;
         }
 
-        // Dual-write session projection after processing all events
-        if let Some(proj) = state.store.projections.get(sid) {
-            let _ = state.store.event_store.upsert_session(
-                &crate::event_store_bridge::session_row_from_projection(sid, proj.value(), &state.store),
-            ).await;
+        // Dual-write the session projection to SQLite. Assembles a
+        // SessionRow from the projection + the project_id / project_name
+        // snapshot; no access to the live StoreState needed.
+        if let Some(proj) = ctx.projections.get(sid) {
+            let p = proj.value();
+            let rows = p.timeline_rows();
+            let first_event = rows.first().map(|r| r.timestamp.clone());
+            let last_event = rows.last().map(|r| r.timestamp.clone());
+            let row = SessionRow {
+                id: sid.clone(),
+                project_id: ctx.session_projects.get(sid).map(|r| r.value().clone()),
+                project_name: ctx.session_project_names.get(sid).map(|r| r.value().clone()),
+                label: p.label().map(|s| s.to_string()),
+                custom_label: None,
+                branch: p.branch().map(|s| s.to_string()),
+                event_count: p.event_count() as u64,
+                first_event,
+                last_event,
+            };
+            let _ = ctx.event_store.upsert_session(&row).await;
         }
     }
 
     if total_events > 0 {
         let fts_note = if fts_needs_backfill {
-            let fts_count = state.store.event_store.fts_count().await.unwrap_or(0);
+            let fts_count = ctx.event_store.fts_count().await.unwrap_or(0);
             format!(", FTS5 backfill: {fts_count} indexed")
         } else {
             String::new()
@@ -573,8 +583,8 @@ mod tests {
         ingest_events(&mut state, "sess-proj", &[event], Some("my-project")).await;
 
         assert_eq!(
-            state.store.session_projects.get("sess-proj"),
-            Some(&"my-project".to_string())
+            state.store.session_projects.get("sess-proj").map(|r| r.value().clone()),
+            Some("my-project".to_string())
         );
         assert!(state.store.session_project_names.contains_key("sess-proj"));
     }
@@ -730,13 +740,13 @@ mod tests {
         ingest_events(&mut state, "agent-456", &[event], None).await;
 
         assert_eq!(
-            state.store.subagent_parents.get("agent-456"),
-            Some(&"parent-123".to_string()),
+            state.store.subagent_parents.get("agent-456").map(|r| r.value().clone()),
+            Some("parent-123".to_string()),
             "subagent_parents should map agent-456 -> parent-123"
         );
         assert!(
             state.store.session_children.get("parent-123")
-                .map(|c| c.contains(&"agent-456".to_string()))
+                .map(|r| r.value().contains(&"agent-456".to_string()))
                 .unwrap_or(false),
             "session_children should map parent-123 -> [agent-456]"
         );
@@ -932,9 +942,14 @@ mod tests {
 
         ingest_events(&mut state, "sess-dw", &[event], None).await;
 
-        let cache = state.store.full_payloads.get("sess-dw");
+        // full_payloads is keyed on (session_id, event_id) now.
+        let has_any = state
+            .store
+            .full_payloads
+            .iter()
+            .any(|e| e.key().0 == "sess-dw");
         assert!(
-            cache.is_some() && !cache.unwrap().is_empty(),
+            has_any,
             "full_payloads cache should have an entry for the big tool_result"
         );
     }
@@ -1109,11 +1124,10 @@ mod tests {
         let cached = state
             .store
             .full_payloads
-            .get("sess-lazy")
-            .and_then(|m| m.get("evt-big-lazy-1"))
-            .cloned();
+            .get(&("sess-lazy".to_string(), "evt-big-lazy-1".to_string()))
+            .map(|r| r.value().clone());
         assert_eq!(
-            cached.as_deref().map(|s| s.len()),
+            cached.as_ref().map(|s| s.len()),
             Some(big.len()),
             "full_payloads cache must return the full, untruncated output"
         );
@@ -1138,7 +1152,11 @@ mod tests {
             Arc::new(SqliteStore::new(tmp.path()).unwrap());
 
         let mut persist = PersistConsumer::new(event_store.clone(), session_store);
-        let mut projections = ProjectionsConsumer::new(std::sync::Arc::new(dashmap::DashMap::new()));
+        let mut projections = ProjectionsConsumer::new(
+            std::sync::Arc::new(dashmap::DashMap::new()),
+            std::sync::Arc::new(dashmap::DashMap::new()),
+            std::sync::Arc::new(dashmap::DashMap::new()),
+        );
 
         let events: Vec<CloudEvent> = (0..3)
             .map(|i| make_assistant_event_with_tokens(
@@ -1213,12 +1231,25 @@ mod tests {
     // the watcher → translate path so the typed fields are populated
     // correctly.
 
+    fn make_replay_ctx(state: &AppState) -> ReplayContext {
+        ReplayContext {
+            event_store: state.store.event_store.clone(),
+            projections: state.store.projections.clone(),
+            subagent_parents: state.store.subagent_parents.clone(),
+            session_children: state.store.session_children.clone(),
+            full_payloads: state.store.full_payloads.clone(),
+            session_projects: state.store.session_projects.clone(),
+            session_project_names: state.store.session_project_names.clone(),
+        }
+    }
+
     #[tokio::test]
     async fn replay_boot_sessions_with_empty_sessions_is_noop() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
-        replay_boot_sessions(&mut state).await;
+        let ctx = make_replay_ctx(&state);
+        replay_boot_sessions(&ctx).await;
         assert!(state.store.projections.is_empty());
     }
 
@@ -1235,7 +1266,7 @@ mod tests {
         use open_story_store::event_store::SessionRow;
 
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         state
             .store
@@ -1254,7 +1285,8 @@ mod tests {
             .await
             .unwrap();
 
-        replay_boot_sessions(&mut state).await;
+        let ctx = make_replay_ctx(&state);
+        replay_boot_sessions(&ctx).await;
 
         assert!(
             !state.store.projections.contains_key("sess-empty"),

@@ -170,16 +170,21 @@ async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
         })
         .unwrap_or(Value::Null);
 
-    let full_payloads_keys: Vec<String> = state
+    // full_payloads is keyed on (session_id, event_id); pick out this
+    // session's event_ids and sort for snapshot determinism.
+    let mut full_payloads_keys: Vec<String> = state
         .store
         .full_payloads
-        .get(session_id)
-        .map(|m| {
-            let mut v: Vec<String> = m.keys().cloned().collect();
-            v.sort();
-            v
+        .iter()
+        .filter_map(|e| {
+            if e.key().0 == session_id {
+                Some(e.key().1.clone())
+            } else {
+                None
+            }
         })
-        .unwrap_or_default();
+        .collect();
+    full_payloads_keys.sort();
 
     json!({
         "sessions": session_rows,
