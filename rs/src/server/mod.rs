@@ -120,44 +120,18 @@ pub async fn run_server(
     };
 
     // ── Independent actor-consumers (consumer + full roles) ──
-    if is_consumer && bus.is_active() {
-        // Boot replay: recover state from JetStream event log.
-        // Spawned in the background — it was previously inline and
-        // blocked the HTTP listener bind until every historical batch
-        // finished replaying through `ingest_events`. With large
-        // JetStream retention this was minutes of "connection refused"
-        // after `just up`. Now replay runs concurrently; REST/WS serve
-        // partial state until it completes.
-        let bus_replay_handle = bus.clone();
-        let bus_replay_state = state.clone();
-        tokio::spawn(async move {
-            match bus_replay_handle.replay("events.>").await {
-                Ok(batches) => {
-                    if !batches.is_empty() {
-                        let s = bus_replay_state.read().await;
-                        let mut total = 0;
-                        for batch in &batches {
-                            let project_id = if batch.project_id.is_empty() { None } else { Some(batch.project_id.as_str()) };
-                            let result = ingest_events(&s, &batch.session_id, &batch.events, project_id).await;
-                            for change in result.changes {
-                                let _ = s.broadcast_tx.send(change);
-                            }
-                            total += result.count;
-                        }
-                        if total > 0 {
-                            log_event("boot", &format!(
-                                "\x1b[34mbus replay\x1b[0m \x1b[32m+{total}\x1b[0m events from {} batches",
-                                batches.len()
-                            ));
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("  \x1b[33mBus replay failed: {e}\x1b[0m (using SessionStore fallback)");
-                }
-            }
-        });
-
+    //
+    // NATS JetStream is a hard requirement (commit 1.1). The four actors
+    // unconditionally spawn; `bus.is_active()` gating is gone.
+    //
+    // Historical events from JetStream reach the actors via their own
+    // `bus.subscribe("events.>")` calls — the durable-consumer semantics
+    // deliver the replay stream to each subscriber independently. The
+    // previous inline `bus.replay(...)` + `ingest_events` path was
+    // redundant (it processed the same events the actors would have
+    // received) and has been deleted. The Actor 1/2/3/4 subscriptions
+    // below are the sole ingestion route.
+    if is_consumer {
         // ── Actor 1: persist consumer (owns dedup + storage + session row) ──
         //
         // As of commit 1.5, PersistConsumer is the single writer of the
@@ -404,12 +378,35 @@ pub async fn run_server(
     // Snapshot the backfill window from config before any closures move it.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     if is_publisher {
-        if bus.is_active() {
-            // Bus mode: watcher → bus.publish()
+        // NATS required (commit 1.1): the watcher always publishes to the
+        // bus. The old `else { ... direct ingest_events() ... }` branch
+        // for local-mode operation was unreachable and has been deleted.
+        let watcher_bus = bus.clone();
+        let watcher_dir = watch_dir.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, subject, events| {
+                let batch = IngestBatch {
+                    session_id: session_id.to_string(),
+                    project_id: project_id.unwrap_or("").to_string(),
+                    events: events.to_vec(),
+                };
+                let rt = tokio::runtime::Handle::current();
+                if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                    eprintln!("Bus publish error: {e}");
+                }
+            }) {
+                eprintln!("Watcher error: {}", e);
+            }
+        });
+    }
+
+    // ── Pi-mono watcher (optional second watch directory) ──
+    if is_publisher && !pi_watch_dir.is_empty() {
+        let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
+        if pi_dir.exists() {
             let watcher_bus = bus.clone();
-            let watcher_dir = watch_dir.to_path_buf();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, subject, events| {
+                if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, subject, events| {
                     let batch = IngestBatch {
                         session_id: session_id.to_string(),
                         project_id: project_id.unwrap_or("").to_string(),
@@ -417,87 +414,12 @@ pub async fn run_server(
                     };
                     let rt = tokio::runtime::Handle::current();
                     if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                        eprintln!("Bus publish error: {e}");
+                        eprintln!("Pi-mono bus publish error: {e}");
                     }
                 }) {
-                    eprintln!("Watcher error: {}", e);
+                    eprintln!("Pi-mono watcher error: {}", e);
                 }
             });
-        } else {
-            // Local mode (no bus): watcher → direct ingest_events()
-            let watcher_state = state.clone();
-            let watcher_dir = watch_dir.to_path_buf();
-            tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, _subject, events| {
-                    let summary = event_type_summary(&events);
-                    let rt = tokio::runtime::Handle::current();
-                    let result = rt.block_on(async {
-                        let mut s = watcher_state.write().await;
-                        let result = ingest_events(&mut s, session_id, &events, project_id).await;
-                        for change in &result.changes {
-                            let _ = s.broadcast_tx.send(change.clone());
-                        }
-                        result
-                    });
-                    if result.count > 0 {
-                        log_event("watch", &format!(
-                            "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                            short_id(session_id), result.count, summary
-                        ));
-                    }
-                }) {
-                    eprintln!("Watcher error: {}", e);
-                }
-            });
-        }
-    }
-
-    // ── Pi-mono watcher (optional second watch directory) ──
-    if is_publisher && !pi_watch_dir.is_empty() {
-        let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
-        if pi_dir.exists() {
-            if bus.is_active() {
-                let watcher_bus = bus.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, subject, events| {
-                        let batch = IngestBatch {
-                            session_id: session_id.to_string(),
-                            project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
-                        };
-                        let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                            eprintln!("Pi-mono bus publish error: {e}");
-                        }
-                    }) {
-                        eprintln!("Pi-mono watcher error: {}", e);
-                    }
-                });
-            } else {
-                let watcher_state = state.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, _subject, events| {
-                        let summary = event_type_summary(&events);
-                        let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(async {
-                            let mut s = watcher_state.write().await;
-                            let result = ingest_events(&mut s, session_id, &events, project_id).await;
-                            for change in &result.changes {
-                                let _ = s.broadcast_tx.send(change.clone());
-                            }
-                            result
-                        });
-                        if result.count > 0 {
-                            log_event("pi-watch", &format!(
-                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                short_id(session_id), result.count, summary
-                            ));
-                        }
-                    }) {
-                        eprintln!("Pi-mono watcher error: {}", e);
-                    }
-                });
-            }
             eprintln!("  \x1b[2mPi watch dir:\x1b[0m   {}", pi_watch_dir);
         }
     }
@@ -514,48 +436,22 @@ pub async fn run_server(
     if is_publisher && !hermes_watch_dir.is_empty() {
         let hermes_dir = std::path::PathBuf::from(&hermes_watch_dir);
         if hermes_dir.exists() {
-            if bus.is_active() {
-                let watcher_bus = bus.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
-                        let batch = IngestBatch {
-                            session_id: session_id.to_string(),
-                            project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
-                        };
-                        let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                            eprintln!("Hermes bus publish error: {e}");
-                        }
-                    }) {
-                        eprintln!("Hermes snapshot watcher error: {}", e);
+            let watcher_bus = bus.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
+                    let batch = IngestBatch {
+                        session_id: session_id.to_string(),
+                        project_id: project_id.unwrap_or("").to_string(),
+                        events: events.to_vec(),
+                    };
+                    let rt = tokio::runtime::Handle::current();
+                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                        eprintln!("Hermes bus publish error: {e}");
                     }
-                });
-            } else {
-                let watcher_state = state.clone();
-                tokio::task::spawn_blocking(move || {
-                    if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, _project_id, _subject, events| {
-                        let summary = event_type_summary(&events);
-                        let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(async {
-                            let mut s = watcher_state.write().await;
-                            let result = ingest_events(&mut s, session_id, &events, None).await;
-                            for change in &result.changes {
-                                let _ = s.broadcast_tx.send(change.clone());
-                            }
-                            result
-                        });
-                        if result.count > 0 {
-                            log_event("hermes", &format!(
-                                "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                short_id(session_id), result.count, summary
-                            ));
-                        }
-                    }) {
-                        eprintln!("Hermes snapshot watcher error: {}", e);
-                    }
-                });
-            }
+                }) {
+                    eprintln!("Hermes snapshot watcher error: {}", e);
+                }
+            });
             eprintln!("  \x1b[2mHermes watch dir:\x1b[0m {} (snapshot mode)", hermes_watch_dir);
         }
     }
