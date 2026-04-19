@@ -1,0 +1,1057 @@
+{
+  "broadcast_messages": [
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "pi-test-session",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.session_start"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 0,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:00.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "narrative": 1,
+        "user": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "Read the config file and explain it",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 1,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:01.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session",
+      "session_label": "Read the config file and explain it"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "narrative": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-1",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": [
+              {
+                "text": "I'll read the config file for you.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-sonnet-4-5"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 2,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:02.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "tools": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-2",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "tc-001",
+            "input": {
+              "path": "/work/config.toml"
+            },
+            "name": "read",
+            "raw_input": {
+              "path": "/work/config.toml"
+            },
+            "typed_input": {
+              "file_path": "/work/config.toml",
+              "tool": "read"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 3,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:02.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "tools": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-3",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "tc-001",
+            "is_error": false,
+            "output": "[server]\nhost = \"127.0.0.1\"\nport = 3002\n"
+          },
+          "payload_bytes": 40,
+          "record_type": "tool_result",
+          "seq": 4,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:03.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "thinking": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-4",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "The config file is a TOML file with a server section containing host and port.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 5,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 2,
+        "narrative": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-5",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": [
+              {
+                "text": "This is a TOML configuration file with a server section. It binds to localhost on port 3002.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "stop_reason": "stop"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 6,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-5:usage",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "input_tokens": 200,
+            "output_tokens": 100,
+            "scope": "turn",
+            "total_tokens": 300
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 7,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session",
+      "total_input_tokens": 200,
+      "total_output_tokens": 100
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-6",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 7,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-7",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.model_change"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 8,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:05.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1,
+        "narrative": 1,
+        "user": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-8",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "Run the tests",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 9,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:06.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [
+        {
+          "id": "uuid-9",
+          "is_sidechain": false,
+          "payload": {
+            "subtype": "progress.bash"
+          },
+          "record_type": "system_event",
+          "seq": 10,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:07.000Z"
+        }
+      ],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 1,
+          "id": "comp-001",
+          "is_sidechain": false,
+          "parent_uuid": "msg-prev",
+          "payload": {
+            "subtype": "system.compact"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 11,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:08.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {
+        "all": 1
+      },
+      "kind": "enriched",
+      "project_id": "-work-my-project",
+      "project_name": "my-project",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-10",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 13,
+          "session_id": "pi_mono_session",
+          "timestamp": "2025-12-09T00:00:09.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "pi_mono_session"
+    }
+  ],
+  "events": [
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "cwd": "/work/my-project",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "provider": "anthropic",
+          "thinking_level": "off",
+          "uuid": "pi-test-session",
+          "version": 3
+        },
+        "raw": {
+          "cwd": "/work/my-project",
+          "id": "pi-test-session",
+          "modelId": "claude-sonnet-4-5",
+          "provider": "anthropic",
+          "thinkingLevel": "off",
+          "timestamp": "2025-12-09T00:00:00.000Z",
+          "type": "session",
+          "version": 3
+        },
+        "seq": 0,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "pi-test-session",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "system.session_start",
+      "time": "2025-12-09T00:00:00.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "text": "Read the config file and explain it"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "text": "Read the config file and explain it",
+                "type": "text"
+              }
+            ],
+            "role": "user",
+            "timestamp": 1733702401000
+          },
+          "timestamp": "2025-12-09T00:00:01.000Z",
+          "type": "message"
+        },
+        "seq": 1,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-0",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2025-12-09T00:00:01.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "content_types": [
+            "text",
+            "toolCall"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "text": "I'll read the config file for you."
+        },
+        "raw": {
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "text": "I'll read the config file for you.",
+                "type": "text"
+              },
+              {
+                "arguments": {
+                  "path": "/work/config.toml"
+                },
+                "id": "tc-001",
+                "name": "read",
+                "type": "toolCall"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "provider": "anthropic",
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "timestamp": 1733702402000,
+            "usage": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "cost": {
+                "input": 0.00045,
+                "output": 0.000375,
+                "total": 0.000825
+              },
+              "input": 150,
+              "output": 75,
+              "totalTokens": 225
+            }
+          },
+          "timestamp": "2025-12-09T00:00:02.000Z",
+          "type": "message"
+        },
+        "seq": 2,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-1",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2025-12-09T00:00:02.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "args": {
+            "path": "/work/config.toml"
+          },
+          "content_types": [
+            "text",
+            "toolCall"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "stop_reason": "toolUse",
+          "token_usage": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0.00045,
+              "output": 0.000375,
+              "total": 0.000825
+            },
+            "input": 150,
+            "output": 75,
+            "totalTokens": 225
+          },
+          "tool": "read",
+          "tool_call_id": "tc-001"
+        },
+        "raw": {
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "text": "I'll read the config file for you.",
+                "type": "text"
+              },
+              {
+                "arguments": {
+                  "path": "/work/config.toml"
+                },
+                "id": "tc-001",
+                "name": "read",
+                "type": "toolCall"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "provider": "anthropic",
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "timestamp": 1733702402000,
+            "usage": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "cost": {
+                "input": 0.00045,
+                "output": 0.000375,
+                "total": 0.000825
+              },
+              "input": 150,
+              "output": 75,
+              "totalTokens": 225
+            }
+          },
+          "timestamp": "2025-12-09T00:00:02.000Z",
+          "type": "message"
+        },
+        "seq": 3,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-2",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2025-12-09T00:00:02.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "is_error": false,
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "tool_call_id": "tc-001",
+          "tool_name": "read"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "text": "[server]\nhost = \"127.0.0.1\"\nport = 3002\n",
+                "type": "text"
+              }
+            ],
+            "isError": false,
+            "role": "toolResult",
+            "timestamp": 1733702403000,
+            "toolCallId": "tc-001",
+            "toolName": "read"
+          },
+          "timestamp": "2025-12-09T00:00:03.000Z",
+          "type": "message"
+        },
+        "seq": 4,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-3",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2025-12-09T00:00:03.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "content_types": [
+            "thinking",
+            "text"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "text": "The config file is a TOML file with a server section containing host and port."
+        },
+        "raw": {
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "thinking": "The config file is a TOML file with a server section containing host and port.",
+                "type": "thinking"
+              },
+              {
+                "text": "This is a TOML configuration file with a server section. It binds to localhost on port 3002.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "provider": "anthropic",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1733702404000,
+            "usage": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "cost": {
+                "input": 0.0006,
+                "output": 0.0005,
+                "total": 0.0011
+              },
+              "input": 200,
+              "output": 100,
+              "totalTokens": 300
+            }
+          },
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "type": "message"
+        },
+        "seq": 5,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-4",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.assistant.thinking",
+      "time": "2025-12-09T00:00:04.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "content_types": [
+            "thinking",
+            "text"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "stop_reason": "stop",
+          "text": "This is a TOML configuration file with a server section. It binds to localhost on port 3002.",
+          "token_usage": {
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {
+              "input": 0.0006,
+              "output": 0.0005,
+              "total": 0.0011
+            },
+            "input": 200,
+            "output": 100,
+            "totalTokens": 300
+          }
+        },
+        "raw": {
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "thinking": "The config file is a TOML file with a server section containing host and port.",
+                "type": "thinking"
+              },
+              {
+                "text": "This is a TOML configuration file with a server section. It binds to localhost on port 3002.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "provider": "anthropic",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1733702404000,
+            "usage": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "cost": {
+                "input": 0.0006,
+                "output": 0.0005,
+                "total": 0.0011
+              },
+              "input": 200,
+              "output": 100,
+              "totalTokens": 300
+            }
+          },
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "type": "message"
+        },
+        "seq": 6,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-5",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2025-12-09T00:00:04.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-sonnet-4-5",
+          "stop_reason": "stop"
+        },
+        "raw": {
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "thinking": "The config file is a TOML file with a server section containing host and port.",
+                "type": "thinking"
+              },
+              {
+                "text": "This is a TOML configuration file with a server section. It binds to localhost on port 3002.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-sonnet-4-5",
+            "provider": "anthropic",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1733702404000,
+            "usage": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "cost": {
+                "input": 0.0006,
+                "output": 0.0005,
+                "total": 0.0011
+              },
+              "input": 200,
+              "output": 100,
+              "totalTokens": 300
+            }
+          },
+          "timestamp": "2025-12-09T00:00:04.000Z",
+          "type": "message"
+        },
+        "seq": 7,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-6",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2025-12-09T00:00:04.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "gpt-4o",
+          "provider": "openai"
+        },
+        "raw": {
+          "modelId": "gpt-4o",
+          "provider": "openai",
+          "timestamp": "2025-12-09T00:00:05.000Z",
+          "type": "model_change"
+        },
+        "seq": 8,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-7",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "system.model_change",
+      "time": "2025-12-09T00:00:05.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "text": "Run the tests"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "text": "Run the tests",
+                "type": "text"
+              }
+            ],
+            "role": "user",
+            "timestamp": 1733702406000
+          },
+          "timestamp": "2025-12-09T00:00:06.000Z",
+          "type": "message"
+        },
+        "seq": 9,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-8",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2025-12-09T00:00:06.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "command": "cargo test",
+          "exit_code": 0,
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "output": "test result: ok. 42 passed; 0 failed"
+        },
+        "raw": {
+          "message": {
+            "cancelled": false,
+            "command": "cargo test",
+            "exitCode": 0,
+            "output": "test result: ok. 42 passed; 0 failed",
+            "role": "bashExecution",
+            "timestamp": 1733702407000,
+            "truncated": false
+          },
+          "timestamp": "2025-12-09T00:00:07.000Z",
+          "type": "message"
+        },
+        "seq": 10,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-9",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "progress.bash",
+      "time": "2025-12-09T00:00:07.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "first_kept_entry_id": "msg-006",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "parent_uuid": "msg-prev",
+          "summary": "Read config file and explained TOML structure",
+          "tokens_before": 50000,
+          "uuid": "comp-001"
+        },
+        "raw": {
+          "firstKeptEntryId": "msg-006",
+          "id": "comp-001",
+          "parentId": "msg-prev",
+          "summary": "Read config file and explained TOML structure",
+          "timestamp": "2025-12-09T00:00:08.000Z",
+          "tokensBefore": 50000,
+          "type": "compaction"
+        },
+        "seq": 11,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "comp-001",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "system.compact",
+      "time": "2025-12-09T00:00:08.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "gpt-4o",
+          "stop_reason": "stop"
+        },
+        "raw": {
+          "message": {
+            "api": "openai-completions",
+            "content": [
+              {
+                "text": "All 42 tests passed successfully.",
+                "type": "text"
+              }
+            ],
+            "model": "gpt-4o",
+            "provider": "openai",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1733702409000,
+            "usage": {
+              "input": 50,
+              "output": 25,
+              "totalTokens": 75
+            }
+          },
+          "timestamp": "2025-12-09T00:00:09.000Z",
+          "type": "message"
+        },
+        "seq": 13,
+        "session_id": "pi_mono_session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-10",
+      "source": "pi://session/pi_mono_session",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2025-12-09T00:00:09.000Z",
+      "type": "io.arc.event"
+    }
+  ],
+  "full_payloads_keys": [],
+  "projection": {
+    "branch": null,
+    "event_count": 13,
+    "label": "Read the config file and explain it",
+    "total_input_tokens": 200,
+    "total_output_tokens": 100
+  },
+  "sessions": [
+    {
+      "branch": null,
+      "custom_label": null,
+      "event_count": 13,
+      "first_event": "2025-12-09T00:00:00.000Z",
+      "id": "pi_mono_session",
+      "label": "Read the config file and explain it",
+      "last_event": "2025-12-09T00:00:09.000Z",
+      "project_id": "-work-my-project",
+      "project_name": "my-project"
+    }
+  ]
+}
