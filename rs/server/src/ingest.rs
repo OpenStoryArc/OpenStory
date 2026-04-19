@@ -1211,6 +1211,46 @@ mod tests {
         assert!(state.store.projections.is_empty());
     }
 
+    #[tokio::test]
+    async fn replay_boot_sessions_skips_session_with_no_events() {
+        // Covers the `if events.is_empty() { continue; }` branch at
+        // ingest.rs:346-348 (commit 0a coverage baseline §Theme 1).
+        //
+        // State: a session row exists (so list_sessions returns it) but
+        // the events table has no rows for that session. Can occur if
+        // events are deleted from a session while the metadata row
+        // survives. Replay should continue without creating a projection
+        // or panicking.
+        use open_story_store::event_store::SessionRow;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        state
+            .store
+            .event_store
+            .upsert_session(&SessionRow {
+                id: "sess-empty".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: None,
+                last_event: None,
+            })
+            .await
+            .unwrap();
+
+        replay_boot_sessions(&mut state).await;
+
+        assert!(
+            !state.store.projections.contains_key("sess-empty"),
+            "empty session should be skipped — no projection created"
+        );
+    }
+
     // `replay_boot_sessions_detects_patterns` retired — asserted on
     // `state.store.detected_patterns` containing a `test.cycle` pattern
     // emitted during replay. Both halves of that assertion are now
