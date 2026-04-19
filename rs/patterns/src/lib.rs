@@ -33,7 +33,7 @@ use open_story_core::cloud_event::CloudEvent;
 
 /// Higher-order event emitted by pattern detectors.
 /// Represents a recognized behavioral pattern spanning multiple events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PatternEvent {
     /// Pattern type identifier (e.g., "eval_apply.eval", "turn.sentence").
     pub pattern_type: String,

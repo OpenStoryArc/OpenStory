@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Result from a full-text search query.",
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "rank": {
+      "format": "double",
+      "type": "number"
+    },
+    "record_type": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "snippet": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "rank",
+    "record_type",
+    "session_id",
+    "snippet"
+  ],
+  "title": "FtsSearchResult",
+  "type": "object"
+}

@@ -11,7 +11,7 @@ use open_story_core::event_data::ToolOutcome;
 // RecordBody — discriminated union of all record types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "record_type", content = "payload", rename_all = "snake_case")]
 pub enum RecordBody {
     SessionMeta(SessionMeta),
@@ -33,7 +33,7 @@ pub enum RecordBody {
 // Session metadata
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionMeta {
     #[serde(default)]
     pub cwd: String,
@@ -45,7 +45,7 @@ pub struct SessionMeta {
     pub git: Option<GitInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GitInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
@@ -57,13 +57,13 @@ pub struct GitInfo {
 // Turn lifecycle
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TurnStart {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TurnEnd {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
@@ -77,14 +77,14 @@ pub struct TurnEnd {
 // Messages
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct UserMessage {
     pub content: MessageContent,
     #[serde(default)]
     pub images: Vec<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AssistantMessage {
     pub model: String,
     pub content: Vec<ContentBlock>,
@@ -96,14 +96,14 @@ pub struct AssistantMessage {
     pub phase: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum MessageContent {
     Text(String),
     Blocks(Vec<ContentBlock>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Text { text: String },
@@ -115,7 +115,7 @@ pub enum ContentBlock {
 // Reasoning / thinking
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Reasoning {
     #[serde(default)]
     pub summary: Vec<String>,
@@ -129,7 +129,7 @@ pub struct Reasoning {
 // Tool call / result
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ToolCall {
     pub call_id: String,
     pub name: String,
@@ -151,7 +151,7 @@ impl ToolCall {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ToolResult {
     pub call_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,7 +168,7 @@ pub struct ToolResult {
 // Token usage
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TokenUsage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
@@ -179,7 +179,7 @@ pub struct TokenUsage {
     pub scope: TokenScope,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenScope {
     Turn,
@@ -190,7 +190,7 @@ pub enum TokenScope {
 // Context compaction
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ContextCompaction {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -202,7 +202,7 @@ pub struct ContextCompaction {
 // File/git snapshot
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FileSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_commit: Option<String>,
@@ -216,7 +216,7 @@ pub struct FileSnapshot {
 // System / error
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SystemEvent {
     pub subtype: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -225,7 +225,7 @@ pub struct SystemEvent {
     pub duration_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ErrorRecord {
     pub code: String,
     pub message: String,

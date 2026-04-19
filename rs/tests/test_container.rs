@@ -11,6 +11,21 @@ use helpers::container::start_open_story;
 use helpers::fixtures_dir;
 use serde_json::Value;
 
+/// Fetch sessions from the API, handling both `[...]` and `{"sessions": [...]}` shapes.
+async fn get_sessions(base_url: &str) -> Vec<Value> {
+    let body: Value = reqwest::get(format!("{}/api/sessions", base_url))
+        .await
+        .expect("HTTP request failed")
+        .json()
+        .await
+        .expect("invalid JSON");
+    body.get("sessions")
+        .and_then(|v| v.as_array())
+        .or_else(|| body.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Health check: container starts and responds to GET /api/sessions.
 #[tokio::test]
 async fn container_responds_to_health_check() {
@@ -32,14 +47,7 @@ async fn container_loads_fixture_sessions() {
 
     server.wait_for_sessions().await;
 
-    let resp = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .expect("HTTP request failed");
-
-    assert_eq!(resp.status(), 200);
-
-    let body: Value = resp.json().await.expect("invalid JSON");
-    let sessions = body.as_array().expect("expected array");
+    let sessions = get_sessions(&server.base_url()).await;
 
     // fixtures/ contains multiple JSONL files — at least one session should load
     assert!(
@@ -57,12 +65,7 @@ async fn container_returns_session_events() {
     server.wait_for_sessions().await;
 
     // Get the first session ID
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = get_sessions(&server.base_url()).await;
 
     assert!(!sessions.is_empty(), "no sessions loaded");
 
@@ -96,12 +99,7 @@ async fn container_returns_view_records() {
 
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = get_sessions(&server.base_url()).await;
 
     assert!(!sessions.is_empty(), "no sessions loaded");
 

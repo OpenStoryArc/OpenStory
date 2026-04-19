@@ -349,4 +349,147 @@ mod tests {
             Some("/tmp/test.jsonl".to_string())
         );
     }
+
+    // ── Audit walk #11 (2026-04-15) — gaps in branch coverage ─────────
+
+    #[test]
+    fn read_transcript_handles_content_as_plain_string() {
+        // Some transcript shapes have message.content as a bare string
+        // rather than an array of content blocks. Code at line 78-89.
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({
+                "type": "user",
+                "message": {"role": "user", "content": "plain string content"}
+            })
+        ).unwrap();
+        let entries = read_transcript(f.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, "text");
+        assert_eq!(entries[0].text, "plain string content");
+    }
+
+    #[test]
+    fn read_transcript_handles_thinking_blocks() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "let me consider..."}
+                    ]
+                }
+            })
+        ).unwrap();
+        let entries = read_transcript(f.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, "thinking");
+        assert_eq!(entries[0].text, "let me consider...");
+    }
+
+    #[test]
+    fn read_transcript_handles_tool_result_content_as_array() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "tu_1",
+                        "content": [
+                            {"type": "text", "text": "line 1"},
+                            {"type": "text", "text": "line 2"}
+                        ]
+                    }]
+                }
+            })
+        ).unwrap();
+        let entries = read_transcript(f.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, "tool_result");
+        assert_eq!(entries[0].text, "line 1\nline 2");
+        assert_eq!(entries[0].tool_use_id.as_deref(), Some("tu_1"));
+    }
+
+    #[test]
+    fn read_transcript_handles_tool_result_content_as_string() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "tu_2",
+                        "content": "single string result"
+                    }]
+                }
+            })
+        ).unwrap();
+        let entries = read_transcript(f.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "single string result");
+    }
+
+    #[test]
+    fn read_transcript_skips_invalid_json_lines() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "not valid json").unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({"type": "user", "message": {"role": "user", "content": "ok"}})
+        ).unwrap();
+        let entries = read_transcript(f.path());
+        // Invalid line silently skipped; valid line processed.
+        // Same drop-and-continue contract as reader.rs.
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn read_transcript_returns_empty_for_nonexistent_file() {
+        let entries = read_transcript(Path::new("/nonexistent/path/transcript.jsonl"));
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn extract_session_id_handles_various_source_uris() {
+        // The doc says "arc://transcript/{id}" or "arc://hooks/{id}" but
+        // the implementation accepts any arc:// URI and returns the last
+        // path segment. Locking that wider contract in.
+        assert_eq!(
+            extract_session_id_from_source("arc://transcript/sess-1"),
+            Some("sess-1".to_string())
+        );
+        assert_eq!(
+            extract_session_id_from_source("arc://hooks/sess-2"),
+            Some("sess-2".to_string())
+        );
+        // Unexpected scheme word still yields the last segment
+        assert_eq!(
+            extract_session_id_from_source("arc://anything/sess-3"),
+            Some("sess-3".to_string())
+        );
+        // Non-arc:// schemes return None
+        assert_eq!(extract_session_id_from_source("https://example.com/x"), None);
+        assert_eq!(extract_session_id_from_source(""), None);
+    }
+
+    #[test]
+    fn find_transcript_path_returns_none_for_empty_events() {
+        assert_eq!(find_transcript_path(&[]), None);
+    }
 }

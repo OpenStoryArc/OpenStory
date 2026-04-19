@@ -123,7 +123,7 @@ rs/
   bus/        — NATS JetStream event bus abstraction
   store/      — SQLite persistence, projections, queries, plans
   views/      — CloudEvent to ViewRecord transform (branches on agent type), WireRecord truncation
-  patterns/   — Streaming pattern detection (7 detectors)
+  patterns/   — Streaming pattern detection (2 detectors)
   server/     — HTTP/WS server, API routes, hooks, ingest
   src/        — Orchestration library (watcher + server wiring)
   cli/        — Thin CLI binary

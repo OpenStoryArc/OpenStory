@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Event subtype — hierarchical classifier on every CloudEvent.\n\nThe dot-separated string form is what flows over the wire; the enum variants give us exhaustive matching at compile time and one single source of truth for the JSON Schema.",
+  "oneOf": [
+    {
+      "enum": [
+        "message.user.prompt",
+        "message.user.tool_result",
+        "message.assistant.text",
+        "message.assistant.thinking",
+        "message.assistant.tool_use",
+        "system.turn.complete",
+        "system.error",
+        "system.compact",
+        "system.hook",
+        "system.session_start",
+        "system.model_change",
+        "system.local_command",
+        "system.away_summary",
+        "progress.bash",
+        "progress.agent",
+        "progress.hook",
+        "file.snapshot",
+        "queue.enqueue",
+        "queue.dequeue",
+        "queue.remove"
+      ],
+      "type": "string"
+    },
+    {
+      "description": "Claude Code emits this with camelCase on the wire.",
+      "enum": [
+        "queue.popAll"
+      ],
+      "type": "string"
+    }
+  ],
+  "title": "Subtype"
+}

@@ -9,7 +9,6 @@ use axum::http::StatusCode;
 pub mod names {
     pub const EVENTS_INGESTED: &str = "events_ingested_total";
     pub const EVENTS_DEDUPED: &str = "events_deduped_total";
-    pub const HOOKS_RECEIVED: &str = "hooks_received_total";
     pub const PATTERNS_DETECTED: &str = "patterns_detected_total";
     pub const WS_MESSAGES_SENT: &str = "ws_messages_sent_total";
 
@@ -17,8 +16,11 @@ pub mod names {
     pub const SESSIONS_TOTAL: &str = "sessions_total";
     pub const WS_CLIENTS_CONNECTED: &str = "ws_clients_connected";
 
-    pub const INGEST_DURATION: &str = "ingest_duration_seconds";
-    pub const HOOK_DURATION: &str = "hook_duration_seconds";
+    // HOOKS_RECEIVED, HOOK_DURATION, INGEST_DURATION removed 2026-04-15
+    // — registered but never recorded into. The /hooks endpoint that
+    // would have populated HOOKS_RECEIVED was retired; the duration
+    // histograms had no `histogram!()` callsite anywhere in the
+    // codebase. Audit: docs/research/architecture-audit/HOOKS_RETIREMENT_AUDIT.md
 }
 
 /// Initialize the Prometheus recorder. Call once at startup.
@@ -37,11 +39,6 @@ pub fn record_events_ingested(subtype: &str, count: u64) {
 /// Record deduplicated events.
 pub fn record_events_deduped(count: u64) {
     metrics::counter!(names::EVENTS_DEDUPED).increment(count);
-}
-
-/// Record a hook received.
-pub fn record_hook_received() {
-    metrics::counter!(names::HOOKS_RECEIVED).increment(1);
 }
 
 /// Record patterns detected.
@@ -89,14 +86,11 @@ mod tests {
         let all_names = [
             names::EVENTS_INGESTED,
             names::EVENTS_DEDUPED,
-            names::HOOKS_RECEIVED,
             names::PATTERNS_DETECTED,
             names::WS_MESSAGES_SENT,
             names::SESSIONS_ACTIVE,
             names::SESSIONS_TOTAL,
             names::WS_CLIENTS_CONNECTED,
-            names::INGEST_DURATION,
-            names::HOOK_DURATION,
         ];
         for name in all_names {
             assert!(
@@ -116,7 +110,6 @@ mod tests {
         // This verifies they don't panic.
         record_events_ingested("message.user.prompt", 5);
         record_events_deduped(2);
-        record_hook_received();
         record_patterns_detected(3);
         record_ws_message_sent();
         set_sessions_active(10);

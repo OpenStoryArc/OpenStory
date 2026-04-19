@@ -51,6 +51,22 @@ const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = 
 
 const DEFAULT_SESSION_LIMIT = 5;
 
+/** Format an ISO timestamp as a human-readable relative time. */
+function formatRecency(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (isNaN(ms) || ms < 0) return "";
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export function StoryView({ livePatterns, selectedSession, onSelectSession }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -265,8 +281,9 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           const color = sessionColor(s.session_id);
           const label = s.label && s.label !== s.session_id
             ? (s.label.length > 40 ? s.label.slice(0, 37) + "..." : s.label)
-            : s.session_id.slice(0, 8);
+            : s.session_id;
           const cachedCount = sentenceCache.get(s.session_id)?.length;
+          const recency = s.last_event ? formatRecency(s.last_event) : null;
           return (
             <button
               key={s.session_id}
@@ -290,20 +307,17 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className={`text-sm truncate ${isActive ? "text-[#c0caf5] font-medium" : "text-[#c0caf5]"}`}>
-                    {label}
+                  <div className="flex items-center justify-between gap-1">
+                    <div className={`text-sm truncate ${isActive ? "text-[#c0caf5] font-medium" : "text-[#c0caf5]"}`}>
+                      {label}
+                    </div>
+                    {recency && (
+                      <span className="text-[10px] text-[#565f89] shrink-0" title={s.last_event ?? undefined}>
+                        {recency}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span
-                      className="text-[10px] font-mono px-1 py-0.5 rounded border"
-                      style={{
-                        color,
-                        backgroundColor: `${color}18`,
-                        borderColor: `${color}33`,
-                      }}
-                    >
-                      {s.session_id.slice(0, 8)}
-                    </span>
                     {cachedCount != null && (
                       <span className="text-[10px] text-[#565f89]">
                         {cachedCount} turns
@@ -345,7 +359,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                   title={s.session_id}
                 >
                   {isActive && <span className="mr-1" style={{ color }}>●</span>}
-                  {s.session_id.slice(6, 18)} <span className="opacity-60">({s.event_count ?? 0})</span>
+                  {s.session_id} <span className="opacity-60">({s.event_count ?? 0})</span>
                 </button>
               );
             })}

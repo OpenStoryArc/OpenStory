@@ -16,8 +16,8 @@ pub fn session_row_from_projection(
 
     SessionRow {
         id: session_id.to_string(),
-        project_id: store.session_projects.get(session_id).cloned(),
-        project_name: store.session_project_names.get(session_id).cloned(),
+        project_id: store.session_projects.get(session_id).map(|r| r.value().clone()),
+        project_name: store.session_project_names.get(session_id).map(|r| r.value().clone()),
         label: proj.label().map(|s| s.to_string()),
         custom_label: None, // never set from projection — only via user PUT
         branch: proj.branch().map(|s| s.to_string()),

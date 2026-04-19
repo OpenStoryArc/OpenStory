@@ -71,7 +71,7 @@ Every edge case in one place. The table IS the spec. The `scenario()` helper is 
 
 **Where to look:**
 - Backlog: `docs/BACKLOG.md` (Observability → Agent Behavior Patterns)
-- Implementation: `rs/patterns/src/lib.rs` and the seven detector files in `rs/patterns/src/`
+- Implementation: `rs/patterns/src/lib.rs` and the two detector modules in `rs/patterns/src/`
 - Reports: `docs/research/sessions/` — moment-in-time analyses generated from running scripts against real sessions
 
 The backlog describes what users need (pattern visibility) in a short paragraph. The patterns crate is the implementation. The reports in `docs/research/sessions/` show the patterns being consumed in practice — this is how the layers cohere from intent → implementation → use.
@@ -202,7 +202,7 @@ Contrast with what was removed: the project previously had a lazy-loading list a
 **Where to look:**
 - Entry point: `scripts/sessionstory.py` (the first script to reach for when answering "what happened")
 - Validator: `scripts/check_docs.py` (TDD docs validator — the second script worth knowing)
-- Production: `rs/patterns/src/lib.rs` (the 7 streaming detectors that the analysis scripts query)
+- Production: `rs/patterns/src/lib.rs` (the 2 streaming detectors that the analysis scripts query)
 
 The `scripts/` directory is a working library of saved investigations. Two of them are the everyday entry points:
 

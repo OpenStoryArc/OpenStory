@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CloudEvent Envelope (minimum viable)",
+  "description": "The bare minimum a CloudEvent needs to flow through the pipeline. Any JSON object matching this envelope is a real event worth persisting and broadcasting — even if the full cloud_event.schema.json rejects it because the subtype is unknown or the agent_payload shape is unrecognized. This is Tier B in the fuzzy-pipe classification: structurally valid, content-unknown.",
+  "type": "object",
+  "required": ["id", "type", "time", "data"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique event identifier (UUID or derived). Used for dedup."
+    },
+    "type": {
+      "type": "string",
+      "description": "CloudEvent type — always 'io.arc.event' in Open Story."
+    },
+    "time": {
+      "type": "string",
+      "description": "ISO 8601 timestamp."
+    },
+    "data": {
+      "type": "object",
+      "required": ["raw"],
+      "properties": {
+        "raw": {
+          "type": "object",
+          "description": "The original agent-written data, never mutated. This is the sovereignty foundation — if nothing else survives enrichment, raw survives."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Higher-order event emitted by pattern detectors. Represents a recognized behavioral pattern spanning multiple events.",
+  "properties": {
+    "ended_at": {
+      "description": "Timestamp of the last event in the pattern.",
+      "type": "string"
+    },
+    "event_ids": {
+      "description": "Event IDs that compose this pattern.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "metadata": {
+      "default": null,
+      "description": "Detector-specific metadata."
+    },
+    "pattern_type": {
+      "description": "Pattern type identifier (e.g., \"eval_apply.eval\", \"turn.sentence\").",
+      "type": "string"
+    },
+    "session_id": {
+      "description": "Session this pattern belongs to.",
+      "type": "string"
+    },
+    "started_at": {
+      "description": "Timestamp of the first event in the pattern.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "Human-readable one-line summary.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ended_at",
+    "event_ids",
+    "pattern_type",
+    "session_id",
+    "started_at",
+    "summary"
+  ],
+  "title": "PatternEvent",
+  "type": "object"
+}

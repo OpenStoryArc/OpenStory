@@ -1,0 +1,13 @@
+{"seq":1,"ts":"2026-04-13T18:38:17.371Z","event_type":"thinking_start","contentIndex":0}
+{"seq":2,"ts":"2026-04-13T18:38:17.372Z","event_type":"thinking_delta","contentIndex":0,"delta_length":42}
+{"seq":3,"ts":"2026-04-13T18:38:17.807Z","event_type":"thinking_end","contentIndex":0,"content_length":42}
+{"seq":4,"ts":"2026-04-13T18:38:17.809Z","event_type":"toolcall_start","contentIndex":1}
+{"seq":5,"ts":"2026-04-13T18:38:17.809Z","event_type":"toolcall_delta","contentIndex":1,"delta_length":0}
+{"seq":6,"ts":"2026-04-13T18:38:17.819Z","event_type":"toolcall_delta","contentIndex":1,"delta_length":31}
+{"seq":7,"ts":"2026-04-13T18:38:17.820Z","event_type":"toolcall_delta","contentIndex":1,"delta_length":2}
+{"seq":8,"ts":"2026-04-13T18:38:17.821Z","event_type":"toolcall_end","contentIndex":1,"tool_name":"read","tool_id":"toolu_012AX2HXZuNSCQTcwHC71ETp"}
+{"seq":9,"ts":"2026-04-13T18:38:19.874Z","event_type":"text_start","contentIndex":0}
+{"seq":10,"ts":"2026-04-13T18:38:19.905Z","event_type":"text_delta","contentIndex":0,"delta_length":3}
+{"seq":11,"ts":"2026-04-13T18:38:20.406Z","event_type":"text_delta","contentIndex":0,"delta_length":90}
+{"seq":12,"ts":"2026-04-13T18:38:20.629Z","event_type":"text_delta","contentIndex":0,"delta_length":23}
+{"seq":13,"ts":"2026-04-13T18:38:20.629Z","event_type":"text_end","contentIndex":0,"content_length":116}

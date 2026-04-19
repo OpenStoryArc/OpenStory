@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn publisher_router_has_hooks_and_health() {
+    async fn publisher_router_serves_health_only_after_hooks_retirement() {
         use tower::ServiceExt;
         use axum::http::Request;
         use axum::body::Body;

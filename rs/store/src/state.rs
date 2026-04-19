@@ -3,11 +3,11 @@
 //! This is the store-owned subset of what was previously AppState. The server
 //! composes StoreState with server-specific fields (broadcast_tx, transcript_states, bus).
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
+use dashmap::DashMap;
 
 use open_story_patterns::PatternEvent;
 
@@ -16,6 +16,44 @@ use crate::persistence::{EventLog, SessionStore};
 use crate::plan_store::PlanStore;
 use crate::projection::SessionProjection;
 use crate::sqlite_store::SqliteStore;
+
+/// Detect a subagent → parent relationship from one event and update the maps.
+///
+/// The convention is that an event's `data.session_id` carries the **parent**
+/// session id while the surrounding context (filename / hook envelope /
+/// ingest call) carries the **subagent's own** session id. When they differ,
+/// the subagent has a parent; record the relationship once per subagent.
+///
+/// Extracted 2026-04-15 from four byte-identical copies (audit walk):
+///   - rs/server/src/ingest.rs:102 (live ingest)
+///   - rs/server/src/ingest.rs:350 (replay_boot_sessions)
+///   - rs/server/src/state.rs:138 (boot_from_sqlite)
+///   - rs/server/src/consumers/projections.rs:78 (Actor 3, dead state)
+///
+/// All four had the same logic with different variable names — a refactor
+/// that adds a third condition (e.g., explicit subagent flag) needs to land
+/// in one place, not four.
+pub fn detect_subagent_relationship(
+    event: &serde_json::Value,
+    own_session_id: &str,
+    parents: &DashMap<String, String>,
+    children: &DashMap<String, Vec<String>>,
+) {
+    let Some(data_sid) = event
+        .get("data")
+        .and_then(|d| d.get("session_id"))
+        .and_then(|v| v.as_str())
+    else {
+        return;
+    };
+    if data_sid != own_session_id && !parents.contains_key(own_session_id) {
+        parents.insert(own_session_id.to_string(), data_sid.to_string());
+        children
+            .entry(data_sid.to_string())
+            .or_default()
+            .push(own_session_id.to_string());
+    }
+}
 
 /// Store state — event storage, projections, patterns, and project resolution.
 pub struct StoreState {
@@ -29,24 +67,36 @@ pub struct StoreState {
     pub plan_store: PlanStore,
 
     // ── projections + patterns ──
-    pub projections: HashMap<String, SessionProjection>,
+    // Shared across actor-consumers (Actor 3 owns writes, API + ws +
+    // other actors read). DashMap gives lock-free concurrent reads
+    // without forcing all call sites onto an explicit RwLock guard.
+    pub projections: Arc<DashMap<String, SessionProjection>>,
     /// Cache of detected patterns keyed by session_id, populated by the
     /// patterns consumer (Actor 2). Read by `build_initial_state` for the
     /// WebSocket handshake. Pattern *detection* lives in the patterns
     /// consumer; this is just the in-memory mirror it pushes into so the
     /// API/WebSocket layers can read it without a DB roundtrip.
-    pub detected_patterns: HashMap<String, Vec<PatternEvent>>,
-    pub full_payloads: HashMap<String, HashMap<String, String>>,
+    pub detected_patterns: Arc<DashMap<String, Vec<PatternEvent>>>,
+    /// Truncation cache: `(session_id, event_id)` → full tool output.
+    /// Shared `Arc<DashMap>` so replay + live ingest can populate it
+    /// concurrently while the API reads for the lazy-load endpoint.
+    pub full_payloads: Arc<DashMap<(String, String), String>>,
 
     // ── subagent parent-child index ──
-    /// Subagent session_id → parent session_id
-    pub subagent_parents: HashMap<String, String>,
-    /// Parent session_id → list of subagent session_ids
-    pub session_children: HashMap<String, Vec<String>>,
+    /// Subagent session_id → parent session_id. Shared `Arc<DashMap>`
+    /// so async `replay_boot_sessions` can populate it without blocking
+    /// the main AppState RwLock.
+    pub subagent_parents: Arc<DashMap<String, String>>,
+    /// Parent session_id → list of subagent session_ids (shared).
+    pub session_children: Arc<DashMap<String, Vec<String>>>,
 
     // ── project resolution ──
-    pub session_projects: HashMap<String, String>,
-    pub session_project_names: HashMap<String, String>,
+    // Shared `Arc<DashMap>` so `ingest_events` can take `&AppState`
+    // (not `&mut`). That in turn lets Actor 4's broadcast consumer use
+    // a read guard on `RwLock<AppState>` instead of write, so API
+    // reads aren't blocked by the consumer's per-batch writes.
+    pub session_projects: Arc<DashMap<String, String>>,
+    pub session_project_names: Arc<DashMap<String, String>>,
     pub watch_dir_entries: Vec<String>,
 
     // ── configuration ──
@@ -167,13 +217,13 @@ impl StoreState {
             session_store,
             event_log,
             plan_store,
-            projections: HashMap::new(),
-            detected_patterns: HashMap::new(),
-            full_payloads: HashMap::new(),
-            subagent_parents: HashMap::new(),
-            session_children: HashMap::new(),
-            session_projects: HashMap::new(),
-            session_project_names: HashMap::new(),
+            projections: Arc::new(DashMap::new()),
+            detected_patterns: Arc::new(DashMap::new()),
+            full_payloads: Arc::new(DashMap::new()),
+            subagent_parents: Arc::new(DashMap::new()),
+            session_children: Arc::new(DashMap::new()),
+            session_projects: Arc::new(DashMap::new()),
+            session_project_names: Arc::new(DashMap::new()),
             watch_dir_entries: Vec::new(),
             data_dir,
         }
@@ -314,7 +364,7 @@ mod tests {
         assert!(state.event_store.insert_event("sess-1", &event).await.unwrap());
         assert!(!state.event_store.insert_event("sess-1", &event).await.unwrap(), "dedup via PK");
 
-        let proj = state.projections.entry("sess-1".to_string())
+        let mut proj = state.projections.entry("sess-1".to_string())
             .or_insert_with(|| SessionProjection::new("sess-1"));
         let result = proj.append(&event);
 
@@ -337,5 +387,59 @@ mod tests {
 
         // PlanStore should be able to list plans (empty)
         assert!(state.plan_store.list_plans().is_empty());
+    }
+
+    // ── detect_subagent_relationship — extracted from 4 call sites ────
+
+    #[test]
+    fn subagent_relationship_records_when_data_session_differs() {
+        let event = serde_json::json!({"data": {"session_id": "parent-123"}});
+        let parents: DashMap<String, String> = DashMap::new();
+        let children: DashMap<String, Vec<String>> = DashMap::new();
+        detect_subagent_relationship(&event, "agent-456", &parents, &children);
+
+        assert_eq!(parents.get("agent-456").map(|r| r.value().clone()), Some("parent-123".to_string()));
+        assert_eq!(children.get("parent-123").map(|r| r.value().clone()), Some(vec!["agent-456".to_string()]));
+    }
+
+    #[test]
+    fn subagent_relationship_skips_when_data_session_matches() {
+        // Normal session — its own session_id equals data.session_id.
+        // No subagent relationship to record.
+        let event = serde_json::json!({"data": {"session_id": "sess-1"}});
+        let parents: DashMap<String, String> = DashMap::new();
+        let children: DashMap<String, Vec<String>> = DashMap::new();
+        detect_subagent_relationship(&event, "sess-1", &parents, &children);
+
+        assert!(parents.is_empty());
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn subagent_relationship_only_records_first_event_per_subagent() {
+        // The condition `!parents.contains_key(own)` means we only record
+        // once per subagent. Subsequent events from the same subagent
+        // don't add duplicate child entries.
+        let e1 = serde_json::json!({"data": {"session_id": "p"}});
+        let e2 = serde_json::json!({"data": {"session_id": "p"}});
+        let parents: DashMap<String, String> = DashMap::new();
+        let children: DashMap<String, Vec<String>> = DashMap::new();
+
+        detect_subagent_relationship(&e1, "a", &parents, &children);
+        detect_subagent_relationship(&e2, "a", &parents, &children);
+
+        assert_eq!(children.get("p").map(|r| r.value().len()), Some(1));
+    }
+
+    #[test]
+    fn subagent_relationship_handles_missing_data_field() {
+        // Event without data.session_id — should be a no-op, not panic.
+        let event = serde_json::json!({"id": "evt-1"});
+        let parents: DashMap<String, String> = DashMap::new();
+        let children: DashMap<String, Vec<String>> = DashMap::new();
+        detect_subagent_relationship(&event, "a", &parents, &children);
+
+        assert!(parents.is_empty());
+        assert!(children.is_empty());
     }
 }

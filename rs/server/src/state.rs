@@ -128,21 +128,15 @@ async fn boot_from_sqlite(
     );
     for row in sqlite_sessions {
         let events = store.event_store.session_events(&row.id).await.unwrap_or_default();
-        // Detect subagent → parent relationships from the boot-loaded events.
-        // (Dedup is the EventStore PK's job — no in-memory tracking needed.)
+        // Detect subagent → parent relationships from the boot-loaded events
+        // (shared helper). Dedup is the EventStore PK's job.
         for event in &events {
-            if let Some(data_sid) = event.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != row.id && !store.subagent_parents.contains_key(row.id.as_str()) {
-                    store.subagent_parents.insert(row.id.clone(), data_sid.to_string());
-                    store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(row.id.clone());
-                }
-            }
+            open_story_store::state::detect_subagent_relationship(
+                event,
+                &row.id,
+                &store.subagent_parents,
+                &store.session_children,
+            );
         }
     }
 }

@@ -14,7 +14,7 @@ use axum::body::Body;
 use axum::http::Request;
 use serde_json::Value;
 
-use open_story::server::{create_state, ingest_events, replay_boot_sessions, Config};
+use open_story::server::{create_state, ingest_events, replay_boot_sessions, Config, ReplayContext};
 use open_story_bus::noop_bus::NoopBus;
 use helpers::{body_json, send_request, synth};
 
@@ -151,8 +151,19 @@ async fn patterns_survive_restart() {
 
     let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
     {
-        let mut s = state.write().await;
-        replay_boot_sessions(&mut s).await;
+        let ctx = {
+            let s = state.read().await;
+            ReplayContext {
+                event_store: s.store.event_store.clone(),
+                projections: s.store.projections.clone(),
+                subagent_parents: s.store.subagent_parents.clone(),
+                session_children: s.store.session_children.clone(),
+                full_payloads: s.store.full_payloads.clone(),
+                session_projects: s.store.session_projects.clone(),
+                session_project_names: s.store.session_project_names.clone(),
+            }
+        };
+        replay_boot_sessions(&ctx).await;
     }
 
     // Check patterns were detected

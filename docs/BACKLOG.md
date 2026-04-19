@@ -4,6 +4,28 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
+
+### Boot-replay status on `/api/health`
+Async replay lets HTTP bind in ~3s, but projections keep populating in the background for 5–60s (depending on SQLite event count). During that window `/api/sessions` returns rows with empty/zero `label`/`event_count`/`tokens` — looks broken to the user. Add a `replay_status: "in_progress" | "complete"` field to `/api/health` (and the WebSocket `initial_state` handshake) so the UI can render a "Reconstructing sessions…" hint instead of silent-empty rows. ~20 LOC.
+
+### Bounded `full_payloads` cache
+`state.store.full_payloads` is `Arc<DashMap<(String, String), String>>` — grows unbounded as truncated tool outputs >100KB get cached for the lazy-load endpoint. With a 10GB data dir full of large tool outputs this can balloon memory during replay. Add a configurable LRU (e.g., `full_payload_cache_bytes = 512_000_000`) that evicts oldest entries when the size threshold is crossed. Cache misses fall back to the EventStore `full_payload()` path.
+
+### Live-event-during-replay race bound
+Watcher publishes live events while `replay_boot_sessions` is still walking the same session's history. `SessionProjection::seen_ids` dedups correctly, but `event_count` / `timeline_rows` during the overlap window can be temporarily inconsistent with the SQLite `events` table. Self-corrects after replay ends. Add a test that asserts the final state converges even under a concurrent live-event stream, and document the window as expected EC behavior.
+
+### DashMap discipline guardrail
+Six `StoreState` fields are now `Arc<DashMap>`. The concurrency model requires: never hold a `RefMut` from `.entry()` across an `.await` or across a second `.get()` / `.entry()` on the same map (shard-lock deadlock). Scope guards tightly. Document this in `CLAUDE.md` principles so new contributors don't have to learn it from a stuck test. Consider a lightweight runtime assertion in debug builds that panics on held guards across await points.
+
+### Retire `ingest_events` fully (test migration)
+`ingest_events` is production-dead after Phase 1.5 but still pub-exported and used by ~15 integration test files (70 call sites) that do `state.write() + ingest_events(&mut s, ...)`. The tests work because `&mut AppState` auto-derefs to `&AppState` and the inline `!bus.is_active()` demo-mode guard still persists events when the test harness uses `NoopBus`. Migrate all test call sites to `TestActors::drive_batch` (which runs the full four-actor pipeline), delete the demo-mode guard, delete `ingest_events` + `IngestResult` from `rs/server/src/ingest.rs`, remove the re-exports in `rs/src/server/mod.rs`. Pure housekeeping — no behavior change in production.
+
+### Replay-window load test
+Existing tests use small fixtures where replay completes before the first API request. Write a soak test that starts the server with a fat fixture (>10K events), hammers `/api/sessions` concurrently, and asserts (a) API never returns 5xx during replay, (b) session list monotonically fills in, (c) final state matches the golden snapshot. This closes the only real gap in the Phase 0b safety net: nobody's measured what the "API serving during long replay" path actually does.
+
+---
+
 ## Observability
 
 ### Cost & Token Tracking
@@ -136,6 +158,35 @@ Make extracted plans first-class objects in the UI: filterable in the Live timel
 
 ### Live Token Counter
 Real-time running token accumulator in the session header that ticks up as events arrive. Shows input tokens, output tokens, and estimated cost as a pure UI component subscribing to WebSocket assistant events.
+
+---
+
+## Hermes Agent Integration
+
+A coordinated set of items for letting OpenStory observe Hermes Agent sessions and letting Hermes agents query OpenStory for structural views of their own past work. Full design and runnable prototype at [`docs/research/HERMES_INTEGRATION.md`](research/HERMES_INTEGRATION.md) and [`docs/research/hermes-integration/`](research/hermes-integration/). Architectural framing at [`docs/research/LISTENER_AS_ALGEBRA.md`](research/LISTENER_AS_ALGEBRA.md).
+
+The work splits into two parallel tracks (OpenStory side, standalone-package side) with one shared prerequisite. The standalone-package approach intentionally avoids asking the Hermes maintainers to merge anything — Hermes already supports third-party plugins via the `hermes_agent.plugins` entry-point group, so the integration ships independently.
+
+### Hermes message shape verification — PREREQUISITE
+Boot a Hermes session in a container, run a 5-turn task that exercises a tool call and a thinking block, finalize, capture `~/.hermes/logs/session_{id}.json`. Resolve every `# VERIFY:` marker in `docs/research/hermes-integration/translate_hermes.py` and `plugin_sketch.py`. Required before either of the next two items can ship. Two providers should be checked, not one: an Anthropic-direct provider and an OpenAI-shaped provider, since Hermes is provider-polymorphic and the assistant message shape may differ. Estimated 30 minutes if Hermes boots cleanly. Detailed protocol in [`hermes-integration/DISTRIBUTION_PLAN.md`](research/hermes-integration/DISTRIBUTION_PLAN.md).
+
+### Hermes translator (`rs/core/src/translate_hermes.rs`)
+Port [`docs/research/hermes-integration/translate_hermes.py`](research/hermes-integration/translate_hermes.py) to Rust, parallel to `translate.rs` (Claude Code) and `translate_pi.rs` (pi-mono). The Python sketch is the executable spec — 12 tests in `test_translate.py` cover the structural shape. Add `# VERIFY:` resolution after the prerequisite step. Add Hermes file recognition to the watcher (path pattern `*/openstory-events/*.jsonl` plus a sniff of the first line for `"source": "hermes"`). ~150 lines of Rust + ~30 lines for the watcher routing + parallel test cases. Estimate: 1 day after the prerequisite is done.
+
+### Standalone `hermes-openstory` plugin package
+Build the plugin scaffolding in [`docs/research/hermes-integration/plugin_sketch.py`](research/hermes-integration/plugin_sketch.py) and [`recall_tool_sketch.py`](research/hermes-integration/recall_tool_sketch.py) into a real pip-installable package, using the entry-point declaration in [`pyproject.toml.example`](research/hermes-integration/pyproject.toml.example). Hooks `post_llm_call`, `post_tool_call`, `on_session_finalize`, etc. and writes Hermes-native events as JSONL into a watched directory. Registers the `recall` tool that wraps OpenStory's `/api/sessions/{id}/synopsis`, `/patterns`, `/file-impact`, `/errors`, `/tool-journey`, and `/api/search` endpoints — these endpoints are *already shipped* in OpenStory; this work makes them callable from inside a Hermes agent loop. Lives in its own repo, published to PyPI. No upstream PR to hermes-agent required. Estimate: 1 day for the package layout, CI, smoke test, and v0.1.0 publish.
+
+### Hermes session backfill script (`scripts/backfill_hermes_sessions.py`)
+One-shot script that reads existing `~/.hermes/logs/session_*.json` files and emits Hermes-native event JSONL into the watched directory. Lets users retroactively ingest sessions that existed before they installed the plugin. Lower priority than the live path (which is the high-leverage integration), but cheap once the translator exists.
+
+### Skill-extraction signal feed (Hermes consuming OpenStory)
+Once the translator and plugin are in place, the next high-value integration is feeding OpenStory's structural metrics back into Hermes's autonomous skill creation. Hermes currently uses LLM judgment to decide when a sequence of actions is worth turning into a skill; OpenStory's `StructuralTurn` data (cycle counts, error rates, file impact, user follow-up sentiment) gives that judgment deterministic features. Implementation lives in the `hermes-openstory` package, not in OpenStory itself. Tracked here so the backlog reflects the full integration story.
+
+### Cross-provider behavioral comparison endpoint
+A new `GET /api/insights/provider-comparison` endpoint that aggregates structural metrics per provider for the same task: cycles per task, error rates, tool selections, terminal stop reasons. Useful for Hermes's `smart_model_routing.py` decisions and as a research output in its own right. Requires running the same task across providers (Hermes already supports this via `batch_runner.py`); OpenStory's job is the aggregation and the view. Lower priority — listed for completeness as the most novel research output of the integration.
+
+### StructuralTurn training data export
+A new `GET /api/sessions/{id}/training-export?format=structural-jsonl` endpoint that emits `StructuralTurn`s (with eval/apply phases separated, domain facts extracted, subagent boundaries explicit, `ToolOutcome` typed) as training data. Lets Hermes's trajectory pipeline (`trajectory_compressor.py`, the tinker-atropos integration) consume the structurally-decomposed view alongside or instead of raw messages. Open research question: does training on structurally-decomposed traces produce better tool-calling models? The two repos are uniquely positioned to answer it. Higher-effort; depends on the translator and plugin being in place first.
 
 ---
 
@@ -381,6 +432,65 @@ Prove multiple publishers feed a single consumer via NATS. Verify both sessions 
 
 ### Testcontainer Improvements
 Fix container test infrastructure: shared container pattern, silent fixture mtime failures, log capture on failure. Add comprehensive endpoint sweep, WebSocket testing, error path coverage.
+
+### Readonly DB Access from OpenClaw Container
+Give the OpenClaw container readonly access to Open Story's SQLite database (or a replica). OpenClaw agents could query their own session history, tool patterns, and behavioral analytics directly — enabling self-reflection without going through the REST API. This is the "let the coalgebra read its own algebra" path for pi-mono, parallel to the Hermes recall tool but using direct DB access instead of HTTP. Design considerations: SQLite WAL mode allows concurrent readers, but cross-container file sharing needs a shared volume. Alternative: a readonly SQLite replica synced from the primary, or a dedicated readonly API endpoint scoped to the agent's own sessions.
+
+### Tool Result Syntax Highlighting (T1 from architecture audit)
+`ToolResultDetail` in `ui/src/components/RecordDetail.tsx:252` renders Read tool output as `<CodeBlock>{output}</CodeBlock>` with no language/path/toolName props, so `detectLanguage` falls through to `"text"` and rust/python/toml files display uncolored. The paired ToolCall carries the file path via `call_id` — fix is UI-side: parent component already has the ViewRecord list, look up the paired ToolCall and pass `filePath` + `toolName` down to `ToolResultDetail` → `CodeBlock`. Also wire `strip-line-numbers.ts` into this path (pi-mono bakes line numbers into Read output; they interfere with highlighting). Write UI unit test first — expect `language="rust"` when a paired ToolCall has `.rs` input. See `docs/research/architecture-audit/T1_SYNTAX_HIGHLIGHTING.md` for full recon.
+
+### Case-insensitive Tool Map in UI (T1b)
+`ui/src/lib/detect-language.ts:38` TOOL_MAP uses PascalCase keys (`Bash`, `Grep`, `Glob`) — mirror the case-sensitivity bug fixed in `rs/views/src/tool_input.rs` for pi-mono. Lowercase-normalize tool name before lookup, or add lowercase aliases. Low-risk, one-liner.
+
+### NATS Subject Sanitization (T3 from architecture audit)
+`rs/core/src/paths.rs:38` `nats_subject_from_path()` composes subjects via raw string interpolation of project and session names. Path segments containing `.`, ` `, `*`, or `>` flow into the subject unchanged — dots create extra tokens that break `events.{project}.>` hierarchical subscriptions, spaces produce NATS-invalid subjects that fail at publish, and wildcard characters shadow subscription matching. Not hit in practice today (Claude Code / pi-mono default dirs use UUIDs) but a latent footgun. Fix: lightweight sanitizer that replaces the four problem characters with `_` and logs a warning when rewriting. See `docs/research/architecture-audit/T3_NATS_SUBJECT_ALIGNMENT.md` for three design options (sanitize / percent-encode / hash-prefix) and the recommendation. L1 characterization tests are already in place at `paths.rs` `subject_*` tests — they'll catch any divergence when the sanitizer lands.
+
+### Wire ↔ Projection Sync When Decomposing Broadcast (T5 from architecture audit)
+Today's broadcast path at `rs/server/src/ingest.rs:136-253` calls `proj.append(&val)` then `to_wire_record(vr, proj)` inside the same synchronous loop iteration, so the wire record always reflects its own event. The actor-consumer architecture stated goal (see comment at `rs/src/server/mod.rs:242` — "This is the last consumer to decompose") is to move broadcast onto its own NATS subscription, at which point Actor 4 and Actor 3 (projections) are independent subscribers and the "wire before projection" race opens. Options documented in `docs/research/architecture-audit/T5_WIRE_PROJECTION_SYNC.md`: (1) RwLock-shared projection with wait-for-catchup, (2) per-batch NATS-sequence barrier, (3) Actor 4 maintains its own projection. Also: Actor 3 today writes projections that nothing reads — dead code until this decomposition lands.
+
+### Promote Agent Payload Round-Trip Tests into Conformance Suite (T6 from architecture audit)
+Three inline tests in `rs/store/src/sqlite_store.rs` (`t6_pi_mono_agent_payload_round_trips`, `t6_claude_code_agent_payload_round_trips`, `t6_hermes_agent_payload_round_trips`) cover AgentPayload variant + typed-field round-trip for SQLite. Move them (with a backend-agnostic builder helper) into `rs/store/tests/event_store_conformance.rs` so MongoStore inherits the same guarantees. Mongo uses BSON which has real type-width quirks (i32 vs i64, datetime coercion) that a blob-TEXT SQLite pass can hide — this is the natural place to catch them. Low risk; one builder refactor.
+
+### Decompose Actor 4 (Broadcast Consumer) from Shared AppState
+Documented in-code at `rs/src/server/mod.rs:240`: "Actor 4: broadcast consumer (uses ingest_events for now) — Still uses shared AppState because BroadcastMessage assembly depends on projection state. **This is the last consumer to decompose.**" Actors 1–3 (persist, patterns, projections) own their state and talk only to NATS. Actor 4 still reaches into `state.store.projections`, `state.store.full_payloads`, `state.store.session_projects`, etc. via `ingest_events`, which keeps a monolithic code path alive in a system that's otherwise actor-sharded.
+
+Work: move broadcast onto its own independent NATS subscription, owning its own state needed for WireRecord assembly (truncation cache, full_payloads). Two sub-concerns baked in:
+- **Projection freshness** (T5): once Actor 4 can't read Actor 1's projection synchronously, a barrier is needed so wire records never reference a parent_uuid the projection hasn't seen.
+- **Single-owner invariants**: `ingest_events` currently does work that rightfully belongs to Actors 1–3 — the JSONL append was one (fixed 2026-04-15), but FTS indexing and plan extraction still live there. Each needs to move to its rightful owner or be explicitly declared dual-write with a justification.
+
+The JSONL torn-line bug at BACKLOG entry "JSONL Escape-Hatch Append Integrity" is the first of these to get caught in the wild — expect more as the decomposition work surfaces them. Track additions here as they land.
+
+### JSONL Escape-Hatch Append Integrity (surfaced by schema registry capstone)
+**Severity: high — violates the sovereignty contract.** Running `cargo test -p open-story-schemas --test test_jsonl_escape_hatch -- --ignored` against real committed data surfaces 273 malformed lines across 3 of 40 sampled session files. Failure is not a schema mismatch — `serde_json::from_str` fails on "trailing characters," meaning two CloudEvents were written to a single line with no newline between them. Worst offenders: `55ceca28-...jsonl` (169 bad lines), `06907d46-...jsonl` (137), `0f7b6541-...jsonl` (129). All written 2026-04-07 — this is a current bug, not ancient history.
+
+Suspected root cause: concurrent writes into the `SessionStore` JSONL appender without locking, or a torn write followed by unlocked append. Per CLAUDE.md the JSONL backup is explicitly the sovereignty escape hatch: "your data is always grep-able from outside the database." Torn lines break `jq`, `grep -c`, any external tool that trusts the one-event-per-line invariant.
+
+Fix approach: audit `rs/store/src/persistence.rs::SessionStore::append`. Confirm it acquires an exclusive lock (advisory `fcntl`/`flock` on Unix, or equivalent), holds it across the `write + newline` pair, and fsyncs. Also: the appender should never silently drop — if it can't write a full line, the error must surface, not truncate.
+
+Test in place at `rs/schemas/tests/test_jsonl_escape_hatch.rs` — will go green the day this is fixed.
+
+### Pair tool_result to pending_apply by call_id (eval-apply walk F-1)
+**Severity: medium — silent data corruption on pi-mono parallel tools.** `rs/patterns/src/eval_apply.rs:240-280` resolves each `message.user.tool_result` event against `pending_applies.first().clone()` and drains FIFO, ignoring `tool_call_id`. Sequential tool use is fine; **parallel tool use** (pi-mono's bundled `[toolCall, toolCall]` decomposing into 2 assistant events + 2 result events) corrupts when results arrive in completion order rather than call order — the fast tool's outcome attaches to the slow tool's call and vice versa.
+
+Fix: extend `PendingApply` with `call_id: String`, capture from `assistant.tool_use` event's `agent_payload.tool_use_id`/`tool_call_id` (depending on agent), and on `tool_result` find by id rather than `[0]`. ~30 LOC. Test `parallel_tool_results_out_of_call_order_currently_misattribute` characterizes the bug today; flips green → red on fix; delete it then. See `docs/research/architecture-audit/EVAL_APPLY_WALK.md` F-1.
+
+### Accumulate Assistant Text Across Multi-Event Turns (eval-apply walk F-2)
+`rs/patterns/src/eval_apply.rs:282-336` overwrites `pending_eval.content` on each `message.assistant.*` event. For pi-mono decomposed turns where `assistant.text` and `assistant.tool_use` both arrive, the second overwrites the first — narrative content is silently dropped. Fix: append rather than replace, OR push into a `Vec<String>` and join at `turn_complete`. Test `assistant_text_then_tool_use_overwrites_pending_eval_content` characterizes today's behavior. See `docs/research/architecture-audit/EVAL_APPLY_WALK.md` F-2.
+
+### WebSocket Lagged Notification (WS walk F-1)
+`rs/server/src/ws.rs:180-183` swallows `RecvError::Lagged(n)` with only a `log_event` line. The UI never knows it missed `n` broadcast messages — sidebar counts, timeline, and token totals silently diverge from server truth until a manual page reload triggers a fresh `initial_state`. Fix: send a `{kind: "lagged", skipped: n}` notification so the UI can refetch (cheapest), or close the socket so the client reconnects (most honest). See `docs/research/architecture-audit/WS_LAYER_WALK.md` F-1.
+
+### `delete_session` Should Probably Remove the JSONL Backup (API walk F-2)
+`DELETE /api/sessions/{id}` (`rs/server/src/api.rs:1230`) removes events from EventStore + projections + caches + project mappings, but leaves `data/{session_id}.jsonl` (the SessionStore backup file) on disk. The file is inert (boot replay reads from EventStore, not JSONL) so the session doesn't resurrect, but the local trace remains until manually `rm`'d. Decide: should DELETE be a "forget completely" operation, or does sovereignty mean we never touch the user's local backup? If "forget completely," add `SessionStore::delete_session(sid)` and call it from the API handler. If sovereignty wins, document it explicitly in the endpoint doc comment so users know the file remains. See `docs/research/architecture-audit/API_WALK.md` F-2.
+
+### Cap `search_events.limit` at a sane upper bound (API walk F-4)
+`/api/search?limit=` is an unbounded `usize` (`rs/server/src/api.rs:932`). `limit=1000000` returns up to 1M FTS5 hits, killing the client and the server's response-serialization. Trivial fix: `query.limit.min(MAX_SEARCH_LIMIT)` where `MAX_SEARCH_LIMIT = 500` or similar. See `docs/research/architecture-audit/API_WALK.md` F-4.
+
+### Pi-Mono Sessions Have No Story (Recursion Principle Test, F-1)
+The recursive-observability principle test surfaces this: pi-mono sessions never produce `turn.sentence` patterns because pi-mono doesn't emit `system.turn.complete`. The eval-apply state machine waits for that subtype to crystallize a `StructuralTurn`; without it, no turns, no sentences, no story. Pi-mono visibility in the UI was fixed during the hermes-integration branch (the line-is-unbroken commit), but pi-mono *narration* — the rendered SVO sentence per turn — still doesn't work. Fix shape: derive a turn boundary from pi-mono's own signals (e.g., `stop_reason: "stop"` on the assistant message, OR end-of-response marker, OR session timeout). See `rs/tests/test_principle_recursive_observability.rs` for the test that catches this.
+
+### Story-Rendering Catch-Up for Sessions Without Hooks (Recursion Principle Test, F-2)
+~40 historical claude-code sessions in the local instance have ZERO `system.turn.complete` events because they were ingested via the watcher path without the Stop hook configured. They have full event history but no turn boundaries → no sentences. New sessions with hooks work fine. Fix shapes (any of): (1) infer turn boundaries from event clustering on watcher-only sessions; (2) document hook setup in onboarding so this doesn't keep happening; (3) backfill turn.complete events on a re-ingest pass. Surfaced by the recursion test.
 
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.

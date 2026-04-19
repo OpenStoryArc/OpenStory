@@ -1,5 +1,6 @@
 //! REST API handlers — all /api/* routes.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use axum::extract::{Path as AxumPath, Query, State};
@@ -65,8 +66,8 @@ pub async fn list_sessions(
     let mut result = Vec::new();
     for row in &page {
         let sid = row.id.as_str();
-        let project_id = s.store.session_projects.get(sid);
-        let project_name = s.store.session_project_names.get(sid);
+        let project_id = s.store.session_projects.get(sid).map(|r| r.value().clone());
+        let project_name = s.store.session_project_names.get(sid).map(|r| r.value().clone());
         let (label, branch, total_input_tokens, total_output_tokens) =
             match s.store.projections.get(sid) {
                 Some(proj) => (
@@ -96,9 +97,10 @@ pub async fn list_sessions(
             "session_id": sid,
             "status": status,
             "start_time": row.first_event,
+            "last_event": row.last_event,
             "event_count": row.event_count,
-            "project_id": project_id.or(row.project_id.as_ref()),
-            "project_name": project_name.or(row.project_name.as_ref()),
+            "project_id": project_id.as_ref().or(row.project_id.as_ref()),
+            "project_name": project_name.as_ref().or(row.project_name.as_ref()),
             "label": label.or(row.label.clone()),
             "branch": branch,
             "total_input_tokens": total_input_tokens,
@@ -129,7 +131,7 @@ pub async fn get_summary(
     let s = state.read().await;
     let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
     let summary = session_summary(&session_id, &events, Some(Utc::now()));
-    let project_id = s.store.session_projects.get(&session_id);
+    let project_id = s.store.session_projects.get(&session_id).map(|r| r.value().clone());
     Json(json!({
         "session_id": summary.session_id,
         "status": summary.status,
@@ -233,9 +235,52 @@ pub async fn get_transcript(
             }
         }
         None => {
+            // Fallback: reconstruct transcript from stored events.
+            // Hermes sessions (and any agent that ingests via the plugin/watcher
+            // path) don't have a transcript_path — the events ARE the transcript.
+            let mut entries: Vec<Value> = Vec::new();
+            for ev in &events {
+                let raw = ev.get("data").and_then(|d| d.get("raw")).unwrap_or(ev);
+                let data = raw.get("data").unwrap_or(raw);
+                let role = data.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                if role.is_empty() {
+                    continue;
+                }
+                let content = data.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let subtype = ev.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                let kind = if subtype.contains("tool_use") {
+                    "tool_call"
+                } else if subtype.contains("tool_result") {
+                    "tool_result"
+                } else if subtype.contains("thinking") {
+                    "thinking"
+                } else {
+                    "text"
+                };
+                let mut entry = json!({
+                    "role": match role {
+                        "tool" => "user",
+                        _ => role,
+                    },
+                    "kind": kind,
+                    "content": content,
+                });
+                // Add tool info if present
+                if let Some(ap) = ev.get("data").and_then(|d| d.get("agent_payload")) {
+                    if let Some(tool) = ap.get("tool").and_then(|v| v.as_str()) {
+                        entry["tool"] = json!(tool);
+                    }
+                    if let Some(args) = ap.get("args") {
+                        entry["args"] = args.clone();
+                    }
+                }
+                if !query.assistant_only || (role == "assistant" && kind == "text") {
+                    entries.push(entry);
+                }
+            }
             return Json(json!({
-                "error": "no transcript_path found in session events",
-                "entries": []
+                "source": "events",
+                "entries": entries,
             }));
         }
     };
@@ -378,14 +423,14 @@ pub async fn get_event_content(
         short_id(&session_id), short_id(&event_id)
     ));
     let s = state.read().await;
-    // Try in-memory cache first, then fall back to EventStore
-    if let Some(content) = s
+    // Try in-memory cache first, then fall back to EventStore.
+    // Key is (session_id, event_id) — the DashMap guard derefs to `&String`.
+    if let Some(entry) = s
         .store
         .full_payloads
-        .get(&session_id)
-        .and_then(|m| m.get(&event_id))
+        .get(&(session_id.clone(), event_id.clone()))
     {
-        return Ok(content.clone());
+        return Ok(entry.value().clone());
     }
     // Fall back: extract tool output from full event payload in EventStore
     let payload = s
@@ -491,9 +536,10 @@ pub async fn get_session_plans(
 ) -> Json<Value> {
     let s = state.read().await;
     let mut all_plans = s.store.plan_store.list_for_session(&session_id);
-    // Include plans from subagent sessions
-    if let Some(children) = s.store.session_children.get(&session_id) {
-        for child_id in children {
+    // Include plans from subagent sessions. DashMap::get returns a Ref
+    // guard; deref to &Vec<String> for iteration.
+    if let Some(children_ref) = s.store.session_children.get(&session_id) {
+        for child_id in children_ref.value() {
             all_plans.extend(s.store.plan_store.list_for_session(child_id));
         }
     }
@@ -897,7 +943,10 @@ pub async fn search_events(
         }
     };
 
-    log_event("api", &format!("GET /api/search?q={}", &q[..q.len().min(50)]));
+    log_event(
+        "api",
+        &format!("GET /api/search?q={}", crate::logging::truncate_at_char_boundary(&q, 50)),
+    );
 
     let s = state.read().await;
     let results = s.store.event_store
@@ -980,15 +1029,15 @@ pub async fn agent_search(
     let session_projects = s.store.session_projects.clone();
     let session_project_names = s.store.session_project_names.clone();
 
-    // Collect session metadata for enrichment
-    let projections = &s.store.projections;
+    // Collect session metadata for enrichment. DashMap iteration gives
+    // RefMulti guards; `.key()` and `.value()` extract the pair.
     let mut session_labels: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut session_event_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for (sid, proj) in projections {
-        if let Some(label) = proj.label() {
-            session_labels.insert(sid.clone(), label.to_string());
+    for entry in s.store.projections.iter() {
+        if let Some(label) = entry.value().label() {
+            session_labels.insert(entry.key().clone(), label.to_string());
         }
-        session_event_counts.insert(sid.clone(), proj.event_count());
+        session_event_counts.insert(entry.key().clone(), entry.value().event_count());
     }
 
     // Group results by session
@@ -1008,7 +1057,7 @@ pub async fn agent_search(
             // Project filter: skip sessions not matching the requested project
             if let Some(ref proj) = project_filter {
                 let session_project = session_projects.get(&sid)?;
-                if !session_project.contains(proj) {
+                if !session_project.value().contains(proj) {
                     return None;
                 }
             }
@@ -1029,8 +1078,8 @@ pub async fn agent_search(
                 })
                 .collect();
 
-            let project_name = session_project_names.get(&sid);
-            let project_id = session_projects.get(&sid);
+            let project_name = session_project_names.get(&sid).map(|r| r.value().clone());
+            let project_id = session_projects.get(&sid).map(|r| r.value().clone());
             let label = session_labels.get(&sid);
             let event_count = session_event_counts.get(&sid).copied().unwrap_or(0);
 
@@ -1068,30 +1117,112 @@ pub async fn agent_search(
 
 /// GET /api/sessions/{session_id}/records
 ///
-/// Returns session events as WireRecords from in-memory projections.
+/// Returns session events as WireRecords read directly from the EventStore.
+///
 /// This is the same format the Timeline renders — includes depth,
-/// parent_uuid, and truncation metadata. Returns empty array if
-/// session not found.
+/// parent_uuid, and truncation metadata. Returns empty array if the
+/// session has no events.
+///
+/// Reads from `event_store.session_events()` (the single source of truth)
+/// rather than any in-memory cache, so any event persisted to the store
+/// is visible here regardless of which ingest path wrote it.
 pub async fn get_session_records(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
+    use open_story_views::from_cloud_event::from_cloud_event;
+    use open_story_views::unified::RecordBody;
+    use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THRESHOLD};
+
     log_event("api", &format!("GET /api/sessions/{}/records", short_id(&session_id)));
     let s = state.read().await;
 
-    let records: Vec<Value> = match s.store.projections.get(&session_id) {
-        Some(proj) => {
-            proj.timeline_rows()
-                .iter()
-                .map(|vr| {
-                    let wire = open_story_store::ingest::to_wire_record(vr, proj);
-                    serde_json::to_value(wire).unwrap_or(json!({}))
-                })
-                .collect()
-        }
-        None => Vec::new(),
-    };
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
 
+    // Build parent_map from raw events — one entry per stored CloudEvent.
+    // Fan-out ViewRecords (e.g., parallel tool_use blocks) inherit the
+    // same parent_uuid via suffix stripping at lookup time.
+    let mut parent_map: HashMap<String, Option<String>> = HashMap::with_capacity(events.len());
+    for event in &events {
+        let id = match event.get("id").and_then(|v| v.as_str()) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let parent = event
+            .get("data")
+            .and_then(|d| d.get("agent_payload"))
+            .and_then(|ap| ap.get("parent_uuid"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        parent_map.insert(id, parent);
+    }
+
+    // Depth: walk the parent chain. Capped at 64 to bound cost on
+    // pathological inputs (production trees are shallow).
+    fn depth_of(id: &str, parent_map: &HashMap<String, Option<String>>) -> u16 {
+        // Strip fan-out suffix: "evt-1:2" → "evt-1"
+        let base_id = id.split(':').next().unwrap_or(id);
+        let mut depth: u16 = 0;
+        let mut current = match parent_map.get(base_id).and_then(|p| p.as_deref()) {
+            Some(p) => p.to_string(),
+            None => return 0,
+        };
+        for _ in 0..64 {
+            depth += 1;
+            match parent_map.get(current.as_str()).and_then(|p| p.as_deref()) {
+                Some(next) => current = next.to_string(),
+                None => return depth,
+            }
+        }
+        depth
+    }
+
+    let mut records: Vec<Value> = Vec::new();
+    for event in &events {
+        let ce = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()) {
+            Ok(ce) => ce,
+            Err(_) => continue,
+        };
+        for vr in from_cloud_event(&ce) {
+            // Parent lookup uses base id (strip fan-out suffix).
+            let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
+            let parent_uuid = parent_map
+                .get(&base_id)
+                .and_then(|p| p.clone());
+            let depth = depth_of(&vr.id, &parent_map);
+
+            // Truncation: same rule as the pre-refactor to_wire_record.
+            let (truncated, payload_bytes) = match &vr.body {
+                RecordBody::ToolResult(tr) => match &tr.output {
+                    Some(output) => {
+                        let result = truncate_payload(output, TRUNCATION_THRESHOLD);
+                        (result.truncated, result.original_bytes as u64)
+                    }
+                    None => (false, 0),
+                },
+                _ => (false, 0),
+            };
+
+            let wire = WireRecord {
+                record: vr,
+                depth,
+                parent_uuid,
+                truncated,
+                payload_bytes,
+            };
+            if let Ok(v) = serde_json::to_value(wire) {
+                records.push(v);
+            }
+        }
+    }
+
+    // Events come out of session_events() sorted by (seq, time) per the
+    // store contract, which matches the view_records fan-out order.
     Json(Value::Array(records))
 }
 
@@ -1106,7 +1237,7 @@ pub async fn delete_session(
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
     log_event("api", &format!("DELETE /api/sessions/{}", short_id(&session_id)));
-    let mut s = state.write().await;
+    let s = state.write().await;
 
     let deleted = s.store.event_store.delete_session(&session_id)
         .await
@@ -1119,7 +1250,22 @@ pub async fn delete_session(
     // Clean up in-memory state
     s.store.projections.remove(&session_id);
     s.store.detected_patterns.remove(&session_id);
-    s.store.full_payloads.remove(&session_id);
+    // full_payloads is keyed on (session_id, event_id) — walk to prune.
+    let to_drop: Vec<(String, String)> = s
+        .store
+        .full_payloads
+        .iter()
+        .filter_map(|e| {
+            if e.key().0 == session_id {
+                Some(e.key().clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for k in to_drop {
+        s.store.full_payloads.remove(&k);
+    }
     s.store.session_projects.remove(&session_id);
     s.store.session_project_names.remove(&session_id);
 

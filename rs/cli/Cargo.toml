@@ -19,6 +19,9 @@ clap = { version = "4", features = ["derive", "env"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = []
 # Pass-through features so `cargo build -p open-story-cli --features mongo`

@@ -50,3 +50,6 @@ __pycache__/
 # Generated history
 history/
 .env
+
+# Local security audit reports
+.gstack/

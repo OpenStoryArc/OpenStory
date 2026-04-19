@@ -1,0 +1,132 @@
+[
+  {
+    "scenario": "01-text-only",
+    "prompt": "Say hello in exactly one sentence. Do not use any tools.",
+    "hypothesis": "Assistant message has content: [{type: 'text'}]. Translator should produce message.assistant.text.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 4,
+      "block_starts": [
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "02-single-tool",
+    "prompt": "Read the file /tmp/test-config.toml. Only read it, do not explain it.",
+    "hypothesis": "Assistant message has content: [{type: 'toolCall'}]. Translator picks tool_use — correct.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 5,
+      "block_starts": [
+        "toolcall"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "03-tool-then-text",
+    "prompt": "Read /tmp/test-config.toml and tell me what port the server listens on. One sentence answer.",
+    "hypothesis": "Each API call is one JSONL line. Tool call line is tool_use, text line is text. Both visible — no bug.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 9,
+      "block_starts": [
+        "toolcall",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "04-thinking-plus-text",
+    "prompt": "Think carefully about why 1+1=2, then give me a one sentence answer.",
+    "hypothesis": "Content: [{type:'thinking'}, {type:'text'}]. Translator picks 'thinking', text is INVISIBLE. This is the bug.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 8,
+      "block_starts": [
+        "thinking",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "05-thinking-plus-tool",
+    "prompt": "Think about what file to read, then read /tmp/test-config.toml.",
+    "hypothesis": "Content: [{type:'thinking'}, {type:'toolCall'}]. Translator picks 'tool_use', thinking and any text invisible.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 13,
+      "block_starts": [
+        "thinking",
+        "toolcall",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "06-thinking-text-tool",
+    "prompt": "Think step by step about what /tmp/test-broken.py does wrong, explain the bug briefly, then read the file.",
+    "hypothesis": "Content: [{type:'thinking'}, {type:'text'}, {type:'toolCall'}]. Translator picks 'tool_use'. Both thinking AND text are INVISIBLE. Worst case.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 22,
+      "block_starts": [
+        "thinking",
+        "text",
+        "toolcall",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "07-multi-tool",
+    "prompt": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
+    "hypothesis": "Content: [{type:'toolCall'}, {type:'toolCall'}]. Translator picks 'tool_use' — but only one tool is captured in the CloudEvent.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 20,
+      "block_starts": [
+        "toolcall",
+        "toolcall",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  },
+  {
+    "scenario": "08-tool-error",
+    "prompt": "Read the file /tmp/does-not-exist.txt",
+    "hypothesis": "toolResult with isError: true. Tests error path preservation.",
+    "results": {
+      "api_calls": 0,
+      "total_streaming_events": 9,
+      "block_starts": [
+        "toolcall",
+        "text"
+      ],
+      "per_api_call_blocks": [],
+      "done_events": []
+    },
+    "translator_analysis": []
+  }
+]
