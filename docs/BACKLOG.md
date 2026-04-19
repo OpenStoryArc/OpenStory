@@ -18,6 +18,9 @@ Watcher publishes live events while `replay_boot_sessions` is still walking the 
 ### DashMap discipline guardrail
 Six `StoreState` fields are now `Arc<DashMap>`. The concurrency model requires: never hold a `RefMut` from `.entry()` across an `.await` or across a second `.get()` / `.entry()` on the same map (shard-lock deadlock). Scope guards tightly. Document this in `CLAUDE.md` principles so new contributors don't have to learn it from a stuck test. Consider a lightweight runtime assertion in debug builds that panics on held guards across await points.
 
+### Retire `ingest_events` fully (test migration)
+`ingest_events` is production-dead after Phase 1.5 but still pub-exported and used by ~15 integration test files (70 call sites) that do `state.write() + ingest_events(&mut s, ...)`. The tests work because `&mut AppState` auto-derefs to `&AppState` and the inline `!bus.is_active()` demo-mode guard still persists events when the test harness uses `NoopBus`. Migrate all test call sites to `TestActors::drive_batch` (which runs the full four-actor pipeline), delete the demo-mode guard, delete `ingest_events` + `IngestResult` from `rs/server/src/ingest.rs`, remove the re-exports in `rs/src/server/mod.rs`. Pure housekeeping — no behavior change in production.
+
 ### Replay-window load test
 Existing tests use small fixtures where replay completes before the first API request. Write a soak test that starts the server with a fat fixture (>10K events), hammers `/api/sessions` concurrently, and asserts (a) API never returns 5xx during replay, (b) session list monotonically fills in, (c) final state matches the golden snapshot. This closes the only real gap in the Phase 0b safety net: nobody's measured what the "API serving during long replay" path actually does.
 
