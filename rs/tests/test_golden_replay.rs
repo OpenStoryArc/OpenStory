@@ -17,7 +17,6 @@
 mod helpers;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use open_story::cloud_event::CloudEvent;
 use open_story::translate::{translate_line, TranscriptFormat, TranscriptState};
@@ -27,14 +26,6 @@ use open_story::server::ingest_events;
 use serde_json::{json, Value};
 
 use helpers::test_state;
-
-/// Seq counter so translated events from the same fixture have monotonic seq.
-/// Used across tests; each test starts fresh via `reset_seq`.
-static SEQ: AtomicU64 = AtomicU64::new(0);
-
-fn reset_seq() {
-    SEQ.store(0, Ordering::SeqCst);
-}
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -69,9 +60,11 @@ fn detect_format(first_line: &Value) -> TranscriptFormat {
 }
 
 /// Read a fixture, translate every line, feed results through `ingest_events`,
-/// and return a canonical JSON snapshot of the resulting state.
+/// and return a canonical JSON snapshot of the resulting state. Each call
+/// uses its own local monotonic counter — keeps snapshots deterministic
+/// when multiple golden tests run in parallel.
 async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
-    reset_seq();
+    let mut next_seq: u64 = 0;
 
     let tmp = tempfile::tempdir().expect("create temp dir");
     let state_arc = test_state(&tmp);
@@ -106,8 +99,8 @@ async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
         let events: Vec<CloudEvent> = events
             .into_iter()
             .map(|mut e| {
-                let s = SEQ.fetch_add(1, Ordering::SeqCst);
-                e.data.seq = s;
+                e.data.seq = next_seq;
+                next_seq += 1;
                 e
             })
             .collect();

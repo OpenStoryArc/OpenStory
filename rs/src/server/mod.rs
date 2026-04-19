@@ -21,15 +21,12 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
-// Consumer actor implementations ready but not yet wired as independent NATS consumers.
-// See rs/server/src/consumers/ for the implementations.
-#[allow(unused_imports)]
-use open_story_server::consumers;
 use open_story_server::logging::{event_type_summary, log_event, short_id};
 
 pub use broadcast::BroadcastMessage;
 pub use open_story_server::config;
 pub use open_story_server::config::{Config, Role};
+pub use open_story_server::consumers;
 pub use open_story_server::router::{build_router, build_publisher_router};
 pub use state::{AppState, SharedState, create_state};
 pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult};
@@ -222,10 +219,15 @@ pub async fn run_server(
         }
 
         // ── Actor 3: projections consumer (owns session metadata) ──
+        //
+        // The consumer writes into the *shared* projections map on
+        // `state.store.projections` (an Arc<DashMap>). API, WebSocket,
+        // and other consumers read from that same map. No sync needed.
         {
             let projections_bus = bus.clone();
+            let shared_projections = state.read().await.store.projections.clone();
             tokio::spawn(async move {
-                let mut actor = consumers::projections::ProjectionsConsumer::new();
+                let mut actor = consumers::projections::ProjectionsConsumer::new(shared_projections);
                 match projections_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {

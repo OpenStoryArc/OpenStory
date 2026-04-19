@@ -52,3 +52,4 @@ tokio-tungstenite = "0.26"
 futures-util = "0.3"
 kube = { version = "0.98", features = ["client", "runtime"] }
 k8s-openapi = { version = "0.24", features = ["latest"] }
+dashmap = "6"

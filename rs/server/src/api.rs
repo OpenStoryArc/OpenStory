@@ -1028,15 +1028,15 @@ pub async fn agent_search(
     let session_projects = s.store.session_projects.clone();
     let session_project_names = s.store.session_project_names.clone();
 
-    // Collect session metadata for enrichment
-    let projections = &s.store.projections;
+    // Collect session metadata for enrichment. DashMap iteration gives
+    // RefMulti guards; `.key()` and `.value()` extract the pair.
     let mut session_labels: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut session_event_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for (sid, proj) in projections {
-        if let Some(label) = proj.label() {
-            session_labels.insert(sid.clone(), label.to_string());
+    for entry in s.store.projections.iter() {
+        if let Some(label) = entry.value().label() {
+            session_labels.insert(entry.key().clone(), label.to_string());
         }
-        session_event_counts.insert(sid.clone(), proj.event_count());
+        session_event_counts.insert(entry.key().clone(), entry.value().event_count());
     }
 
     // Group results by session

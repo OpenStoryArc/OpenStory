@@ -12,6 +12,7 @@ open-story-patterns = { path = "../patterns" }
 open-story-store = { path = "../store" }
 open-story-views = { path = "../views" }
 anyhow = "1"
+dashmap = "6"
 axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4", features = ["serde"] }
 metrics = "0.24"

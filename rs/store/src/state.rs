@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
+use dashmap::DashMap;
 
 use open_story_patterns::PatternEvent;
 
@@ -67,7 +68,10 @@ pub struct StoreState {
     pub plan_store: PlanStore,
 
     // ── projections + patterns ──
-    pub projections: HashMap<String, SessionProjection>,
+    // Shared across actor-consumers (Actor 3 owns writes, API + ws +
+    // other actors read). DashMap gives lock-free concurrent reads
+    // without forcing all call sites onto an explicit RwLock guard.
+    pub projections: Arc<DashMap<String, SessionProjection>>,
     /// Cache of detected patterns keyed by session_id, populated by the
     /// patterns consumer (Actor 2). Read by `build_initial_state` for the
     /// WebSocket handshake. Pattern *detection* lives in the patterns
@@ -205,7 +209,7 @@ impl StoreState {
             session_store,
             event_log,
             plan_store,
-            projections: HashMap::new(),
+            projections: Arc::new(DashMap::new()),
             detected_patterns: HashMap::new(),
             full_payloads: HashMap::new(),
             subagent_parents: HashMap::new(),
@@ -352,7 +356,7 @@ mod tests {
         assert!(state.event_store.insert_event("sess-1", &event).await.unwrap());
         assert!(!state.event_store.insert_event("sess-1", &event).await.unwrap(), "dedup via PK");
 
-        let proj = state.projections.entry("sess-1".to_string())
+        let mut proj = state.projections.entry("sess-1".to_string())
             .or_insert_with(|| SessionProjection::new("sess-1"));
         let result = proj.append(&event);
 

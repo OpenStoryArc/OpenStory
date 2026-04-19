@@ -33,6 +33,7 @@ async-trait = "0.1"
 regex = "1"
 rusqlite = { version = "0.35", features = ["bundled"] }
 walkdir = "2"
+dashmap = "6"
 # MongoDB backend (feature `mongo`).
 mongodb = { version = "3.2", optional = true }
 bson = { version = "2.13", features = ["chrono-0_4"], optional = true }

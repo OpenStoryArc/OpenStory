@@ -58,11 +58,11 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
     let mut all_patterns: Vec<PatternEvent> = Vec::new();
     let mut session_labels: HashMap<String, SessionLabel> = HashMap::new();
 
-    for (sid, proj) in &state.store.projections {
-        // Collect filter counts from each session's projection
+    for entry in state.store.projections.iter() {
+        let sid = entry.key();
+        let proj = entry.value();
         all_filter_counts.insert(sid.clone(), proj.filter_counts().clone());
 
-        // Collect session labels (always include for token counts)
         session_labels.insert(sid.clone(), SessionLabel {
             label: proj.label().map(|s| s.to_string()),
             branch: proj.branch().map(|s| s.to_string()),
@@ -70,8 +70,6 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
             total_output_tokens: proj.total_output_tokens(),
         });
 
-        // Convert timeline rows to WireRecords (these are already durable — projection
-        // doesn't store ephemeral records in timeline_rows)
         for vr in proj.timeline_rows() {
             all_records.push(to_wire_record(vr, proj));
         }

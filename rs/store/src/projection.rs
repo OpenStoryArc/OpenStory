@@ -135,6 +135,7 @@ fn is_test_failure(record: &ViewRecord) -> bool {
 // ── SessionProjection ───────────────────────────────────────────────
 
 /// Per-session incremental projection. Updated on every event append.
+#[derive(Clone)]
 pub struct SessionProjection {
     session_id: String,
     event_count: usize,
