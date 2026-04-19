@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { detectLanguage } from "@/lib/detect-language";
+import { detectLanguage, detectLanguageFromContent } from "@/lib/detect-language";
 
 describe("detectLanguage", () => {
   // Boundary table: every input partition in one place
@@ -34,6 +34,32 @@ describe("detectLanguage", () => {
     scenario(
       () => input,
       (opts) => detectLanguage(opts),
+      (result) => expect(result).toBe(expected),
+    );
+  });
+});
+
+describe("detectLanguageFromContent", () => {
+  const cases: [string, string, string][] = [
+    ["TOML section header",                   "[package]\nname = \"foo\"",                           "toml"],
+    ["TOML workspace header",                 "[workspace]\nmembers = [\".\"]",                      "toml"],
+    ["Rust module doc",                       "//! my module\n\npub fn main() {}",                   "rust"],
+    ["Rust fn declaration",                   "fn main() {\n  println!(\"hi\");\n}",                 "rust"],
+    ["Rust use statement",                    "use std::collections::HashMap;",                      "rust"],
+    ["Rust pub struct",                       "pub struct Foo { x: u32 }",                            "rust"],
+    ["python shebang",                        "#!/usr/bin/env python3\nprint('hi')",                 "python"],
+    ["bash shebang",                          "#!/bin/bash\nset -e",                                 "bash"],
+    ["node shebang",                          "#!/usr/bin/env node",                                 "javascript"],
+    ["plain prose → text",                    "Just some plain text without markers.",               "text"],
+    ["markdown → text (conservative)",        "# heading\n\nSome body.",                              "text"],
+    ["empty → text",                          "",                                                     "text"],
+    ["TOML with leading blanks",              "\n\n[dependencies]\nfoo = \"1\"",                     "toml"],
+  ];
+
+  it.each(cases)("%s", (_label, input, expected) => {
+    scenario(
+      () => input,
+      (text) => detectLanguageFromContent(text),
       (result) => expect(result).toBe(expected),
     );
   });

@@ -11,7 +11,7 @@ import { detectLanguage } from "@/lib/detect-language";
 import { compactTime } from "@/lib/time";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -47,9 +47,27 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const codeStyle = { margin: 0, padding: "6px 8px", background: "#1a1b26", fontSize: "12px", borderRadius: "6px" };
 
-function Code({ children, language }: { children: string; language: string }) {
+function Code({
+  children,
+  language,
+  showLineNumbers = false,
+  startingLineNumber = 1,
+}: {
+  children: string;
+  language: string;
+  showLineNumbers?: boolean;
+  startingLineNumber?: number;
+}) {
   return (
-    <SyntaxHighlighter language={language} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+    <SyntaxHighlighter
+      language={language}
+      style={codeTheme}
+      customStyle={codeStyle}
+      wrapLongLines
+      showLineNumbers={showLineNumbers}
+      startingLineNumber={startingLineNumber}
+      lineNumberStyle={lineNumberStyle}
+    >
       {children}
     </SyntaxHighlighter>
   );
@@ -131,7 +149,11 @@ export function CardBody({ row }: { row: TimelineRow }) {
       return (
         <div className="space-y-1">
           <FilePath path={edit.file_path} />
-          {edit.new_string && <Code language={lang}>{edit.new_string}</Code>}
+          {edit.new_string && (
+            <Code language={lang} showLineNumbers>
+              {edit.new_string}
+            </Code>
+          )}
         </div>
       );
     }
@@ -153,7 +175,11 @@ export function CardBody({ row }: { row: TimelineRow }) {
       return (
         <div className="space-y-1">
           <FilePath path={fp} />
-          {content && <Code language={lang}>{content}</Code>}
+          {content && (
+            <Code language={lang} showLineNumbers>
+              {content}
+            </Code>
+          )}
         </div>
       );
     }
@@ -207,7 +233,9 @@ export function CardBody({ row }: { row: TimelineRow }) {
           <span className="text-[10px] text-[#565f89] font-mono">
             Lines {startLine}-{endLine}
           </span>
-          <Code language={lang}>{cleaned}</Code>
+          <Code language={lang} showLineNumbers startingLineNumber={startLine}>
+            {cleaned}
+          </Code>
         </div>
       );
     }
@@ -227,7 +255,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
                   const codeText = String(children).replace(/\n$/, "");
                   if (match) {
                     return (
-                      <SyntaxHighlighter language={match[1]} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+                      <SyntaxHighlighter language={match[1]} style={codeTheme} customStyle={codeStyle} wrapLongLines>
                         {codeText}
                       </SyntaxHighlighter>
                     );
@@ -292,7 +320,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
             const text = String(children).replace(/\n$/, "");
             if (match) {
               return (
-                <SyntaxHighlighter language={match[1]} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+                <SyntaxHighlighter language={match[1]} style={codeTheme} customStyle={codeStyle} wrapLongLines>
                   {text}
                 </SyntaxHighlighter>
               );
