@@ -4,6 +4,25 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
+
+### Boot-replay status on `/api/health`
+Async replay lets HTTP bind in ~3s, but projections keep populating in the background for 5–60s (depending on SQLite event count). During that window `/api/sessions` returns rows with empty/zero `label`/`event_count`/`tokens` — looks broken to the user. Add a `replay_status: "in_progress" | "complete"` field to `/api/health` (and the WebSocket `initial_state` handshake) so the UI can render a "Reconstructing sessions…" hint instead of silent-empty rows. ~20 LOC.
+
+### Bounded `full_payloads` cache
+`state.store.full_payloads` is `Arc<DashMap<(String, String), String>>` — grows unbounded as truncated tool outputs >100KB get cached for the lazy-load endpoint. With a 10GB data dir full of large tool outputs this can balloon memory during replay. Add a configurable LRU (e.g., `full_payload_cache_bytes = 512_000_000`) that evicts oldest entries when the size threshold is crossed. Cache misses fall back to the EventStore `full_payload()` path.
+
+### Live-event-during-replay race bound
+Watcher publishes live events while `replay_boot_sessions` is still walking the same session's history. `SessionProjection::seen_ids` dedups correctly, but `event_count` / `timeline_rows` during the overlap window can be temporarily inconsistent with the SQLite `events` table. Self-corrects after replay ends. Add a test that asserts the final state converges even under a concurrent live-event stream, and document the window as expected EC behavior.
+
+### DashMap discipline guardrail
+Six `StoreState` fields are now `Arc<DashMap>`. The concurrency model requires: never hold a `RefMut` from `.entry()` across an `.await` or across a second `.get()` / `.entry()` on the same map (shard-lock deadlock). Scope guards tightly. Document this in `CLAUDE.md` principles so new contributors don't have to learn it from a stuck test. Consider a lightweight runtime assertion in debug builds that panics on held guards across await points.
+
+### Replay-window load test
+Existing tests use small fixtures where replay completes before the first API request. Write a soak test that starts the server with a fat fixture (>10K events), hammers `/api/sessions` concurrently, and asserts (a) API never returns 5xx during replay, (b) session list monotonically fills in, (c) final state matches the golden snapshot. This closes the only real gap in the Phase 0b safety net: nobody's measured what the "API serving during long replay" path actually does.
+
+---
+
 ## Observability
 
 ### Cost & Token Tracking
