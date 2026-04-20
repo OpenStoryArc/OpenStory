@@ -154,23 +154,32 @@ docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 docker build -f Dockerfile.prod -t open-story:prod .
 ```
 
-**`openclaw-mcp:latest`** extends `openclaw:latest` with Python 3 + `uv` + the OpenStory MCP server source. It's the image the `openclaw` service in `docker-compose.prod.yml` actually runs — it lets the OpenClaw agent spawn an `openstory` MCP server as a stdio subprocess and query its own local Open Story instance via the 19 MCP tools. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
+**`openclaw-mcp:latest`** extends `openclaw:latest` with Python 3 + `uv` + the OpenStory MCP server source. It's the image the `openclaw` service in `docker-compose.agent.yml` actually runs — it lets the OpenClaw agent spawn an `openstory` MCP server as a stdio subprocess and query its own local Open Story instance via the 19 MCP tools. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
 
 **Warning**: Docker builds create millions of temporary files that consume filesystem inodes. If you see "no space left on device" errors but `df -h` shows free space, check `df -i /` for inode exhaustion. Fix with `docker system prune -a --force`.
 
 ## Step 7: Launch the stack
 
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-Verify all three containers are healthy:
+The stack is split into shared infrastructure and per-agent instances:
 
 ```bash
-docker compose -f docker-compose.prod.yml ps
+# Shared infrastructure (NATS + Open Story) — run once
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+
+# Per-agent (one command per person)
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml up -d
+docker compose --project-name katie --env-file deploy/katie.env -f docker-compose.agent.yml up -d
 ```
 
-You should see `openclaw`, `open-story`, `nats`, and `telegram-bot` all running.
+Verify all containers are healthy:
+
+```bash
+docker compose --project-name infra -f docker-compose.infra.yml ps
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml ps
+docker compose --project-name katie --env-file deploy/katie.env -f docker-compose.agent.yml ps
+```
+
+You should see `nats` + `open-story` (infra) and `openclaw` + `telegram-bot` per agent.
 
 ## Step 8: Configure Caddy
 
@@ -250,12 +259,13 @@ docker build -t openclaw:latest ~/openclaw
 docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 docker build -f Dockerfile.prod -t open-story:prod .
 
-# 4. Bring up the new stack — only changed services are recreated
-docker compose -f docker-compose.prod.yml up -d
+# 4. Bring up the new stack
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml up -d
 
 # 5. Verify
-docker compose -f docker-compose.prod.yml ps
-# You should see: nats, openclaw, open-story, telegram-bot — all healthy
+docker compose --project-name infra -f docker-compose.infra.yml ps
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml ps
 ```
 
 **What changes, what doesn't:**
@@ -284,10 +294,12 @@ The agent itself doesn't need any configuration — when it starts a turn, OpenC
 
 ```bash
 cd ~/openstory
-docker compose -f docker-compose.prod.yml logs -f
-docker compose -f docker-compose.prod.yml logs -f openclaw
-docker compose -f docker-compose.prod.yml logs -f open-story
-docker compose -f docker-compose.prod.yml logs -f telegram-bot
+# Infra logs
+docker compose --project-name infra -f docker-compose.infra.yml logs -f
+
+# Agent logs (replace 'bobby' with the agent name)
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml logs -f
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml logs -f openclaw
 ```
 
 ### Update Open Story
@@ -296,30 +308,33 @@ docker compose -f docker-compose.prod.yml logs -f telegram-bot
 cd ~/openstory
 git pull
 docker build -f Dockerfile.prod -t open-story:prod .
-docker compose -f docker-compose.prod.yml up -d
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
 ```
 
-### Update OpenClaw
+### Update OpenClaw (all agents)
 
 ```bash
-cd ~/openclaw
-git pull
-docker build -t openclaw:latest .
-cd ~/openstory
-docker compose -f docker-compose.prod.yml up -d
+cd ~/openclaw && git pull && docker build -t openclaw:latest .
+cd ~/openstory && docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
+# Restart each agent
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml up -d
+docker compose --project-name katie --env-file deploy/katie.env -f docker-compose.agent.yml up -d
 ```
 
 ### Backup
 
 ```bash
-docker compose -f docker-compose.prod.yml exec open-story \
-  tar czf - /data > backup-$(date +%Y%m%d).tar.gz
+scripts/deploy/backup.sh deploy@<vps-host>
 ```
 
 ### Restart
 
 ```bash
-docker compose -f docker-compose.prod.yml restart
+# Restart a specific agent
+docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compose.agent.yml restart
+
+# Restart infra
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml restart
 ```
 
 ### Check resources
@@ -330,18 +345,16 @@ df -h               # disk space
 df -i /             # inodes (if builds are failing)
 ```
 
-### Add a Telegram user
+### Add a new agent
 
-Edit `.env`, add their user ID to the comma-separated list:
+1. Create `deploy/<name>.env` from `deploy/katie.env.example` with a unique `GATEWAY_PORT`
+2. Add the agent's state volume to `docker-compose.infra.yml` (open-story pi-watch mount)
+3. Run: `docker compose --project-name <name> --env-file deploy/<name>.env -f docker-compose.agent.yml up -d`
 
-```
-TELEGRAM_ALLOWED_USER_IDS=123456789,987654321,111222333
-```
-
-Then restart the bot:
+Then restart the agent's bot:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d --no-deps telegram-bot
+docker compose --project-name <name> --env-file deploy/<name>.env -f docker-compose.agent.yml up -d
 ```
 
 ## Cost Summary

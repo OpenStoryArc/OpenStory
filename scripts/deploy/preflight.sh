@@ -96,13 +96,21 @@ else
 fi
 
 section "compose services"
-if [ -f "$HOME/openstory/docker-compose.prod.yml" ]; then
-    docker compose -f "$HOME/openstory/docker-compose.prod.yml" ps 2>&1 | sed 's/^/  /' || {
-        echo "WARN: docker compose ps failed"
+if [ -f "$HOME/openstory/docker-compose.infra.yml" ]; then
+    echo "  --- infra ---"
+    docker compose --project-name infra -f "$HOME/openstory/docker-compose.infra.yml" ps 2>&1 | sed 's/^/  /' || {
+        echo "WARN: docker compose ps (infra) failed"
         warn=1
     }
+    for envfile in "$HOME/openstory/deploy/"*.env; do
+        [ -f "$envfile" ] || continue
+        name=$(basename "$envfile" .env)
+        [ "$name" = "infra" ] && continue
+        echo "  --- ${name} ---"
+        docker compose --project-name "$name" --env-file "$envfile" -f "$HOME/openstory/docker-compose.agent.yml" ps 2>&1 | sed 's/^/  /' || true
+    done
 else
-    echo "FAIL: docker-compose.prod.yml missing"
+    echo "FAIL: docker-compose.infra.yml missing"
     fail=1
 fi
 
@@ -115,34 +123,41 @@ section "data volumes"
 # Use `docker volume inspect` rather than `du -sh /var/lib/docker/...` because
 # the latter needs sudo and silently fails in non-interactive SSH. We report
 # presence, not size; disk headroom is already reported above.
-for vol in openstory_openclaw-state openstory_openclaw-workspace openstory_os-data openstory_nats-data; do
+for vol in openstory-os-data openstory-nats-data bobby-openclaw-state bobby-openclaw-workspace katie-openclaw-state katie-openclaw-workspace; do
     if docker volume inspect "${vol}" >/dev/null 2>&1; then
         mountpoint=$(docker volume inspect "${vol}" --format '{{.Mountpoint}}' 2>/dev/null)
         printf '  %-40s present\n' "${vol}"
     else
         printf '  %-40s MISSING\n' "${vol}"
         # nats-data is created on first `docker compose up` — not fatal pre-deploy.
-        if [ "${vol}" != "openstory_nats-data" ]; then
+        if [ "${vol}" != "openstory-nats-data" ]; then
             warn=1
         fi
     fi
 done
 
-section "workspace key files"
-if docker ps --format '{{.Names}}' | grep -q '^openstory-openclaw-1$'; then
-    for path in "/home/node/.openclaw/workspace/IDENTITY.md" \
-                "/home/node/.openclaw/workspace/memory" \
-                "/home/node/.openclaw/workspace/.claude/skills" \
-                "/home/node/.openclaw/identity/device.json"; do
-        if docker exec openstory-openclaw-1 test -e "${path}" 2>/dev/null; then
-            printf '  %-60s OK\n' "${path}"
-        else
-            printf '  %-60s MISSING\n' "${path}"
-        fi
-    done
-else
-    echo "  openstory-openclaw-1 not running — skipping"
-fi
+section "workspace key files (per agent)"
+for envfile in "$HOME/openstory/deploy/"*.env; do
+    [ -f "$envfile" ] || continue
+    name=$(basename "$envfile" .env)
+    [ "$name" = "infra" ] && continue
+    ctr="${name}-openclaw-1"
+    if docker ps --format '{{.Names}}' | grep -q "^${ctr}$"; then
+        echo "  ${name}:"
+        for path in "/home/node/.openclaw/workspace/IDENTITY.md" \
+                    "/home/node/.openclaw/workspace/memory" \
+                    "/home/node/.openclaw/workspace/.claude/skills" \
+                    "/home/node/.openclaw/identity/device.json"; do
+            if docker exec "${ctr}" test -e "${path}" 2>/dev/null; then
+                printf '    %-56s OK\n' "${path}"
+            else
+                printf '    %-56s MISSING\n' "${path}"
+            fi
+        done
+    else
+        echo "  ${ctr} not running — skipping"
+    fi
+done
 
 section "Open Story API"
 api_code=$(curl -s -o /tmp/os_sessions.$$ -w '%{http_code}' http://127.0.0.1:3002/api/sessions 2>/dev/null || echo "000")

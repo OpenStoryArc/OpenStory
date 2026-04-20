@@ -2,10 +2,13 @@
 #
 # backup.sh — snapshot the OpenStory data volumes on the VPS.
 #
-# Tars up the three durable named volumes:
-#   openstory_openclaw-state      (agent state + device.json)
-#   openstory_openclaw-workspace  (IDENTITY.md, memory, skills, repos)
-#   openstory_os-data             (SQLite + JSONL + plans)
+# Tars up the durable named volumes:
+#   openstory-os-data             (SQLite + JSONL + plans)
+#   openstory-nats-data           (JetStream state)
+#   bobby-openclaw-state          (Bobby's agent state)
+#   bobby-openclaw-workspace      (Bobby's workspace)
+#   katie-openclaw-state          (Katie's agent state)
+#   katie-openclaw-workspace      (Katie's workspace)
 #
 # Writes to ~/backups/pre-<TAG>-<timestamp>.tar.gz on the VPS. Uses sudo for
 # the tar (volume paths under /var/lib/docker) then chowns the result back to
@@ -75,20 +78,30 @@ ts=\$(date +%Y%m%d-%H%M)
 out="\$HOME/backups/pre-${SAFE_TAG}-\${ts}.tar.gz"
 
 vols=(
-  /var/lib/docker/volumes/openstory_openclaw-state
-  /var/lib/docker/volumes/openstory_openclaw-workspace
-  /var/lib/docker/volumes/openstory_os-data
+  /var/lib/docker/volumes/openstory-os-data
+  /var/lib/docker/volumes/openstory-nats-data
+  /var/lib/docker/volumes/bobby-openclaw-state
+  /var/lib/docker/volumes/bobby-openclaw-workspace
+  /var/lib/docker/volumes/katie-openclaw-state
+  /var/lib/docker/volumes/katie-openclaw-workspace
 )
 
+present=()
 for v in "\${vols[@]}"; do
-    if [ ! -d "\$v" ]; then
-        echo "backup: missing volume \$v" >&2
-        exit 1
+    if [ -d "\$v" ]; then
+        present+=("\$v")
+    else
+        echo "  skip (not found): \$v"
     fi
 done
 
-echo "  writing \${out}"
-sudo tar czf "\${out}" "\${vols[@]}"
+if [ \${#present[@]} -eq 0 ]; then
+    echo "backup: no volumes found" >&2
+    exit 1
+fi
+
+echo "  writing \${out} (\${#present[@]} volumes)"
+sudo tar czf "\${out}" "\${present[@]}"
 sudo chown "\$(id -u):\$(id -g)" "\${out}"
 
 size=\$(du -h "\${out}" | awk '{print \$1}')

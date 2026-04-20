@@ -82,10 +82,9 @@ def chunk_message(text: str) -> list[str]:
 async def send_to_openclaw(message: str, user_id: str) -> str:
     """Send a message to OpenClaw via the OpenAI-compatible HTTP API."""
     url = f"{GATEWAY_URL}/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {AUTH_TOKEN}",
-    }
+    headers = {"Content-Type": "application/json"}
+    if AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
     payload = {
         "model": f"openclaw/{AGENT_ID}",
         "messages": [{"role": "user", "content": message}],
