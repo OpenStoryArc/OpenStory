@@ -7,5 +7,6 @@ pub mod paths;
 pub mod patterns;
 pub mod reader;
 pub mod server;
+pub mod snapshot_watcher;
 pub mod translate;
 pub mod watcher;

@@ -19,7 +19,7 @@ use open_story_patterns::{PatternEvent, StructuralTurn};
 use crate::queries;
 
 /// Summary row for a session — materialized from SessionProjection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionRow {
     pub id: String,
     pub project_id: Option<String>,

@@ -1,0 +1,148 @@
+# Slim Hermes Agent container for OpenStory integration testing.
+#
+# Runs hermes chat -q with a configurable prompt, captures the session log,
+# and copies it to /output as plugin-format JSONL that OpenStory can ingest.
+#
+# Build (from the hermes-agent repo as context):
+#   docker build -t hermes-agent:test \
+#     -f /path/to/openstory/rs/tests/fixtures/hermes/Dockerfile.hermes \
+#     /path/to/hermes-agent
+#
+# Run:
+#   docker run --rm \
+#     -e ANTHROPIC_API_KEY=sk-ant-... \
+#     -e HERMES_PROMPT="Read README.md and summarize it" \
+#     -v /tmp/hermes-events:/output \
+#     hermes-agent:test
+
+FROM python:3.11-slim
+
+# System deps for hermes-agent core (no Playwright, no npm)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy hermes-agent source and install core deps only
+COPY . /opt/hermes
+WORKDIR /opt/hermes
+RUN pip install --no-cache-dir -e . 2>&1 | tail -5
+
+# Create hermes home + sessions dir
+ENV HERMES_HOME=/opt/hermes-data
+RUN mkdir -p $HERMES_HOME/sessions $HERMES_HOME/skills $HERMES_HOME/memories
+
+# Copy the session-to-jsonl converter
+COPY <<'CONVERT' /opt/convert_session.py
+#!/usr/bin/env python3
+"""Convert a Hermes session_*.json snapshot to plugin-format JSONL."""
+import json, os, sys, glob
+
+sessions_dir = os.environ.get("HERMES_HOME", "/opt/hermes-data") + "/sessions"
+output_dir = os.environ.get("OUTPUT_DIR", "/output")
+os.makedirs(output_dir, exist_ok=True)
+
+# Find the most recent session file
+files = sorted(glob.glob(f"{sessions_dir}/session_*.json"), key=os.path.getmtime)
+if not files:
+    print("No session files found", file=sys.stderr)
+    sys.exit(1)
+
+for path in files:
+    data = json.load(open(path))
+    sid = data["session_id"]
+    lines = []
+    seq = 0
+
+    # Collect tool names from the tools list
+    tools = []
+    for t in data.get("tools", []):
+        if isinstance(t, dict) and "function" in t:
+            tools.append(t["function"]["name"])
+        elif isinstance(t, str):
+            tools.append(t)
+
+    # session_start
+    seq += 1
+    lines.append(json.dumps({
+        "envelope": {
+            "session_id": sid, "event_seq": seq,
+            "timestamp": data.get("session_start", ""),
+            "source": "hermes",
+            "model": data.get("model", ""),
+            "platform": data.get("platform", "cli"),
+        },
+        "event_type": "session_start",
+        "data": {
+            "system_prompt_preview": data.get("system_prompt", "")[:200],
+            "tools": tools[:15],
+        },
+    }))
+
+    # Messages (skip system)
+    for msg in data.get("messages", []):
+        if msg.get("role") == "system":
+            continue
+        seq += 1
+        lines.append(json.dumps({
+            "envelope": {
+                "session_id": sid, "event_seq": seq,
+                "timestamp": data.get("last_updated", ""),
+                "source": "hermes",
+            },
+            "event_type": "message",
+            "data": msg,
+        }))
+
+    # session_end
+    seq += 1
+    lines.append(json.dumps({
+        "envelope": {
+            "session_id": sid, "event_seq": seq,
+            "timestamp": data.get("last_updated", ""),
+            "source": "hermes",
+        },
+        "event_type": "session_end",
+        "data": {
+            "reason": "end_turn",
+            "completed": True,
+            "message_count": len(data.get("messages", [])),
+        },
+    }))
+
+    out_path = f"{output_dir}/{sid}.jsonl"
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"Wrote {len(lines)} events for session {sid} -> {out_path}")
+CONVERT
+
+# Entrypoint: run hermes, then convert session to JSONL
+COPY <<'ENTRYPOINT' /opt/run.sh
+#!/bin/bash
+set -e
+
+PROMPT="${HERMES_PROMPT:-Read README.md and tell me what this project does in one sentence.}"
+MODEL="${HERMES_MODEL:-claude-sonnet-4-20250514}"
+PROVIDER="${HERMES_PROVIDER:-anthropic}"
+
+echo "=== Hermes Agent Test Session ==="
+echo "Prompt: $PROMPT"
+echo "Model: $MODEL"
+echo "Provider: $PROVIDER"
+echo ""
+
+# Run hermes (non-interactive via -q)
+cd /opt/hermes
+hermes chat -q "$PROMPT" --provider "$PROVIDER" -m "$MODEL" 2>&1 || true
+
+echo ""
+echo "=== Converting session to JSONL ==="
+python3 /opt/convert_session.py
+
+echo ""
+echo "=== Done ==="
+ls -la ${OUTPUT_DIR:-/output}/
+ENTRYPOINT
+RUN chmod +x /opt/run.sh
+
+VOLUME ["/output"]
+ENTRYPOINT ["/opt/run.sh"]

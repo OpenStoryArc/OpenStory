@@ -8,6 +8,8 @@
 //! > Each actor has a single responsibility and its own lifecycle."
 
 pub mod broadcast;
+#[cfg(test)]
+pub mod broadcast_proptest;
 pub mod patterns;
 pub mod persist;
 pub mod projections;

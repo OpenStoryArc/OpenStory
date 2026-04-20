@@ -40,7 +40,7 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-mono px-1 py-0.5 rounded"
             style={{ color: colors.border, background: `${colors.border}20`, border: `1px solid ${colors.border}33` }}>
-            {colors.label} {sessionId.replace("agent-", "").slice(0, 8)}
+            {colors.label} {sessionId.replace("agent-", "")}
           </span>
           <span className="text-[10px] text-[#565f89]">cycle {cycle.cycleNumber}</span>
           {cycle.tools.length > 0 && (

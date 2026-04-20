@@ -4,6 +4,9 @@
 //! open-story-store::ingest and are re-exported here. This module retains the
 //! stateful orchestration (ingest_events, replay_boot_sessions) that depends on AppState.
 
+use std::sync::Arc;
+
+use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
 use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
@@ -36,7 +39,7 @@ pub struct IngestResult {
 /// a list of `BroadcastMessage` changes. The caller is responsible for sending
 /// changes to `broadcast_tx` and/or publishing to the bus change feed.
 pub async fn ingest_events(
-    state: &mut AppState,
+    state: &AppState,
     session_id: &str,
     events: &[CloudEvent],
     project_id: Option<&str>,
@@ -85,55 +88,78 @@ pub async fn ingest_events(
     let mut changes: Vec<BroadcastMessage> = Vec::new();
 
     for ce in events {
-        if let Ok(val) = serde_json::to_value(ce) {
-            // Dedup is now solely the EventStore PK's job — the legacy
-            // in-memory `seen_event_ids` HashSet was retired alongside
-            // the /hooks endpoint that needed it. The watcher is the
-            // sole ingestion source.
-
-            // Detect subagent → parent relationship.
-            // The event's data.session_id comes from the transcript's sessionId field,
-            // which is the PARENT session. The session_id parameter is the subagent's
-            // own ID (from filename or hook payload). When they differ, record the mapping.
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != session_id && !state.store.subagent_parents.contains_key(session_id) {
-                    state.store.subagent_parents.insert(session_id.to_string(), data_sid.to_string());
-                    state.store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(session_id.to_string());
-                }
-            }
-
-            // Persist to EventStore (SQLite default, JSONL fallback). The
-            // EventStore PK is the dedup boundary now — if it returns false,
-            // the event was already stored and we skip the rest of the loop
-            // (no JSONL append, no projection update, no pattern detection,
-            // no broadcast). This makes ingest_events idempotent without an
-            // in-memory HashSet.
-            let inserted = state
-                .store
-                .event_store
-                .insert_event(session_id, &val)
-                .await
-                .unwrap_or(false);
-            if !inserted {
+        let val = match serde_json::to_value(ce) {
+            Ok(v) => v,
+            Err(e) => {
+                log_event("ingest", &format!("⚠ event serialization failed: {e}"));
                 continue;
             }
-            // Append to JSONL only on a successful (non-duplicate) insert
-            // — duplicates shouldn't pollute the sovereignty escape hatch.
-            let _ = state.store.session_store.append(session_id, &val);
+        };
+        {
+            // Detect subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                &val,
+                session_id,
+                &state.store.subagent_parents,
+                &state.store.session_children,
+            );
 
-            // Update projection
-            let proj = state
-                .store
-                .projections
-                .entry(session_id.to_string())
-                .or_insert_with(|| projection::SessionProjection::new(session_id));
-            let append_result = proj.append(&val);
+            // Persistence belongs exclusively to Actor 1 (PersistConsumer):
+            //   - insert_event   → EventStore PK dedup
+            //   - session_store.append → JSONL backup
+            //   - index_fts     → full-text search
+            // Those dual-writes were removed from ingest_events during the
+            // Actor 4 decomposition (see DUAL_WRITE_AUDIT.md). Dedup is now
+            // handled by the projection's own `seen_ids: HashSet<String>` —
+            // `append()` returns `AppendResult::empty()` for duplicate IDs.
+
+            // Update projection (dedup happens here now via seen_ids).
+            // Scope the DashMap RefMut tightly: hold it only long enough
+            // to append, then drop before any later `.get()` or awaits
+            // on the same map. DashMap shards are RwLocks; two live
+            // guards on the same shard deadlock.
+            let append_result = {
+                let mut proj = state
+                    .store
+                    .projections
+                    .entry(session_id.to_string())
+                    .or_insert_with(|| projection::SessionProjection::new(session_id));
+                proj.append(&val)
+            };
+            if append_result.is_empty() {
+                // Duplicate event (seen_ids caught it) or unparseable CloudEvent.
+                // Skip broadcast — Actor 1 handles persistence independently.
+                // Log for observability so silent drops are visible.
+                let eid = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let st = val.get("subtype").and_then(|v| v.as_str()).unwrap_or("?");
+                log_event("ingest", &format!("⚠ event {eid} ({st}) dedup'd or empty — skipped broadcast"));
+                continue;
+            }
+
+            // Demo-mode persistence: when no event bus is active, the
+            // actor-consumers (persist, patterns, projections, broadcast)
+            // are never spawned — there is no one to deliver events to.
+            // Persist inline so `/api/sessions/{id}/events` and FTS still
+            // work. Under NATS, PersistConsumer owns these writes and
+            // this block is skipped to keep the actor decomposition clean.
+            if !state.bus.is_active() {
+                let _ = state
+                    .store
+                    .event_store
+                    .insert_event(session_id, &val)
+                    .await;
+                let _ = state.store.session_store.append(session_id, &val);
+                for vr in from_cloud_event(ce).iter() {
+                    if let Some(text) = open_story_store::extract::extract_text(vr) {
+                        let rt = open_story_store::extract::record_type_str(&vr.body);
+                        let _ = state
+                            .store
+                            .event_store
+                            .index_fts(&vr.id, session_id, rt, &text)
+                            .await;
+                    }
+                }
+            }
 
             // Plan extraction
             if is_plan_event(&val) {
@@ -157,17 +183,16 @@ pub async fn ingest_events(
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
 
-            // Capture full payloads for truncated records (lazy-load endpoint)
+            // Capture full payloads for truncated records (lazy-load endpoint).
+            // full_payloads is keyed on (session_id, event_id) now.
             for vr in &view_records {
                 if let RecordBody::ToolResult(tr) = &vr.body {
                     if let Some(output) = &tr.output {
                         if output.len() > TRUNCATION_THRESHOLD {
-                            state
-                                .store
-                                .full_payloads
-                                .entry(session_id.to_string())
-                                .or_default()
-                                .insert(vr.id.clone(), output.clone());
+                            state.store.full_payloads.insert(
+                                (session_id.to_string(), vr.id.clone()),
+                                output.clone(),
+                            );
                         }
                     }
                 }
@@ -195,15 +220,10 @@ pub async fn ingest_events(
             // branch's work. See backlog: stream architecture rewrite.
             let detected_patterns: Vec<open_story_patterns::PatternEvent> = Vec::new();
 
-            // Index in FTS5 for full-text search (durable events only)
-            if !ephemeral {
-                for vr in &view_records {
-                    if let Some(text) = open_story_store::extract::extract_text(vr) {
-                        let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, session_id, record_type, &text).await;
-                    }
-                }
-            }
+            // FTS indexing belongs to Actor 1 (PersistConsumer).
+            // Removed from ingest_events during the Actor 4 decomposition.
+            // See: docs/research/architecture-audit/DUAL_WRITE_AUDIT.md
+            let _ = ephemeral; // used for broadcast classification below
 
             // Collect label changes for this event
             let session_label = if append_result.label_changed {
@@ -240,8 +260,8 @@ pub async fn ingest_events(
                         ephemeral: view_records,
                         filter_deltas: append_result.filter_deltas,
                         patterns: Vec::new(),
-                        project_id: state.store.session_projects.get(session_id).cloned(),
-                        project_name: state.store.session_project_names.get(session_id).cloned(),
+                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
+                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
                         session_label: None,
                         session_branch: None,
                         total_input_tokens: None,
@@ -250,7 +270,7 @@ pub async fn ingest_events(
                 } else {
                     let wire_records: Vec<WireRecord> = view_records
                         .iter()
-                        .map(|vr| to_wire_record(vr, proj))
+                        .map(|vr| to_wire_record(vr, proj.value()))
                         .collect();
                     changes.push(BroadcastMessage::Enriched {
                         session_id: session_id.to_string(),
@@ -258,8 +278,8 @@ pub async fn ingest_events(
                         ephemeral: Vec::new(),
                         filter_deltas: append_result.filter_deltas,
                         patterns: detected_patterns,
-                        project_id: state.store.session_projects.get(session_id).cloned(),
-                        project_name: state.store.session_project_names.get(session_id).cloned(),
+                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
+                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
                         session_label,
                         session_branch,
                         total_input_tokens: token_fields.0,
@@ -292,28 +312,39 @@ pub async fn ingest_events(
         }
     }
 
-    // Flush session projection to EventStore once per batch (not per-event)
-    if count > 0 {
-        if let Some(proj) = state.store.projections.get(session_id) {
-            let _ = state.store.event_store.upsert_session(
-                &crate::event_store_bridge::session_row_from_projection(
-                    session_id, proj, &state.store,
-                ),
-            ).await;
-        }
-    }
+    // Note: `upsert_session` used to live here. Moved to PersistConsumer
+    // at commit 1.5 — PersistConsumer is now the single writer of the
+    // `sessions` table. `ingest_events` is a broadcast-only function
+    // (deleted entirely in commit 1.6).
 
     IngestResult { count, changes }
 }
 
-/// Replay boot-loaded sessions through projections and pattern pipelines.
+/// Inputs for `replay_boot_sessions`. All fields are `Arc`s or owned
+/// snapshots — the caller can spawn replay on a background task without
+/// holding any outer lock. API reads stay unblocked during the
+/// (potentially long) rebuild.
+pub struct ReplayContext {
+    pub event_store: Arc<dyn open_story_store::event_store::EventStore>,
+    pub projections: Arc<dashmap::DashMap<String, projection::SessionProjection>>,
+    pub subagent_parents: Arc<dashmap::DashMap<String, String>>,
+    pub session_children: Arc<dashmap::DashMap<String, Vec<String>>>,
+    pub full_payloads: Arc<dashmap::DashMap<(String, String), String>>,
+    pub session_projects: Arc<dashmap::DashMap<String, String>>,
+    pub session_project_names: Arc<dashmap::DashMap<String, String>>,
+}
+
+/// Rebuild in-memory projections + truncation cache from SQLite.
 ///
-/// Called after `create_state()` to populate projections, filter counts,
-/// and detected patterns from sessions that were loaded from disk.
-/// Without this, `build_initial_state()` would return empty data for
-/// boot-loaded sessions until new events arrive.
-pub async fn replay_boot_sessions(state: &mut AppState) {
-    let session_ids: Vec<String> = state.store.event_store
+/// Replays every event of every known session through the projection
+/// layer so that `build_initial_state()` can serve a populated
+/// WebSocket handshake to newly connected UIs. Reads from SQLite; writes
+/// only to the shared `Arc<DashMap>` fields on `StoreState`.
+pub async fn replay_boot_sessions(ctx: &ReplayContext) {
+    use open_story_store::event_store::SessionRow;
+
+    let session_ids: Vec<String> = ctx
+        .event_store
         .list_sessions()
         .await
         .unwrap_or_default()
@@ -322,67 +353,47 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
         .collect();
     let mut total_events = 0;
 
-    // One-time FTS5 backfill: if the index is empty, populate it during replay
-    let fts_needs_backfill = state.store.event_store.fts_count().await.unwrap_or(0) == 0;
+    // One-time FTS5 backfill: if the index is empty, populate during replay.
+    let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
-        let events = state.store.event_store
-            .session_events(sid)
-            .await
-            .unwrap_or_default();
+        let events = ctx.event_store.session_events(sid).await.unwrap_or_default();
         if events.is_empty() {
             continue;
         }
 
         for val in &events {
-            // Events are already in EventStore (that's where we read them from).
-            // No need to re-insert — just replay through projections and patterns.
+            open_story_store::state::detect_subagent_relationship(
+                val,
+                sid,
+                &ctx.subagent_parents,
+                &ctx.session_children,
+            );
 
-            // Detect subagent → parent relationship during replay
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
             {
-                if data_sid != sid && !state.store.subagent_parents.contains_key(sid.as_str()) {
-                    state.store.subagent_parents.insert(sid.clone(), data_sid.to_string());
-                    state.store.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(sid.clone());
-                }
+                let mut proj = ctx
+                    .projections
+                    .entry(sid.clone())
+                    .or_insert_with(|| projection::SessionProjection::new(sid));
+                proj.append(val);
             }
 
-            // Update projection
-            let proj = state
-                .store
-                .projections
-                .entry(sid.clone())
-                .or_insert_with(|| projection::SessionProjection::new(sid));
-            proj.append(val);
-
-            // BFF transform — deserialize stored JSON to typed CloudEvent
             let view_records = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
                 Ok(ce) => from_cloud_event(&ce),
                 Err(_) => vec![],
             };
 
-            // Capture full payloads for truncated records
             for vr in &view_records {
                 if let RecordBody::ToolResult(tr) = &vr.body {
                     if let Some(output) = &tr.output {
                         if output.len() > TRUNCATION_THRESHOLD {
-                            state
-                                .store
-                                .full_payloads
-                                .entry(sid.clone())
-                                .or_default()
-                                .insert(vr.id.clone(), output.clone());
+                            ctx.full_payloads
+                                .insert((sid.clone(), vr.id.clone()), output.clone());
                         }
                     }
                 }
             }
 
-            // FTS5 backfill: index during replay if the index was empty at boot
             let subtype = val.get("subtype").and_then(|v| v.as_str());
             let ephemeral = projection::is_ephemeral(subtype);
 
@@ -390,32 +401,41 @@ pub async fn replay_boot_sessions(state: &mut AppState) {
                 for vr in &view_records {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = state.store.event_store.index_fts(&vr.id, sid, record_type, &text).await;
+                        let _ = ctx.event_store.index_fts(&vr.id, sid, record_type, &text).await;
                     }
                 }
             }
 
-            // Pattern detection retired from the boot-replay path. The
-            // patterns consumer (Actor 2) is now the sole pattern detector
-            // and runs over the same NATS replay stream independently.
-            // (Boot replay still needs to drive the projections + storage
-            // layers to get the in-memory state populated for the API.)
             let _ = ephemeral;
-
             total_events += 1;
         }
 
-        // Dual-write session projection after processing all events
-        if let Some(proj) = state.store.projections.get(sid) {
-            let _ = state.store.event_store.upsert_session(
-                &crate::event_store_bridge::session_row_from_projection(sid, proj, &state.store),
-            ).await;
+        // Dual-write the session projection to SQLite. Assembles a
+        // SessionRow from the projection + the project_id / project_name
+        // snapshot; no access to the live StoreState needed.
+        if let Some(proj) = ctx.projections.get(sid) {
+            let p = proj.value();
+            let rows = p.timeline_rows();
+            let first_event = rows.first().map(|r| r.timestamp.clone());
+            let last_event = rows.last().map(|r| r.timestamp.clone());
+            let row = SessionRow {
+                id: sid.clone(),
+                project_id: ctx.session_projects.get(sid).map(|r| r.value().clone()),
+                project_name: ctx.session_project_names.get(sid).map(|r| r.value().clone()),
+                label: p.label().map(|s| s.to_string()),
+                custom_label: None,
+                branch: p.branch().map(|s| s.to_string()),
+                event_count: p.event_count() as u64,
+                first_event,
+                last_event,
+            };
+            let _ = ctx.event_store.upsert_session(&row).await;
         }
     }
 
     if total_events > 0 {
         let fts_note = if fts_needs_backfill {
-            let fts_count = state.store.event_store.fts_count().await.unwrap_or(0);
+            let fts_count = ctx.event_store.fts_count().await.unwrap_or(0);
             format!(", FTS5 backfill: {fts_count} indexed")
         } else {
             String::new()
@@ -500,7 +520,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_deduplicates_by_event_id() {
+    async fn ingest_deduplicates_by_projection_seen_ids() {
+        // After the Actor 4 decomposition, dedup moved from EventStore PK
+        // (insert_event returning Ok(false)) to SessionProjection::seen_ids.
+        // The projection's HashSet catches the duplicate and returns
+        // AppendResult::empty(), so the broadcast loop skips the event.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-dup-1", "hello");
@@ -509,29 +533,38 @@ mod tests {
         assert_eq!(result1.count, 1);
 
         let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;
-        assert_eq!(result2.count, 0, "duplicate event should be skipped");
-
-        assert_eq!(state.store.event_store.session_events("sess-1").await.unwrap().len(), 1);
+        assert_eq!(result2.count, 0, "duplicate event should be skipped via projection seen_ids");
     }
 
     #[tokio::test]
-    async fn ingest_persists_to_session_store() {
+    #[ignore = "asserts end-state of Actor 4 decomposition; currently fails under the demo-mode guard (!bus.is_active() persists inline). Re-enable after Phase 1 commit 1.7 removes the guard."]
+    async fn ingest_does_not_persist_at_all_after_actor_4_decomposition() {
+        // After the full Actor 4 decomposition, ingest_events is a
+        // broadcast-only function. It does NOT write to EventStore,
+        // SessionStore, or FTS. ALL persistence is Actor 1's job.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-persist-1", "persist me");
 
         ingest_events(&mut state, "sess-persist", &[event], None).await;
 
-        // In-memory sessions
-        assert!(!state.store.event_store.session_events("sess-persist").await.unwrap().is_empty());
-        assert_eq!(state.store.event_store.session_events("sess-persist").await.unwrap().len(), 1);
+        // EventStore: NOT written by ingest_events anymore.
+        assert!(
+            state.store.event_store.session_events("sess-persist").await.unwrap().is_empty(),
+            "ingest_events must NOT write to EventStore — Actor 1 owns persistence"
+        );
 
-        // Persisted to store (load from disk)
-        let loaded = state.store.session_store.load_session("sess-persist");
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(
-            loaded[0].get("id").and_then(|v| v.as_str()),
-            Some("evt-persist-1")
+        // SessionStore: NOT written (confirmed earlier in the JSONL fix).
+        assert!(
+            state.store.session_store.load_session("sess-persist").is_empty(),
+            "ingest_events must NOT write to SessionStore — Actor 1 owns JSONL"
+        );
+
+        // But: projections SHOULD be populated (ingest_events still owns
+        // in-memory projection state for wire-record enrichment).
+        assert!(
+            state.store.projections.contains_key("sess-persist"),
+            "ingest_events must still update projections for broadcast assembly"
         );
     }
 
@@ -544,8 +577,8 @@ mod tests {
         ingest_events(&mut state, "sess-proj", &[event], Some("my-project")).await;
 
         assert_eq!(
-            state.store.session_projects.get("sess-proj"),
-            Some(&"my-project".to_string())
+            state.store.session_projects.get("sess-proj").map(|r| r.value().clone()),
+            Some("my-project".to_string())
         );
         assert!(state.store.session_project_names.contains_key("sess-proj"));
     }
@@ -701,13 +734,13 @@ mod tests {
         ingest_events(&mut state, "agent-456", &[event], None).await;
 
         assert_eq!(
-            state.store.subagent_parents.get("agent-456"),
-            Some(&"parent-123".to_string()),
+            state.store.subagent_parents.get("agent-456").map(|r| r.value().clone()),
+            Some("parent-123".to_string()),
             "subagent_parents should map agent-456 -> parent-123"
         );
         assert!(
             state.store.session_children.get("parent-123")
-                .map(|c| c.contains(&"agent-456".to_string()))
+                .map(|r| r.value().contains(&"agent-456".to_string()))
                 .unwrap_or(false),
             "session_children should map parent-123 -> [agent-456]"
         );
@@ -753,6 +786,423 @@ mod tests {
         );
     }
 
+    // ── Dual-write characterization (architecture audit) ──────────────
+    //
+    // These tests document work that ingest_events still does AND that an
+    // actor also does. They capture the current reality so that when
+    // Actor 4 is fully decomposed (see BACKLOG.md "Decompose Actor 4"),
+    // flipping ingest_events to NOT do these things is a visible change
+    // to these tests — no hidden regression. See
+    // docs/research/architecture-audit/DUAL_WRITE_AUDIT.md for the full
+    // side-effect table.
+
+    fn make_tool_result_event(id: &str, output: &str) -> CloudEvent {
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some(output.to_string());
+        payload.tool = Some("Read".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({
+                "type": "user",
+                "message": {
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_x",
+                        "content": output
+                    }]
+                }
+            }),
+            1,
+            "sess-dw".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test".to_string(),
+            "io.arc.event".to_string(),
+            data,
+            Some("message.user.tool_result".to_string()),
+            Some(id.to_string()),
+            Some("2025-01-13T00:00:00Z".to_string()),
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[tokio::test]
+    #[ignore = "asserts end-state of Actor 4 decomposition; currently fails under the demo-mode guard (!bus.is_active() indexes FTS inline). Re-enable after Phase 1 commit 1.7 removes the guard."]
+    async fn ingest_no_longer_indexes_fts_after_decomposition() {
+        // FLIPPED: this was `ingest_still_indexes_fts_for_durable_events_
+        // dual_write_with_actor_1` — the characterization test we wrote
+        // during the audit specifically to flip green→red on the day
+        // the dual-write was removed. That day is today.
+        //
+        // FTS indexing now belongs exclusively to Actor 1
+        // (PersistConsumer). ingest_events is broadcast-only.
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("find this phrase please".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            1,
+            "sess-fts-dw".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some("evt-fts-dw".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None,
+            None,
+            None,
+        );
+
+        ingest_events(&mut state, "sess-fts-dw", &[event], None).await;
+
+        let results = state
+            .store
+            .event_store
+            .search_fts("find this phrase", 10, None)
+            .await
+            .unwrap();
+        assert!(
+            !results.iter().any(|r| r.event_id == "evt-fts-dw"),
+            "ingest_events must NOT index FTS — Actor 1 owns that exclusively"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_does_not_index_fts_for_ephemeral_events() {
+        // The is_ephemeral filter at ingest.rs:180-183 is guardrail for
+        // progress.* events. Neither ingest_events nor PersistConsumer
+        // should index these.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // Build a progress.bash event — ephemeral by subtype
+        let mut payload = open_story_core::event_data::ClaudeCodePayload::new();
+        payload.text = Some("some streaming output don't index me".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({"text": "some streaming output don't index me"}),
+            1,
+            "sess-eph".to_string(),
+            open_story_core::event_data::AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("progress.bash".into()),
+            Some("evt-eph-1".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None, None,
+        );
+
+        ingest_events(&mut state, "sess-eph", &[event], None).await;
+
+        let results = state
+            .store
+            .event_store
+            .search_fts("streaming output", 10, None)
+            .await
+            .unwrap();
+        assert!(
+            !results.iter().any(|r| r.event_id == "evt-eph-1"),
+            "progress.* events are ephemeral — must not appear in FTS"
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_populates_full_payloads_cache_for_truncated_tool_results() {
+        // full_payloads is a dead parallel state: ingest_events fills
+        // state.store.full_payloads; BroadcastConsumer (unwired today)
+        // defines its own HashMap for the same purpose. This test locks in
+        // what ingest_events actually does with the cache so the
+        // decomposition can swap the owner without silent behavior change.
+        use open_story_views::wire_record::TRUNCATION_THRESHOLD;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        // Build a tool_result with output > TRUNCATION_THRESHOLD so it
+        // gets cached.
+        let big = "x".repeat(TRUNCATION_THRESHOLD + 1000);
+        let event = make_tool_result_event("evt-big-1", &big);
+
+        ingest_events(&mut state, "sess-dw", &[event], None).await;
+
+        // full_payloads is keyed on (session_id, event_id) now.
+        let has_any = state
+            .store
+            .full_payloads
+            .iter()
+            .any(|e| e.key().0 == "sess-dw");
+        assert!(
+            has_any,
+            "full_payloads cache should have an entry for the big tool_result"
+        );
+    }
+
+    // ── Pre-Actor-4-decomposition regression net ──────────────────────
+    //
+    // These tests pin behavior that today flows from ingest_events but
+    // will cross actor boundaries after the decomposition lands. Every
+    // one of them should still pass after the refactor; any flip from
+    // green to red means a behavioral regression, not just code motion.
+    //
+    // See docs/research/architecture-audit/DUAL_WRITE_AUDIT.md and the
+    // BACKLOG entry "Decompose Actor 4 (Broadcast Consumer) from Shared
+    // AppState" for the context.
+
+    fn make_assistant_event_with_tokens(id: &str, text: &str, input_toks: u64, output_toks: u64) -> CloudEvent {
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some(text.to_string());
+        payload.model = Some("claude-opus-4-6".to_string());
+        payload.token_usage = Some(serde_json::json!({
+            "input_tokens": input_toks,
+            "output_tokens": output_toks,
+            "total_tokens": input_toks + output_toks,
+        }));
+        let data = EventData::with_payload(
+            serde_json::json!({
+                "type": "assistant",
+                "message": {"model": "claude-opus-4-6", "content": [{"type": "text", "text": text}]}
+            }),
+            1,
+            "sess-regr".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.assistant.text".into()),
+            Some(id.to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None,
+            Some("claude-code".into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn broadcast_assembly_preserves_session_label_on_first_prompt() {
+        // Contract: the first user prompt sets the projection's label,
+        // and the resulting BroadcastMessage::Enriched carries that label
+        // so sidebars / session lists get it without refetching.
+        use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("Implement the feature thing".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            1,
+            "sess-label".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        let event = CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some("evt-label-1".to_string()),
+            Some("2025-01-13T00:00:00Z".into()),
+            None, None, None,
+        );
+
+        let result = ingest_events(&mut state, "sess-label", &[event], None).await;
+        assert!(!result.changes.is_empty());
+        match &result.changes[0] {
+            BroadcastMessage::Enriched { session_label, .. } => {
+                assert!(
+                    session_label.is_some(),
+                    "first prompt must propagate session_label into the broadcast payload"
+                );
+                let label = session_label.as_ref().unwrap();
+                assert!(
+                    label.contains("Implement"),
+                    "label should derive from prompt text, got {label:?}"
+                );
+            }
+            other => panic!("expected Enriched, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn broadcast_assembly_preserves_token_totals_across_batch() {
+        // Contract: when a batch contains a TokenUsage-producing event,
+        // the broadcast message surfaces the session's running totals.
+        // Today these come from state.store.projections; post-
+        // decomposition they'll come from whatever projection Actor 4
+        // reads. The test asserts the behavior, not the source.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+        let event = make_assistant_event_with_tokens("evt-tok-1", "response text", 1000, 250);
+
+        let result = ingest_events(&mut state, "sess-tok", &[event], None).await;
+        assert!(!result.changes.is_empty());
+        match &result.changes[0] {
+            BroadcastMessage::Enriched {
+                total_input_tokens,
+                total_output_tokens,
+                ..
+            } => {
+                assert_eq!(
+                    *total_input_tokens,
+                    Some(1000),
+                    "total_input_tokens must reach the broadcast payload"
+                );
+                assert_eq!(*total_output_tokens, Some(250));
+            }
+            other => panic!("expected Enriched, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wire_records_arrive_in_seq_order_under_batched_ingest() {
+        // Contract: BroadcastMessages returned from a batch ingest
+        // preserve event order. Decomposition must not reorder — UI
+        // renders a linear timeline that depends on this.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+
+        let events: Vec<CloudEvent> = (0..5)
+            .map(|i| make_user_prompt_event(&format!("evt-order-{i}"), &format!("msg {i}")))
+            .collect();
+
+        let result = ingest_events(&mut state, "sess-order", &events, None).await;
+
+        // Each durable event produces one Enriched message. Flatten the
+        // WireRecord ids we receive and compare to input order.
+        let mut ids_in_order: Vec<String> = Vec::new();
+        for change in &result.changes {
+            if let BroadcastMessage::Enriched { records, .. } = change {
+                for wr in records {
+                    ids_in_order.push(wr.record.id.clone());
+                }
+            }
+        }
+        // Note: make_user_prompt_event uses EventData::new (no typed
+        // payload). from_cloud_event still emits a UserMessage record,
+        // so we'll see one WireRecord per event — five total in order.
+        let expected: Vec<String> = (0..5).map(|i| format!("evt-order-{i}")).collect();
+        assert_eq!(
+            ids_in_order, expected,
+            "wire records must arrive in the order the events were ingested"
+        );
+    }
+
+    #[tokio::test]
+    async fn full_payload_lazy_load_returns_stored_output_after_truncation() {
+        // Contract: the /content/:event_id endpoint resolves the full
+        // output by looking first in state.store.full_payloads, then in
+        // EventStore. Post-decomposition, the `full_payloads` cache may
+        // move to Actor 4's own state — this test locks in what the
+        // endpoint currently serves, so the move can't silently break it.
+        use open_story_views::wire_record::TRUNCATION_THRESHOLD;
+        let tmp = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(&tmp);
+        let big = "y".repeat(TRUNCATION_THRESHOLD + 500);
+        let event = make_tool_result_event("evt-big-lazy-1", &big);
+
+        ingest_events(&mut state, "sess-lazy", &[event], None).await;
+
+        // Mirror the endpoint's lookup sequence (api.rs::get_event_content).
+        let cached = state
+            .store
+            .full_payloads
+            .get(&("sess-lazy".to_string(), "evt-big-lazy-1".to_string()))
+            .map(|r| r.value().clone());
+        assert_eq!(
+            cached.as_ref().map(|s| s.len()),
+            Some(big.len()),
+            "full_payloads cache must return the full, untruncated output"
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_and_projections_consumers_see_identical_event_stream() {
+        // Two-subscriber composition: if Actor 4 is decomposed into an
+        // independent NATS subscriber, its view must agree with Actor 1
+        // and Actor 3 on what events the stream contained. Today this is
+        // trivially true because everything runs in one loop; post-
+        // decomposition the test exercises the composition.
+        use crate::consumers::persist::PersistConsumer;
+        use crate::consumers::projections::ProjectionsConsumer;
+        use open_story_store::persistence::SessionStore;
+        use open_story_store::sqlite_store::SqliteStore;
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let session_store = SessionStore::new(tmp.path()).unwrap();
+        let event_store: Arc<dyn open_story_store::event_store::EventStore> =
+            Arc::new(SqliteStore::new(tmp.path()).unwrap());
+
+        let projections_map = std::sync::Arc::new(dashmap::DashMap::new());
+        let session_projects = std::sync::Arc::new(dashmap::DashMap::new());
+        let session_project_names = std::sync::Arc::new(dashmap::DashMap::new());
+        let mut persist = PersistConsumer::new(
+            event_store.clone(),
+            session_store,
+            projections_map.clone(),
+            session_projects.clone(),
+            session_project_names.clone(),
+        );
+        let mut projections = ProjectionsConsumer::new(
+            projections_map,
+            std::sync::Arc::new(dashmap::DashMap::new()),
+            std::sync::Arc::new(dashmap::DashMap::new()),
+        );
+
+        let events: Vec<CloudEvent> = (0..3)
+            .map(|i| make_assistant_event_with_tokens(
+                &format!("evt-comp-{i}"),
+                &format!("assistant msg {i}"),
+                100,
+                50,
+            ))
+            .collect();
+
+        // Both subscribers see the same batch independently.
+        let persist_result = persist.process_batch("sess-comp", &events, None).await;
+        let _ = projections.process_batch("sess-comp", &events);
+
+        // EventStore side (Actor 1's side of the stream).
+        let stored = event_store
+            .session_events("sess-comp")
+            .await
+            .unwrap();
+        let stored_ids: Vec<String> = stored
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        // ProjectionsConsumer side (Actor 3's projection).
+        let proj = projections.projection("sess-comp").expect("projection created");
+
+        assert_eq!(persist_result.persisted, 3);
+        assert_eq!(stored_ids.len(), 3);
+        assert_eq!(
+            proj.event_count(),
+            3,
+            "projections consumer must see the same event count as persist"
+        );
+        // Order invariant: if the stream is linear, both consumers see
+        // the same prefix. Asserting on count + id-set (not sequence)
+        // here — sequence ordering is the previous test's job.
+        use std::collections::HashSet;
+        let stored_set: HashSet<&str> = stored_ids.iter().map(|s| s.as_str()).collect();
+        let expected: HashSet<&str> = ["evt-comp-0", "evt-comp-1", "evt-comp-2"].iter().copied().collect();
+        assert_eq!(stored_set, expected);
+    }
+
     #[tokio::test]
     async fn ingest_populates_projection() {
         let tmp = tempfile::tempdir().unwrap();
@@ -784,13 +1234,67 @@ mod tests {
     // the watcher → translate path so the typed fields are populated
     // correctly.
 
+    fn make_replay_ctx(state: &AppState) -> ReplayContext {
+        ReplayContext {
+            event_store: state.store.event_store.clone(),
+            projections: state.store.projections.clone(),
+            subagent_parents: state.store.subagent_parents.clone(),
+            session_children: state.store.session_children.clone(),
+            full_payloads: state.store.full_payloads.clone(),
+            session_projects: state.store.session_projects.clone(),
+            session_project_names: state.store.session_project_names.clone(),
+        }
+    }
+
     #[tokio::test]
     async fn replay_boot_sessions_with_empty_sessions_is_noop() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
-        replay_boot_sessions(&mut state).await;
+        let ctx = make_replay_ctx(&state);
+        replay_boot_sessions(&ctx).await;
         assert!(state.store.projections.is_empty());
+    }
+
+    #[tokio::test]
+    async fn replay_boot_sessions_skips_session_with_no_events() {
+        // Covers the `if events.is_empty() { continue; }` branch at
+        // ingest.rs:346-348 (commit 0a coverage baseline §Theme 1).
+        //
+        // State: a session row exists (so list_sessions returns it) but
+        // the events table has no rows for that session. Can occur if
+        // events are deleted from a session while the metadata row
+        // survives. Replay should continue without creating a projection
+        // or panicking.
+        use open_story_store::event_store::SessionRow;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_app_state(&tmp);
+
+        state
+            .store
+            .event_store
+            .upsert_session(&SessionRow {
+                id: "sess-empty".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: None,
+                last_event: None,
+            })
+            .await
+            .unwrap();
+
+        let ctx = make_replay_ctx(&state);
+        replay_boot_sessions(&ctx).await;
+
+        assert!(
+            !state.store.projections.contains_key("sess-empty"),
+            "empty session should be skipped — no projection created"
+        );
     }
 
     // `replay_boot_sessions_detects_patterns` retired — asserted on

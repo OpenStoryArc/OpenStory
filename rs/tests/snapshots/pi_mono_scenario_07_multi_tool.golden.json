@@ -1,0 +1,808 @@
+{
+  "broadcast_messages": [
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.session_start"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 0,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:31.910Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "be79c53e",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.model_change"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 1,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:34.395Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 1,
+          "id": "775d79e9",
+          "is_sidechain": false,
+          "parent_uuid": "346ba99a",
+          "payload": {
+            "content": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 2,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:34.396Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 2,
+          "id": "uuid-1",
+          "is_sidechain": false,
+          "parent_uuid": "775d79e9",
+          "payload": {
+            "call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+            "input": {
+              "path": "/tmp/test-config.toml"
+            },
+            "name": "read",
+            "raw_input": {
+              "path": "/tmp/test-config.toml"
+            },
+            "typed_input": {
+              "file_path": "/tmp/test-config.toml",
+              "tool": "read"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 3,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:37.419Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 2,
+          "id": "uuid-2",
+          "is_sidechain": false,
+          "parent_uuid": "775d79e9",
+          "payload": {
+            "call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+            "input": {
+              "path": "/tmp/test-broken.py"
+            },
+            "name": "read",
+            "raw_input": {
+              "path": "/tmp/test-broken.py"
+            },
+            "typed_input": {
+              "file_path": "/tmp/test-broken.py",
+              "tool": "read"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 4,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:37.419Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 1,
+          "id": "952e4970",
+          "is_sidechain": false,
+          "parent_uuid": "a1f500c7",
+          "payload": {
+            "call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+            "is_error": false,
+            "output": "[server]\nhost = \"127.0.0.1\"\nport = 3002\n"
+          },
+          "payload_bytes": 40,
+          "record_type": "tool_result",
+          "seq": 5,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:37.420Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 2,
+          "id": "080fc073",
+          "is_sidechain": false,
+          "parent_uuid": "952e4970",
+          "payload": {
+            "call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+            "is_error": false,
+            "output": "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n"
+          },
+          "payload_bytes": 148,
+          "record_type": "tool_result",
+          "seq": 6,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:37.421Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 3,
+          "id": "uuid-3",
+          "is_sidechain": false,
+          "parent_uuid": "080fc073",
+          "payload": {
+            "content": [
+              {
+                "text": "Here are both files:\n\n**`/tmp/test-config.toml`** â A simple server config:\n```toml\n[server]\nhost = \"127.0.0.1\"\nport = 3002\n```\n\n**`/tmp/test-broken.py`** â A naive recursive Fibonacci implementation:\n```python\ndef fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n```\n\nThe Python file isn't syntactically broken, but it has a performance issue â `fib(40)` with naive recursion is O(2^n). Common fixes: memoization (`@functools.lru_cache`), dynamic programming, or iterative approach.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "stop_reason": "stop"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 7,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:42.087Z",
+          "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-3:usage",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "input_tokens": 1,
+            "output_tokens": 201,
+            "scope": "turn",
+            "total_tokens": 5118
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 8,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:42.087Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 1,
+      "total_output_tokens": 201
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 3,
+          "id": "uuid-4",
+          "is_sidechain": false,
+          "parent_uuid": "080fc073",
+          "payload": {
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 8,
+          "session_id": "scenario_07_multi_tool",
+          "timestamp": "2026-04-13T18:38:42.087Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "scenario_07_multi_tool",
+      "session_label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "total_input_tokens": 1,
+      "total_output_tokens": 201
+    }
+  ],
+  "events": [
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "cwd": "/Users/maxglassie/projects/pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "uuid": "uuid-0",
+          "version": 3
+        },
+        "raw": {
+          "cwd": "/Users/maxglassie/projects/pi-mono",
+          "id": "uuid-0",
+          "timestamp": "2026-04-13T18:38:31.910Z",
+          "type": "session",
+          "version": 3
+        },
+        "seq": 0,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-0",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "system.session_start",
+      "time": "2026-04-13T18:38:31.910Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-opus-4-6",
+          "provider": "anthropic",
+          "uuid": "be79c53e"
+        },
+        "raw": {
+          "id": "be79c53e",
+          "modelId": "claude-opus-4-6",
+          "parentId": null,
+          "provider": "anthropic",
+          "timestamp": "2026-04-13T18:38:34.395Z",
+          "type": "model_change"
+        },
+        "seq": 1,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "be79c53e",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "system.model_change",
+      "time": "2026-04-13T18:38:34.395Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "parent_uuid": "346ba99a",
+          "text": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
+          "uuid": "775d79e9"
+        },
+        "raw": {
+          "id": "775d79e9",
+          "message": {
+            "content": [
+              {
+                "text": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
+                "type": "text"
+              }
+            ],
+            "role": "user",
+            "timestamp": 1776105514396
+          },
+          "parentId": "346ba99a",
+          "timestamp": "2026-04-13T18:38:34.396Z",
+          "type": "message"
+        },
+        "seq": 2,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "775d79e9",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2026-04-13T18:38:34.396Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "args": {
+            "path": "/tmp/test-config.toml"
+          },
+          "content_types": [
+            "toolCall",
+            "toolCall"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "775d79e9",
+          "tool": "read",
+          "tool_call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+          "uuid": "a1f500c7"
+        },
+        "raw": {
+          "id": "a1f500c7",
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "arguments": {
+                  "path": "/tmp/test-config.toml"
+                },
+                "id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+                "name": "read",
+                "type": "toolCall"
+              },
+              {
+                "arguments": {
+                  "path": "/tmp/test-broken.py"
+                },
+                "id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+                "name": "read",
+                "type": "toolCall"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "provider": "anthropic",
+            "responseId": "msg_01WvSzAAKUhFpZduJGKesByr",
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "timestamp": 1776105514396,
+            "usage": {
+              "cacheRead": 4330,
+              "cacheWrite": 345,
+              "cost": {
+                "cacheRead": 0.002165,
+                "cacheWrite": 0.00215625,
+                "input": 0.000015000000000000002,
+                "output": 0.0025250000000000003,
+                "total": 0.00686125
+              },
+              "input": 3,
+              "output": 101,
+              "totalTokens": 4779
+            }
+          },
+          "parentId": "775d79e9",
+          "timestamp": "2026-04-13T18:38:37.419Z",
+          "type": "message"
+        },
+        "seq": 3,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-1",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2026-04-13T18:38:37.419Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "args": {
+            "path": "/tmp/test-broken.py"
+          },
+          "content_types": [
+            "toolCall",
+            "toolCall"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "775d79e9",
+          "stop_reason": "toolUse",
+          "token_usage": {
+            "cacheRead": 4330,
+            "cacheWrite": 345,
+            "cost": {
+              "cacheRead": 0.002165,
+              "cacheWrite": 0.00215625,
+              "input": 0.000015000000000000002,
+              "output": 0.0025250000000000003,
+              "total": 0.00686125
+            },
+            "input": 3,
+            "output": 101,
+            "totalTokens": 4779
+          },
+          "tool": "read",
+          "tool_call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+          "uuid": "a1f500c7"
+        },
+        "raw": {
+          "id": "a1f500c7",
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "arguments": {
+                  "path": "/tmp/test-config.toml"
+                },
+                "id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+                "name": "read",
+                "type": "toolCall"
+              },
+              {
+                "arguments": {
+                  "path": "/tmp/test-broken.py"
+                },
+                "id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+                "name": "read",
+                "type": "toolCall"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "provider": "anthropic",
+            "responseId": "msg_01WvSzAAKUhFpZduJGKesByr",
+            "role": "assistant",
+            "stopReason": "toolUse",
+            "timestamp": 1776105514396,
+            "usage": {
+              "cacheRead": 4330,
+              "cacheWrite": 345,
+              "cost": {
+                "cacheRead": 0.002165,
+                "cacheWrite": 0.00215625,
+                "input": 0.000015000000000000002,
+                "output": 0.0025250000000000003,
+                "total": 0.00686125
+              },
+              "input": 3,
+              "output": 101,
+              "totalTokens": 4779
+            }
+          },
+          "parentId": "775d79e9",
+          "timestamp": "2026-04-13T18:38:37.419Z",
+          "type": "message"
+        },
+        "seq": 4,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-2",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2026-04-13T18:38:37.419Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "is_error": false,
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "parent_uuid": "a1f500c7",
+          "tool_call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+          "tool_name": "read",
+          "uuid": "952e4970"
+        },
+        "raw": {
+          "id": "952e4970",
+          "message": {
+            "content": [
+              {
+                "text": "[server]\nhost = \"127.0.0.1\"\nport = 3002\n",
+                "type": "text"
+              }
+            ],
+            "isError": false,
+            "role": "toolResult",
+            "timestamp": 1776105517420,
+            "toolCallId": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
+            "toolName": "read"
+          },
+          "parentId": "a1f500c7",
+          "timestamp": "2026-04-13T18:38:37.420Z",
+          "type": "message"
+        },
+        "seq": 5,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "952e4970",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2026-04-13T18:38:37.420Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "is_error": false,
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "parent_uuid": "952e4970",
+          "tool_call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+          "tool_name": "read",
+          "uuid": "080fc073"
+        },
+        "raw": {
+          "id": "080fc073",
+          "message": {
+            "content": [
+              {
+                "text": "def fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n",
+                "type": "text"
+              }
+            ],
+            "isError": false,
+            "role": "toolResult",
+            "timestamp": 1776105517420,
+            "toolCallId": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
+            "toolName": "read"
+          },
+          "parentId": "952e4970",
+          "timestamp": "2026-04-13T18:38:37.421Z",
+          "type": "message"
+        },
+        "seq": 6,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "080fc073",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2026-04-13T18:38:37.421Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "content_types": [
+            "text"
+          ],
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "080fc073",
+          "stop_reason": "stop",
+          "text": "Here are both files:\n\n**`/tmp/test-config.toml`** â A simple server config:\n```toml\n[server]\nhost = \"127.0.0.1\"\nport = 3002\n```\n\n**`/tmp/test-broken.py`** â A naive recursive Fibonacci implementation:\n```python\ndef fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n```\n\nThe Python file isn't syntactically broken, but it has a performance issue â `fib(40)` with naive recursion is O(2^n). Common fixes: memoization (`@functools.lru_cache`), dynamic programming, or iterative approach.",
+          "token_usage": {
+            "cacheRead": 4675,
+            "cacheWrite": 241,
+            "cost": {
+              "cacheRead": 0.0023374999999999997,
+              "cacheWrite": 0.00150625,
+              "input": 5e-6,
+              "output": 0.005025,
+              "total": 0.00887375
+            },
+            "input": 1,
+            "output": 201,
+            "totalTokens": 5118
+          },
+          "uuid": "5faa9baa"
+        },
+        "raw": {
+          "id": "5faa9baa",
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "text": "Here are both files:\n\n**`/tmp/test-config.toml`** â A simple server config:\n```toml\n[server]\nhost = \"127.0.0.1\"\nport = 3002\n```\n\n**`/tmp/test-broken.py`** â A naive recursive Fibonacci implementation:\n```python\ndef fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n```\n\nThe Python file isn't syntactically broken, but it has a performance issue â `fib(40)` with naive recursion is O(2^n). Common fixes: memoization (`@functools.lru_cache`), dynamic programming, or iterative approach.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "provider": "anthropic",
+            "responseId": "msg_011Ap1gtA5ejdEhEJn9uB82E",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1776105517421,
+            "usage": {
+              "cacheRead": 4675,
+              "cacheWrite": 241,
+              "cost": {
+                "cacheRead": 0.0023374999999999997,
+                "cacheWrite": 0.00150625,
+                "input": 5e-6,
+                "output": 0.005025,
+                "total": 0.00887375
+              },
+              "input": 1,
+              "output": 201,
+              "totalTokens": 5118
+            }
+          },
+          "parentId": "080fc073",
+          "timestamp": "2026-04-13T18:38:42.087Z",
+          "type": "message"
+        },
+        "seq": 7,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-3",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2026-04-13T18:38:42.087Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "pi-mono",
+      "data": {
+        "agent_payload": {
+          "_variant": "pi-mono",
+          "meta": {
+            "agent": "pi-mono"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "080fc073",
+          "stop_reason": "stop",
+          "uuid": "5faa9baa"
+        },
+        "raw": {
+          "id": "5faa9baa",
+          "message": {
+            "api": "anthropic-messages",
+            "content": [
+              {
+                "text": "Here are both files:\n\n**`/tmp/test-config.toml`** â A simple server config:\n```toml\n[server]\nhost = \"127.0.0.1\"\nport = 3002\n```\n\n**`/tmp/test-broken.py`** â A naive recursive Fibonacci implementation:\n```python\ndef fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)  # exponential time complexity\n\nprint(fib(40))  # this will be very slow\n```\n\nThe Python file isn't syntactically broken, but it has a performance issue â `fib(40)` with naive recursion is O(2^n). Common fixes: memoization (`@functools.lru_cache`), dynamic programming, or iterative approach.",
+                "type": "text"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "provider": "anthropic",
+            "responseId": "msg_011Ap1gtA5ejdEhEJn9uB82E",
+            "role": "assistant",
+            "stopReason": "stop",
+            "timestamp": 1776105517421,
+            "usage": {
+              "cacheRead": 4675,
+              "cacheWrite": 241,
+              "cost": {
+                "cacheRead": 0.0023374999999999997,
+                "cacheWrite": 0.00150625,
+                "input": 5e-6,
+                "output": 0.005025,
+                "total": 0.00887375
+              },
+              "input": 1,
+              "output": 201,
+              "totalTokens": 5118
+            }
+          },
+          "parentId": "080fc073",
+          "timestamp": "2026-04-13T18:38:42.087Z",
+          "type": "message"
+        },
+        "seq": 8,
+        "session_id": "scenario_07_multi_tool"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-4",
+      "source": "pi://session/scenario_07_multi_tool",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2026-04-13T18:38:42.087Z",
+      "type": "io.arc.event"
+    }
+  ],
+  "full_payloads_keys": [],
+  "projection": {
+    "branch": null,
+    "event_count": 9,
+    "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+    "total_input_tokens": 1,
+    "total_output_tokens": 201
+  },
+  "sessions": [
+    {
+      "branch": null,
+      "custom_label": null,
+      "event_count": 7,
+      "first_event": "2026-04-13T18:38:42.087Z",
+      "id": "scenario_07_multi_tool",
+      "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
+      "last_event": "2026-04-13T18:38:42.087Z",
+      "project_id": null,
+      "project_name": null
+    }
+  ]
+}

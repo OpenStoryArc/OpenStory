@@ -1,0 +1,54 @@
+{
+  "session_id": "hermes-fixture-039c6f7f",
+  "model": "mock-model",
+  "base_url": "http://mock:8000/v1",
+  "platform": "cli",
+  "session_start": "2026-04-09T10:58:52.075214+00:00",
+  "last_updated": "2026-04-09T10:58:52.075361+00:00",
+  "system_prompt": "You are Hermes Agent, a self-improving AI assistant.",
+  "tools": [
+    "Bash",
+    "Read",
+    "Write",
+    "Edit",
+    "Grep",
+    "Glob"
+  ],
+  "message_count": 5,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Hermes Agent, a self-improving AI assistant."
+    },
+    {
+      "role": "user",
+      "content": "What files are in this directory?"
+    },
+    {
+      "role": "assistant",
+      "content": "I'll list the files for you.",
+      "reasoning": "The user wants to see the directory listing. I should use the Bash tool to run ls.",
+      "tool_calls": [
+        {
+          "id": "toolu_fixture_001",
+          "function": {
+            "name": "Bash",
+            "arguments": "{\"command\": \"ls -la\"}"
+          }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "toolu_fixture_001",
+      "tool_name": "Bash",
+      "content": "total 16\ndrwxr-xr-x  4 user group  128 Apr  8 14:00 .\n-rw-r--r--  1 user group 1234 Apr  8 14:00 README.md\n-rw-r--r--  1 user group  567 Apr  8 14:00 setup.py"
+    },
+    {
+      "role": "assistant",
+      "content": "The directory contains:\n- README.md (1234 bytes)\n- setup.py (567 bytes)",
+      "finish_reason": "stop"
+    }
+  ]
+}

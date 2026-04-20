@@ -1,0 +1,17 @@
+{
+  "scenario": "07-multi-tool",
+  "prompt": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
+  "hypothesis": "Content: [{type:'toolCall'}, {type:'toolCall'}]. Translator picks 'tool_use' — but only one tool is captured in the CloudEvent.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 20,
+    "block_starts": [
+      "toolcall",
+      "toolcall",
+      "text"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

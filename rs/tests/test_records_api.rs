@@ -1,7 +1,9 @@
 //! Integration tests for GET /api/sessions/{id}/records endpoint.
 //!
 //! This endpoint returns session events as WireRecords (same format the
-//! Timeline renders) from in-memory projections.
+//! Timeline renders) by reading directly from the `EventStore` — not from
+//! an in-memory projection cache. Any event that reaches the store must be
+//! visible here, regardless of which ingest path wrote it.
 
 mod helpers;
 
@@ -120,6 +122,80 @@ mod records_endpoint {
             child["parent_uuid"].as_str(),
             Some("evt-root"),
             "child should reference parent"
+        );
+    }
+
+    #[tokio::test]
+    async fn it_should_read_from_event_store_not_projection_cache() {
+        // Production bug: some ingest paths write to the EventStore without
+        // updating the in-memory SessionProjection. When `/records` reads
+        // from the projection it silently drops those events. FTS still
+        // finds them (persist consumer path), but `/records` doesn't —
+        // `sessionstory.py`, `session_story` MCP tool, and anything else
+        // that uses this endpoint sees a lossy view.
+        //
+        // This test simulates the divergence: write events directly to
+        // `event_store.insert_event()` (bypassing `ingest_events` which
+        // updates the projection) and assert that `/records` still returns
+        // them. After PR 1, `/records` reads from the store directly, so
+        // any event that reaches the store must be visible.
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+
+        let events = vec![
+            make_user_prompt("sess-bypass", "evt-1"),
+            make_tool_use("sess-bypass", "evt-2", None, "Write", "/tmp/a.txt"),
+            make_tool_use("sess-bypass", "evt-3", None, "Edit", "/tmp/b.txt"),
+            make_tool_use("sess-bypass", "evt-4", None, "ExitPlanMode", "plan body"),
+        ];
+
+        {
+            let s = state.read().await;
+            for ce in &events {
+                let val = serde_json::to_value(ce).unwrap();
+                s.store
+                    .event_store
+                    .insert_event("sess-bypass", &val)
+                    .await
+                    .expect("insert_event should succeed");
+            }
+            // Projection is intentionally NOT updated — this is the
+            // production divergence we're fixing.
+            assert!(
+                !s.store.projections.contains_key("sess-bypass"),
+                "test precondition: projection must NOT contain the session"
+            );
+        }
+
+        let req = Request::get("/api/sessions/sess-bypass/records")
+            .body(Body::empty())
+            .unwrap();
+        let resp = send_request(state, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body = body_json(resp).await;
+        let records = body.as_array().unwrap();
+
+        assert_eq!(
+            records.len(),
+            4,
+            "should return all 4 events written to the store, got {}",
+            records.len()
+        );
+
+        // Verify every tool call the real bug drops is present.
+        // WireRecord serializes RecordBody externally-tagged:
+        //   {"record_type": "tool_call", "payload": {"name": "Write", ...}, ...}
+        let tool_names: Vec<&str> = records
+            .iter()
+            .filter(|r| r["record_type"] == "tool_call")
+            .filter_map(|r| r["payload"]["name"].as_str())
+            .collect();
+        assert!(tool_names.contains(&"Write"), "missing Write tool call");
+        assert!(tool_names.contains(&"Edit"), "missing Edit tool call");
+        assert!(
+            tool_names.contains(&"ExitPlanMode"),
+            "missing ExitPlanMode tool call"
         );
     }
 

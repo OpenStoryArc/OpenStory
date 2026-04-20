@@ -3,7 +3,7 @@
 //! Actor contract:
 //!   subscribes: events.>
 //!   publishes:  changes.{project}.{session}
-//!   owns:       projections, session_projects, plan_store
+//!   owns:       projections (via shared DashMap), session_projects, plan_store
 //!
 //! Responsibilities:
 //!   1. Update SessionProjection (token counts, event counts, labels, branches)
@@ -11,26 +11,36 @@
 //!   3. Track subagent → parent relationships
 //!   4. Extract and store plans
 //!   5. Publish session metadata changes for the broadcast consumer
+//!
+//! The `projections` field is an `Arc<DashMap>` shared with `AppState.store`.
+//! Actor 3 is the sole **writer**; the API, WebSocket, and other consumers
+//! read from the same map. This replaces the previous dead-code pattern
+//! where ProjectionsConsumer maintained its own internal HashMap that
+//! nothing read.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use dashmap::DashMap;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::projection::SessionProjection;
 
 /// State owned by the projections consumer actor.
 pub struct ProjectionsConsumer {
-    /// Materialized view per session.
-    projections: HashMap<String, SessionProjection>,
+    /// Shared materialized view per session. Actor 3 is the sole writer;
+    /// the API / WebSocket / other consumers read from the same map
+    /// without coordination.
+    projections: Arc<DashMap<String, SessionProjection>>,
     /// Session → project_id mapping (used when wired as independent consumer).
     #[allow(dead_code)]
     session_projects: HashMap<String, String>,
     /// Session → display name mapping (used when wired as independent consumer).
     #[allow(dead_code)]
     session_project_names: HashMap<String, String>,
-    /// Subagent → parent session mapping.
-    subagent_parents: HashMap<String, String>,
-    /// Parent → child session list.
-    session_children: HashMap<String, Vec<String>>,
+    /// Subagent → parent session mapping (shared with StoreState).
+    subagent_parents: Arc<DashMap<String, String>>,
+    /// Parent → child session list (shared with StoreState).
+    session_children: Arc<DashMap<String, Vec<String>>>,
 }
 
 /// Result of processing one batch through projections.
@@ -42,20 +52,21 @@ pub struct ProjectionsResult {
     pub total_output_tokens: Option<u64>,
 }
 
-impl Default for ProjectionsConsumer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ProjectionsConsumer {
-    pub fn new() -> Self {
+    /// Construct a projections consumer backed by shared `StoreState` maps.
+    /// Pass `state.store.projections.clone()` / `subagent_parents.clone()`
+    /// / `session_children.clone()` — Arc clones are cheap (refcount only).
+    pub fn new(
+        projections: Arc<DashMap<String, SessionProjection>>,
+        subagent_parents: Arc<DashMap<String, String>>,
+        session_children: Arc<DashMap<String, Vec<String>>>,
+    ) -> Self {
         Self {
-            projections: HashMap::new(),
+            projections,
             session_projects: HashMap::new(),
             session_project_names: HashMap::new(),
-            subagent_parents: HashMap::new(),
-            session_children: HashMap::new(),
+            subagent_parents,
+            session_children,
         }
     }
 
@@ -70,22 +81,18 @@ impl ProjectionsConsumer {
         for ce in events {
             let Ok(val) = serde_json::to_value(ce) else { continue };
 
-            // Track subagent → parent relationship
-            if let Some(data_sid) = val.get("data")
-                .and_then(|d| d.get("session_id"))
-                .and_then(|v| v.as_str())
-            {
-                if data_sid != session_id && !self.subagent_parents.contains_key(session_id) {
-                    self.subagent_parents.insert(session_id.to_string(), data_sid.to_string());
-                    self.session_children
-                        .entry(data_sid.to_string())
-                        .or_default()
-                        .push(session_id.to_string());
-                }
-            }
+            // Track subagent → parent relationship (shared helper).
+            open_story_store::state::detect_subagent_relationship(
+                &val,
+                session_id,
+                &self.subagent_parents,
+                &self.session_children,
+            );
 
-            // Update projection
-            let proj = self.projections
+            // Update projection (DashMap: entry().or_insert_with — same shape
+            // as HashMap, different guard type).
+            let mut proj = self
+                .projections
                 .entry(session_id.to_string())
                 .or_insert_with(|| SessionProjection::new(session_id));
             let append_result = proj.append(&val);
@@ -98,32 +105,36 @@ impl ProjectionsConsumer {
         let proj = self.projections.get(session_id);
         ProjectionsResult {
             label_changed,
-            total_input_tokens: proj.map(|p| p.total_input_tokens()),
-            total_output_tokens: proj.map(|p| p.total_output_tokens()),
+            total_input_tokens: proj.as_ref().map(|p| p.total_input_tokens()),
+            total_output_tokens: proj.as_ref().map(|p| p.total_output_tokens()),
         }
     }
 
-    /// Get the projection for a session.
-    pub fn projection(&self, session_id: &str) -> Option<&SessionProjection> {
-        self.projections.get(session_id)
+    /// Get a snapshot of the projection for a session (clone).
+    /// Callers that want a long-lived borrow should use the shared
+    /// `state.store.projections` directly and hold a `DashMap::Ref`.
+    pub fn projection(&self, session_id: &str) -> Option<SessionProjection> {
+        self.projections.get(session_id).map(|r| r.value().clone())
     }
 
-    /// Get all projections.
-    pub fn all_projections(&self) -> &HashMap<String, SessionProjection> {
-        &self.projections
+    /// How many sessions have projections today. Intended for tests.
+    pub fn projection_count(&self) -> usize {
+        self.projections.len()
     }
 
     /// Get the parent session for a subagent.
-    pub fn parent_session(&self, subagent_id: &str) -> Option<&str> {
-        self.subagent_parents.get(subagent_id).map(|s| s.as_str())
+    pub fn parent_session(&self, subagent_id: &str) -> Option<String> {
+        self.subagent_parents
+            .get(subagent_id)
+            .map(|r| r.value().clone())
     }
 
-    /// Get children (subagents) of a session.
-    pub fn children(&self, session_id: &str) -> &[String] {
+    /// Get children (subagents) of a session (cloned snapshot).
+    pub fn children(&self, session_id: &str) -> Vec<String> {
         self.session_children
             .get(session_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+            .map(|r| r.value().clone())
+            .unwrap_or_default()
     }
 }
 
@@ -150,25 +161,75 @@ mod tests {
         )
     }
 
+    fn empty_shared_map() -> Arc<DashMap<String, SessionProjection>> {
+        Arc::new(DashMap::new())
+    }
+
+    fn empty_parents() -> Arc<DashMap<String, String>> {
+        Arc::new(DashMap::new())
+    }
+
+    fn empty_children() -> Arc<DashMap<String, Vec<String>>> {
+        Arc::new(DashMap::new())
+    }
+
+    fn make_consumer() -> ProjectionsConsumer {
+        ProjectionsConsumer::new(empty_shared_map(), empty_parents(), empty_children())
+    }
+
     #[test]
     fn new_consumer_has_empty_state() {
-        let consumer = ProjectionsConsumer::new();
-        assert!(consumer.all_projections().is_empty());
+        let consumer = make_consumer();
+        assert_eq!(consumer.projection_count(), 0);
     }
 
     #[test]
     fn creates_projection_on_first_event() {
-        let mut consumer = ProjectionsConsumer::new();
+        let mut consumer = make_consumer();
         consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
         assert!(consumer.projection("sess-1").is_some());
     }
 
     #[test]
     fn maintains_separate_projections_per_session() {
-        let mut consumer = ProjectionsConsumer::new();
+        let mut consumer = make_consumer();
         consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
         consumer.process_batch("sess-2", &[make_event("sess-2", "message.user.prompt")]);
         assert!(consumer.projection("sess-1").is_some());
         assert!(consumer.projection("sess-2").is_some());
+    }
+
+    /// Commit 1.3 landing test: the consumer writes into the caller's
+    /// shared DashMap, so an externally-held `Arc` sees the projection
+    /// without a sync step. Retires the previous "dead-state" tests.
+    #[test]
+    fn writes_are_visible_via_shared_map() {
+        let shared = empty_shared_map();
+        let mut consumer =
+            ProjectionsConsumer::new(shared.clone(), empty_parents(), empty_children());
+        consumer.process_batch("sess-shared", &[make_event("sess-shared", "message.user.prompt")]);
+
+        // The external holder of the Arc sees the same projection.
+        assert!(
+            shared.contains_key("sess-shared"),
+            "external shared map should see the consumer's write without any sync step"
+        );
+    }
+
+    #[test]
+    fn processing_the_same_event_twice_is_deduped_internally_by_seen_ids() {
+        // SessionProjection::append does dedup via its own seen_ids HashSet —
+        // double-delivery from NATS at-least-once is absorbed transparently.
+        let mut consumer = make_consumer();
+        let ev = make_event("sess-dup", "message.user.prompt");
+        consumer.process_batch("sess-dup", &[ev.clone()]);
+        consumer.process_batch("sess-dup", &[ev]);
+
+        let proj = consumer.projection("sess-dup").unwrap();
+        assert_eq!(
+            proj.event_count(),
+            1,
+            "SessionProjection.seen_ids dedups double-delivery internally"
+        );
     }
 }

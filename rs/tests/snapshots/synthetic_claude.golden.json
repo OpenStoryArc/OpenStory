@@ -1,0 +1,1258 @@
+{
+  "broadcast_messages": [
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 1,
+          "id": "u-001",
+          "is_sidechain": false,
+          "parent_uuid": "p-001",
+          "payload": {
+            "content": "Hello Claude",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 0,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:00.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 2,
+          "id": "u-002",
+          "is_sidechain": false,
+          "parent_uuid": "u-001",
+          "payload": {
+            "content": [
+              {
+                "text": "Hello! How can I help?",
+                "type": "text"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "stop_reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 1,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:01.000Z",
+          "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "u-002:usage",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "scope": "turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 2,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:01.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 2,
+          "id": "u-003",
+          "is_sidechain": false,
+          "parent_uuid": "u-001",
+          "payload": {
+            "call_id": "tu_1",
+            "input": {
+              "path": "/foo"
+            },
+            "name": "Read",
+            "raw_input": {
+              "path": "/foo"
+            },
+            "typed_input": {
+              "file_path": "/foo",
+              "tool": "read"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 2,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:02.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 3,
+          "id": "u-004",
+          "is_sidechain": false,
+          "parent_uuid": "u-003",
+          "payload": {
+            "call_id": "tu_1",
+            "is_error": false,
+            "output": "file contents here",
+            "tool_outcome": {
+              "path": "",
+              "type": "FileRead"
+            }
+          },
+          "payload_bytes": 18,
+          "record_type": "tool_result",
+          "seq": 3,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:03.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [
+        {
+          "id": "u-005",
+          "is_sidechain": false,
+          "payload": {
+            "subtype": "progress.bash"
+          },
+          "record_type": "system_event",
+          "seq": 4,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:04.000Z"
+        }
+      ],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [],
+      "session_id": "synthetic"
+    },
+    {
+      "ephemeral": [
+        {
+          "id": "u-006",
+          "is_sidechain": false,
+          "payload": {
+            "subtype": "progress.agent"
+          },
+          "record_type": "system_event",
+          "seq": 5,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:05.000Z"
+        }
+      ],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [],
+      "session_id": "synthetic"
+    },
+    {
+      "ephemeral": [
+        {
+          "id": "u-007",
+          "is_sidechain": false,
+          "payload": {
+            "subtype": "progress.hook"
+          },
+          "record_type": "system_event",
+          "seq": 6,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:06.000Z"
+        }
+      ],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [],
+      "session_id": "synthetic"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-008",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "duration_ms": 5000,
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 7,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:07.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-009",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.hook"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 8,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:08.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-010",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.error"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 9,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:09.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-011",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "system.compact"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 10,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:10.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-012",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "tracked_files": {
+              "timestamp": "2025-01-05T16:55:00Z",
+              "trackedFileBackups": {}
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "file_snapshot",
+          "seq": 11,
+          "session_id": "synthetic",
+          "timestamp": "2025-01-05T17:00:11.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-013",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "queue.enqueue"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 12,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:12.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-014",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "subtype": "queue.dequeue"
+          },
+          "payload_bytes": 0,
+          "record_type": "system_event",
+          "seq": 13,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:13.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-015",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "external user msg",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 14,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:14.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-016",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": [
+              {
+                "text": "just a string, not array",
+                "type": "text"
+              }
+            ],
+            "model": "unknown"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 15,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:15.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "u-017",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "deep thought only",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 16,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:16.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    },
+    {
+      "ephemeral": [
+        {
+          "id": "u-018",
+          "is_sidechain": false,
+          "payload": {
+            "subtype": "progress.new_future_type"
+          },
+          "record_type": "system_event",
+          "seq": 17,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:17.000Z"
+        }
+      ],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [],
+      "session_id": "synthetic"
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0",
+          "is_sidechain": false,
+          "parent_uuid": null,
+          "payload": {
+            "content": "no uuid entry",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 18,
+          "session_id": "synth-session",
+          "timestamp": "2025-01-05T17:00:19.000Z",
+          "truncated": false
+        }
+      ],
+      "session_branch": "main",
+      "session_id": "synthetic",
+      "session_label": "Hello Claude",
+      "total_input_tokens": 10,
+      "total_output_tokens": 5
+    }
+  ],
+  "events": [
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "cwd": "/home/user/project",
+          "git_branch": "main",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "parent_uuid": "p-001",
+          "text": "Hello Claude",
+          "timestamp": "2025-01-05T17:00:00.000Z",
+          "uuid": "u-001",
+          "version": "2.1.68"
+        },
+        "raw": {
+          "cwd": "/home/user/project",
+          "gitBranch": "main",
+          "message": {
+            "content": "Hello Claude",
+            "role": "user"
+          },
+          "parentUuid": "p-001",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:00.000Z",
+          "type": "user",
+          "uuid": "u-001",
+          "version": "2.1.68"
+        },
+        "seq": 0,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-001",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2025-01-05T17:00:00.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "content_types": [
+            "text"
+          ],
+          "cwd": "/home/user/project",
+          "git_branch": "main",
+          "message_id": "msg_001",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "u-001",
+          "stop_reason": "end_turn",
+          "text": "Hello! How can I help?",
+          "timestamp": "2025-01-05T17:00:01.000Z",
+          "token_usage": {
+            "input_tokens": 10,
+            "output_tokens": 5
+          },
+          "uuid": "u-002",
+          "version": "2.1.68"
+        },
+        "raw": {
+          "cwd": "/home/user/project",
+          "gitBranch": "main",
+          "message": {
+            "content": [
+              {
+                "text": "Hello! How can I help?",
+                "type": "text"
+              }
+            ],
+            "id": "msg_001",
+            "model": "claude-opus-4-6",
+            "role": "assistant",
+            "stop_reason": "end_turn",
+            "usage": {
+              "input_tokens": 10,
+              "output_tokens": 5
+            }
+          },
+          "parentUuid": "u-001",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:01.000Z",
+          "type": "assistant",
+          "uuid": "u-002",
+          "version": "2.1.68"
+        },
+        "seq": 1,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-002",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2025-01-05T17:00:01.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "args": {
+            "path": "/foo"
+          },
+          "content_types": [
+            "thinking",
+            "tool_use"
+          ],
+          "meta": {
+            "agent": "claude-code"
+          },
+          "model": "claude-opus-4-6",
+          "parent_uuid": "u-001",
+          "timestamp": "2025-01-05T17:00:02.000Z",
+          "tool": "Read",
+          "uuid": "u-003"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "thinking": "Let me think...",
+                "type": "thinking"
+              },
+              {
+                "id": "tu_1",
+                "input": {
+                  "path": "/foo"
+                },
+                "name": "Read",
+                "type": "tool_use"
+              }
+            ],
+            "model": "claude-opus-4-6",
+            "role": "assistant"
+          },
+          "parentUuid": "u-001",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:02.000Z",
+          "type": "assistant",
+          "uuid": "u-003"
+        },
+        "seq": 2,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-003",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2025-01-05T17:00:02.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "parent_uuid": "u-003",
+          "text": "file contents here",
+          "timestamp": "2025-01-05T17:00:03.000Z",
+          "tool_outcome": {
+            "path": "",
+            "type": "FileRead"
+          },
+          "uuid": "u-004"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "content": "file contents here",
+                "tool_use_id": "tu_1",
+                "type": "tool_result"
+              }
+            ],
+            "role": "user"
+          },
+          "parentUuid": "u-003",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:03.000Z",
+          "type": "user",
+          "uuid": "u-004"
+        },
+        "seq": 3,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-004",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2025-01-05T17:00:03.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "progress_type": "bash_progress",
+          "timestamp": "2025-01-05T17:00:04.000Z",
+          "uuid": "u-005"
+        },
+        "raw": {
+          "data": {
+            "output": "$ ls\nfile1.txt",
+            "type": "bash_progress"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:04.000Z",
+          "type": "progress",
+          "uuid": "u-005"
+        },
+        "seq": 4,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-005",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "progress.bash",
+      "time": "2025-01-05T17:00:04.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "progress_type": "agent_progress",
+          "timestamp": "2025-01-05T17:00:05.000Z",
+          "uuid": "u-006"
+        },
+        "raw": {
+          "data": {
+            "agent_id": "a1",
+            "type": "agent_progress"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:05.000Z",
+          "type": "progress",
+          "uuid": "u-006"
+        },
+        "seq": 5,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-006",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "progress.agent",
+      "time": "2025-01-05T17:00:05.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "progress_type": "hook_progress",
+          "timestamp": "2025-01-05T17:00:06.000Z",
+          "uuid": "u-007"
+        },
+        "raw": {
+          "data": {
+            "hookEvent": "SessionStart",
+            "type": "hook_progress"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:06.000Z",
+          "type": "progress",
+          "uuid": "u-007"
+        },
+        "seq": 6,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-007",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "progress.hook",
+      "time": "2025-01-05T17:00:06.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "duration_ms": 5000.0,
+          "meta": {
+            "agent": "claude-code"
+          },
+          "timestamp": "2025-01-05T17:00:07.000Z",
+          "uuid": "u-008"
+        },
+        "raw": {
+          "durationMs": 5000,
+          "sessionId": "synth-session",
+          "subtype": "turn_duration",
+          "timestamp": "2025-01-05T17:00:07.000Z",
+          "type": "system",
+          "uuid": "u-008"
+        },
+        "seq": 7,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-008",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2025-01-05T17:00:07.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "hook_count": 2,
+          "meta": {
+            "agent": "claude-code"
+          },
+          "prevented_continuation": false,
+          "timestamp": "2025-01-05T17:00:08.000Z",
+          "uuid": "u-009"
+        },
+        "raw": {
+          "hookCount": 2,
+          "preventedContinuation": false,
+          "sessionId": "synth-session",
+          "subtype": "stop_hook_summary",
+          "timestamp": "2025-01-05T17:00:08.000Z",
+          "type": "system",
+          "uuid": "u-009"
+        },
+        "seq": 8,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-009",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "system.hook",
+      "time": "2025-01-05T17:00:08.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "timestamp": "2025-01-05T17:00:09.000Z",
+          "uuid": "u-010"
+        },
+        "raw": {
+          "sessionId": "synth-session",
+          "subtype": "api_error",
+          "timestamp": "2025-01-05T17:00:09.000Z",
+          "type": "system",
+          "uuid": "u-010"
+        },
+        "seq": 9,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-010",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "system.error",
+      "time": "2025-01-05T17:00:09.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "timestamp": "2025-01-05T17:00:10.000Z",
+          "uuid": "u-011"
+        },
+        "raw": {
+          "sessionId": "synth-session",
+          "subtype": "compact_boundary",
+          "timestamp": "2025-01-05T17:00:10.000Z",
+          "type": "system",
+          "uuid": "u-011"
+        },
+        "seq": 10,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-011",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "system.compact",
+      "time": "2025-01-05T17:00:10.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "timestamp": "2025-01-05T17:00:11.000Z",
+          "uuid": "u-012"
+        },
+        "raw": {
+          "messageId": "msg-snap",
+          "snapshot": {
+            "timestamp": "2025-01-05T16:55:00Z",
+            "trackedFileBackups": {}
+          },
+          "timestamp": "2025-01-05T17:00:11.000Z",
+          "type": "file-history-snapshot",
+          "uuid": "u-012"
+        },
+        "seq": 11,
+        "session_id": "synthetic"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-012",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "file.snapshot",
+      "time": "2025-01-05T17:00:11.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "operation": "enqueue",
+          "timestamp": "2025-01-05T17:00:12.000Z",
+          "uuid": "u-013"
+        },
+        "raw": {
+          "content": "do something",
+          "operation": "enqueue",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:12.000Z",
+          "type": "queue-operation",
+          "uuid": "u-013"
+        },
+        "seq": 12,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-013",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "queue.enqueue",
+      "time": "2025-01-05T17:00:12.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "operation": "dequeue",
+          "timestamp": "2025-01-05T17:00:13.000Z",
+          "uuid": "u-014"
+        },
+        "raw": {
+          "operation": "dequeue",
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:13.000Z",
+          "type": "queue-operation",
+          "uuid": "u-014"
+        },
+        "seq": 13,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-014",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "queue.dequeue",
+      "time": "2025-01-05T17:00:13.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "text": "external user msg",
+          "timestamp": "2025-01-05T17:00:14.000Z",
+          "user_type": "external",
+          "uuid": "u-015"
+        },
+        "raw": {
+          "message": {
+            "content": "external user msg",
+            "role": "user"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:14.000Z",
+          "type": "user",
+          "userType": "external",
+          "uuid": "u-015"
+        },
+        "seq": 14,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-015",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2025-01-05T17:00:14.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "content_types": [
+            "text"
+          ],
+          "meta": {
+            "agent": "claude-code"
+          },
+          "text": "just a string, not array",
+          "timestamp": "2025-01-05T17:00:15.000Z",
+          "uuid": "u-016"
+        },
+        "raw": {
+          "message": {
+            "content": "just a string, not array",
+            "role": "assistant"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:15.000Z",
+          "type": "assistant",
+          "uuid": "u-016"
+        },
+        "seq": 15,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-016",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2025-01-05T17:00:15.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "content_types": [
+            "thinking"
+          ],
+          "meta": {
+            "agent": "claude-code"
+          },
+          "timestamp": "2025-01-05T17:00:16.000Z",
+          "uuid": "u-017"
+        },
+        "raw": {
+          "message": {
+            "content": [
+              {
+                "thinking": "deep thought only",
+                "type": "thinking"
+              }
+            ],
+            "role": "assistant"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:16.000Z",
+          "type": "assistant",
+          "uuid": "u-017"
+        },
+        "seq": 16,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-017",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.assistant.thinking",
+      "time": "2025-01-05T17:00:16.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "progress_type": "new_future_type",
+          "timestamp": "2025-01-05T17:00:17.000Z",
+          "uuid": "u-018"
+        },
+        "raw": {
+          "data": {
+            "type": "new_future_type"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:17.000Z",
+          "type": "progress",
+          "uuid": "u-018"
+        },
+        "seq": 17,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "u-018",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "progress.new_future_type",
+      "time": "2025-01-05T17:00:17.000Z",
+      "type": "io.arc.event"
+    },
+    {
+      "agent": "claude-code",
+      "data": {
+        "agent_payload": {
+          "_variant": "claude-code",
+          "meta": {
+            "agent": "claude-code"
+          },
+          "text": "no uuid entry",
+          "timestamp": "2025-01-05T17:00:19.000Z"
+        },
+        "raw": {
+          "message": {
+            "content": "no uuid entry",
+            "role": "user"
+          },
+          "sessionId": "synth-session",
+          "timestamp": "2025-01-05T17:00:19.000Z",
+          "type": "user"
+        },
+        "seq": 18,
+        "session_id": "synth-session"
+      },
+      "datacontenttype": "application/json",
+      "id": "uuid-0",
+      "source": "arc://transcript/synthetic",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2025-01-05T17:00:19.000Z",
+      "type": "io.arc.event"
+    }
+  ],
+  "full_payloads_keys": [],
+  "projection": {
+    "branch": "main",
+    "event_count": 19,
+    "label": "Hello Claude",
+    "total_input_tokens": 10,
+    "total_output_tokens": 5
+  },
+  "sessions": [
+    {
+      "branch": "main",
+      "custom_label": null,
+      "event_count": 18,
+      "first_event": "2025-01-05T17:00:19.000Z",
+      "id": "synthetic",
+      "label": "Hello Claude",
+      "last_event": "2025-01-05T17:00:19.000Z",
+      "project_id": null,
+      "project_name": null
+    }
+  ]
+}

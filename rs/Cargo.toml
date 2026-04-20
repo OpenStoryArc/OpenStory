@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bus", "cli", "core", "patterns", "server", "store", "views"]
+members = [".", "bus", "cli", "core", "patterns", "schemas", "server", "store", "views"]
 
 [package]
 name = "open-story"
@@ -38,6 +38,7 @@ default = []
 # the right knobs in the store crate.
 encryption = ["open-story-store/encryption"]
 mongo = ["open-story-store/mongo"]
+hermes_container = []
 
 [dev-dependencies]
 filetime = "0.2"
@@ -51,3 +52,4 @@ tokio-tungstenite = "0.26"
 futures-util = "0.3"
 kube = { version = "0.98", features = ["client", "runtime"] }
 k8s-openapi = { version = "0.24", features = ["latest"] }
+dashmap = "6"

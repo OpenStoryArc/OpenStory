@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pi-Mono API Interaction Map</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent-blue: #58a6ff;
+    --accent-green: #3fb950;
+    --accent-red: #f85149;
+    --accent-yellow: #d29922;
+    --accent-purple: #bc8cff;
+    --accent-orange: #f0883e;
+    --thinking-bg: #1a1230;
+    --thinking-border: #6e40c9;
+    --text-bg: #0d2818;
+    --text-border: #238636;
+    --tool-bg: #1a1a0d;
+    --tool-border: #9e6a03;
+    --invisible-bg: #2d1215;
+    --invisible-border: #f85149;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem;
+    line-height: 1.6;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--accent-blue);
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+  }
+  .scenario {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+  }
+  .scenario-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .scenario-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .scenario-verdict {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .verdict-ok { background: #0d2818; color: var(--accent-green); border: 1px solid var(--accent-green); }
+  .verdict-bug { background: #2d1215; color: var(--accent-red); border: 1px solid var(--accent-red); }
+  .scenario-body { padding: 1.5rem; }
+  .prompt {
+    background: var(--bg);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-blue);
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
+  }
+  .prompt-label { color: var(--accent-blue); font-weight: 600; margin-bottom: 0.25rem; }
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+  }
+  .flow-arrow {
+    width: 2px;
+    height: 24px;
+    background: var(--border);
+    position: relative;
+  }
+  .flow-arrow::after {
+    content: '▼';
+    position: absolute;
+    bottom: -8px;
+    left: -5px;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+  }
+  .flow-node {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    width: 100%;
+    max-width: 700px;
+    font-size: 0.8rem;
+  }
+  .node-label {
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+  .node-api { border-color: var(--accent-blue); }
+  .node-api .node-label { color: var(--accent-blue); }
+  .node-sse { border-color: var(--accent-purple); }
+  .node-sse .node-label { color: var(--accent-purple); }
+  .node-persist { border-color: var(--accent-orange); }
+  .node-persist .node-label { color: var(--accent-orange); }
+  .node-translator { border-color: var(--accent-green); }
+  .node-translator .node-label { color: var(--accent-green); }
+  .node-translator.has-bug { border-color: var(--accent-red); }
+  .node-translator.has-bug .node-label { color: var(--accent-red); }
+  .content-blocks {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .block {
+    padding: 0.35rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .block-thinking {
+    background: var(--thinking-bg);
+    border-color: var(--thinking-border);
+    color: var(--accent-purple);
+  }
+  .block-text {
+    background: var(--text-bg);
+    border-color: var(--text-border);
+    color: var(--accent-green);
+  }
+  .block-tool {
+    background: var(--tool-bg);
+    border-color: var(--tool-border);
+    color: var(--accent-yellow);
+  }
+  .block-invisible {
+    background: var(--invisible-bg);
+    border-color: var(--invisible-border);
+    color: var(--accent-red);
+    text-decoration: line-through;
+    opacity: 0.7;
+  }
+  .block-icon { font-size: 0.9rem; }
+  .sse-event {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    font-size: 0.75rem;
+  }
+  .sse-type {
+    color: var(--accent-purple);
+    min-width: 160px;
+  }
+  .sse-detail { color: var(--text-muted); }
+  .invisible-warning {
+    background: var(--invisible-bg);
+    border: 1px solid var(--invisible-border);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--accent-red);
+  }
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+  }
+  .summary-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .summary-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-table tr:hover { background: var(--surface); }
+  .tag-ok { color: var(--accent-green); }
+  .tag-bug { color: var(--accent-red); }
+  .hypothesis {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin-bottom: 1rem;
+  }
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 3rem 0;
+  }
+  .fix-section {
+    background: var(--surface);
+    border: 1px solid var(--accent-green);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 2rem;
+  }
+  .fix-section h2 { color: var(--accent-green); margin-bottom: 1rem; font-size: 1.1rem; }
+  .decompose-arrow {
+    text-align: center;
+    padding: 0.5rem;
+    color: var(--accent-green);
+    font-size: 1.2rem;
+  }
+  .api-call-group {
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+  }
+  .api-call-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+  .text-preview {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    font-style: italic;
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<h1>Pi-Mono API Interaction Map</h1>
+<p class="subtitle">Captured 2026-04-13 · Real pi-mono sessions via test-pimono-shapes.mjs · API trace via api-proxy.mjs</p>
+
+<!-- SUMMARY TABLE -->
+<div class="scenario">
+  <div class="scenario-header">
+    <span class="scenario-name">Summary: All 8 Scenarios</span>
+  </div>
+  <div class="scenario-body">
+    <table class="summary-table">
+      <tr>
+        <th>Scenario</th>
+        <th>API Response Blocks</th>
+        <th>JSONL Line</th>
+        <th>Translator Picks</th>
+        <th>Lost</th>
+        <th>Status</th>
+      </tr>
+      <tr>
+        <td>01 text-only</td>
+        <td><span class="block block-text" style="display:inline-flex">text</span></td>
+        <td>[text]</td>
+        <td>assistant.text</td>
+        <td>—</td>
+        <td class="tag-ok">✓ OK</td>
+      </tr>
+      <tr>
+        <td>02 single-tool</td>
+        <td><span class="block block-tool" style="display:inline-flex">toolCall</span></td>
+        <td>[toolCall]</td>
+        <td>assistant.tool_use</td>
+        <td>—</td>
+        <td class="tag-ok">✓ OK</td>
+      </tr>
+      <tr>
+        <td>03 tool→text</td>
+        <td><span class="block block-tool" style="display:inline-flex">toolCall</span> then <span class="block block-text" style="display:inline-flex">text</span></td>
+        <td>2 lines</td>
+        <td>tool_use, text</td>
+        <td>—</td>
+        <td class="tag-ok">✓ OK</td>
+      </tr>
+      <tr>
+        <td>04 thinking+text</td>
+        <td><span class="block block-thinking" style="display:inline-flex">thinking</span> <span class="block block-text" style="display:inline-flex">text</span></td>
+        <td>[thinking, text]</td>
+        <td>assistant.thinking</td>
+        <td class="tag-bug">text</td>
+        <td class="tag-bug">⚠ BUG</td>
+      </tr>
+      <tr>
+        <td>05 thinking+tool</td>
+        <td><span class="block block-thinking" style="display:inline-flex">thinking</span> <span class="block block-text" style="display:inline-flex">text</span> <span class="block block-tool" style="display:inline-flex">toolCall</span></td>
+        <td>[thinking, text, toolCall]</td>
+        <td>assistant.tool_use</td>
+        <td class="tag-bug">thinking, text</td>
+        <td class="tag-bug">⚠ BUG</td>
+      </tr>
+      <tr>
+        <td>06 thinking+text+tool</td>
+        <td><span class="block block-thinking" style="display:inline-flex">thinking</span> <span class="block block-text" style="display:inline-flex">text</span> <span class="block block-tool" style="display:inline-flex">toolCall</span></td>
+        <td>[thinking, text, toolCall]</td>
+        <td>assistant.tool_use</td>
+        <td class="tag-bug">thinking, text</td>
+        <td class="tag-bug">⚠ BUG</td>
+      </tr>
+      <tr>
+        <td>07 multi-tool</td>
+        <td><span class="block block-tool" style="display:inline-flex">tool×2</span></td>
+        <td>[toolCall, toolCall]</td>
+        <td>assistant.tool_use</td>
+        <td class="tag-bug">2nd toolCall</td>
+        <td class="tag-bug">⚠ BUG</td>
+      </tr>
+      <tr>
+        <td>08 tool-error</td>
+        <td><span class="block block-tool" style="display:inline-flex">toolCall</span> then <span class="block block-text" style="display:inline-flex">text</span></td>
+        <td>2 lines</td>
+        <td>tool_use, text</td>
+        <td>—</td>
+        <td class="tag-ok">✓ OK</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- SCENARIO 04 -->
+<div class="scenario">
+  <div class="scenario-header">
+    <span class="scenario-name">Scenario 04: Thinking + Text</span>
+    <span class="scenario-verdict verdict-bug">⚠ TEXT INVISIBLE</span>
+  </div>
+  <div class="scenario-body">
+    <div class="prompt">
+      <div class="prompt-label">USER PROMPT</div>
+      Think carefully about why 1+1=2, then give me a one sentence answer.
+    </div>
+    <p class="hypothesis">Hypothesis: content=[thinking, text] → translator picks "thinking" → text is invisible</p>
+
+    <div class="flow">
+      <div class="flow-node node-api">
+        <div class="node-label">→ API Request (POST /v1/messages)</div>
+        1 user message · 4 tools · thinking: adaptive
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-node node-sse">
+        <div class="node-label">← SSE Response (8 events)</div>
+        <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=0 type=thinking</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_delta ×1</span> <span class="sse-detail">20 chars reasoning</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=1 type=text</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_delta ×3</span> <span class="sse-detail">147 chars total</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+        <div class="sse-event"><span class="sse-type">message_delta</span> <span class="sse-detail">stop_reason=end_turn</span></div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-node node-persist">
+        <div class="node-label">Pi-Mono Persists (1 JSONL line)</div>
+        <div class="content-blocks">
+          <span class="block block-thinking"><span class="block-icon">🧠</span> thinking</span>
+          <span class="block block-text"><span class="block-icon">💬</span> text (147 chars)</span>
+        </div>
+        <div class="text-preview">"1+1=2 because it follows from the Peano axioms, where 2 is defined as the successor of 1..."</div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-node node-translator has-bug">
+        <div class="node-label">Translator (determine_pi_assistant_subtype)</div>
+        has_thinking=true → picks <strong>message.assistant.thinking</strong>
+        <div class="content-blocks">
+          <span class="block block-thinking"><span class="block-icon">✓</span> thinking — visible</span>
+          <span class="block block-invisible"><span class="block-icon">✗</span> text — INVISIBLE</span>
+        </div>
+        <div class="invisible-warning">
+          ⚠ The actual answer "1+1=2 because it follows from the Peano axioms..." is completely lost.
+          Not searchable, not in the UI, not in session story.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCENARIO 06 -->
+<div class="scenario">
+  <div class="scenario-header">
+    <span class="scenario-name">Scenario 06: Thinking + Text + Tool (worst case)</span>
+    <span class="scenario-verdict verdict-bug">⚠ 2 BLOCKS INVISIBLE</span>
+  </div>
+  <div class="scenario-body">
+    <div class="prompt">
+      <div class="prompt-label">USER PROMPT</div>
+      Think step by step about what /tmp/test-broken.py does wrong, explain the bug briefly, then read the file.
+    </div>
+    <p class="hypothesis">Hypothesis: content=[thinking, text, toolCall] → translator picks "tool_use" → thinking AND text invisible</p>
+
+    <div class="flow">
+      <!-- API Call 1 -->
+      <div class="api-call-group">
+        <div class="api-call-label">Eval Phase — API Call 1</div>
+        <div class="flow">
+          <div class="flow-node node-api">
+            <div class="node-label">→ API Request</div>
+            1 user message · thinking: adaptive
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-sse">
+            <div class="node-label">← SSE Response (12 events)</div>
+            <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=0 type=<strong>thinking</strong></span></div>
+            <div class="sse-event"><span class="sse-type">content_block_delta ×2</span> <span class="sse-detail">74 chars reasoning</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=1 type=<strong>text</strong></span></div>
+            <div class="sse-event"><span class="sse-type">content_block_delta ×1</span> <span class="sse-detail">44 chars</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=2 type=<strong>tool_use</strong> name="read"</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_delta ×3</span> <span class="sse-detail">tool args JSON</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+            <div class="sse-event"><span class="sse-type">message_delta</span> <span class="sse-detail">stop_reason=<strong>tool_use</strong></span></div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-persist">
+            <div class="node-label">Pi-Mono Persists (1 JSONL line — ALL 3 blocks bundled)</div>
+            <div class="content-blocks">
+              <span class="block block-thinking"><span class="block-icon">🧠</span> thinking (74 chars)</span>
+              <span class="block block-text"><span class="block-icon">💬</span> text (44 chars)</span>
+              <span class="block block-tool"><span class="block-icon">🔧</span> toolCall: read</span>
+            </div>
+            <div class="text-preview">"Let me read the file first, then I can analyze it."</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-translator has-bug">
+            <div class="node-label">Translator: has_tool_call → message.assistant.tool_use</div>
+            <div class="content-blocks">
+              <span class="block block-invisible"><span class="block-icon">✗</span> thinking — INVISIBLE</span>
+              <span class="block block-invisible"><span class="block-icon">✗</span> text — INVISIBLE</span>
+              <span class="block block-tool"><span class="block-icon">✓</span> toolCall — visible</span>
+            </div>
+            <div class="invisible-warning">
+              ⚠ "Let me read the file first, then I can analyze it." — lost forever.
+              The model's reasoning about what to do is also lost.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-arrow"></div>
+
+      <!-- Apply Phase -->
+      <div class="api-call-group">
+        <div class="api-call-label">Apply Phase — Tool Execution</div>
+        <div class="flow">
+          <div class="flow-node node-persist">
+            <div class="node-label">Pi-Mono Persists (1 JSONL line)</div>
+            role: "toolResult" · toolName: "read" · isError: false
+            <div class="text-preview">"def fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)..."</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-arrow"></div>
+
+      <!-- API Call 2 -->
+      <div class="api-call-group">
+        <div class="api-call-label">Eval Phase — API Call 2 (with tool result in context)</div>
+        <div class="flow">
+          <div class="flow-node node-api">
+            <div class="node-label">→ API Request</div>
+            3 messages: user + assistant + tool_result
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-sse">
+            <div class="node-label">← SSE Response (11 events)</div>
+            <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=0 type=<strong>text</strong></span></div>
+            <div class="sse-event"><span class="sse-type">content_block_delta ×10</span> <span class="sse-detail">650 chars explanation</span></div>
+            <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+            <div class="sse-event"><span class="sse-type">message_delta</span> <span class="sse-detail">stop_reason=<strong>end_turn</strong></span></div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-persist">
+            <div class="node-label">Pi-Mono Persists (1 JSONL line)</div>
+            <div class="content-blocks">
+              <span class="block block-text"><span class="block-icon">💬</span> text (650 chars)</span>
+            </div>
+            <div class="text-preview">"The bug: There's no logical correctness bug — the problem is performance..."</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node node-translator">
+            <div class="node-label">Translator: message.assistant.text ✓</div>
+            <div class="content-blocks">
+              <span class="block block-text"><span class="block-icon">✓</span> text — visible</span>
+            </div>
+            Single block — no data loss on this call.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCENARIO 07 -->
+<div class="scenario">
+  <div class="scenario-header">
+    <span class="scenario-name">Scenario 07: Multi-Tool</span>
+    <span class="scenario-verdict verdict-bug">⚠ 2ND TOOL LOST</span>
+  </div>
+  <div class="scenario-body">
+    <div class="prompt">
+      <div class="prompt-label">USER PROMPT</div>
+      Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.
+    </div>
+
+    <div class="flow">
+      <div class="flow-node node-sse">
+        <div class="node-label">← SSE Response</div>
+        <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=0 type=tool_use name="read" → config.toml</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_start</span> <span class="sse-detail">index=1 type=tool_use name="read" → test-broken.py</span></div>
+        <div class="sse-event"><span class="sse-type">content_block_stop</span></div>
+        <div class="sse-event"><span class="sse-type">message_delta</span> <span class="sse-detail">stop_reason=tool_use</span></div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-node node-persist">
+        <div class="node-label">Pi-Mono Persists (1 JSONL line)</div>
+        <div class="content-blocks">
+          <span class="block block-tool"><span class="block-icon">🔧</span> toolCall: read(config.toml)</span>
+          <span class="block block-tool"><span class="block-icon">🔧</span> toolCall: read(test-broken.py)</span>
+        </div>
+      </div>
+      <div class="flow-arrow"></div>
+      <div class="flow-node node-translator has-bug">
+        <div class="node-label">Translator: captures first tool only</div>
+        <div class="content-blocks">
+          <span class="block block-tool"><span class="block-icon">✓</span> read(config.toml) — visible</span>
+          <span class="block block-invisible"><span class="block-icon">✗</span> read(test-broken.py) — INVISIBLE</span>
+        </div>
+        <div class="invisible-warning">
+          ⚠ Parallel tool calls: only the first one appears in the CloudEvent.
+          The second tool execution is orphaned — its result has no matching call.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- THE FIX -->
+<div class="fix-section">
+  <h2>The Fix: Decomposing Translator</h2>
+  <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+    The API returns content blocks separately. Pi-mono bundles them. The translator un-bundles them.
+    One JSONL line → N CloudEvents (one per content block).
+  </p>
+
+  <div class="flow" style="max-width: 700px; margin: 0 auto;">
+    <div class="flow-node node-persist">
+      <div class="node-label">Scenario 06, API Call 1 — Pi-Mono JSONL (today: 1 line → 1 event)</div>
+      <div class="content-blocks">
+        <span class="block block-thinking">🧠 thinking</span>
+        <span class="block block-text">💬 text</span>
+        <span class="block block-tool">🔧 toolCall</span>
+      </div>
+    </div>
+
+    <div class="decompose-arrow">↓ decompose ↓</div>
+
+    <div class="flow-node node-translator" style="border-color: var(--accent-green);">
+      <div class="node-label" style="color: var(--accent-green);">Decomposed: 1 line → 3 CloudEvents</div>
+      <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+        <div class="content-blocks">
+          <span class="block block-thinking" style="flex: 1; justify-content: center;">
+            <span class="block-icon">✓</span> message.assistant.thinking
+          </span>
+        </div>
+        <div class="content-blocks">
+          <span class="block block-text" style="flex: 1; justify-content: center;">
+            <span class="block-icon">✓</span> message.assistant.text — "Let me read the file first..."
+          </span>
+        </div>
+        <div class="content-blocks">
+          <span class="block block-tool" style="flex: 1; justify-content: center;">
+            <span class="block-icon">✓</span> message.assistant.tool_use — read("/tmp/test-broken.py")
+          </span>
+        </div>
+      </div>
+      <p style="color: var(--accent-green); margin-top: 0.75rem; font-size: 0.8rem;">
+        All content preserved. Same structure the API returned. Nothing invisible.
+      </p>
+    </div>
+  </div>
+</div>
+
+<p style="color: var(--text-muted); text-align: center; margin-top: 2rem; font-size: 0.75rem;">
+  Data captured from real pi-mono sessions · Claude Opus 4.6 · test-pimono-shapes.mjs + api-proxy.mjs
+</p>
+
+</body>
+</html>

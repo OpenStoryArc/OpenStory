@@ -1,0 +1,9 @@
+{"seq":1,"ts":"2026-04-13T18:38:02.706Z","event_type":"toolcall_start","contentIndex":0}
+{"seq":2,"ts":"2026-04-13T18:38:02.714Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":0}
+{"seq":3,"ts":"2026-04-13T18:38:03.269Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":31}
+{"seq":4,"ts":"2026-04-13T18:38:03.283Z","event_type":"toolcall_delta","contentIndex":0,"delta_length":2}
+{"seq":5,"ts":"2026-04-13T18:38:03.357Z","event_type":"toolcall_end","contentIndex":0,"tool_name":"read","tool_id":"toolu_01WdoU2pG4S2rxFGm4gxZT7C"}
+{"seq":6,"ts":"2026-04-13T18:38:05.971Z","event_type":"text_start","contentIndex":0}
+{"seq":7,"ts":"2026-04-13T18:38:05.971Z","event_type":"text_delta","contentIndex":0,"delta_length":30}
+{"seq":8,"ts":"2026-04-13T18:38:06.048Z","event_type":"text_delta","contentIndex":0,"delta_length":6}
+{"seq":9,"ts":"2026-04-13T18:38:06.060Z","event_type":"text_end","contentIndex":0,"content_length":36}

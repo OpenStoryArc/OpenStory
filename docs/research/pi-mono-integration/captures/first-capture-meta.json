@@ -1,0 +1,4 @@
+{
+  "prompt": "Read the file /tmp/test-config.toml and explain what it does. Keep your answer to one paragraph.",
+  "streaming_event_count": 12
+}

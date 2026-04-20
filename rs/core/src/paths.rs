@@ -185,4 +185,46 @@ mod tests {
             "events.unknown.session.main"
         );
     }
+
+    // ── T3: characterization — current behavior under unusual paths ────
+    // Documents today's raw-interpolation behavior so regressions (or a
+    // future sanitizer) are explicit. See
+    // docs/research/architecture-audit/T3_NATS_SUBJECT_ALIGNMENT.md
+
+    #[test]
+    fn subject_dotted_project_name_produces_extra_tokens() {
+        // A project dir named "my.project" yields 5 tokens instead of 4.
+        // Coarse `events.>` subscription still matches, but any
+        // hierarchical filter `events.{project}.>` would not.
+        let watch = PathBuf::from("/watch");
+        let path = PathBuf::from("/watch/my.project/sess.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch),
+            "events.my.project.sess.main"
+        );
+    }
+
+    #[test]
+    fn subject_space_in_project_name_produces_invalid_nats_subject() {
+        // NATS rejects subjects containing spaces at publish time.
+        // This test records today's behavior: no sanitization, space
+        // flows through verbatim. The event would fail to publish.
+        let watch = PathBuf::from("/watch");
+        let path = PathBuf::from("/watch/My Project/sess.jsonl");
+        let subject = nats_subject_from_path(&path, &watch);
+        assert_eq!(subject, "events.My Project.sess.main");
+        assert!(subject.contains(' '), "space survives into subject — NATS publish will fail");
+    }
+
+    #[test]
+    fn subject_nats_wildcard_chars_in_path_pass_through() {
+        // `*` and `>` are NATS wildcards. If they appear in a filename
+        // they'd shadow the subscription matching. Rare but diagnostic.
+        let watch = PathBuf::from("/watch");
+        let path = PathBuf::from("/watch/proj/sess-*.jsonl");
+        assert_eq!(
+            nats_subject_from_path(&path, &watch),
+            "events.proj.sess-*.main"
+        );
+    }
 }

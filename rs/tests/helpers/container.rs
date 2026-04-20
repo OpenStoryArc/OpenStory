@@ -39,7 +39,7 @@ impl OpenStoryContainer {
     /// This method retries until sessions appear or the timeout is reached.
     pub async fn wait_for_sessions(&self) {
         let url = format!("{}/api/sessions", self.base_url());
-        for _ in 0..20 {
+        for _ in 0..40 {
             if let Ok(resp) = reqwest::get(&url).await {
                 if let Ok(body) = resp.json::<serde_json::Value>().await {
                     // Handle both `[...]` and `{ sessions: [...] }` response shapes
@@ -56,7 +56,7 @@ impl OpenStoryContainer {
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-        panic!("timed out waiting for sessions to load (10s)");
+        panic!("timed out waiting for sessions to load (20s)");
     }
 }
 

@@ -288,8 +288,8 @@ async fn ingest_records_project_association() {
     ingest_events(&mut s, "sess-proj", &events, Some("my-project")).await;
 
     assert_eq!(
-        s.store.session_projects.get("sess-proj").unwrap(),
-        "my-project"
+        s.store.session_projects.get("sess-proj").map(|r| r.value().clone()),
+        Some("my-project".to_string()),
     );
 }
 

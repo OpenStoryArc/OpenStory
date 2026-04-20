@@ -1,6 +1,8 @@
 //! Shared test helpers for integration tests.
 
 #[allow(dead_code)]
+pub mod bus;
+#[allow(dead_code)]
 pub mod compose;
 #[allow(dead_code)]
 pub mod container;
@@ -306,6 +308,57 @@ pub fn make_progress_event(session_id: &str, id: &str, parent_id: Option<&str>) 
         None,
         None,
     )
+}
+
+/// Seed events into the test state: persist to EventStore (Actor 1's job)
+/// then broadcast (Actor 4's job via ingest_events). Simulates what both
+/// actors do in production. Use this instead of calling `ingest_events`
+/// directly when the test needs EventStore-backed API endpoints to work.
+///
+/// Added during the Actor 4 decomposition: `ingest_events` no longer
+/// writes to EventStore, so tests that query EventStore-backed endpoints
+/// need an explicit persist step first.
+pub async fn seed_and_ingest(
+    state: &mut open_story::server::AppState,
+    session_id: &str,
+    events: &[CloudEvent],
+    project_id: Option<&str>,
+) -> open_story::server::IngestResult {
+    use open_story::server::ingest_events;
+    use open_story_store::event_store::SessionRow;
+
+    // Actor 1's job: persist each event to EventStore
+    for ce in events {
+        if let Ok(val) = serde_json::to_value(ce) {
+            let _ = state.store.event_store.insert_event(session_id, &val).await;
+        }
+    }
+
+    // Record project association (same as ingest_events does for live data)
+    if let Some(pid) = project_id {
+        state.store.session_projects.insert(session_id.to_string(), pid.to_string());
+    }
+
+    // Actor 4's job: project + broadcast
+    let result = ingest_events(state, session_id, events, project_id).await;
+
+    // Ensure the sessions table has a row — in production this happens
+    // via upsert_session at the end of ingest_events when count > 0, but
+    // test events without subtypes can't produce ViewRecords and count
+    // stays 0. For tests that query /api/sessions, we need the row.
+    let _ = state.store.event_store.upsert_session(&SessionRow {
+        id: session_id.to_string(),
+        project_id: project_id.map(|s| s.to_string()),
+        project_name: None,
+        label: state.store.projections.get(session_id).and_then(|p| p.label().map(|s| s.to_string())),
+        custom_label: None,
+        branch: None,
+        event_count: events.len() as u64,
+        first_event: events.first().map(|e| e.time.clone()),
+        last_event: events.last().map(|e| e.time.clone()),
+    }).await;
+
+    result
 }
 
 /// Path to the test fixtures directory.

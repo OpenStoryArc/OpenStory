@@ -27,7 +27,7 @@ Open Story is a **real-time observer** for AI coding agents. It watches what cod
                    │         │                │   └─────────────┘
    ┌──────────┐    │         │                │
    │  /hooks  │───▶│         │                │   ┌─────────────┐
-   │ (HTTP)   │    └─────────┘                │──▶│  patterns   │──▶ 7 detectors → PatternEvent
+   │ (HTTP)   │    └─────────┘                │──▶│  patterns   │──▶ 2 detectors → PatternEvent
    └──────────┘                               │   └─────────────┘
                                               │
                                               │   ┌─────────────┐
@@ -47,7 +47,7 @@ Both convert raw transcript lines into CloudEvents (CloudEvents 1.0 spec, with a
 
 Four **independent consumer actors** subscribe to NATS:
 - `persist` — SQLite + JSONL + FTS5 indexing (deduplication, durable storage)
-- `patterns` — runs the 7 streaming detectors and writes `PatternEvent`s
+- `patterns` — runs the 2 streaming detectors (eval-apply + sentence) and writes `PatternEvent`s
 - `projections` — incremental `SessionProjection` (token counts, metadata, depths, filter counts)
 - `broadcast` — assembles `WireRecord`s and pushes them to all WebSocket clients
 
@@ -210,7 +210,7 @@ Four tokio tasks, each subscribing to NATS independently. This is the post-NATS 
 | File | Subject filter | What it does |
 |---|---|---|
 | `persist.rs` | `events.>` | Dedup, write to SQLite + JSONL, index FTS5 |
-| `patterns.rs` | `events.>` | Run the 7 detector pipeline, publish `PatternEvent`s to `patterns.>` |
+| `patterns.rs` | `events.>` | Run the 2 detector pipeline (eval-apply + sentence), publish `PatternEvent`s to `patterns.>` |
 | `projections.rs` | `events.>` | Update incremental `SessionProjection` (tokens, metadata, depths) |
 | `broadcast.rs` | `events.>` | Assemble `WireRecord`, push to all WebSocket clients (still uses `ingest_events()` for projection state — see BACKLOG) |
 
@@ -472,7 +472,7 @@ These are the testable units — pure functions with boundary-table tests.
 
 **Run everything:**
 ```bash
-cd rs && cargo test                    # Rust (~100 tests across 8 crates)
+cd rs && cargo test                    # Rust (~100 tests across 9 crates)
 cd ui && npx vitest run                # UI (~500 tests)
 cd e2e && npx playwright test          # E2E (~70 tests)
 ```

@@ -42,6 +42,7 @@ pub enum TranscriptFormat {
     Unknown,
     ClaudeCode,
     PiMono,
+    Hermes,
 }
 
 /// A pending tool call: name + input, keyed by tool_use_id.

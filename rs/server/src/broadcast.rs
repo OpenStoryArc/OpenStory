@@ -14,7 +14,7 @@ use open_story_patterns::PatternEvent;
 /// This is the BFF (Backend-For-Frontend) boundary: the server transforms
 /// raw CloudEvents into typed ViewRecords before broadcasting. The UI
 /// receives pre-typed data and never parses raw transcript formats.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind")]
 #[allow(clippy::large_enum_variant)]
 pub enum BroadcastMessage {

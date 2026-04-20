@@ -11,6 +11,7 @@
 //! - Session header is a separate entry type with provider/model metadata
 
 use serde_json::Value;
+use uuid::Uuid;
 
 use crate::cloud_event::CloudEvent;
 use crate::event_data::{AgentPayload, EventData, PiMonoPayload};
@@ -239,6 +240,165 @@ fn apply_message_fields(
     Some(subtype)
 }
 
+/// Derive a deterministic event ID for a decomposed content block.
+/// Uses UUID5 so the same input always produces the same ID.
+fn derive_block_event_id(session_id: &str, entry_id: &str, block_index: usize, subtype: &str) -> String {
+    let seed = format!("pi-mono:{}:{}:{}:{}", session_id, entry_id, block_index, subtype);
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes()).to_string()
+}
+
+/// Decompose a pi-mono assistant message into one CloudEvent per content block.
+///
+/// A line with content: [thinking, text, toolCall] produces 3 CloudEvents.
+/// Each event shares the same raw data (the full bundled line).
+/// Token usage is attached to the last event only.
+fn decompose_assistant(
+    line: &Value,
+    state: &mut TranscriptState,
+    source: &str,
+    entry_id: &Option<String>,
+) -> Vec<CloudEvent> {
+    let message = match line.get("message") {
+        Some(m) => m,
+        None => return vec![],
+    };
+    let content = match message.get("content") {
+        Some(Value::Array(blocks)) => blocks,
+        _ => return vec![],
+    };
+
+    let model = message.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let stop_reason = message.get("stopReason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let usage = message.get("usage").cloned();
+    let timestamp = line.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let eid_str = entry_id.as_deref().unwrap_or("");
+
+    let mut events = Vec::new();
+
+    for (i, block) in content.iter().enumerate() {
+        let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        let (subtype, mut payload) = match block_type {
+            "thinking" => {
+                let mut p = PiMonoPayload::new();
+                apply_pi_envelope(&mut p, line);
+                p.text = block.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.model = model.clone();
+                ("message.assistant.thinking", p)
+            }
+            "text" => {
+                let mut p = PiMonoPayload::new();
+                apply_pi_envelope(&mut p, line);
+                p.text = block.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.model = model.clone();
+                p.stop_reason = if i == content.len() - 1 { stop_reason.clone() } else { None };
+                ("message.assistant.text", p)
+            }
+            "toolCall" => {
+                let mut p = PiMonoPayload::new();
+                apply_pi_envelope(&mut p, line);
+                p.tool = block.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.tool_call_id = block.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.args = block.get("arguments").cloned();
+                p.model = model.clone();
+                p.stop_reason = if i == content.len() - 1 { stop_reason.clone() } else { None };
+                ("message.assistant.tool_use", p)
+            }
+            _ => continue,
+        };
+
+        // Content types for downstream (same for all decomposed events)
+        let content_types: Vec<String> = content
+            .iter()
+            .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        if !content_types.is_empty() {
+            payload.content_types = Some(content_types);
+        }
+
+        // Token usage only on the last event
+        if i == content.len() - 1 {
+            if let Some(ref u) = usage {
+                payload.token_usage = Some(u.clone());
+            }
+        }
+
+        let derived_id = derive_block_event_id(&state.session_id, eid_str, i, subtype);
+
+        let data = EventData::with_payload(
+            line.clone(),
+            state.next_seq(),
+            state.session_id.clone(),
+            AgentPayload::PiMono(payload),
+        );
+
+        events.push(CloudEvent::new(
+            source.to_string(),
+            IO_ARC_EVENT.to_string(),
+            data,
+            Some(subtype.to_string()),
+            Some(derived_id),
+            timestamp.clone(),
+            None,
+            None,
+            Some("pi-mono".to_string()),
+        ));
+    }
+
+    // Synthetic turn boundary.
+    //
+    // Pi-mono never emits `system.turn.complete` natively. Without it,
+    // the eval-apply state machine in `open-story-patterns` can't
+    // crystallize a `StructuralTurn` from pi-mono events, so the
+    // sentence detector never fires and pi-mono sessions get NO
+    // narrated story in the UI.
+    //
+    // Pi-mono's `message.stopReason` is the matching signal — across
+    // every captured fixture it's exactly `"stop"` (turn ended, nothing
+    // more coming until the user prompts again) or `"toolUse"` (more
+    // assistant content coming after the tool result). We synthesize a
+    // turn.complete event after the last decomposed block iff
+    // stopReason == "stop", which mirrors when Claude Code's Stop hook
+    // fires.
+    //
+    // Surfaced by the recursion test in
+    // `rs/tests/test_principle_recursive_observability.rs`.
+    if stop_reason.as_deref() == Some("stop") && !events.is_empty() {
+        let mut p = PiMonoPayload::new();
+        apply_pi_envelope(&mut p, line);
+        p.model = model.clone();
+        p.stop_reason = Some("stop".to_string());
+
+        let derived_id = derive_block_event_id(
+            &state.session_id,
+            eid_str,
+            content.len(), // index past the last block
+            "system.turn.complete",
+        );
+
+        let data = EventData::with_payload(
+            line.clone(),
+            state.next_seq(),
+            state.session_id.clone(),
+            AgentPayload::PiMono(p),
+        );
+
+        events.push(CloudEvent::new(
+            source.to_string(),
+            IO_ARC_EVENT.to_string(),
+            data,
+            Some("system.turn.complete".to_string()),
+            Some(derived_id),
+            timestamp.clone(),
+            None,
+            None,
+            Some("pi-mono".to_string()),
+        ));
+    }
+
+    events
+}
+
 /// Pure function: translate one pi-mono JSONL line into CloudEvent(s).
 ///
 /// Returns zero events for unknown types, duplicate IDs, or skipped roles.
@@ -285,6 +445,15 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
             Some("system.session_start".to_string())
         }
         "message" => {
+            // Check if this is an assistant message — decompose into N events
+            let role = line
+                .get("message")
+                .and_then(|m| m.get("role"))
+                .and_then(|v| v.as_str());
+            if role == Some("assistant") {
+                return decompose_assistant(line, state, &source, &entry_id);
+            }
+            // Non-assistant messages: single event (user, toolResult, bash, etc.)
             match apply_message_fields(&mut payload, line) {
                 Some(st) => Some(st),
                 None => return vec![], // Unknown or skipped role
@@ -413,14 +582,13 @@ mod tests {
                 "message.assistant.text",
             ),
             (
-                "assistant toolCall → message.assistant.tool_use",
+                "assistant single toolCall → message.assistant.tool_use",
                 json!({
                     "type": "message",
                     "timestamp": "2025-01-01T00:00:03Z",
                     "message": {
                         "role": "assistant",
                         "content": [
-                            {"type": "text", "text": "reading file"},
                             {"type": "toolCall", "id": "tc-1", "name": "read",
                              "arguments": {"path": "/foo"}},
                         ],
@@ -432,7 +600,7 @@ mod tests {
                 "message.assistant.tool_use",
             ),
             (
-                "assistant thinking → message.assistant.thinking",
+                "assistant single thinking → message.assistant.thinking",
                 json!({
                     "type": "message",
                     "timestamp": "2025-01-01T00:00:04Z",
@@ -502,11 +670,20 @@ mod tests {
         for (desc, input, expected_subtype) in cases {
             let mut s = state();
             let events = translate_pi_line(&input, &mut s);
-            assert_eq!(events.len(), 1, "{desc}: expected 1 event");
+            // The boundary table is testing PRIMARY subtype dispatch.
+            // Assistant messages with stopReason="stop" also emit a
+            // synthetic system.turn.complete (post-decomposition) — that
+            // behavior is exercised in the decomposition tests below.
+            // Here we just assert the FIRST event has the expected
+            // primary subtype.
+            assert!(
+                !events.is_empty(),
+                "{desc}: expected at least 1 event, got 0"
+            );
             assert_eq!(
                 events[0].subtype.as_deref(),
                 Some(expected_subtype),
-                "{desc}: wrong subtype"
+                "{desc}: wrong primary subtype"
             );
             assert_eq!(events[0].event_type, IO_ARC_EVENT, "{desc}: wrong event type");
             assert!(
@@ -551,6 +728,7 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 1, "single toolCall → 1 event");
         let pm = pi_payload(&events[0]);
         assert_eq!(pm.tool.as_deref(), Some("read"));
         assert_eq!(pm.args.as_ref().unwrap()["path"], "/config.toml");
@@ -871,6 +1049,408 @@ mod tests {
         let ed = event_data(&events[0]);
         assert_eq!(ed.session_id, "test-session");
         assert_eq!(ed.raw["type"], "message");
+    }
+
+    // ── Decomposition tests (RED → GREEN) ─────────────────────
+    //
+    // These test the decomposing translator: one JSONL line with
+    // multiple content blocks → multiple CloudEvents.
+
+    #[test]
+    fn test_decompose_thinking_text_produces_two_events_plus_turn_complete() {
+        // [thinking, text] with stopReason="stop" → 2 decomposed events
+        // + 1 synthetic system.turn.complete (so eval-apply gets a turn
+        // boundary). The synthetic event is the recursion-test fix —
+        // pi-mono never emits turn.complete natively.
+        let line = json!({
+            "type": "message", "id": "dec-01",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "let me reason"},
+                    {"type": "text", "text": "the answer is 42"},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "usage": {"input": 10, "output": 20, "totalTokens": 30},
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 3, "thinking+text+stop → 2 decomposed + 1 synthetic turn.complete");
+        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+        assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.text"));
+        assert_eq!(events[2].subtype.as_deref(), Some("system.turn.complete"));
+    }
+
+    #[test]
+    fn test_decompose_thinking_text_tool_produces_three_events() {
+        // [thinking, text, toolCall] → 3 CloudEvents (the worst case)
+        let line = json!({
+            "type": "message", "id": "dec-02",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "I should read the file"},
+                    {"type": "text", "text": "Let me read that for you."},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/config.toml"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "usage": {"input": 100, "output": 50, "totalTokens": 150},
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 3, "thinking+text+tool should produce 3 events");
+        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+        assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.text"));
+        assert_eq!(events[2].subtype.as_deref(), Some("message.assistant.tool_use"));
+    }
+
+    #[test]
+    fn test_decompose_multi_tool_produces_two_events() {
+        // [toolCall, toolCall] → 2 CloudEvents
+        let line = json!({
+            "type": "message", "id": "dec-03",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/a.txt"}},
+                    {"type": "toolCall", "id": "tc-2", "name": "read",
+                     "arguments": {"path": "/b.txt"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 2, "two toolCalls should produce 2 events");
+        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+        assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.tool_use"));
+    }
+
+    #[test]
+    fn test_decompose_single_text_with_stop_produces_text_plus_turn_complete() {
+        // [text] with stopReason="stop" → 1 decomposed event + 1 synthetic
+        // turn.complete. The decomposed text passes through unchanged;
+        // the synthetic event closes the turn for eval-apply.
+        let line = json!({
+            "type": "message", "id": "dec-04",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "hello"}],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 2, "text+stop → 1 decomposed + 1 synthetic turn.complete");
+        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.text"));
+        assert_eq!(events[1].subtype.as_deref(), Some("system.turn.complete"));
+    }
+
+    #[test]
+    fn test_decompose_single_tool_still_one_event() {
+        // [toolCall] → 1 CloudEvent (no regression)
+        let line = json!({
+            "type": "message", "id": "dec-05",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/foo"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 1, "single tool should still produce 1 event");
+        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+    }
+
+    #[test]
+    fn test_decomposed_ids_unique() {
+        let line = json!({
+            "type": "message", "id": "dec-06",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": "ok"},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let ids: Vec<&str> = events.iter().map(|e| e.id.as_str()).collect();
+        let unique: std::collections::HashSet<&str> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), unique.len(), "all decomposed event IDs must be unique");
+    }
+
+    #[test]
+    fn test_decomposed_ids_deterministic() {
+        let line = json!({
+            "type": "message", "id": "dec-07",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": "ok"},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let events1 = translate_pi_line(&line, &mut state());
+        let events2 = translate_pi_line(&line, &mut state());
+        for (e1, e2) in events1.iter().zip(events2.iter()) {
+            assert_eq!(e1.id, e2.id, "same input should produce same IDs");
+        }
+    }
+
+    #[test]
+    fn test_decomposed_raw_shared() {
+        let line = json!({
+            "type": "message", "id": "dec-08",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "reason"},
+                    {"type": "text", "text": "answer"},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 3);
+        // All decomposed events share the same raw line
+        let raw0 = serde_json::to_string(&events[0].data.raw).unwrap();
+        let raw1 = serde_json::to_string(&events[1].data.raw).unwrap();
+        let raw2 = serde_json::to_string(&events[2].data.raw).unwrap();
+        assert_eq!(raw0, raw1, "thinking and text should share raw");
+        assert_eq!(raw1, raw2, "text and tool should share raw");
+        // Raw preserves the bundled content array
+        assert_eq!(events[0].data.raw["message"]["content"][0]["type"], "thinking");
+        assert_eq!(events[0].data.raw["message"]["content"][1]["type"], "text");
+        assert_eq!(events[0].data.raw["message"]["content"][2]["type"], "toolCall");
+    }
+
+    #[test]
+    fn test_token_usage_on_last_decomposed_event() {
+        let line = json!({
+            "type": "message", "id": "dec-09",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "reason"},
+                    {"type": "text", "text": "answer"},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "usage": {"input": 100, "output": 50, "totalTokens": 150},
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 3);
+        // Token usage only on the last event
+        let pm0 = pi_payload(&events[0]);
+        let pm2 = pi_payload(&events[2]);
+        assert!(pm0.token_usage.is_none(), "first event should NOT have token_usage");
+        assert!(pm2.token_usage.is_some(), "last event SHOULD have token_usage");
+        assert_eq!(pm2.token_usage.as_ref().unwrap()["input"], 100);
+    }
+
+    // ── Synthetic turn.complete tests (recursion principle fix) ──
+    //
+    // Pi-mono never emits system.turn.complete. The decomposer
+    // synthesizes one when stopReason="stop" so eval-apply can
+    // crystallize a StructuralTurn and SentenceDetector can render
+    // a turn.sentence. See docs/research/architecture-audit/PRINCIPLES.md
+    // and rs/tests/test_principle_recursive_observability.rs.
+
+    #[test]
+    fn test_synthetic_turn_complete_only_when_stop_reason_is_stop() {
+        // stopReason="toolUse" → assistant called a tool, more LLM
+        // round trips coming. Turn continues. NO synthetic turn.complete.
+        let line = json!({
+            "type": "message", "id": "syn-tool",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 1, "toolUse → no synthetic turn.complete");
+        assert_ne!(
+            events.last().unwrap().subtype.as_deref(),
+            Some("system.turn.complete"),
+            "toolUse must NOT emit turn.complete"
+        );
+    }
+
+    #[test]
+    fn test_synthetic_turn_complete_carries_pi_mono_agent_and_raw() {
+        // The synthetic event must look like a real pi-mono CloudEvent:
+        // - agent = "pi-mono"
+        // - data.raw = same as the bundle (sovereignty: raw preserved)
+        // - data.agent_payload.stop_reason = "stop"
+        // - unique deterministic id derived from session+entry+index+subtype
+        let line = json!({
+            "type": "message", "id": "syn-stop",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "done"}],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let tc = events.last().expect("at least one event");
+        assert_eq!(tc.subtype.as_deref(), Some("system.turn.complete"));
+        assert_eq!(tc.agent.as_deref(), Some("pi-mono"));
+        // Raw preserved
+        let raw_str = serde_json::to_string(&tc.data.raw).unwrap();
+        assert!(raw_str.contains("\"stopReason\":\"stop\""), "synthetic event preserves bundled raw");
+        // Stop reason on the typed payload
+        let pm = pi_payload(tc);
+        assert_eq!(pm.stop_reason.as_deref(), Some("stop"));
+        // ID is unique vs the decomposed text event
+        assert_ne!(events[0].id, events[1].id, "synthetic event has its own id");
+    }
+
+    #[test]
+    fn test_decompose_dedup_skips_entire_line() {
+        // If a line's entry id is already seen, ALL decomposed events are skipped
+        let line = json!({
+            "type": "message", "id": "dec-10",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": "ok"},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let mut s = state();
+        let first = translate_pi_line(&line, &mut s);
+        let second = translate_pi_line(&line, &mut s);
+        // 2 decomposed (thinking, text) + 1 synthetic turn.complete (stopReason="stop") = 3
+        assert_eq!(first.len(), 3, "first should produce 2 decomposed + 1 turn.complete");
+        assert_eq!(second.len(), 0, "duplicate should produce 0 events");
+    }
+
+    #[test]
+    fn test_decomposed_thinking_has_text_field() {
+        let line = json!({
+            "type": "message", "id": "dec-11",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "deep thoughts"},
+                    {"type": "text", "text": "shallow answer"},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "stop",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let pm0 = pi_payload(&events[0]); // thinking
+        let pm1 = pi_payload(&events[1]); // text
+        assert_eq!(pm0.text.as_deref(), Some("deep thoughts"), "thinking event text");
+        assert_eq!(pm1.text.as_deref(), Some("shallow answer"), "text event text");
+    }
+
+    #[test]
+    fn test_decomposed_tool_has_name_and_args() {
+        let line = json!({
+            "type": "message", "id": "dec-12",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "reading"},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/config.toml"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        let tool_event = events.iter().find(|e| e.subtype.as_deref() == Some("message.assistant.tool_use")).unwrap();
+        let pm = pi_payload(tool_event);
+        assert_eq!(pm.tool.as_deref(), Some("read"));
+        assert_eq!(pm.args.as_ref().unwrap()["path"], "/config.toml");
+        assert_eq!(pm.tool_call_id.as_deref(), Some("tc-1"));
+    }
+
+    #[test]
+    fn test_decomposed_seq_increments() {
+        let line = json!({
+            "type": "message", "id": "dec-13",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": "ok"},
+                    {"type": "toolCall", "id": "tc-1", "name": "read",
+                     "arguments": {"path": "/x"}},
+                ],
+                "model": "claude-opus-4-6",
+                "stopReason": "toolUse",
+                "timestamp": 1234567890,
+            },
+        });
+        let events = translate_pi_line(&line, &mut state());
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].data.seq, 1);
+        assert_eq!(events[1].data.seq, 2);
+        assert_eq!(events[2].data.seq, 3);
     }
 
     // ── Format detection ─────────────────────────────────────

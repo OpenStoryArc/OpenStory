@@ -1,0 +1,15 @@
+{
+  "scenario": "02-single-tool",
+  "prompt": "Read the file /tmp/test-config.toml. Only read it, do not explain it.",
+  "hypothesis": "Assistant message has content: [{type: 'toolCall'}]. Translator picks tool_use — correct.",
+  "results": {
+    "api_calls": 0,
+    "total_streaming_events": 5,
+    "block_starts": [
+      "toolcall"
+    ],
+    "per_api_call_blocks": [],
+    "done_events": []
+  },
+  "translator_analysis": []
+}

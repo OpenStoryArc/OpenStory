@@ -1,0 +1,29 @@
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["--jetstream", "--store_dir", "/data/jetstream"]
+    ports:
+      - "4222"
+    volumes:
+      - nats-data:/data
+
+  server:
+    image: open-story:test
+    command: ["serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data", "--watch-dir", "/watch", "--nats-url", "nats://nats:4222"]
+    ports:
+      - "3002"
+    volumes:
+      - ${FIXTURE_DIR:-.}:/watch:ro
+      # /data bind-mounted to the host so the test can inspect the JSONL
+      # sovereignty-escape-hatch files directly. Unlike docker-compose.test.yml
+      # which uses an anonymous volume, this per-test compose file lets the
+      # test harness walk the JSONL files written by PersistConsumer.
+      # DATA_DIR must be set by the caller (see test_jsonl_escape_hatch.rs).
+      - ${DATA_DIR}:/data
+    environment:
+      - NATS_URL=nats://nats:4222
+    depends_on:
+      - nats
+
+volumes:
+  nats-data:

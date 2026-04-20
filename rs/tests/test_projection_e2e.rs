@@ -131,7 +131,8 @@ mod tree_consistency {
         }
 
         let s = state.read().await;
-        let proj = s.store.projections.values().next().unwrap();
+        let entry = s.store.projections.iter().next().unwrap();
+        let proj = entry.value();
         let rows = proj.timeline_rows();
 
         let mut depth_check_count = 0;
@@ -184,7 +185,8 @@ mod tree_consistency {
         }
 
         let s = state.read().await;
-        let proj = s.store.projections.values().next().unwrap();
+        let entry = s.store.projections.iter().next().unwrap();
+        let proj = entry.value();
         let rows = proj.timeline_rows();
 
         let max_depth = rows.iter().map(|r| proj.node_depth(&r.id)).max().unwrap_or(0);

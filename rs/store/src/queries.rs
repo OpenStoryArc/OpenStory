@@ -7,7 +7,7 @@
 //! They are pure read-only SQL queries — no mutation, no side effects.
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 // ── Canonical timestamp format ───────────────────────────────────────
 //
@@ -33,7 +33,7 @@ pub(crate) fn format_ts(dt: chrono::DateTime<chrono::Utc>) -> String {
 // ── FTS5 Search ────────────────────────────────────────────────────
 
 /// Result from a full-text search query.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct FtsSearchResult {
     pub event_id: String,
     pub session_id: String,
@@ -107,9 +107,29 @@ pub fn session_synopsis(conn: &Connection, session_id: &str) -> Option<SessionSy
 
     let duration_secs = match (&row.5, &row.6) {
         (Some(first), Some(last)) => {
-            let f = chrono::DateTime::parse_from_rfc3339(first).ok()?;
-            let l = chrono::DateTime::parse_from_rfc3339(last).ok()?;
-            Some((l - f).num_seconds())
+            // Try RFC 3339 first (Claude Code uses "2026-04-10T10:55:02Z"),
+            // then fall back to NaiveDateTime (Hermes uses "2026-04-10T10:55:02.359248"
+            // without timezone — see SOURCE_VERIFICATION.md §3.2).
+            // A failed parse should NOT abort the entire synopsis (the old `?`
+            // propagated None and caused a 404 for Hermes sessions).
+            let f = chrono::DateTime::parse_from_rfc3339(first)
+                .ok()
+                .or_else(|| {
+                    chrono::NaiveDateTime::parse_from_str(first, "%Y-%m-%dT%H:%M:%S%.f")
+                        .ok()
+                        .map(|n| n.and_utc().fixed_offset())
+                });
+            let l = chrono::DateTime::parse_from_rfc3339(last)
+                .ok()
+                .or_else(|| {
+                    chrono::NaiveDateTime::parse_from_str(last, "%Y-%m-%dT%H:%M:%S%.f")
+                        .ok()
+                        .map(|n| n.and_utc().fixed_offset())
+                });
+            match (f, l) {
+                (Some(first_dt), Some(last_dt)) => Some((last_dt - first_dt).num_seconds()),
+                _ => None,  // graceful — synopsis still returns, just without duration
+            }
         }
         _ => None,
     };

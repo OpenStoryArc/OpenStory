@@ -12,5 +12,8 @@ pub mod event_data;
 pub mod output;
 pub mod paths;
 pub mod reader;
+pub mod strings;
+pub mod subtype;
 pub mod translate;
+pub mod translate_hermes;
 pub mod translate_pi;
