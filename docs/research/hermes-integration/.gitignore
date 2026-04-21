@@ -1,4 +1,0 @@
-__pycache__/
-*.pyc
-.pytest_cache/
-fixtures/real_hermes_session.json
