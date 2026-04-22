@@ -1814,6 +1814,7 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
         event_count,
         first_event,
         last_event,
+        host: None,
     })
 }
 

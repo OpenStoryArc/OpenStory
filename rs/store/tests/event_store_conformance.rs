@@ -91,6 +91,7 @@ fn test_session_row(id: &str, label: Option<&str>) -> SessionRow {
         event_count: 0,
         first_event: Some("2025-01-14T00:00:00Z".to_string()),
         last_event: Some("2025-01-14T01:00:00Z".to_string()),
+        host: None,
     }
 }
 
@@ -738,6 +739,7 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
                 event_count: 0, // updated lazily — analytics queries don't depend on this
                 first_event: Some(first.clone()),
                 last_event: Some(last.clone()),
+                host: None,
             })
             .await
             .unwrap();
@@ -858,6 +860,7 @@ pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventSto
                 event_count: *count,
                 first_event: Some(first.clone()),
                 last_event: Some(last.clone()),
+                host: None,
             })
             .await
             .unwrap();

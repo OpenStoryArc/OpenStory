@@ -32,6 +32,13 @@ pub struct SessionRow {
     pub event_count: u64,
     pub first_event: Option<String>,
     pub last_event: Option<String>,
+    /// Host where the session's events were translated (`gethostname()` or
+    /// `OPENSTORY_HOST`). Populated from the first CloudEvent in a batch;
+    /// survives NATS replication so origin identity is preserved.
+    /// `None` for pre-migration rows and events that arrived without a
+    /// host stamp.
+    #[serde(default)]
+    pub host: Option<String>,
 }
 
 impl SessionRow {
@@ -225,6 +232,7 @@ mod tests {
             event_count: 0,
             first_event: None,
             last_event: None,
+            host: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

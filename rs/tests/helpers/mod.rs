@@ -356,6 +356,7 @@ pub async fn seed_and_ingest(
         event_count: events.len() as u64,
         first_event: events.first().map(|e| e.time.clone()),
         last_event: events.last().map(|e| e.time.clone()),
+        host: None,
     }).await;
 
     result
