@@ -640,6 +640,118 @@ async fn test_list_sessions_offset() {
     assert_eq!(body["total"].as_u64(), Some(5));
 }
 
+// ── Host origin filtering (Day 4) ───────────────────────────────────
+
+#[tokio::test]
+async fn test_list_sessions_includes_host_field_in_response() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let event = make_event("io.arc.event", "sess-has-host").with_host("Maxs-Air");
+        seed_and_ingest(&mut s, "sess-has-host", &[event], None).await;
+    }
+
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    let sessions = body["sessions"].as_array().unwrap();
+    let row = sessions.iter().find(|s| s["session_id"] == "sess-has-host").unwrap();
+    assert_eq!(row["host"], "Maxs-Air");
+}
+
+#[tokio::test]
+async fn test_list_sessions_host_is_null_for_pre_migration_events() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        // No .with_host() — simulates pre-migration data.
+        let event = make_event("io.arc.event", "sess-no-host");
+        seed_and_ingest(&mut s, "sess-no-host", &[event], None).await;
+    }
+
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let row = body["sessions"].as_array().unwrap().iter()
+        .find(|s| s["session_id"] == "sess-no-host").unwrap();
+    assert!(row["host"].is_null(), "pre-migration rows must report host: null, got {:?}", row["host"]);
+}
+
+#[tokio::test]
+async fn test_list_sessions_filters_by_host() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let e_max = make_event("io.arc.event", "sess-on-mac").with_host("Maxs-Air");
+        seed_and_ingest(&mut s, "sess-on-mac", &[e_max], None).await;
+
+        let e_bobby = make_event("io.arc.event", "sess-on-vps").with_host("debian-16gb-ash-1");
+        seed_and_ingest(&mut s, "sess-on-vps", &[e_bobby], None).await;
+
+        let e_bobby2 = make_event("io.arc.event", "sess-on-vps-2").with_host("debian-16gb-ash-1");
+        seed_and_ingest(&mut s, "sess-on-vps-2", &[e_bobby2], None).await;
+    }
+
+    // ?host=debian-16gb-ash-1 narrows to Bobby's two sessions.
+    let req = Request::get("/api/sessions?host=debian-16gb-ash-1")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state.clone(), req).await;
+    let body = body_json(resp).await;
+    let sessions = body["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(body["total"].as_u64(), Some(2));
+    for s in sessions {
+        assert_eq!(s["host"], "debian-16gb-ash-1");
+    }
+
+    // ?host=Maxs-Air narrows to the one Mac session.
+    let req = Request::get("/api/sessions?host=Maxs-Air")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state.clone(), req).await;
+    let body = body_json(resp).await;
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(body["sessions"][0]["session_id"], "sess-on-mac");
+
+    // No filter → all three.
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    assert_eq!(body["sessions"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn test_list_sessions_host_filter_excludes_none_hosts() {
+    // ?host=X must NOT match sessions whose host is None.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let stamped = make_event("io.arc.event", "sess-stamped").with_host("Maxs-Air");
+        seed_and_ingest(&mut s, "sess-stamped", &[stamped], None).await;
+
+        let legacy = make_event("io.arc.event", "sess-legacy"); // no host
+        seed_and_ingest(&mut s, "sess-legacy", &[legacy], None).await;
+    }
+
+    let req = Request::get("/api/sessions?host=Maxs-Air").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let sessions = body["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["session_id"], "sess-stamped");
+}
+
 // ── FTS5 search endpoint tests ──────────────────────────────────────
 
 #[tokio::test]

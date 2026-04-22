@@ -346,6 +346,9 @@ pub async fn seed_and_ingest(
     // via upsert_session at the end of ingest_events when count > 0, but
     // test events without subtypes can't produce ViewRecords and count
     // stays 0. For tests that query /api/sessions, we need the row.
+    // Mirror PersistConsumer: pull host off the first event if stamped.
+    let host = events.first().and_then(|ce| ce.host.clone());
+
     let _ = state.store.event_store.upsert_session(&SessionRow {
         id: session_id.to_string(),
         project_id: project_id.map(|s| s.to_string()),
@@ -356,7 +359,7 @@ pub async fn seed_and_ingest(
         event_count: events.len() as u64,
         first_event: events.first().map(|e| e.time.clone()),
         last_event: events.last().map(|e| e.time.clone()),
-        host: None,
+        host,
     }).await;
 
     result

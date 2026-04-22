@@ -26,6 +26,9 @@ pub struct SessionListQuery {
     pub offset: Option<usize>,
     /// Only include sessions with activity at or after this timestamp (RFC 3339).
     pub since: Option<String>,
+    /// Only include sessions whose origin host matches this value exactly.
+    /// Pre-migration sessions (host: None) never match a host filter.
+    pub host: Option<String>,
 }
 
 pub async fn list_sessions(
@@ -39,12 +42,23 @@ pub async fn list_sessions(
 
     // Filter by `since` if provided (compare last_event timestamp strings lexicographically —
     // they're RFC 3339 so lexicographic order == chronological order).
-    let filtered: Vec<&_> = if let Some(ref since) = query.since {
+    let since_filtered: Vec<&_> = if let Some(ref since) = query.since {
         all_rows.iter()
             .filter(|r| r.last_event.as_deref().unwrap_or("") >= since.as_str())
             .collect()
     } else {
         all_rows.iter().collect()
+    };
+
+    // Host filter: exact match. Sessions with host: None never match — this
+    // is deliberate. A filter like ?host=Maxs-Air should not leak legacy
+    // rows whose origin we simply don't know.
+    let filtered: Vec<&_> = if let Some(ref host) = query.host {
+        since_filtered.into_iter()
+            .filter(|r| r.host.as_deref() == Some(host.as_str()))
+            .collect()
+    } else {
+        since_filtered
     };
     let total = filtered.len();
 
@@ -105,6 +119,7 @@ pub async fn list_sessions(
             "branch": branch,
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
+            "host": row.host,
         }));
     }
     Json(json!({
