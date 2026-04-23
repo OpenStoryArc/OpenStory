@@ -505,7 +505,7 @@ mod tests {
         let mut state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-dup-1", "hello");
 
-        let result1 = ingest_events(&mut state, "sess-1", &[event.clone()], None).await;
+        let result1 = ingest_events(&mut state, "sess-1", std::slice::from_ref(&event), None).await;
         assert_eq!(result1.count, 1);
 
         let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;

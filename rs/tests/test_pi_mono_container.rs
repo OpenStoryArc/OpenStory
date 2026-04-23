@@ -29,6 +29,20 @@ fn pi_mono_fixture_dir() -> std::path::PathBuf {
     path
 }
 
+/// Helper: fetch sessions list from the API, unwrapping the `{sessions, total}` envelope.
+async fn fetch_sessions(base_url: &str) -> Vec<Value> {
+    let body: Value = reqwest::get(format!("{base_url}/api/sessions"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    body.get("sessions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .expect("/api/sessions response should contain a `sessions` array")
+}
+
 /// Helper: find the pi-mono session in the sessions list.
 fn find_pi_session(sessions: &[Value]) -> &Value {
     sessions
@@ -48,12 +62,7 @@ async fn pi_mono_session_metadata_persisted() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session = find_pi_session(&sessions);
 
@@ -87,12 +96,7 @@ async fn pi_mono_exact_event_count_in_sqlite() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
 
@@ -123,12 +127,7 @@ async fn pi_mono_subtype_distribution_matches_fixture() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
 
@@ -176,12 +175,7 @@ async fn pi_mono_event_fields_persisted() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
 
@@ -241,12 +235,7 @@ async fn pi_mono_raw_data_integrity() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
 
@@ -326,12 +315,7 @@ async fn pi_mono_view_records_from_sqlite() {
     let server = start_open_story(&fixture_dir).await;
     server.wait_for_sessions().await;
 
-    let sessions: Vec<Value> = reqwest::get(format!("{}/api/sessions", server.base_url()))
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+    let sessions = fetch_sessions(&server.base_url()).await;
 
     let session_id = find_pi_session(&sessions)["session_id"].as_str().unwrap();
 

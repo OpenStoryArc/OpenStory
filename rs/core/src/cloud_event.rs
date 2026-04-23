@@ -67,6 +67,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn test_new_defaults_boundary_table() {
         let cases: Vec<(&str, Option<&str>, Option<&str>, Option<&str>, Option<&str>)> = vec![
             ("all None → auto-generated id + time", None, None, None, None),

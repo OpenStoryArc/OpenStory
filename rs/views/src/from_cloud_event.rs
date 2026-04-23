@@ -741,7 +741,7 @@ mod tests {
             match &records[0].body {
                 RecordBody::AssistantMessage(a) => {
                     assert_eq!(a.model, "claude-sonnet-4-20250514");
-                    assert!(a.content.len() >= 1);
+                    assert!(!a.content.is_empty());
                 }
                 other => panic!("expected AssistantMessage, got {:?}", other),
             }
@@ -1206,7 +1206,7 @@ mod tests {
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, None);
-            assert_eq!(records[0].is_sidechain, false);
+            assert!(!records[0].is_sidechain);
         }
 
         #[test]
@@ -1219,7 +1219,7 @@ mod tests {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
             }));
             let records = from_cloud_event(&event);
-            assert_eq!(records[0].is_sidechain, false);
+            assert!(!records[0].is_sidechain);
             assert_eq!(records[0].agent_id, None);
         }
 
@@ -1242,7 +1242,7 @@ mod tests {
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, Some("agent-abc-123".to_string()));
-            assert_eq!(records[0].is_sidechain, true);
+            assert!(records[0].is_sidechain);
         }
 
         #[test]
@@ -1259,7 +1259,7 @@ mod tests {
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, Some("agent-abc-123".to_string()));
-            assert_eq!(records[0].is_sidechain, false);
+            assert!(!records[0].is_sidechain);
         }
 
         #[test]
@@ -1284,7 +1284,7 @@ mod tests {
             let records = from_cloud_event(&event);
             for r in &records {
                 assert_eq!(r.agent_id, Some("agent-sub-1".to_string()), "all records should have agent_id");
-                assert_eq!(r.is_sidechain, true, "all records should be sidechain");
+                assert!(r.is_sidechain, "all records should be sidechain");
             }
         }
 
