@@ -274,7 +274,7 @@ pub fn file_impact(conn: &Connection, session_id: &str) -> Vec<FileImpact> {
             writes,
         })
         .collect();
-    result.sort_by(|a, b| (b.reads + b.writes).cmp(&(a.reads + a.writes)));
+    result.sort_by_key(|b| std::cmp::Reverse(b.reads + b.writes));
     result
 }
 
@@ -810,7 +810,7 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
     total.total_tokens = total.input_tokens + total.output_tokens + total.cache_read_tokens + total.cache_creation_tokens;
 
     // Sort sessions by output tokens descending
-    session_results.sort_by(|a, b| b.usage.output_tokens.cmp(&a.usage.output_tokens));
+    session_results.sort_by_key(|b| std::cmp::Reverse(b.usage.output_tokens));
 
     TokenUsageSummary {
         session_count: sessions.len() as u64,
