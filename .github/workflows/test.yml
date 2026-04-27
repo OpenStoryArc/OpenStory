@@ -22,6 +22,19 @@ jobs:
       - name: Build
         working-directory: rs
         run: cargo build --workspace --exclude open-story-cli
+      - name: Build open-story:test image
+        # test_convergence_invariants boots an open-story container via
+        # testcontainers/docker-compose to pin EC invariants against a
+        # real backend. Without this step the tests try to pull the image
+        # from the registry and fail with "pull access denied".
+        uses: docker/build-push-action@v5
+        with:
+          context: rs
+          file: rs/Dockerfile
+          load: true
+          tags: open-story:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Test all crates
         working-directory: rs
         # Skip filters apply to test FUNCTION names. `compose` and `container`
@@ -30,6 +43,9 @@ jobs:
         # `pi_mono_*` tests live in `test_pi_mono_container.rs` and need the
         # same `open-story:test` Docker image; their function names don't
         # contain "container", so they need their own skip filter.
+        # Convergence-invariant tests also use the image but are NOT skipped
+        # — they're cheap (one compose up per test file) and pin load-bearing
+        # EC invariants we want guarded in CI.
         run: cargo test --workspace --exclude open-story-cli -- --skip compose --skip container --skip pi_mono
       - name: Clippy
         working-directory: rs
