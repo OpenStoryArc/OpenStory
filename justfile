@@ -61,6 +61,10 @@ kill-port port:
       fi
     fi
 
+# Check (and optionally install) boot prerequisites — flags: --mode native|docker|all, --install
+check *ARGS:
+    bash scripts/check-prereqs.sh {{ARGS}}
+
 # Build and start NATS + Mongo + server (mongo backend) + UI (Ctrl+C to stop)
 up:
     #!/usr/bin/env bash
