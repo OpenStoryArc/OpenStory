@@ -53,5 +53,11 @@ history/
 deploy/*.env
 !deploy/*.env.example
 
+# Local-only deploy configs (real tokens, IPs, etc.) — keep template *.conf tracked.
+deploy/*.local.conf
+
+# Local Compose overrides (mount real configs, set per-machine env, etc.)
+docker-compose.*.local.yml
+
 # Local security audit reports
 .gstack/

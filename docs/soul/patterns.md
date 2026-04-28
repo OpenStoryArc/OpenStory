@@ -163,3 +163,18 @@ The compose file ran `node dist/index.js` but the actual OpenClaw entrypoint is 
 ### Heredocs over SSH
 
 Copy-pasting heredoc commands (`cat > file << 'EOF'`) over SSH consistently produces corrupted files — `EOF` markers included as content, leading spaces, line wrapping breaking values. Use `nano` for interactive editing or `printf` for non-interactive file creation on remote servers.
+
+### Inotify is broken inside Docker on macOS
+
+Docker Desktop on macOS bridges the host filesystem into its Linux VM through VirtioFS (or gRPC FUSE on older versions). That bridge does **not** propagate filesystem events from the host to the container. A `notify::RecommendedWatcher` running inside the container — which uses Linux inotify — therefore sits forever, never firing, while sessions accumulate on the host disk just outside the bind mount.
+
+The failure mode is the worst kind: silent. The container boots cleanly, `/api/sessions` returns 200, the UI loads. The only symptom is that data gets *frozen in time* — the API's `start_time` for a session you're actively writing to stays five days behind reality. No errors, no warnings, no log lines. Just a watcher waiting for events that the kernel will never deliver because the kernel never received them in the first place.
+
+**The tradeoff is real, not philosophical.** Polling has costs: a detection-latency floor bounded by the poll interval (we use 2s) instead of inotify/FSEvents' millisecond response, and idle CPU that the inotify path doesn't pay. We accept those costs *only inside containers* because the alternative is a container that observes nothing — a sovereignty failure dressed up as a working app. The selection lives at `rs/src/watcher.rs::WatcherKind::from_env()`:
+
+  1. `OPEN_STORY_WATCHER=poll|recommended` — explicit override (wins over auto-detect)
+  2. Auto-detect: presence of `/.dockerenv` → `Poll`, otherwise `Recommended`
+
+The Dockerfile sets `ENV OPEN_STORY_WATCHER=poll` so every container build picks the reliable path without relying on the heuristic. Native runs (`just up-no-mongo`, `just serve`, the CLI on a developer's laptop) keep inotify/FSEvents and pay nothing for the choice.
+
+**If you touch the watcher:** preserve both modes and the env-var override. A change that quietly removes the polling path will silently regress the macOS Docker UX, and silent regressions are exactly what this entry exists to stop.

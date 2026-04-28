@@ -9,8 +9,86 @@ use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config, Event, EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use walkdir::WalkDir;
+
+/// Watcher backend selection.
+///
+/// **Important note on the macOS Docker tradeoff.** Docker Desktop on macOS
+/// bridges the host filesystem into the Linux VM via VirtioFS (or gRPC FUSE).
+/// That bridge does **not** propagate inotify events from the host. A
+/// `RecommendedWatcher` (inotify on Linux) inside a container therefore never
+/// fires for writes that occur on the macOS host — the app boots, looks
+/// healthy, and silently misses every new event.
+///
+/// The fix is to fall back to `PollWatcher`, which stat-walks the watch tree
+/// on a fixed interval. Polling has real costs:
+///   - **Latency floor.** Detection is bounded by the poll interval (1–2s)
+///     instead of the millisecond-scale of inotify/FSEvents.
+///   - **Idle CPU.** The walker runs whether or not files change. Bounded but
+///     non-zero — single-digit % of one core for typical session counts.
+///
+/// We pay those costs in containers (where inotify is broken) and skip them on
+/// native runs (where inotify works fine). Selection order:
+///   1. `OPEN_STORY_WATCHER` env var (`recommended` | `poll`) — explicit override.
+///   2. Auto-detect: presence of `/.dockerenv` → `Poll`, otherwise `Recommended`.
+///
+/// The Dockerfile sets `OPEN_STORY_WATCHER=poll` so container builds get the
+/// reliable path without relying on the auto-detect heuristic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatcherKind {
+    Recommended,
+    Poll,
+}
+
+impl WatcherKind {
+    /// Resolve the watcher kind from the environment.
+    ///
+    /// Honors `OPEN_STORY_WATCHER` first; falls back to container detection.
+    pub fn from_env() -> Self {
+        match std::env::var("OPEN_STORY_WATCHER").ok().as_deref() {
+            Some("poll") => WatcherKind::Poll,
+            Some("recommended") => WatcherKind::Recommended,
+            _ => {
+                if Path::new("/.dockerenv").exists() {
+                    WatcherKind::Poll
+                } else {
+                    WatcherKind::Recommended
+                }
+            }
+        }
+    }
+}
+
+/// Poll interval for `PollWatcher`. 2s is a deliberate compromise between
+/// "feels live" in the UI and idle CPU on a laptop. Tunable via
+/// `OPEN_STORY_POLL_INTERVAL_MS` if you need a different point on the curve.
+fn poll_interval() -> Duration {
+    let ms = std::env::var("OPEN_STORY_POLL_INTERVAL_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(2000);
+    Duration::from_millis(ms)
+}
+
+/// Build the watcher selected by `WatcherKind::from_env()`.
+///
+/// Returns the kind alongside the boxed watcher so callers can log which
+/// backend was chosen — visibility matters because the wrong choice presents
+/// as a silent missed-event bug rather than a loud error.
+fn build_watcher(
+    tx: mpsc::Sender<notify::Result<Event>>,
+) -> Result<(WatcherKind, Box<dyn Watcher + Send>)> {
+    let kind = WatcherKind::from_env();
+    let watcher: Box<dyn Watcher + Send> = match kind {
+        WatcherKind::Recommended => Box::new(RecommendedWatcher::new(tx, Config::default())?),
+        WatcherKind::Poll => Box::new(PollWatcher::new(
+            tx,
+            Config::default().with_poll_interval(poll_interval()),
+        )?),
+    };
+    Ok((kind, watcher))
+}
 
 /// Max events per NATS batch. Keeps message size under NATS max_payload (default 1MB).
 /// 100 events × ~5-10KB each ≈ 500KB-1MB per message.
@@ -169,10 +247,14 @@ where
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
-    let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+    let (kind, mut watcher) = build_watcher(tx)?;
     watcher.watch(watch_dir, RecursiveMode::Recursive)?;
 
-    eprintln!("Watching {} for JSONL changes...", watch_dir.display());
+    eprintln!(
+        "Watching {} for JSONL changes (mode: {:?})...",
+        watch_dir.display(),
+        kind
+    );
 
     for res in rx {
         match res {
@@ -207,6 +289,47 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── WatcherKind::from_env — explicit override beats auto-detect ───
+
+    /// Guards against accidental tests running in parallel mutating the
+    /// shared `OPEN_STORY_WATCHER` env var. `cargo test` runs tests in
+    /// parallel by default; serializing these prevents flakes.
+    fn watcher_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn watcher_kind_honors_explicit_poll_override() {
+        let _g = watcher_env_lock();
+        // SAFETY: env mutation is serialized by `watcher_env_lock`.
+        unsafe { std::env::set_var("OPEN_STORY_WATCHER", "poll") };
+        assert_eq!(WatcherKind::from_env(), WatcherKind::Poll);
+        unsafe { std::env::remove_var("OPEN_STORY_WATCHER") };
+    }
+
+    #[test]
+    fn watcher_kind_honors_explicit_recommended_override() {
+        let _g = watcher_env_lock();
+        unsafe { std::env::set_var("OPEN_STORY_WATCHER", "recommended") };
+        assert_eq!(WatcherKind::from_env(), WatcherKind::Recommended);
+        unsafe { std::env::remove_var("OPEN_STORY_WATCHER") };
+    }
+
+    #[test]
+    fn watcher_kind_unknown_value_falls_back_to_autodetect() {
+        let _g = watcher_env_lock();
+        unsafe { std::env::set_var("OPEN_STORY_WATCHER", "nonsense") };
+        // Auto-detect path: depends on `/.dockerenv` presence. Either answer
+        // is correct so long as it is one of the two valid kinds.
+        let kind = WatcherKind::from_env();
+        assert!(matches!(kind, WatcherKind::Recommended | WatcherKind::Poll));
+        unsafe { std::env::remove_var("OPEN_STORY_WATCHER") };
+    }
 
     // ── process_file_raw — file detection + state initialization ──────
 
@@ -314,10 +437,14 @@ pub fn watch_directory(
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
-    let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
+    let (kind, mut watcher) = build_watcher(tx)?;
     watcher.watch(watch_dir, RecursiveMode::Recursive)?;
 
-    eprintln!("Watching {} for JSONL changes...", watch_dir.display());
+    eprintln!(
+        "Watching {} for JSONL changes (mode: {:?})...",
+        watch_dir.display(),
+        kind
+    );
 
     for res in rx {
         match res {
