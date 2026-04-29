@@ -267,24 +267,29 @@ describe("synthBatch() — volume", () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe("synthInitialState() — WsMessage factory", () => {
-  it("should produce an initial_state message with the requested record count", () =>
+  // After feat/lazy-load-initial-state, the handshake is sidebar-only
+  // (no records, no filter_counts). The factory still produces a valid
+  // InitialStateMessage; record-bearing assertions moved to fixtures
+  // that build `session_records_loaded` actions directly via synthBatch.
+  it("produces a sidebar-only initial_state message", () =>
     scenario(
       () => synthInitialState({ count: 50, sessions: 2 }),
       (msg) => msg,
       (msg) => {
         expect(msg.kind).toBe("initial_state");
-        expect("records" in msg && msg.records).toHaveLength(50);
+        expect("records" in msg).toBe(false);
+        expect("filter_counts" in msg).toBe(false);
       },
     ));
 
-  it("should include per-session filter_counts", () =>
+  it("ships empty patterns and session_labels by default", () =>
     scenario(
       () => synthInitialState({ count: 100, sessions: 3 }),
-      (msg) =>
-        "filter_counts" in msg
-          ? Object.keys(msg.filter_counts as Record<string, unknown>)
-          : [],
-      (sessionIds) => expect(sessionIds.length).toBe(3),
+      (msg) => msg,
+      (msg) => {
+        expect(msg.patterns ?? []).toHaveLength(0);
+        expect(Object.keys(msg.session_labels ?? {})).toHaveLength(0);
+      },
     ));
 });
 

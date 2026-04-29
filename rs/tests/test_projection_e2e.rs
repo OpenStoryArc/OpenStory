@@ -24,7 +24,6 @@ use tempfile::TempDir;
 use open_story::reader::read_new_lines;
 use open_story::server::ingest_events;
 use open_story::server::projection::{filter_matches, is_ephemeral, SessionProjection, FILTER_NAMES};
-use open_story::server::ws::build_initial_state;
 use open_story::translate::TranscriptState;
 
 fn fixtures_dir() -> PathBuf {
@@ -294,92 +293,18 @@ mod dedup {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// describe("Prototype invariant 5: WS initial_state from cache")
-// From: bff_cache_model.py:630-635
+// describe("Prototype invariant 5: WS initial_state from cache") — REMOVED
 // ═══════════════════════════════════════════════════════════════════
-
-#[cfg(test)]
-mod ws_initial_state_real_data {
-    use super::*;
-
-    /// build_initial_state returns WireRecords with tree metadata
-    /// and per-session filter_counts from real data.
-    #[tokio::test]
-    async fn initial_state_has_tree_metadata_and_counts() {
-        let data_dir = TempDir::new().unwrap();
-        let state = test_state(&data_dir);
-        {
-            let mut s = state.write().await;
-            load_fixture(&mut s, "synth_origin.jsonl").await;
-        }
-
-        let s = state.read().await;
-        let init = build_initial_state(&s);
-        let records = init.records;
-        let filter_counts = init.filter_counts;
-
-        // Records should have tree metadata
-        assert!(!records.is_empty(), "initial_state should have records");
-        let with_parent: Vec<_> = records.iter().filter(|r| r.parent_uuid.is_some()).collect();
-        assert!(
-            !with_parent.is_empty(),
-            "some records should have parent_uuid"
-        );
-
-        let max_depth = records.iter().map(|r| r.depth).max().unwrap_or(0);
-        assert!(max_depth >= 1, "should have non-trivial depth");
-
-        // filter_counts should be populated
-        let session_id = "synth_origin";
-        let counts = filter_counts.get(session_id).expect("session should have counts");
-        assert!(
-            *counts.get("all").unwrap_or(&0) > 0,
-            "all filter count should be > 0"
-        );
-        assert!(
-            *counts.get("tools").unwrap_or(&0) > 0,
-            "tools filter count should be > 0 in a real session"
-        );
-
-        eprintln!(
-            "initial_state: {} records, max_depth={}, all={}, tools={}",
-            records.len(),
-            max_depth,
-            counts.get("all").unwrap_or(&0),
-            counts.get("tools").unwrap_or(&0)
-        );
-    }
-
-    /// Capping: even with a large fixture, initial_state is bounded.
-    #[tokio::test]
-    async fn initial_state_capped_for_large_session() {
-        let data_dir = TempDir::new().unwrap();
-        let state = test_state(&data_dir);
-        {
-            let mut s = state.write().await;
-            s.config.max_initial_records = 500;
-            load_fixture(&mut s, "synth_global.jsonl").await;
-        }
-
-        let s = state.read().await;
-        let init = build_initial_state(&s); let records = init.records;
-
-        // synth_global has 700+ events → should be capped at 500
-        assert!(
-            records.len() <= 500,
-            "initial_state should be capped at 500, got {}",
-            records.len()
-        );
-
-        // Should be the most recent records (sorted by timestamp)
-        for i in 1..records.len() {
-            assert!(
-                records[i].record.timestamp >= records[i - 1].record.timestamp,
-                "records should be sorted by timestamp"
-            );
-        }
-    }
-}
+//
+// The original `mod ws_initial_state_real_data` pinned `build_initial_state`
+// against fixture data: tree metadata, per-session filter_counts, and the
+// 500-record cap. After the lazy-load redesign (feat/lazy-load-initial-state),
+// `build_initial_state` no longer ships records or filter_counts — those move
+// to GET /api/sessions/{id}/records, exercised through the UI path.
+//
+// The new handshake contracts (label inclusion, recency window, payload
+// size bounds) live in rs/server/src/ws.rs inline tests. Recover prior
+// behavior with: git show master:rs/tests/test_projection_e2e.rs
 
 // ═══════════════════════════════════════════════════════════════════
 // describe("Prototype invariant 6: multiple sessions independent")

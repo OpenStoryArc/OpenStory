@@ -33,7 +33,7 @@ pub struct SessionRow {
     pub first_event: Option<String>,
     pub last_event: Option<String>,
     /// Host where the session's events were translated (`gethostname()` or
-    /// `OPENSTORY_HOST`). Populated from the first CloudEvent in a batch;
+    /// `OPEN_STORY_HOST`). Populated from the first CloudEvent in a batch;
     /// survives NATS replication so origin identity is preserved.
     /// `None` for pre-migration rows and events that arrived without a
     /// host stamp.

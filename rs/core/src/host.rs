@@ -6,7 +6,7 @@
 //!
 //! # Resolution order
 //!
-//! 1. `$OPENSTORY_HOST` (explicit override — always wins)
+//! 1. `$OPEN_STORY_HOST` (explicit override — always wins)
 //! 2. `/etc/openstory/host` (file, if present and non-empty)
 //! 3. `hostname::get()` (the standard `gethostname(2)` call)
 //! 4. `"unknown"` (last-resort fallback; logs a warning via `eprintln!`)
@@ -27,7 +27,7 @@ static HOST: OnceLock<String> = OnceLock::new();
 pub fn host() -> &'static str {
     HOST.get_or_init(|| {
         resolve_from(
-            std::env::var("OPENSTORY_HOST").ok(),
+            std::env::var("OPEN_STORY_HOST").ok(),
             std::fs::read_to_string("/etc/openstory/host").ok(),
             hostname::get().ok().and_then(|h| h.into_string().ok()),
         )

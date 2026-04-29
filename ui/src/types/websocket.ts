@@ -5,14 +5,13 @@ import type { SessionSummary } from "./session";
 /** Discriminated union for all WebSocket messages from the server.
  *
  *  The server is the BFF: it transforms raw CloudEvents into typed
- *  ViewRecords before broadcasting. The UI receives pre-typed data. */
-export type WsMessage = InitialStateMessage | EnrichedInitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage;
-
-/** @deprecated Phase 2 initial_state (flat ViewRecords). Use EnrichedInitialStateMessage. */
-export interface InitialStateMessage {
-  readonly kind: "initial_state";
-  readonly view_records: readonly ViewRecord[];
-}
+ *  ViewRecords before broadcasting. The UI receives pre-typed data.
+ *
+ *  After feat/lazy-load-initial-state, `initial_state` carries only
+ *  session_labels and recent patterns — records are fetched per-session
+ *  via REST. The legacy `view_records` shape and the records-bearing
+ *  `EnrichedInitialStateMessage` are gone. */
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -22,11 +21,12 @@ export interface SessionLabel {
   readonly total_output_tokens?: number;
 }
 
-/** Phase 3 initial_state: WireRecords + per-session filter counts + patterns + labels. */
-export interface EnrichedInitialStateMessage {
+/** Sidebar-only handshake. No records — the UI lazy-loads them from
+ *  GET /api/sessions/{id}/records when the user opens a session.
+ *  Bounded by `config.watch_backfill_hours` on the server, so even a
+ *  store with thousands of historical sessions stays small. */
+export interface InitialStateMessage {
   readonly kind: "initial_state";
-  readonly records: readonly WireRecord[];
-  readonly filter_counts: Readonly<Record<string, Record<string, number>>>;
   readonly patterns?: readonly ServerPatternEvent[];
   readonly session_labels?: Readonly<Record<string, SessionLabel>>;
 }

@@ -295,6 +295,9 @@ The offending line is in `rs/cli/src/main.rs` at the bus-connect log: `eprintln!
 
 Related to the broader "Distributed Deployment Security Hardening" item below, but split out because it's (a) a verified live exposure, (b) a trivial fix, and (c) should land before any further deploys create more contaminated log buffers.
 
+### Rotate NATS token already published in BACKLOG.md
+The hotfix entry directly above quotes the live NATS token verbatim, and that commit (`290c91d`) is on `origin/master` in the public OpenStoryArc repo. Practical exposure is low — `:7422` is only reachable over Tailscale, so the token is useless without tailnet access — but rotate anyway, scrub the literal value from the entry above, and stop pasting raw startup logs into docs.
+
 ### Multi-Machine Session Aggregation — SHIPPED
 Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. All sessions from all machines land on every node (JetStream propagates bidirectionally). Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
 

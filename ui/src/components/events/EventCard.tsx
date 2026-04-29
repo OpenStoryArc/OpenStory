@@ -135,6 +135,52 @@ function extractContentBlockText(text: string): string | null {
   }
 }
 
+/** MCP and other JSON-shaped tool results render unreadably as a single
+ *  escaped string. This helper unwraps two common shapes and produces a
+ *  pretty-printed JSON string when the input is structured.
+ *
+ *    1. MCP envelope: `{"result": "<json-or-text>"}` — unwrap to the inner
+ *       value, then re-parse as JSON if possible.
+ *    2. Bare JSON object/array — pretty-print directly.
+ *
+ *  Returns `{ pretty, isJson }` where `pretty` is the formatted text and
+ *  `isJson` indicates whether to syntax-highlight as JSON. Returns null
+ *  when the input isn't structured (caller falls back to plain text). */
+function tryFormatStructuredResult(text: string): { pretty: string; isJson: boolean } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  // MCP envelope: { "result": "..." } — single `result` key, string value.
+  if (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed)
+  ) {
+    const obj = parsed as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 1 && keys[0] === "result" && typeof obj.result === "string") {
+      const inner = obj.result;
+      try {
+        const innerJson = JSON.parse(inner);
+        return { pretty: JSON.stringify(innerJson, null, 2), isJson: true };
+      } catch {
+        // Inner wasn't JSON — return the unwrapped string as plain text.
+        return { pretty: inner, isJson: false };
+      }
+    }
+  }
+
+  // Bare JSON object/array — pretty-print.
+  return { pretty: JSON.stringify(parsed, null, 2), isJson: true };
+}
+
 export function CardBody({ row }: { row: TimelineRow }) {
   const vr = row.record as ViewRecord;
 
@@ -270,6 +316,28 @@ export function CardBody({ row }: { row: TimelineRow }) {
               {extracted}
             </ReactMarkdown>
           </div>
+        </div>
+      );
+    }
+
+    // Detect MCP-style and bare JSON results \u2014 pretty-print and (where
+    // appropriate) syntax-highlight. Without this, MCP wraps everything
+    // in `{"result":"<escaped JSON>"}`, which renders as one unreadable
+    // line of \n and \" escapes.
+    const structured = tryFormatStructuredResult(text);
+    if (structured && !isError) {
+      return (
+        <div className="flex items-start gap-1.5">
+          <span className="text-[#9ece6a] shrink-0 mt-0.5">{"\u2713"}</span>
+          {structured.isJson ? (
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <Code language="json">{structured.pretty}</Code>
+            </div>
+          ) : (
+            <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words min-w-0">
+              {structured.pretty}
+            </pre>
+          )}
         </div>
       );
     }
