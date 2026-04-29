@@ -141,6 +141,7 @@ async fn wait_for_convergence(port: u16, session_id: &str) -> (u64, usize) {
 /// After convergence, `sessions.event_count` equals the number of rows
 /// returned by `/api/sessions/{id}/events`.
 #[tokio::test]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
 async fn sessions_event_count_converges_with_events_table() {
     let (_compose, _tmp, port) = start_stack().await;
 
@@ -175,6 +176,7 @@ async fn sessions_event_count_converges_with_events_table() {
 /// After convergence, every FTS search hit has a corresponding event.
 /// (FTS rows should never outlive their parent event.)
 #[tokio::test]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
 async fn fts_references_valid_events() {
     let (_compose, _tmp, port) = start_stack().await;
 
@@ -233,6 +235,7 @@ async fn fts_references_valid_events() {
 /// (after convergence). PersistConsumer should not surface empty
 /// sessions in /api/sessions.
 #[tokio::test]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
 async fn no_empty_session_rows_after_convergence() {
     let (_compose, _tmp, port) = start_stack().await;
 
