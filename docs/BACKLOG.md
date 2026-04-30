@@ -103,6 +103,29 @@ Three views, each backed by exactly one source, no preload soup:
 
 **Validation criterion:** the Live tab on a fresh page reload starts with **zero records**, and fills only with events that arrive after connect. The Story tab does the same with patterns. The Explore tab serves whatever the new design wants from the REST endpoints. No view should depend on `initial_state` or `BroadcastMessage::Enriched` after this branch lands.
 
+### Watcher emits fresh `file.snapshot` events on every boot (pollutes old sessions)
+Sibling to "Synthetic Event ID Stability" below. On each `just up`,
+the watcher walks `~/.claude/projects/<project>/<session>.jsonl` files
+and re-emits `file.snapshot` events stamped with `time = now()`,
+attributed to whichever session_id the JSONL filename encodes. So a
+session that genuinely ended in April keeps accumulating "today" events
+on every reboot — observed in `data/f2679c73-…jsonl` as 504
+`file.snapshot` events from 2026-04-30 added to a session whose real
+last activity was 2026-04-09. The upsert MIN/MAX fix on
+`feat/lazy-load-initial-state` stops these new events from corrupting
+the persisted span, but the events themselves still land in the wrong
+session and inflate `event_count`. Symptoms: the "Today" filter on the
+Sessions sidebar shows old sessions because their `last_event` is a
+real-but-spurious `file.snapshot` from this morning. Two possible fixes:
+(1) skip `file.snapshot` emission for sessions whose source JSONL hasn't
+been written-to in N days (mtime-gated backfill), or (2) derive the
+synthetic event's `time` from the source file's mtime / parent event's
+timestamp rather than `now()`. Option 2 is the cleaner fix because it
+also satisfies the "Synthetic Event ID Stability" content-derived-ID
+goal — same `(path, mtime, content_hash)` → same id AND same time. ~40
+LOC in the translator + watcher boot path; pairs naturally with the ID
+stability work below.
+
 ### Synthetic Event ID Stability (file_snapshot drift)
 After `chore/cut-legacy-detectors` made Actor 2 the sole pattern detector,
 the sentence-pattern duplication ratio dropped from 1.76× to 1.05×. The
