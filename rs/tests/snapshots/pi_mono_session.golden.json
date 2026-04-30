@@ -460,6 +460,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "pi-test-session",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -495,6 +496,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-0",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -559,6 +561,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-1",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -640,6 +643,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-2",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -680,6 +684,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-3",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -740,6 +745,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-4",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -813,6 +819,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-5",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -869,6 +876,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-6",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -897,6 +905,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-7",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -932,6 +941,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-8",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -968,6 +978,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-9",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -1002,6 +1013,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "comp-001",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",
@@ -1047,6 +1059,7 @@
         "session_id": "pi_mono_session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-10",
       "source": "pi://session/pi_mono_session",
       "specversion": "1.0",

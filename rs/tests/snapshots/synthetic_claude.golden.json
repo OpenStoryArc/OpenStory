@@ -573,6 +573,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-001",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -636,6 +637,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-002",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -693,6 +695,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-003",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -738,6 +741,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-004",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -771,6 +775,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-005",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -804,6 +809,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-006",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -837,6 +843,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-007",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -868,6 +875,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-008",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -901,6 +909,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-009",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -930,6 +939,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-010",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -959,6 +969,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-011",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -991,6 +1002,7 @@
         "session_id": "synthetic"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-012",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1022,6 +1034,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-013",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1052,6 +1065,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-014",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1087,6 +1101,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-015",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1123,6 +1138,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-016",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1163,6 +1179,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-017",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1195,6 +1212,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "u-018",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
@@ -1226,6 +1244,7 @@
         "session_id": "synth-session"
       },
       "datacontenttype": "application/json",
+      "host": "<host>",
       "id": "uuid-0",
       "source": "arc://transcript/synthetic",
       "specversion": "1.0",
