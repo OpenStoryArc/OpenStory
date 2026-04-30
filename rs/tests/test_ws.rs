@@ -44,47 +44,29 @@ async fn ws_handshake_receives_initial_state() {
     let text = msg.into_text().expect("not text");
     let json: Value = serde_json::from_str(&text).unwrap();
 
+    // After the lazy-load split, initial_state is sidebar-only — patterns
+    // and session_labels, no records and no filter_counts. Records are
+    // fetched per-session via GET /api/sessions/{id}/records when the
+    // user opens a session in the Timeline.
     assert_eq!(json["kind"], "initial_state");
-    assert!(json["records"].is_array());
-    assert!(json["filter_counts"].is_object());
     assert!(json["patterns"].is_array());
     assert!(json["session_labels"].is_object());
+    assert!(json.get("records").is_none(), "records lane was removed from initial_state");
+    assert!(json.get("filter_counts").is_none(), "filter_counts lane was removed from initial_state");
 
     ws.close(None).await.ok();
 }
 
-#[tokio::test]
-async fn ws_initial_state_contains_ingested_records() {
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    // Ingest events before connecting
-    {
-        let mut s = state.write().await;
-        let events = vec![
-            make_user_prompt("ws-sess", "ws-evt-1"),
-            make_event("io.arc.event", "ws-sess"),
-        ];
-        ingest_events(&mut s, "ws-sess", &events, None).await;
-    }
-
-    let addr = start_test_server(state).await;
-    let url = format!("ws://{addr}/ws");
-    let (mut ws, _) = connect_async(&url).await.expect("WS connect failed");
-
-    let msg = ws.next().await.expect("no message").expect("ws error");
-    let text = msg.into_text().expect("not text");
-    let json: Value = serde_json::from_str(&text).unwrap();
-
-    assert_eq!(json["kind"], "initial_state");
-    let records = json["records"].as_array().unwrap();
-    assert!(
-        !records.is_empty(),
-        "initial_state should contain ingested records"
-    );
-
-    ws.close(None).await.ok();
-}
+// `ws_initial_state_contains_ingested_records` retired — it asserted
+// that records ingested via `ingest_events` would appear in the
+// initial_state WS handshake. After the lazy-load split, records are
+// no longer in initial_state at all (the handshake is sidebar-only:
+// session_labels + patterns). Records reach the UI via two paths now:
+//   - Live: BroadcastMessage::Enriched (covered by
+//     `ws_receives_broadcast_after_hook_ingest` below).
+//   - Cold load: GET /api/sessions/{id}/records (covered in
+//     `ui/src/lib/session-records.ts` + `ui/tests/streams/
+//     session-reducer.test.ts::session_records_loaded` specs).
 
 // ── Live broadcast tests ────────────────────────────────────────────
 
