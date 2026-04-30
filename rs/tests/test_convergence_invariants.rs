@@ -76,6 +76,17 @@ async fn start_stack() -> (DockerCompose, tempfile::TempDir, u16) {
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
+    // Wait for the watcher to ingest the pi-mono fixture. The HTTP server
+    // is up before the watcher has finished its first scan, so tests that
+    // grab sessions immediately after `start_stack` (rather than running
+    // their own wait loop) race against ingest. 15s window matches the
+    // pre-existing wait loop in `no_empty_session_rows_after_convergence`.
+    for _ in 0..30 {
+        if !get_sessions(port).await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
     (compose, tmp, port)
 }
 
@@ -141,7 +152,7 @@ async fn wait_for_convergence(port: u16, session_id: &str) -> (u64, usize) {
 /// After convergence, `sessions.event_count` equals the number of rows
 /// returned by `/api/sessions/{id}/events`.
 #[tokio::test]
-#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored --test-threads=1` (serial because the three tests share a compose project)"]
 async fn sessions_event_count_converges_with_events_table() {
     let (_compose, _tmp, port) = start_stack().await;
 
@@ -176,7 +187,7 @@ async fn sessions_event_count_converges_with_events_table() {
 /// After convergence, every FTS search hit has a corresponding event.
 /// (FTS rows should never outlive their parent event.)
 #[tokio::test]
-#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored --test-threads=1` (serial because the three tests share a compose project)"]
 async fn fts_references_valid_events() {
     let (_compose, _tmp, port) = start_stack().await;
 
@@ -235,7 +246,7 @@ async fn fts_references_valid_events() {
 /// (after convergence). PersistConsumer should not surface empty
 /// sessions in /api/sessions.
 #[tokio::test]
-#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored`"]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_convergence_invariants -- --ignored --test-threads=1` (serial because the three tests share a compose project)"]
 async fn no_empty_session_rows_after_convergence() {
     let (_compose, _tmp, port) = start_stack().await;
 
