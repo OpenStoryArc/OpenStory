@@ -120,8 +120,14 @@ set -euo pipefail
 
 cd "\$HOME/openstory"
 
-echo "  docker compose down"
-docker compose -f docker-compose.prod.yml down
+echo "  docker compose down (agents + infra)"
+for envfile in deploy/*.env; do
+    [ -f "\$envfile" ] || continue
+    name=\$(basename "\$envfile" .env)
+    [ "\$name" = "infra" ] && continue
+    docker compose --project-name "\$name" --env-file "\$envfile" -f docker-compose.agent.yml down 2>/dev/null || true
+done
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml down 2>/dev/null || true
 
 echo "  extracting ${BACKUP_FILE}"
 # The tarballs created by backup.sh use absolute paths starting with
@@ -146,9 +152,22 @@ echo "==> bringing stack back up"
 ssh "${SSH_OPTS[@]}" "${VPS_HOST}" bash -s <<REMOTE
 set -euo pipefail
 cd "\$HOME/openstory"
-docker compose -f docker-compose.prod.yml up -d
+docker network create openstory 2>/dev/null || true
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+for envfile in deploy/*.env; do
+    [ -f "\$envfile" ] || continue
+    name=\$(basename "\$envfile" .env)
+    [ "\$name" = "infra" ] && continue
+    docker compose --project-name "\$name" --env-file "\$envfile" -f docker-compose.agent.yml up -d
+done
 sleep 3
-docker compose -f docker-compose.prod.yml ps
+docker compose --project-name infra -f docker-compose.infra.yml ps
+for envfile in deploy/*.env; do
+    [ -f "\$envfile" ] || continue
+    name=\$(basename "\$envfile" .env)
+    [ "\$name" = "infra" ] && continue
+    docker compose --project-name "\$name" --env-file "\$envfile" -f docker-compose.agent.yml ps
+done
 REMOTE
 
 echo

@@ -1,3 +1,7 @@
+# DEPRECATED — use docker-compose.infra.yml + docker-compose.agent.yml instead.
+# See deploy/*.env.example for the new per-agent env file pattern.
+# This file is kept as a rollback path only.
+#
 # Production deployment: OpenClaw + Open Story + Telegram bot.
 #
 # Sized for Hetzner CX32 (4 vCPU, 8GB RAM) or larger.

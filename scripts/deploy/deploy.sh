@@ -10,7 +10,7 @@
 #   4. set-nats-env.sh           (NATS token + tailscale IP + nats-hub.conf)
 #   5. docker build Dockerfile.openclaw -t openclaw-mcp:latest
 #   6. docker build Dockerfile.prod     -t open-story:prod
-#   7. docker compose -f docker-compose.prod.yml up -d
+#   7. docker compose up (infra + each agent)
 #   8. smoke.sh                  (post-deploy verification)
 #
 # NOTE: this script does NOT rebuild the upstream openclaw:latest image from
@@ -125,7 +125,7 @@ git reset --hard "origin/${BRANCH}"
 git log -1 --format='  head: %h %s'
 
 # sanity: required files for this branch
-for f in deploy/nats-hub.conf deploy/nats-leaf.conf Dockerfile.openclaw mcp-server/SKILL.md; do
+for f in deploy/nats-hub.conf deploy/nats-leaf.conf Dockerfile.openclaw mcp-server/SKILL.md docker-compose.infra.yml docker-compose.agent.yml; do
     if [ ! -e "\$f" ]; then
         echo "deploy: expected file missing after checkout: \$f" >&2
         exit 1
@@ -164,14 +164,38 @@ docker build -f Dockerfile.prod -t open-story:prod .
 REMOTE
 echo
 
-# ---- 7. compose up ---------------------------------------------------------
-echo "==> [7/8] docker compose up -d"
+# ---- 7. compose up (infra + agents) ----------------------------------------
+echo "==> [7/8] docker compose up -d (infra + agents)"
 ssh "${SSH_OPTS[@]}" "${VPS_HOST}" bash -s <<'REMOTE'
 set -euo pipefail
 cd "$HOME/openstory"
-docker compose -f docker-compose.prod.yml up -d
+
+# Ensure the shared network exists for agent compose files.
+docker network create openstory 2>/dev/null || true
+
+# Infra: NATS + Open Story
+docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+
+# Agents: bring up each agent that has a deploy/*.env file.
+for envfile in deploy/*.env; do
+    [ -f "$envfile" ] || continue
+    name=$(basename "$envfile" .env)
+    [ "$name" = "infra" ] && continue
+    echo "  agent: ${name}"
+    docker compose --project-name "$name" --env-file "$envfile" -f docker-compose.agent.yml up -d
+done
+
 sleep 3
-docker compose -f docker-compose.prod.yml ps
+echo
+echo "--- infra ---"
+docker compose --project-name infra -f docker-compose.infra.yml ps
+for envfile in deploy/*.env; do
+    [ -f "$envfile" ] || continue
+    name=$(basename "$envfile" .env)
+    [ "$name" = "infra" ] && continue
+    echo "--- ${name} ---"
+    docker compose --project-name "$name" --env-file "$envfile" -f docker-compose.agent.yml ps
+done
 REMOTE
 echo
 

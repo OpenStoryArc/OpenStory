@@ -1,0 +1,87 @@
+# Shared infrastructure: NATS + Open Story.
+#
+# This stack runs once. Agent instances connect to it via the
+# "openstory" network defined below.
+#
+# Prerequisites:
+#   docker build -f Dockerfile.prod -t open-story:prod .
+#
+# Env file (deploy/infra.env):
+#   OPEN_STORY_API_TOKEN=<random-hex>
+#   NATS_LEAF_TOKEN=<openssl rand -hex 24>
+#   TAILSCALE_IP=<your Tailscale IP, e.g. 100.x.y.z>
+#
+# Start:
+#   docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+#
+# Each agent's openclaw-state volume is mounted read-only at /pi-watch/<agent>
+# so the file watcher can observe pi-mono session files. When adding a new
+# agent, add its volume here as an external volume + mount.
+
+services:
+  nats:
+    image: nats:2-alpine
+    command: ["-c", "/etc/nats/nats-hub.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+      - "${TAILSCALE_IP:-0.0.0.0}:7422:7422"
+    volumes:
+      - nats-data:/data
+      - ./deploy/nats-hub.conf:/etc/nats/nats-hub.conf:ro
+    networks:
+      - openstory
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  open-story:
+    image: open-story:prod
+    user: "0:0"
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - os-data:/data
+      - bobby-openclaw-state:/pi-watch/bobby:ro
+      - katie-openclaw-state:/pi-watch/katie:ro
+    environment:
+      - OPEN_STORY_PI_WATCH_DIR=/pi-watch
+      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
+      - OPEN_STORY_METRICS_ENABLED=true
+      - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
+      - NATS_URL=nats://${NATS_LEAF_TOKEN}@nats:4222
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      nats:
+        condition: service_started
+    networks:
+      - openstory
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  nats-data:
+    name: openstory-nats-data
+  os-data:
+    name: openstory-os-data
+  bobby-openclaw-state:
+    name: bobby-openclaw-state
+    external: true
+  katie-openclaw-state:
+    name: katie-openclaw-state
+    external: true
+
+networks:
+  openstory:
+    name: openstory

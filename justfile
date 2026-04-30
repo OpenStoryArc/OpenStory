@@ -357,13 +357,62 @@ build:
 prod-build:
     docker build -f Dockerfile.prod -t open-story:prod .
 
-# Start the production stack (OpenClaw + Open Story + Telegram bot)
-prod-up: prod-build
-    docker compose -f docker-compose.prod.yml up -d
+# Build the openclaw-mcp image (requires openclaw:latest already built)
+agent-build:
+    docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 
-# Stop the production stack
+# Start shared infrastructure (NATS + Open Story)
+infra-up: prod-build
+    docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+
+# Stop shared infrastructure
+infra-down:
+    docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml down
+
+# Start a specific agent (usage: just agent-up bobby)
+agent-up name: agent-build
+    docker compose --project-name {{name}} --env-file deploy/{{name}}.env -f docker-compose.agent.yml up -d
+
+# Stop a specific agent
+agent-down name:
+    docker compose --project-name {{name}} --env-file deploy/{{name}}.env -f docker-compose.agent.yml down
+
+# Follow logs for a specific agent
+agent-logs name:
+    docker compose --project-name {{name}} --env-file deploy/{{name}}.env -f docker-compose.agent.yml logs -f
+
+# Start everything: infra + all agents
+prod-up: prod-build agent-build
+    docker network create openstory 2>/dev/null || true
+    docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml up -d
+    @for envfile in deploy/*.env; do \
+        [ -f "$$envfile" ] || continue; \
+        name=$$(basename "$$envfile" .env); \
+        [ "$$name" = "infra" ] && continue; \
+        echo "starting agent: $$name"; \
+        docker compose --project-name "$$name" --env-file "$$envfile" -f docker-compose.agent.yml up -d; \
+    done
+
+# Stop everything: all agents + infra
 prod-down:
-    docker compose -f docker-compose.prod.yml down
+    @for envfile in deploy/*.env; do \
+        [ -f "$$envfile" ] || continue; \
+        name=$$(basename "$$envfile" .env); \
+        [ "$$name" = "infra" ] && continue; \
+        docker compose --project-name "$$name" --env-file "$$envfile" -f docker-compose.agent.yml down 2>/dev/null || true; \
+    done
+    docker compose --project-name infra --env-file deploy/infra.env -f docker-compose.infra.yml down
+
+# Check status of all services
+prod-check:
+    docker compose --project-name infra -f docker-compose.infra.yml ps
+    @for envfile in deploy/*.env; do \
+        [ -f "$$envfile" ] || continue; \
+        name=$$(basename "$$envfile" .env); \
+        [ "$$name" = "infra" ] && continue; \
+        echo "--- $$name ---"; \
+        docker compose --project-name "$$name" --env-file "$$envfile" -f docker-compose.agent.yml ps; \
+    done
 
 # Run production deployment tests (bot unit tests + bot image build)
 prod-test:
