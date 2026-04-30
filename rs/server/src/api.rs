@@ -1276,8 +1276,7 @@ pub async fn get_session_records(
         let limit = query
             .limit
             .unwrap_or(DEFAULT_RECORDS_LIMIT)
-            .min(MAX_RECORDS_LIMIT)
-            .max(1);
+            .clamp(1, MAX_RECORDS_LIMIT);
 
         // Filter by before_seq if provided.
         if let Some(before) = query.before_seq {
