@@ -29,7 +29,7 @@ describe("buildSessionState$", () => {
     ws$.complete();
   });
 
-  it("processes legacy initial_state (view_records) message", async () => {
+  it("processes new sidebar-only initial_state (no records seeded)", async () => {
     const ws$ = new Subject<WsMessage>();
     const state$ = buildSessionState$(ws$);
 
@@ -37,13 +37,15 @@ describe("buildSessionState$", () => {
 
     ws$.next({
       kind: "initial_state",
-      view_records: [makeViewRecord(), makeViewRecord({ id: "r2" })],
+      session_labels: { s1: { label: "first prompt", branch: null } },
+      patterns: [],
     });
     ws$.complete();
 
     const states = await statePromise;
     const last = states[states.length - 1]! as EnrichedSessionState;
-    expect(last.records).toHaveLength(2);
+    expect(last.records).toHaveLength(0);
+    expect(last.sessionLabels.s1?.label).toBe("first prompt");
   });
 
   it("processes legacy view_records message — appends", async () => {
@@ -65,8 +67,11 @@ describe("buildSessionState$", () => {
   });
 
   it("accumulates state across multiple messages", async () => {
+    // batchMs=0 disables the bufferTime window so each message
+    // produces its own emission (otherwise the two synchronous nexts
+    // collapse into a single batched emission and take(3) hangs).
     const ws$ = new Subject<WsMessage>();
-    const state$ = buildSessionState$(ws$);
+    const state$ = buildSessionState$(ws$, { batchMs: 0 });
 
     const statePromise = firstValueFrom(state$.pipe(take(3), toArray()));
 

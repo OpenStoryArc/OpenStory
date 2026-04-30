@@ -277,73 +277,30 @@ async fn duplicate_event_id_does_not_overwrite_data() {
     }
 }
 
-#[tokio::test]
-async fn duplicate_event_id_across_sessions() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    {
-        let mut s = state.write().await;
-
-        // Same event ID in session A
-        let event_a = make_user_prompt("sess-a", "shared-evt");
-        let result_a = ingest_events(&mut s, "sess-a", &[event_a], None).await;
-        assert_eq!(result_a.count, 1);
-
-        // Same event ID in session B — should be deduplicated by seen_event_ids
-        let event_b = make_user_prompt("sess-b", "shared-evt");
-        let result_b = ingest_events(&mut s, "sess-b", &[event_b], None).await;
-        assert_eq!(result_b.count, 0, "same event_id across sessions should be deduplicated");
-    }
-}
+// `duplicate_event_id_across_sessions` retired — it asserted that the
+// same event_id ingested into two different sessions would be
+// deduplicated by an in-memory `seen_event_ids` HashSet on AppState.
+// That HashSet was removed in commit e17ae27 ("kill /hooks endpoint +
+// retire seen_event_ids dedup machinery"). Dedup is now per-session
+// via the SQLite PK constraint (covered by
+// consumers::persist::tests::dedup_*); cross-session dedup of the same
+// event_id is intentionally no longer enforced (event IDs are
+// namespaced by session at the storage layer).
 
 // ── Resource Exhaustion ───────────────────────────────────────────────
 
-#[tokio::test]
-async fn ingest_many_sessions_no_crash() {
-    let tmp = TempDir::new().unwrap();
-    let state = test_state(&tmp);
-
-    let num_sessions = 500;
-    let events_per_session = 5;
-
-    {
-        let mut s = state.write().await;
-        for i in 0..num_sessions {
-            let sid = format!("sess-bulk-{}", i);
-            let events: Vec<_> = (0..events_per_session)
-                .map(|j| make_user_prompt(&sid, &format!("evt-{}-{}", i, j)))
-                .collect();
-            let result = ingest_events(&mut s, &sid, &events, None).await;
-            assert_eq!(result.count, events_per_session);
-        }
-    }
-
-    // Verify all sessions exist
-    {
-        let s = state.read().await;
-        let sessions = s.store.event_store.list_sessions().await.unwrap();
-        assert_eq!(
-            sessions.len(),
-            num_sessions,
-            "all {} sessions should be stored",
-            num_sessions
-        );
-    }
-
-    // Verify API still works
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body: Value = body_json(resp).await;
-    assert_eq!(
-        body["sessions"].as_array().unwrap().len(),
-        num_sessions,
-        "API should serve all sessions"
-    );
-}
+// `ingest_many_sessions_no_crash` retired — it asserted that 500
+// sessions written via `ingest_events` would all show up in
+// `event_store.list_sessions()` from a `test_state` (NoopBus) harness.
+// After the Phase 1.4.5 actor decomposition, session-row writes moved
+// from `ingest_events` itself to PersistConsumer (which subscribes to
+// the bus). With NoopBus, no consumer runs, so the `sessions` table
+// stays empty even though events ARE persisted (the inner
+// `result.count == events_per_session` assertion still passes). The
+// resource-exhaustion intent is now better covered by
+// `test_compose_perf::perf_hooks_sustained_*` (which runs the full
+// actor stack against a docker compose) and the per-session
+// crash-resistance assertions in `test_persist_consumer_*`.
 
 #[tokio::test]
 async fn ingest_large_event_payload_no_crash() {

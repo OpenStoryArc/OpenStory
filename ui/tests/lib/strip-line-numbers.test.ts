@@ -14,6 +14,9 @@ const DETECT_TABLE: [string, string, boolean][] = [
   ["large line numbers", "   100→line 100\n   101→line 101", true],
   ["no arrow", "  1  hello\n  2  world", false],
   ["tab after arrow", "     1→\tcontent", true],
+  ["tab-separated (no arrow)", "1\t[package]\n2\tname = \"foo\"\n3\tversion = \"0.1\"", true],
+  ["tab-separated single line", "1\thello", true],
+  ["tab-separated large numbers", "100\tline hundred\n101\tline 101", true],
 ];
 
 describe("isCatNumbered — boundary table", () => {
@@ -67,6 +70,16 @@ const STRIP_TABLE: [string, string, string][] = [
     "     1→first\n     2→\n     3→third",
     "first\n\nthird",
   ],
+  [
+    "tab-separated (Agent tool format)",
+    "1\t[package]\n2\tname = \"open-story-server\"\n3\tversion = \"0.1.0\"",
+    "[package]\nname = \"open-story-server\"\nversion = \"0.1.0\"",
+  ],
+  [
+    "tab-separated large numbers",
+    "100\tline hundred\n101\tline 101",
+    "line hundred\nline 101",
+  ],
 ];
 
 // ── extractStartLineNumber — boundary table ──────────────────────
@@ -78,6 +91,8 @@ const START_LINE_TABLE: [string, string, number][] = [
   ["no line numbers", "plain text here", 1],
   ["empty string", "", 1],
   ["single digit", "     5→fifth line", 5],
+  ["tab-separated starts at 1", "1\t[package]\n2\tname", 1],
+  ["tab-separated offset", "42\tfirst\n43\tsecond", 42],
 ];
 
 describe("extractStartLineNumber — boundary table", () => {

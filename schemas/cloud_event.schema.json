@@ -743,6 +743,13 @@
         "null"
       ]
     },
+    "host": {
+      "description": "Host where the translator ran (normalized `gethostname()` or override). Stamped at event creation via [`CloudEvent::with_host`] — survives NATS replication so origin identity is preserved across leaves/hub. CloudEvent extension attribute.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "id": {
       "type": "string"
     },

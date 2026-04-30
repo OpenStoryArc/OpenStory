@@ -26,6 +26,14 @@
         "null"
       ]
     },
+    "host": {
+      "default": null,
+      "description": "Host where the session's events were translated (`gethostname()` or `OPEN_STORY_HOST`). Populated from the first CloudEvent in a batch; survives NATS replication so origin identity is preserved. `None` for pre-migration rows and events that arrived without a host stamp.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "id": {
       "type": "string"
     },

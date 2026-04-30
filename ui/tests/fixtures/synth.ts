@@ -10,8 +10,7 @@
 
 import type { WireRecord } from "@/types/wire-record";
 import type { RecordType, ToolCall, ToolResult, UserMessage, AssistantMessage, Reasoning, ErrorRecord, SystemEvent, TurnEnd } from "@/types/view-record";
-import type { EnrichedInitialStateMessage, EnrichedMessage } from "@/types/websocket";
-import { TIMELINE_FILTERS } from "@/lib/timeline-filters";
+import type { InitialStateMessage, EnrichedMessage } from "@/types/websocket";
 
 // ═══════════════════════════════════════════════════════════════════
 // Seeded PRNG — deterministic, fast, good enough for test data
@@ -338,34 +337,24 @@ export function synthBatch(config: SynthConfig): WireRecord[] {
 // WsMessage factories
 // ═══════════════════════════════════════════════════════════════════
 
-/** Generate an initial_state WsMessage with synthetic records. */
-export function synthInitialState(
-  config: SynthConfig,
-): EnrichedInitialStateMessage {
-  const records = synthBatch(config);
-
-  // Build per-session filter counts from the generated records
-  const filterCounts: Record<string, Record<string, number>> = {};
-  for (const r of records) {
-    if (!filterCounts[r.session_id]) filterCounts[r.session_id] = {};
-    const sc = filterCounts[r.session_id]!;
-    for (const [name, pred] of Object.entries(TIMELINE_FILTERS)) {
-      if (pred(r)) {
-        sc[name] = (sc[name] ?? 0) + 1;
-      }
-    }
-  }
-
+/** Generate the new sidebar-only `initial_state` message. After the
+ *  lazy-load redesign (feat/lazy-load-initial-state) this no longer
+ *  carries records — those arrive per-session via REST. Tests that
+ *  need to seed records into reducer state should use
+ *  `synthBatch(...)` and dispatch a `session_records_loaded` action
+ *  directly. The `_config` arg is retained for call-site compatibility
+ *  with the pre-redesign signature; it has no effect on the message. */
+export function synthInitialState(_config: SynthConfig = { count: 0 }): InitialStateMessage {
   return {
     kind: "initial_state",
-    records,
-    filter_counts: filterCounts,
     patterns: [],
     session_labels: {},
   };
 }
 
-/** Generate a sequence of enriched WsMessages for streaming tests. */
+/** Generate a sequence of enriched WsMessages for streaming tests.
+ *  The wire `filter_deltas` field is still part of the protocol (the
+ *  server emits it) but the UI reducer ignores it after the redesign. */
 export function synthEnrichedStream(config: SynthStreamConfig): EnrichedMessage[] {
   const { batches, recordsPerBatch, sessions = 1, seed = 1 } = config;
   const totalRecords = batches * recordsPerBatch;
@@ -380,23 +369,12 @@ export function synthEnrichedStream(config: SynthStreamConfig): EnrichedMessage[
       (b + 1) * recordsPerBatch,
     );
     const sid = sessionIds[b % sessionIds.length]!;
-
-    // Compute filter deltas for this batch
-    const filterDeltas: Record<string, number> = {};
-    for (const r of batchRecords) {
-      for (const [name, pred] of Object.entries(TIMELINE_FILTERS)) {
-        if (pred(r)) {
-          filterDeltas[name] = (filterDeltas[name] ?? 0) + 1;
-        }
-      }
-    }
-
     messages.push({
       kind: "enriched",
       session_id: sid,
       records: batchRecords,
       ephemeral: [],
-      filter_deltas: filterDeltas,
+      filter_deltas: {},
     });
   }
 

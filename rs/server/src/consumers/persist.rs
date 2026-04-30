@@ -168,6 +168,13 @@ impl PersistConsumer {
                 .and_then(|ce| serde_json::to_value(ce).ok())
                 .and_then(|v| v.get("time").and_then(|t| t.as_str().map(|s| s.to_string())));
 
+            // Host is stamped at translation time onto every CloudEvent. We
+            // lift it off the first event in the batch — every event in a
+            // given session should agree on host, so the first is canonical.
+            // Events without a host (pre-migration) leave the row's host at
+            // None; no harm done, just no origin info for that session.
+            let host = events.first().and_then(|ce| ce.host.clone());
+
             let row = SessionRow {
                 id: session_id.to_string(),
                 project_id: project_id_snapshot,
@@ -178,6 +185,7 @@ impl PersistConsumer {
                 event_count,
                 first_event: first_event_ts,
                 last_event: last_event_ts,
+                host,
             };
             let _ = event_store.upsert_session(&row).await;
         }
@@ -226,6 +234,52 @@ mod tests {
             ),
             tmp,
         )
+    }
+
+    /// Helper: build a test event stamped with a given host (or none).
+    fn test_event_with_host(id: &str, host: Option<&str>) -> CloudEvent {
+        let ce = test_event(id);
+        match host {
+            Some(h) => ce.with_host(h),
+            None => ce,
+        }
+    }
+
+    #[tokio::test]
+    async fn persist_consumer_stamps_host_on_session_row_from_first_event() {
+        // Contract: host is stamped on every CloudEvent at translation
+        // time. PersistConsumer reads it off the first event and writes it
+        // onto the session row. This is the moment origin identity enters
+        // the query layer.
+        let (mut consumer, _tmp) = make_consumer();
+        let e1 = test_event_with_host("evt-host-1", Some("Maxs-Air"));
+        let e2 = test_event_with_host("evt-host-2", Some("Maxs-Air"));
+
+        consumer.process_batch("sess-host-stamp", &[e1, e2], None).await;
+
+        let sessions = consumer.event_store.list_sessions().await.unwrap();
+        let row = sessions
+            .iter()
+            .find(|r| r.id == "sess-host-stamp")
+            .expect("session row exists after ingest");
+        assert_eq!(row.host.as_deref(), Some("Maxs-Air"));
+    }
+
+    #[tokio::test]
+    async fn persist_consumer_leaves_host_none_when_events_lack_host() {
+        // Backwards-compat: pre-migration events have no host. The row
+        // stays with host: None — not a crash, not a fake value.
+        let (mut consumer, _tmp) = make_consumer();
+        let e1 = test_event_with_host("evt-legacy-1", None);
+
+        consumer.process_batch("sess-legacy", &[e1], None).await;
+
+        let sessions = consumer.event_store.list_sessions().await.unwrap();
+        let row = sessions
+            .iter()
+            .find(|r| r.id == "sess-legacy")
+            .expect("session row exists");
+        assert!(row.host.is_none(), "legacy events must not fabricate a host");
     }
 
     #[tokio::test]

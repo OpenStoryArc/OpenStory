@@ -79,7 +79,14 @@ def call_prompt_size(usage: dict) -> int:
 
 
 def call_cost(usage: dict, tier: str) -> float:
-    """Compute cost in USD for one API call at the given pricing tier."""
+    """Compute cost in USD for one API call at the given pricing tier.
+
+    If usage carries an authoritative pre-computed ``cost`` field (pi-mono
+    payloads do this — the agent records the cost at call time), trust that
+    over the rate-card calculation. Falls back to per-token math otherwise.
+    """
+    if isinstance(usage.get("cost"), (int, float)):
+        return float(usage["cost"])
     spec = PRICING.get(tier, PRICING["sonnet"])
     base = spec["base"]
     multiplier = 1.0
@@ -93,6 +100,46 @@ def call_cost(usage: dict, tier: str) -> float:
         + usage.get("cache_read_input_tokens", 0) * rates["cache_read"] / 1_000_000
         + usage.get("cache_creation_input_tokens", 0) * rates["cache_creation"] / 1_000_000
     )
+
+
+def normalize_usage(usage: dict) -> Optional[dict]:
+    """Normalize an assistant-message ``usage`` dict to the canonical shape.
+
+    Two shapes are seen in the wild:
+
+    - claude-code: ``input_tokens``, ``output_tokens``, ``cache_read_input_tokens``,
+      ``cache_creation_input_tokens``
+    - pi-mono: ``input``, ``output``, ``cacheRead``, ``cacheWrite``, plus an
+      authoritative pre-computed ``cost`` in USD
+
+    Returns a dict with the canonical claude-code keys (so downstream rate-card
+    math works uniformly), and preserves pi-mono's ``cost`` when present so
+    ``call_cost`` can prefer it. Returns ``None`` if the dict has neither shape.
+    """
+    if not usage:
+        return None
+    if "input_tokens" in usage:
+        # already canonical
+        out = {
+            "input_tokens": usage.get("input_tokens", 0),
+            "output_tokens": usage.get("output_tokens", 0),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+        }
+        if isinstance(usage.get("cost"), (int, float)):
+            out["cost"] = float(usage["cost"])
+        return out
+    if "input" in usage and ("cacheRead" in usage or "cacheWrite" in usage or "output" in usage):
+        out = {
+            "input_tokens": usage.get("input", 0),
+            "output_tokens": usage.get("output", 0),
+            "cache_read_input_tokens": usage.get("cacheRead", 0),
+            "cache_creation_input_tokens": usage.get("cacheWrite", 0),
+        }
+        if isinstance(usage.get("cost"), (int, float)):
+            out["cost"] = float(usage["cost"])
+        return out
+    return None
 
 
 @dataclass
@@ -157,6 +204,9 @@ def query_calls(db_path: str, days: Optional[int] = None) -> list[dict]:
         where = "AND e.timestamp > ?"
         params.append(cutoff)
 
+    # Match either the claude-code shape (``input_tokens``) or the pi-mono shape
+    # (``cacheRead`` / ``cacheWrite``). The LIKE filter is just a pre-screen —
+    # ``normalize_usage`` does the authoritative shape check below.
     cur.execute(
         f"""
         SELECT e.timestamp, e.session_id, e.payload
@@ -166,7 +216,9 @@ def query_calls(db_path: str, days: Optional[int] = None) -> list[dict]:
             'message.assistant.tool_use',
             'message.assistant.thinking'
         )
-        AND e.payload LIKE '%input_tokens%'
+        AND (e.payload LIKE '%input_tokens%'
+             OR e.payload LIKE '%cacheRead%'
+             OR e.payload LIKE '%cacheWrite%')
         {where}
         ORDER BY e.timestamp
         """,
@@ -181,12 +233,13 @@ def query_calls(db_path: str, days: Optional[int] = None) -> list[dict]:
             msg = raw.get("message", {})
             usage = msg.get("usage", {})
             model = msg.get("model", "")
-            if usage and "input_tokens" in usage:
+            normalized = normalize_usage(usage)
+            if normalized is not None:
                 calls.append({
                     "timestamp": timestamp,
                     "session_id": session_id,
                     "model": model,
-                    "usage": usage,
+                    "usage": normalized,
                 })
         except (json.JSONDecodeError, AttributeError):
             pass
@@ -384,6 +437,31 @@ def run_tests() -> None:
     sonnet_part = call_cost({"input_tokens": 100, "output_tokens": 100}, "sonnet")
     opus_part = call_cost({"input_tokens": 100, "output_tokens": 100}, "opus")
     check("mixed bucket cost is sum of per-call costs", abs(b2.cost - (sonnet_part + opus_part)) < 0.001)
+
+    # normalize_usage: claude-code shape passes through
+    cc = normalize_usage({"input_tokens": 10, "output_tokens": 20, "cache_read_input_tokens": 30, "cache_creation_input_tokens": 40})
+    check("normalize cc: input_tokens preserved", cc["input_tokens"] == 10)
+    check("normalize cc: output_tokens preserved", cc["output_tokens"] == 20)
+    check("normalize cc: cache_read preserved", cc["cache_read_input_tokens"] == 30)
+    check("normalize cc: cache_creation preserved", cc["cache_creation_input_tokens"] == 40)
+
+    # normalize_usage: pi-mono shape gets remapped
+    pi = normalize_usage({"input": 10, "output": 20, "cacheRead": 30, "cacheWrite": 40, "cost": 0.0042, "totalTokens": 100})
+    check("normalize pi: input → input_tokens", pi["input_tokens"] == 10)
+    check("normalize pi: output → output_tokens", pi["output_tokens"] == 20)
+    check("normalize pi: cacheRead → cache_read_input_tokens", pi["cache_read_input_tokens"] == 30)
+    check("normalize pi: cacheWrite → cache_creation_input_tokens", pi["cache_creation_input_tokens"] == 40)
+    check("normalize pi: cost preserved", pi["cost"] == 0.0042)
+
+    # normalize_usage: empty / non-matching shapes return None
+    check("normalize empty → None", normalize_usage({}) is None)
+    check("normalize unknown → None", normalize_usage({"foo": 1}) is None)
+
+    # call_cost prefers authoritative pi-mono cost when present
+    pi_with_cost = {"input_tokens": 1_000_000, "output_tokens": 1_000_000, "cost": 0.42}
+    check("call_cost trusts authoritative cost", abs(call_cost(pi_with_cost, "opus") - 0.42) < 1e-9)
+    pi_no_cost = {"input_tokens": 1_000, "output_tokens": 1_000}
+    check("call_cost falls back to rate card", call_cost(pi_no_cost, "sonnet") > 0)
 
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

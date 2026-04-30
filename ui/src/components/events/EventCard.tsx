@@ -11,7 +11,7 @@ import { detectLanguage } from "@/lib/detect-language";
 import { compactTime } from "@/lib/time";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -47,9 +47,27 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const codeStyle = { margin: 0, padding: "6px 8px", background: "#1a1b26", fontSize: "12px", borderRadius: "6px" };
 
-function Code({ children, language }: { children: string; language: string }) {
+function Code({
+  children,
+  language,
+  showLineNumbers = false,
+  startingLineNumber = 1,
+}: {
+  children: string;
+  language: string;
+  showLineNumbers?: boolean;
+  startingLineNumber?: number;
+}) {
   return (
-    <SyntaxHighlighter language={language} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+    <SyntaxHighlighter
+      language={language}
+      style={codeTheme}
+      customStyle={codeStyle}
+      wrapLongLines
+      showLineNumbers={showLineNumbers}
+      startingLineNumber={startingLineNumber}
+      lineNumberStyle={lineNumberStyle}
+    >
       {children}
     </SyntaxHighlighter>
   );
@@ -117,6 +135,52 @@ function extractContentBlockText(text: string): string | null {
   }
 }
 
+/** MCP and other JSON-shaped tool results render unreadably as a single
+ *  escaped string. This helper unwraps two common shapes and produces a
+ *  pretty-printed JSON string when the input is structured.
+ *
+ *    1. MCP envelope: `{"result": "<json-or-text>"}` — unwrap to the inner
+ *       value, then re-parse as JSON if possible.
+ *    2. Bare JSON object/array — pretty-print directly.
+ *
+ *  Returns `{ pretty, isJson }` where `pretty` is the formatted text and
+ *  `isJson` indicates whether to syntax-highlight as JSON. Returns null
+ *  when the input isn't structured (caller falls back to plain text). */
+function tryFormatStructuredResult(text: string): { pretty: string; isJson: boolean } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  // MCP envelope: { "result": "..." } — single `result` key, string value.
+  if (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed)
+  ) {
+    const obj = parsed as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length === 1 && keys[0] === "result" && typeof obj.result === "string") {
+      const inner = obj.result;
+      try {
+        const innerJson = JSON.parse(inner);
+        return { pretty: JSON.stringify(innerJson, null, 2), isJson: true };
+      } catch {
+        // Inner wasn't JSON — return the unwrapped string as plain text.
+        return { pretty: inner, isJson: false };
+      }
+    }
+  }
+
+  // Bare JSON object/array — pretty-print.
+  return { pretty: JSON.stringify(parsed, null, 2), isJson: true };
+}
+
 export function CardBody({ row }: { row: TimelineRow }) {
   const vr = row.record as ViewRecord;
 
@@ -131,7 +195,11 @@ export function CardBody({ row }: { row: TimelineRow }) {
       return (
         <div className="space-y-1">
           <FilePath path={edit.file_path} />
-          {edit.new_string && <Code language={lang}>{edit.new_string}</Code>}
+          {edit.new_string && (
+            <Code language={lang} showLineNumbers>
+              {edit.new_string}
+            </Code>
+          )}
         </div>
       );
     }
@@ -153,7 +221,11 @@ export function CardBody({ row }: { row: TimelineRow }) {
       return (
         <div className="space-y-1">
           <FilePath path={fp} />
-          {content && <Code language={lang}>{content}</Code>}
+          {content && (
+            <Code language={lang} showLineNumbers>
+              {content}
+            </Code>
+          )}
         </div>
       );
     }
@@ -207,7 +279,9 @@ export function CardBody({ row }: { row: TimelineRow }) {
           <span className="text-[10px] text-[#565f89] font-mono">
             Lines {startLine}-{endLine}
           </span>
-          <Code language={lang}>{cleaned}</Code>
+          <Code language={lang} showLineNumbers startingLineNumber={startLine}>
+            {cleaned}
+          </Code>
         </div>
       );
     }
@@ -227,7 +301,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
                   const codeText = String(children).replace(/\n$/, "");
                   if (match) {
                     return (
-                      <SyntaxHighlighter language={match[1]} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+                      <SyntaxHighlighter language={match[1]} style={codeTheme} customStyle={codeStyle} wrapLongLines>
                         {codeText}
                       </SyntaxHighlighter>
                     );
@@ -242,6 +316,28 @@ export function CardBody({ row }: { row: TimelineRow }) {
               {extracted}
             </ReactMarkdown>
           </div>
+        </div>
+      );
+    }
+
+    // Detect MCP-style and bare JSON results \u2014 pretty-print and (where
+    // appropriate) syntax-highlight. Without this, MCP wraps everything
+    // in `{"result":"<escaped JSON>"}`, which renders as one unreadable
+    // line of \n and \" escapes.
+    const structured = tryFormatStructuredResult(text);
+    if (structured && !isError) {
+      return (
+        <div className="flex items-start gap-1.5">
+          <span className="text-[#9ece6a] shrink-0 mt-0.5">{"\u2713"}</span>
+          {structured.isJson ? (
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <Code language="json">{structured.pretty}</Code>
+            </div>
+          ) : (
+            <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words min-w-0">
+              {structured.pretty}
+            </pre>
+          )}
         </div>
       );
     }
@@ -292,7 +388,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
             const text = String(children).replace(/\n$/, "");
             if (match) {
               return (
-                <SyntaxHighlighter language={match[1]} style={vscDarkPlus} customStyle={codeStyle} wrapLongLines>
+                <SyntaxHighlighter language={match[1]} style={codeTheme} customStyle={codeStyle} wrapLongLines>
                   {text}
                 </SyntaxHighlighter>
               );

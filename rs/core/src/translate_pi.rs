@@ -332,17 +332,20 @@ fn decompose_assistant(
             AgentPayload::PiMono(payload),
         );
 
-        events.push(CloudEvent::new(
-            source.to_string(),
-            IO_ARC_EVENT.to_string(),
-            data,
-            Some(subtype.to_string()),
-            Some(derived_id),
-            timestamp.clone(),
-            None,
-            None,
-            Some("pi-mono".to_string()),
-        ));
+        events.push(
+            CloudEvent::new(
+                source.to_string(),
+                IO_ARC_EVENT.to_string(),
+                data,
+                Some(subtype.to_string()),
+                Some(derived_id),
+                timestamp.clone(),
+                None,
+                None,
+                Some("pi-mono".to_string()),
+            )
+            .with_host(crate::host::host()),
+        );
     }
 
     // Synthetic turn boundary.
@@ -383,17 +386,20 @@ fn decompose_assistant(
             AgentPayload::PiMono(p),
         );
 
-        events.push(CloudEvent::new(
-            source.to_string(),
-            IO_ARC_EVENT.to_string(),
-            data,
-            Some("system.turn.complete".to_string()),
-            Some(derived_id),
-            timestamp.clone(),
-            None,
-            None,
-            Some("pi-mono".to_string()),
-        ));
+        events.push(
+            CloudEvent::new(
+                source.to_string(),
+                IO_ARC_EVENT.to_string(),
+                data,
+                Some("system.turn.complete".to_string()),
+                Some(derived_id),
+                timestamp.clone(),
+                None,
+                None,
+                Some("pi-mono".to_string()),
+            )
+            .with_host(crate::host::host()),
+        );
     }
 
     events
@@ -511,7 +517,8 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
         None,
         None,
         Some("pi-mono".to_string()),
-    )]
+    )
+    .with_host(crate::host::host())]
 }
 
 #[cfg(test)]

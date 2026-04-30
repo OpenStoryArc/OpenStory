@@ -8,10 +8,12 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
+import type { StorySession } from "@/lib/story-api";
 import { compactTime } from "@/lib/time";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
+import { useSessionsList } from "@/hooks/use-sessions-list";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,9 +64,29 @@ interface SidebarProps {
 // Data derivation (pure functions)
 // ---------------------------------------------------------------------------
 
+/** Derive the sidebar's session list.
+ *
+ *  Pre-redesign: the universe of sessions came from `events` (every
+ *  WireRecord seen). After feat/lazy-load-initial-state, records arrive
+ *  lazily on session-open, so `events` is empty for unloaded sessions
+ *  and the universe must come from a REST `/api/sessions` snapshot.
+ *
+ *  The function merges both inputs:
+ *    - Every entry in `restSessions` produces a `SessionInfo` row, even
+ *      with no loaded records (rich indicators like subagent count and
+ *      depthProfile show as zero/empty until that session is opened).
+ *    - When `events` contains records for a session, those records
+ *      override the REST baseline for eventCount, depthProfile, and the
+ *      agent/plan aggregates.
+ *
+ *  Back-compat: `restSessions` is optional. Tests that only pass
+ *  `events` continue to work — the derived list is whatever the records
+ *  reveal, exactly as before.
+ */
 export function deriveSessions(
   events: readonly (ViewRecord | WireRecord)[],
   sessionLabels?: Readonly<Record<string, SessionLabel>>,
+  restSessions?: readonly StorySession[],
 ): SessionInfo[] {
   const sessionMap = new Map<string, {
     count: number;
@@ -73,17 +95,46 @@ export function deriveSessions(
     latest: string;
     subagents: Map<string, { count: number; first: string; repId: string }>;
     depths: number[];
+    /** True when this session was seeded from REST (events may still be empty). */
+    fromRest: boolean;
   }>();
 
+  if (restSessions) {
+    for (const r of restSessions) {
+      sessionMap.set(r.session_id, {
+        count: r.event_count ?? 0,
+        mainCount: 0,
+        planCount: 0,
+        latest: r.last_event ?? r.start_time ?? "",
+        subagents: new Map(),
+        depths: [],
+        fromRest: true,
+      });
+    }
+  }
+
+  // Records-derived data overrides the REST baseline for loaded sessions.
+  // We track loaded sessions separately so `count` is taken from records,
+  // not added to the REST baseline.
+  const loadedFromEvents = new Set<string>();
   for (const ev of events) {
     const sid = ev.session_id;
-    let session = sessionMap.get(sid);
-    if (!session) {
-      session = { count: 0, mainCount: 0, planCount: 0, latest: "", subagents: new Map(), depths: [] };
-      sessionMap.set(sid, session);
+    if (!loadedFromEvents.has(sid)) {
+      loadedFromEvents.add(sid);
+      const baseline = sessionMap.get(sid);
+      // Reset counts to zero — records about to be re-tallied.
+      sessionMap.set(sid, {
+        count: 0,
+        mainCount: 0,
+        planCount: 0,
+        latest: baseline?.latest ?? "",
+        subagents: new Map(),
+        depths: [],
+        fromRest: baseline?.fromRest ?? false,
+      });
     }
+    const session = sessionMap.get(sid)!;
     session.count++;
-    // Count completed plans (ExitPlanMode tool_calls)
     if (
       ev.record_type === "tool_call" &&
       ev.payload &&
@@ -98,7 +149,6 @@ export function deriveSessions(
       session.depths.push(ev.depth);
     }
 
-    // Separate main agent vs subagent events
     const agentId = ev.agent_id;
     if (agentId) {
       let sub = session.subagents.get(agentId);
@@ -117,6 +167,12 @@ export function deriveSessions(
   }
 
   const sessions: SessionInfo[] = [];
+  // REST sessions carry their own label/branch/tokens; prefer the WS
+  // sessionLabels when present (it carries live token deltas).
+  const restById = new Map<string, StorySession>();
+  if (restSessions) {
+    for (const r of restSessions) restById.set(r.session_id, r);
+  }
   for (const [id, data] of sessionMap) {
     const subagents: SubagentInfo[] = [];
     for (const [agentId, subData] of data.subagents) {
@@ -129,17 +185,25 @@ export function deriveSessions(
       });
     }
     subagents.sort((a, b) => a.firstTimestamp.localeCompare(b.firstTimestamp));
+
     const labelData = sessionLabels?.[id];
+    const restRow = restById.get(id);
+    const label = labelData?.label ?? restRow?.label ?? null;
+    const branch = labelData?.branch ?? restRow?.branch ?? null;
+    const totalTokens =
+      (labelData?.total_input_tokens ?? restRow?.total_input_tokens ?? 0) +
+      (labelData?.total_output_tokens ?? restRow?.total_output_tokens ?? 0);
+
     sessions.push({
       id,
       eventCount: data.count,
       latestTimestamp: data.latest,
       mainAgentCount: data.mainCount,
       subagents,
-      label: labelData?.label ?? null,
-      branch: labelData?.branch ?? null,
+      label,
+      branch,
       depthProfile: sampleDepthProfile(data.depths),
-      totalTokens: (labelData?.total_input_tokens ?? 0) + (labelData?.total_output_tokens ?? 0),
+      totalTokens,
       planCount: data.planCount,
     });
   }
@@ -174,9 +238,14 @@ export const Sidebar = memo(function Sidebar({
   onFocusAgent,
   sessionLabels,
 }: SidebarProps) {
+  // The sidebar's universe of sessions comes from REST (/api/sessions)
+  // since `initial_state` no longer ships records. Records for the
+  // currently-open session arrive lazily and augment per-session
+  // indicators (subagent count, depth profile, plan count).
+  const { sessions: restSessions } = useSessionsList();
   const sessions = useMemo(
-    () => deriveSessions(events, sessionLabels),
-    [events, sessionLabels],
+    () => deriveSessions(events, sessionLabels, restSessions),
+    [events, sessionLabels, restSessions],
   );
   const selectedInfo = useMemo(
     () => sessions.find((s) => s.id === selectedSession) ?? null,

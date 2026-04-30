@@ -64,6 +64,7 @@ impl EventStore for JsonlStore {
                 event_count: 0,
                 first_event: None,
                 last_event: None,
+                host: None,
             })
             .collect())
     }
@@ -195,6 +196,7 @@ mod tests {
             event_count: 0,
             first_event: None,
             last_event: None,
+            host: None,
         };
         // Should not error
         store.upsert_session(&row).await.unwrap();

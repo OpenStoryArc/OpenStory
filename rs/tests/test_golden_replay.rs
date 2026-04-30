@@ -254,8 +254,38 @@ fn looks_like_uuid(s: &[u8]) -> bool {
     true
 }
 
+/// Replace every `"host"` field value in the JSON tree with the literal
+/// `"<host>"`. Host is stamped at translation time from the OS hostname,
+/// which varies between dev machines, GitHub runners, and Katie's box —
+/// snapshotting raw values would fail across environments. We capture
+/// presence + position of the host field; the actual value is the
+/// translator's job to round-trip and is covered by host.rs unit tests.
+fn normalize_host(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if k == "host" {
+                    if let Value::String(s) = val {
+                        *s = "<host>".to_string();
+                    }
+                } else {
+                    normalize_host(val);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                normalize_host(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn canonical_string(v: &Value) -> String {
-    let raw = serde_json::to_string_pretty(v).expect("pretty-print snapshot");
+    let mut owned = v.clone();
+    normalize_host(&mut owned);
+    let raw = serde_json::to_string_pretty(&owned).expect("pretty-print snapshot");
     normalize_uuids(&raw)
 }
 
