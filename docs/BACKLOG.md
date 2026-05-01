@@ -7,7 +7,72 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 ## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
 
 ### Boot-replay status on `/api/health`
-Async replay lets HTTP bind in ~3s, but projections keep populating in the background for 5–60s (depending on SQLite event count). During that window `/api/sessions` returns rows with empty/zero `label`/`event_count`/`tokens` — looks broken to the user. Add a `replay_status: "in_progress" | "complete"` field to `/api/health` (and the WebSocket `initial_state` handshake) so the UI can render a "Reconstructing sessions…" hint instead of silent-empty rows. ~20 LOC.
+Async replay lets HTTP bind in ~3s, but projections keep populating in the background for 5–60s (depending on SQLite event count). During that window `/api/sessions` returns rows with empty/zero `label`/`event_count`/`tokens` — looks broken to the user. Add a `replay_status: "in_progress" | "complete"` field to `/api/health` (and the WebSocket `initial_state` handshake) so the UI can render a "Reconstructing sessions…" hint instead of silent-empty rows. ~20 LOC. **Folded into the broader "Self-reporting `/api/health` endpoint" entry below.**
+
+### Self-reporting `/api/health` endpoint (silent-state-mismatch detector)
+Recurring class of debugging pain: every layer of OpenStory thinks it's working, the symptom appears downstream, and finding the cause requires SSH-ing into containers and running SQL. Today's instances (in one session): old container served stale UI bundle, browser tab pointed at pre-PR client hammered an unbounded endpoint, schema migration silently fell back to JsonlStore (so `/api/sessions` returned `event_count: 0` for everything while persist consumer logs showed real activity), NATS leaf reachability un-verifiable from one machine. Each of these took 10–30 minutes of spelunking; each would have been one curl with a real health endpoint.
+
+**The shape:** `GET /api/health` returns a JSON document where every layer reports what *it* thinks is true. The human (or another agent) compares them. Drift between layers = bug.
+
+```json
+{
+  "version": "0.X.Y+commit-sha",
+  "uptime_secs": 14400,
+  "build_time": "2026-05-01T15:25:39Z",
+  "stores": {
+    "event_store": {
+      "backend": "JsonlStore",          // ← this would have screamed today
+      "expected_backend": "SqliteStore",
+      "fallback_reason": "no such column: host"
+    },
+    "schema_version": 7,
+    "schema_migrations_pending": ["add_host_column"]
+  },
+  "watcher": {
+    "watch_dirs": ["/watch"],
+    "exists": [true],
+    "last_file_event_ago_secs": 12
+  },
+  "bus": {
+    "nats_url": "nats://...",
+    "connected": true,
+    "leaf_connected": true,
+    "leaf_remote": "100.77.40.95:7422",
+    "leaf_rtt_ms": 37,
+    "streams": {
+      "events":   { "msgs": 6771, "bytes": 1073568465, "last_seq": 15970 },
+      "patterns": { "msgs": 5131, "bytes": 268342025 }
+    }
+  },
+  "boot_replay": {
+    "status": "complete",
+    "events": 106308,
+    "sessions": 442,
+    "duration_secs": 3
+  },
+  "ingestion": {
+    "events_last_60s": 23,
+    "last_persist_ago_secs": 4,
+    "lagged_ws_messages": 0
+  },
+  "ui_bundle_version": "..."
+}
+```
+
+**Why each field:**
+- `event_store.backend` vs `expected_backend` — surfaces silent SQLite→JSONL fallback (the single most surprising failure mode in this codebase).
+- `schema_migrations_pending` — surfaces stale databases pre-emptively, before they trigger fallback.
+- `watcher.last_file_event_ago_secs` — surfaces a stuck watcher (active coding but no events flowing). Distinguishes "you're not coding" from "watcher broke."
+- `bus.leaf_connected` + `bus.streams` — surfaces NATS issues (the leaf-to-hub path that none of us can otherwise verify from a single machine). Pulls from `/leafz` + `/jsz` on the local NATS HTTP monitor port; OpenStory just re-exposes them in one place.
+- `boot_replay` — folds in the existing "Boot-replay status" item above.
+- `ingestion.events_last_60s` + `last_persist_ago_secs` — surfaces "nothing is flowing" without requiring a tail of the container logs.
+- `ui_bundle_version` — distinguishes "old container still running" from "code is up to date" (we got bitten by this earlier today).
+
+**UI surface:** a status indicator in the Header that pulls `/api/health` every 30s. Green = all expected. Yellow = recoverable drift (boot replay in progress). Red = drift (fallback active, watcher stuck, leaf disconnected). Click to expand the full JSON in a panel.
+
+**Estimate:** ~150 LOC for the endpoint + ~50 LOC per store/bus/watcher contributor (each layer adds a tiny `report_health()` method) + ~80 LOC for the UI indicator. The biggest cost is socializing the convention: "every new layer adds itself to /api/health."
+
+**Why this matters specifically for OpenStory:** the project's soul is *visibility into what your agents are doing*. The tool itself should hold to the same standard — visibility into what *it* is doing. Every silent failure mode in OpenStory is an instance of the tool failing the principle it sells.
 
 ### Bounded `full_payloads` cache
 `state.store.full_payloads` is `Arc<DashMap<(String, String), String>>` — grows unbounded as truncated tool outputs >100KB get cached for the lazy-load endpoint. With a 10GB data dir full of large tool outputs this can balloon memory during replay. Add a configurable LRU (e.g., `full_payload_cache_bytes = 512_000_000`) that evicts oldest entries when the size threshold is crossed. Cache misses fall back to the EventStore `full_payload()` path.
