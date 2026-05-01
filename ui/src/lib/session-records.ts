@@ -56,3 +56,65 @@ export async function fetchSessionRecords(
  *  server-side default; surfaced here so the UI can compute the next
  *  cursor without hard-coding a magic number. */
 export const DEFAULT_PAGE_SIZE = 500;
+
+/** Safety cap on cursor-walk iterations. Each page is at most
+ *  `MAX_RECORDS_LIMIT = 2000` server-side, so 200 iterations covers
+ *  400k-record sessions before bailing — well above any realistic
+ *  Claude Code transcript. */
+const MAX_PAGES = 200;
+
+/** Stream every record for `sessionId` page by page, newest-window-first.
+ *
+ *  Each yielded page is at most `pageSize` records, oldest-first within
+ *  the window. The first page covers the most-recent records; subsequent
+ *  pages walk older history via the `before_seq` cursor until a short
+ *  (or empty) page comes back.
+ *
+ *  Why newest-first: the user just opened the session, the recent activity
+ *  is what they care about most. Yielding it first lets the UI paint after
+ *  one round-trip while older pages keep streaming in the background. */
+export async function* streamSessionRecords(
+  sessionId: string,
+  opts: { pageSize?: number; signal?: AbortSignal } = {},
+): AsyncGenerator<WireRecord[], void, void> {
+  const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
+  let beforeSeq: number | undefined;
+
+  for (let i = 0; i < MAX_PAGES; i++) {
+    if (opts.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const page = await fetchSessionRecords(sessionId, {
+      limit: pageSize,
+      beforeSeq,
+      signal: opts.signal,
+    });
+    if (page.length === 0) return;
+    yield page;
+    if (page.length < pageSize) return;
+    beforeSeq = page[0]!.seq;
+    if (beforeSeq <= 1) return;
+  }
+}
+
+/** Fetch every record for `sessionId`, walking the `before_seq` cursor
+ *  backward until a short page comes back. Returns one flat array
+ *  oldest-first.
+ *
+ *  Prefer `streamSessionRecords` when the consumer can handle progressive
+ *  dispatch — it lets the UI paint after the first round-trip rather than
+ *  waiting for the full walk. This helper exists for callers that need
+ *  the materialized array (e.g. tests, batch analysis). */
+export async function fetchAllSessionRecords(
+  sessionId: string,
+  opts: { pageSize?: number; signal?: AbortSignal } = {},
+): Promise<WireRecord[]> {
+  const pages: WireRecord[][] = [];
+  for await (const page of streamSessionRecords(sessionId, opts)) {
+    pages.push(page);
+  }
+  // Pages came newest-window-first; flatten oldest-first.
+  const out: WireRecord[] = [];
+  for (let i = pages.length - 1; i >= 0; i--) out.push(...pages[i]!);
+  return out;
+}
