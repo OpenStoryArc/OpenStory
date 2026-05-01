@@ -53,5 +53,10 @@ history/
 deploy/*.env
 !deploy/*.env.example
 
+# Local-only deployment overrides (machine-specific tokens, hostnames, etc.).
+# These pair with committed templates of the same name minus the `.local`.
+docker-compose.*.local.yml
+deploy/*.local.conf
+
 # Local security audit reports
 .gstack/

@@ -39,6 +39,12 @@ services:
       - OPEN_STORY_DATA_BACKEND=mongo
       - OPEN_STORY_MONGO_URI=mongodb://mongo:27017
       - OPEN_STORY_MONGO_DB=openstory
+      # Stamp every CloudEvent with the host machine's identity (not the
+      # container's transient ID). Set in your shell or .env, e.g.
+      # `export OPEN_STORY_HOST=Katies-Mac-mini`. Unset → resolver falls
+      # back to gethostname() inside the container, which returns the
+      # Docker container ID and defeats the feature.
+      - OPEN_STORY_HOST=${OPEN_STORY_HOST:-}
     depends_on:
       - nats
       - mongo
