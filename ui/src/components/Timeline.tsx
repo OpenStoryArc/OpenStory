@@ -11,7 +11,7 @@ import type { Observable } from "rxjs";
 import { useObservable } from "@/hooks/use-observable";
 import type { EnrichedSessionState } from "@/streams/sessions";
 import { dispatchSessionRecordsLoaded } from "@/streams/sessions";
-import { fetchSessionRecords, DEFAULT_PAGE_SIZE } from "@/lib/session-records";
+import { streamSessionRecords } from "@/lib/session-records";
 import type { WireRecord } from "@/types/wire-record";
 import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/timeline";
 import { compactTime } from "@/lib/time";
@@ -306,42 +306,48 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
   const [timelineFocused, setTimelineFocused] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
 
-  // ── Lazy-load: fetch records for the selected session via REST ────
+  // ── Lazy-load: stream records for the selected session via REST ────
   //
-  // Pre-redesign, the WebSocket handshake shipped every session's
-  // records (~39 MB on a real box). After feat/lazy-load-initial-state,
-  // records arrive lazily: when the user opens a session the Timeline
-  // fetches its records via /api/sessions/{id}/records and dispatches
-  // the result through `dispatchSessionRecordsLoaded`. The reducer
-  // dedups by id, so live `enriched` deltas that arrived in the
-  // meantime are preserved.
+  // Pre-redesign, the WebSocket handshake shipped every session's records
+  // (~39 MB on a real box). After feat/lazy-load-initial-state, records
+  // arrive lazily on session-open. We `streamSessionRecords()` and
+  // dispatch each page as it arrives so the user sees the recent
+  // activity after one round-trip; older history fills in behind it.
+  // The reducer dedups by id, so live `enriched` deltas overlapping the
+  // in-flight stream are preserved.
   //
-  // `state.loadedSessions` is the cache key — skip the fetch if we've
-  // already loaded this session in the current connection.
+  // The cache check uses a ref instead of the state value as a dep:
+  // dispatching the first page mutates `state.loadedSessions`, and
+  // re-running this effect mid-stream would abort the iterator.
+  const loadedSessionsRef = useRef(state.loadedSessions);
+  loadedSessionsRef.current = state.loadedSessions;
+
   useEffect(() => {
     if (!sessionFilter) return;
-    if (state.loadedSessions.has(sessionFilter)) return;
+    if (loadedSessionsRef.current.has(sessionFilter)) return;
 
     const ctrl = new AbortController();
     setLoadingSession(true);
-    fetchSessionRecords(sessionFilter, {
-      limit: DEFAULT_PAGE_SIZE,
-      signal: ctrl.signal,
-    })
-      .then((records) => {
-        if (ctrl.signal.aborted) return;
-        dispatchSessionRecordsLoaded(sessionFilter, records);
-        setLoadingSession(false);
-      })
-      .catch((err) => {
+
+    (async () => {
+      try {
+        for await (const page of streamSessionRecords(sessionFilter, {
+          signal: ctrl.signal,
+        })) {
+          if (ctrl.signal.aborted) return;
+          dispatchSessionRecordsLoaded(sessionFilter, page);
+        }
+      } catch (err) {
         if (ctrl.signal.aborted) return;
         // eslint-disable-next-line no-console
-        console.warn("[timeline] session records fetch failed:", err);
-        setLoadingSession(false);
-      });
+        console.warn("[timeline] session records stream failed:", err);
+      } finally {
+        if (!ctrl.signal.aborted) setLoadingSession(false);
+      }
+    })();
 
     return () => ctrl.abort();
-  }, [sessionFilter, state.loadedSessions]);
+  }, [sessionFilter]);
 
   // Build subtree membership set using treeIndex from state (null when not focused)
   const subtreeSet = useMemo(() => {

@@ -433,6 +433,9 @@ Two scripts disagree on what "turn" means: `sessionstory.py` counts `system.turn
 ### UI Battle-Hardening
 Performance and chaos testing: synthetic event firehose (throughput, latency, memory), render fidelity under load, interactive chaos (click storm, filter switching), DPI/viewport matrix, 8-hour soak tests.
 
+### E2E coverage for streaming session-record pagination
+`fix/lazy-load-pagination` (PR #38) added `streamSessionRecords()` and progressive page-by-page dispatch in `Timeline.tsx`. Unit coverage is solid (9 specs in `ui/tests/lib/session-records-pagination.test.ts` covering cursor walk, ordering, abort, reducer dedup), but no e2e exercises the real React lifecycle: StrictMode double-mount, navigation aborting mid-stream, live `enriched` deltas merging during in-flight pages, or the user-visible "page paints after first round-trip" promise. Blocker today is fixture size — none of `e2e/fixtures/seed-data/*.jsonl` exceeds 500 records (largest is 301 lines), so the cursor walk is never triggered. Work shape: (1) add a programmatic seed generator (or static fixture) producing a 600+ event session; (2) write a Playwright spec that opens it, intercepts `/records` requests, asserts at least one `?before_seq=` follow-up fires, and asserts older records become visible after the stream completes. ~30 min once the fixture exists.
+
 ### Test Cycle False Negative
 Fix TestCycleDetector substring matching — "0 failed" in passing output shouldn't trigger failure detection. Use context-aware classification or check pass keywords first.
 
