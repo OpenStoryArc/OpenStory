@@ -10,6 +10,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Observable } from "rxjs";
 import { useObservable } from "@/hooks/use-observable";
 import type { EnrichedSessionState } from "@/streams/sessions";
+import { dispatchSessionRecordsLoaded } from "@/streams/sessions";
+import { fetchSessionRecords, DEFAULT_PAGE_SIZE } from "@/lib/session-records";
 import type { WireRecord } from "@/types/wire-record";
 import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/timeline";
 import { compactTime } from "@/lib/time";
@@ -296,12 +298,50 @@ interface TimelineProps {
 }
 
 export function Timeline({ state$, sessionFilter = null, agentFilter = null, onExploreLink }: TimelineProps) {
-  const state = useObservable(state$, { records: [], currentEphemeral: null, patterns: [], filterCounts: {}, treeIndex: new Map(), sessionLabels: {} } as EnrichedSessionState);
+  const state = useObservable(state$, { records: [], currentEphemeral: null, patterns: [], treeIndex: new Map(), sessionLabels: {}, loadedSessions: new Set() } as EnrichedSessionState);
   const connectionStatus = useConnectionStatus();
   const [activeFilter, setActiveFilter] = useState("all");
   const [focusRootId, setFocusRootId] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [timelineFocused, setTimelineFocused] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(false);
+
+  // ── Lazy-load: fetch records for the selected session via REST ────
+  //
+  // Pre-redesign, the WebSocket handshake shipped every session's
+  // records (~39 MB on a real box). After feat/lazy-load-initial-state,
+  // records arrive lazily: when the user opens a session the Timeline
+  // fetches its records via /api/sessions/{id}/records and dispatches
+  // the result through `dispatchSessionRecordsLoaded`. The reducer
+  // dedups by id, so live `enriched` deltas that arrived in the
+  // meantime are preserved.
+  //
+  // `state.loadedSessions` is the cache key — skip the fetch if we've
+  // already loaded this session in the current connection.
+  useEffect(() => {
+    if (!sessionFilter) return;
+    if (state.loadedSessions.has(sessionFilter)) return;
+
+    const ctrl = new AbortController();
+    setLoadingSession(true);
+    fetchSessionRecords(sessionFilter, {
+      limit: DEFAULT_PAGE_SIZE,
+      signal: ctrl.signal,
+    })
+      .then((records) => {
+        if (ctrl.signal.aborted) return;
+        dispatchSessionRecordsLoaded(sessionFilter, records);
+        setLoadingSession(false);
+      })
+      .catch((err) => {
+        if (ctrl.signal.aborted) return;
+        // eslint-disable-next-line no-console
+        console.warn("[timeline] session records fetch failed:", err);
+        setLoadingSession(false);
+      });
+
+    return () => ctrl.abort();
+  }, [sessionFilter, state.loadedSessions]);
 
   // Build subtree membership set using treeIndex from state (null when not focused)
   const subtreeSet = useMemo(() => {
@@ -615,7 +655,14 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
 
       {/* Event feed */}
       <div ref={scrollRef} className="flex-1 overflow-auto outline-none" tabIndex={0} data-focus-zone="timeline" onFocus={() => setTimelineFocused(true)} onBlur={() => setTimelineFocused(false)}>
-        {rows.length === 0 ? (
+        {loadingSession && rows.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-[#565f89]" data-testid="loading-session">
+            <div className="text-center">
+              <div className="text-lg mb-2">Loading session…</div>
+              <div className="text-xs">Fetching records via REST</div>
+            </div>
+          </div>
+        ) : rows.length === 0 ? (
           (() => {
             const msg = emptyStateMessage({
               connection: connectionStatus,

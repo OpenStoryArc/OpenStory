@@ -26,6 +26,9 @@ pub struct SessionListQuery {
     pub offset: Option<usize>,
     /// Only include sessions with activity at or after this timestamp (RFC 3339).
     pub since: Option<String>,
+    /// Only include sessions whose origin host matches this value exactly.
+    /// Pre-migration sessions (host: None) never match a host filter.
+    pub host: Option<String>,
 }
 
 pub async fn list_sessions(
@@ -39,12 +42,23 @@ pub async fn list_sessions(
 
     // Filter by `since` if provided (compare last_event timestamp strings lexicographically —
     // they're RFC 3339 so lexicographic order == chronological order).
-    let filtered: Vec<&_> = if let Some(ref since) = query.since {
+    let since_filtered: Vec<&_> = if let Some(ref since) = query.since {
         all_rows.iter()
             .filter(|r| r.last_event.as_deref().unwrap_or("") >= since.as_str())
             .collect()
     } else {
         all_rows.iter().collect()
+    };
+
+    // Host filter: exact match. Sessions with host: None never match — this
+    // is deliberate. A filter like ?host=Maxs-Air should not leak legacy
+    // rows whose origin we simply don't know.
+    let filtered: Vec<&_> = if let Some(ref host) = query.host {
+        since_filtered.into_iter()
+            .filter(|r| r.host.as_deref() == Some(host.as_str()))
+            .collect()
+    } else {
+        since_filtered
     };
     let total = filtered.len();
 
@@ -105,6 +119,7 @@ pub async fn list_sessions(
             "branch": branch,
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
+            "host": row.host,
         }));
     }
     Json(json!({
@@ -1115,6 +1130,27 @@ pub async fn agent_search(
 
 // ── Records endpoint (WireRecords from projections) ─────────────────
 
+/// Query parameters for `GET /api/sessions/{id}/records`.
+///
+/// Default behavior (no params) returns every record for the session as a
+/// flat JSON array — preserved so the existing callers in SessionTimeline
+/// and TurnCard keep working unchanged. When either `limit` or
+/// `before_seq` is supplied, the response is paginated:
+///   - records are sorted by `seq` ascending,
+///   - filtered to `seq < before_seq` if `before_seq` is given,
+///   - then the most-recent `limit` records are returned (oldest-first
+///     within the window so the UI can prepend on scroll-up).
+///
+/// Use `before_seq = response[0].seq` to fetch the next page upward.
+#[derive(Deserialize)]
+pub struct SessionRecordsQuery {
+    pub limit: Option<usize>,
+    pub before_seq: Option<u64>,
+}
+
+const DEFAULT_RECORDS_LIMIT: usize = 500;
+const MAX_RECORDS_LIMIT: usize = 2000;
+
 /// GET /api/sessions/{session_id}/records
 ///
 /// Returns session events as WireRecords read directly from the EventStore.
@@ -1129,12 +1165,28 @@ pub async fn agent_search(
 pub async fn get_session_records(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
+    Query(query): Query<SessionRecordsQuery>,
 ) -> Json<Value> {
     use open_story_views::from_cloud_event::from_cloud_event;
     use open_story_views::unified::RecordBody;
     use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THRESHOLD};
 
-    log_event("api", &format!("GET /api/sessions/{}/records", short_id(&session_id)));
+    let paginated = query.limit.is_some() || query.before_seq.is_some();
+    log_event(
+        "api",
+        &format!(
+            "GET /api/sessions/{}/records{}",
+            short_id(&session_id),
+            if paginated {
+                format!(
+                    " (limit={:?} before_seq={:?})",
+                    query.limit, query.before_seq
+                )
+            } else {
+                String::new()
+            }
+        ),
+    );
     let s = state.read().await;
 
     let events = s
@@ -1182,7 +1234,7 @@ pub async fn get_session_records(
         depth
     }
 
-    let mut records: Vec<Value> = Vec::new();
+    let mut wires: Vec<WireRecord> = Vec::new();
     for event in &events {
         let ce = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()) {
             Ok(ce) => ce,
@@ -1208,21 +1260,43 @@ pub async fn get_session_records(
                 _ => (false, 0),
             };
 
-            let wire = WireRecord {
+            wires.push(WireRecord {
                 record: vr,
                 depth,
                 parent_uuid,
                 truncated,
                 payload_bytes,
-            };
-            if let Ok(v) = serde_json::to_value(wire) {
-                records.push(v);
-            }
+            });
         }
     }
 
     // Events come out of session_events() sorted by (seq, time) per the
-    // store contract, which matches the view_records fan-out order.
+    // store contract. Pagination operates on `seq` directly.
+    if paginated {
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_RECORDS_LIMIT)
+            .clamp(1, MAX_RECORDS_LIMIT);
+
+        // Filter by before_seq if provided.
+        if let Some(before) = query.before_seq {
+            wires.retain(|w| w.record.seq < before);
+        }
+
+        // Keep the most-recent `limit` records, ordered oldest-first
+        // (so the UI can prepend on scroll-up).
+        wires.sort_by_key(|w| w.record.seq);
+        let total = wires.len();
+        if total > limit {
+            wires = wires.split_off(total - limit);
+        }
+    }
+
+    let records: Vec<Value> = wires
+        .into_iter()
+        .filter_map(|w| serde_json::to_value(w).ok())
+        .collect();
+
     Json(Value::Array(records))
 }
 

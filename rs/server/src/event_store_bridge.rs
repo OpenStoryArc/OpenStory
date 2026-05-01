@@ -24,5 +24,6 @@ pub fn session_row_from_projection(
         event_count: proj.event_count() as u64,
         first_event,
         last_event,
+        host: None,
     }
 }

@@ -11,7 +11,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { codeTheme } from "@/lib/code-theme";
 import { detectLanguage } from "@/lib/detect-language";
 import { stripAnsi } from "@/lib/strip-ansi";
 import { sessionChipStyle } from "@/lib/session-colors";
@@ -531,7 +531,7 @@ function ApplyOutput({ output, toolName, outcome }: {
         )}
         <SyntaxHighlighter
           language={language}
-          style={vscDarkPlus}
+          style={codeTheme}
           customStyle={{
             margin: 0,
             padding: "6px 8px",

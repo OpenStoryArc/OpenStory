@@ -71,3 +71,34 @@ export function detectLanguage(options: {
 
   return "text";
 }
+
+/** Content-based fallback — only fires on strong signals.
+ *
+ *  Used when an Agent sub-agent returns file content verbatim without any
+ *  file_path in the calling tool's typed_input. Conservative by design:
+ *  returns `"text"` unless the first few lines carry an unambiguous
+ *  marker (TOML section header, Rust module doc, shebang, etc.). Wrong
+ *  guesses are worse than no highlighting. */
+export function detectLanguageFromContent(text: string): string {
+  if (!text) return "text";
+  const head = text.split("\n", 10);
+  const first = head.find((l) => l.trim().length > 0) ?? "";
+
+  // Shebang
+  if (first.startsWith("#!")) {
+    if (/python/.test(first)) return "python";
+    if (/\b(bash|sh|zsh)\b/.test(first)) return "bash";
+    if (/node/.test(first)) return "javascript";
+  }
+
+  // TOML: first non-empty line is a `[section]` header
+  if (/^\s*\[[A-Za-z][\w.-]*\]\s*$/.test(first)) return "toml";
+
+  // Rust: module doc comment or common top-level items in the first few lines
+  for (const line of head) {
+    if (/^\s*\/\/!/.test(line)) return "rust";
+    if (/^\s*(pub\s+)?(fn|struct|enum|trait|impl|mod|use)\s/.test(line)) return "rust";
+  }
+
+  return "text";
+}

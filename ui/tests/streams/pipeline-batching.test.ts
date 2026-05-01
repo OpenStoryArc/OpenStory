@@ -123,11 +123,12 @@ describe("pipeline batching", () => {
     const collected: EnrichedSessionState[] = [];
     const sub = state$.subscribe((s) => collected.push(s));
 
-    // Send initial_state followed by enriched in same window
+    // initial_state is sidebar-only post-redesign; the live enriched
+    // message is what brings records in.
     ws$.next({
       kind: "initial_state",
-      records: [wire({ id: "boot-1" }), wire({ id: "boot-2" })],
-      filter_counts: { s1: { all: 2 } },
+      session_labels: { s1: { label: "first prompt", branch: null } },
+      patterns: [],
     } as WsMessage);
     ws$.next(enrichedMsg([wire({ id: "r3", seq: 3 })]));
 
@@ -135,8 +136,8 @@ describe("pipeline batching", () => {
     sub.unsubscribe();
 
     const final = collected[collected.length - 1]!;
-    // initial_state resets (2 records), then enriched appends (1) = 3
-    expect(final.records).toHaveLength(3);
+    expect(final.records).toHaveLength(1);
+    expect(final.sessionLabels.s1?.label).toBe("first prompt");
   });
 
   it("batchMs=16: preserves all records from batch (no drops)", async () => {
@@ -166,14 +167,17 @@ describe("pipeline batching", () => {
     }
   });
 
-  it("batchMs=16: accumulates filter_deltas across batched actions", async () => {
+  it("batchMs=16: appends every batched record (server filter_deltas ignored)", async () => {
+    // After feat/lazy-load-initial-state, the reducer no longer applies
+    // `filter_deltas`. Filter counts are derived client-side from the
+    // visible records (Timeline.derivedFilterCounts). This test just
+    // verifies that all records make it through the batched pipeline.
     const ws$ = new Subject<WsMessage>();
     const state$ = buildSessionState$(ws$, { batchMs: 16 });
 
     const collected: EnrichedSessionState[] = [];
     const sub = state$.subscribe((s) => collected.push(s));
 
-    // 5 messages each adding {tools: 1} delta
     for (let i = 0; i < 5; i++) {
       ws$.next(enrichedMsg([wire({ id: `r${i}`, seq: i + 1 })], { tools: 1 }));
     }
@@ -182,7 +186,6 @@ describe("pipeline batching", () => {
     sub.unsubscribe();
 
     const final = collected[collected.length - 1]!;
-    // All 5 deltas should accumulate: tools = 5
-    expect(final.filterCounts.s1?.tools).toBe(5);
+    expect(final.records).toHaveLength(5);
   });
 });

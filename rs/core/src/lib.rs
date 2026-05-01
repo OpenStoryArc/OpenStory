@@ -6,9 +6,11 @@
 //! - `reader` — incremental file reader for transcript files
 //! - `output` — CloudEvent → JSONL file writer
 //! - `paths` — path utilities for session/project ID extraction
+//! - `host` — per-process host identity resolver for event origin stamping
 
 pub mod cloud_event;
 pub mod event_data;
+pub mod host;
 pub mod output;
 pub mod paths;
 pub mod reader;

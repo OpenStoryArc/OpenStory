@@ -168,6 +168,7 @@ fn read_jsonl_uuids(data_dir: &Path) -> HashMap<String, usize> {
 
 /// Every event UUID in SQLite appears exactly once in the JSONL escape hatch.
 #[tokio::test]
+#[ignore = "docker-required: needs open-story:test image; run locally via `cd rs && docker build -t open-story:test . && cargo test --test test_jsonl_escape_hatch -- --ignored`"]
 async fn jsonl_escape_hatch_matches_sqlite_event_ids() {
     let (_compose, _fixture_tmp, data_tmp, port) = start_stack().await;
 

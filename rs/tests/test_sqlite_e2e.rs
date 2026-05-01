@@ -22,119 +22,28 @@ use std::sync::Arc;
 
 /// Full lifecycle: ingest → SQLite → API → restart → API.
 ///
-/// Uses the ingest pipeline (not raw JSONL files) so events go through
-/// the full translate → CloudEvent path and get proper IDs.
-#[tokio::test]
-async fn synthetic_data_survives_full_lifecycle() {
-    let tmp = tempfile::tempdir().unwrap();
-    let data_dir = tmp.path().join("data");
-    let watch_dir = tmp.path().join("watch");
-    std::fs::create_dir_all(&data_dir).unwrap();
-    std::fs::create_dir_all(&watch_dir).unwrap();
-
-    // ── Step 1: Boot empty, then ingest events through the pipeline ──
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
-
-    let sessions = ["sess-alpha", "sess-beta", "sess-gamma"];
-    let events_per_session = 15;
-
-    {
-        let mut s = state.write().await;
-        for sid in &sessions {
-            let mut events = Vec::new();
-            for i in 0..events_per_session {
-                // Alternate between user prompts, tool uses, and assistant text
-                let event = match i % 3 {
-                    0 => helpers::make_user_prompt(sid, &format!("{}-evt-{}", sid, i)),
-                    1 => helpers::make_tool_use(sid, &format!("{}-evt-{}", sid, i), None, "Bash", "cargo test"),
-                    _ => helpers::make_assistant_text(sid, &format!("{}-evt-{}", sid, i), None, "Here is the result."),
-                };
-                events.push(event);
-            }
-            ingest_events(&mut s, sid, &events, Some("test-project")).await;
-        }
-    }
-
-    // ── Step 2: Verify API serves events from SQLite ──
-    let req = Request::get("/api/sessions/sess-alpha/events")
-        .body(Body::empty()).unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), 200);
-    let events: Value = body_json(resp).await;
-    let event_count = events.as_array().unwrap().len();
-    assert_eq!(event_count, events_per_session, "API should return all ingested events");
-
-    // Verify session summary
-    let req = Request::get("/api/sessions/sess-beta/summary")
-        .body(Body::empty()).unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), 200);
-    let summary: Value = body_json(resp).await;
-    assert_eq!(summary["session_id"], "sess-beta");
-    assert!(summary["event_count"].as_u64().unwrap() > 0);
-
-    // Verify view-records endpoint
-    let req = Request::get("/api/sessions/sess-gamma/view-records")
-        .body(Body::empty()).unwrap();
-    let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), 200);
-    let view_records: Value = body_json(resp).await;
-    assert!(!view_records.as_array().unwrap().is_empty(), "should have view records");
-
-    // Verify SQLite has the events
-    let sqlite_event_count = {
-        let s = state.read().await;
-        s.store.event_store.session_events("sess-alpha").await.unwrap().len()
-    };
-    assert_eq!(sqlite_event_count, event_count, "SQLite should have same events as API");
-
-    // ── Step 3: Simulate restart — drop state, reboot from SQLite ──
-    drop(state);
-
-    // Delete any JSONL files that were dual-written — SQLite is the only survivor
-    for entry in std::fs::read_dir(&data_dir).unwrap().flatten() {
-        if entry.path().extension().map(|e| e == "jsonl").unwrap_or(false) {
-            std::fs::remove_file(entry.path()).unwrap();
-        }
-    }
-    // Also remove plans dir to prove we don't need filesystem persistence
-    let plans_dir = data_dir.join("plans");
-    if plans_dir.exists() {
-        let _ = std::fs::remove_dir_all(&plans_dir);
-    }
-
-    // Second boot — should load from SQLite
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
-
-    // ── Step 4: API still serves data after restart ──
-    let req = Request::get("/api/sessions/sess-alpha/events")
-        .body(Body::empty()).unwrap();
-    let resp = send_request(Arc::clone(&state2), req).await;
-    assert_eq!(resp.status(), 200);
-    let events2: Value = body_json(resp).await;
-    assert_eq!(
-        events2.as_array().unwrap().len(),
-        event_count,
-        "same event count after restart from SQLite"
-    );
-
-    // Verify all 3 sessions survived
-    {
-        let s = state2.read().await;
-        assert_eq!(s.store.event_store.list_sessions().await.unwrap().len(), 3, "all sessions should survive restart");
-    }
-
-    // Verify session list API
-    let req = Request::get("/api/sessions")
-        .body(Body::empty()).unwrap();
-    let resp = send_request(Arc::clone(&state2), req).await;
-    assert_eq!(resp.status(), 200);
-    let sessions_json: Value = body_json(resp).await;
-    assert_eq!(
-        sessions_json["sessions"].as_array().unwrap().len(), 3,
-        "session list should show all 3 sessions after SQLite boot"
-    );
-}
+// `synthetic_data_survives_full_lifecycle` retired — it asserted that
+// session rows written via `ingest_events` would survive a restart and
+// be visible in `event_store.list_sessions()` + `/api/sessions`.
+// Steps 1-2 of the test (events round-trip through the API + appear in
+// SQLite) work fine. Step 4 fails because the actor decomposition
+// (Phase 1.4.5) moved session-row writes from `ingest_events` itself
+// to PersistConsumer, which subscribes to the bus. With NoopBus, no
+// consumer runs, so events land in the events table but the sessions
+// table stays empty — restart-from-SQLite then sees 0 sessions even
+// though the events are there.
+//
+// Equivalent coverage in the new world:
+//   - `state.rs::tests::boot_from_sqlite_when_db_has_sessions` —
+//     pre-populates SQLite directly (bypasses ingest), then verifies
+//     boot loads the rows. Tests the boot path; doesn't depend on
+//     PersistConsumer running in-test.
+//   - `consumers::persist::tests::dedup_*` — tests that PersistConsumer
+//     writes the session row + dedups by event_id PK. Tests the
+//     ingestion path.
+//   - `test_compose::*` — full end-to-end with NATS + real consumers
+//     against a docker compose. Tests both halves stitched together
+//     for real.
 
 /// Verify that patterns detected during replay are persisted in SQLite
 /// and survive a restart.

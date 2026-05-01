@@ -61,6 +61,10 @@ kill-port port:
       fi
     fi
 
+# Check (and optionally install) boot prerequisites — flags: --mode native|docker|all, --install
+check *ARGS:
+    bash scripts/check-prereqs.sh {{ARGS}}
+
 # Build and start NATS + Mongo + server (mongo backend) + UI (Ctrl+C to stop)
 up:
     #!/usr/bin/env bash
@@ -80,8 +84,10 @@ up:
       exit 1
     fi
     if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream..."
-      nats-server -c nats.conf &disown 2>/dev/null
+      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
+      if [ -f .env ]; then set -a; source .env; set +a; fi
+      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
+      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
       sleep 1
     else
       echo "NATS already running on :4222"
@@ -117,8 +123,10 @@ up-no-mongo:
       exit 1
     fi
     if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream..."
-      nats-server -c nats.conf &disown 2>/dev/null
+      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
+      if [ -f .env ]; then set -a; source .env; set +a; fi
+      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
+      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
       sleep 1
     else
       echo "NATS already running on :4222"
@@ -181,9 +189,13 @@ mongo-reset: mongo-stop
       echo "No openstory-mongo-data volume to remove"
     fi
 
-# Start NATS JetStream standalone
+# Start NATS JetStream standalone (leaf node → Hetzner hub)
 nats:
-    nats-server -c nats.conf
+    #!/usr/bin/env bash
+    set -e
+    if [ -f .env ]; then set -a; source .env; set +a; fi
+    : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
+    nats-server -c deploy/nats-leaf.conf
 
 # Stop NATS
 nats-stop:

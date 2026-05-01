@@ -1,16 +1,16 @@
 /** Strip `cat -n` style line numbers from Read tool output.
  *
- *  The Read tool returns file content with line number prefixes like:
- *    "     1→content here"
- *    "    10→more content"
+ *  Two prefix formats are observed in the wild:
+ *    Claude Code Read tool:        "     1→content here"   (arrow separator)
+ *    Agent sub-agent / pi-mono:    "1\tcontent here"       (tab separator)
  *
- *  This strips those prefixes to recover the original file content
+ *  This strips either prefix to recover the original file content
  *  for syntax highlighting.
  *
  *  Pure function: string in, string out. */
 
-/** Pattern: optional whitespace, digits, arrow (→), then optional tab/space */
-const LINE_NUM_RE = /^ *\d+→\t?/;
+/** Pattern: optional whitespace + digits + (arrow with optional tab | tab). */
+const LINE_NUM_RE = /^ *\d+(?:→\t?|\t)/;
 
 /** Check if text appears to be cat -n formatted (first few lines match the pattern). */
 export function isCatNumbered(text: string): boolean {
@@ -34,7 +34,7 @@ export function stripLineNumbers(text: string): string {
  *  Returns 1 if not detectable. */
 export function extractStartLineNumber(text: string): number {
   if (!text) return 1;
-  const match = text.match(/^ *(\d+)→/);
+  const match = text.match(/^ *(\d+)(?:→|\t)/);
   if (!match) return 1;
   return parseInt(match[1]!, 10) || 1;
 }

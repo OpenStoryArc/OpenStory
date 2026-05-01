@@ -27,6 +27,12 @@ pub struct CloudEvent {
     /// CloudEvent extension attribute — not part of the spec, but allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Host where the translator ran (normalized `gethostname()` or override).
+    /// Stamped at event creation via [`CloudEvent::with_host`] — survives
+    /// NATS replication so origin identity is preserved across leaves/hub.
+    /// CloudEvent extension attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 impl CloudEvent {
@@ -54,7 +60,18 @@ impl CloudEvent {
             subject,
             dataschema,
             agent,
+            host: None,
         }
+    }
+
+    /// Stamp the originating host onto this event. Chainable.
+    ///
+    /// Translators call this right after `new()` with the value from
+    /// [`crate::host::host()`]. Later calls override earlier ones, which is
+    /// convenient in test fixtures.
+    pub fn with_host(mut self, host: impl Into<String>) -> Self {
+        self.host = Some(host.into());
+        self
     }
 }
 
@@ -149,5 +166,95 @@ mod tests {
         let ce1 = CloudEvent::new("s".into(), "t".into(), d(), None, None, None, None, None, None);
         let ce2 = CloudEvent::new("s".into(), "t".into(), d(), None, None, None, None, None, None);
         assert_ne!(ce1.id, ce2.id, "auto-generated IDs should be unique");
+    }
+
+    // ── host stamping ──────────────────────────────────────────────────
+
+    fn minimal_ce() -> CloudEvent {
+        CloudEvent::new(
+            "arc://test".into(),
+            "io.arc.event".into(),
+            test_data(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn host_defaults_to_none_from_new() {
+        // New() must not set host — keeps the 52 existing call sites
+        // untouched by this refactor. Only translators opt in via with_host().
+        let ce = minimal_ce();
+        assert!(ce.host.is_none(), "new() must default host to None");
+    }
+
+    #[test]
+    fn with_host_sets_field() {
+        let ce = minimal_ce().with_host("Maxs-Air");
+        assert_eq!(ce.host.as_deref(), Some("Maxs-Air"));
+    }
+
+    #[test]
+    fn with_host_accepts_string_and_str() {
+        // impl Into<String> — both &str and String should compile.
+        let _ = minimal_ce().with_host("literal");
+        let owned: String = "owned".to_string();
+        let _ = minimal_ce().with_host(owned);
+    }
+
+    #[test]
+    fn with_host_is_chainable_and_overrides() {
+        // Later call wins — useful for test fixtures.
+        let ce = minimal_ce().with_host("first").with_host("second");
+        assert_eq!(ce.host.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn serialization_skips_host_when_none() {
+        let ce = minimal_ce();
+        let json = serde_json::to_string(&ce).unwrap();
+        assert!(
+            !json.contains("\"host\""),
+            "host=None must be absent from JSON, got: {json}"
+        );
+    }
+
+    #[test]
+    fn serialization_includes_host_when_set() {
+        let ce = minimal_ce().with_host("Maxs-Air");
+        let json = serde_json::to_string(&ce).unwrap();
+        assert!(
+            json.contains("\"host\":\"Maxs-Air\""),
+            "serialized JSON must include host field, got: {json}"
+        );
+    }
+
+    #[test]
+    fn host_round_trips_through_serde() {
+        let ce = minimal_ce().with_host("debian-16gb-ash-1");
+        let json = serde_json::to_string(&ce).unwrap();
+        let round: CloudEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.host.as_deref(), Some("debian-16gb-ash-1"));
+    }
+
+    #[test]
+    fn host_deserializes_as_none_when_absent() {
+        // Pre-refactor events on disk have no host key. They must
+        // deserialize cleanly with host: None.
+        let json = r#"{
+            "specversion":"1.0",
+            "id":"evt-1",
+            "source":"arc://test",
+            "type":"io.arc.event",
+            "time":"2026-04-21T00:00:00Z",
+            "datacontenttype":"application/json",
+            "data":{"raw":{},"seq":1,"session_id":"s"}
+        }"#;
+        let ce: CloudEvent = serde_json::from_str(json).unwrap();
+        assert!(ce.host.is_none());
     }
 }

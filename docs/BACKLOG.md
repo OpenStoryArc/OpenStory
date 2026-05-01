@@ -310,6 +310,12 @@ The offending line is in `rs/cli/src/main.rs` at the bus-connect log: `eprintln!
 
 Related to the broader "Distributed Deployment Security Hardening" item below, but split out because it's (a) a verified live exposure, (b) a trivial fix, and (c) should land before any further deploys create more contaminated log buffers.
 
+### Rotate NATS token already published in BACKLOG.md
+The hotfix entry directly above quotes the live NATS token verbatim, and that commit (`290c91d`) is on `origin/master` in the public OpenStoryArc repo. Practical exposure is low — `:7422` is only reachable over Tailscale, so the token is useless without tailnet access — but rotate anyway, scrub the literal value from the entry above, and stop pasting raw startup logs into docs.
+
+### Build `open-story:test` in CI so docker-required tests run for real
+The `test_convergence_invariants`, `test_compose_*`, `test_container`, `test_pi_mono_container`, `test_config_degrade`, and `test_config_full` suites all depend on a locally-built `open-story:test` Docker image. The CI workflow (`.github/workflows/test.yml`) doesn't build that image, so these tests are marked `#[ignore]` and never exercised on PRs — coverage is on the honor system (devs run them locally before pushing). The honest fix is to add a `docker build -t open-story:test rs/` step before `cargo test` in the Rust job and drop the `--skip compose --skip container --skip pi_mono` filter (plus the `#[ignore]` markers on the convergence tests). Cost is one extra ~2-min Docker build per CI run; benefit is real convergence/compose/container coverage on every PR instead of trust-me coverage.
+
 ### Multi-Machine Session Aggregation — SHIPPED
 Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. All sessions from all machines land on every node (JetStream propagates bidirectionally). Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
 

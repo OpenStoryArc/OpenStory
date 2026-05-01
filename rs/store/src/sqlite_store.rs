@@ -111,8 +111,10 @@ impl SqliteStore {
                 branch       TEXT,
                 event_count  INTEGER DEFAULT 0,
                 first_event  TEXT,
-                last_event   TEXT
+                last_event   TEXT,
+                host         TEXT
             );
+            CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host);
 
             CREATE TABLE IF NOT EXISTS patterns (
                 id          TEXT PRIMARY KEY,
@@ -154,6 +156,13 @@ impl SqliteStore {
 
         // Migration: add custom_label column for existing databases.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN custom_label TEXT");
+
+        // Migration: add host column + index for existing databases.
+        // ALTER TABLE / CREATE INDEX are idempotent-by-error — the `let _`
+        // pattern ignores the "duplicate column" / "already exists" errors
+        // on already-migrated databases.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN host TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host)");
 
         Ok(())
     }
@@ -339,7 +348,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -353,6 +362,7 @@ impl EventStore for SqliteStore {
                 event_count: row.get::<_, i64>(6)? as u64,
                 first_event: row.get(7)?,
                 last_event: row.get(8)?,
+                host: row.get(9)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -367,9 +377,13 @@ impl EventStore for SqliteStore {
         // Note: custom_label is NOT included here — it's only set by
         // update_session_label(). Boot replay and live ingestion never
         // overwrite user-set custom labels.
+        //
+        // `host` uses COALESCE on update: once a row has a non-null host,
+        // subsequent upserts without a host (e.g. a pre-migration batch
+        // that lacks host on its events) must not blank it out.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id,
                 project_name = excluded.project_name,
@@ -377,7 +391,8 @@ impl EventStore for SqliteStore {
                 branch = excluded.branch,
                 event_count = excluded.event_count,
                 first_event = excluded.first_event,
-                last_event = excluded.last_event",
+                last_event = excluded.last_event,
+                host = COALESCE(excluded.host, sessions.host)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -387,6 +402,7 @@ impl EventStore for SqliteStore {
                 session.event_count as i64,
                 session.first_event,
                 session.last_event,
+                session.host,
             ],
         )?;
         Ok(())
@@ -797,6 +813,7 @@ mod tests {
             event_count: 42,
             first_event: Some("2025-01-14T00:00:00Z".into()),
             last_event: Some("2025-01-14T01:00:00Z".into()),
+            host: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -817,6 +834,7 @@ mod tests {
             branch: None,
             event_count: 10,
             first_event: None, last_event: None,
+            host: None,
         }).await.unwrap();
 
         store.upsert_session(&SessionRow {
@@ -827,6 +845,7 @@ mod tests {
             branch: Some("feature".into()),
             event_count: 20,
             first_event: None, last_event: Some("2025-01-14T02:00:00Z".into()),
+            host: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -837,6 +856,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn upsert_session_round_trips_host() {
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-host-rt".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: None,
+                last_event: Some("2026-04-21T00:00:00Z".into()),
+                host: Some("Maxs-Air".into()),
+            })
+            .await
+            .unwrap();
+
+        let sessions = store.list_sessions().await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].host.as_deref(), Some("Maxs-Air"));
+    }
+
+    #[tokio::test]
+    async fn upsert_session_coalesces_host_on_update() {
+        // Contract: once a row has a host, subsequent upserts without host
+        // must not blank it. This protects against a pre-migration batch
+        // (no host on events) clobbering a later batch's host stamp.
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-coalesce".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: None,
+                last_event: Some("2026-04-21T00:00:00Z".into()),
+                host: Some("debian-16gb-ash-1".into()),
+            })
+            .await
+            .unwrap();
+
+        // Second upsert with host=None — must NOT overwrite stored host.
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-coalesce".into(),
+                project_id: None,
+                project_name: None,
+                label: Some("updated".into()),
+                custom_label: None,
+                branch: None,
+                event_count: 5,
+                first_event: None,
+                last_event: Some("2026-04-21T00:01:00Z".into()),
+                host: None,
+            })
+            .await
+            .unwrap();
+
+        let sessions = store.list_sessions().await.unwrap();
+        assert_eq!(sessions[0].host.as_deref(), Some("debian-16gb-ash-1"));
+        assert_eq!(sessions[0].label.as_deref(), Some("updated"));
+    }
+
+    #[tokio::test]
+    async fn upsert_session_handles_none_host() {
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-no-host".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: None,
+                last_event: Some("2026-04-21T00:00:00Z".into()),
+                host: None,
+            })
+            .await
+            .unwrap();
+
+        let sessions = store.list_sessions().await.unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].host.is_none());
+    }
+
+    #[tokio::test]
     async fn list_sessions_sorted_by_last_event_desc() {
         let store = SqliteStore::in_memory().unwrap();
         store.upsert_session(&SessionRow {
@@ -844,12 +955,14 @@ mod tests {
             label: None, branch: None, event_count: 0,
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-13T00:00:00Z".into()),
+            host: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "new".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 0,
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-14T00:00:00Z".into()),
+            host: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -967,6 +1080,7 @@ mod tests {
             label: None, branch: None, event_count: 2,
                 custom_label: None,
             first_event: None, last_event: None,
+            host: None,
         }).await.unwrap();
         store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
 
@@ -987,12 +1101,14 @@ mod tests {
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
+            host: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del2".into(), project_id: None, project_name: None,
             label: None, branch: None, event_count: 1,
                 custom_label: None,
             first_event: None, last_event: None,
+            host: None,
         }).await.unwrap();
 
         store.delete_session("sess-del2").await.unwrap();
@@ -1048,6 +1164,7 @@ mod tests {
                 custom_label: None,
             first_event: Some("2025-12-01T00:00:00Z".into()),
             last_event: Some("2025-12-01T00:00:00Z".into()),
+            host: None,
         }).await.unwrap();
 
         // Recent session
@@ -1059,6 +1176,7 @@ mod tests {
                 custom_label: None,
             first_event: Some(now.clone()),
             last_event: Some(now),
+            host: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(30).await.unwrap();
@@ -1078,6 +1196,7 @@ mod tests {
                 custom_label: None,
             first_event: Some(now.clone()),
             last_event: Some(now),
+            host: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(7).await.unwrap();
@@ -1186,6 +1305,7 @@ mod tests {
             id: "sess-fts".into(), project_id: None, project_name: None,
             label: None, custom_label: None, branch: None, event_count: 1,
             first_event: None, last_event: None,
+            host: None,
         }).await.unwrap();
 
         // Verify it's searchable
