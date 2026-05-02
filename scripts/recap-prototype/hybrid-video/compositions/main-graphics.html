@@ -1,0 +1,245 @@
+<template id="main-graphics-template">
+  <div
+    data-composition-id="main-graphics"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="38"
+  >
+    <!-- Persistent header: editorial turn-summary (the "session sentence") -->
+    <div id="header">
+      <div class="hdr-eyebrow">
+        <span class="mark">▸</span>
+        <span class="label">TURN 1 //</span>
+        <span class="meta">openstory · session ddba5c82</span>
+      </div>
+      <div class="hdr-summary">
+        Claude edited
+        <span class="accent">TurnCard.tsx</span>,
+        after reading 7 source files,
+        while testing
+        <span class="accent">6 checks</span>.
+      </div>
+      <div class="hdr-rule"></div>
+    </div>
+
+    <!-- Body section eyebrow -->
+    <div id="body-eyebrow">
+      <span class="be-text">// what was actually said</span>
+    </div>
+
+    <!-- Body fragments — raw assistant text -->
+    <div id="frag-1" class="frag">
+      <p class="sans">
+        I'll check the existing markdown rendering — same file already has
+        <span class="accent">detectLanguage</span> /
+        <span class="accent">SyntaxHighlighter</span>
+        patterns used elsewhere.
+      </p>
+    </div>
+
+    <div id="frag-2" class="frag">
+      <p class="mono">
+        <span class="dim">→</span>
+        <span class="accent">react-markdown</span>
+        is already in use. The renderer is wired up; the inputs aren't.
+      </p>
+    </div>
+
+    <div id="frag-3" class="frag">
+      <p class="sans">
+        Found the real issue. The stored format uses
+        <span class="accent">tab</span>, not the arrow
+        <span class="dim">→</span>.
+      </p>
+    </div>
+
+    <div id="frag-4" class="frag">
+      <p class="mono small">
+        Following TDD — extend the test table with tab-separator cases,
+        then update the implementation.
+      </p>
+    </div>
+
+    <div id="frag-5" class="frag tight">
+      <p class="mono huge dim-red">Red.</p>
+    </div>
+
+    <div id="frag-6" class="frag tight">
+      <p class="mono huge accent">Green.</p>
+    </div>
+
+    <div id="frag-7" class="frag">
+      <p class="mono">
+        All green — <span class="accent">65/65</span> tests pass, type-check clean.
+      </p>
+    </div>
+
+    <!-- Black out -->
+    <div id="black-out"></div>
+
+    <style>
+      [data-composition-id="main-graphics"] {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        color: #e6e6e6;
+        font-family: "Inter", sans-serif;
+        overflow: hidden;
+      }
+
+      /* Persistent header */
+      #header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 60px 100px 30px;
+        z-index: 20;
+        opacity: 0;
+      }
+      .hdr-eyebrow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 22px;
+        color: #8a9199;
+        letter-spacing: 0.02em;
+        margin-bottom: 18px;
+      }
+      .hdr-eyebrow .mark { color: #ffaa3b; margin-right: 8px; }
+      .hdr-eyebrow .label { color: #ffaa3b; margin-right: 14px; }
+      .hdr-eyebrow .meta { color: #8a9199; }
+      .hdr-summary {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 32px;
+        color: #e6e6e6;
+        line-height: 1.4;
+        max-width: 1700px;
+      }
+      .hdr-summary .accent { color: #ffaa3b; }
+      .hdr-rule {
+        margin-top: 36px;
+        height: 1px;
+        background: #1f2630;
+        width: 100%;
+      }
+
+      /* Body eyebrow under the rule */
+      #body-eyebrow {
+        position: absolute;
+        top: 280px;
+        left: 100px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 18px;
+        color: #8a9199;
+        letter-spacing: 0.2em;
+        opacity: 0;
+        z-index: 18;
+      }
+      #body-eyebrow .be-text { display: inline-block; }
+
+      /* Body fragment cards — sit BELOW the header */
+      .frag {
+        position: absolute;
+        top: 340px;
+        left: 0;
+        right: 0;
+        bottom: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 200px;
+        opacity: 0;
+        z-index: 1;
+      }
+      .frag p {
+        max-width: 1500px;
+        line-height: 1.3;
+        margin: 0;
+        text-align: center;
+      }
+      .sans { font-family: "Inter", sans-serif; }
+      .mono { font-family: "JetBrains Mono", monospace; }
+      .accent { color: #ffaa3b; }
+      .dim { color: #8a9199; }
+
+      /* Default size */
+      .frag p { font-size: 60px; font-weight: 400; }
+      .frag .small { font-size: 52px; }
+      .frag .huge { font-size: 280px; font-weight: 700; line-height: 1; }
+      .dim-red { color: #d35454; }
+
+      /* Tight cards (Red/Green) align with header more vertically */
+      .frag.tight { padding: 0 120px; }
+
+      /* Black out */
+      #black-out {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        opacity: 0;
+        z-index: 100;
+      }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      // Header builds in over the first ~2s, then stays
+      tl.to("#header", { opacity: 1, duration: 0.8, ease: "power2.out" }, 0.2);
+      tl.from(".hdr-eyebrow", { y: -10, opacity: 0, duration: 0.5, ease: "power2.out" }, 0.3);
+      tl.from(".hdr-summary", { y: 20, opacity: 0, duration: 0.7, ease: "power3.out" }, 0.6);
+      tl.from(".hdr-rule", { scaleX: 0, transformOrigin: "left", duration: 0.7, ease: "expo.out" }, 1.0);
+
+      // Body eyebrow appears just before fragments start
+      tl.to("#body-eyebrow", { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.6);
+      tl.from("#body-eyebrow .be-text", { x: -20, opacity: 0, duration: 0.5, ease: "power2.out" }, 1.6);
+
+      // Body fragments — rotating
+      // Frag 1: 2.5 - 7.5
+      tl.to("#frag-1", { opacity: 1, duration: 0.5 }, 2.5);
+      tl.from("#frag-1 p", { y: 30, opacity: 0, duration: 0.6, ease: "power3.out" }, 2.7);
+      tl.to("#frag-1", { opacity: 0, duration: 0.5 }, 7.0);
+
+      // Frag 2: 7.5 - 12.5
+      tl.to("#frag-2", { opacity: 1, duration: 0.5 }, 7.5);
+      tl.from("#frag-2 p", { y: 30, opacity: 0, duration: 0.6, ease: "expo.out" }, 7.7);
+      tl.to("#frag-2", { opacity: 0, duration: 0.5 }, 12.0);
+
+      // Frag 3: 12.5 - 18.0  (discovery — slightly longer)
+      tl.to("#frag-3", { opacity: 1, duration: 0.5 }, 12.5);
+      tl.from("#frag-3 p", { y: 40, opacity: 0, duration: 0.7, ease: "power3.out" }, 12.7);
+      tl.to("#frag-3", { opacity: 0, duration: 0.5 }, 17.5);
+
+      // Frag 4: 18.0 - 23.0
+      tl.to("#frag-4", { opacity: 1, duration: 0.5 }, 18.0);
+      tl.from("#frag-4 p", { x: -30, opacity: 0, duration: 0.6, ease: "power2.out" }, 18.2);
+      tl.to("#frag-4", { opacity: 0, duration: 0.5 }, 22.5);
+
+      // Frag 5: Red — 23.0 - 25.5
+      tl.to("#frag-5", { opacity: 1, duration: 0.2 }, 23.0);
+      tl.from("#frag-5 p", { scale: 0.85, opacity: 0, duration: 0.5, ease: "power4.out" }, 23.1);
+      tl.to("#frag-5", { opacity: 0, duration: 0.3 }, 25.2);
+
+      // Frag 6: Green — 25.5 - 28.5
+      tl.to("#frag-6", { opacity: 1, duration: 0.2 }, 25.5);
+      tl.from("#frag-6 p", { scale: 0.92, opacity: 0, duration: 0.6, ease: "power3.out" }, 25.6);
+      tl.to("#frag-6", { opacity: 0, duration: 0.5 }, 28.0);
+
+      // Frag 7: Conclusion — 28.5 - 35.0
+      tl.to("#frag-7", { opacity: 1, duration: 0.6 }, 28.5);
+      tl.from("#frag-7 p", { y: 20, opacity: 0, duration: 0.7, ease: "power2.out" }, 28.8);
+      // Final scene exit
+      tl.to("#frag-7 p", { opacity: 0, duration: 0.6 }, 34.0);
+      tl.to("#header", { opacity: 0, duration: 0.6 }, 34.5);
+      tl.to("#body-eyebrow", { opacity: 0, duration: 0.5 }, 34.5);
+      tl.to("#black-out", { opacity: 1, duration: 0.4 }, 35.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main-graphics"] = tl;
+    </script>
+  </div>
+</template>

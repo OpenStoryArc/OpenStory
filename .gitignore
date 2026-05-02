@@ -53,5 +53,8 @@ history/
 deploy/*.env
 !deploy/*.env.example
 
+# OTel prototype captures (contain user.email and prompt text by default)
+captures/
+
 # Local security audit reports
 .gstack/

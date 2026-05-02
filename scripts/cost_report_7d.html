@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenStory — 7d Cost Report (all surfaces)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, 'Segoe UI', Calibri, sans-serif; font-size: 13px; color: #222; background: #fff; margin: 0 auto; padding: 24px 32px 48px; max-width: 1080px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+  h2 { font-size: 14px; font-weight: 600; color: #333; margin: 28px 0 8px; border-bottom: 2px solid #222; padding-bottom: 4px; }
+  h3 { font-size: 12px; font-weight: 600; color: #555; margin: 0 0 4px; }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: #ddd; border: 1px solid #ddd; margin-bottom: 20px; }
+  .kpi { background: #fff; padding: 12px 14px; }
+  .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .kpi-value { font-size: 22px; font-weight: 700; color: #111; margin-top: 2px; }
+  .kpi-value.red { color: #b33; }
+  .kpi-sub { font-size: 10px; color: #999; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 12px; margin-bottom: 4px; }
+  thead th { text-align: left; font-weight: 600; font-size: 10px; color: #555; padding: 5px 8px; border-bottom: 1px solid #bbb; background: #f5f5f5; text-transform: uppercase; letter-spacing: 0.5px; }
+  thead th:not(:first-child) { text-align: right; }
+  thead th.left { text-align: left; }
+  tbody td { padding: 4px 8px; border-bottom: 1px solid #eee; }
+  tbody td:not(:first-child) { text-align: right; }
+  tbody td.left { text-align: left; }
+  tbody tr:hover { background: #f8f8f6; }
+  .row-total td { font-weight: 700; border-top: 2px solid #222; background: #f5f5f5; border-bottom: none; }
+  .cost { color: #b33; font-weight: 600; }
+  .dim { color: #999; }
+  .sub-row td { color: #777; font-size: 11px; }
+  .sub-row td:first-child { padding-left: 20px; }
+  .tag { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 2px; font-weight: 600; }
+  .tag-opus { background: #fde8e2; color: #c9431e; }
+  .tag-haiku { background: #dff5ee; color: #0e8a6a; }
+  .tag-sonnet { background: #e8f0fd; color: #2a5fc9; }
+  .tag-sub { background: #f0f0f0; color: #888; }
+  .tag-pi { background: #fff4d6; color: #8a6500; }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 24px; }
+  .chart-box { border: 1px solid #ddd; padding: 12px 14px; background: #fafafa; }
+  .chart-box h3 { margin-bottom: 8px; }
+  .chart-container { position: relative; height: 200px; }
+  .chart-full { grid-column: 1 / -1; }
+  .chart-full .chart-container { height: 220px; }
+  .chart-third { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 12px 0 24px; }
+  .footnote { font-size: 10px; color: #aaa; margin-top: 32px; border-top: 1px solid #eee; padding-top: 8px; }
+  .callout { background: #fff8e1; border: 1px solid #f0d97a; padding: 10px 12px; margin: 12px 0; font-size: 12px; color: #5a4a00; }
+</style>
+</head>
+<body>
+
+<h1>OpenStory Cost Report — Last 7 Days</h1>
+<div class="subtitle">Apr 19 – Apr 26, 2026 &middot; All ingested surfaces (claude-code + pi-mono) &middot; 16 main sessions, 5 subagents</div>
+
+<div class="callout">
+  <strong>What's in this window:</strong> every assistant call ingested into the local OpenStory store across all hosts and agents — Max's local Mac (claude-code), the Hetzner workspace (pi-mono / Bobby), and any subagents spawned by either. The local DB doesn't yet have the <code>host</code> column populated, so machine attribution is approximated by <code>project_name</code> and <code>agent</code>.
+</div>
+
+<!-- KPI STRIP -->
+<div class="kpis">
+  <div class="kpi"><div class="kpi-label">Total Spend</div><div class="kpi-value red">$876.79</div><div class="kpi-sub">8 active days</div></div>
+  <div class="kpi"><div class="kpi-label">Avg / Session</div><div class="kpi-value">$54.80</div><div class="kpi-sub">16 main sessions</div></div>
+  <div class="kpi"><div class="kpi-label">Avg / Day</div><div class="kpi-value">$109.60</div><div class="kpi-sub">8 active days</div></div>
+  <div class="kpi"><div class="kpi-label">Cost / 1K Output</div><div class="kpi-value">$0.58</div><div class="kpi-sub">1.51M output tokens</div></div>
+  <div class="kpi"><div class="kpi-label">Cache Hit Rate</div><div class="kpi-value">91.5%</div><div class="kpi-sub">259.7M of 283.7M</div></div>
+  <div class="kpi"><div class="kpi-label">Concentration</div><div class="kpi-value">55.4%</div><div class="kpi-sub">top 2 sessions</div></div>
+</div>
+
+<!-- BY AGENT / SURFACE -->
+<h2>Spend by Surface (Agent)</h2>
+<p style="font-size:11px;color:#888;margin:0 0 8px;">claude-code = local Mac sessions. pi-mono = Hetzner / Bobby workspace. Subagent costs are attributed to where they ran.</p>
+<table>
+  <thead><tr><th>Surface</th><th>Sessions</th><th>API Calls</th><th>% Calls</th><th>% Cost</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tag tag-opus">claude-code</span> Local Mac (Max)</td><td>19</td><td>1,582</td><td>98.0%</td><td>99.4%</td><td class="cost">$871.59</td></tr>
+    <tr><td><span class="tag tag-pi">pi-mono</span> Hetzner workspace (Bobby)</td><td>2</td><td>32</td><td>2.0%</td><td>0.6%</td><td class="cost">$5.20</td></tr>
+    <tr class="row-total"><td>Total</td><td>21</td><td>1,614</td><td>100%</td><td>100%</td><td class="cost">$876.79</td></tr>
+  </tbody>
+</table>
+
+<!-- DAILY OVERVIEW -->
+<h2>Daily Overview</h2>
+<div class="chart-row">
+  <div class="chart-box chart-full">
+    <h3>Spend per Day (main vs subagent)</h3>
+    <div class="chart-container"><canvas id="dailyCostChart"></canvas></div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Date</th><th>Sessions</th><th>Subagents</th><th>API Calls</th><th>Output Tokens</th><th>Avg $/Session</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Sun, Apr 19</td><td>5</td><td>0</td><td>156</td><td>285,111</td><td>$28.07</td><td class="cost">$140.35</td></tr>
+    <tr><td>Mon, Apr 20</td><td>5</td><td>2</td><td>526</td><td>554,363</td><td>$55.31</td><td class="cost">$304.84</td></tr>
+    <tr><td>Tue, Apr 21</td><td>7</td><td>3</td><td>382</td><td>260,285</td><td>$13.07</td><td class="cost">$92.98</td></tr>
+    <tr><td>Wed, Apr 22</td><td>5</td><td>0</td><td>305</td><td>206,348</td><td>$36.94</td><td class="cost">$184.69</td></tr>
+    <tr><td>Thu, Apr 23</td><td>3</td><td>0</td><td>98</td><td>53,275</td><td>$7.18</td><td class="cost">$21.54</td></tr>
+    <tr><td>Fri, Apr 24</td><td>2</td><td>0</td><td>32</td><td>55,935</td><td>$36.38</td><td class="cost">$72.75</td></tr>
+    <tr><td>Sat, Apr 25</td><td>2</td><td>0</td><td>32</td><td>18,431</td><td>$2.90</td><td class="cost">$5.80</td></tr>
+    <tr><td>Sun, Apr 26</td><td>2</td><td>0</td><td>83</td><td>71,827</td><td>$26.92</td><td class="cost">$53.84</td></tr>
+    <tr class="row-total"><td>Total</td><td>16+sub</td><td>5</td><td>1,614</td><td>1,505,575</td><td>$54.80</td><td class="cost">$876.79</td></tr>
+  </tbody>
+</table>
+
+<!-- BY PROJECT -->
+<h2>Spend by Project</h2>
+<div class="chart-row">
+  <div class="chart-box">
+    <h3>Cost Distribution</h3>
+    <div class="chart-container"><canvas id="projectPieChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h3>Sessions &amp; Calls per Project</h3>
+    <div class="chart-container"><canvas id="projectBarChart"></canvas></div>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>Project</th><th class="left">Notes</th><th>Sessions</th><th>API Calls</th><th>Output Tokens</th><th>% of Total</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>(unknown)</td><td class="left">Sessions where project_name wasn't recorded — mostly local Mac</td><td>15</td><td>1,465</td><td>1,248,701</td><td>74.4%</td><td class="cost">$652.43</td></tr>
+    <tr><td>OpenStory</td><td class="left">Local Mac, OpenStory repo</td><td>4</td><td>117</td><td>235,982</td><td>25.0%</td><td class="cost">$219.15</td></tr>
+    <tr><td>workspace</td><td class="left">Hetzner / Bobby (pi-mono)</td><td>2</td><td>32</td><td>20,892</td><td>0.6%</td><td class="cost">$5.20</td></tr>
+    <tr class="row-total"><td>Total</td><td class="left"></td><td>21</td><td>1,614</td><td>1,505,575</td><td>100%</td><td class="cost">$876.79</td></tr>
+  </tbody>
+</table>
+
+<!-- TOP SESSIONS -->
+<h2>Sessions by Cost (Top 12)</h2>
+<p style="font-size:11px;color:#888;margin:0 0 8px;">Subagents shown indented. The Hetzner pi-mono session is tagged.</p>
+
+<table>
+  <thead><tr>
+    <th>Session</th><th class="left">Project</th><th>Model</th><th>Calls</th><th>Output</th><th>$/Call</th><th>$/1K Out</th><th>Cache%</th><th>Cost</th>
+  </tr></thead>
+  <tbody id="sessionTableBody"></tbody>
+</table>
+
+<!-- EFFICIENCY -->
+<h2>Efficiency Metrics (main sessions)</h2>
+<div class="chart-third">
+  <div class="chart-box"><h3>Cost per API Call</h3><div class="chart-container"><canvas id="costPerCallChart"></canvas></div></div>
+  <div class="chart-box"><h3>Cost per 1K Output Tokens</h3><div class="chart-container"><canvas id="costPerOutputChart"></canvas></div></div>
+  <div class="chart-box"><h3>Cache Hit Rate</h3><div class="chart-container"><canvas id="cacheRatioChart"></canvas></div></div>
+</div>
+
+<!-- MODEL MIX -->
+<h2>Model Mix</h2>
+<table>
+  <thead><tr><th>Model</th><th>Calls</th><th>% Calls</th><th>Tokens</th><th>Cost</th><th>% Cost</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tag tag-opus">Opus 4.7</span></td><td>1,449</td><td>89.8%</td><td>273.0M</td><td class="cost">$868.09</td><td>99.0%</td></tr>
+    <tr><td><span class="tag tag-sonnet">Sonnet 4.5 (pi-mono)</span></td><td>33</td><td>2.0%</td><td>4.2M</td><td class="cost">$5.20</td><td>0.6%</td></tr>
+    <tr><td><span class="tag tag-opus">Opus 4.6</span></td><td>14</td><td>0.9%</td><td>0.8M</td><td class="cost">$1.97</td><td>0.2%</td></tr>
+    <tr><td><span class="tag tag-haiku">Haiku 4.5</span></td><td>118</td><td>7.3%</td><td>5.8M</td><td class="cost">$1.52</td><td>0.2%</td></tr>
+    <tr class="row-total"><td>Total</td><td>1,614</td><td>100%</td><td>283.7M</td><td class="cost">$876.79</td><td>100%</td></tr>
+  </tbody>
+</table>
+
+<!-- TOKEN COMPOSITION -->
+<h2>Token Composition</h2>
+<table>
+  <thead><tr><th>Type</th><th>Tokens</th><th>% of Total</th></tr></thead>
+  <tbody>
+    <tr><td>Cache Read</td><td>259,696,433</td><td>91.5%</td></tr>
+    <tr><td>Cache Creation</td><td>22,494,667</td><td>7.9%</td></tr>
+    <tr><td>Output</td><td>1,505,575</td><td>0.5%</td></tr>
+    <tr><td>Input</td><td>24,364</td><td>&lt;0.1%</td></tr>
+    <tr class="row-total"><td>Total</td><td>283,721,039</td><td>100%</td></tr>
+  </tbody>
+</table>
+
+<!-- KEY TAKEAWAYS -->
+<h2>Key Takeaways</h2>
+<table>
+  <thead><tr><th style="width:200px">Metric</th><th class="left">Observation</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td>Hetzner share</td><td class="left">Bobby/pi-mono is just $5.20 (0.6%) over the 7d window — 32 calls across 2 sessions, all sonnet-4-5. The Hetzner instance is barely contributing to spend.</td><td class="left">If Bobby is supposed to be running more, check why throughput is low</td></tr>
+    <tr><td>Concentration Risk</td><td class="left">Top 2 sessions = 55% of spend. f1f62c78 ("deploy openstory") alone is $315 (449 calls); 669f26c6 ("git situation") is $170 (391 calls).</td><td class="left">Per-session budget alerts; consider checkpointing long sessions</td></tr>
+    <tr><td>Project attribution gap</td><td class="left">$652 (74%) sits in "(unknown)" project — sessions whose <code>project_name</code> wasn't recorded. Almost all are claude-code local. Hard to slice by repo.</td><td class="left">Backfill project_name on existing sessions; the recent host stamping commits help going forward</td></tr>
+    <tr><td>Model Economics</td><td class="left">Opus 4.7 is 90% of calls but 99% of cost. Haiku and Sonnet together are 9.3% of calls for $7.</td><td class="left">Already routing cheap work to Haiku in subagents; opportunity to expand</td></tr>
+    <tr><td>Cache Efficiency</td><td class="left">91.5% cache hit rate. Cache reads cost ~$390 vs. ~$3,900 if uncached. Caching saved ~$3.5K this week.</td><td class="left">Healthy. Watch the 060e8da6 outlier at 70.5%.</td></tr>
+    <tr><td>Burn Rate</td><td class="left">$110/active day, $125/calendar day. Annualized: ~$45K at current pace — on the trajectory the prior week's $1.5K snapshot warned about.</td><td class="left">Track weekly; set monthly target</td></tr>
+    <tr><td>Katie attribution</td><td class="left">Couldn't identify Katie's sessions reliably — claude-code events don't carry an operator field. Only references are <em>about</em> Katie's sessions, not <em>by</em> her.</td><td class="left">If Katie's runs need separate accounting, stamp <code>operator</code> on CloudEvents (similar to the recent <code>host</code> work)</td></tr>
+  </tbody>
+</table>
+
+<div class="footnote">
+  Generated from <code>data/open-story.db</code> &middot; window: 2026-04-19T22:33Z → 2026-04-26T22:33Z (7 days) &middot;
+  Patches over <code>scripts/cost_by_model.py</code>: also matches pi-mono's <code>cacheRead/cacheWrite/input/output/cost</code> usage shape (the script's stock query only matches claude-code's <code>input_tokens</code> shape and silently drops pi-mono).
+  <code>claude-opus-4-7</code> still maps to the base "opus" tier (no 200K threshold doubling); large-context calls may be slightly underbilled.
+</div>
+
+<script>
+const sessions = [
+  {id:"f1f62c78",label:"I need to deploy openstory with the fresh updates …",project:"(unknown)",agent:"claude-code",calls:449,cost:315.35,output:565043,cache_ratio:0.9217,cost_per_call:0.70,cost_per_1k_out:0.56,model:"opus-4-7",is_sub:false},
+  {id:"669f26c6",label:"What's our git situation?",project:"(unknown)",agent:"claude-code",calls:391,cost:170.26,output:293856,cache_ratio:0.9726,cost_per_call:0.44,cost_per_1k_out:0.58,model:"opus-4-7",is_sub:false},
+  {id:"060e8da6",label:"Tools! Are there opensource or paid tools that…",project:"OpenStory",agent:"claude-code",calls:53,cost:158.60,output:186552,cache_ratio:0.7051,cost_per_call:2.99,cost_per_1k_out:0.85,model:"opus-4-7",is_sub:false},
+  {id:"632bdd40",label:"<office-hours command>",project:"(unknown)",agent:"claude-code",calls:76,cost:53.49,output:206540,cache_ratio:0.9807,cost_per_call:0.70,cost_per_1k_out:0.26,model:"opus-4-7",is_sub:false},
+  {id:"699938d4",label:"What does this command do — npx skills add heygen…",project:"OpenStory",agent:"claude-code",calls:42,cost:48.90,output:38580,cache_ratio:0.8810,cost_per_call:1.16,cost_per_1k_out:1.27,model:"opus-4-7",is_sub:false},
+  {id:"f31a275e",label:"Hello! Can you please check my raptor sprint status",project:"(unknown)",agent:"claude-code",calls:139,cost:38.44,output:62116,cache_ratio:0.9470,cost_per_call:0.28,cost_per_1k_out:0.62,model:"opus-4-7",is_sub:false},
+  {id:"agent-ab",label:"[sub] Dependabot vulnerability audit",project:"(unknown)",agent:"claude-code",calls:138,cost:26.94,output:22780,cache_ratio:0.9477,cost_per_call:0.20,cost_per_1k_out:1.18,model:"opus-4-7",is_sub:true},
+  {id:"ab092996",label:"go… xcode is downloading",project:"(unknown)",agent:"claude-code",calls:26,cost:19.37,output:21813,cache_ratio:0.9966,cost_per_call:0.75,cost_per_1k_out:0.89,model:"opus-4-7",is_sub:false},
+  {id:"df614881",label:"Do you know anything about Gstack?",project:"(unknown)",agent:"claude-code",calls:64,cost:14.41,output:42733,cache_ratio:0.9584,cost_per_call:0.23,cost_per_1k_out:0.34,model:"opus-4-7",is_sub:false},
+  {id:"ddba5c82",label:"UI Work — code syntax highlighting",project:"OpenStory",agent:"claude-code",calls:8,cost:9.69,output:7942,cache_ratio:0.6607,cost_per_call:1.21,cost_per_1k_out:1.22,model:"opus-4-7",is_sub:false},
+  {id:"4dccaeaa",label:"Check in… I just shutdown the locally running …",project:"workspace",agent:"pi-mono",calls:30,cost:5.15,output:20598,cache_ratio:0.7350,cost_per_call:0.17,cost_per_1k_out:0.25,model:"sonnet-4-5",is_sub:false},
+  {id:"8d255eb0",label:"do you see Katie's session in openstory…",project:"(unknown)",agent:"claude-code",calls:20,cost:4.55,output:5565,cache_ratio:0.8521,cost_per_call:0.23,cost_per_1k_out:0.82,model:"opus-4-7",is_sub:false},
+];
+const TOTAL = 876.79;
+
+const tbody = document.getElementById('sessionTableBody');
+sessions.forEach(s => {
+  const cls = s.is_sub ? 'sub-row' : '';
+  let modelTag;
+  if (s.model === 'sonnet-4-5') modelTag = '<span class="tag tag-sonnet">Sonnet 4.5</span>';
+  else if (s.model === 'haiku') modelTag = '<span class="tag tag-haiku">Haiku</span>';
+  else modelTag = '<span class="tag tag-opus">Opus 4.7</span>';
+  const typeTag = s.is_sub ? '<span class="tag tag-sub">sub</span> ' : '';
+  const piTag = s.agent === 'pi-mono' ? '<span class="tag tag-pi">pi-mono</span> ' : '';
+  const fmtOut = s.output >= 1e6 ? (s.output/1e6).toFixed(1)+'M' : s.output >= 1e3 ? (s.output/1e3).toFixed(1)+'K' : s.output;
+  tbody.innerHTML += '<tr class="'+cls+'"><td>'+typeTag+piTag+s.label+'</td><td class="left">'+s.project+'</td><td>'+modelTag+'</td><td>'+s.calls.toLocaleString()+'</td><td>'+fmtOut+'</td><td>$'+s.cost_per_call.toFixed(2)+'</td><td>$'+s.cost_per_1k_out.toFixed(2)+'</td><td>'+(s.cache_ratio*100).toFixed(1)+'%</td><td class="cost">$'+s.cost.toFixed(2)+'</td></tr>';
+});
+const top12Total = sessions.reduce((a,s) => a+s.cost, 0);
+tbody.innerHTML += '<tr class="row-total"><td colspan="4">Top 12 Total</td><td></td><td></td><td></td><td></td><td class="cost">$'+top12Total.toFixed(2)+'</td></tr>';
+
+Chart.defaults.color = '#888';
+Chart.defaults.borderColor = '#e8e8e8';
+Chart.defaults.font.family = "-apple-system, 'Segoe UI', Calibri, sans-serif";
+Chart.defaults.font.size = 11;
+const grid = '#f0f0f0';
+const tip = { backgroundColor:'#333', titleColor:'#fff', bodyColor:'#ddd', borderColor:'#555', borderWidth:1, padding:8, cornerRadius:2 };
+
+new Chart(document.getElementById('dailyCostChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Apr 19','Apr 20','Apr 21','Apr 22','Apr 23','Apr 24','Apr 25','Apr 26'],
+    datasets: [
+      { label: 'Main sessions', data: [140.35, 276.54, 91.46, 184.69, 21.54, 72.75, 5.80, 53.84], backgroundColor: 'rgba(201,67,30,0.7)', borderColor:'rgba(201,67,30,1)', borderWidth:1, borderRadius:2 },
+      { label: 'Subagents', data: [0, 28.30, 1.52, 0, 0, 0, 0, 0], backgroundColor: 'rgba(180,180,180,0.5)', borderColor:'rgba(150,150,150,0.8)', borderWidth:1, borderRadius:2 },
+    ]
+  },
+  options: { responsive:true, maintainAspectRatio:false,
+    plugins: { legend:{position:'bottom',labels:{boxWidth:8,padding:12}}, tooltip:{...tip, callbacks:{label:c=>'$'+c.raw.toFixed(2)}} },
+    scales: { x:{stacked:true,grid:{display:false}}, y:{stacked:true,grid:{color:grid},ticks:{callback:v=>'$'+v}} } }
+});
+
+new Chart(document.getElementById('projectPieChart'), {
+  type: 'doughnut',
+  data: { labels: ['(unknown) ($652)','OpenStory ($219)','workspace / Hetzner ($5)'],
+    datasets: [{ data:[652.43, 219.15, 5.20], backgroundColor:['rgba(180,180,180,0.5)','rgba(85,72,176,0.6)','rgba(201,67,30,0.7)'], borderColor:'#fff', borderWidth:2 }] },
+  options: { responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{legend:{position:'bottom',labels:{boxWidth:8,padding:10,font:{size:10}}},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)}}} }
+});
+
+new Chart(document.getElementById('projectBarChart'), {
+  type: 'bar',
+  data: { labels: ['(unknown)','OpenStory','workspace'],
+    datasets: [
+      { label:'Sessions', data:[15,4,2], backgroundColor:'rgba(85,72,176,0.5)', borderColor:'rgba(85,72,176,0.8)', borderWidth:1, borderRadius:2 },
+      { label:'API Calls', data:[1465,117,32], backgroundColor:'rgba(201,67,30,0.4)', borderColor:'rgba(201,67,30,0.7)', borderWidth:1, borderRadius:2 },
+    ] },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{boxWidth:8,padding:10}},tooltip:tip}, scales:{x:{grid:{display:false}},y:{grid:{color:grid}, type:'logarithmic'}} }
+});
+
+const mainSessions = sessions.filter(s=>!s.is_sub);
+new Chart(document.getElementById('costPerCallChart'), {
+  type: 'bar',
+  data: { labels: mainSessions.map(s=>s.label.slice(0,28)),
+    datasets: [{ data:mainSessions.map(s=>s.cost_per_call), backgroundColor:'rgba(201,67,30,0.5)', borderColor:'rgba(201,67,30,0.8)', borderWidth:1, borderRadius:2 }] },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)+'/call'}}}, scales:{x:{grid:{color:grid},ticks:{callback:v=>'$'+v}},y:{grid:{display:false}}} }
+});
+
+new Chart(document.getElementById('costPerOutputChart'), {
+  type: 'bar',
+  data: { labels: mainSessions.map(s=>s.label.slice(0,28)),
+    datasets: [{ data:mainSessions.map(s=>s.cost_per_1k_out), backgroundColor:'rgba(85,72,176,0.5)', borderColor:'rgba(85,72,176,0.8)', borderWidth:1, borderRadius:2 }] },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)+'/1K output tokens'}}}, scales:{x:{grid:{color:grid},ticks:{callback:v=>'$'+v}},y:{grid:{display:false}}} }
+});
+
+new Chart(document.getElementById('cacheRatioChart'), {
+  type: 'bar',
+  data: { labels: mainSessions.map(s=>s.label.slice(0,28)),
+    datasets: [{ data:mainSessions.map(s=>s.cache_ratio*100), backgroundColor:'rgba(14,138,106,0.5)', borderColor:'rgba(14,138,106,0.8)', borderWidth:1, borderRadius:2 }] },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{grid:{color:grid},min:0,max:100,ticks:{callback:v=>v+'%'}},y:{grid:{display:false}}} }
+});
+</script>
+</body>
+</html>

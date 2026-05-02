@@ -1,0 +1,61 @@
+direction: right
+
+title: OpenStory Event Pipeline {
+  near: top-center
+  shape: text
+  style.font-size: 28
+  style.bold: true
+}
+
+sources: Sources {
+  watcher: "watcher.rs\n(notify crate)"
+  hooks: "POST /hooks\n(HTTP)"
+}
+
+translate: Translate {
+  reader: "reader.rs\n(incremental reads)"
+  claude: "translate.rs\n(Claude Code)"
+  pi: "translate_pi.rs\n(pi-mono)"
+}
+
+nats: NATS JetStream {
+  events: "events.{project}.{session}.>"
+  patterns_stream: "patterns"
+  changes: "changes"
+}
+
+consumers: Consumers {
+  persist: "persist\n→ EventStore + JSONL + FTS"
+  patterns: "patterns\n→ EvalApply → Sentence"
+  projections: "projections\n→ SessionProjection"
+  broadcast: "broadcast\n→ WebSocket"
+}
+
+stores: Stores {
+  sqlite: SQLite / Mongo
+  jsonl: JSONL (sovereignty backup)
+  fts: FTS5 index
+}
+
+ui: React UI {
+  style.fill: "#e8f1ff"
+}
+
+sources.watcher -> translate.reader
+sources.hooks -> translate.claude
+translate.reader -> translate.claude
+translate.reader -> translate.pi
+translate.claude -> nats.events: CloudEvent 1.0
+translate.pi -> nats.events: CloudEvent 1.0
+
+nats.events -> consumers.persist
+nats.events -> consumers.patterns
+nats.events -> consumers.projections
+nats.events -> consumers.broadcast
+
+consumers.persist -> stores.sqlite
+consumers.persist -> stores.jsonl
+consumers.persist -> stores.fts
+consumers.patterns -> nats.patterns_stream
+consumers.projections -> nats.changes
+consumers.broadcast -> ui: WireRecord (WS)

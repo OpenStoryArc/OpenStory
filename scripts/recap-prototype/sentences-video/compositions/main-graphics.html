@@ -1,0 +1,208 @@
+<template id="main-graphics-template">
+  <div
+    data-composition-id="main-graphics"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="33"
+  >
+    <!-- Persistent footer / brand mark -->
+    <div id="brand">
+      <span class="brand-mark">▸</span>
+      <span class="brand-text">openstory</span>
+      <span class="brand-meta">// session ddba5c82 · 2026-04-19</span>
+    </div>
+
+    <!-- Card 1: Orient -->
+    <div id="card-1" class="card">
+      <p class="mono left">
+        Branch situation:
+        <span class="accent">research/hermes-integration</span>
+        is 14 commits ahead of origin, 82 ahead of master, clean tree.
+      </p>
+    </div>
+
+    <!-- Card 2: Intent -->
+    <div id="card-2" class="card">
+      <p class="sans center">
+        I'll check the existing markdown rendering — same file already has
+        <span class="accent">detectLanguage</span> /
+        <span class="accent">SyntaxHighlighter</span>
+        patterns used elsewhere.
+      </p>
+    </div>
+
+    <!-- Card 3: Discovery -->
+    <div id="card-3" class="card">
+      <p class="mono center small-eyebrow">
+        <span class="eyebrow">DISCOVERY</span>
+        <br />
+      </p>
+      <p class="mono center">
+        The stored format uses
+        <span class="accent">tab</span>,
+        not the arrow <span class="dim">→</span>.
+      </p>
+    </div>
+
+    <!-- Card 4: Decision -->
+    <div id="card-4" class="card">
+      <p class="sans left">
+        Following TDD — extend the test table with tab-separator cases, then
+        update the implementation.
+      </p>
+    </div>
+
+    <!-- Card 5: Tension -->
+    <div id="card-5" class="card">
+      <p class="mono center huge dim-red">Red.</p>
+    </div>
+
+    <!-- Card 6: Release -->
+    <div id="card-6" class="card">
+      <p class="mono center huge accent">Green.</p>
+    </div>
+
+    <!-- Card 7: Conclusion -->
+    <div id="card-7" class="card">
+      <p class="mono center">
+        All green — <span class="accent">65/65</span> tests pass, type-check clean.
+      </p>
+    </div>
+
+    <!-- Black out -->
+    <div id="black-out"></div>
+
+    <style>
+      [data-composition-id="main-graphics"] {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        color: #e6e6e6;
+        font-family: "Inter", sans-serif;
+        overflow: hidden;
+      }
+
+      /* Persistent brand strip */
+      #brand {
+        position: absolute;
+        bottom: 60px;
+        left: 80px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 22px;
+        color: #8a9199;
+        letter-spacing: 0.02em;
+        opacity: 0;
+        z-index: 20;
+      }
+      #brand .brand-mark { color: #ffaa3b; margin-right: 6px; }
+      #brand .brand-text { color: #e6e6e6; margin-right: 14px; }
+      #brand .brand-meta { color: #8a9199; }
+
+      /* Card base */
+      .card {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 160px 200px 220px;
+        opacity: 0;
+        z-index: 1;
+      }
+      .card p { max-width: 1500px; line-height: 1.3; margin: 0; }
+
+      .mono { font-family: "JetBrains Mono", monospace; }
+      .sans { font-family: "Inter", sans-serif; }
+      .center { text-align: center; }
+      .left { text-align: left; align-self: flex-start; }
+      .accent { color: #ffaa3b; }
+      .dim { color: #8a9199; }
+
+      /* Card-specific sizes */
+      #card-1 p { font-size: 56px; font-weight: 500; }
+      #card-2 p { font-size: 60px; font-weight: 400; }
+      #card-3 p { font-size: 64px; font-weight: 500; }
+      #card-3 .eyebrow {
+        display: inline-block;
+        font-size: 20px;
+        letter-spacing: 0.3em;
+        color: #8a9199;
+        margin-bottom: 36px;
+      }
+      #card-3 .small-eyebrow { margin-bottom: 0; }
+      #card-4 p { font-size: 56px; font-weight: 400; }
+
+      .huge { font-size: 320px; font-weight: 700; line-height: 1; }
+      .dim-red { color: #d35454; }
+      #card-7 p { font-size: 56px; font-weight: 500; }
+
+      /* Black out */
+      #black-out {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        opacity: 0;
+        z-index: 100;
+      }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      // Brand strip — fade in at start, persist
+      tl.to("#brand", { opacity: 1, duration: 0.8, ease: "power2.out" }, 0.3);
+
+      // Card 1: 0.0 - 5.0  (orient)
+      tl.to("#card-1", { opacity: 1, duration: 0.5 }, 0.2);
+      tl.from("#card-1 p", { y: 30, opacity: 0, duration: 0.7, ease: "power3.out" }, 0.4);
+      tl.to("#card-1", { opacity: 0, duration: 0.5 }, 4.5);
+
+      // Card 2: 5.0 - 10.0  (intent)
+      tl.to("#card-2", { opacity: 1, duration: 0.5 }, 5.0);
+      tl.from("#card-2 p", { y: 30, opacity: 0, duration: 0.6, ease: "expo.out" }, 5.2);
+      tl.to("#card-2", { opacity: 0, duration: 0.5 }, 9.5);
+
+      // Card 3: 10.0 - 15.5  (discovery — slightly longer to land)
+      tl.to("#card-3", { opacity: 1, duration: 0.5 }, 10.0);
+      tl.from("#card-3 .eyebrow", { y: -10, opacity: 0, duration: 0.5, ease: "power2.out" }, 10.2);
+      tl.from("#card-3 p:not(.small-eyebrow)", { y: 40, opacity: 0, duration: 0.7, ease: "power3.out" }, 10.5);
+      tl.to("#card-3", { opacity: 0, duration: 0.5 }, 15.0);
+
+      // Card 4: 15.5 - 20.0  (decision)
+      tl.to("#card-4", { opacity: 1, duration: 0.5 }, 15.5);
+      tl.from("#card-4 p", { x: -30, opacity: 0, duration: 0.6, ease: "power2.out" }, 15.7);
+      tl.to("#card-4", { opacity: 0, duration: 0.5 }, 19.5);
+
+      // Card 5: 20.0 - 22.0  (Red — sharp)
+      tl.to("#card-5", { opacity: 1, duration: 0.2 }, 20.0);
+      tl.from("#card-5 p", { scale: 0.85, opacity: 0, duration: 0.5, ease: "power4.out" }, 20.1);
+      tl.to("#card-5", { opacity: 0, duration: 0.3 }, 21.7);
+
+      // Card 6: 22.0 - 25.0  (Green — release)
+      tl.to("#card-6", { opacity: 1, duration: 0.2 }, 22.0);
+      tl.from("#card-6 p", { scale: 0.92, opacity: 0, duration: 0.6, ease: "power3.out" }, 22.1);
+      tl.to("#card-6", { opacity: 0, duration: 0.5 }, 24.5);
+
+      // Card 7: 25.0 - 31.5  (calm conclusion)
+      tl.to("#card-7", { opacity: 1, duration: 0.6 }, 25.0);
+      tl.from("#card-7 p", { y: 20, opacity: 0, duration: 0.7, ease: "power2.out" }, 25.3);
+      // Final scene allows exit fade (per the rules)
+      tl.to("#card-7 p", { opacity: 0, duration: 0.6 }, 30.4);
+      tl.to("#brand", { opacity: 0, duration: 0.5 }, 30.6);
+
+      // Black out
+      tl.to("#black-out", { opacity: 1, duration: 0.4 }, 31.0);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main-graphics"] = tl;
+    </script>
+  </div>
+</template>

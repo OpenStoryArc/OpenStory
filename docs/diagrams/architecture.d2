@@ -1,0 +1,176 @@
+direction: down
+
+title: OpenStory System Architecture {
+  near: top-center
+  shape: text
+  style.font-size: 28
+  style.bold: true
+}
+
+# ─────────────────────────────────────────────
+# The user sits above everything. They direct
+# their agents and observe the mirror.
+# ─────────────────────────────────────────────
+user: User {
+  shape: person
+  style.fill: "#fff7d6"
+}
+
+# ─────────────────────────────────────────────
+# Coding agents the user directs. OpenStory
+# never modifies these — only observes.
+# ─────────────────────────────────────────────
+agents: Coding Agents {
+  style.fill: "#f4f4f4"
+  claude: "Claude Code\n(~/.claude/projects/)"
+  pi: "pi-mono\n(~/.pi/agent/sessions/)"
+}
+
+# ─────────────────────────────────────────────
+# Observation surfaces — the only places
+# OpenStory touches the agent world.
+# Both are read-only / one-way.
+# ─────────────────────────────────────────────
+observe: Observation {
+  style.fill: "#eef7ee"
+  watcher: "Watcher\n(notify crate, polls\ntranscript .jsonl files)"
+  hooks: "HTTP Hooks\nPOST /hooks\n(Claude Code → near-realtime)"
+}
+
+# ─────────────────────────────────────────────
+# Pure translation — agent format → CloudEvents 1.0.
+# No mutation of raw data; agent field discriminates.
+# ─────────────────────────────────────────────
+translate: "Translate (open-story-core)" {
+  style.fill: "#eaf3ff"
+  reader: "reader.rs\nincremental reads,\nformat auto-detect"
+  cc: "translate.rs\n(Claude Code)"
+  pim: "translate_pi.rs\n(pi-mono)"
+  ce: "CloudEvent 1.0\ntype=io.arc.event\nagent=claude-code | pi-mono"
+}
+
+# ─────────────────────────────────────────────
+# Event bus — hierarchical subjects encode
+# project → session → main/subagent.
+# ─────────────────────────────────────────────
+bus: NATS JetStream (open-story-bus) {
+  style.fill: "#fdf2e8"
+  events: "events.{project}.{session}.>"
+  patterns_subj: "patterns.>"
+  changes: "changes.>"
+}
+
+# ─────────────────────────────────────────────
+# Independent actor-consumers. Each owns its
+# own state; no shared RwLock between them.
+# ─────────────────────────────────────────────
+consumers: Consumers (open-story-server) {
+  style.fill: "#f3e8ff"
+  persist: "persist\nEventStore writes +\nJSONL append + FTS index"
+  patterns: "patterns\nEvalApply → Sentence\n→ PatternEvent"
+  projections: "projections\nSessionProjection\n(tokens, metadata)"
+  broadcast: "broadcast\nViewRecord → WireRecord"
+}
+
+# ─────────────────────────────────────────────
+# Storage. Pluggable EventStore trait;
+# JSONL is always on disk for sovereignty.
+# ─────────────────────────────────────────────
+stores: Storage (open-story-store) {
+  style.fill: "#fee8ec"
+  sqlite: "SqliteStore (default)\nopen-story.db\n+ FTS5 virtual table"
+  mongo: "MongoStore\n(--features mongo)\nsame trait, native idiom"
+  jsonl: "JSONL backup\nper-session *.jsonl\n(sovereignty escape hatch)"
+  plans: "PlanStore\nmarkdown plans"
+}
+
+# ─────────────────────────────────────────────
+# Read paths the user sees.
+# ─────────────────────────────────────────────
+api: HTTP / WS API (open-story-server) {
+  style.fill: "#e8f6f6"
+  rest: "REST\n/api/sessions\n/api/search\n/api/agent/search"
+  ws: "WebSocket\nlive WireRecord stream"
+  metrics: "Prometheus\n/metrics"
+}
+
+# ─────────────────────────────────────────────
+# The mirror the user looks at.
+# ─────────────────────────────────────────────
+ui: React Dashboard {
+  style.fill: "#e8f1ff"
+  shape: rectangle
+  vite: "Vite + React + RxJS"
+  views: "Sessions, Search,\nPatterns, Plans,\nToken usage"
+}
+
+# ── User → agents (the work) ──
+user -> agents: prompts, edits
+
+# ── Agents → observation surfaces (one-way) ──
+agents.claude -> observe.watcher: writes transcript
+agents.claude -> observe.hooks: PostToolUse / Stop
+agents.pi -> observe.watcher: writes transcript
+
+# ── Observation → translation ──
+observe.watcher -> translate.reader
+observe.hooks -> translate.cc
+translate.reader -> translate.cc
+translate.reader -> translate.pim
+translate.cc -> translate.ce
+translate.pim -> translate.ce
+
+# ── Translate → bus ──
+translate.ce -> bus.events: publish
+
+# ── Bus → consumers (each subscribes independently) ──
+bus.events -> consumers.persist
+bus.events -> consumers.patterns
+bus.events -> consumers.projections
+bus.events -> consumers.broadcast
+
+# ── Consumers → stores / back to bus ──
+consumers.persist -> stores.sqlite
+consumers.persist -> stores.mongo: "if data_backend=mongo"
+consumers.persist -> stores.jsonl
+consumers.patterns -> bus.patterns_subj
+consumers.projections -> bus.changes
+consumers.persist -> stores.plans: extracted plans
+
+# ── Stores → API → UI ──
+stores.sqlite -> api.rest: queries
+stores.mongo -> api.rest: queries
+consumers.broadcast -> api.ws: live records
+api.rest -> ui.views
+api.ws -> ui.vite
+api.metrics -> ui: (Grafana, optional)
+
+# ── The loop closes: the user observes ──
+ui -> user: what your agent is doing,\nwhat it built, where time went
+
+# ─────────────────────────────────────────────
+# Sovereignty annotations
+# ─────────────────────────────────────────────
+note_observe: |md
+  **Observe, never interfere.**
+  Watcher is read-only. Hooks are one-way HTTP.
+  OpenStory never writes back to ~/.claude or ~/.pi.
+| {
+  shape: text
+  style.font-size: 12
+  style.italic: true
+}
+
+note_jsonl: |md
+  **User-owned data.**
+  JSONL is always on disk regardless
+  of EventStore backend — grep-able,
+  portable, no DB required to read.
+| {
+  shape: text
+  style.font-size: 12
+  style.italic: true
+}
+
+observe -> note_observe: {style.stroke-dash: 3; style.opacity: 0.4}
+stores.jsonl -> note_jsonl: {style.stroke-dash: 3; style.opacity: 0.4}

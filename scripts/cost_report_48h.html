@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenStory — 48h Cost Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, 'Segoe UI', Calibri, sans-serif;
+    font-size: 13px;
+    color: #222;
+    background: #fff;
+    margin: 0;
+    padding: 24px 32px 48px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+  h2 { font-size: 14px; font-weight: 600; color: #333; margin: 28px 0 8px; border-bottom: 2px solid #222; padding-bottom: 4px; }
+  h3 { font-size: 12px; font-weight: 600; color: #555; margin: 0 0 4px; }
+
+  /* KPI strip */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: #ddd; border: 1px solid #ddd; margin-bottom: 20px; }
+  .kpi { background: #fff; padding: 12px 14px; }
+  .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+  .kpi-value { font-size: 22px; font-weight: 700; color: #111; margin-top: 2px; }
+  .kpi-value.red { color: #b33; }
+  .kpi-sub { font-size: 10px; color: #999; margin-top: 2px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 12px; margin-bottom: 4px; }
+  thead th { text-align: left; font-weight: 600; font-size: 10px; color: #555; padding: 5px 8px; border-bottom: 1px solid #bbb; background: #f5f5f5; text-transform: uppercase; letter-spacing: 0.5px; }
+  thead th:not(:first-child) { text-align: right; }
+  thead th.left { text-align: left; }
+  tbody td { padding: 4px 8px; border-bottom: 1px solid #eee; }
+  tbody td:not(:first-child) { text-align: right; }
+  tbody td.left { text-align: left; }
+  tbody tr:hover { background: #f8f8f6; }
+  .row-total td { font-weight: 700; border-top: 2px solid #222; background: #f5f5f5; border-bottom: none; }
+  .cost { color: #b33; font-weight: 600; }
+  .dim { color: #999; }
+  .sub-row td { color: #777; font-size: 11px; }
+  .sub-row td:first-child { padding-left: 20px; }
+
+  .tag { display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 2px; font-weight: 600; }
+  .tag-opus { background: #fde8e2; color: #c9431e; }
+  .tag-haiku { background: #dff5ee; color: #0e8a6a; }
+  .tag-main { background: #e8e8fd; color: #5548b0; }
+  .tag-sub { background: #f0f0f0; color: #888; }
+
+  /* Charts */
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 24px; }
+  .chart-box { border: 1px solid #ddd; padding: 12px 14px; background: #fafafa; }
+  .chart-box h3 { margin-bottom: 8px; }
+  .chart-container { position: relative; height: 200px; }
+  .chart-full { grid-column: 1 / -1; }
+  .chart-full .chart-container { height: 220px; }
+  .chart-third { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 12px 0 24px; }
+
+  .footnote { font-size: 10px; color: #aaa; margin-top: 32px; border-top: 1px solid #eee; padding-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>OpenStory Cost Report — Last 48 Hours</h1>
+<div class="subtitle">Apr 25 – Apr 26, 2026 &middot; Model-aware per-call pricing &middot; 3 main sessions, 0 subagents</div>
+
+<!-- KPI STRIP -->
+<div class="kpis">
+  <div class="kpi">
+    <div class="kpi-label">Total Spend</div>
+    <div class="kpi-value red">$56.66</div>
+    <div class="kpi-sub">2 active days</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Avg / Session</div>
+    <div class="kpi-value">$18.89</div>
+    <div class="kpi-sub">3 main sessions</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Avg / Day</div>
+    <div class="kpi-value">$28.33</div>
+    <div class="kpi-sub">2 active days</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Cost / 1K Output</div>
+    <div class="kpi-value">$0.72</div>
+    <div class="kpi-sub">78.2K output tokens</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Cache Hit Rate</div>
+    <div class="kpi-value">95.5%</div>
+    <div class="kpi-sub">21.4M of 22.4M</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Concentration</div>
+    <div class="kpi-value">95.0%</div>
+    <div class="kpi-sub">top 2 sessions</div>
+  </div>
+</div>
+
+<!-- DAILY OVERVIEW -->
+<h2>Daily Overview</h2>
+<div class="chart-row">
+  <div class="chart-box chart-full">
+    <h3>Spend per Day</h3>
+    <div class="chart-container"><canvas id="dailyCostChart"></canvas></div>
+  </div>
+</div>
+
+<table>
+  <thead><tr>
+    <th>Date</th><th>Sessions</th><th>Subagents</th><th>API Calls</th><th>Output Tokens</th><th>Avg $/Session</th><th>Cost</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>Sat, Apr 25</td><td>1</td><td>0</td><td>16</td><td>6,399</td><td>$2.83</td><td class="cost">$2.83</td></tr>
+    <tr><td>Sun, Apr 26</td><td>2</td><td>0</td><td>83</td><td>71,827</td><td>$26.92</td><td class="cost">$53.84</td></tr>
+    <tr class="row-total"><td>Total</td><td>3</td><td>0</td><td>99</td><td>78,226</td><td>$18.89</td><td class="cost">$56.66</td></tr>
+  </tbody>
+</table>
+
+<!-- BY PROJECT -->
+<h2>Spend by Project</h2>
+<div class="chart-row">
+  <div class="chart-box">
+    <h3>Cost Distribution</h3>
+    <div class="chart-container"><canvas id="projectPieChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h3>Sessions &amp; Calls per Project</h3>
+    <div class="chart-container"><canvas id="projectBarChart"></canvas></div>
+  </div>
+</div>
+
+<table>
+  <thead><tr>
+    <th>Project</th><th>Sessions</th><th>API Calls</th><th>Output Tokens</th><th>Avg $/Session</th><th>% of Total</th><th>Cost</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>OpenStory</td><td>1</td><td>35</td><td>44,592</td><td>$33.29</td><td>58.7%</td><td class="cost">$33.29</td></tr>
+    <tr><td>(unknown)</td><td>2</td><td>64</td><td>33,634</td><td>$11.69</td><td>41.3%</td><td class="cost">$23.38</td></tr>
+    <tr class="row-total"><td>Total</td><td>3</td><td>99</td><td>78,226</td><td>$18.89</td><td>100%</td><td class="cost">$56.66</td></tr>
+  </tbody>
+</table>
+
+<!-- TOP SESSIONS -->
+<h2>Sessions by Cost</h2>
+<p style="font-size:11px;color:#888;margin:0 0 8px;">All 3 sessions in the window. No subagents detected.</p>
+
+<table>
+  <thead><tr>
+    <th>Session</th><th class="left">Project</th><th>Model</th><th>Calls</th><th>Output</th><th>$/Call</th><th>$/1K Out</th><th>Cache%</th><th>Cost</th>
+  </tr></thead>
+  <tbody id="sessionTableBody"></tbody>
+</table>
+
+<!-- EFFICIENCY -->
+<h2>Efficiency Metrics</h2>
+<div class="chart-third">
+  <div class="chart-box">
+    <h3>Cost per API Call by Session</h3>
+    <div class="chart-container"><canvas id="costPerCallChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h3>Cost per 1K Output Tokens</h3>
+    <div class="chart-container"><canvas id="costPerOutputChart"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h3>Cache Hit Rate by Session</h3>
+    <div class="chart-container"><canvas id="cacheRatioChart"></canvas></div>
+  </div>
+</div>
+
+<!-- MODEL MIX -->
+<h2>Model Mix</h2>
+<table>
+  <thead><tr><th>Model</th><th>Calls</th><th>% Calls</th><th>Tokens</th><th>Cost</th><th>% Cost</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tag tag-opus">Opus 4.7</span></td><td>99</td><td>100%</td><td>22.4M</td><td class="cost">$56.66</td><td>100%</td></tr>
+    <tr class="row-total"><td>Total</td><td>99</td><td>100%</td><td>22.4M</td><td class="cost">$56.66</td><td>100%</td></tr>
+  </tbody>
+</table>
+
+<!-- TOKEN COMPOSITION -->
+<h2>Token Composition</h2>
+<table>
+  <thead><tr><th>Type</th><th>Tokens</th><th>% of Total</th><th>What it costs</th></tr></thead>
+  <tbody>
+    <tr><td>Cache Read</td><td>21,371,950</td><td>95.2%</td><td class="cost">~$32.06</td></tr>
+    <tr><td>Cache Creation</td><td>999,250</td><td>4.5%</td><td class="cost">~$18.74</td></tr>
+    <tr><td>Output</td><td>78,226</td><td>0.3%</td><td class="cost">~$5.87</td></tr>
+    <tr><td>Input</td><td>144</td><td>&lt;0.01%</td><td class="cost">~$0.00</td></tr>
+    <tr class="row-total"><td>Total</td><td>22,449,570</td><td>100%</td><td class="cost">$56.66</td></tr>
+  </tbody>
+</table>
+
+<!-- KEY TAKEAWAYS -->
+<h2>Key Takeaways</h2>
+<table>
+  <thead><tr><th style="width:200px">Metric</th><th class="left">Observation</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td>Concentration Risk</td><td class="left">Top 2 sessions = 95% of spend ($53.84). Single-day burst on Apr 26 drove 95% of the 48h total.</td><td class="left">Watch for runaway sessions; cap context where possible</td></tr>
+    <tr><td>Model Mix</td><td class="left">100% Opus 4.7 — no Haiku routing in this window. Every call paid Opus rates.</td><td class="left">Consider Haiku for cheap subtasks (search, summarization)</td></tr>
+    <tr><td>Cache Efficiency</td><td class="left">95.5% cache hit rate; cache reads cost $32 vs. ~$320 if uncached. Caching is doing its job.</td><td class="left">Already optimized. Monitor for regression.</td></tr>
+    <tr><td>Cost per Output</td><td class="left">$0.72 / 1K output tokens, well below the prior week's $1.76. Driven by aggressive cache reuse and low session count.</td><td class="left">Healthy ratio — nothing to action</td></tr>
+    <tr><td>Daily Variance</td><td class="left">$2.83 → $53.84 day-over-day (19x). One active session today (#060e8da6, "Tools!") cost $33 alone.</td><td class="left">Daily spend dashboard / per-session budget alerts</td></tr>
+    <tr><td>Burn Rate</td><td class="left">$28/day average over 2 days. Annualized: ~$10K at current pace — far below the prior week's $79K trajectory.</td><td class="left">Track weekly; this is a quiet 48 hours</td></tr>
+  </tbody>
+</table>
+
+<div class="footnote">
+  Generated from <code>data/open-story.db</code> via <code>scripts/cost_by_model.py</code> &middot; window: 2026-04-24T22:33Z → 2026-04-26T22:33Z (48h) &middot;
+  <strong>Note:</strong> <code>claude-opus-4-7</code> is mapped to the base "opus" tier (no 200K threshold doubling), so cost may be slightly undercounted for any single call with prompt &gt; 200K tokens. Update <code>PRICING</code> in <code>cost_by_model.py</code> to add an opus-4-7 tier when the rate card is confirmed.
+</div>
+
+<script>
+const sessions = [
+  {id:"060e8da6",label:"Tools! Are there opensource or paid tools that…",project:"OpenStory",calls:35,cost:33.29,output:44592,cache_ratio:0.9701,cost_per_call:0.95,cost_per_1k_out:0.75,model:"opus-4-7",is_sub:false},
+  {id:"f31a275e",label:"Hello! Can you please check my raptor sprint…",project:"(unknown)",calls:48,cost:20.55,output:27235,cache_ratio:0.9283,cost_per_call:0.43,cost_per_1k_out:0.75,model:"opus-4-7",is_sub:false},
+  {id:"e99b4ba3",label:"I am not seeing my OpenClaw instance on the Hertnz…",project:"(unknown)",calls:16,cost:2.83,output:6399,cache_ratio:0.9057,cost_per_call:0.18,cost_per_1k_out:0.44,model:"opus-4-7",is_sub:false},
+];
+const TOTAL = 56.66;
+
+// Session table
+const tbody = document.getElementById('sessionTableBody');
+let runCost = 0;
+sessions.forEach((s,i) => {
+  runCost += s.cost;
+  const cls = s.is_sub ? 'sub-row' : '';
+  const modelTag = '<span class="tag tag-opus">Opus 4.7</span>';
+  const typeTag = s.is_sub ? '<span class="tag tag-sub">sub</span> ' : '';
+  const fmtOut = s.output >= 1e6 ? (s.output/1e6).toFixed(1)+'M' : s.output >= 1e3 ? (s.output/1e3).toFixed(1)+'K' : s.output;
+  tbody.innerHTML += '<tr class="'+cls+'"><td>'+typeTag+s.label+'</td><td class="left">'+s.project+'</td><td>'+modelTag+'</td><td>'+s.calls.toLocaleString()+'</td><td>'+fmtOut+'</td><td>$'+s.cost_per_call.toFixed(2)+'</td><td>$'+s.cost_per_1k_out.toFixed(2)+'</td><td>'+(s.cache_ratio*100).toFixed(1)+'%</td><td class="cost">$'+s.cost.toFixed(2)+'</td></tr>';
+});
+tbody.innerHTML += '<tr class="row-total"><td colspan="4">All Sessions</td><td></td><td></td><td></td><td></td><td class="cost">$'+runCost.toFixed(2)+'</td></tr>';
+
+// Chart defaults
+Chart.defaults.color = '#888';
+Chart.defaults.borderColor = '#e8e8e8';
+Chart.defaults.font.family = "-apple-system, 'Segoe UI', Calibri, sans-serif";
+Chart.defaults.font.size = 11;
+const grid = '#f0f0f0';
+const tip = { backgroundColor:'#333', titleColor:'#fff', bodyColor:'#ddd', borderColor:'#555', borderWidth:1, padding:8, cornerRadius:2 };
+
+// Daily cost
+new Chart(document.getElementById('dailyCostChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Apr 25','Apr 26'],
+    datasets: [
+      { label: 'Main sessions', data: [2.83, 53.84], backgroundColor: 'rgba(201,67,30,0.7)', borderColor:'rgba(201,67,30,1)', borderWidth:1, borderRadius:2 },
+      { label: 'Subagents', data: [0, 0], backgroundColor: 'rgba(180,180,180,0.5)', borderColor:'rgba(150,150,150,0.8)', borderWidth:1, borderRadius:2 },
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false,
+    plugins: { legend:{position:'bottom',labels:{boxWidth:8,padding:12}}, tooltip:{...tip, callbacks:{label:c=>'$'+c.raw.toFixed(2)}} },
+    scales: { x:{stacked:true,grid:{display:false}}, y:{stacked:true,grid:{color:grid},ticks:{callback:v=>'$'+v}} }
+  }
+});
+
+// Project pie
+new Chart(document.getElementById('projectPieChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['OpenStory ($33.29)','(unknown) ($23.38)'],
+    datasets: [{ data:[33.29,23.38], backgroundColor:['rgba(85,72,176,0.6)','rgba(180,180,180,0.4)'], borderColor:'#fff', borderWidth:2 }]
+  },
+  options: { responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{legend:{position:'bottom',labels:{boxWidth:8,padding:10,font:{size:10}}},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)}}} }
+});
+
+// Project bar
+new Chart(document.getElementById('projectBarChart'), {
+  type: 'bar',
+  data: {
+    labels: ['OpenStory','(unknown)'],
+    datasets: [
+      { label:'Sessions', data:[1,2], backgroundColor:'rgba(85,72,176,0.5)', borderColor:'rgba(85,72,176,0.8)', borderWidth:1, borderRadius:2 },
+      { label:'API Calls', data:[35,64], backgroundColor:'rgba(201,67,30,0.4)', borderColor:'rgba(201,67,30,0.7)', borderWidth:1, borderRadius:2 },
+    ]
+  },
+  options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom',labels:{boxWidth:8,padding:10}},tooltip:tip}, scales:{x:{grid:{display:false}},y:{grid:{color:grid}}} }
+});
+
+// Efficiency: cost per call
+const mainSessions = sessions.filter(s=>!s.is_sub);
+new Chart(document.getElementById('costPerCallChart'), {
+  type: 'bar',
+  data: {
+    labels: mainSessions.map(s=>s.label.slice(0,24)),
+    datasets: [{ data:mainSessions.map(s=>s.cost_per_call), backgroundColor:'rgba(201,67,30,0.5)', borderColor:'rgba(201,67,30,0.8)', borderWidth:1, borderRadius:2 }]
+  },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)+'/call'}}}, scales:{x:{grid:{color:grid},ticks:{callback:v=>'$'+v}},y:{grid:{display:false}}} }
+});
+
+// Efficiency: cost per 1K output
+new Chart(document.getElementById('costPerOutputChart'), {
+  type: 'bar',
+  data: {
+    labels: mainSessions.map(s=>s.label.slice(0,24)),
+    datasets: [{ data:mainSessions.map(s=>s.cost_per_1k_out), backgroundColor:'rgba(85,72,176,0.5)', borderColor:'rgba(85,72,176,0.8)', borderWidth:1, borderRadius:2 }]
+  },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>'$'+c.raw.toFixed(2)+'/1K output tokens'}}}, scales:{x:{grid:{color:grid},ticks:{callback:v=>'$'+v}},y:{grid:{display:false}}} }
+});
+
+// Cache ratio
+new Chart(document.getElementById('cacheRatioChart'), {
+  type: 'bar',
+  data: {
+    labels: mainSessions.map(s=>s.label.slice(0,24)),
+    datasets: [{ data:mainSessions.map(s=>s.cache_ratio*100), backgroundColor:'rgba(14,138,106,0.5)', borderColor:'rgba(14,138,106,0.8)', borderWidth:1, borderRadius:2 }]
+  },
+  options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{...tip,callbacks:{label:c=>c.raw.toFixed(1)+'%'}}}, scales:{x:{grid:{color:grid},min:0,max:100,ticks:{callback:v=>v+'%'}},y:{grid:{display:false}}} }
+});
+</script>
+</body>
+</html>

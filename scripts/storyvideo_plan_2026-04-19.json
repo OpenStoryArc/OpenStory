@@ -1,0 +1,84 @@
+{
+  "$schema": "storyvideo-plan-v1",
+  "date": "2026-04-19",
+  "weekday": "Saturday",
+  "headline": "from a tab character to a video that tells the day",
+  "scenes": [
+    {
+      "template": "title",
+      "duration": 6,
+      "headline_lines": ["from a tab character", "to a video that tells the day"],
+      "subtitle": "Saturday · April 19, 2026"
+    },
+    {
+      "template": "quote",
+      "duration": 5.5,
+      "eyebrow": "01:36 // OPENING",
+      "text": "UI Work — can you fix and make this have code syntax highlighting?",
+      "tone": "neutral",
+      "attribution": "session ddba5c82"
+    },
+    {
+      "template": "quote",
+      "duration": 5,
+      "eyebrow": "DISCOVERY",
+      "text": "The stored format uses tab — not the arrow.",
+      "tone": "neutral"
+    },
+    {
+      "template": "moment",
+      "duration": 4,
+      "text_lines": ["Red.", "Green."],
+      "subtext": "65 / 65 tests pass",
+      "tone": "positive"
+    },
+    {
+      "template": "quote",
+      "duration": 5,
+      "eyebrow": "23:36 // CURIOSITY",
+      "text": "What is HeyGen? Is it legit?",
+      "tone": "neutral",
+      "attribution": "session 699938d4"
+    },
+    {
+      "template": "quote",
+      "duration": 5.5,
+      "eyebrow": "BUILD · A / B / C",
+      "text": "Three prototypes in parallel — session recap, sentence reel, hybrid.",
+      "tone": "neutral"
+    },
+    {
+      "template": "moment",
+      "duration": 4,
+      "text_lines": ["Subagents can't write.", "Taking over."],
+      "tone": "negative"
+    },
+    {
+      "template": "quote",
+      "duration": 6.5,
+      "eyebrow": "REFRAME",
+      "text": "\"you can't know things you're not aware of that were not on-quest.\"",
+      "tone": "warm",
+      "attribution": "the human, gently"
+    },
+    {
+      "template": "quote",
+      "duration": 6,
+      "eyebrow": "SYNTHESIS",
+      "text": "Use the existing skills. sessionstory + daystory. Compose, don't rewrite.",
+      "tone": "neutral"
+    },
+    {
+      "template": "quote",
+      "duration": 5.5,
+      "eyebrow": "WHAT WE BUILT",
+      "text": "A transformer between data and pixels — facts → plan → render.",
+      "tone": "neutral"
+    },
+    {
+      "template": "outro",
+      "duration": 5,
+      "tagline": "the day, told back to you"
+    }
+  ]
+}

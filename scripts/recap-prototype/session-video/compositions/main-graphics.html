@@ -1,0 +1,393 @@
+<template id="main-graphics-template">
+  <div
+    data-composition-id="main-graphics"
+    data-width="1920"
+    data-height="1080"
+    data-start="0"
+    data-duration="35"
+  >
+    <!-- Persistent header strip -->
+    <div id="header">
+      <span class="hdr-mark">▸</span>
+      <span class="hdr-text">openstory</span>
+      <span class="hdr-meta">// session recap</span>
+    </div>
+
+    <!-- Scene 1: Title card -->
+    <div id="scene-1" class="scene">
+      <div class="scene-content centered">
+        <div class="eyebrow">SESSION ddba5c82</div>
+        <h1 class="title">UI Work</h1>
+        <div class="subtitle">code syntax highlighting</div>
+        <div class="meta">
+          <span>2026-04-19</span>
+          <span class="dot">·</span>
+          <span>150 events</span>
+          <span class="dot">·</span>
+          <span>2h 53m</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 2: The ask -->
+    <div id="scene-2" class="scene">
+      <div class="scene-content centered">
+        <div class="eyebrow">THE ASK</div>
+        <p class="quote">
+          <span class="quote-mark">"</span>can you fix and make this have
+          <span class="accent">code syntax highlighting</span>?<span class="quote-mark">"</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- Scene 3: Tool histogram -->
+    <div id="scene-3" class="scene">
+      <div class="scene-content">
+        <div class="eyebrow center">TOOL USAGE</div>
+        <div class="bars">
+          <div class="bar-row" data-bar="bash">
+            <span class="bar-label">Bash</span>
+            <div class="bar-track"><div class="bar-fill bar-bash"></div></div>
+            <span class="bar-value">18</span>
+          </div>
+          <div class="bar-row" data-bar="edit">
+            <span class="bar-label">Edit</span>
+            <div class="bar-track"><div class="bar-fill bar-edit"></div></div>
+            <span class="bar-value">12</span>
+          </div>
+          <div class="bar-row" data-bar="read">
+            <span class="bar-label">Read</span>
+            <div class="bar-track"><div class="bar-fill bar-read"></div></div>
+            <span class="bar-value">9</span>
+          </div>
+          <div class="bar-row" data-bar="grep">
+            <span class="bar-label">Grep</span>
+            <div class="bar-track"><div class="bar-fill bar-grep"></div></div>
+            <span class="bar-value">3</span>
+          </div>
+          <div class="bar-row" data-bar="agent">
+            <span class="bar-label">Agent</span>
+            <div class="bar-track"><div class="bar-fill bar-agent"></div></div>
+            <span class="bar-value">1</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 4: Files touched -->
+    <div id="scene-4" class="scene">
+      <div class="scene-content centered">
+        <div class="eyebrow">FILES TOUCHED</div>
+        <div class="file-card">
+          <div class="file-path">
+            <span class="dim">ui/src/components/</span><span class="accent">TurnCard.tsx</span>
+          </div>
+          <div class="file-bar">
+            <div class="file-bar-fill"></div>
+          </div>
+          <div class="file-stats">
+            <span class="stat-num">8</span>
+            <span class="stat-label">snapshots</span>
+            <span class="dot">·</span>
+            <span class="stat-num">12</span>
+            <span class="stat-label">edits</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scene 5: Outcome -->
+    <div id="scene-5" class="scene">
+      <div class="scene-content centered">
+        <div class="eyebrow accent-eyebrow">OUTCOME</div>
+        <div class="outcome-line">
+          <span class="check">✓</span>
+          <span class="outcome-text">syntax highlighting added</span>
+        </div>
+        <div class="outcome-stats">
+          <span class="big-num accent">65</span>
+          <span class="slash">/</span>
+          <span class="big-num">65</span>
+          <span class="big-label">tests pass</span>
+        </div>
+        <div class="outcome-sub">type-check clean</div>
+      </div>
+    </div>
+
+    <!-- Black out -->
+    <div id="black-out"></div>
+
+    <style>
+      [data-composition-id="main-graphics"] {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        color: #e6e6e6;
+        font-family: "Inter", sans-serif;
+        overflow: hidden;
+      }
+
+      /* Persistent header */
+      #header {
+        position: absolute;
+        top: 50px;
+        left: 80px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 22px;
+        color: #8a9199;
+        opacity: 0;
+        z-index: 20;
+      }
+      #header .hdr-mark { color: #ffaa3b; margin-right: 6px; }
+      #header .hdr-text { color: #e6e6e6; margin-right: 14px; }
+
+      /* Scene base */
+      .scene {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        padding: 160px 200px 140px;
+        opacity: 0;
+        z-index: 1;
+      }
+      .scene-content {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+      }
+      .scene-content.centered {
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Common typographic elements */
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 22px;
+        letter-spacing: 0.3em;
+        color: #8a9199;
+        text-transform: uppercase;
+      }
+      .eyebrow.center { text-align: center; }
+      .accent-eyebrow { color: #ffaa3b; }
+      .accent { color: #ffaa3b; }
+      .dim { color: #8a9199; }
+      .dot { color: #1f2630; padding: 0 14px; }
+
+      /* Scene 1 */
+      #scene-1 .title {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 200px;
+        font-weight: 700;
+        margin: 32px 0 8px;
+        letter-spacing: -0.02em;
+      }
+      #scene-1 .subtitle {
+        font-size: 42px;
+        color: #8a9199;
+        margin-bottom: 56px;
+      }
+      #scene-1 .meta {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 26px;
+        color: #e6e6e6;
+        display: flex;
+        align-items: center;
+      }
+
+      /* Scene 2 */
+      #scene-2 .quote {
+        font-size: 84px;
+        line-height: 1.25;
+        font-weight: 400;
+        max-width: 1500px;
+        text-align: center;
+        margin-top: 40px;
+      }
+      #scene-2 .quote-mark { color: #1f2630; font-size: 100px; }
+
+      /* Scene 3 — bars */
+      #scene-3 .scene-content { justify-content: center; gap: 24px; }
+      .bars {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        max-width: 1100px;
+        margin: 40px auto 0;
+        width: 100%;
+      }
+      .bar-row {
+        display: grid;
+        grid-template-columns: 140px 1fr 70px;
+        align-items: center;
+        gap: 24px;
+        font-family: "JetBrains Mono", monospace;
+      }
+      .bar-label { font-size: 28px; text-align: right; color: #e6e6e6; }
+      .bar-track {
+        height: 36px;
+        background: #1f2630;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        width: 0;
+        background: #ffaa3b;
+        border-radius: 2px;
+      }
+      .bar-edit, .bar-read, .bar-grep, .bar-agent {
+        background: #8a9199;
+      }
+      .bar-bash { background: #ffaa3b; }
+      .bar-value { font-size: 28px; color: #ffaa3b; opacity: 0; }
+
+      /* Scene 4 — file card */
+      #scene-4 .file-card {
+        margin-top: 40px;
+        padding: 50px 60px;
+        background: #11161e;
+        border: 1px solid #1f2630;
+        border-radius: 4px;
+        min-width: 1100px;
+        text-align: left;
+      }
+      #scene-4 .file-path {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 48px;
+        margin-bottom: 32px;
+      }
+      #scene-4 .file-bar {
+        height: 6px;
+        background: #1f2630;
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: 28px;
+      }
+      #scene-4 .file-bar-fill {
+        height: 100%;
+        background: #ffaa3b;
+        width: 0;
+      }
+      #scene-4 .file-stats {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 24px;
+        color: #8a9199;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #scene-4 .stat-num { color: #e6e6e6; font-weight: 700; }
+      #scene-4 .stat-label { margin-right: 4px; }
+
+      /* Scene 5 — outcome */
+      #scene-5 .outcome-line {
+        margin-top: 32px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        font-size: 56px;
+        font-weight: 500;
+      }
+      #scene-5 .check {
+        color: #ffaa3b;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 64px;
+      }
+      #scene-5 .outcome-stats {
+        margin-top: 56px;
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        font-family: "JetBrains Mono", monospace;
+      }
+      #scene-5 .big-num { font-size: 200px; font-weight: 700; line-height: 1; }
+      #scene-5 .slash { font-size: 140px; color: #1f2630; }
+      #scene-5 .big-label {
+        font-family: "Inter", sans-serif;
+        font-size: 36px;
+        color: #8a9199;
+        margin-left: 24px;
+      }
+      #scene-5 .outcome-sub {
+        margin-top: 36px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 24px;
+        color: #8a9199;
+      }
+
+      /* Black out */
+      #black-out {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        background: #0a0e14;
+        opacity: 0;
+        z-index: 100;
+      }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+
+      // Header — fade in once
+      tl.to("#header", { opacity: 1, duration: 0.6, ease: "power2.out" }, 0.3);
+
+      // Scene 1: 0-7  (title)
+      tl.to("#scene-1", { opacity: 1, duration: 0.4 }, 0.2);
+      tl.from("#scene-1 .eyebrow", { y: -10, opacity: 0, duration: 0.5, ease: "power2.out" }, 0.4);
+      tl.from("#scene-1 .title", { y: 30, opacity: 0, duration: 0.8, ease: "power3.out" }, 0.6);
+      tl.from("#scene-1 .subtitle", { y: 20, opacity: 0, duration: 0.6, ease: "power2.out" }, 1.0);
+      tl.from("#scene-1 .meta", { opacity: 0, duration: 0.6, ease: "power1.out" }, 1.4);
+      tl.to("#scene-1", { opacity: 0, duration: 0.5 }, 6.5);
+
+      // Scene 2: 7-14  (quote)
+      tl.to("#scene-2", { opacity: 1, duration: 0.4 }, 7.0);
+      tl.from("#scene-2 .eyebrow", { y: -10, opacity: 0, duration: 0.5, ease: "power2.out" }, 7.2);
+      tl.from("#scene-2 .quote", { y: 30, opacity: 0, duration: 0.7, ease: "expo.out" }, 7.4);
+      tl.to("#scene-2", { opacity: 0, duration: 0.5 }, 13.5);
+
+      // Scene 3: 14-22  (bars — animated widths)
+      tl.to("#scene-3", { opacity: 1, duration: 0.4 }, 14.0);
+      tl.from("#scene-3 .eyebrow", { y: -10, opacity: 0, duration: 0.4, ease: "power2.out" }, 14.2);
+      tl.from(".bar-row", { x: -30, opacity: 0, stagger: 0.12, duration: 0.45, ease: "power2.out" }, 14.4);
+      // Bar fill widths — proportional to counts (max 18 = 100%)
+      tl.to(".bar-bash",  { width: "100%", duration: 0.9, ease: "power3.out" }, 15.0);
+      tl.to(".bar-edit",  { width: "66.7%", duration: 0.8, ease: "power3.out" }, 15.15);
+      tl.to(".bar-read",  { width: "50%",   duration: 0.7, ease: "power3.out" }, 15.3);
+      tl.to(".bar-grep",  { width: "16.7%", duration: 0.5, ease: "power3.out" }, 15.45);
+      tl.to(".bar-agent", { width: "5.5%",  duration: 0.4, ease: "power3.out" }, 15.6);
+      // Numbers fade in after bars settle
+      tl.to(".bar-value", { opacity: 1, stagger: 0.08, duration: 0.3, ease: "power1.out" }, 16.2);
+      tl.to("#scene-3", { opacity: 0, duration: 0.5 }, 21.5);
+
+      // Scene 4: 22-28  (file card)
+      tl.to("#scene-4", { opacity: 1, duration: 0.4 }, 22.0);
+      tl.from("#scene-4 .eyebrow", { y: -10, opacity: 0, duration: 0.4, ease: "power2.out" }, 22.2);
+      tl.from("#scene-4 .file-card", { y: 30, opacity: 0, duration: 0.7, ease: "power3.out" }, 22.4);
+      tl.to("#scene-4 .file-bar-fill", { width: "100%", duration: 1.2, ease: "power2.inOut" }, 23.0);
+      tl.from("#scene-4 .file-stats", { y: 10, opacity: 0, duration: 0.5, ease: "power2.out" }, 24.0);
+      tl.to("#scene-4", { opacity: 0, duration: 0.5 }, 27.5);
+
+      // Scene 5: 28-34  (outcome)
+      tl.to("#scene-5", { opacity: 1, duration: 0.5 }, 28.0);
+      tl.from("#scene-5 .eyebrow", { y: -10, opacity: 0, duration: 0.5, ease: "power2.out" }, 28.2);
+      tl.from("#scene-5 .outcome-line", { y: 20, opacity: 0, duration: 0.6, ease: "power3.out" }, 28.5);
+      tl.from("#scene-5 .outcome-stats", { y: 30, opacity: 0, duration: 0.7, ease: "expo.out" }, 29.2);
+      tl.from("#scene-5 .outcome-sub", { opacity: 0, duration: 0.6, ease: "power1.out" }, 30.0);
+      // Final scene exit
+      tl.to("#scene-5", { opacity: 0, duration: 0.6 }, 33.0);
+      tl.to("#header", { opacity: 0, duration: 0.5 }, 33.0);
+      tl.to("#black-out", { opacity: 1, duration: 0.4 }, 33.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main-graphics"] = tl;
+    </script>
+  </div>
+</template>
