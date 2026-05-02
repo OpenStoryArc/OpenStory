@@ -169,6 +169,39 @@ enum Command {
         format: String,
     },
 
+    /// Reconcile JSONL on disk → live EventStore (CONSTELLATION R1).
+    ///
+    /// Walks `data_dir/*.jsonl` and ensures every event is present in the
+    /// configured EventStore. Idempotent (PK dedup). No network I/O. Useful
+    /// after manually copying JSONL between machines, or after a backend
+    /// switch when you don't want to wait for the next server restart.
+    /// Boot-time reconciliation runs the same logic automatically.
+    Reconcile {
+        /// Directory for persisted session data (JSONL + EventStore)
+        #[arg(long, env = "OPEN_STORY_DATA_DIR", default_value = "./data")]
+        data_dir: PathBuf,
+
+        /// Persistence backend: "sqlite" (default) or "mongo".
+        /// `mongo` requires building with `--features mongo`.
+        #[arg(long, env = "OPEN_STORY_DATA_BACKEND")]
+        data_backend: Option<DataBackend>,
+
+        /// MongoDB connection URI. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_URI")]
+        mongo_uri: Option<String>,
+
+        /// MongoDB database name. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_DB")]
+        mongo_db: Option<String>,
+
+        /// SQLCipher encryption key for the database (empty = unencrypted)
+        #[arg(long, env = "OPEN_STORY_DB_KEY")]
+        db_key: Option<String>,
+
+        /// Print per-session error detail (otherwise only first 5 errors shown)
+        #[arg(long)]
+        verbose: bool,
+    },
 }
 
 fn default_watch_dir() -> PathBuf {
@@ -384,6 +417,58 @@ async fn main() -> Result<()> {
                             .unwrap_or("?");
                         println!("{:<30} {:>8} {:>8}  {}", name, p.session_count, p.event_count, last);
                     }
+                }
+            }
+            Ok(())
+        }
+
+        Some(Command::Reconcile {
+            data_dir,
+            data_backend,
+            mongo_uri,
+            mongo_db,
+            db_key,
+            verbose,
+        }) => {
+            use open_story_store::state::{BackendChoice, StoreState};
+
+            // Load config: defaults → config.toml → CLI flags / env (mirrors `serve`).
+            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            config.data_dir = data_dir.to_string_lossy().to_string();
+            if let Some(v) = data_backend { config.data_backend = v; }
+            if let Some(v) = mongo_uri { config.mongo_uri = v; }
+            if let Some(v) = mongo_db { config.mongo_db = v; }
+            if let Some(v) = db_key { config.db_key = v; }
+
+            let backend = match config.data_backend {
+                DataBackend::Sqlite => BackendChoice::Sqlite,
+                DataBackend::Mongo => BackendChoice::Mongo {
+                    uri: config.mongo_uri.clone(),
+                    db_name: config.mongo_db.clone(),
+                },
+            };
+            let key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
+
+            let mut store = StoreState::with_backend(&data_dir, key, backend).await?;
+            let report = open_story::server::reconcile::reconcile_local(&data_dir, &mut store).await?;
+
+            println!(
+                "Reconciled {} JSONL files: {} events added, {} skipped, {} sessions upserted in {:.2}s",
+                report.files_walked,
+                report.events_inserted,
+                report.events_skipped,
+                report.sessions_upserted,
+                report.elapsed.as_secs_f64(),
+            );
+            if !report.errors.is_empty() {
+                let cap = if verbose { report.errors.len() } else { 5 };
+                eprintln!("\n{} error(s):", report.errors.len());
+                for err in report.errors.iter().take(cap) {
+                    eprintln!("  - {err}");
+                }
+                if !verbose && report.errors.len() > cap {
+                    eprintln!("  ... and {} more (rerun with --verbose for full list)",
+                        report.errors.len() - cap);
                 }
             }
             Ok(())
