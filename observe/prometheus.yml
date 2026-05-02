@@ -1,5 +1,8 @@
 # Prometheus configuration for open-story observability stack.
-# Scrapes the open-story server /metrics endpoint and NATS exporter.
+# Scrapes:
+#   - the open-story server /metrics endpoint (pipeline health)
+#   - NATS exporter (JetStream stats)
+#   - OTel Collector /metrics endpoint (Claude Code OTel re-exposed as Prometheus)
 
 global:
   scrape_interval: 15s
@@ -14,3 +17,8 @@ scrape_configs:
   - job_name: "nats"
     static_configs:
       - targets: ["nats-exporter:7777"]
+
+  - job_name: "claude-code"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+    metrics_path: /metrics
