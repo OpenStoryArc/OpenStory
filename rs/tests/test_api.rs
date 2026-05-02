@@ -1469,3 +1469,130 @@ async fn test_meta_unknown_session_returns_404() {
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 404);
 }
+
+// ── /api/users — per-user activity surface (Users tab v0.1) ────────────
+
+#[tokio::test]
+async fn test_list_users_empty() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    assert_eq!(body["total"].as_u64(), Some(0));
+    assert_eq!(body["users"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_list_users_aggregates_by_user_field() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        // 2 sessions for katie, 1 for max, 1 with no user (legacy).
+        let katie_a = vec![
+            make_event("io.arc.event", "sess-katie-a")
+                .with_host("Katies-Mac-mini")
+                .with_user("katie"),
+            make_event("io.arc.event", "sess-katie-a")
+                .with_host("Katies-Mac-mini")
+                .with_user("katie"),
+        ];
+        seed_and_ingest(&mut s, "sess-katie-a", &katie_a, Some("proj-A")).await;
+
+        let katie_b = vec![make_event("io.arc.event", "sess-katie-b")
+            .with_host("Katies-MacBook-Pro")
+            .with_user("katie")];
+        seed_and_ingest(&mut s, "sess-katie-b", &katie_b, Some("proj-B")).await;
+
+        let max = vec![make_event("io.arc.event", "sess-max")
+            .with_host("Maxs-MacBook-Pro")
+            .with_user("max")];
+        seed_and_ingest(&mut s, "sess-max", &max, Some("proj-A")).await;
+
+        // Legacy session with no user stamp — must NOT appear in /api/users.
+        let legacy = vec![make_event("io.arc.event", "sess-legacy")];
+        seed_and_ingest(&mut s, "sess-legacy", &legacy, Some("proj-legacy")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    let users = body["users"].as_array().unwrap();
+    // Only katie + max — sess-legacy's null user is excluded.
+    assert_eq!(users.len(), 2);
+
+    let katie = users
+        .iter()
+        .find(|u| u["user"] == "katie")
+        .expect("katie should appear");
+    assert_eq!(katie["session_count"].as_u64(), Some(2));
+    let katie_hosts: Vec<&str> = katie["hosts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(katie_hosts.contains(&"Katies-Mac-mini"));
+    assert!(katie_hosts.contains(&"Katies-MacBook-Pro"));
+
+    let max = users
+        .iter()
+        .find(|u| u["user"] == "max")
+        .expect("max should appear");
+    assert_eq!(max["session_count"].as_u64(), Some(1));
+
+    // total = all SessionRow rows (including legacy), so the UI can
+    // render "stamped 3 / 4 sessions" if it wants.
+    assert_eq!(body["total"].as_u64(), Some(4));
+}
+
+#[tokio::test]
+async fn test_list_users_recent_sessions_capped_and_sorted() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        for i in 0..7 {
+            let sid = format!("sess-katie-{i}");
+            let events = vec![make_event("io.arc.event", &sid)
+                .with_host("Katies-Mac-mini")
+                .with_user("katie")];
+            seed_and_ingest(&mut s, &sid, &events, Some("proj-A")).await;
+        }
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+
+    let katie = &body["users"][0];
+    assert_eq!(katie["user"], "katie");
+    assert_eq!(katie["session_count"].as_u64(), Some(7));
+
+    let recent = katie["recent_sessions"].as_array().unwrap();
+    assert_eq!(
+        recent.len(),
+        5,
+        "recent_sessions capped at 5 even when session_count is higher"
+    );
+
+    // last_event DESC: each entry should be >= the next.
+    let timestamps: Vec<&str> = recent
+        .iter()
+        .filter_map(|s| s["last_event"].as_str())
+        .collect();
+    for window in timestamps.windows(2) {
+        assert!(
+            window[0] >= window[1],
+            "recent_sessions should be sorted by last_event DESC"
+        );
+    }
+}
