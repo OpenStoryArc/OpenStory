@@ -175,6 +175,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           verb={verb}
           object={object}
           adverbial={adverbial}
+          adverbialFull={human?.content ?? null}
           subordinates={subordinates}
           predicate={predicate}
         />
@@ -247,8 +248,11 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
 // Sentence diagram (click to expand)
 // ─────────────────────────────────────────────
 
-function DiagramInline({ subject, verb, object, adverbial, subordinates, predicate }: {
-  subject: string; verb: string; object: string; adverbial: string | null;
+function DiagramInline({ subject, verb, object, adverbial, adverbialFull, subordinates, predicate }: {
+  subject: string; verb: string; object: string;
+  adverbial: string | null;
+  /** Full human prompt text. Used for click-to-expand when present and longer than the truncated adverbial. */
+  adverbialFull: string | null;
   subordinates: Array<{ role: string; verb: string; object: string; tool_calls: number }>;
   predicate: string;
 }) {
@@ -270,13 +274,51 @@ function DiagramInline({ subject, verb, object, adverbial, subordinates, predica
         </div>
       ))}
       {adverbial && (
-        <div className="pl-5 my-0.5">
-          <span className="text-[#3b4261]">└──</span>{" "}
-          <span className="text-[#f7768e]">because</span>{" "}
-          <span className="text-[#c0caf5]">{adverbial}</span>
-        </div>
+        <AdverbialLine truncated={adverbial} full={adverbialFull} />
       )}
       <div className="pl-5 mt-1 text-[#9ece6a]">→ {predicate}</div>
+    </div>
+  );
+}
+
+/** Click-to-expand `because "..."` line. Shows the truncated adverbial by
+ * default; clicking swaps in the full human prompt (wrapped to multiple
+ * lines). The expand affordance only appears when a longer `full` text is
+ * available — for short prompts the truncated and full forms match and
+ * there's nothing to gain from a click target. */
+function AdverbialLine({ truncated, full }: { truncated: string; full: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+  // The detector wraps the truncated text in quotes (e.g. `"...content..."`).
+  // Strip the quotes to compare against the raw full text and to wrap the
+  // full text identically when expanded.
+  const stripQuotes = (s: string) =>
+    s.startsWith("\"") && s.endsWith("\"") ? s.slice(1, -1) : s;
+  const truncatedInner = stripQuotes(truncated);
+  const isExpandable = full != null && full.trim().length > truncatedInner.replace(/\.\.\.$/, "").length;
+  const display = expanded && full ? `"${full.trim()}"` : truncated;
+
+  if (!isExpandable) {
+    return (
+      <div className="pl-5 my-0.5">
+        <span className="text-[#3b4261]">└──</span>{" "}
+        <span className="text-[#f7768e]">because</span>{" "}
+        <span className="text-[#c0caf5]">{truncated}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="pl-5 my-0.5">
+      <span className="text-[#3b4261]">└──</span>{" "}
+      <span className="text-[#f7768e]">because</span>{" "}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+        className="text-left text-[#c0caf5] hover:text-[#7aa2f7] cursor-pointer whitespace-pre-wrap break-words"
+        title={expanded ? "Click to collapse" : "Click to see full prompt"}
+      >
+        {display}{" "}
+        <span className="text-[#565f89]">{expanded ? "▲" : "▼"}</span>
+      </button>
     </div>
   );
 }

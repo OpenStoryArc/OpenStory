@@ -29,6 +29,9 @@ pub struct SessionListQuery {
     /// Only include sessions whose origin host matches this value exactly.
     /// Pre-migration sessions (host: None) never match a host filter.
     pub host: Option<String>,
+    /// Sort mode. `latest` (default), `active`, or `tokens`. Unknown values
+    /// fall back to `latest` so the UI never sees a 400 from a typo.
+    pub sort: Option<String>,
 }
 
 pub async fn list_sessions(
@@ -53,16 +56,40 @@ pub async fn list_sessions(
     // Host filter: exact match. Sessions with host: None never match — this
     // is deliberate. A filter like ?host=Maxs-Air should not leak legacy
     // rows whose origin we simply don't know.
-    let filtered: Vec<&_> = if let Some(ref host) = query.host {
+    let host_filtered: Vec<&_> = if let Some(ref host) = query.host {
         since_filtered.into_iter()
             .filter(|r| r.host.as_deref() == Some(host.as_str()))
             .collect()
     } else {
         since_filtered
     };
+
+    // Sort mode. `latest` (default) is a no-op — EventStore::list_sessions
+    // returns rows already sorted by last_event DESC, enforced by the
+    // conformance helper `it_lists_sessions_ordered_by_last_event_desc`.
+    // `active` sorts by event_count DESC; `tokens` sorts by total tokens
+    // (input + output) DESC, looked up from the live projections map.
+    // Sort is stable, so ties fall back to the underlying last_event order.
+    let mut filtered: Vec<&_> = host_filtered;
+    match query.sort.as_deref() {
+        Some("active") => {
+            filtered.sort_by(|a, b| b.event_count.cmp(&a.event_count));
+        }
+        Some("tokens") => {
+            let token_total = |sid: &str| -> u64 {
+                s.store
+                    .projections
+                    .get(sid)
+                    .map(|p| p.total_input_tokens() + p.total_output_tokens())
+                    .unwrap_or(0)
+            };
+            filtered.sort_by(|a, b| token_total(&b.id).cmp(&token_total(&a.id)));
+        }
+        _ => {} // "latest" or unknown → no-op
+    }
     let total = filtered.len();
 
-    // Apply offset/limit (sessions already sorted by last_event DESC from store)
+    // Apply offset/limit after sorting.
     let offset = query.offset.unwrap_or(0);
     let page: Vec<&&_> = match query.limit {
         Some(limit) => filtered.iter().skip(offset).take(limit).collect(),

@@ -28,6 +28,7 @@ import {
   fetchSessions,
   fetchSessionSentences,
   mergeSentences,
+  type SessionSort,
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
@@ -50,6 +51,42 @@ const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = 
 ];
 
 const DEFAULT_SESSION_LIMIT = 5;
+
+type TimeWindow = "all" | "today" | "7d" | "30d";
+
+const SORT_OPTIONS: { key: SessionSort; label: string }[] = [
+  { key: "latest", label: "Latest" },
+  { key: "active", label: "Most active" },
+  { key: "tokens", label: "Most tokens" },
+];
+
+const TIME_OPTIONS: { key: TimeWindow; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "today", label: "Today" },
+  { key: "7d", label: "7d" },
+  { key: "30d", label: "30d" },
+];
+
+/** Convert a TimeWindow choice into an RFC 3339 cutoff timestamp, or null
+ * for "all" (no filter). Cutoffs are based on the user's local clock. */
+function timeWindowToSince(window: TimeWindow): string | undefined {
+  if (window === "all") return undefined;
+  const now = new Date();
+  if (window === "today") {
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return midnight.toISOString();
+  }
+  const days = window === "7d" ? 7 : 30;
+  const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return cutoff.toISOString();
+}
+
+/** Compact token formatter — `12345` → `12.3k`, `1234567` → `1.2M`. */
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
 
 /** Format an ISO timestamp as a human-readable relative time. */
 function formatRecency(iso: string): string {
@@ -77,16 +114,22 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
   const [sessionsTotal, setSessionsTotal] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionLimit, setSessionLimit] = useState(DEFAULT_SESSION_LIMIT);
+  const [sortMode, setSortMode] = useState<SessionSort>("latest");
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>("all");
   const [sentenceCache, setSentenceCache] = useState<Map<string, PatternView[]>>(new Map());
   const sentenceCacheRef = useRef(sentenceCache);
   sentenceCacheRef.current = sentenceCache;
   const [loadingSentences, setLoadingSentences] = useState(false);
 
-  // Fetch sessions on mount and when limit changes
+  // Fetch sessions on mount and when limit/sort/time changes.
   useEffect(() => {
     let cancelled = false;
     setSessionsLoading(true);
-    fetchSessions(sessionLimit)
+    fetchSessions({
+      limit: sessionLimit,
+      sort: sortMode,
+      since: timeWindowToSince(timeWindow),
+    })
       .then(({ sessions: s, total }) => {
         if (!cancelled) {
           setSessions(s);
@@ -98,7 +141,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
         if (!cancelled) setSessionsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [sessionLimit]);
+  }, [sessionLimit, sortMode, timeWindow]);
 
   // Auto-select most recent session if none selected and sessions loaded
   useEffect(() => {
@@ -268,6 +311,57 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
             ×
           </button>
         </div>
+        {/* Filter strip — sort + time window. Changing either resets paging. */}
+        <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
+          <div className="flex flex-wrap gap-1">
+            {SORT_OPTIONS.map(opt => {
+              const active = sortMode === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    if (sortMode !== opt.key) {
+                      setSortMode(opt.key);
+                      setSessionLimit(DEFAULT_SESSION_LIMIT);
+                    }
+                  }}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                    active
+                      ? "border-[#7aa2f7] text-[#7aa2f7] bg-[#7aa2f718]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {TIME_OPTIONS.map(opt => {
+              const active = timeWindow === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    if (timeWindow !== opt.key) {
+                      setTimeWindow(opt.key);
+                      setSessionLimit(DEFAULT_SESSION_LIMIT);
+                    }
+                  }}
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                    active
+                      ? "border-[#bb9af7] text-[#bb9af7] bg-[#bb9af718]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto p-2">
 
         {/* Session loading indicator */}
@@ -317,16 +411,34 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {cachedCount != null && (
-                      <span className="text-[10px] text-[#565f89]">
-                        {cachedCount} turns
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[#565f89] truncate">
+                    {s.project_name && (
+                      <span className="truncate" title={s.project_name}>
+                        {s.project_name}
                       </span>
                     )}
+                    {s.project_name && s.event_count != null && <span>·</span>}
                     {s.event_count != null && (
-                      <span className="text-[10px] text-[#565f89]">
-                        {s.event_count} events
-                      </span>
+                      <span>{s.event_count} events</span>
+                    )}
+                    {(() => {
+                      const tokens =
+                        (s.total_input_tokens ?? 0) +
+                        (s.total_output_tokens ?? 0);
+                      return tokens > 0 ? (
+                        <>
+                          <span>·</span>
+                          <span title={`${tokens.toLocaleString()} tokens`}>
+                            {formatTokens(tokens)} tok
+                          </span>
+                        </>
+                      ) : null;
+                    })()}
+                    {cachedCount != null && (
+                      <>
+                        <span>·</span>
+                        <span>{cachedCount} turns</span>
+                      </>
                     )}
                   </div>
                 </div>

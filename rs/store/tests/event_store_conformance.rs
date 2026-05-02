@@ -201,6 +201,41 @@ pub async fn it_upserts_a_session_and_lists_it(store: Arc<dyn EventStore>) {
     assert_eq!(found.project_id.as_deref(), Some("test-project"));
 }
 
+/// Critical contract: `list_sessions` must return rows ordered by
+/// `last_event` DESC. The api.rs `list_sessions` handler relies on this
+/// ordering — the "Sessions" sidebar's default "latest first" UX is the
+/// head of this list. SQLite enforces this with `ORDER BY last_event DESC`;
+/// MongoDB needs an explicit `.sort()`. Without this conformance, a
+/// backend can silently return natural insertion order and break the UI.
+pub async fn it_lists_sessions_ordered_by_last_event_desc(store: Arc<dyn EventStore>) {
+    let mut older = test_session_row("sess-older", Some("older"));
+    older.last_event = Some("2025-01-14T00:00:00Z".to_string());
+    let mut newer = test_session_row("sess-newer", Some("newer"));
+    newer.last_event = Some("2025-01-14T05:00:00Z".to_string());
+    let mut middle = test_session_row("sess-middle", Some("middle"));
+    middle.last_event = Some("2025-01-14T02:30:00Z".to_string());
+
+    // Insert out of chronological order to ensure natural insertion
+    // order would differ from the sorted result.
+    store.upsert_session(&older).await.unwrap();
+    store.upsert_session(&newer).await.unwrap();
+    store.upsert_session(&middle).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let ids: Vec<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+    let pos = |id: &str| ids.iter().position(|s| *s == id).unwrap();
+    assert!(
+        pos("sess-newer") < pos("sess-middle"),
+        "newer session must appear before middle: got order {:?}",
+        ids
+    );
+    assert!(
+        pos("sess-middle") < pos("sess-older"),
+        "middle session must appear before older: got order {:?}",
+        ids
+    );
+}
+
 pub async fn it_updates_an_existing_session_on_upsert(store: Arc<dyn EventStore>) {
     let mut row = test_session_row("sess-update", Some("v1"));
     store.upsert_session(&row).await.unwrap();
@@ -213,6 +248,50 @@ pub async fn it_updates_an_existing_session_on_upsert(store: Arc<dyn EventStore>
     let found = sessions.iter().find(|s| s.id == "sess-update").unwrap();
     assert_eq!(found.label.as_deref(), Some("v2"));
     assert_eq!(found.event_count, 99);
+}
+
+/// Critical contract: `upsert_session` is called once per persist batch,
+/// and the consumer passes the BATCH's first/last timestamps — not the
+/// session's. The store must therefore preserve the running MIN of
+/// `first_event` and the running MAX of `last_event` across upserts.
+/// Without this guarantee, boot replay (which sends batches in non-
+/// chronological order) corrupts the persisted span and the "Latest" /
+/// "Today" filters in the UI return wrong rows.
+pub async fn it_preserves_first_and_last_event_span_across_upserts(
+    store: Arc<dyn EventStore>,
+) {
+    // Round 1: persist the OLDEST batch (events from 04-08).
+    let mut row = test_session_row("sess-span", Some("span"));
+    row.first_event = Some("2026-04-08T00:58:35.005Z".to_string());
+    row.last_event = Some("2026-04-09T16:36:42.269Z".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    // Round 2: persist a NEWER batch — boot replay-style burst of events
+    // dated today. The batch's first/last are both newer than the persisted
+    // first_event, so a naive overwrite would clobber it.
+    row.first_event = Some("2026-04-30T11:23:30.242Z".to_string());
+    row.last_event = Some("2026-04-30T11:23:30.568Z".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    // Round 3: persist a MIDDLE batch — events from earlier today. The
+    // batch's last is older than the persisted last_event, so a naive
+    // overwrite would clobber the max.
+    row.first_event = Some("2026-04-30T10:58:45.743Z".to_string());
+    row.last_event = Some("2026-04-30T10:58:46.068Z".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-span").unwrap();
+    assert_eq!(
+        found.first_event.as_deref(),
+        Some("2026-04-08T00:58:35.005Z"),
+        "first_event must be the running MIN, not the latest batch's first"
+    );
+    assert_eq!(
+        found.last_event.as_deref(),
+        Some("2026-04-30T11:23:30.568Z"),
+        "last_event must be the running MAX, not the latest batch's last"
+    );
 }
 
 /// Critical contract: `upsert_session` (called from boot replay + live
@@ -1371,7 +1450,9 @@ macro_rules! for_each_conformance_test {
         $macro!(it_dedupes_a_batch_against_already_stored_events);
         $macro!(it_handles_an_empty_batch);
         $macro!(it_upserts_a_session_and_lists_it);
+        $macro!(it_lists_sessions_ordered_by_last_event_desc);
         $macro!(it_updates_an_existing_session_on_upsert);
+        $macro!(it_preserves_first_and_last_event_span_across_upserts);
         $macro!(it_never_overwrites_a_user_set_custom_label);
         $macro!(it_persists_and_queries_a_detected_pattern);
         $macro!(it_filters_session_patterns_by_type);

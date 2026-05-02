@@ -640,6 +640,50 @@ async fn test_list_sessions_offset() {
     assert_eq!(body["total"].as_u64(), Some(5));
 }
 
+// ── Sort modes (Latest / Most active / Most tokens) ────────────────
+
+#[tokio::test]
+async fn test_list_sessions_sort_active_orders_by_event_count_desc() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    // Three sessions with different event counts. Seed in an order that
+    // differs from both event-count DESC and last_event DESC, so a passing
+    // assertion proves the sort actually ran.
+    {
+        let mut s = state.write().await;
+        let mid: Vec<_> = (0..3).map(|_| make_event("io.arc.event", "sess-mid")).collect();
+        seed_and_ingest(&mut s, "sess-mid", &mid, None).await;
+        let big: Vec<_> = (0..7).map(|_| make_event("io.arc.event", "sess-big")).collect();
+        seed_and_ingest(&mut s, "sess-big", &big, None).await;
+        let small: Vec<_> = (0..1).map(|_| make_event("io.arc.event", "sess-small")).collect();
+        seed_and_ingest(&mut s, "sess-small", &small, None).await;
+    }
+
+    let req = Request::get("/api/sessions?sort=active")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    let ids: Vec<&str> = body["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["session_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["sess-big", "sess-mid", "sess-small"],
+        "sort=active must return sessions ordered by event_count DESC"
+    );
+}
+
+// Default `sort=latest` (last_event DESC) is verified by the EventStore
+// conformance helper `it_lists_sessions_ordered_by_last_event_desc` —
+// re-asserting it here would just couple this test to fixture timestamps.
+
 // ── Host origin filtering (Day 4) ───────────────────────────────────
 
 #[tokio::test]

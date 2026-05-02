@@ -389,6 +389,14 @@ impl EventStore for SqliteStore {
         // `host` uses COALESCE on update: once a row has a non-null host,
         // subsequent upserts without a host (e.g. a pre-migration batch
         // that lacks host on its events) must not blank it out.
+        //
+        // `first_event` / `last_event` use MIN/MAX on update so a single
+        // batch's `events.first()` / `events.last()` (which is what the
+        // persist consumer passes in) cannot shrink the session's already-
+        // persisted span. RFC 3339 strings sort lexicographically →
+        // chronologically, so MIN/MAX on the text works correctly.
+        // COALESCE handles the case where a batch is missing a timestamp:
+        // we fall back to the existing value rather than nulling it out.
         conn.execute(
             "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -398,8 +406,14 @@ impl EventStore for SqliteStore {
                 label = excluded.label,
                 branch = excluded.branch,
                 event_count = excluded.event_count,
-                first_event = excluded.first_event,
-                last_event = excluded.last_event,
+                first_event = MIN(
+                    COALESCE(excluded.first_event, sessions.first_event),
+                    COALESCE(sessions.first_event, excluded.first_event)
+                ),
+                last_event = MAX(
+                    COALESCE(excluded.last_event, sessions.last_event),
+                    COALESCE(sessions.last_event, excluded.last_event)
+                ),
                 host = COALESCE(excluded.host, sessions.host)",
             rusqlite::params![
                 session.id,

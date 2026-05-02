@@ -246,20 +246,36 @@ impl EventStore for MongoStore {
     async fn upsert_session(&self, session: &SessionRow) -> Result<()> {
         let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
         let filter = doc! { "_id": &session.id };
-        let update = doc! {
-            "$set": {
-                "project_id": session.project_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-                "project_name": session.project_name.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-                "label": session.label.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-                "branch": session.branch.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-                "event_count": session.event_count as i64,
-                "first_event": session.first_event.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-                "last_event": session.last_event.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-            },
-            // custom_label is set to null only on first insert; subsequent
-            // upserts leave whatever the user set (or null) untouched.
-            "$setOnInsert": { "custom_label": Bson::Null },
+        // `first_event` / `last_event` use `$min` / `$max` rather than `$set`
+        // so a single batch's `events.first()` / `events.last()` (which is
+        // what the persist consumer passes in) cannot shrink the session's
+        // already-persisted span. RFC 3339 strings sort lexicographically →
+        // chronologically, so MongoDB's string comparison gives the right
+        // answer. When the incoming row has a missing timestamp we omit the
+        // operator entirely — existing values stay untouched. This matches
+        // the SQLite `MIN(COALESCE(...), COALESCE(...))` pattern.
+        let mut set_doc = doc! {
+            "project_id": session.project_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "project_name": session.project_name.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "label": session.label.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "branch": session.branch.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "event_count": session.event_count as i64,
         };
+        // host: COALESCE — only set when the incoming row carries one,
+        // matching the SQLite `COALESCE(excluded.host, sessions.host)` rule.
+        if let Some(host) = session.host.as_deref() {
+            set_doc.insert("host", host);
+        }
+        let mut update = doc! { "$set": set_doc };
+        if let Some(first) = session.first_event.as_deref() {
+            update.insert("$min", doc! { "first_event": first });
+        }
+        if let Some(last) = session.last_event.as_deref() {
+            update.insert("$max", doc! { "last_event": last });
+        }
+        // custom_label is set to null only on first insert; subsequent
+        // upserts leave whatever the user set (or null) untouched.
+        update.insert("$setOnInsert", doc! { "custom_label": Bson::Null });
         let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
         coll.update_one(filter, update)
             .with_options(opts)
@@ -472,12 +488,18 @@ impl EventStore for MongoStore {
         Ok(out)
     }
 
-    /// List all session metadata rows.
+    /// List all session metadata rows, sorted by `last_event` DESC to match
+    /// the SQLite backend contract. `api::list_sessions` relies on this order
+    /// (the "latest" sidebar in the UI is the head of this list).
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         use futures::StreamExt;
         let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "last_event": -1 })
+            .build();
         let mut cursor = coll
             .find(doc! {})
+            .with_options(opts)
             .await
             .map_err(|e| anyhow!("mongo list_sessions find: {e}"))?;
         let mut rows = Vec::new();

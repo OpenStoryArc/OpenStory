@@ -56,12 +56,36 @@ function toPatternView(p: ApiPattern): PatternView {
   };
 }
 
+/** Sort modes accepted by GET /api/sessions. */
+export type SessionSort = "latest" | "active" | "tokens";
+
+/** Options accepted by `fetchSessions`. */
+export interface FetchSessionsOpts {
+  limit?: number;
+  /** Server-side sort. Defaults to "latest" (last_event DESC). */
+  sort?: SessionSort;
+  /** RFC 3339 timestamp; only sessions with last_event >= this are returned. */
+  since?: string;
+  baseUrl?: string;
+}
+
+/** Build the query string for /api/sessions. Exported for unit testing. */
+export function buildSessionsQuery(opts: FetchSessionsOpts): string {
+  const { limit = 5, sort, since } = opts;
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  if (sort && sort !== "latest") params.set("sort", sort);
+  if (since) params.set("since", since);
+  return params.toString();
+}
+
 /** Fetch recent sessions from the API. */
 export async function fetchSessions(
-  limit: number = 5,
-  baseUrl: string = "",
+  opts: FetchSessionsOpts = {},
 ): Promise<SessionsResponse> {
-  const res = await fetch(`${baseUrl}/api/sessions?limit=${limit}`);
+  const { baseUrl = "" } = opts;
+  const qs = buildSessionsQuery(opts);
+  const res = await fetch(`${baseUrl}/api/sessions?${qs}`);
   if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
   return res.json();
 }

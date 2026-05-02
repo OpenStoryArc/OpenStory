@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { mergeSentences } from "@/lib/story-api";
+import { buildSessionsQuery, mergeSentences } from "@/lib/story-api";
 import type { PatternView } from "@/types/wire-record";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -124,5 +124,48 @@ describe("mergeSentences", () => {
       ({ existing, incoming }) => mergeSentences(existing, incoming),
       (result) => expect(result).toBeNull(),
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// buildSessionsQuery — query string builder for /api/sessions
+// ═══════════════════════════════════════════════════════════════════
+
+describe("buildSessionsQuery", () => {
+  it("emits only limit when no sort or since", () => {
+    expect(buildSessionsQuery({ limit: 10 })).toBe("limit=10");
+  });
+
+  it("defaults limit to 5 when omitted", () => {
+    expect(buildSessionsQuery({})).toBe("limit=5");
+  });
+
+  it("omits sort when latest (server default)", () => {
+    expect(buildSessionsQuery({ limit: 5, sort: "latest" })).toBe("limit=5");
+  });
+
+  it("includes non-default sort", () => {
+    expect(buildSessionsQuery({ limit: 5, sort: "active" })).toBe(
+      "limit=5&sort=active",
+    );
+    expect(buildSessionsQuery({ limit: 5, sort: "tokens" })).toBe(
+      "limit=5&sort=tokens",
+    );
+  });
+
+  it("includes since when provided", () => {
+    expect(
+      buildSessionsQuery({ limit: 5, since: "2026-04-30T00:00:00Z" }),
+    ).toBe("limit=5&since=2026-04-30T00%3A00%3A00Z");
+  });
+
+  it("combines sort and since", () => {
+    expect(
+      buildSessionsQuery({
+        limit: 20,
+        sort: "tokens",
+        since: "2026-04-23T00:00:00Z",
+      }),
+    ).toBe("limit=20&sort=tokens&since=2026-04-23T00%3A00%3A00Z");
   });
 });
