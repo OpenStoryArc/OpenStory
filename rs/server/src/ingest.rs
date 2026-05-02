@@ -290,27 +290,9 @@ pub async fn ingest_events(
             count += 1;
         }
     }
-    // Record metrics
-    if count > 0 {
-        // Count ingested events by subtype
-        for ce in events {
-            if let Ok(val) = serde_json::to_value(ce) {
-                let subtype = val.get("subtype").and_then(|v| v.as_str()).unwrap_or("unknown");
-                crate::metrics::record_events_ingested(subtype, 1);
-            }
-        }
-        let deduped = events.len() - count;
-        if deduped > 0 {
-            crate::metrics::record_events_deduped(deduped as u64);
-        }
-        let pattern_count: usize = changes.iter().map(|c| match c {
-            BroadcastMessage::Enriched { patterns, .. } => patterns.len(),
-            _ => 0,
-        }).sum();
-        if pattern_count > 0 {
-            crate::metrics::record_patterns_detected(pattern_count as u64);
-        }
-    }
+    // Metric callsites for events_ingested / events_deduped / patterns_detected
+    // moved to PersistConsumer and PatternsConsumer respectively. The broadcast
+    // path is downstream of those consumers, so recording here would double-count.
 
     // Note: `upsert_session` used to live here. Moved to PersistConsumer
     // at commit 1.5 — PersistConsumer is now the single writer of the

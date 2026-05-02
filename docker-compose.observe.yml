@@ -12,6 +12,16 @@ services:
     environment:
       - OPEN_STORY_METRICS=true
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    ports:
+      - "4317:4317"   # OTLP/gRPC — point Claude Code's OTEL_EXPORTER_OTLP_ENDPOINT here
+      - "4318:4318"   # OTLP/HTTP
+      - "8889:8889"   # Prometheus scrape endpoint (consumed by prometheus service)
+    volumes:
+      - ./observe/otel-collector-config.yml:/etc/otelcol-contrib/config.yml:ro
+
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -20,6 +30,7 @@ services:
       - ./observe/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - server
+      - otel-collector
 
   grafana:
     image: grafana/grafana-oss:latest
