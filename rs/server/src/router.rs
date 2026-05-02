@@ -94,6 +94,7 @@ pub fn build_publisher_router(state: SharedState, config: &Config) -> Router {
 pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Config) -> Router {
     let api_router = Router::new()
         .route("/api/sessions", axum::routing::get(crate::api::list_sessions))
+        .route("/api/users", axum::routing::get(crate::api::list_users))
         .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
