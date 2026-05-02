@@ -21,6 +21,10 @@ export interface StorySession {
   total_output_tokens?: number;
   first_prompt?: string | null;
   project_name?: string | null;
+  /** Origin host (machine identity) — `null` for legacy sessions ingested before host stamping. */
+  host?: string | null;
+  /** Origin user (human identity) — `null` for legacy sessions ingested before user stamping. */
+  user?: string | null;
 }
 
 /** Response shape from GET /api/sessions */

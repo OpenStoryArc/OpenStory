@@ -37,6 +37,10 @@ interface SessionInfo {
   totalTokens: number;
   /** Number of completed plans (ExitPlanMode tool_calls). */
   planCount: number;
+  /** Origin host (machine identity), `null` for legacy / unstamped sessions. */
+  host: string | null;
+  /** Origin user (human identity), `null` for legacy / unstamped sessions. */
+  user: string | null;
 }
 
 interface SubagentInfo {
@@ -205,6 +209,8 @@ export function deriveSessions(
       depthProfile: sampleDepthProfile(data.depths),
       totalTokens,
       planCount: data.planCount,
+      host: restRow?.host ?? null,
+      user: restRow?.user ?? null,
     });
   }
 
@@ -252,6 +258,22 @@ export const Sidebar = memo(function Sidebar({
     [sessions, selectedSession],
   );
 
+  // Origin filters: when set, narrow the visible session list to those
+  // matching the host and/or user. Sessions with `null` origin (legacy,
+  // unstamped) never match a non-null filter — same posture as the
+  // server-side ?host= / ?user= query parameters: a filter shouldn't
+  // leak rows whose origin we simply don't know.
+  const [hostFilter, setHostFilter] = useState<string | null>(null);
+  const [userFilter, setUserFilter] = useState<string | null>(null);
+  const filteredSessions = useMemo(() => {
+    if (!hostFilter && !userFilter) return sessions;
+    return sessions.filter(
+      (s) =>
+        (!hostFilter || s.host === hostFilter) &&
+        (!userFilter || s.user === userFilter),
+    );
+  }, [sessions, hostFilter, userFilter]);
+
   // Keyboard navigation: up/down through sessions, right to timeline, enter to select
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const [sidebarFocused, setSidebarFocused] = useState(false);
@@ -275,7 +297,7 @@ export const Sidebar = memo(function Sidebar({
       }
       if (e.key === "Enter" && highlightedRef.current !== null) {
         e.preventDefault();
-        const s = sessions[highlightedRef.current];
+        const s = filteredSessions[highlightedRef.current];
         if (s) {
           onSelectSession(s.id);
           onFocusAgent(null);
@@ -287,10 +309,10 @@ export const Sidebar = memo(function Sidebar({
       const current = highlightedRef.current;
       let next: number;
       if (current === null) {
-        next = e.key === "ArrowDown" ? 0 : sessions.length - 1;
+        next = e.key === "ArrowDown" ? 0 : filteredSessions.length - 1;
       } else {
         next = e.key === "ArrowDown"
-          ? Math.min(current + 1, sessions.length - 1)
+          ? Math.min(current + 1, filteredSessions.length - 1)
           : Math.max(current - 1, 0);
       }
       setHighlightedIndex(next);
@@ -379,12 +401,46 @@ export const Sidebar = memo(function Sidebar({
       {/* Sessions header */}
       <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
         <span>Sessions</span>
-        <span className="text-[#7aa2f7]" data-testid="sidebar-session-count">{sessions.length}</span>
+        <span className="text-[#7aa2f7]" data-testid="sidebar-session-count">
+          {hostFilter || userFilter
+            ? `${filteredSessions.length} / ${sessions.length}`
+            : sessions.length}
+        </span>
       </div>
+
+      {/* Origin filter chips — only rendered when at least one filter is active. */}
+      {(hostFilter || userFilter) && (
+        <div className="px-3 py-1.5 border-b border-[#2f3348] flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-chips">
+          {hostFilter && (
+            <button
+              type="button"
+              onClick={() => setHostFilter(null)}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7dcfff20] text-[#7dcfff] hover:bg-[#7dcfff40] transition-colors flex items-center gap-1"
+              title="Clear host filter"
+              data-testid="filter-chip-host"
+            >
+              host: {hostFilter}
+              <span className="text-[#565f89]">×</span>
+            </button>
+          )}
+          {userFilter && (
+            <button
+              type="button"
+              onClick={() => setUserFilter(null)}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#bb9af720] text-[#bb9af7] hover:bg-[#bb9af740] transition-colors flex items-center gap-1"
+              title="Clear user filter"
+              data-testid="filter-chip-user"
+            >
+              user: {userFilter}
+              <span className="text-[#565f89]">×</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto min-h-0 outline-none" ref={sessionListRef} tabIndex={0} data-focus-zone="sidebar" onFocus={() => setSidebarFocused(true)} onBlur={() => setSidebarFocused(false)}>
-        {sessions.map((s, i) => {
+        {filteredSessions.map((s, i) => {
           const color = sessionColor(s.id);
           const isSelected = s.id === selectedSession;
           const isHighlighted = highlightedIndex === i;
@@ -458,6 +514,39 @@ export const Sidebar = memo(function Sidebar({
                       </span>
                     )}
                   </div>
+                  {/* Origin badge — clickable to filter the sidebar.
+                      Hidden entirely when both host and user are null
+                      (legacy / unstamped sessions don't get a placeholder). */}
+                  {(s.host || s.user) && (
+                    <div className="flex items-center gap-1 mt-0.5" data-testid="session-origin-badge">
+                      {s.host && (
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setHostFilter(s.host);
+                          }}
+                          className="text-[9px] text-[#7dcfff] hover:bg-[#7dcfff20] px-1 rounded cursor-pointer"
+                          title={`Filter to host: ${s.host}`}
+                        >
+                          ⌂ {s.host}
+                        </span>
+                      )}
+                      {s.user && (
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUserFilter(s.user);
+                          }}
+                          className="text-[9px] text-[#bb9af7] hover:bg-[#bb9af720] px-1 rounded cursor-pointer"
+                          title={`Filter to user: ${s.user}`}
+                        >
+                          @{s.user}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <DepthSparkline profile={s.depthProfile} color={color} height={16} />
                 </>
               ) : (

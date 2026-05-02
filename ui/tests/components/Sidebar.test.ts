@@ -215,4 +215,44 @@ describe("deriveSessions", () => {
     const sessions = deriveSessions(events);
     expect(sessions[0]!.planCount).toBe(1);
   });
+
+  it("should populate host and user from REST sessions", () => {
+    const sessions = deriveSessions(
+      [],
+      undefined,
+      [
+        {
+          session_id: "s-stamped",
+          last_event: "2026-05-01T00:00:00Z",
+          start_time: "2026-05-01T00:00:00Z",
+          host: "Katies-Mac-mini",
+          user: "katie",
+        },
+        {
+          session_id: "s-legacy",
+          last_event: "2026-05-01T00:00:01Z",
+          start_time: "2026-05-01T00:00:01Z",
+          // host + user omitted: legacy session pre-stamping
+        },
+      ],
+    );
+
+    const stamped = sessions.find((s) => s.id === "s-stamped")!;
+    expect(stamped.host).toBe("Katies-Mac-mini");
+    expect(stamped.user).toBe("katie");
+
+    const legacy = sessions.find((s) => s.id === "s-legacy")!;
+    expect(legacy.host).toBeNull();
+    expect(legacy.user).toBeNull();
+  });
+
+  it("should default host and user to null for sessions derived from events alone", () => {
+    // No restSessions arg → no origin info available → both null.
+    const events = [
+      makeEvent({ session_id: "s-no-rest", timestamp: "2026-05-01T00:00:00Z" }),
+    ];
+    const sessions = deriveSessions(events);
+    expect(sessions[0]!.host).toBeNull();
+    expect(sessions[0]!.user).toBeNull();
+  });
 });
