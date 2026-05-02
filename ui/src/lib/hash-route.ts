@@ -14,6 +14,11 @@ export interface HashRoute {
    *  appended to the hash). When set, the Live sidebar narrows to
    *  sessions stamped with this user. */
   userFilter?: string;
+  /** Optional time-window filter for the Live tab. Same query-tail
+   *  pattern as `userFilter`: `#/live?time=today`. Composes with the
+   *  user filter (logical AND). Valid values: "1h", "today", "week",
+   *  "all" — anything else is silently dropped on parse. */
+  timeFilter?: "1h" | "today" | "week" | "all";
 }
 
 const VALID_VIEWS = new Set(["live", "explore", "story", "users"]);
@@ -42,6 +47,11 @@ export function parseHash(hash: string): HashRoute {
   // future query-style options live there to keep the path readable.
   const [path, queryParams] = splitQuery(raw);
   const userFilter = queryParams?.get("user") || undefined;
+  const rawTime = queryParams?.get("time");
+  const timeFilter: HashRoute["timeFilter"] | undefined =
+    rawTime === "1h" || rawTime === "today" || rawTime === "week" || rawTime === "all"
+      ? rawTime
+      : undefined;
 
   const parts = path.split("/").filter(Boolean);
   const view = VALID_VIEWS.has(parts[0] ?? "")
@@ -57,6 +67,7 @@ export function parseHash(hash: string): HashRoute {
     const route: HashRoute = { view };
     if (sessionId) route.sessionId = sessionId;
     if (userFilter) route.userFilter = userFilter;
+    if (timeFilter) route.timeFilter = timeFilter;
     return route;
   }
 
@@ -108,14 +119,19 @@ export function buildHash(route: HashRoute): string {
     parts.push(route.detailView);
   }
 
-  // Append query tail for non-path options. Today only `userFilter` lives
-  // here; future options should follow the same pattern rather than
-  // adding more path segments.
-  let query = "";
-  if (route.userFilter && (route.view === "live" || route.view === "story")) {
-    const params = new URLSearchParams({ user: route.userFilter });
-    query = `?${params.toString()}`;
+  // Append query tail for non-path options. `userFilter` and
+  // `timeFilter` live here today; future options should follow the
+  // same pattern rather than adding more path segments. Only Live
+  // and Story honour these — the other tabs ignore them.
+  const params = new URLSearchParams();
+  if (route.view === "live" || route.view === "story") {
+    if (route.userFilter) params.set("user", route.userFilter);
+    if (route.timeFilter && route.timeFilter !== "all") {
+      // "all" is the implicit default — omit it to keep the URL clean.
+      params.set("time", route.timeFilter);
+    }
   }
+  const query = params.toString() ? `?${params.toString()}` : "";
 
   return "#/" + parts.join("/") + query;
 }
