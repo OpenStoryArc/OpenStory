@@ -114,7 +114,12 @@ impl SqliteStore {
                 last_event   TEXT,
                 host         TEXT
             );
-            CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host);
+            -- idx_sessions_host is created below, *after* the host-column
+            -- migration. Creating it here would fail on legacy databases
+            -- that pre-date the host column (CREATE TABLE IF NOT EXISTS is
+            -- a no-op on existing tables, so the column is still missing
+            -- until ALTER TABLE runs further down). The whole execute_batch
+            -- propagates errors, which would cascade into a JSONL fallback.
 
             CREATE TABLE IF NOT EXISTS patterns (
                 id          TEXT PRIMARY KEY,
@@ -160,7 +165,10 @@ impl SqliteStore {
         // Migration: add host column + index for existing databases.
         // ALTER TABLE / CREATE INDEX are idempotent-by-error — the `let _`
         // pattern ignores the "duplicate column" / "already exists" errors
-        // on already-migrated databases.
+        // on already-migrated databases. The index MUST be created here
+        // (not in the bulk init batch above) so that legacy databases
+        // pre-dating the host column survive boot — see the comment in
+        // the CREATE TABLE block above.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN host TEXT");
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host)");
 
@@ -1488,5 +1496,88 @@ mod tests {
             }
             other => panic!("expected Hermes variant, got {:?}", other),
         }
+    }
+
+    /// Reproduces the silent-fallback bug introduced when the `host`
+    /// column was added.
+    ///
+    /// The original bug: a CREATE INDEX ON sessions(host) statement lived
+    /// inside the bulk init batch, *before* the ALTER TABLE that added
+    /// the host column. CREATE TABLE IF NOT EXISTS is a no-op on existing
+    /// tables, so legacy databases (pre-host-column) reached the CREATE
+    /// INDEX with no host column to index. The whole execute_batch
+    /// errored, init_schema returned Err, and StoreState's `with_backend`
+    /// silently fell back to JsonlStore — making `/api/sessions` return
+    /// `event_count: 0` for every session.
+    ///
+    /// This test simulates the legacy state by creating a sessions table
+    /// without the host column, then opening the database with the
+    /// production initializer. Pre-fix the open fails. Post-fix it
+    /// succeeds: the migration runs, the index is created, and a write
+    /// + read round-trips correctly.
+    #[tokio::test]
+    async fn init_schema_is_idempotent_against_pre_host_legacy_db() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("open-story.db");
+
+        // Simulate a database created before PR #36's host migration:
+        // sessions table has no host column, and no idx_sessions_host.
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE sessions (
+                    id           TEXT PRIMARY KEY,
+                    project_id   TEXT,
+                    project_name TEXT,
+                    label        TEXT,
+                    custom_label TEXT,
+                    branch       TEXT,
+                    event_count  INTEGER DEFAULT 0,
+                    first_event  TEXT,
+                    last_event   TEXT
+                );
+                INSERT INTO sessions (id, event_count, last_event)
+                VALUES ('legacy-sess', 42, '2025-01-01T00:00:00Z');",
+            )
+            .unwrap();
+        }
+
+        // Production-style open. Pre-fix: errors with 'no such column: host'.
+        let store = SqliteStore::new_with_key(tmp.path(), None)
+            .expect("init_schema should survive a legacy sessions table");
+
+        // The migration ran: a fresh write that includes host succeeds,
+        // and the row round-trips with event_count + host both intact.
+        let row = SessionRow {
+            id: "new-sess".into(),
+            project_id: Some("proj".into()),
+            project_name: None,
+            label: None,
+            custom_label: None,
+            branch: None,
+            event_count: 7,
+            first_event: Some("2025-01-02T00:00:00Z".into()),
+            last_event: Some("2025-01-02T00:00:10Z".into()),
+            host: Some("kloughra-mac".into()),
+        };
+        store.upsert_session(&row).await.unwrap();
+
+        let sessions = store.list_sessions().await.unwrap();
+        let new_row = sessions
+            .iter()
+            .find(|s| s.id == "new-sess")
+            .expect("new session should be listed");
+        assert_eq!(new_row.event_count, 7);
+        assert_eq!(new_row.host.as_deref(), Some("kloughra-mac"));
+
+        // The legacy row's host backfills as NULL — that's fine, we just
+        // don't know its origin. event_count must round-trip correctly,
+        // which is the user-visible bug we set out to fix.
+        let legacy_row = sessions
+            .iter()
+            .find(|s| s.id == "legacy-sess")
+            .expect("legacy session should still be listed");
+        assert_eq!(legacy_row.event_count, 42);
+        assert_eq!(legacy_row.host, None);
     }
 }
