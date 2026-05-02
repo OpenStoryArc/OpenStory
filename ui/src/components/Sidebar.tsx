@@ -13,6 +13,7 @@ import { compactTime } from "@/lib/time";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
+import { PersonRow } from "@/components/PersonRow";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 
 // ---------------------------------------------------------------------------
@@ -398,6 +399,9 @@ export const Sidebar = memo(function Sidebar({
         onMouseDown={onHDragStart}
         className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[#7aa2f7] transition-colors z-10"
       />
+      {/* Person filter row — primary user-filter surface, hidden when 0/1 stamped users. */}
+      <PersonRow userFilter={userFilter} onUserFilterChange={setUserFilter} />
+
       {/* Sessions header */}
       <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
         <span>Sessions</span>
