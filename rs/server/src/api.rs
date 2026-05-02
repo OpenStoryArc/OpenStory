@@ -10,7 +10,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
 use crate::logging::{log_event, short_id};
@@ -205,6 +205,12 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
         last_active: Option<String>,
         total_input_tokens: u64,
         total_output_tokens: u64,
+        // 24 hourly buckets covering the last 24h; index 0 = oldest hour
+        // (now − 24h), index 23 = current hour. Each session whose
+        // [first_event, last_event] span overlaps a bucket contributes
+        // its event_count proportionally to the overlap. Approximation —
+        // assumes uniform event rate across each session's span.
+        activity_24h: [u64; 24],
         // Held as references so we can render `recent_sessions` after sorting
         // by last_event without cloning intermediate state.
         sessions: Vec<usize>, // indexes into `all_rows`
@@ -213,6 +219,18 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
     // BTreeMap so the iteration order is deterministic when last_active
     // comparisons tie (rare, but tests appreciate it).
     let mut by_user: BTreeMap<String, Acc> = BTreeMap::new();
+
+    // Anchor the activity_24h window at the current minute floor of the
+    // current hour. Bucket 23 is the in-progress hour; bucket 0 is the
+    // hour 23h ago. Computed once outside the loop so all users share
+    // the same time origin.
+    let window_now = chrono::Utc::now();
+    let window_end = window_now
+        .date_naive()
+        .and_hms_opt(window_now.hour(), 0, 0)
+        .map(|d| d.and_utc() + chrono::Duration::hours(1))
+        .unwrap_or(window_now);
+    let window_start = window_end - chrono::Duration::hours(24);
 
     for (idx, row) in all_rows.iter().enumerate() {
         let Some(user) = row.user.as_deref() else {
@@ -225,6 +243,7 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
             last_active: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            activity_24h: [0u64; 24],
             sessions: Vec::new(),
         });
         acc.session_count += 1;
@@ -252,6 +271,58 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
             acc.total_input_tokens += proj.total_input_tokens();
             acc.total_output_tokens += proj.total_output_tokens();
         }
+
+        // Distribute this session's events across the 24h activity window.
+        // We don't store per-event timestamps here, so we approximate:
+        // assume events are uniformly distributed over [first_event,
+        // last_event], compute the per-hour rate, and add each hour's
+        // share to the corresponding bucket. Sessions entirely outside
+        // the 24h window contribute nothing. Single-instant sessions
+        // (first == last) drop everything in the last_event hour.
+        if let (Some(first_str), Some(last_str)) =
+            (row.first_event.as_deref(), row.last_event.as_deref())
+        {
+            if let (Ok(first_dt), Ok(last_dt)) = (
+                chrono::DateTime::parse_from_rfc3339(first_str),
+                chrono::DateTime::parse_from_rfc3339(last_str),
+            ) {
+                let first = first_dt.with_timezone(&chrono::Utc);
+                let last = last_dt.with_timezone(&chrono::Utc);
+                // Clamp to the window. If span is fully before the window,
+                // nothing contributes.
+                let span_start = first.max(window_start);
+                let span_end = last.min(window_end);
+                if span_end > span_start {
+                    let total_secs = (last - first).num_seconds().max(1) as f64;
+                    let rate_per_sec = row.event_count as f64 / total_secs;
+
+                    // Walk hour buckets that overlap the clamped span.
+                    let mut bucket_start = span_start;
+                    while bucket_start < span_end {
+                        let next_hour = (bucket_start
+                            + chrono::Duration::hours(1))
+                        .date_naive()
+                        .and_hms_opt(
+                            (bucket_start + chrono::Duration::hours(1)).hour(),
+                            0,
+                            0,
+                        )
+                        .map(|d| d.and_utc())
+                        .unwrap_or(bucket_start + chrono::Duration::hours(1));
+                        let bucket_end = next_hour.min(span_end);
+                        let overlap_secs =
+                            (bucket_end - bucket_start).num_seconds().max(0) as f64;
+                        let bucket_idx = ((bucket_start - window_start)
+                            .num_hours()
+                            .clamp(0, 23)) as usize;
+                        acc.activity_24h[bucket_idx] +=
+                            (overlap_secs * rate_per_sec).round() as u64;
+                        bucket_start = bucket_end;
+                    }
+                }
+            }
+        }
+
         acc.sessions.push(idx);
     }
 
@@ -286,6 +357,7 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
                 "last_active": acc.last_active,
                 "total_input_tokens": acc.total_input_tokens,
                 "total_output_tokens": acc.total_output_tokens,
+                "activity_24h": acc.activity_24h.to_vec(),
                 "recent_sessions": recent,
             })
         })

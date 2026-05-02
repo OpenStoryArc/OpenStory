@@ -1554,6 +1554,35 @@ async fn test_list_users_aggregates_by_user_field() {
 }
 
 #[tokio::test]
+async fn test_list_users_activity_24h_shape() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-katie")
+            .with_host("Katies-Mac-mini")
+            .with_user("katie")];
+        seed_and_ingest(&mut s, "sess-katie", &events, Some("proj-A")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let katie = &body["users"][0];
+
+    let buckets = katie["activity_24h"].as_array().unwrap();
+    assert_eq!(
+        buckets.len(),
+        24,
+        "activity_24h should have exactly 24 hourly buckets"
+    );
+    for b in buckets {
+        assert!(b.is_number(), "each bucket should be a number, got {:?}", b);
+        assert!(b.as_u64().is_some(), "bucket should fit in u64");
+    }
+}
+
+#[tokio::test]
 async fn test_list_users_recent_sessions_capped_and_sorted() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);

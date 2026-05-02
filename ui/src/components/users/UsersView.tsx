@@ -20,6 +20,9 @@ import { useEffect, useState } from "react";
 import { fetchUsers, type UserSummary, type UsersResponse } from "@/lib/users-api";
 import { compactTime } from "@/lib/time";
 import { sessionColor } from "@/lib/session-colors";
+import { personColor } from "@/lib/person-color";
+import { projectColor } from "@/lib/project-color";
+import { ActivitySparkline } from "@/components/users/ActivitySparkline";
 import type { HashRoute } from "@/lib/hash-route";
 
 interface UsersViewProps {
@@ -160,14 +163,46 @@ function UserCard({ user, onNavigate }: UserCardProps) {
           )}
         </div>
         {user.projects.length > 0 && (
-          <div className="mt-1.5 text-[10px] text-[#565f89] truncate">
-            <span className="text-[#414868]">projects:</span>{" "}
-            {user.projects.slice(0, 3).join(" · ")}
-            {user.projects.length > 3 && (
-              <span> +{user.projects.length - 3}</span>
+          <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] text-[#414868]">projects:</span>
+            {user.projects.slice(0, 4).map((p) => {
+              const c = projectColor(p);
+              return (
+                <span
+                  key={p}
+                  className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{
+                    color: c,
+                    backgroundColor: `${c}18`,
+                    border: `1px solid ${c}33`,
+                  }}
+                  title={`Project: ${p}`}
+                >
+                  {p}
+                </span>
+              );
+            })}
+            {user.projects.length > 4 && (
+              <span className="text-[10px] text-[#565f89]">
+                +{user.projects.length - 4}
+              </span>
             )}
           </div>
         )}
+        {/* 24h activity sparkline — colored with the user's hue. */}
+        <div className="mt-2" title="Event volume over the last 24 hours">
+          <ActivitySparkline
+            buckets={user.activity_24h}
+            color={personColor(user.user)}
+            height={28}
+            ariaLabel={`${user.user}'s activity over the last 24 hours`}
+          />
+          <div className="flex justify-between text-[9px] text-[#414868] mt-0.5 px-0.5">
+            <span>24h ago</span>
+            <span>12h</span>
+            <span>now</span>
+          </div>
+        </div>
       </div>
 
       <div className="px-2 py-2">
