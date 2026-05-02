@@ -235,6 +235,26 @@ event types.
 ### Subagent Task Labels — Restore After Cut
 The previous `agent_labels` feature mapped subagent identities to their parent's Task-tool prompt so the dashboard could show "Find the eval/apply lineage doc" in the sidebar instead of "agent-a47118017b71c6821". It was cut in `chore/cut-legacy-detectors` because the legacy implementation was broken end-to-end on real data: (a) the detector checked `tool_name == "Agent"` but the Claude Code tool is named `"Task"` (rs/patterns/src/eval_apply.rs and rs/patterns/src/agent_delegation.rs both had this stale string), so it fired ~5 times in 9 sessions of real data instead of for every subagent invocation; (b) even when it fired, ingest.rs keyed the label by the parent Task-call's event_id while the UI looked it up by the subagent's session_id, so the UI never found it. With both bugs the feature was a no-op. Today the dashboard falls back to the standard `sessionLabels` path (the subagent's own first user_message), which is functional but verbose. To restore the cleaner labels: (1) detect Task tool calls in the new pipeline (StructuralTurn.applies, where `tool_name == "Task"` is the right check), capturing the prompt; (2) key the label by the *subagent's* session_id, not the parent event_id, so the UI lookup actually resolves. Both fixes are small but each must be present for the feature to work — fixing only one is worse than cutting it. Estimate: ~50 lines including a BDD spec for the keying invariant.
 
+### Live Timeline doesn't render `agent-*` subagent sessions (filter mismatch)
+**Severity: medium — pre-existing, not caused by user-stamping.** Navigating to `/#/live/agent-<HEX_AGENT_ID>` loads the session header and successfully fetches its records via `GET /api/sessions/agent-.../records` (verified: 130 events on disk, 257KB of payload), but the Live timeline renders empty.
+
+Cause: the records returned have `session_id = <parent UUID>` and `agent_id = <bare hex without "agent-" prefix>`, but `Timeline.tsx:364` filters with `ev.session_id === sessionFilter` where `sessionFilter` is the URL-supplied `agent-<HEX>` pseudo-id. No record's `session_id` ever equals an `agent-`-prefixed string, so the filter excludes every event. The data is loaded, deduped, indexed in `treeIndex` — only the render-time predicate is wrong.
+
+Fix shape (~10 LOC):
+```ts
+// ui/src/components/Timeline.tsx ~line 364
+if (sessionFilter) {
+  if (sessionFilter.startsWith("agent-")) {
+    const aid = sessionFilter.slice("agent-".length);
+    filtered = filtered.filter((ev) => ev.agent_id === aid);
+  } else {
+    filtered = filtered.filter((ev) => ev.session_id === sessionFilter);
+  }
+}
+```
+
+Workaround today: open the same session under Explore — `SessionTimeline.tsx` fetches via `/api/sessions/{sid}/records` and renders without the parent-session filter, so events show up. Pairs with the entry above ("Subagent Task Labels"); the same area should grow proper subagent affordances together — labels for the sidebar, this filter for the timeline, possibly a per-subagent depth profile. Worth a small UI-only PR. Add a `Timeline` test that asserts events with `agent_id = X` render under route `/live/agent-X`.
+
 ### Domain Events & Workspace Impact — SHIPPED
 `ToolOutcome` enum implemented in the translate layer: `FileCreated`, `FileModified`, `FileRead`, `CommandExecuted`, `SearchPerformed`, `SubAgentSpawned`. Domain fact badges visible on every Story card. `SubAgentSpawned` carries `agent_id` for parent-child linking. Remaining: `ToolOutcome` for pi-mono (`translate_pi.rs`).
 
