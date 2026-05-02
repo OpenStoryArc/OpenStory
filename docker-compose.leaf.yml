@@ -43,6 +43,13 @@ services:
       - OPEN_STORY_WATCH_DIR=/watch
       - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
       - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
+      # Stamp every CloudEvent with the host machine's identity (not the
+      # container's transient ID) so events propagated through NATS leaf →
+      # hub → other-leaf carry the originating machine's name. Set this in
+      # your shell or .env file: e.g. `export OPEN_STORY_HOST=Katies-Mac-mini`.
+      # If unset, the in-container resolver falls back to gethostname() —
+      # which returns the Docker container ID, defeating the feature.
+      - OPEN_STORY_HOST=${OPEN_STORY_HOST:-}
     depends_on:
       - nats
     restart: unless-stopped
