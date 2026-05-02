@@ -815,7 +815,7 @@
       "branch": null,
       "custom_label": null,
       "event_count": 7,
-      "first_event": "2026-04-13T18:38:42.087Z",
+      "first_event": "2026-04-13T18:38:31.910Z",
       "id": "scenario_07_multi_tool",
       "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
       "last_event": "2026-04-13T18:38:42.087Z",

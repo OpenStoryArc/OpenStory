@@ -1604,6 +1604,7 @@ mod tests {
             first_event: Some("2025-01-02T00:00:00Z".into()),
             last_event: Some("2025-01-02T00:00:10Z".into()),
             host: Some("kloughra-mac".into()),
+            user: None,
         };
         store.upsert_session(&row).await.unwrap();
 

@@ -1285,7 +1285,7 @@
       "branch": "main",
       "custom_label": null,
       "event_count": 18,
-      "first_event": "2025-01-05T17:00:19.000Z",
+      "first_event": "2025-01-05T17:00:00.000Z",
       "id": "synthetic",
       "label": "Hello Claude",
       "last_event": "2025-01-05T17:00:19.000Z",

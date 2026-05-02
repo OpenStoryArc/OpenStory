@@ -1094,7 +1094,7 @@
       "branch": null,
       "custom_label": null,
       "event_count": 12,
-      "first_event": "2025-12-09T00:00:09.000Z",
+      "first_event": "2025-12-09T00:00:00.000Z",
       "id": "pi_mono_session",
       "label": "Read the config file and explain it",
       "last_event": "2025-12-09T00:00:09.000Z",
