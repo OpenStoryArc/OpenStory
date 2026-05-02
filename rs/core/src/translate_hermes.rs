@@ -2,13 +2,33 @@
 //!
 //! Hermes Agent (NousResearch/hermes-agent) is a self-improving agent that
 //! stores conversations in OpenAI shape regardless of which provider produced
-//! the response. This module translates Hermes-native event lines (as written
-//! by the `hermes-openstory` plugin) into the same CloudEvent 1.0 format used
-//! by `translate.rs` (Claude Code) and `translate_pi.rs` (pi-mono).
+//! the response. This module translates Hermes-native event lines into the
+//! same CloudEvent 1.0 format used by `translate.rs` (Claude Code) and
+//! `translate_pi.rs` (pi-mono).
+//!
+//! Upstream sources
+//! ----------------
+//! Hermes writes its state in several forms; two are useful to an observer:
+//!
+//! - `~/.hermes/sessions/session_{id}.json` — a **snapshot** JSON file
+//!   rewritten whole-file after each turn. Always present. Contains the full
+//!   `messages` list plus session metadata. The canonical source for backfill
+//!   and post-hoc ingest.
+//! - `~/.hermes/sessions/{id}.jsonl` — an **append-only** transcript, written
+//!   by `gateway/session.py` in gateway mode only. Matches the append-only
+//!   model this translator is built for.
+//!
+//! The snapshot is whole-file-rewritten per turn, which is incompatible with
+//! the byte-offset incremental-read model of the existing file watcher.
+//! Anything ingesting from the snapshot needs either (a) a snapshot-diff
+//! watcher mode, or (b) a converter that emits append-only JSONL in the
+//! wire format below. Gateway-mode JSONL can be watched directly.
 //!
 //! Wire format
 //! -----------
-//! Each line written by the Hermes plugin is a JSON object with this shape:
+//! This translator consumes JSONL where each line has this envelope shape.
+//! Any ingest adapter — snapshot converter, gateway-JSONL re-emitter, or an
+//! in-process hook if one is ever built — can produce it:
 //!
 //! ```json
 //! {
@@ -26,7 +46,8 @@
 //! }
 //! ```
 //!
-//! Verified message shapes (see `docs/research/hermes-integration/SOURCE_VERIFICATION.md`):
+//! Verified message shapes (confirmed against `NousResearch/hermes-agent` at
+//! commit `6e3f7f36`, `tests/agent/test_anthropic_adapter.py:575-697`):
 //!
 //! - **User message**: `{"role": "user", "content": "string"}`
 //! - **Assistant text**: `{"role": "assistant", "content": "...", "reasoning": "...", "finish_reason": "..."}`
@@ -37,11 +58,22 @@
 //!     "content": "string", "tool_name": "..." (optional)}`
 //! - **System (incl. injected)**: `{"role": "system", "content": "..."}`
 //!
-//! Hermes's internal storage is **always** OpenAI shape — the Anthropic adapter
-//! at `tests/agent/test_anthropic_adapter.py:575` is a one-way translator at
-//! the API boundary, not bidirectional. The Anthropic-content-block branch
-//! exists in the Python prototype as defensive dead code; this Rust port
-//! omits it for clarity.
+//! Notes on the shape:
+//! - `arguments` on tool calls is a **JSON string**, not a parsed dict.
+//! - `content` may be empty string on assistant messages that carry tool calls.
+//! - `reasoning` is a top-level string field on assistant messages, not a
+//!   separate content block. Anthropic thinking blocks are flattened to this
+//!   field before storage.
+//! - Tool result messages use `tool_call_id` (canonical). `tool_name` may be
+//!   present or absent. There is no `is_error` field.
+//! - System-injected messages (compression summaries, todo snapshots) carry
+//!   no distinguishing tag — they look identical to regular system messages.
+//!
+//! Hermes's internal storage is **always** OpenAI shape — the Anthropic
+//! adapter at `tests/agent/test_anthropic_adapter.py:575` is a one-way
+//! translator at the API boundary, not bidirectional. The Anthropic-content
+//! -block branch that the Python prototype carried is dead code; this Rust
+//! port omits it for clarity.
 
 use serde_json::Value;
 use uuid::Uuid;
