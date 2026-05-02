@@ -295,6 +295,158 @@ pub async fn it_preserves_first_and_last_event_span_across_upserts(
     );
 }
 
+/// Critical contract: `event_count` is monotone — `upsert_session` with a
+/// stale (lower) count must NOT regress the persisted value. The persist
+/// consumer's snapshot can race with a parallel reconciler running off
+/// JSONL: if both write the same row, the higher count must win regardless
+/// of arrival order. SQLite implements this with `MAX(excluded.x, sessions.x)`,
+/// Mongo with `$max`. See `docs/research/CONSTELLATION.md` R1 + the
+/// upsert hardening commit for the architectural framing.
+pub async fn it_does_not_regress_event_count(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-mono", Some("monotone"));
+    row.event_count = 100;
+    store.upsert_session(&row).await.unwrap();
+
+    // Stale snapshot — claims event_count=80. Must not regress.
+    row.event_count = 80;
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-mono").unwrap();
+    assert_eq!(
+        found.event_count, 100,
+        "event_count must MAX, not clobber — stale upsert cannot regress the frontier"
+    );
+}
+
+/// Companion to the event_count test: upsert_session must advance
+/// event_count when the incoming row is fresher than the persisted one.
+pub async fn it_advances_event_count_when_newer_provided(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-adv", Some("advances"));
+    row.event_count = 50;
+    store.upsert_session(&row).await.unwrap();
+
+    row.event_count = 200;
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-adv").unwrap();
+    assert_eq!(found.event_count, 200, "MAX semantics must let advances through");
+}
+
+/// COALESCE contract: `upsert_session` with `label = None` must NOT blank
+/// out an existing `Some(label)`. A reconciler running off JSONL passes
+/// `label: None` (its data lacks projection-derived metadata), and the
+/// already-stored row's label — set by the persist consumer from the
+/// in-memory projection — must survive.
+pub async fn it_does_not_blank_label_with_none(store: Arc<dyn EventStore>) {
+    let row = test_session_row("sess-coalesce-label", Some("Auto Label"));
+    store.upsert_session(&row).await.unwrap();
+
+    let mut stale = test_session_row("sess-coalesce-label", None);
+    stale.label = None;
+    store.upsert_session(&stale).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-coalesce-label").unwrap();
+    assert_eq!(
+        found.label.as_deref(),
+        Some("Auto Label"),
+        "COALESCE: None upsert must not blank out existing label"
+    );
+}
+
+pub async fn it_does_not_blank_branch_with_none(store: Arc<dyn EventStore>) {
+    let row = test_session_row("sess-coalesce-branch", Some("L"));
+    // test_session_row defaults branch to Some("main")
+    store.upsert_session(&row).await.unwrap();
+
+    let mut stale = test_session_row("sess-coalesce-branch", Some("L"));
+    stale.branch = None;
+    store.upsert_session(&stale).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-coalesce-branch").unwrap();
+    assert_eq!(
+        found.branch.as_deref(),
+        Some("main"),
+        "COALESCE: None upsert must not blank out existing branch"
+    );
+}
+
+pub async fn it_does_not_blank_project_id_with_none(store: Arc<dyn EventStore>) {
+    let row = test_session_row("sess-coalesce-pid", Some("L"));
+    // test_session_row defaults project_id to Some("test-project")
+    store.upsert_session(&row).await.unwrap();
+
+    let mut stale = test_session_row("sess-coalesce-pid", Some("L"));
+    stale.project_id = None;
+    store.upsert_session(&stale).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-coalesce-pid").unwrap();
+    assert_eq!(
+        found.project_id.as_deref(),
+        Some("test-project"),
+        "COALESCE: None upsert must not blank out existing project_id"
+    );
+}
+
+pub async fn it_does_not_blank_project_name_with_none(store: Arc<dyn EventStore>) {
+    let row = test_session_row("sess-coalesce-pname", Some("L"));
+    store.upsert_session(&row).await.unwrap();
+
+    let mut stale = test_session_row("sess-coalesce-pname", Some("L"));
+    stale.project_name = None;
+    store.upsert_session(&stale).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-coalesce-pname").unwrap();
+    assert_eq!(
+        found.project_name.as_deref(),
+        Some("Test Project"),
+        "COALESCE: None upsert must not blank out existing project_name"
+    );
+}
+
+/// Concurrency contract: many writers calling `upsert_session` in parallel
+/// with different `event_count` values must converge to the MAX. No write
+/// order serialization, no coordination — the upsert primitive itself
+/// is the converging operator. Validates that the lock-free monotone
+/// semantics hold under genuine concurrent load.
+pub async fn it_concurrent_upserts_converge_to_max_event_count(
+    store: Arc<dyn EventStore>,
+) {
+    let row = test_session_row("sess-concurrent", Some("converge"));
+    store.upsert_session(&row).await.unwrap();
+
+    // Spawn 50 tasks, each setting a different event_count drawn from
+    // 1..=1000. Some interleaving will favor old values; MAX semantics
+    // must guarantee the max of all writes wins.
+    let target_max = 1000u64;
+    let mut handles = Vec::new();
+    for i in 0..50u64 {
+        // Mix of low and high values, with the maximum (1000) included.
+        let count = if i == 25 { target_max } else { (i * 17 + 3) % 700 + 1 };
+        let store_c = store.clone();
+        handles.push(tokio::spawn(async move {
+            let mut r = test_session_row("sess-concurrent", Some("converge"));
+            r.event_count = count;
+            store_c.upsert_session(&r).await
+        }));
+    }
+    for h in handles {
+        h.await.unwrap().unwrap();
+    }
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions.iter().find(|s| s.id == "sess-concurrent").unwrap();
+    assert_eq!(
+        found.event_count, target_max,
+        "MAX of all concurrent writes must win regardless of arrival order"
+    );
+}
+
 /// Critical contract: `upsert_session` (called from boot replay + live
 /// ingest) must NEVER overwrite a `custom_label` set by the user via
 /// `update_session_label`. The trait doc on `SessionRow.custom_label`
@@ -1456,6 +1608,17 @@ macro_rules! for_each_conformance_test {
         $macro!(it_lists_sessions_ordered_by_last_event_desc);
         $macro!(it_updates_an_existing_session_on_upsert);
         $macro!(it_preserves_first_and_last_event_span_across_upserts);
+        // Upsert hardening — monotone frontier + COALESCE-style protection.
+        // See `docs/research/CONSTELLATION.md` R1 + the upsert hardening
+        // commit. These guarantee the upsert primitive is safe to call from
+        // any number of writers in any order with any staleness.
+        $macro!(it_does_not_regress_event_count);
+        $macro!(it_advances_event_count_when_newer_provided);
+        $macro!(it_does_not_blank_label_with_none);
+        $macro!(it_does_not_blank_branch_with_none);
+        $macro!(it_does_not_blank_project_id_with_none);
+        $macro!(it_does_not_blank_project_name_with_none);
+        $macro!(it_concurrent_upserts_converge_to_max_event_count);
         $macro!(it_never_overwrites_a_user_set_custom_label);
         $macro!(it_persists_and_queries_a_detected_pattern);
         $macro!(it_filters_session_patterns_by_type);

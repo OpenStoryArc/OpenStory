@@ -247,38 +247,67 @@ impl EventStore for MongoStore {
         let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
         let filter = doc! { "_id": &session.id };
 
-        // `first_event` / `last_event` use `$min` / `$max` rather than `$set`
-        // so a single batch's `events.first()` / `events.last()` (which is
-        // what the persist consumer passes in) cannot shrink the session's
-        // already-persisted span. RFC 3339 strings sort lexicographically →
-        // chronologically, so MongoDB's string comparison gives the right
-        // answer. When the incoming row has a missing timestamp we omit the
-        // operator entirely — existing values stay untouched. This matches
-        // the SQLite `MIN(COALESCE(...), COALESCE(...))` pattern.
+        // ## Conflict-resolution semantics
         //
-        // `host` and `user` follow the SQLite COALESCE(excluded.x, sessions.x)
-        // contract: a fresh batch with x=None must not blank out a stamped
-        // value already on the row. We achieve that by omitting the key
-        // from `$set` entirely when the incoming value is None.
-        let mut set_doc = doc! {
-            "project_id": session.project_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-            "project_name": session.project_name.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-            "label": session.label.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-            "branch": session.branch.as_deref().map(Bson::from).unwrap_or(Bson::Null),
-            "event_count": session.event_count as i64,
-        };
+        // Every field on update is *monotone* or *coalescing* — never a raw
+        // clobber. Mirrors the SQLite hardening (see `sqlite_store.rs`
+        // upsert_session). Makes upsert_session safe to call from any
+        // number of writers in any order with any staleness, including a
+        // stale-snapshot reconciler running concurrently with live ingest.
+        // See `docs/research/CONSTELLATION.md` (R1, P1).
+        //
+        // - **COALESCE-style** (`host`, `user`, `project_id`, `project_name`,
+        //   `label`, `branch`): omit the key from `$set` when the incoming
+        //   value is `None` — Mongo leaves whatever was already on the row.
+        //   Equivalent to SQLite's `COALESCE(excluded.x, sessions.x)`.
+        // - **`$max`** (`event_count`, `last_event`): counts grow only; the
+        //   latest timestamp wins. Stale snapshots cannot regress the
+        //   frontier. RFC 3339 strings sort lexicographically →
+        //   chronologically, so `$max` on a TEXT field gives the right answer.
+        // - **`$min`** (`first_event`): the earliest timestamp wins.
+        //   `$min`/`$max` are also conditionally included — when the
+        //   incoming value is `None` we omit the operator entirely so
+        //   existing values stay untouched.
+        let mut set_doc = doc! {};
         if let Some(host) = session.host.as_deref() {
             set_doc.insert("host", host);
         }
         if let Some(user) = session.user.as_deref() {
             set_doc.insert("user", user);
         }
-        let mut update = doc! { "$set": set_doc };
+        if let Some(pid) = session.project_id.as_deref() {
+            set_doc.insert("project_id", pid);
+        }
+        if let Some(pname) = session.project_name.as_deref() {
+            set_doc.insert("project_name", pname);
+        }
+        if let Some(label) = session.label.as_deref() {
+            set_doc.insert("label", label);
+        }
+        if let Some(branch) = session.branch.as_deref() {
+            set_doc.insert("branch", branch);
+        }
+
+        let mut update = doc! {};
+        if !set_doc.is_empty() {
+            update.insert("$set", set_doc);
+        }
+        // event_count is monotone — use $max so a stale-snapshot reconciler
+        // running while the persist consumer has already advanced the count
+        // cannot reduce it back. event_count is a u64 stored as i64 in
+        // BSON; $max on numeric values is straightforward.
+        update.insert("$max", doc! { "event_count": session.event_count as i64 });
         if let Some(first) = session.first_event.as_deref() {
             update.insert("$min", doc! { "first_event": first });
         }
         if let Some(last) = session.last_event.as_deref() {
-            update.insert("$max", doc! { "last_event": last });
+            // Merge into the same $max document we already started for
+            // event_count rather than replacing it.
+            if let Some(Bson::Document(existing)) = update.get_mut("$max") {
+                existing.insert("last_event", last);
+            } else {
+                update.insert("$max", doc! { "last_event": last });
+            }
         }
         // custom_label is set to null only on first insert; subsequent
         // upserts leave whatever the user set (or null) untouched.

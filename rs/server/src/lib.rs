@@ -14,6 +14,7 @@ pub mod event_store_bridge;
 pub mod ingest;
 pub mod logging;
 pub mod metrics;
+pub mod reconcile;
 pub mod router;
 pub mod state;
 pub mod tool_schemas;

@@ -60,6 +60,33 @@ pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, 
     };
     let mut store = StoreState::with_backend(data_dir, db_key, backend).await?;
 
+    // Reconciler — ensure the EventStore contains every event present in
+    // JSONL on disk. Idempotent (PK dedup); no-op when data_dir is empty
+    // (so fresh contributors see indistinguishable behavior). Heals drift
+    // from prior runs / backend switches before any consumer subscribes
+    // to NATS — sequential boot so there is no race with live ingest.
+    // See `docs/research/CONSTELLATION.md` R1 for the full architectural
+    // framing.
+    let reconcile_report = crate::reconcile::reconcile_local(data_dir, &mut store).await?;
+    if reconcile_report.did_work() || !reconcile_report.errors.is_empty() {
+        eprintln!(
+            "  \x1b[36mReconciled: {} events added, {} skipped, {} sessions upserted in {:.1}s\x1b[0m",
+            reconcile_report.events_inserted,
+            reconcile_report.events_skipped,
+            reconcile_report.sessions_upserted,
+            reconcile_report.elapsed.as_secs_f64(),
+        );
+        for err in reconcile_report.errors.iter().take(5) {
+            eprintln!("  \x1b[33mreconcile warning: {err}\x1b[0m");
+        }
+        if reconcile_report.errors.len() > 5 {
+            eprintln!(
+                "  \x1b[33mreconcile warning: ... and {} more\x1b[0m",
+                reconcile_report.errors.len() - 5,
+            );
+        }
+    }
+
     let (broadcast_tx, _) = tokio_broadcast::channel(config.broadcast_channel_size);
 
     // List watch_dir subdirectories for project resolution
@@ -366,16 +393,25 @@ mod tests {
         );
     }
 
-    /// When both SQLite and JSONL have data, SQLite wins.
+    /// When both SQLite and JSONL have data, the reconciler ensures the
+    /// EventStore contains the union — JSONL is canonical disk truth, the
+    /// EventStore reconciles to it on every boot. This is the intentional
+    /// reversal of the old "SQLite takes priority over JSONL" invariant
+    /// (see commit history). The reconciler's contract is: any event
+    /// present in JSONL must be present in the EventStore after boot, no
+    /// exceptions. PK dedup means events already in SQLite are not
+    /// duplicated.
+    ///
+    /// See `docs/research/CONSTELLATION.md` P1 + R1.
     #[tokio::test]
-    async fn sqlite_takes_priority_over_jsonl() {
+    async fn reconciler_unions_sqlite_and_jsonl_on_boot() {
         let tmp = tempfile::tempdir().unwrap();
         let data_dir = tmp.path().join("data");
         let watch_dir = tmp.path().join("watch");
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::create_dir_all(&watch_dir).unwrap();
 
-        // Write JSONL with one event
+        // Write JSONL with one event for `mixed-session`.
         std::fs::write(
             data_dir.join("mixed-session.jsonl"),
             serde_json::to_string(&serde_json::json!({
@@ -387,7 +423,7 @@ mod tests {
             })).unwrap() + "\n",
         ).unwrap();
 
-        // Write SQLite with a different session
+        // Pre-populate SQLite with a different session — `sqlite-only-session`.
         {
             use open_story_store::event_store::{EventStore, SessionRow};
             use open_story_store::sqlite_store::SqliteStore;
@@ -415,14 +451,16 @@ mod tests {
         let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
         let s = state.read().await;
 
-        // SQLite had data → boot_from_sqlite was used
+        // SQLite-seeded session is preserved.
         assert!(
             !s.store.event_store.session_events("sqlite-only-session").await.unwrap().is_empty(),
-            "SQLite session should be loaded"
+            "SQLite-seeded session must remain after reconciliation"
         );
+        // JSONL-only session is now reconciled into the EventStore. This is
+        // the *new* contract: JSONL is canonical, the EventStore agrees.
         assert!(
-            s.store.event_store.session_events("mixed-session").await.unwrap().is_empty(),
-            "JSONL session should NOT be loaded when SQLite has data"
+            !s.store.event_store.session_events("mixed-session").await.unwrap().is_empty(),
+            "JSONL-only session must be reconciled into the EventStore on boot"
         );
     }
 
