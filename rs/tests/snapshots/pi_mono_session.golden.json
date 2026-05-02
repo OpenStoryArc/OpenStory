@@ -466,7 +466,8 @@
       "specversion": "1.0",
       "subtype": "system.session_start",
       "time": "2025-12-09T00:00:00.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -502,7 +503,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2025-12-09T00:00:01.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -567,7 +569,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.text",
       "time": "2025-12-09T00:00:02.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -649,7 +652,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.tool_use",
       "time": "2025-12-09T00:00:02.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -690,7 +694,8 @@
       "specversion": "1.0",
       "subtype": "message.user.tool_result",
       "time": "2025-12-09T00:00:03.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -751,7 +756,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.thinking",
       "time": "2025-12-09T00:00:04.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -825,7 +831,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.text",
       "time": "2025-12-09T00:00:04.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -882,7 +889,8 @@
       "specversion": "1.0",
       "subtype": "system.turn.complete",
       "time": "2025-12-09T00:00:04.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -911,7 +919,8 @@
       "specversion": "1.0",
       "subtype": "system.model_change",
       "time": "2025-12-09T00:00:05.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -947,7 +956,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2025-12-09T00:00:06.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -984,7 +994,8 @@
       "specversion": "1.0",
       "subtype": "progress.bash",
       "time": "2025-12-09T00:00:07.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -1019,7 +1030,8 @@
       "specversion": "1.0",
       "subtype": "system.compact",
       "time": "2025-12-09T00:00:08.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -1065,7 +1077,8 @@
       "specversion": "1.0",
       "subtype": "system.turn.complete",
       "time": "2025-12-09T00:00:09.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     }
   ],
   "full_payloads_keys": [],
@@ -1081,7 +1094,7 @@
       "branch": null,
       "custom_label": null,
       "event_count": 12,
-      "first_event": "2025-12-09T00:00:09.000Z",
+      "first_event": "2025-12-09T00:00:00.000Z",
       "id": "pi_mono_session",
       "label": "Read the config file and explain it",
       "last_event": "2025-12-09T00:00:09.000Z",

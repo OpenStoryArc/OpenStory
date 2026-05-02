@@ -776,6 +776,13 @@
     },
     "type": {
       "type": "string"
+    },
+    "user": {
+      "description": "Human user who owns this OpenStory instance (normalized self-identifier). Stamped at event creation via [`CloudEvent::with_user`] — orthogonal to `host`: a single user runs OpenStory on multiple machines, and a shared machine may have multiple users. Both fields together let the hub distinguish \"Katie's laptop\" from \"Katie's desktop\" from \"Max's laptop\". CloudEvent extension attribute.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

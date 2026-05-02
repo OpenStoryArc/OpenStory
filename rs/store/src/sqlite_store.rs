@@ -112,7 +112,8 @@ impl SqliteStore {
                 event_count  INTEGER DEFAULT 0,
                 first_event  TEXT,
                 last_event   TEXT,
-                host         TEXT
+                host         TEXT,
+                user         TEXT
             );
             -- idx_sessions_host is created below, *after* the host-column
             -- migration. Creating it here would fail on legacy databases
@@ -171,6 +172,16 @@ impl SqliteStore {
         // the CREATE TABLE block above.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN host TEXT");
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host)");
+
+        // Migration: add user column + index. Same idempotency story as host.
+        // The CREATE INDEX is intentionally *after* the ALTER TABLE rather
+        // than in the bulk init batch above — placing it inline would fail
+        // on legacy DBs that pre-date the user column, since CREATE TABLE
+        // IF NOT EXISTS is a no-op when the table already exists. Whole
+        // batch failure cascades into a JsonlStore fallback, which is the
+        // bug pattern that triggered fix/sqlite-migration-ordering.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN user TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user)");
 
         Ok(())
     }
@@ -356,7 +367,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -371,6 +382,7 @@ impl EventStore for SqliteStore {
                 first_event: row.get(7)?,
                 last_event: row.get(8)?,
                 host: row.get(9)?,
+                user: row.get(10)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -386,9 +398,10 @@ impl EventStore for SqliteStore {
         // update_session_label(). Boot replay and live ingestion never
         // overwrite user-set custom labels.
         //
-        // `host` uses COALESCE on update: once a row has a non-null host,
-        // subsequent upserts without a host (e.g. a pre-migration batch
-        // that lacks host on its events) must not blank it out.
+        // `host` and `user` both use COALESCE on update: once a row has a
+        // non-null value, subsequent upserts without one (e.g. a
+        // pre-migration batch that lacks the stamp on its events) must not
+        // blank it out.
         //
         // `first_event` / `last_event` use MIN/MAX on update so a single
         // batch's `events.first()` / `events.last()` (which is what the
@@ -398,8 +411,8 @@ impl EventStore for SqliteStore {
         // COALESCE handles the case where a batch is missing a timestamp:
         // we fall back to the existing value rather than nulling it out.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = excluded.project_id,
                 project_name = excluded.project_name,
@@ -414,7 +427,8 @@ impl EventStore for SqliteStore {
                     COALESCE(excluded.last_event, sessions.last_event),
                     COALESCE(sessions.last_event, excluded.last_event)
                 ),
-                host = COALESCE(excluded.host, sessions.host)",
+                host = COALESCE(excluded.host, sessions.host),
+                user = COALESCE(excluded.user, sessions.user)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -425,6 +439,7 @@ impl EventStore for SqliteStore {
                 session.first_event,
                 session.last_event,
                 session.host,
+                session.user,
             ],
         )?;
         Ok(())
@@ -836,6 +851,7 @@ mod tests {
             first_event: Some("2025-01-14T00:00:00Z".into()),
             last_event: Some("2025-01-14T01:00:00Z".into()),
             host: None,
+            user: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -857,6 +873,7 @@ mod tests {
             event_count: 10,
             first_event: None, last_event: None,
             host: None,
+            user: None,
         }).await.unwrap();
 
         store.upsert_session(&SessionRow {
@@ -868,6 +885,7 @@ mod tests {
             event_count: 20,
             first_event: None, last_event: Some("2025-01-14T02:00:00Z".into()),
             host: None,
+            user: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -892,6 +910,7 @@ mod tests {
                 first_event: None,
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("Maxs-Air".into()),
+                user: None,
             })
             .await
             .unwrap();
@@ -919,6 +938,7 @@ mod tests {
                 first_event: None,
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("debian-16gb-ash-1".into()),
+                user: None,
             })
             .await
             .unwrap();
@@ -936,6 +956,7 @@ mod tests {
                 first_event: None,
                 last_event: Some("2026-04-21T00:01:00Z".into()),
                 host: None,
+                user: None,
             })
             .await
             .unwrap();
@@ -960,6 +981,7 @@ mod tests {
                 first_event: None,
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: None,
+                user: None,
             })
             .await
             .unwrap();
@@ -978,6 +1000,7 @@ mod tests {
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-13T00:00:00Z".into()),
             host: None,
+            user: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "new".into(), project_id: None, project_name: None,
@@ -985,6 +1008,7 @@ mod tests {
                 custom_label: None,
             first_event: None, last_event: Some("2025-01-14T00:00:00Z".into()),
             host: None,
+            user: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -1103,6 +1127,7 @@ mod tests {
                 custom_label: None,
             first_event: None, last_event: None,
             host: None,
+            user: None,
         }).await.unwrap();
         store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
 
@@ -1124,6 +1149,7 @@ mod tests {
                 custom_label: None,
             first_event: None, last_event: None,
             host: None,
+            user: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del2".into(), project_id: None, project_name: None,
@@ -1131,6 +1157,7 @@ mod tests {
                 custom_label: None,
             first_event: None, last_event: None,
             host: None,
+            user: None,
         }).await.unwrap();
 
         store.delete_session("sess-del2").await.unwrap();
@@ -1187,6 +1214,7 @@ mod tests {
             first_event: Some("2025-12-01T00:00:00Z".into()),
             last_event: Some("2025-12-01T00:00:00Z".into()),
             host: None,
+            user: None,
         }).await.unwrap();
 
         // Recent session
@@ -1199,6 +1227,7 @@ mod tests {
             first_event: Some(now.clone()),
             last_event: Some(now),
             host: None,
+            user: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(30).await.unwrap();
@@ -1219,6 +1248,7 @@ mod tests {
             first_event: Some(now.clone()),
             last_event: Some(now),
             host: None,
+            user: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(7).await.unwrap();
@@ -1328,6 +1358,7 @@ mod tests {
             label: None, custom_label: None, branch: None, event_count: 1,
             first_event: None, last_event: None,
             host: None,
+            user: None,
         }).await.unwrap();
 
         // Verify it's searchable
@@ -1573,6 +1604,7 @@ mod tests {
             first_event: Some("2025-01-02T00:00:00Z".into()),
             last_event: Some("2025-01-02T00:00:10Z".into()),
             host: Some("kloughra-mac".into()),
+            user: None,
         };
         store.upsert_session(&row).await.unwrap();
 

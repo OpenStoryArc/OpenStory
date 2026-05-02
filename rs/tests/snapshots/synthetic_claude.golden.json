@@ -579,7 +579,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2025-01-05T17:00:00.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -643,7 +644,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.text",
       "time": "2025-01-05T17:00:01.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -701,7 +703,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.tool_use",
       "time": "2025-01-05T17:00:02.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -747,7 +750,8 @@
       "specversion": "1.0",
       "subtype": "message.user.tool_result",
       "time": "2025-01-05T17:00:03.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -781,7 +785,8 @@
       "specversion": "1.0",
       "subtype": "progress.bash",
       "time": "2025-01-05T17:00:04.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -815,7 +820,8 @@
       "specversion": "1.0",
       "subtype": "progress.agent",
       "time": "2025-01-05T17:00:05.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -849,7 +855,8 @@
       "specversion": "1.0",
       "subtype": "progress.hook",
       "time": "2025-01-05T17:00:06.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -881,7 +888,8 @@
       "specversion": "1.0",
       "subtype": "system.turn.complete",
       "time": "2025-01-05T17:00:07.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -915,7 +923,8 @@
       "specversion": "1.0",
       "subtype": "system.hook",
       "time": "2025-01-05T17:00:08.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -945,7 +954,8 @@
       "specversion": "1.0",
       "subtype": "system.error",
       "time": "2025-01-05T17:00:09.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -975,7 +985,8 @@
       "specversion": "1.0",
       "subtype": "system.compact",
       "time": "2025-01-05T17:00:10.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1008,7 +1019,8 @@
       "specversion": "1.0",
       "subtype": "file.snapshot",
       "time": "2025-01-05T17:00:11.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1040,7 +1052,8 @@
       "specversion": "1.0",
       "subtype": "queue.enqueue",
       "time": "2025-01-05T17:00:12.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1071,7 +1084,8 @@
       "specversion": "1.0",
       "subtype": "queue.dequeue",
       "time": "2025-01-05T17:00:13.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1107,7 +1121,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2025-01-05T17:00:14.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1144,7 +1159,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.text",
       "time": "2025-01-05T17:00:15.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1185,7 +1201,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.thinking",
       "time": "2025-01-05T17:00:16.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1218,7 +1235,8 @@
       "specversion": "1.0",
       "subtype": "progress.new_future_type",
       "time": "2025-01-05T17:00:17.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "claude-code",
@@ -1250,7 +1268,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2025-01-05T17:00:19.000Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     }
   ],
   "full_payloads_keys": [],
@@ -1266,7 +1285,7 @@
       "branch": "main",
       "custom_label": null,
       "event_count": 18,
-      "first_event": "2025-01-05T17:00:19.000Z",
+      "first_event": "2025-01-05T17:00:00.000Z",
       "id": "synthetic",
       "label": "Hello Claude",
       "last_event": "2025-01-05T17:00:19.000Z",

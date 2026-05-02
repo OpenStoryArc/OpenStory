@@ -246,6 +246,7 @@ impl EventStore for MongoStore {
     async fn upsert_session(&self, session: &SessionRow) -> Result<()> {
         let coll: Collection<Document> = self.db.collection(COLL_SESSIONS);
         let filter = doc! { "_id": &session.id };
+
         // `first_event` / `last_event` use `$min` / `$max` rather than `$set`
         // so a single batch's `events.first()` / `events.last()` (which is
         // what the persist consumer passes in) cannot shrink the session's
@@ -254,6 +255,11 @@ impl EventStore for MongoStore {
         // answer. When the incoming row has a missing timestamp we omit the
         // operator entirely — existing values stay untouched. This matches
         // the SQLite `MIN(COALESCE(...), COALESCE(...))` pattern.
+        //
+        // `host` and `user` follow the SQLite COALESCE(excluded.x, sessions.x)
+        // contract: a fresh batch with x=None must not blank out a stamped
+        // value already on the row. We achieve that by omitting the key
+        // from `$set` entirely when the incoming value is None.
         let mut set_doc = doc! {
             "project_id": session.project_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
             "project_name": session.project_name.as_deref().map(Bson::from).unwrap_or(Bson::Null),
@@ -261,10 +267,11 @@ impl EventStore for MongoStore {
             "branch": session.branch.as_deref().map(Bson::from).unwrap_or(Bson::Null),
             "event_count": session.event_count as i64,
         };
-        // host: COALESCE — only set when the incoming row carries one,
-        // matching the SQLite `COALESCE(excluded.host, sessions.host)` rule.
         if let Some(host) = session.host.as_deref() {
             set_doc.insert("host", host);
+        }
+        if let Some(user) = session.user.as_deref() {
+            set_doc.insert("user", user);
         }
         let mut update = doc! { "$set": set_doc };
         if let Some(first) = session.first_event.as_deref() {
@@ -1826,6 +1833,8 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
     let event_count = doc.get_i64("event_count").unwrap_or(0) as u64;
     let first_event = doc.get_str("first_event").ok().map(|s| s.to_string());
     let last_event = doc.get_str("last_event").ok().map(|s| s.to_string());
+    let host = doc.get_str("host").ok().map(|s| s.to_string());
+    let user = doc.get_str("user").ok().map(|s| s.to_string());
     Ok(SessionRow {
         id,
         project_id,
@@ -1836,7 +1845,8 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
         event_count,
         first_event,
         last_event,
-        host: None,
+        host,
+        user,
     })
 }
 

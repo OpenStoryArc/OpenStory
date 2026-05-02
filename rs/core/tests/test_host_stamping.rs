@@ -8,6 +8,7 @@
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::host;
 use open_story_core::translate::{translate_line, TranscriptState};
+use open_story_core::user;
 use serde_json::json;
 
 // ── claude-code ─────────────────────────────────────────────────────
@@ -92,6 +93,15 @@ fn assert_host_stamped(ce: &CloudEvent) {
         ce.agent,
         ce.id,
     );
+    // user is a sibling stamp — same translator path, same invariant.
+    assert_eq!(
+        ce.user.as_deref(),
+        Some(user::user()),
+        "every translator-produced event must have user = resolver output. \
+         agent={:?} id={}",
+        ce.agent,
+        ce.id,
+    );
 }
 
 // ── serde contract: host survives the wire ─────────────────────────
@@ -122,6 +132,15 @@ fn host_survives_serde_round_trip_as_it_would_over_nats() {
         assert!(
             after.host.is_some(),
             "host must remain Some after deserialization"
+        );
+        // user is a sibling stamp — must round-trip identically.
+        assert_eq!(
+            after.user, ce.user,
+            "user must survive JSON round-trip (NATS wire format)"
+        );
+        assert!(
+            after.user.is_some(),
+            "user must remain Some after deserialization"
         );
     }
 }

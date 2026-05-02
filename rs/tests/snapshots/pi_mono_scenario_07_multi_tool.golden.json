@@ -315,7 +315,8 @@
       "specversion": "1.0",
       "subtype": "system.session_start",
       "time": "2026-04-13T18:38:31.910Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -347,7 +348,8 @@
       "specversion": "1.0",
       "subtype": "system.model_change",
       "time": "2026-04-13T18:38:34.395Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -387,7 +389,8 @@
       "specversion": "1.0",
       "subtype": "message.user.prompt",
       "time": "2026-04-13T18:38:34.396Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -467,7 +470,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.tool_use",
       "time": "2026-04-13T18:38:37.419Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -562,7 +566,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.tool_use",
       "time": "2026-04-13T18:38:37.419Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -607,7 +612,8 @@
       "specversion": "1.0",
       "subtype": "message.user.tool_result",
       "time": "2026-04-13T18:38:37.420Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -652,7 +658,8 @@
       "specversion": "1.0",
       "subtype": "message.user.tool_result",
       "time": "2026-04-13T18:38:37.421Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -730,7 +737,8 @@
       "specversion": "1.0",
       "subtype": "message.assistant.text",
       "time": "2026-04-13T18:38:42.087Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     },
     {
       "agent": "pi-mono",
@@ -790,7 +798,8 @@
       "specversion": "1.0",
       "subtype": "system.turn.complete",
       "time": "2026-04-13T18:38:42.087Z",
-      "type": "io.arc.event"
+      "type": "io.arc.event",
+      "user": "<user>"
     }
   ],
   "full_payloads_keys": [],
@@ -806,7 +815,7 @@
       "branch": null,
       "custom_label": null,
       "event_count": 7,
-      "first_event": "2026-04-13T18:38:42.087Z",
+      "first_event": "2026-04-13T18:38:31.910Z",
       "id": "scenario_07_multi_tool",
       "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
       "last_event": "2026-04-13T18:38:42.087Z",

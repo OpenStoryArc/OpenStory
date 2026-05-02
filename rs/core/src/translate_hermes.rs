@@ -352,6 +352,7 @@ fn build_tool_use(
         Some("hermes".to_string()),
     )
     .with_host(crate::host::host())
+    .with_user(crate::user::user())
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -439,6 +440,7 @@ fn build_event(
         Some("hermes".to_string()),
     )
     .with_host(crate::host::host())
+    .with_user(crate::user::user())
 }
 
 /// Derive a deterministic event ID from (session, seq, subtype, index).

@@ -29,6 +29,9 @@ pub struct SessionListQuery {
     /// Only include sessions whose origin host matches this value exactly.
     /// Pre-migration sessions (host: None) never match a host filter.
     pub host: Option<String>,
+    /// Only include sessions whose origin user matches this value exactly.
+    /// Pre-migration sessions (user: None) never match a user filter.
+    pub user: Option<String>,
     /// Sort mode. `latest` (default), `active`, or `tokens`. Unknown values
     /// fall back to `latest` so the UI never sees a 400 from a typo.
     pub sort: Option<String>,
@@ -64,16 +67,26 @@ pub async fn list_sessions(
         since_filtered
     };
 
+    // User filter: same exact-match semantics as host. Both can be combined:
+    // `?host=Katies-Mac-mini&user=katie` narrows to sessions matching both.
+    let user_filtered: Vec<&_> = if let Some(ref user) = query.user {
+        host_filtered.into_iter()
+            .filter(|r| r.user.as_deref() == Some(user.as_str()))
+            .collect()
+    } else {
+        host_filtered
+    };
+
     // Sort mode. `latest` (default) is a no-op — EventStore::list_sessions
     // returns rows already sorted by last_event DESC, enforced by the
     // conformance helper `it_lists_sessions_ordered_by_last_event_desc`.
     // `active` sorts by event_count DESC; `tokens` sorts by total tokens
     // (input + output) DESC, looked up from the live projections map.
     // Sort is stable, so ties fall back to the underlying last_event order.
-    let mut filtered: Vec<&_> = host_filtered;
+    let mut filtered: Vec<&_> = user_filtered;
     match query.sort.as_deref() {
         Some("active") => {
-            filtered.sort_by(|a, b| b.event_count.cmp(&a.event_count));
+            filtered.sort_by_key(|r| std::cmp::Reverse(r.event_count));
         }
         Some("tokens") => {
             let token_total = |sid: &str| -> u64 {
@@ -83,7 +96,7 @@ pub async fn list_sessions(
                     .map(|p| p.total_input_tokens() + p.total_output_tokens())
                     .unwrap_or(0)
             };
-            filtered.sort_by(|a, b| token_total(&b.id).cmp(&token_total(&a.id)));
+            filtered.sort_by_key(|r| std::cmp::Reverse(token_total(&r.id)));
         }
         _ => {} // "latest" or unknown → no-op
     }
@@ -147,6 +160,7 @@ pub async fn list_sessions(
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
             "host": row.host,
+            "user": row.user,
         }));
     }
     Json(json!({
