@@ -484,5 +484,6 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         None,
         Some("claude-code".to_string()),
     )
-    .with_host(crate::host::host())]
+    .with_host(crate::host::host())
+    .with_user(crate::user::user())]
 }

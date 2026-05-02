@@ -39,6 +39,13 @@ pub struct SessionRow {
     /// host stamp.
     #[serde(default)]
     pub host: Option<String>,
+    /// Human user who owns this OpenStory instance (`OPEN_STORY_USER` or
+    /// `$USER`). Orthogonal to `host`: a single user runs OpenStory on
+    /// multiple machines. Populated from the first CloudEvent in a batch.
+    /// `None` for pre-migration rows and events that arrived without a
+    /// user stamp.
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
 impl SessionRow {
@@ -233,6 +240,7 @@ mod tests {
             first_event: None,
             last_event: None,
             host: None,
+            user: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

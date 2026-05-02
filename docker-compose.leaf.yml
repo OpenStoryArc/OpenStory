@@ -50,6 +50,11 @@ services:
       # If unset, the in-container resolver falls back to gethostname() —
       # which returns the Docker container ID, defeating the feature.
       - OPEN_STORY_HOST=${OPEN_STORY_HOST:-}
+      # Stamp every event with the human user's identity. Multiple machines
+      # owned by the same person share this value so cross-leaf aggregation
+      # can attribute work correctly. Set in your shell or .env,
+      # e.g. `export OPEN_STORY_USER=katie`.
+      - OPEN_STORY_USER=${OPEN_STORY_USER:-}
     depends_on:
       - nats
     restart: unless-stopped

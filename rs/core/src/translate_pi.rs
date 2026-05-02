@@ -344,7 +344,8 @@ fn decompose_assistant(
                 None,
                 Some("pi-mono".to_string()),
             )
-            .with_host(crate::host::host()),
+            .with_host(crate::host::host())
+            .with_user(crate::user::user()),
         );
     }
 
@@ -398,7 +399,8 @@ fn decompose_assistant(
                 None,
                 Some("pi-mono".to_string()),
             )
-            .with_host(crate::host::host()),
+            .with_host(crate::host::host())
+            .with_user(crate::user::user()),
         );
     }
 
@@ -518,7 +520,8 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
         None,
         Some("pi-mono".to_string()),
     )
-    .with_host(crate::host::host())]
+    .with_host(crate::host::host())
+    .with_user(crate::user::user())]
 }
 
 #[cfg(test)]

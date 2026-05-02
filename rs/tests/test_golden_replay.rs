@@ -260,6 +260,9 @@ fn looks_like_uuid(s: &[u8]) -> bool {
 /// snapshotting raw values would fail across environments. We capture
 /// presence + position of the host field; the actual value is the
 /// translator's job to round-trip and is covered by host.rs unit tests.
+///
+/// Same treatment for `user`, which is stamped from `$USER` / override
+/// and equally varies by environment.
 fn normalize_host(v: &mut Value) {
     match v {
         Value::Object(map) => {
@@ -267,6 +270,10 @@ fn normalize_host(v: &mut Value) {
                 if k == "host" {
                     if let Value::String(s) = val {
                         *s = "<host>".to_string();
+                    }
+                } else if k == "user" {
+                    if let Value::String(s) = val {
+                        *s = "<user>".to_string();
                     }
                 } else {
                     normalize_host(val);

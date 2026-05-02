@@ -60,6 +60,14 @@
         "string",
         "null"
       ]
+    },
+    "user": {
+      "default": null,
+      "description": "Human user who owns this OpenStory instance (`OPEN_STORY_USER` or `$USER`). Orthogonal to `host`: a single user runs OpenStory on multiple machines. Populated from the first CloudEvent in a batch. `None` for pre-migration rows and events that arrived without a user stamp.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

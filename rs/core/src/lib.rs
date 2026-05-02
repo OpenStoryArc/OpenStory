@@ -7,6 +7,7 @@
 //! - `output` — CloudEvent → JSONL file writer
 //! - `paths` — path utilities for session/project ID extraction
 //! - `host` — per-process host identity resolver for event origin stamping
+//! - `user` — per-process user identity resolver (parallel to host; identifies the human, not the machine)
 
 pub mod cloud_event;
 pub mod event_data;
@@ -19,3 +20,4 @@ pub mod subtype;
 pub mod translate;
 pub mod translate_hermes;
 pub mod translate_pi;
+pub mod user;

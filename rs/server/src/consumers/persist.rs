@@ -168,12 +168,15 @@ impl PersistConsumer {
                 .and_then(|ce| serde_json::to_value(ce).ok())
                 .and_then(|v| v.get("time").and_then(|t| t.as_str().map(|s| s.to_string())));
 
-            // Host is stamped at translation time onto every CloudEvent. We
-            // lift it off the first event in the batch — every event in a
-            // given session should agree on host, so the first is canonical.
-            // Events without a host (pre-migration) leave the row's host at
-            // None; no harm done, just no origin info for that session.
+            // Host and user are stamped at translation time onto every
+            // CloudEvent. We lift them off the first event in the batch —
+            // every event in a given session should agree on both, so the
+            // first is canonical. Events without these stamps (pre-migration)
+            // leave the row's value at None; the EventStore upserts use a
+            // COALESCE-style write so a None batch never blanks out an
+            // already-stamped row.
             let host = events.first().and_then(|ce| ce.host.clone());
+            let user = events.first().and_then(|ce| ce.user.clone());
 
             let row = SessionRow {
                 id: session_id.to_string(),
@@ -186,6 +189,7 @@ impl PersistConsumer {
                 first_event: first_event_ts,
                 last_event: last_event_ts,
                 host,
+                user,
             };
             let _ = event_store.upsert_session(&row).await;
         }

@@ -25,5 +25,6 @@ pub fn session_row_from_projection(
         first_event,
         last_event,
         host: None,
+        user: None,
     }
 }

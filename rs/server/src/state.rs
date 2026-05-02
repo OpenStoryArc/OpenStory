@@ -238,6 +238,7 @@ mod tests {
                 first_event: Some("2025-01-14T10:00:00Z".into()),
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
         }
         // No JSONL files exist — boot must come from SQLite
@@ -281,6 +282,7 @@ mod tests {
                 first_event: Some("2025-01-01T00:00:00Z".into()),
                 last_event: Some("2025-01-01T00:00:00Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
 
             // New session
@@ -297,6 +299,7 @@ mod tests {
                 first_event: Some("2025-01-14T10:00:00Z".into()),
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
         }
 
@@ -349,6 +352,7 @@ mod tests {
                 first_event: Some("2025-01-14T00:00:00Z".into()),
                 last_event: Some("2025-01-14T00:00:00Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
         }
 
@@ -404,6 +408,7 @@ mod tests {
                 first_event: Some("2025-01-14T10:00:00Z".into()),
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
         }
 
@@ -452,6 +457,7 @@ mod tests {
                 first_event: Some("2025-01-14T00:00:01Z".into()),
                 last_event: Some("2025-01-14T00:00:05Z".into()),
                 host: None,
+                user: None,
             }).await.unwrap();
         }
 

@@ -33,6 +33,14 @@ pub struct CloudEvent {
     /// CloudEvent extension attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// Human user who owns this OpenStory instance (normalized self-identifier).
+    /// Stamped at event creation via [`CloudEvent::with_user`] — orthogonal
+    /// to `host`: a single user runs OpenStory on multiple machines, and a
+    /// shared machine may have multiple users. Both fields together let
+    /// the hub distinguish "Katie's laptop" from "Katie's desktop" from
+    /// "Max's laptop". CloudEvent extension attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }
 
 impl CloudEvent {
@@ -61,6 +69,7 @@ impl CloudEvent {
             dataschema,
             agent,
             host: None,
+            user: None,
         }
     }
 
@@ -71,6 +80,16 @@ impl CloudEvent {
     /// convenient in test fixtures.
     pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = Some(host.into());
+        self
+    }
+
+    /// Stamp the originating user onto this event. Chainable.
+    ///
+    /// Translators call this alongside [`Self::with_host`] using the value
+    /// from [`crate::user::user()`]. Same fixture-override semantics as
+    /// `with_host`.
+    pub fn with_user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
         self
     }
 }
