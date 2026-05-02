@@ -86,7 +86,7 @@ pub async fn list_sessions(
     let mut filtered: Vec<&_> = user_filtered;
     match query.sort.as_deref() {
         Some("active") => {
-            filtered.sort_by(|a, b| b.event_count.cmp(&a.event_count));
+            filtered.sort_by_key(|r| std::cmp::Reverse(r.event_count));
         }
         Some("tokens") => {
             let token_total = |sid: &str| -> u64 {
@@ -96,7 +96,7 @@ pub async fn list_sessions(
                     .map(|p| p.total_input_tokens() + p.total_output_tokens())
                     .unwrap_or(0)
             };
-            filtered.sort_by(|a, b| token_total(&b.id).cmp(&token_total(&a.id)));
+            filtered.sort_by_key(|r| std::cmp::Reverse(token_total(&r.id)));
         }
         _ => {} // "latest" or unknown → no-op
     }
