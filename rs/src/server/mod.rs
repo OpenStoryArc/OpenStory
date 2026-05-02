@@ -27,6 +27,7 @@ pub use broadcast::BroadcastMessage;
 pub use open_story_server::config;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
+pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_router, build_publisher_router};
 pub use state::{AppState, SharedState, create_state};
 pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult, ReplayContext};

@@ -398,27 +398,36 @@ impl EventStore for SqliteStore {
         // update_session_label(). Boot replay and live ingestion never
         // overwrite user-set custom labels.
         //
-        // `host` and `user` both use COALESCE on update: once a row has a
-        // non-null value, subsequent upserts without one (e.g. a
-        // pre-migration batch that lacks the stamp on its events) must not
-        // blank it out.
+        // ## Conflict-resolution semantics
         //
-        // `first_event` / `last_event` use MIN/MAX on update so a single
-        // batch's `events.first()` / `events.last()` (which is what the
-        // persist consumer passes in) cannot shrink the session's already-
-        // persisted span. RFC 3339 strings sort lexicographically →
-        // chronologically, so MIN/MAX on the text works correctly.
-        // COALESCE handles the case where a batch is missing a timestamp:
-        // we fall back to the existing value rather than nulling it out.
+        // Every field on update is *monotone* or *coalescing* — never a
+        // raw clobber. This makes upsert_session safe to call from any
+        // number of writers in any order with any staleness, including a
+        // stale-snapshot reconciler running concurrently with live
+        // ingest. See `docs/research/CONSTELLATION.md` (R1, P1) and
+        // commit message for the May 2026 reconciler PR.
+        //
+        // - `host`, `user`, `project_id`, `project_name`, `label`, `branch`
+        //   use **COALESCE(excluded.x, sessions.x)** — a fresh batch with
+        //   x=None must not blank out a value already on the row.
+        // - `event_count` uses **MAX(excluded, sessions)** — counts only
+        //   ever grow; a stale snapshot must not reduce them.
+        // - `first_event` uses **MIN(...)** with COALESCE wrappers —
+        //   first_event is the earliest timestamp, so MIN wins.
+        // - `last_event` uses **MAX(...)** with COALESCE wrappers —
+        //   last_event is the latest timestamp, so MAX wins.
+        //
+        // RFC 3339 strings sort lexicographically → chronologically, so
+        // MIN/MAX on the TEXT columns is correct.
         conn.execute(
             "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
-                project_id = excluded.project_id,
-                project_name = excluded.project_name,
-                label = excluded.label,
-                branch = excluded.branch,
-                event_count = excluded.event_count,
+                project_id = COALESCE(excluded.project_id, sessions.project_id),
+                project_name = COALESCE(excluded.project_name, sessions.project_name),
+                label = COALESCE(excluded.label, sessions.label),
+                branch = COALESCE(excluded.branch, sessions.branch),
+                event_count = MAX(excluded.event_count, sessions.event_count),
                 first_event = MIN(
                     COALESCE(excluded.first_event, sessions.first_event),
                     COALESCE(sessions.first_event, excluded.first_event)
