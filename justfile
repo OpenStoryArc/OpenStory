@@ -83,14 +83,17 @@ up:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
-      if [ -f .env ]; then set -a; source .env; set +a; fi
-      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
-      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
-      sleep 1
+    # Launch the leaf supervisor — keeps the leaf alive AND keeps its hub
+    # connection healthy. Guards against the slow-consumer / stale-connection
+    # cascade we hit on 2026-05-02 (see scripts/leaf-supervisor.sh header).
+    # Idempotent: the supervisor itself starts the leaf only if :4222 is free.
+    if pgrep -f "scripts/leaf-supervisor.sh" >/dev/null 2>&1; then
+      echo "Leaf supervisor already running"
     else
-      echo "NATS already running on :4222"
+      echo "Starting NATS JetStream (supervised leaf → Hetzner hub)..."
+      scripts/leaf-supervisor.sh > /tmp/leaf-supervisor.log 2>&1 &
+      disown
+      sleep 4
     fi
 
     # Start MongoDB (default backend)
@@ -122,14 +125,17 @@ up-no-mongo:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
-      if [ -f .env ]; then set -a; source .env; set +a; fi
-      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
-      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
-      sleep 1
+    # Launch the leaf supervisor — keeps the leaf alive AND keeps its hub
+    # connection healthy. Guards against the slow-consumer / stale-connection
+    # cascade we hit on 2026-05-02 (see scripts/leaf-supervisor.sh header).
+    # Idempotent: the supervisor itself starts the leaf only if :4222 is free.
+    if pgrep -f "scripts/leaf-supervisor.sh" >/dev/null 2>&1; then
+      echo "Leaf supervisor already running"
     else
-      echo "NATS already running on :4222"
+      echo "Starting NATS JetStream (supervised leaf → Hetzner hub)..."
+      scripts/leaf-supervisor.sh > /tmp/leaf-supervisor.log 2>&1 &
+      disown
+      sleep 4
     fi
 
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
