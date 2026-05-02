@@ -63,6 +63,10 @@ interface SidebarProps {
   focusAgentId: string | null;
   onFocusAgent: (agentId: string | null) => void;
   sessionLabels?: Readonly<Record<string, SessionLabel>>;
+  /** Active user filter (URL-driven). `null` = "All users". */
+  userFilter?: string | null;
+  /** Setter — typically wired to a `navigate({ view: "live", userFilter })` call. */
+  onUserFilterChange?: (user: string | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +248,8 @@ export const Sidebar = memo(function Sidebar({
   focusAgentId,
   onFocusAgent,
   sessionLabels,
+  userFilter: userFilterProp,
+  onUserFilterChange,
 }: SidebarProps) {
   // The sidebar's universe of sessions comes from REST (/api/sessions)
   // since `initial_state` no longer ships records. Records for the
@@ -264,8 +270,23 @@ export const Sidebar = memo(function Sidebar({
   // unstamped) never match a non-null filter — same posture as the
   // server-side ?host= / ?user= query parameters: a filter shouldn't
   // leak rows whose origin we simply don't know.
+  //
+  // `userFilter` is URL-driven (passed in via props). `hostFilter` stays
+  // local — it's a finer-grained narrowing on top of "which person", and
+  // hasn't yet earned its place in the URL. Lift it later if needed.
   const [hostFilter, setHostFilter] = useState<string | null>(null);
-  const [userFilter, setUserFilter] = useState<string | null>(null);
+  // Bridge URL-driven userFilter into a setter the existing chip-row
+  // and PersonRow can call: when there's no parent setter, fall back
+  // to local state (test scaffolding & callers that don't pass props).
+  const [localUserFilter, setLocalUserFilter] = useState<string | null>(null);
+  const userFilter = userFilterProp ?? localUserFilter;
+  const setUserFilter = useCallback(
+    (u: string | null) => {
+      if (onUserFilterChange) onUserFilterChange(u);
+      else setLocalUserFilter(u);
+    },
+    [onUserFilterChange],
+  );
   const filteredSessions = useMemo(() => {
     if (!hostFilter && !userFilter) return sessions;
     return sessions.filter(
@@ -444,6 +465,33 @@ export const Sidebar = memo(function Sidebar({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto min-h-0 outline-none" ref={sessionListRef} tabIndex={0} data-focus-zone="sidebar" onFocus={() => setSidebarFocused(true)} onBlur={() => setSidebarFocused(false)}>
+        {/* Empty state when a filter is active but nothing matches.
+            Distinct from "store has no sessions at all" — that case
+            wasn't previously handled either; for now we show this when
+            sessions.length > 0 to keep the message accurate. */}
+        {filteredSessions.length === 0 && sessions.length > 0 && (hostFilter || userFilter) && (
+          <div className="px-4 py-6 text-center text-xs text-[#565f89]" data-testid="sidebar-no-matches">
+            <div className="mb-1 text-[#7aa2f7]">
+              No sessions match{userFilter ? ` @${userFilter}` : ""}
+              {hostFilter ? ` ⌂ ${hostFilter}` : ""}
+            </div>
+            <div className="text-[10px] mb-2">
+              {sessions.length} stamped session{sessions.length === 1 ? "" : "s"} on this leaf,
+              none from this filter yet.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setHostFilter(null);
+                setUserFilter(null);
+              }}
+              className="text-[10px] px-2 py-1 rounded bg-[#7aa2f720] text-[#7aa2f7] hover:bg-[#7aa2f740] transition-colors"
+              data-testid="sidebar-clear-filters"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
         {filteredSessions.map((s, i) => {
           const color = sessionColor(s.id);
           const isSelected = s.id === selectedSession;

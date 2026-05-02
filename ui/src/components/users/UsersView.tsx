@@ -73,16 +73,50 @@ export function UsersView({ onNavigate }: UsersViewProps) {
   const stamped = users.reduce((sum, u) => sum + u.session_count, 0);
 
   if (users.length === 0) {
+    // Two distinct empty states, same surface:
+    //   - total === 0: brand-new install, no sessions yet
+    //   - total > 0:  sessions on disk but none stamped (pre-PR-#42 data)
+    const noData = total === 0;
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-[#565f89]" data-testid="users-empty">
-        <p className="mb-2">No stamped users yet.</p>
-        <p className="text-xs">
-          Set <code className="px-1 bg-[#24283b] rounded">OPEN_STORY_USER</code> in
-          your shell or <code className="px-1 bg-[#24283b] rounded">.env</code> and
-          restart the container — new events will be stamped and appear here.
-          Legacy sessions (without a user stamp) are intentionally excluded:{" "}
-          {total} total session{total === 1 ? "" : "s"} on disk.
-        </p>
+      <div
+        className="flex-1 min-h-0 overflow-y-auto p-8 flex flex-col items-center justify-start"
+        data-testid="users-empty"
+      >
+        <div className="max-w-md text-center">
+          <div
+            className="w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-2xl"
+            style={{ backgroundColor: "#bb9af715", color: "#bb9af7" }}
+            aria-hidden="true"
+          >
+            {noData ? "👋" : "🪪"}
+          </div>
+          <h2 className="text-base font-semibold text-[#c0caf5] mb-2">
+            {noData
+              ? "Welcome to OpenStory"
+              : "No stamped users yet"}
+          </h2>
+          <p className="text-sm text-[#565f89] mb-3">
+            {noData
+              ? "Run an agent (Claude Code, pi-mono) and your sessions will appear here."
+              : `${total} session${total === 1 ? "" : "s"} on disk, but none have a stamped user.`}
+          </p>
+          {!noData && (
+            <p className="text-xs text-[#565f89] mb-4">
+              Sessions captured before user stamping shipped don't appear here
+              (we don't invent an "Unknown" bucket). Going forward:
+            </p>
+          )}
+          {!noData && (
+            <pre className="text-[11px] text-left bg-[#1a1b26] border border-[#2f3348] rounded p-3 text-[#9ece6a] mb-2 overflow-x-auto">
+              {`export OPEN_STORY_USER=$USER\nexport OPEN_STORY_HOST=$(scutil --get LocalHostName)\ndocker compose ... up -d --force-recreate`}
+            </pre>
+          )}
+          {!noData && (
+            <p className="text-[10px] text-[#414868]">
+              New events from this point on will be stamped and surface here.
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -125,15 +159,13 @@ function UserCard({ user, onNavigate }: UserCardProps) {
         <div className="flex items-baseline justify-between gap-2 mb-1">
           <button
             onClick={() =>
-              // Click the user header → narrow Live tab via ?user= filter.
-              // The Live tab's sidebar reads filter state from local UI
-              // state today; pushing into a hash-route param would need
-              // extra plumbing. For v0.1 we just send the user to Live;
-              // they can then click any session to drill in.
-              onNavigate({ view: "live" })
+              // Open Live tab with this user pre-selected as the filter.
+              // URL becomes /#/live?user=katie — bookmarkable and shareable.
+              onNavigate({ view: "live", userFilter: user.user })
             }
             className="text-base font-semibold text-[#bb9af7] hover:text-[#c0caf5] transition-colors"
-            title={`Open Live tab (filter by user manually for now)`}
+            title={`View @${user.user}'s sessions in Live`}
+            data-testid={`user-card-header-${user.user}`}
           >
             @{user.user}
           </button>

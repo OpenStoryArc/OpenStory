@@ -1470,6 +1470,25 @@ async fn test_meta_unknown_session_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
+// ── /api/local-info — what OPEN_STORY_HOST/USER resolved to ────────────
+
+#[tokio::test]
+async fn test_local_info_returns_host_and_user_strings() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    let req = Request::get("/api/local-info").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    // Both fields are always strings — the resolver falls back to
+    // "unknown" rather than returning null.
+    assert!(body["host"].is_string(), "host must be a string");
+    assert!(body["user"].is_string(), "user must be a string");
+    assert!(!body["host"].as_str().unwrap().is_empty());
+    assert!(!body["user"].as_str().unwrap().is_empty());
+}
+
 // ── /api/users — per-user activity surface (Users tab v0.1) ────────────
 
 #[tokio::test]
