@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
+import { UsersView } from "@/components/users/UsersView";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
@@ -103,6 +104,9 @@ export function App() {
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
         />
       )}
+
+      {/* Users tab */}
+      {viewMode === "users" && <UsersView onNavigate={navigate} />}
     </div>
   );
 }

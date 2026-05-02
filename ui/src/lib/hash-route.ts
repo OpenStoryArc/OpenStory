@@ -3,7 +3,7 @@
 import type { DetailView } from "@/components/explore/ExploreView";
 
 export interface HashRoute {
-  view: "live" | "explore" | "story";
+  view: "live" | "explore" | "story" | "users";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -11,7 +11,7 @@ export interface HashRoute {
   searchQuery?: string;
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "users"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "search"]);
 
 /** Parse window.location.hash into a HashRoute. */
@@ -27,7 +27,13 @@ export function parseHash(hash: string): HashRoute {
   }
 
   const parts = raw.split("/").filter(Boolean);
-  const view = VALID_VIEWS.has(parts[0] ?? "") ? (parts[0] as "live" | "explore" | "story") : "live";
+  const view = VALID_VIEWS.has(parts[0] ?? "")
+    ? (parts[0] as "live" | "explore" | "story" | "users")
+    : "live";
+
+  if (view === "users") {
+    return { view };
+  }
 
   if (view === "live" || view === "story") {
     const sessionId = parts[1] || undefined;

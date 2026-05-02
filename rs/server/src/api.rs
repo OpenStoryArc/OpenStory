@@ -169,6 +169,148 @@ pub async fn list_sessions(
     }))
 }
 
+/// Number of recent sessions returned per user in `/api/users`.
+const USERS_RECENT_SESSIONS_PER_USER: usize = 5;
+
+/// `GET /api/users` — aggregate `SessionRow` rows by the `user` field.
+///
+/// Returns one entry per distinct stamped user, sorted by `last_active` DESC.
+/// Sessions with `user: None` (legacy / pre-PR-#42) are excluded — same
+/// posture as the `?user=` filter on `/api/sessions`: a "Users" tab
+/// shouldn't invent an "Unknown" bucket from rows whose origin we don't know.
+///
+/// Each entry includes:
+///   - aggregate counts (session_count, total tokens),
+///   - the set of hosts and projects this user has worked from,
+///   - last activity timestamp,
+///   - the N most-recent sessions (default 5) — the deterministic
+///     stand-in for "what they're doing" until the InsightExtraction
+///     consumer ships and the UI swaps in real semantic insights.
+pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
+    use std::collections::BTreeMap;
+
+    let s = state.read().await;
+    let all_rows = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .unwrap_or_default();
+
+    /// Mutable per-user aggregate built up in a single pass.
+    struct Acc {
+        session_count: usize,
+        hosts: std::collections::BTreeSet<String>,
+        projects: std::collections::BTreeSet<String>,
+        last_active: Option<String>,
+        total_input_tokens: u64,
+        total_output_tokens: u64,
+        // Held as references so we can render `recent_sessions` after sorting
+        // by last_event without cloning intermediate state.
+        sessions: Vec<usize>, // indexes into `all_rows`
+    }
+
+    // BTreeMap so the iteration order is deterministic when last_active
+    // comparisons tie (rare, but tests appreciate it).
+    let mut by_user: BTreeMap<String, Acc> = BTreeMap::new();
+
+    for (idx, row) in all_rows.iter().enumerate() {
+        let Some(user) = row.user.as_deref() else {
+            continue; // legacy / pre-stamping rows
+        };
+        let acc = by_user.entry(user.to_string()).or_insert_with(|| Acc {
+            session_count: 0,
+            hosts: Default::default(),
+            projects: Default::default(),
+            last_active: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            sessions: Vec::new(),
+        });
+        acc.session_count += 1;
+        if let Some(host) = row.host.as_deref() {
+            acc.hosts.insert(host.to_string());
+        }
+        // project_name preferred for display; fall back to project_id.
+        if let Some(pn) = row
+            .project_name
+            .as_deref()
+            .or(row.project_id.as_deref())
+        {
+            acc.projects.insert(pn.to_string());
+        }
+        // RFC 3339 → lexicographic == chronological, so string max works.
+        if let Some(ts) = row.last_event.as_deref() {
+            match acc.last_active.as_deref() {
+                Some(cur) if cur >= ts => {}
+                _ => acc.last_active = Some(ts.to_string()),
+            }
+        }
+        // Live token totals come from the projections map, which the persist
+        // consumer keeps fresh; SessionRow's tokens lag by one batch.
+        if let Some(proj) = s.store.projections.get(&row.id) {
+            acc.total_input_tokens += proj.total_input_tokens();
+            acc.total_output_tokens += proj.total_output_tokens();
+        }
+        acc.sessions.push(idx);
+    }
+
+    let mut users: Vec<Value> = by_user
+        .into_iter()
+        .map(|(user, acc)| {
+            // Recent sessions: take the top-N by last_event DESC.
+            let mut session_idxs = acc.sessions;
+            session_idxs.sort_by_key(|&i| {
+                std::cmp::Reverse(all_rows[i].last_event.clone().unwrap_or_default())
+            });
+            let recent: Vec<Value> = session_idxs
+                .into_iter()
+                .take(USERS_RECENT_SESSIONS_PER_USER)
+                .map(|i| {
+                    let r = &all_rows[i];
+                    json!({
+                        "session_id": r.id,
+                        "label": r.label,
+                        "last_event": r.last_event,
+                        "project_name": r.project_name.as_ref().or(r.project_id.as_ref()),
+                        "event_count": r.event_count,
+                    })
+                })
+                .collect();
+
+            json!({
+                "user": user,
+                "session_count": acc.session_count,
+                "hosts": acc.hosts.into_iter().collect::<Vec<_>>(),
+                "projects": acc.projects.into_iter().collect::<Vec<_>>(),
+                "last_active": acc.last_active,
+                "total_input_tokens": acc.total_input_tokens,
+                "total_output_tokens": acc.total_output_tokens,
+                "recent_sessions": recent,
+            })
+        })
+        .collect();
+
+    // Most-recently-active user first. Users with no last_active sort last.
+    users.sort_by_key(|u| {
+        std::cmp::Reverse(
+            u.get("last_active")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+        )
+    });
+
+    log_event(
+        "api",
+        &format!("GET /api/users ({} users)", users.len()),
+    );
+    Json(json!({
+        "users": users,
+        "total": all_rows.len(),
+    }))
+}
+
 pub async fn get_events(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
