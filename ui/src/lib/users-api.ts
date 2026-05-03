@@ -30,6 +30,11 @@ export interface UserSummary {
   readonly last_active: string | null;
   readonly total_input_tokens: number;
   readonly total_output_tokens: number;
+  /** 24 hourly event-volume buckets covering the last 24h.
+   *  Index 0 = oldest hour (now − 24h), index 23 = current hour.
+   *  Approximation: events distributed uniformly across each
+   *  session's [first_event, last_event] span, then summed per bucket. */
+  readonly activity_24h: readonly number[];
   readonly recent_sessions: readonly UserRecentSession[];
 }
 
