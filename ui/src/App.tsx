@@ -40,27 +40,40 @@ export function App() {
   const viewMode = route.view;
   const selectedSession = route.view === "live" ? (route.sessionId ?? null) : null;
   const storySession = route.view === "story" ? (route.sessionId ?? null) : null;
-  // Live tab user filter is owned by the URL — bookmarkable & shareable.
+  // Live tab filters are owned by the URL — bookmarkable & shareable.
   const userFilter = route.view === "live" ? (route.userFilter ?? null) : null;
+  const timeFilter =
+    route.view === "live" ? (route.timeFilter ?? "all") : "all";
 
   const handleSelectSession = useCallback((sid: string | null) => {
     setFocusAgentId(null);
-    // Preserve the active user filter when picking a session — clicking
-    // a session inside @max's filtered view shouldn't clear the filter.
+    // Preserve active filters when picking a session — clicking a
+    // session inside a filtered view shouldn't clear the filters.
     navigate({
       view: "live",
       ...(sid ? { sessionId: sid } : {}),
       ...(userFilter ? { userFilter } : {}),
+      ...(timeFilter !== "all" ? { timeFilter } : {}),
     });
-  }, [navigate, userFilter]);
+  }, [navigate, userFilter, timeFilter]);
 
   const handleUserFilterChange = useCallback((user: string | null) => {
     navigate({
       view: "live",
       ...(selectedSession ? { sessionId: selectedSession } : {}),
       ...(user ? { userFilter: user } : {}),
+      ...(timeFilter !== "all" ? { timeFilter } : {}),
     });
-  }, [navigate, selectedSession]);
+  }, [navigate, selectedSession, timeFilter]);
+
+  const handleTimeFilterChange = useCallback((next: "1h" | "today" | "week" | "all") => {
+    navigate({
+      view: "live",
+      ...(selectedSession ? { sessionId: selectedSession } : {}),
+      ...(userFilter ? { userFilter } : {}),
+      ...(next !== "all" ? { timeFilter: next } : {}),
+    });
+  }, [navigate, selectedSession, userFilter]);
 
   const handleSwitchTab = useCallback((mode: ViewMode) => {
     navigate({ view: mode });
@@ -97,6 +110,8 @@ export function App() {
             sessionLabels={state.sessionLabels}
             userFilter={userFilter}
             onUserFilterChange={handleUserFilterChange}
+            timeFilter={timeFilter}
+            onTimeFilterChange={handleTimeFilterChange}
           />
           <div className="flex-1 min-w-0 flex flex-col">
             <SessionHeaderForLive
