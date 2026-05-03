@@ -10,6 +10,8 @@ import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { UsersView } from "@/components/users/UsersView";
+import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
+import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
@@ -32,16 +34,46 @@ export function App() {
 
   const [route, navigate] = useHashRoute();
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
+  const localInfo = useLocalInfo();
 
   // Derive view state from route
   const viewMode = route.view;
   const selectedSession = route.view === "live" ? (route.sessionId ?? null) : null;
   const storySession = route.view === "story" ? (route.sessionId ?? null) : null;
+  // Live tab filters are owned by the URL — bookmarkable & shareable.
+  const userFilter = route.view === "live" ? (route.userFilter ?? null) : null;
+  const timeFilter =
+    route.view === "live" ? (route.timeFilter ?? "all") : "all";
 
   const handleSelectSession = useCallback((sid: string | null) => {
     setFocusAgentId(null);
-    navigate({ view: "live", ...(sid ? { sessionId: sid } : {}) });
-  }, [navigate]);
+    // Preserve active filters when picking a session — clicking a
+    // session inside a filtered view shouldn't clear the filters.
+    navigate({
+      view: "live",
+      ...(sid ? { sessionId: sid } : {}),
+      ...(userFilter ? { userFilter } : {}),
+      ...(timeFilter !== "all" ? { timeFilter } : {}),
+    });
+  }, [navigate, userFilter, timeFilter]);
+
+  const handleUserFilterChange = useCallback((user: string | null) => {
+    navigate({
+      view: "live",
+      ...(selectedSession ? { sessionId: selectedSession } : {}),
+      ...(user ? { userFilter: user } : {}),
+      ...(timeFilter !== "all" ? { timeFilter } : {}),
+    });
+  }, [navigate, selectedSession, timeFilter]);
+
+  const handleTimeFilterChange = useCallback((next: "1h" | "today" | "week" | "all") => {
+    navigate({
+      view: "live",
+      ...(selectedSession ? { sessionId: selectedSession } : {}),
+      ...(userFilter ? { userFilter } : {}),
+      ...(next !== "all" ? { timeFilter: next } : {}),
+    });
+  }, [navigate, selectedSession, userFilter]);
 
   const handleSwitchTab = useCallback((mode: ViewMode) => {
     navigate({ view: mode });
@@ -76,8 +108,16 @@ export function App() {
             focusAgentId={focusAgentId}
             onFocusAgent={setFocusAgentId}
             sessionLabels={state.sessionLabels}
+            userFilter={userFilter}
+            onUserFilterChange={handleUserFilterChange}
+            timeFilter={timeFilter}
+            onTimeFilterChange={handleTimeFilterChange}
           />
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col">
+            <SessionHeaderForLive
+              sessionId={selectedSession}
+              localUser={localInfo?.user ?? null}
+            />
             <Timeline
               state$={state$}
               sessionFilter={selectedSession}
@@ -109,4 +149,20 @@ export function App() {
       {viewMode === "users" && <UsersView onNavigate={navigate} />}
     </div>
   );
+}
+
+/**
+ * Thin wrapper so the hook (which fetches `/api/sessions`) only fires
+ * when the Live tab is mounted. Lifting `useSessionHeaderInfo` into
+ * App's body would call it on every tab.
+ */
+function SessionHeaderForLive({
+  sessionId,
+  localUser,
+}: {
+  sessionId: string | null;
+  localUser: string | null;
+}) {
+  const info = useSessionHeaderInfo(sessionId);
+  return <SessionHeader session={info} localUser={localUser} />;
 }

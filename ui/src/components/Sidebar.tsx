@@ -13,6 +13,9 @@ import { compactTime } from "@/lib/time";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
+import { PersonRow } from "@/components/PersonRow";
+import { TimeFilter } from "@/components/TimeFilter";
+import { timeFilterMatches, TIME_FILTER_LABELS, type TimeFilterKey } from "@/lib/time-filter";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +65,14 @@ interface SidebarProps {
   focusAgentId: string | null;
   onFocusAgent: (agentId: string | null) => void;
   sessionLabels?: Readonly<Record<string, SessionLabel>>;
+  /** Active user filter (URL-driven). `null` = "All users". */
+  userFilter?: string | null;
+  /** Setter — typically wired to a `navigate({ view: "live", userFilter })` call. */
+  onUserFilterChange?: (user: string | null) => void;
+  /** Active time-window filter (URL-driven). Defaults to "all" when omitted. */
+  timeFilter?: "1h" | "today" | "week" | "all";
+  /** Setter — typically wired to a navigate({...timeFilter}) call. */
+  onTimeFilterChange?: (next: "1h" | "today" | "week" | "all") => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +254,10 @@ export const Sidebar = memo(function Sidebar({
   focusAgentId,
   onFocusAgent,
   sessionLabels,
+  userFilter: userFilterProp,
+  onUserFilterChange,
+  timeFilter: timeFilterProp,
+  onTimeFilterChange,
 }: SidebarProps) {
   // The sidebar's universe of sessions comes from REST (/api/sessions)
   // since `initial_state` no longer ships records. Records for the
@@ -263,16 +278,47 @@ export const Sidebar = memo(function Sidebar({
   // unstamped) never match a non-null filter — same posture as the
   // server-side ?host= / ?user= query parameters: a filter shouldn't
   // leak rows whose origin we simply don't know.
+  //
+  // `userFilter` is URL-driven (passed in via props). `hostFilter` stays
+  // local — it's a finer-grained narrowing on top of "which person", and
+  // hasn't yet earned its place in the URL. Lift it later if needed.
   const [hostFilter, setHostFilter] = useState<string | null>(null);
-  const [userFilter, setUserFilter] = useState<string | null>(null);
+  // Bridge URL-driven userFilter into a setter the existing chip-row
+  // and PersonRow can call: when there's no parent setter, fall back
+  // to local state (test scaffolding & callers that don't pass props).
+  const [localUserFilter, setLocalUserFilter] = useState<string | null>(null);
+  const userFilter = userFilterProp ?? localUserFilter;
+  const setUserFilter = useCallback(
+    (u: string | null) => {
+      if (onUserFilterChange) onUserFilterChange(u);
+      else setLocalUserFilter(u);
+    },
+    [onUserFilterChange],
+  );
+  // Same prop-or-local pattern for the time filter. Default is "all"
+  // so the rendered TimeFilter has a sensible selection on first paint.
+  const [localTimeFilter, setLocalTimeFilter] = useState<TimeFilterKey>("all");
+  const timeFilter: TimeFilterKey = timeFilterProp ?? localTimeFilter;
+  const setTimeFilter = useCallback(
+    (next: TimeFilterKey) => {
+      if (onTimeFilterChange) onTimeFilterChange(next);
+      else setLocalTimeFilter(next);
+    },
+    [onTimeFilterChange],
+  );
   const filteredSessions = useMemo(() => {
-    if (!hostFilter && !userFilter) return sessions;
+    if (!hostFilter && !userFilter && timeFilter === "all") return sessions;
+    // Capture `now` once per render so all sessions are checked against
+    // the same instant. Reading Date.now() inside the predicate would
+    // make the boundary skew by a microsecond per session.
+    const now = Date.now();
     return sessions.filter(
       (s) =>
         (!hostFilter || s.host === hostFilter) &&
-        (!userFilter || s.user === userFilter),
+        (!userFilter || s.user === userFilter) &&
+        timeFilterMatches(s.latestTimestamp, timeFilter, now),
     );
-  }, [sessions, hostFilter, userFilter]);
+  }, [sessions, hostFilter, userFilter, timeFilter]);
 
   // Keyboard navigation: up/down through sessions, right to timeline, enter to select
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
@@ -398,11 +444,17 @@ export const Sidebar = memo(function Sidebar({
         onMouseDown={onHDragStart}
         className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[#7aa2f7] transition-colors z-10"
       />
+      {/* Person filter row — primary user-filter surface, hidden when 0/1 stamped users. */}
+      <PersonRow userFilter={userFilter} onUserFilterChange={setUserFilter} />
+
+      {/* Time-window filter — Last Hour / Today / This Week / All. */}
+      <TimeFilter value={timeFilter} onChange={setTimeFilter} />
+
       {/* Sessions header */}
       <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
         <span>Sessions</span>
         <span className="text-[#7aa2f7]" data-testid="sidebar-session-count">
-          {hostFilter || userFilter
+          {hostFilter || userFilter || timeFilter !== "all"
             ? `${filteredSessions.length} / ${sessions.length}`
             : sessions.length}
         </span>
@@ -440,6 +492,35 @@ export const Sidebar = memo(function Sidebar({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto min-h-0 outline-none" ref={sessionListRef} tabIndex={0} data-focus-zone="sidebar" onFocus={() => setSidebarFocused(true)} onBlur={() => setSidebarFocused(false)}>
+        {/* Empty state when a filter is active but nothing matches.
+            Distinct from "store has no sessions at all" — that case
+            wasn't previously handled either; for now we show this when
+            sessions.length > 0 to keep the message accurate. */}
+        {filteredSessions.length === 0 && sessions.length > 0 && (hostFilter || userFilter || timeFilter !== "all") && (
+          <div className="px-4 py-6 text-center text-xs text-[#565f89]" data-testid="sidebar-no-matches">
+            <div className="mb-1 text-[#7aa2f7]">
+              No sessions match{userFilter ? ` @${userFilter}` : ""}
+              {hostFilter ? ` ⌂ ${hostFilter}` : ""}
+              {timeFilter !== "all" ? ` · ${TIME_FILTER_LABELS[timeFilter]}` : ""}
+            </div>
+            <div className="text-[10px] mb-2">
+              {sessions.length} stamped session{sessions.length === 1 ? "" : "s"} on this leaf,
+              none from this filter yet.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setHostFilter(null);
+                setUserFilter(null);
+                setTimeFilter("all");
+              }}
+              className="text-[10px] px-2 py-1 rounded bg-[#7aa2f720] text-[#7aa2f7] hover:bg-[#7aa2f740] transition-colors"
+              data-testid="sidebar-clear-filters"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
         {filteredSessions.map((s, i) => {
           const color = sessionColor(s.id);
           const isSelected = s.id === selectedSession;
