@@ -1,0 +1,25 @@
+{
+  "members": [
+    {
+      "name": "Max",
+      "users": ["maxglassie"],
+      "path_prefixes": ["/Users/maxglassie/", "-Users-maxglassie-"]
+    },
+    {
+      "name": "Katie",
+      "users": ["kloughra"],
+      "path_prefixes": ["/Users/kloughra/", "-Users-kloughra-"]
+    }
+  ],
+  "team_repos": [
+    "OpenStory",
+    "openstory-ui-prototype",
+    "dora-metrics",
+    "openclaw",
+    "yc-app",
+    "ycombinator-app",
+    "raptor-agentic-team",
+    "telegram-int-local"
+  ],
+  "default_tz": "America/New_York"
+}
