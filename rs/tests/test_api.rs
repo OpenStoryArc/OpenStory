@@ -1470,6 +1470,25 @@ async fn test_meta_unknown_session_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
+// ── /api/local-info — what OPEN_STORY_HOST/USER resolved to ────────────
+
+#[tokio::test]
+async fn test_local_info_returns_host_and_user_strings() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    let req = Request::get("/api/local-info").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    // Both fields are always strings — the resolver falls back to
+    // "unknown" rather than returning null.
+    assert!(body["host"].is_string(), "host must be a string");
+    assert!(body["user"].is_string(), "user must be a string");
+    assert!(!body["host"].as_str().unwrap().is_empty());
+    assert!(!body["user"].as_str().unwrap().is_empty());
+}
+
 // ── /api/users — per-user activity surface (Users tab v0.1) ────────────
 
 #[tokio::test]
@@ -1551,6 +1570,175 @@ async fn test_list_users_aggregates_by_user_field() {
     // total = all SessionRow rows (including legacy), so the UI can
     // render "stamped 3 / 4 sessions" if it wants.
     assert_eq!(body["total"].as_u64(), Some(4));
+}
+
+/// Build an event whose `time` is `minutes_ago` minutes before `now()`.
+/// Used to anchor activity_24h math tests against a known clock offset
+/// without injecting a clock through every layer.
+fn event_at(session_id: &str, minutes_ago: i64) -> open_story::cloud_event::CloudEvent {
+    let mut ev = make_event("io.arc.event", session_id)
+        .with_host("Katies-Mac-mini")
+        .with_user("katie");
+    let t = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
+    ev.time = t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    ev
+}
+
+#[tokio::test]
+async fn test_list_users_activity_24h_session_in_window_distributes_to_correct_buckets() {
+    // Session of two events: one 90 min ago (first), one 30 min ago (last).
+    // event_count = 2; span = 60 min. Should land entirely in the two
+    // most-recent hour buckets ([22], [23]). Older buckets should be 0.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let mut s = state.write().await;
+        let events = vec![
+            event_at("sess-recent", 90),
+            event_at("sess-recent", 30),
+        ];
+        seed_and_ingest(&mut s, "sess-recent", &events, Some("proj-A")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let katie = &body["users"][0];
+    let buckets: Vec<u64> = katie["activity_24h"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap())
+        .collect();
+
+    // Sum across the 24h window equals event_count when the entire
+    // session span falls inside the window. Allow ±1 for rounding —
+    // proportional distribution + per-hour rounding can shed at most 1.
+    let total: u64 = buckets.iter().sum();
+    assert!(
+        (1..=2).contains(&total),
+        "events should sum to ~event_count (2), got {} (buckets: {:?})",
+        total,
+        buckets,
+    );
+    // Older buckets ([0..21]) should be empty.
+    for (i, &b) in buckets.iter().enumerate().take(21) {
+        assert_eq!(b, 0, "bucket[{}] should be 0 for events all in last 90 min", i);
+    }
+    // At least one of the two most-recent hour buckets must have data.
+    assert!(
+        buckets[22] + buckets[23] >= 1,
+        "the two most-recent buckets together should hold the session's events; got {:?}",
+        &buckets[22..],
+    );
+}
+
+#[tokio::test]
+async fn test_list_users_activity_24h_session_before_window_contributes_nothing() {
+    // Session ended 25 hours ago — entirely outside the 24h window.
+    // Every bucket must be 0 for this user.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let mut s = state.write().await;
+        let events = vec![
+            event_at("sess-old", 25 * 60 + 30), // first: 25.5h ago
+            event_at("sess-old", 25 * 60),      // last:  25h ago
+        ];
+        seed_and_ingest(&mut s, "sess-old", &events, Some("proj-A")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let katie = &body["users"][0];
+    let buckets: Vec<u64> = katie["activity_24h"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap())
+        .collect();
+
+    let total: u64 = buckets.iter().sum();
+    assert_eq!(
+        total, 0,
+        "session entirely before the 24h window must contribute 0 events to activity_24h, got {:?}",
+        buckets,
+    );
+}
+
+#[tokio::test]
+async fn test_list_users_activity_24h_session_spanning_window_edge_clips_correctly() {
+    // Session that started 25h ago and ended 20h ago — half in, half out.
+    // Only the in-window portion (the last ~3.something hours of the
+    // session) should contribute. Asserts the clip + proportional logic
+    // is symmetric: events outside the window are not double-counted into
+    // the in-window slice.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let mut s = state.write().await;
+        let events = vec![
+            event_at("sess-spans", 25 * 60), // first: 25h ago
+            event_at("sess-spans", 20 * 60), // last:  20h ago
+        ];
+        seed_and_ingest(&mut s, "sess-spans", &events, Some("proj-A")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let katie = &body["users"][0];
+    let buckets: Vec<u64> = katie["activity_24h"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap())
+        .collect();
+
+    // Strict: the most-recent buckets ([15..]) must be empty (session
+    // ended 20h ago).
+    for (i, &b) in buckets.iter().enumerate().skip(15) {
+        assert_eq!(
+            b, 0,
+            "bucket[{}] should be 0 for a session that ended 20h ago",
+            i,
+        );
+    }
+
+    // The in-window portion is roughly hours 0..4 (24h ago to 20h ago);
+    // total contribution ≤ event_count.
+    let total: u64 = buckets.iter().sum();
+    assert!(total <= 2, "in-window contribution capped at event_count, got {}", total);
+}
+
+#[tokio::test]
+async fn test_list_users_activity_24h_shape() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-katie")
+            .with_host("Katies-Mac-mini")
+            .with_user("katie")];
+        seed_and_ingest(&mut s, "sess-katie", &events, Some("proj-A")).await;
+    }
+
+    let req = Request::get("/api/users").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    let body = body_json(resp).await;
+    let katie = &body["users"][0];
+
+    let buckets = katie["activity_24h"].as_array().unwrap();
+    assert_eq!(
+        buckets.len(),
+        24,
+        "activity_24h should have exactly 24 hourly buckets"
+    );
+    for b in buckets {
+        assert!(b.is_number(), "each bucket should be a number, got {:?}", b);
+        assert!(b.as_u64().is_some(), "bucket should fit in u64");
+    }
 }
 
 #[tokio::test]

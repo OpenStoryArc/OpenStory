@@ -64,6 +64,14 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "explore", sessionId: "abc", eventId: "evt-1" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
+    { view: "live", userFilter: "katie" },
+    { view: "live", sessionId: "abc-123", userFilter: "maxglassie" },
+    { view: "story", userFilter: "katie" },
+    { view: "live", timeFilter: "1h" },
+    { view: "live", timeFilter: "today" },
+    { view: "live", timeFilter: "week" },
+    { view: "live", userFilter: "katie", timeFilter: "today" },
+    { view: "live", sessionId: "sess-1", userFilter: "katie", timeFilter: "week" },
   ];
 
   it.each(routes)("roundtrip: %o", (route) => {
@@ -72,5 +80,97 @@ describe("parseHash ∘ buildHash roundtrip", () => {
       (r) => parseHash(buildHash(r)),
       (result) => expect(result).toEqual(route),
     );
+  });
+});
+
+describe("userFilter — Live tab query param", () => {
+  it("buildHash places ?user=… after the path", () => {
+    expect(buildHash({ view: "live", userFilter: "katie" })).toBe(
+      "#/live?user=katie",
+    );
+    expect(
+      buildHash({ view: "live", sessionId: "sess-1", userFilter: "katie" }),
+    ).toBe("#/live/sess-1?user=katie");
+  });
+
+  it("parseHash recovers userFilter from the query", () => {
+    expect(parseHash("#/live?user=katie")).toEqual({
+      view: "live",
+      userFilter: "katie",
+    });
+    expect(parseHash("#/live/sess-1?user=maxglassie")).toEqual({
+      view: "live",
+      sessionId: "sess-1",
+      userFilter: "maxglassie",
+    });
+  });
+
+  it("ignores userFilter on tabs that don't apply (users, explore)", () => {
+    // Users tab lists *all* users — no per-user filter.
+    expect(buildHash({ view: "users", userFilter: "katie" } as HashRoute)).toBe(
+      "#/users",
+    );
+    // Explore filters via its own searchQuery, not userFilter.
+    expect(
+      buildHash({ view: "explore", userFilter: "katie" } as HashRoute),
+    ).toBe("#/explore");
+  });
+
+  it("URL-encodes special characters in the user value", () => {
+    expect(
+      buildHash({ view: "live", userFilter: "katie loughran" }),
+    ).toMatch(/user=katie\+loughran/);
+  });
+});
+
+describe("timeFilter — Live tab query param", () => {
+  it("buildHash places ?time=… after the path", () => {
+    expect(buildHash({ view: "live", timeFilter: "today" })).toBe(
+      "#/live?time=today",
+    );
+    expect(buildHash({ view: "live", sessionId: "sess-1", timeFilter: "1h" })).toBe(
+      "#/live/sess-1?time=1h",
+    );
+  });
+
+  it("omits ?time= when the filter is 'all' (the implicit default)", () => {
+    // Keeps URLs clean — bookmarking a "no time filter" state shouldn't
+    // produce a noisy `?time=all` segment.
+    expect(buildHash({ view: "live", timeFilter: "all" })).toBe("#/live");
+  });
+
+  it("composes ?user= and ?time= when both are set", () => {
+    const built = buildHash({
+      view: "live",
+      userFilter: "katie",
+      timeFilter: "week",
+    });
+    // URLSearchParams orders by insertion (`user` first, then `time`).
+    expect(built).toBe("#/live?user=katie&time=week");
+  });
+
+  it("parseHash recovers timeFilter from the query", () => {
+    expect(parseHash("#/live?time=today")).toEqual({
+      view: "live",
+      timeFilter: "today",
+    });
+    expect(parseHash("#/live?user=katie&time=1h")).toEqual({
+      view: "live",
+      userFilter: "katie",
+      timeFilter: "1h",
+    });
+  });
+
+  it("silently drops an unknown ?time= value rather than 400'ing the UI", () => {
+    expect(parseHash("#/live?time=garbage")).toEqual({ view: "live" });
+  });
+
+  it("ignores timeFilter on tabs that don't apply (users, explore)", () => {
+    expect(
+      buildHash({ view: "users", timeFilter: "today" } as HashRoute),
+    ).toBe("#/users");
+    expect(
+      buildHash({ view: "explore", timeFilter: "today" } as HashRoute),
+    ).toBe("#/explore");
   });
 });

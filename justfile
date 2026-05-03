@@ -361,6 +361,64 @@ build:
 prod-build:
     docker build -f Dockerfile.prod -t open-story:prod .
 
+# ── Leaf stack (NATS leaf node → Hetzner hub, SQLite, replicated events) ──
+
+# Start the leaf stack (NATS leaf + open-story:prod with local OPEN_STORY_USER/HOST)
+leaf-up:
+    #!/usr/bin/env bash
+    set -e
+    if [ ! -f docker-compose.leaf.local.yml ]; then
+      echo "ERROR: docker-compose.leaf.local.yml not found." >&2
+      echo "       Copy docker-compose.leaf.yml to .leaf.local.yml and set" >&2
+      echo "       OPEN_STORY_HOST + OPEN_STORY_USER under the open-story service." >&2
+      exit 1
+    fi
+    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml up -d
+
+# Stop the leaf stack (volumes preserved)
+leaf-down:
+    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml down
+
+# Recreate the leaf open-story container + restart Vite (clears stuck WS proxy)
+leaf-restart:
+    #!/usr/bin/env bash
+    set -e
+    echo "→ Recreating openstory-open-story-1 …"
+    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml up -d --force-recreate open-story
+    # Wait for the API to come back so the Vite proxy upstream is healthy
+    # before we restart Vite — otherwise Vite's first WS upgrade attempt
+    # races the container bind and we end up in the same stuck state.
+    for i in $(seq 1 20); do
+      if curl -sf -o /dev/null http://localhost:3002/api/sessions 2>/dev/null; then
+        echo "  /api/sessions ready (${i}s)"
+        break
+      fi
+      sleep 1
+    done
+
+    # Vite-restart half. Skip silently if Vite isn't running — leaf-restart
+    # is also useful for non-HMR users who only watch the prod UI on :3002.
+    if lsof -ti:5173 >/dev/null 2>&1; then
+      echo "→ Restarting Vite (its WS proxy upstream is stale after container recreate) …"
+      lsof -ti:5173 | xargs kill 2>/dev/null || true
+      sleep 1
+      ( cd ui && nohup npm run dev > /tmp/openstory-vite.log 2>&1 & disown ) >/dev/null 2>&1
+      for i in $(seq 1 15); do
+        if curl -sf -o /dev/null http://localhost:5173/ 2>/dev/null; then
+          echo "  Vite ready on :5173 (${i}s) — output at /tmp/openstory-vite.log"
+          break
+        fi
+        sleep 1
+      done
+    else
+      echo "  (Vite not running on :5173 — skipping its restart. The prod UI on :3002 doesn't need this.)"
+    fi
+    echo "✓ leaf-restart complete. Refresh your browser tab to reconnect the WebSocket."
+
+# Rebuild prod image, recreate leaf open-story, restart Vite (full Rust-edit cycle)
+leaf-rebuild: prod-build
+    just leaf-restart
+
 # Build the openclaw-mcp image (requires openclaw:latest already built)
 agent-build:
     docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .

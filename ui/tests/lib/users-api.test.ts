@@ -30,6 +30,7 @@ describe("fetchUsers", () => {
           last_active: "2026-05-02T17:00:00Z",
           total_input_tokens: 12345,
           total_output_tokens: 67890,
+          activity_24h: Array(24).fill(0).map((_, i) => i),
           recent_sessions: [
             {
               session_id: "sess-a",
@@ -52,6 +53,9 @@ describe("fetchUsers", () => {
     expect(got.users).toHaveLength(1);
     expect(got.users[0]!.user).toBe("katie");
     expect(got.users[0]!.recent_sessions[0]!.session_id).toBe("sess-a");
+    // activity_24h shape contract: 24 numeric buckets.
+    expect(got.users[0]!.activity_24h).toHaveLength(24);
+    expect(got.users[0]!.activity_24h[23]).toBe(23);
   });
 
   it("should accept an empty response", async () => {
