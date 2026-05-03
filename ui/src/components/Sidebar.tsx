@@ -15,7 +15,7 @@ import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
 import { PersonRow } from "@/components/PersonRow";
 import { TimeFilter } from "@/components/TimeFilter";
-import { timeFilterMatches, type TimeFilterKey } from "@/lib/time-filter";
+import { timeFilterMatches, TIME_FILTER_LABELS, type TimeFilterKey } from "@/lib/time-filter";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 
 // ---------------------------------------------------------------------------
@@ -454,7 +454,7 @@ export const Sidebar = memo(function Sidebar({
       <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
         <span>Sessions</span>
         <span className="text-[#7aa2f7]" data-testid="sidebar-session-count">
-          {hostFilter || userFilter
+          {hostFilter || userFilter || timeFilter !== "all"
             ? `${filteredSessions.length} / ${sessions.length}`
             : sessions.length}
         </span>
@@ -496,11 +496,12 @@ export const Sidebar = memo(function Sidebar({
             Distinct from "store has no sessions at all" — that case
             wasn't previously handled either; for now we show this when
             sessions.length > 0 to keep the message accurate. */}
-        {filteredSessions.length === 0 && sessions.length > 0 && (hostFilter || userFilter) && (
+        {filteredSessions.length === 0 && sessions.length > 0 && (hostFilter || userFilter || timeFilter !== "all") && (
           <div className="px-4 py-6 text-center text-xs text-[#565f89]" data-testid="sidebar-no-matches">
             <div className="mb-1 text-[#7aa2f7]">
               No sessions match{userFilter ? ` @${userFilter}` : ""}
               {hostFilter ? ` ⌂ ${hostFilter}` : ""}
+              {timeFilter !== "all" ? ` · ${TIME_FILTER_LABELS[timeFilter]}` : ""}
             </div>
             <div className="text-[10px] mb-2">
               {sessions.length} stamped session{sessions.length === 1 ? "" : "s"} on this leaf,
@@ -511,6 +512,7 @@ export const Sidebar = memo(function Sidebar({
               onClick={() => {
                 setHostFilter(null);
                 setUserFilter(null);
+                setTimeFilter("all");
               }}
               className="text-[10px] px-2 py-1 rounded bg-[#7aa2f720] text-[#7aa2f7] hover:bg-[#7aa2f740] transition-colors"
               data-testid="sidebar-clear-filters"
