@@ -113,6 +113,64 @@ pub async fn start_open_story(fixture_dir: &Path) -> OpenStoryContainer {
     }
 }
 
+/// Start an open-story container with the given directory mounted at /data.
+///
+/// Use this when you want to validate boot-time reconciliation. The mounted
+/// dir takes the place of the container's persistent `/data` volume — the
+/// reconciler walks it on boot and ensures the EventStore contains every
+/// JSONL event. Pre-populate `data_dir` with `*.jsonl` session files (use
+/// the same shape as production: one CloudEvent per line, filename =
+/// session ID).
+///
+/// Compared to [`start_open_story`]:
+/// - This mounts at `/data` (where the binary writes JSONL + the
+///   EventStore lives), not `/watch` (the agent transcript watch dir).
+/// - The container's `/watch` is left untouched (empty inside the image),
+///   so the file watcher has nothing to backfill.
+/// - Sessions appear via the boot-time reconciler, not the watcher.
+///
+/// # Panics
+///
+/// Panics if the Docker image `open-story:test` doesn't exist.
+/// Build it first: `docker build -t open-story:test ./rs`
+pub async fn start_open_story_with_seeded_data(data_dir: &Path) -> OpenStoryContainer {
+    // Touch fixture files so they have fresh mtimes. Reconciliation
+    // doesn't filter by mtime, but other consumers downstream might.
+    let now = filetime::FileTime::now();
+    if let Ok(entries) = std::fs::read_dir(data_dir) {
+        for entry in entries.flatten() {
+            let _ = filetime::set_file_mtime(entry.path(), now);
+        }
+    }
+
+    let data_path = data_dir
+        .canonicalize()
+        .expect("data dir must exist");
+    let mount_source = to_docker_path(&data_path);
+
+    let container = GenericImage::new(IMAGE_NAME, IMAGE_TAG)
+        .with_exposed_port(ContainerPort::Tcp(CONTAINER_PORT))
+        .with_wait_for(WaitFor::http(
+            HttpWaitStrategy::new("/api/sessions")
+                .with_port(ContainerPort::Tcp(CONTAINER_PORT))
+                .with_expected_status_code(200u16),
+        ))
+        .with_mount(Mount::bind_mount(mount_source, "/data"))
+        .start()
+        .await
+        .expect("failed to start open-story container");
+
+    let host_port = container
+        .get_host_port_ipv4(CONTAINER_PORT)
+        .await
+        .expect("failed to get mapped port");
+
+    OpenStoryContainer {
+        container,
+        host_port,
+    }
+}
+
 /// Convert a Windows path to a Docker-compatible bind mount path.
 ///
 /// Strips the `\\?\` UNC prefix from canonicalized paths and converts

@@ -60,15 +60,27 @@ describe("UsersView", () => {
     expect(screen.getByText(/Loading users/)).toBeTruthy();
   });
 
-  it("renders the empty state with onboarding hint when no stamped users", async () => {
+  it("renders the welcome empty state when no sessions on disk at all", async () => {
+    stubFetch({ users: [], total: 0 });
+    render(<UsersView onNavigate={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("users-empty")).toBeTruthy();
+    });
+    expect(screen.getByText(/Welcome to OpenStory/)).toBeTruthy();
+    // The "Run an agent" copy belongs to the no-data branch only.
+    expect(screen.getByText(/Run an agent/)).toBeTruthy();
+  });
+
+  it("renders the unstamped-only empty state with onboarding hint when sessions exist but none are stamped", async () => {
     stubFetch({ users: [], total: 5 });
     render(<UsersView onNavigate={() => {}} />);
     await waitFor(() => {
       expect(screen.getByTestId("users-empty")).toBeTruthy();
     });
+    expect(screen.getByText(/No stamped users yet/)).toBeTruthy();
     expect(screen.getByText(/OPEN_STORY_USER/)).toBeTruthy();
-    // "5 total sessions on disk" — the user knows legacy rows exist.
-    expect(screen.getByTestId("users-empty").textContent).toMatch(/5 total session/);
+    // "5 sessions on disk, but none have a stamped user."
+    expect(screen.getByTestId("users-empty").textContent).toMatch(/5 sessions? on disk/);
   });
 
   it("renders the failure state on a non-200 response", async () => {

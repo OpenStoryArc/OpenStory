@@ -186,6 +186,24 @@ const USERS_RECENT_SESSIONS_PER_USER: usize = 5;
 ///   - the N most-recent sessions (default 5) — the deterministic
 ///     stand-in for "what they're doing" until the InsightExtraction
 ///     consumer ships and the UI swaps in real semantic insights.
+/// `GET /api/local-info` — what `OPEN_STORY_HOST` / `OPEN_STORY_USER`
+/// resolved to inside this process.
+///
+/// Lets the UI distinguish "this is *my* session" from "this is replicated
+/// from another machine". Specifically, the Live tab's session header uses
+/// it to show a "Replicated from another machine" indicator when a viewed
+/// session's `user` differs from the local resolver's value.
+///
+/// Both fields are always present (the resolver falls back to `"unknown"`
+/// rather than returning Option), so the response shape is stable.
+pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
+    log_event("api", "GET /api/local-info");
+    Json(json!({
+        "host": open_story_core::host::host(),
+        "user": open_story_core::user::user(),
+    }))
+}
+
 pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
     use std::collections::BTreeMap;
 

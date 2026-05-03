@@ -64,6 +64,9 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "explore", sessionId: "abc", eventId: "evt-1" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
+    { view: "live", userFilter: "katie" },
+    { view: "live", sessionId: "abc-123", userFilter: "maxglassie" },
+    { view: "story", userFilter: "katie" },
   ];
 
   it.each(routes)("roundtrip: %o", (route) => {
@@ -72,5 +75,45 @@ describe("parseHash ∘ buildHash roundtrip", () => {
       (r) => parseHash(buildHash(r)),
       (result) => expect(result).toEqual(route),
     );
+  });
+});
+
+describe("userFilter — Live tab query param", () => {
+  it("buildHash places ?user=… after the path", () => {
+    expect(buildHash({ view: "live", userFilter: "katie" })).toBe(
+      "#/live?user=katie",
+    );
+    expect(
+      buildHash({ view: "live", sessionId: "sess-1", userFilter: "katie" }),
+    ).toBe("#/live/sess-1?user=katie");
+  });
+
+  it("parseHash recovers userFilter from the query", () => {
+    expect(parseHash("#/live?user=katie")).toEqual({
+      view: "live",
+      userFilter: "katie",
+    });
+    expect(parseHash("#/live/sess-1?user=maxglassie")).toEqual({
+      view: "live",
+      sessionId: "sess-1",
+      userFilter: "maxglassie",
+    });
+  });
+
+  it("ignores userFilter on tabs that don't apply (users, explore)", () => {
+    // Users tab lists *all* users — no per-user filter.
+    expect(buildHash({ view: "users", userFilter: "katie" } as HashRoute)).toBe(
+      "#/users",
+    );
+    // Explore filters via its own searchQuery, not userFilter.
+    expect(
+      buildHash({ view: "explore", userFilter: "katie" } as HashRoute),
+    ).toBe("#/explore");
+  });
+
+  it("URL-encodes special characters in the user value", () => {
+    expect(
+      buildHash({ view: "live", userFilter: "katie loughran" }),
+    ).toMatch(/user=katie\+loughran/);
   });
 });
