@@ -178,6 +178,7 @@ impl PersistConsumer {
             let host = events.first().and_then(|ce| ce.host.clone());
             let user = events.first().and_then(|ce| ce.user.clone());
             let person_id = events.first().and_then(|ce| ce.person_id.clone());
+            let principal_id = events.first().and_then(|ce| ce.principal_id.clone());
 
             let row = SessionRow {
                 id: session_id.to_string(),
@@ -192,6 +193,7 @@ impl PersistConsumer {
                 host,
                 user,
                 person_id,
+                principal_id,
             };
             let _ = event_store.upsert_session(&row).await;
         }

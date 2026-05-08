@@ -163,6 +163,13 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
+    let principal_id = events
+        .iter()
+        .find_map(|e| {
+            e.get("principal_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
 
     SessionRow {
         id: session_id.to_string(),
@@ -177,6 +184,7 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
         host,
         user,
         person_id,
+        principal_id,
     }
 }
 

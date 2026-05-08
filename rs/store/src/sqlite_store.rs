@@ -191,6 +191,12 @@ impl SqliteStore {
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN person_id TEXT");
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
 
+        // Migration: add principal_id column + index. The UI groups sessions
+        // by principal in the sidebar, so an index pays for itself even at
+        // single-user scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN principal_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id)");
+
         Ok(())
     }
 
@@ -375,7 +381,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, person_id
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, person_id, principal_id
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -392,6 +398,7 @@ impl EventStore for SqliteStore {
                 host: row.get(9)?,
                 user: row.get(10)?,
                 person_id: row.get(11)?,
+                principal_id: row.get(12)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -429,8 +436,8 @@ impl EventStore for SqliteStore {
         // RFC 3339 strings sort lexicographically → chronologically, so
         // MIN/MAX on the TEXT columns is correct.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, person_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, person_id, principal_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = COALESCE(excluded.project_id, sessions.project_id),
                 project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -447,7 +454,8 @@ impl EventStore for SqliteStore {
                 ),
                 host = COALESCE(excluded.host, sessions.host),
                 user = COALESCE(excluded.user, sessions.user),
-                person_id = COALESCE(excluded.person_id, sessions.person_id)",
+                person_id = COALESCE(excluded.person_id, sessions.person_id),
+                principal_id = COALESCE(excluded.principal_id, sessions.principal_id)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -460,6 +468,7 @@ impl EventStore for SqliteStore {
                 session.host,
                 session.user,
                 session.person_id,
+                session.principal_id,
             ],
         )?;
         Ok(())
@@ -873,6 +882,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -896,6 +906,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         store.upsert_session(&SessionRow {
@@ -909,6 +920,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -935,6 +947,7 @@ mod tests {
                 host: Some("Maxs-Air".into()),
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -964,6 +977,7 @@ mod tests {
                 host: Some("debian-16gb-ash-1".into()),
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -983,6 +997,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1009,6 +1024,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1029,6 +1045,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "new".into(), project_id: None, project_name: None,
@@ -1038,6 +1055,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -1158,6 +1176,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
         store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
 
@@ -1181,6 +1200,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del2".into(), project_id: None, project_name: None,
@@ -1190,6 +1210,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         store.delete_session("sess-del2").await.unwrap();
@@ -1248,6 +1269,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         // Recent session
@@ -1262,6 +1284,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(30).await.unwrap();
@@ -1284,6 +1307,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(7).await.unwrap();
@@ -1395,6 +1419,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         }).await.unwrap();
 
         // Verify it's searchable
@@ -1642,6 +1667,7 @@ mod tests {
             host: Some("kloughra-mac".into()),
             user: None,
             person_id: None,
+            principal_id: None,
         };
         store.upsert_session(&row).await.unwrap();
 

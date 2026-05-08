@@ -27,5 +27,6 @@ pub fn session_row_from_projection(
         host: None,
         user: None,
         person_id: None,
+        principal_id: None,
     }
 }

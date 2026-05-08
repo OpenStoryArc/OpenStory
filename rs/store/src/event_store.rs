@@ -53,6 +53,13 @@ pub struct SessionRow {
     /// person_id stamp.
     #[serde(default)]
     pub person_id: Option<String>,
+    /// Principal id — the device or agent in the person's fleet that
+    /// produced this session. A session is one transcript file from one
+    /// source, so it has exactly one principal. Used by the UI to group
+    /// sessions under the fleet member that produced them.
+    /// `None` for pre-migration rows.
+    #[serde(default)]
+    pub principal_id: Option<String>,
 }
 
 impl SessionRow {
@@ -249,6 +256,7 @@ mod tests {
             host: None,
             user: None,
             person_id: None,
+            principal_id: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

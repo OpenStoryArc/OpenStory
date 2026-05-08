@@ -94,6 +94,7 @@ fn test_session_row(id: &str, label: Option<&str>) -> SessionRow {
         host: None,
         user: None,
         person_id: None,
+        principal_id: None,
     }
 }
 
@@ -295,6 +296,43 @@ pub async fn it_does_not_blank_person_id_with_none(store: Arc<dyn EventStore>) {
         found.person_id.as_deref(),
         Some("person-uuid-001"),
         "person_id must survive a None-bearing upsert (COALESCE protection)"
+    );
+}
+
+/// principal_id round-trip — UI's "your fleet" sidebar grouping queries
+/// this column directly, so it must round-trip identically across backends.
+pub async fn it_round_trips_principal_id_on_session(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-principal", Some("with principal"));
+    row.principal_id = Some("principal-uuid-laptop".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-principal")
+        .expect("upserted session must be listed");
+    assert_eq!(found.principal_id.as_deref(), Some("principal-uuid-laptop"));
+}
+
+/// COALESCE protection on principal_id: a later upsert with
+/// principal_id=None must NOT blank out an already-stamped value.
+pub async fn it_does_not_blank_principal_id_with_none(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-principal-coalesce", Some("v1"));
+    row.principal_id = Some("principal-uuid-laptop".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    row.principal_id = None;
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-principal-coalesce")
+        .unwrap();
+    assert_eq!(
+        found.principal_id.as_deref(),
+        Some("principal-uuid-laptop"),
+        "principal_id must survive a None-bearing upsert (COALESCE protection)"
     );
 }
 
@@ -1021,6 +1059,7 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1144,6 +1183,7 @@ pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventSto
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1669,6 +1709,8 @@ macro_rules! for_each_conformance_test {
         $macro!(it_does_not_blank_project_name_with_none);
         $macro!(it_round_trips_person_id_on_session);
         $macro!(it_does_not_blank_person_id_with_none);
+        $macro!(it_round_trips_principal_id_on_session);
+        $macro!(it_does_not_blank_principal_id_with_none);
         $macro!(it_concurrent_upserts_converge_to_max_event_count);
         $macro!(it_never_overwrites_a_user_set_custom_label);
         $macro!(it_persists_and_queries_a_detected_pattern);

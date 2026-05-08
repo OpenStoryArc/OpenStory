@@ -363,6 +363,7 @@ pub async fn seed_and_ingest(
         host,
         user,
         person_id: None,
+        principal_id: None,
     }).await;
 
     result

@@ -267,6 +267,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
         }
         // No JSONL files exist — boot must come from SQLite
@@ -312,6 +313,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
 
             // New session
@@ -330,6 +332,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
         }
 
@@ -384,6 +387,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
         }
 
@@ -450,6 +454,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
         }
 
@@ -502,6 +507,7 @@ mod tests {
                 host: None,
                 user: None,
                 person_id: None,
+                principal_id: None,
             }).await.unwrap();
         }
 
