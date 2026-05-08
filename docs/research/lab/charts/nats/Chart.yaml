@@ -1,0 +1,9 @@
+apiVersion: v2
+name: nats
+description: |
+  NATS hub for the OpenStory lab. Composes the existing
+  deploy/nats-hub.conf as a ConfigMap rather than re-deriving it,
+  so the lab and the legacy docker-compose deploy stay in sync.
+type: application
+version: 0.1.0
+appVersion: "2.10"

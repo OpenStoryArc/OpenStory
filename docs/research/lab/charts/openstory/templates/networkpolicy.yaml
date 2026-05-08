@@ -1,0 +1,27 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "openstory.fullname" . }}-deny-nats-from-outside
+  labels:
+    {{- include "openstory.labels" . | nindent 4 }}
+spec:
+  # Apply to all pods in the namespace that match the NATS server label.
+  # NATS pods are labeled app.kubernetes.io/name=nats by the nats chart.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only pods inside the openstory namespace can reach NATS on 4222.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      ports:
+        - port: 4222
+          protocol: TCP
+        - port: 7422  # leaf node port (kept for parity with nats-hub.conf)
+          protocol: TCP
+{{- end }}

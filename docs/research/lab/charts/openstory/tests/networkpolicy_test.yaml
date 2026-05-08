@@ -1,0 +1,30 @@
+suite: networkpolicy denies external NATS ingress
+templates:
+  - networkpolicy.yaml
+tests:
+  - it: renders a NetworkPolicy when enabled
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: nats
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 4222
+
+  - it: omits the policy when disabled
+    set:
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: ingress is namespace-scoped only
+    set:
+      networkPolicy.enabled: true
+    asserts:
+      - isNotNullOrEmpty:
+          path: spec.ingress[0].from[0].namespaceSelector

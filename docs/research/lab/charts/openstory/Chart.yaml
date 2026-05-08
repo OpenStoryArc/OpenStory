@@ -1,0 +1,18 @@
+apiVersion: v2
+name: openstory
+description: |
+  OpenStory observation server (Rust binary) deployed onto the lab's
+  single-node k3s. Mirrors rs/server/src/config.rs Config fields via
+  values.yaml and the OPEN_STORY_* env var convention.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/OpenStoryArc/OpenStory
+sources:
+  - https://github.com/OpenStoryArc/OpenStory
+maintainers:
+  - name: OpenStory
+keywords:
+  - openstory
+  - observability
+  - claude-code
