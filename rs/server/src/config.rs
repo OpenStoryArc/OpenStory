@@ -5,6 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Server role — determines which subsystems start.
 ///
@@ -298,6 +299,65 @@ impl Config {
         }
     }
 
+    /// Auto-create a `[person]` section if missing. On first boot (no
+    /// `[person]` in config.toml), generates a Person with a fresh UUID
+    /// and one default Principal whose matchers reflect the detected
+    /// `(host, user)` of this process — same resolution as
+    /// [`open_story_core::host::host`] / [`open_story_core::user::user`].
+    /// Persists the updated config back to `path` so the user's edits
+    /// survive restarts.
+    ///
+    /// Idempotent — does nothing if `self.person` is already set.
+    /// Persistence failure is non-fatal: the in-memory bootstrap still
+    /// works for this session, and the next boot will retry.
+    pub fn ensure_person_bootstrap(&mut self, path: &Path) {
+        if self.person.is_some() {
+            return;
+        }
+        let host = open_story_core::host::host();
+        let user = open_story_core::user::user();
+        let person = Person {
+            id: Uuid::new_v4().to_string(),
+            display_name: "You".to_string(),
+            email: String::new(),
+            principals: vec![Principal {
+                id: Uuid::new_v4().to_string(),
+                display_name: host.to_string(),
+                matchers: PrincipalMatchers {
+                    agent: None,
+                    host: Some(host.to_string()),
+                    user: Some(user.to_string()),
+                    watch_dir_pattern: None,
+                },
+            }],
+        };
+        self.person = Some(person);
+
+        match self.write_to(path) {
+            Ok(()) => {
+                eprintln!(
+                    "  \x1b[32mFirst boot: auto-created [person] in {} with detected (host={host}, user={user})\x1b[0m",
+                    path.display()
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "  \x1b[33mWarning: bootstrapped [person] in memory but failed to persist to {}: {e}\x1b[0m",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    /// Serialize the current Config back to disk as TOML. Used by
+    /// `ensure_person_bootstrap` to persist the auto-created [person]
+    /// section. Overwrites the file at `path`.
+    fn write_to(&self, path: &Path) -> std::io::Result<()> {
+        let contents = toml::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, contents)
+    }
+
     /// Write a default config file with comments explaining each field.
     pub fn write_default(path: &Path) -> std::io::Result<()> {
         let contents = r#"# Open Story configuration
@@ -585,6 +645,74 @@ agent = "openclaw"
         let serialized = toml::to_string(&config).unwrap();
         let reparsed: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(config.person, reparsed.person);
+    }
+
+    // ── ensure_person_bootstrap ─────────────────────────────────────────
+
+    #[test]
+    fn ensure_person_bootstrap_creates_person_when_missing() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        assert!(config.person.is_none());
+
+        config.ensure_person_bootstrap(&path);
+
+        let person = config.person.as_ref().expect("bootstrap must populate person");
+        assert!(!person.id.is_empty(), "person.id must be populated");
+        assert_eq!(person.display_name, "You");
+        assert_eq!(person.principals.len(), 1, "exactly one default principal");
+        let principal = &person.principals[0];
+        assert!(!principal.id.is_empty(), "principal.id must be populated");
+        // Detected (host, user) — won't match anything specific but must be Some.
+        assert!(principal.matchers.host.is_some(), "host matcher prefilled");
+        assert!(principal.matchers.user.is_some(), "user matcher prefilled");
+        assert!(principal.matchers.agent.is_none(), "agent left wildcard");
+        assert!(principal.matchers.watch_dir_pattern.is_none());
+    }
+
+    #[test]
+    fn ensure_person_bootstrap_persists_to_disk() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        config.ensure_person_bootstrap(&path);
+
+        assert!(path.exists(), "bootstrap should write config.toml");
+        let written: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            written.person, config.person,
+            "persisted person should round-trip identically"
+        );
+    }
+
+    #[test]
+    fn ensure_person_bootstrap_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        config.ensure_person_bootstrap(&path);
+        let first = config.person.clone().unwrap();
+
+        // Second call must be a no-op — same UUIDs, same matchers.
+        config.ensure_person_bootstrap(&path);
+        let second = config.person.clone().unwrap();
+        assert_eq!(first, second, "second bootstrap must not mutate");
+    }
+
+    #[test]
+    fn ensure_person_bootstrap_preserves_existing_config_fields() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        config.port = 9999;
+        config.api_token = "test-token".into();
+        config.ensure_person_bootstrap(&path);
+
+        let written: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written.port, 9999, "port survives the rewrite");
+        assert_eq!(written.api_token, "test-token", "api_token survives");
+        assert!(written.person.is_some(), "person added");
     }
 
     #[test]
