@@ -83,6 +83,64 @@ impl FromStr for Role {
     }
 }
 
+/// Person identity in OpenStory's directory model — a sovereign human
+/// who owns a fleet of principals (devices, agents). Distinct from the
+/// OS-level `user` field on CloudEvents: `user` records who was at the
+/// keyboard; `person_id` records the OpenStory directory entity that
+/// owns this OpenStory instance.
+///
+/// Configured under `[person]` in config.toml. On first boot (no
+/// `[person]` section), one is auto-created with a generated UUID and
+/// detected (host, user) matchers — see `state.rs`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Person {
+    /// UUID — generated at first boot if not provided.
+    pub id: String,
+    /// Friendly name shown in the UI ("You", "Max", etc.).
+    pub display_name: String,
+    /// Optional email address. Empty string if unknown.
+    #[serde(default)]
+    pub email: String,
+    /// Principals in this person's fleet. Each principal owns events
+    /// matched by its matchers.
+    #[serde(default)]
+    pub principals: Vec<Principal>,
+}
+
+/// Principal — a device or agent in a person's fleet. Each principal
+/// has matcher rules that determine which events get tagged with its id.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Principal {
+    /// UUID for this principal.
+    pub id: String,
+    /// Friendly display name ("MacBook (Claude Code)", "Hetzner (Bobby)").
+    pub display_name: String,
+    /// Source-matching rules. First matching principal wins (precedence
+    /// is the order in `Person::principals`).
+    #[serde(default)]
+    pub matchers: PrincipalMatchers,
+}
+
+/// Source-matching rules for a Principal. Every `Some` field must match
+/// the source signal; `None` fields are wildcards. An entirely-empty
+/// PrincipalMatchers matches everything (useful for a catch-all default).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PrincipalMatchers {
+    /// Match the agent platform field on the CloudEvent
+    /// (e.g. "claude-code", "pi-mono", "hermes").
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Match the OS hostname.
+    #[serde(default)]
+    pub host: Option<String>,
+    /// Match the OS user.
+    #[serde(default)]
+    pub user: Option<String>,
+    /// Match the source path against this regex (e.g. a watch dir path).
+    #[serde(default)]
+    pub watch_dir_pattern: Option<String>,
+}
+
 /// Server configuration with sensible defaults.
 ///
 /// Load order: defaults → config.toml → CLI flags → env vars.
@@ -154,6 +212,13 @@ pub struct Config {
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
+    // ── person ──
+    /// Person + fleet identity for stamping events with `person_id` and
+    /// `principal_id`. None at parse time triggers first-boot bootstrap
+    /// (see state.rs) which creates a default Person with detected
+    /// (host, user) matchers and persists back to config.toml.
+    #[serde(default)]
+    pub person: Option<Person>,
 }
 
 /// Auto-detect the appropriate bind address.
@@ -206,6 +271,7 @@ impl Default for Config {
             broadcast_channel_size: 256,
             metrics_enabled: false,
             retention_days: 0,
+            person: None,
         }
     }
 }
@@ -280,6 +346,27 @@ impl Config {
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
 # retention_days = 0
+
+# ── Person ──
+# OpenStory's identity model — your sovereign self plus the fleet of
+# devices/agents that act on your behalf. On first boot this section
+# is auto-filled with a generated UUID and detected (host, user)
+# matchers so the system Just Works. Edit later to add more principals
+# (e.g. an agent running on a remote VPS) or rename existing ones.
+#
+# [person]
+# id = "auto-generated-uuid"
+# display_name = "You"
+# email = ""
+#
+# [[person.principals]]
+# id = "auto-generated-uuid"
+# display_name = "MacBook (Claude Code)"
+# [person.principals.matchers]
+# host = "Maxs-Air"        # OS hostname
+# user = "max"             # OS username
+# # agent = "claude-code"  # optional — restrict to one agent platform
+# # watch_dir_pattern = "" # optional — regex on source path
 "#;
         std::fs::write(path, contents)
     }
@@ -342,6 +429,7 @@ mod tests {
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
         assert!(!config.metrics_enabled);
+        assert!(config.person.is_none(), "person defaults to None — first-boot bootstrap fills it");
     }
 
     #[test]
@@ -417,6 +505,7 @@ mod tests {
             broadcast_channel_size: 512,
             metrics_enabled: true,
             retention_days: 90,
+            person: None,
         };
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
@@ -434,5 +523,90 @@ mod tests {
         assert_eq!(config.api_token, "", "api_token should default to empty (no auth)");
         assert!(config.allowed_origins.is_empty(), "allowed_origins should default to empty");
         assert!(!config.metrics_enabled);
+    }
+
+    // ── person section round-trip ──────────────────────────────────────
+
+    #[test]
+    fn person_section_defaults_to_none_when_absent() {
+        let config: Config = toml::from_str("port = 8080").unwrap();
+        assert!(
+            config.person.is_none(),
+            "missing [person] section should yield None, got: {:?}",
+            config.person
+        );
+    }
+
+    #[test]
+    fn person_section_round_trips_with_principals() {
+        let toml_input = r#"
+port = 3002
+
+[person]
+id = "person-uuid-001"
+display_name = "Max"
+email = "max@example.test"
+
+[[person.principals]]
+id = "principal-uuid-laptop"
+display_name = "MacBook (Claude Code)"
+[person.principals.matchers]
+host = "Maxs-Air"
+user = "max"
+agent = "claude-code"
+
+[[person.principals]]
+id = "principal-uuid-bobby"
+display_name = "Hetzner (Bobby)"
+[person.principals.matchers]
+agent = "openclaw"
+"#;
+        let config: Config = toml::from_str(toml_input).unwrap();
+        let person = config.person.clone().expect("[person] section should parse");
+        assert_eq!(person.id, "person-uuid-001");
+        assert_eq!(person.display_name, "Max");
+        assert_eq!(person.email, "max@example.test");
+        assert_eq!(person.principals.len(), 2);
+
+        let laptop = &person.principals[0];
+        assert_eq!(laptop.display_name, "MacBook (Claude Code)");
+        assert_eq!(laptop.matchers.host.as_deref(), Some("Maxs-Air"));
+        assert_eq!(laptop.matchers.user.as_deref(), Some("max"));
+        assert_eq!(laptop.matchers.agent.as_deref(), Some("claude-code"));
+        assert!(laptop.matchers.watch_dir_pattern.is_none());
+
+        let bobby = &person.principals[1];
+        assert_eq!(bobby.display_name, "Hetzner (Bobby)");
+        assert_eq!(bobby.matchers.agent.as_deref(), Some("openclaw"));
+        assert!(bobby.matchers.host.is_none());
+
+        // Round-trip: serialize what we parsed and re-parse it. Equality
+        // of parsed forms is what matters (TOML formatting may vary).
+        let serialized = toml::to_string(&config).unwrap();
+        let reparsed: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(config.person, reparsed.person);
+    }
+
+    #[test]
+    fn person_with_empty_matchers_parses() {
+        // A catch-all default principal — empty matchers match everything.
+        let toml_input = r#"
+[person]
+id = "p-1"
+display_name = "You"
+
+[[person.principals]]
+id = "k-1"
+display_name = "default"
+matchers = {}
+"#;
+        let config: Config = toml::from_str(toml_input).unwrap();
+        let person = config.person.unwrap();
+        assert_eq!(person.email, "", "email defaults to empty when omitted");
+        let p = &person.principals[0];
+        assert!(p.matchers.agent.is_none());
+        assert!(p.matchers.host.is_none());
+        assert!(p.matchers.user.is_none());
+        assert!(p.matchers.watch_dir_pattern.is_none());
     }
 }
