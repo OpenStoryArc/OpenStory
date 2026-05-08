@@ -405,6 +405,8 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 
 See `rs/server/src/config.rs` for the full Config struct and defaults.
 
+**`[person]` section** (auto-created on first boot): identity model for OpenStory's "your fleet" sidebar. Defines who *you* are (a stable UUID + display_name) and the principals — devices/agents in your fleet — whose events should be tagged with which principal_id. Each `[[person.principals]]` entry has matchers (agent / host / user / watch_dir_pattern) that decide which events belong to it. Background: `docs/research/personhood-and-principals.md`.
+
 ## Hooks Setup
 
 Open Story supports HTTP hooks for near-real-time event delivery (vs. the file watcher which polls). Currently Claude Code is the only agent with hook support. See README.md for setup instructions, or add this to `~/.claude/settings.json`:

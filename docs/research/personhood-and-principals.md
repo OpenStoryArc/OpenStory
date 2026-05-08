@@ -305,6 +305,22 @@ All three are exactly what the spike is for — surprises caught in seconds of c
 
 The split is honest: identity is delegable; observation isn't.
 
+## Shipped: PersonId + Fleet View v1 (2026-05-07)
+
+The foundation half of the v1 plan landed in PR #54. What now exists in code:
+
+**Data path.** Every CloudEvent carries `person_id` and `principal_id` extension fields. Stamped at ingest by source-aware callers (the three watcher closures: Claude Code, pi-mono, Hermes) using a pure resolver that maps `(agent, host, user, watch_dir)` → `(person_id, principal_id)` via first-match-wins matchers. Sessions persist their owner's `person_id` and producing `principal_id` on both SQLite and Mongo, with conformance parity proven across backends.
+
+**Configuration.** A `[person]` section in `config.toml` defines the person and their fleet. First boot auto-creates one with detected `(host, user)` matchers and persists it back; idempotent on later boots. Sovereignty stays with the person — the bus rule "only persons edit the directory" is enforced by the fact that nothing else can write to `config.toml`.
+
+**API.** `/api/sessions` response includes `person_id` and `principal_id` per session. New endpoint `GET /api/fleet` returns the configured Person + Principals for the UI to resolve display names.
+
+**UI.** The sidebar groups sessions by `principal_id`, with a header per principal showing its display_name (resolved via `useFleet()`). Sessions without a principal_id land under "Unattributed" pinned last. The biographical-vs-bus-identity distinction from the philosophy comes through: the UI shows your fleet members as named participants, not as opaque rows.
+
+**What this enables in the lived experience.** Open OpenStory and you see your fleet — laptop sessions under one heading, Bobby on Hetzner under another (once registered). The mirror reflects not just *what* happened but *who* did it. This is the smallest visible change that makes the philosophy concrete.
+
+**What's still deferred.** Multi-person mode (sharing, login between humans), OIDC/Keycloak federation (the spike at `rs/server/tests/directory_pluggability.rs` proves we can — v1 doesn't need to), runtime CRUD on principals via API (config-only for v1). The directory trait stays in test scope until a real federation use case surfaces.
+
 ## Working notes
 
 (Empty. We fill as we work the questions.)
