@@ -11,6 +11,8 @@
 
 use regex::Regex;
 
+use open_story_core::cloud_event::CloudEvent;
+
 use crate::config::{Person, PrincipalMatchers};
 
 /// Source signal for an incoming event. Built by source-aware callers
@@ -48,6 +50,38 @@ pub fn resolve(person: &Person, ctx: &SourceContext) -> ResolvedIdentity {
     ResolvedIdentity {
         person_id: person.id.clone(),
         principal_id: format!("unattributed:{}", person.id),
+    }
+}
+
+/// Resolve the batch's identity once and stamp every event with it.
+///
+/// Convenience wrapper for callers that already have a Vec of events from
+/// a single source (the watcher closures call this). The first event's
+/// `agent`/`host`/`user` provides the [`SourceContext`] for the whole
+/// batch — events from one file share these fields by construction.
+///
+/// `source_path` is supplied by the caller (typically the watch dir) and
+/// fed to any `watch_dir_pattern` matchers.
+///
+/// No-op when `person` is `None` (config not yet bootstrapped) or when
+/// `events` is empty.
+pub fn stamp_events(
+    person: Option<&Person>,
+    source_path: Option<String>,
+    events: &mut [CloudEvent],
+) {
+    let Some(person) = person else { return };
+    let Some(first) = events.first() else { return };
+    let ctx = SourceContext {
+        agent: first.agent.clone(),
+        host: first.host.clone(),
+        user: first.user.clone(),
+        source_path,
+    };
+    let identity = resolve(person, &ctx);
+    for ev in events.iter_mut() {
+        ev.person_id = Some(identity.person_id.clone());
+        ev.principal_id = Some(identity.principal_id.clone());
     }
 }
 
@@ -287,5 +321,85 @@ mod tests {
         let r = resolve(&person, &ctx);
         assert_eq!(r.person_id, "person-1");
         assert_eq!(r.principal_id, "unattributed:person-1");
+    }
+
+    // ── stamp_events ────────────────────────────────────────────────────
+
+    use open_story_core::cloud_event::CloudEvent;
+    use open_story_core::event_data::EventData;
+
+    fn ce_with(agent: Option<&str>, host: Option<&str>, user: Option<&str>) -> CloudEvent {
+        let mut ce = CloudEvent::new(
+            "src".into(),
+            "io.arc.event".into(),
+            EventData::new(serde_json::json!({}), 0, "s".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            agent.map(|s| s.to_string()),
+        );
+        if let Some(h) = host {
+            ce = ce.with_host(h);
+        }
+        if let Some(u) = user {
+            ce = ce.with_user(u);
+        }
+        ce
+    }
+
+    #[test]
+    fn stamp_events_writes_person_and_principal_to_every_event() {
+        let person = person_with(vec![principal(
+            "k-laptop",
+            PrincipalMatchers {
+                host: Some("Maxs-Air".into()),
+                ..Default::default()
+            },
+        )]);
+        let mut events = vec![
+            ce_with(Some("claude-code"), Some("Maxs-Air"), Some("max")),
+            ce_with(Some("claude-code"), Some("Maxs-Air"), Some("max")),
+        ];
+        stamp_events(Some(&person), None, &mut events);
+        for ev in &events {
+            assert_eq!(ev.person_id.as_deref(), Some("person-1"));
+            assert_eq!(ev.principal_id.as_deref(), Some("k-laptop"));
+        }
+    }
+
+    #[test]
+    fn stamp_events_no_op_when_person_is_none() {
+        let mut events = vec![ce_with(Some("claude-code"), Some("H"), Some("U"))];
+        stamp_events(None, None, &mut events);
+        assert!(events[0].person_id.is_none());
+        assert!(events[0].principal_id.is_none());
+    }
+
+    #[test]
+    fn stamp_events_no_op_on_empty_batch() {
+        let person = person_with(vec![principal("k", PrincipalMatchers::default())]);
+        let mut events: Vec<CloudEvent> = Vec::new();
+        stamp_events(Some(&person), None, &mut events); // must not panic
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn stamp_events_uses_source_path_for_watch_dir_pattern() {
+        let person = person_with(vec![principal(
+            "k-claude",
+            PrincipalMatchers {
+                watch_dir_pattern: Some(r".*\.claude.*".into()),
+                ..Default::default()
+            },
+        )]);
+        let mut events = vec![ce_with(Some("claude-code"), Some("h"), Some("u"))];
+        stamp_events(
+            Some(&person),
+            Some("/Users/max/.claude/projects".into()),
+            &mut events,
+        );
+        assert_eq!(events[0].principal_id.as_deref(), Some("k-claude"));
     }
 }
