@@ -96,6 +96,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .route("/api/sessions", axum::routing::get(crate::api::list_sessions))
         .route("/api/users", axum::routing::get(crate::api::list_users))
         .route("/api/local-info", axum::routing::get(crate::api::list_local_info))
+        .route("/api/fleet", axum::routing::get(crate::api::get_fleet))
         .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
@@ -322,5 +323,74 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["status"], "ok");
         assert_eq!(body["role"], "full");
+    }
+
+    #[tokio::test]
+    async fn fleet_endpoint_returns_404_when_no_person_configured() {
+        use tower::ServiceExt;
+        use axum::http::Request;
+        use axum::body::Body;
+
+        // test_state() uses Config::default() which has person: None.
+        let state = test_state();
+        let config = Config::default();
+        let router = build_router(state.clone(), None, &config);
+
+        let req = Request::get("/api/fleet").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn fleet_endpoint_returns_configured_fleet() {
+        use tower::ServiceExt;
+        use axum::http::Request;
+        use axum::body::Body;
+        use http_body_util::BodyExt;
+        use crate::config::{Person, Principal, PrincipalMatchers};
+
+        // Inject a Person + Principal into state's config so the endpoint
+        // has a fleet to return.
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.config.person = Some(Person {
+                id: "person-test".to_string(),
+                display_name: "Tester".to_string(),
+                email: "tester@example.test".to_string(),
+                principals: vec![
+                    Principal {
+                        id: "k-laptop".to_string(),
+                        display_name: "Laptop".to_string(),
+                        matchers: PrincipalMatchers {
+                            host: Some("test-host".into()),
+                            user: Some("tester".into()),
+                            agent: None,
+                            watch_dir_pattern: None,
+                        },
+                    },
+                ],
+            });
+        }
+        let config = Config::default();
+        let router = build_router(state.clone(), None, &config);
+
+        let req = Request::get("/api/fleet").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["person"]["id"], "person-test");
+        assert_eq!(body["person"]["display_name"], "Tester");
+        assert_eq!(body["person"]["email"], "tester@example.test");
+        assert_eq!(body["principals"].as_array().unwrap().len(), 1);
+        assert_eq!(body["principals"][0]["id"], "k-laptop");
+        assert_eq!(body["principals"][0]["display_name"], "Laptop");
+        assert_eq!(body["principals"][0]["matchers"]["host"], "test-host");
+        assert_eq!(body["principals"][0]["matchers"]["user"], "tester");
+        // Wildcard matchers serialize as null (None → JSON null).
+        assert!(body["principals"][0]["matchers"]["agent"].is_null());
+        assert!(body["principals"][0]["matchers"]["watch_dir_pattern"].is_null());
     }
 }

@@ -161,6 +161,8 @@ pub async fn list_sessions(
             "total_output_tokens": total_output_tokens,
             "host": row.host,
             "user": row.user,
+            "person_id": row.person_id,
+            "principal_id": row.principal_id,
         }));
     }
     Json(json!({
@@ -202,6 +204,46 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
         "host": open_story_core::host::host(),
         "user": open_story_core::user::user(),
     }))
+}
+
+/// `GET /api/fleet` — return the configured Person + their principals.
+///
+/// Source of truth for the UI's "your fleet" sidebar: provides the
+/// display_name for each `principal_id` referenced by sessions, plus
+/// the person who owns them. Returns 404 when no `[person]` section is
+/// configured (the bootstrap should have populated this on first boot;
+/// 404 here means the bootstrap was skipped, e.g. in tests with a
+/// hand-rolled Config::default()).
+pub async fn get_fleet(State(state): State<SharedState>) -> impl IntoResponse {
+    log_event("api", "GET /api/fleet");
+    let s = state.read().await;
+    match &s.config.person {
+        Some(person) => {
+            let body = json!({
+                "person": {
+                    "id": person.id,
+                    "display_name": person.display_name,
+                    "email": person.email,
+                },
+                "principals": person.principals.iter().map(|p| json!({
+                    "id": p.id,
+                    "display_name": p.display_name,
+                    "matchers": {
+                        "agent": p.matchers.agent,
+                        "host": p.matchers.host,
+                        "user": p.matchers.user,
+                        "watch_dir_pattern": p.matchers.watch_dir_pattern,
+                    },
+                })).collect::<Vec<_>>(),
+            });
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no [person] section configured" })),
+        )
+            .into_response(),
+    }
 }
 
 pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
