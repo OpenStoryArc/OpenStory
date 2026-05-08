@@ -46,6 +46,13 @@ pub struct SessionRow {
     /// user stamp.
     #[serde(default)]
     pub user: Option<String>,
+    /// OpenStory directory person id — the sovereign owner of this session
+    /// in the identity model. Distinct from the OS-level `user` field.
+    /// Populated from the first CloudEvent's `person_id` in a batch.
+    /// `None` for pre-migration rows and events that arrived without a
+    /// person_id stamp.
+    #[serde(default)]
+    pub person_id: Option<String>,
 }
 
 impl SessionRow {
@@ -241,6 +248,7 @@ mod tests {
             last_event: None,
             host: None,
             user: None,
+            person_id: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

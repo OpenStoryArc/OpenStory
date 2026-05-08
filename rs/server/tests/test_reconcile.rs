@@ -256,6 +256,7 @@ async fn reconcile_session_row_does_not_regress_frontier() {
         last_event: Some("2026-05-01T20:00:00Z".to_string()),
         host: Some("h".to_string()),
         user: Some("u".to_string()),
+        person_id: None,
     };
     store.event_store.upsert_session(&advanced_row).await.unwrap();
 

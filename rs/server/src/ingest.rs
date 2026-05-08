@@ -430,6 +430,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 last_event,
                 host: None,
                 user: None,
+                person_id: None,
             };
             let _ = ctx.event_store.upsert_session(&row).await;
         }
@@ -1288,6 +1289,7 @@ mod tests {
                 last_event: None,
                 host: None,
                 user: None,
+                person_id: None,
             })
             .await
             .unwrap();

@@ -141,7 +141,7 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
         }
     }
 
-    // host / user — first non-None encountered (forward scan).
+    // host / user / person_id — first non-None encountered (forward scan).
     let host = events
         .iter()
         .find_map(|e| {
@@ -153,6 +153,13 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
         .iter()
         .find_map(|e| {
             e.get("user")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+    let person_id = events
+        .iter()
+        .find_map(|e| {
+            e.get("person_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         });
@@ -169,6 +176,7 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
         last_event,
         host,
         user,
+        person_id,
     }
 }
 

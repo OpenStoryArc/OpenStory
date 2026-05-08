@@ -183,6 +183,14 @@ impl SqliteStore {
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN user TEXT");
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user)");
 
+        // Migration: add person_id column + index — OpenStory's directory
+        // identity for the session's owner (distinct from `user` which is
+        // the OS-level field). Same additive ALTER TABLE / let-_ pattern.
+        // The "your fleet" sidebar grouping queries on this column, so
+        // the index is worth its weight even at small scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN person_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
+
         Ok(())
     }
 
@@ -367,7 +375,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, person_id
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -383,6 +391,7 @@ impl EventStore for SqliteStore {
                 last_event: row.get(8)?,
                 host: row.get(9)?,
                 user: row.get(10)?,
+                person_id: row.get(11)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -420,8 +429,8 @@ impl EventStore for SqliteStore {
         // RFC 3339 strings sort lexicographically → chronologically, so
         // MIN/MAX on the TEXT columns is correct.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, person_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = COALESCE(excluded.project_id, sessions.project_id),
                 project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -437,7 +446,8 @@ impl EventStore for SqliteStore {
                     COALESCE(sessions.last_event, excluded.last_event)
                 ),
                 host = COALESCE(excluded.host, sessions.host),
-                user = COALESCE(excluded.user, sessions.user)",
+                user = COALESCE(excluded.user, sessions.user),
+                person_id = COALESCE(excluded.person_id, sessions.person_id)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -449,6 +459,7 @@ impl EventStore for SqliteStore {
                 session.last_event,
                 session.host,
                 session.user,
+                session.person_id,
             ],
         )?;
         Ok(())
@@ -861,6 +872,7 @@ mod tests {
             last_event: Some("2025-01-14T01:00:00Z".into()),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -883,6 +895,7 @@ mod tests {
             first_event: None, last_event: None,
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         store.upsert_session(&SessionRow {
@@ -895,6 +908,7 @@ mod tests {
             first_event: None, last_event: Some("2025-01-14T02:00:00Z".into()),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -920,6 +934,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("Maxs-Air".into()),
                 user: None,
+                person_id: None,
             })
             .await
             .unwrap();
@@ -948,6 +963,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("debian-16gb-ash-1".into()),
                 user: None,
+                person_id: None,
             })
             .await
             .unwrap();
@@ -966,6 +982,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:01:00Z".into()),
                 host: None,
                 user: None,
+                person_id: None,
             })
             .await
             .unwrap();
@@ -991,6 +1008,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: None,
                 user: None,
+                person_id: None,
             })
             .await
             .unwrap();
@@ -1010,6 +1028,7 @@ mod tests {
             first_event: None, last_event: Some("2025-01-13T00:00:00Z".into()),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "new".into(), project_id: None, project_name: None,
@@ -1018,6 +1037,7 @@ mod tests {
             first_event: None, last_event: Some("2025-01-14T00:00:00Z".into()),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
@@ -1137,6 +1157,7 @@ mod tests {
             first_event: None, last_event: None,
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
         store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
 
@@ -1159,6 +1180,7 @@ mod tests {
             first_event: None, last_event: None,
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
         store.upsert_session(&SessionRow {
             id: "sess-del2".into(), project_id: None, project_name: None,
@@ -1167,6 +1189,7 @@ mod tests {
             first_event: None, last_event: None,
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         store.delete_session("sess-del2").await.unwrap();
@@ -1224,6 +1247,7 @@ mod tests {
             last_event: Some("2025-12-01T00:00:00Z".into()),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         // Recent session
@@ -1237,6 +1261,7 @@ mod tests {
             last_event: Some(now),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(30).await.unwrap();
@@ -1258,6 +1283,7 @@ mod tests {
             last_event: Some(now),
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         let deleted = store.cleanup_old_sessions(7).await.unwrap();
@@ -1368,6 +1394,7 @@ mod tests {
             first_event: None, last_event: None,
             host: None,
             user: None,
+            person_id: None,
         }).await.unwrap();
 
         // Verify it's searchable
@@ -1614,6 +1641,7 @@ mod tests {
             last_event: Some("2025-01-02T00:00:10Z".into()),
             host: Some("kloughra-mac".into()),
             user: None,
+            person_id: None,
         };
         store.upsert_session(&row).await.unwrap();
 

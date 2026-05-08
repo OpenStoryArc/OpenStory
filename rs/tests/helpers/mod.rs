@@ -362,6 +362,7 @@ pub async fn seed_and_ingest(
         last_event: events.last().map(|e| e.time.clone()),
         host,
         user,
+        person_id: None,
     }).await;
 
     result

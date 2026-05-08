@@ -275,6 +275,9 @@ impl EventStore for MongoStore {
         if let Some(user) = session.user.as_deref() {
             set_doc.insert("user", user);
         }
+        if let Some(person_id) = session.person_id.as_deref() {
+            set_doc.insert("person_id", person_id);
+        }
         if let Some(pid) = session.project_id.as_deref() {
             set_doc.insert("project_id", pid);
         }
@@ -1864,6 +1867,7 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
     let last_event = doc.get_str("last_event").ok().map(|s| s.to_string());
     let host = doc.get_str("host").ok().map(|s| s.to_string());
     let user = doc.get_str("user").ok().map(|s| s.to_string());
+    let person_id = doc.get_str("person_id").ok().map(|s| s.to_string());
     Ok(SessionRow {
         id,
         project_id,
@@ -1876,6 +1880,7 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
         last_event,
         host,
         user,
+        person_id,
     })
 }
 
