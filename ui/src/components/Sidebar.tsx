@@ -8,7 +8,7 @@
 import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
-import type { StorySession } from "@/lib/story-api";
+import type { StorySession, Fleet } from "@/lib/story-api";
 import { compactTime } from "@/lib/time";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
@@ -17,6 +17,7 @@ import { PersonRow } from "@/components/PersonRow";
 import { TimeFilter } from "@/components/TimeFilter";
 import { timeFilterMatches, TIME_FILTER_LABELS, type TimeFilterKey } from "@/lib/time-filter";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { useFleet } from "@/hooks/use-fleet";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,6 +45,10 @@ interface SessionInfo {
   host: string | null;
   /** Origin user (human identity), `null` for legacy / unstamped sessions. */
   user: string | null;
+  /** OpenStory directory person id, `null` for legacy / unstamped sessions. */
+  personId: string | null;
+  /** Producing principal id (which device/agent in the fleet), `null` for legacy. */
+  principalId: string | null;
 }
 
 interface SubagentInfo {
@@ -222,11 +227,79 @@ export function deriveSessions(
       planCount: data.planCount,
       host: restRow?.host ?? null,
       user: restRow?.user ?? null,
+      personId: restRow?.person_id ?? null,
+      principalId: restRow?.principal_id ?? null,
     });
   }
 
   sessions.sort((a, b) => b.latestTimestamp.localeCompare(a.latestTimestamp));
   return sessions;
+}
+
+/** A bucket of sessions that all belong to the same principal. */
+export interface PrincipalGroup {
+  /** `null` for sessions with no principal_id (legacy / unstamped). */
+  readonly principalId: string | null;
+  /** Friendly label — fleet's display_name for the principal, or
+   *  "Unattributed" when principalId is `null`, or the principalId
+   *  itself as a fallback when the fleet has no entry for it. */
+  readonly principalName: string;
+  readonly sessions: readonly SessionInfo[];
+}
+
+/**
+ * Group sessions by principalId, resolving display names from the fleet.
+ * Pure function — exported for BDD tests.
+ *
+ * Ordering: groups sort by their newest session's `latestTimestamp` (DESC),
+ * with the "Unattributed" bucket pinned last so legacy data doesn't push
+ * live fleet activity out of view.
+ */
+export function groupSessionsByPrincipal(
+  sessions: readonly SessionInfo[],
+  fleet: Fleet | null,
+): PrincipalGroup[] {
+  // Fleet → principalId → display_name lookup. Empty when fleet is null.
+  const nameById = new Map<string, string>();
+  if (fleet) {
+    for (const p of fleet.principals) nameById.set(p.id, p.display_name);
+  }
+
+  // Bucket sessions by principalId; preserve incoming order within bucket
+  // (sessions arrive sorted by latestTimestamp DESC from `deriveSessions`).
+  const buckets = new Map<string | null, SessionInfo[]>();
+  for (const s of sessions) {
+    const key = s.principalId ?? null;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(key, bucket);
+    }
+    bucket.push(s);
+  }
+
+  const groups: PrincipalGroup[] = [];
+  for (const [principalId, sessionsInGroup] of buckets) {
+    groups.push({
+      principalId,
+      principalName:
+        principalId === null
+          ? "Unattributed"
+          : (nameById.get(principalId) ?? principalId),
+      sessions: sessionsInGroup,
+    });
+  }
+
+  // Order groups by newest session (DESC). Unattributed always last.
+  groups.sort((a, b) => {
+    if (a.principalId === null && b.principalId === null) return 0;
+    if (a.principalId === null) return 1;
+    if (b.principalId === null) return -1;
+    const aTs = a.sessions[0]?.latestTimestamp ?? "";
+    const bTs = b.sessions[0]?.latestTimestamp ?? "";
+    return bTs.localeCompare(aTs);
+  });
+  return groups;
 }
 
 /** Format a token count as compact string: 1234 → "1.2K", 1234567 → "1.2M" */
@@ -264,6 +337,7 @@ export const Sidebar = memo(function Sidebar({
   // currently-open session arrive lazily and augment per-session
   // indicators (subagent count, depth profile, plan count).
   const { sessions: restSessions } = useSessionsList();
+  const { fleet } = useFleet();
   const sessions = useMemo(
     () => deriveSessions(events, sessionLabels, restSessions),
     [events, sessionLabels, restSessions],
@@ -319,6 +393,14 @@ export const Sidebar = memo(function Sidebar({
         timeFilterMatches(s.latestTimestamp, timeFilter, now),
     );
   }, [sessions, hostFilter, userFilter, timeFilter]);
+
+  // Group filtered sessions by principalId — the "your fleet" sidebar
+  // shape. Each group's header carries the principal's display_name from
+  // the fleet config; sessions render unchanged within their group.
+  const principalGroups = useMemo(
+    () => groupSessionsByPrincipal(filteredSessions, fleet),
+    [filteredSessions, fleet],
+  );
 
   // Keyboard navigation: up/down through sessions, right to timeline, enter to select
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
@@ -521,7 +603,21 @@ export const Sidebar = memo(function Sidebar({
             </button>
           </div>
         )}
-        {filteredSessions.map((s, i) => {
+        {principalGroups.map((group) => (
+          <div
+            key={`group-${group.principalId ?? "unattributed"}`}
+            data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
+          >
+            <div className="px-3 py-1.5 text-[9px] font-semibold text-[#7aa2f7] bg-[#1a1b26] border-b border-[#2f3348] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
+              <span className="truncate" data-testid="fleet-group-name">
+                {group.principalName}
+              </span>
+              <span className="text-[#565f89] normal-case font-normal text-[9px]">
+                {group.sessions.length}
+              </span>
+            </div>
+            {group.sessions.map((s) => {
+              const i = filteredSessions.indexOf(s);
           const color = sessionColor(s.id);
           const isSelected = s.id === selectedSession;
           const isHighlighted = highlightedIndex === i;
@@ -662,6 +758,8 @@ export const Sidebar = memo(function Sidebar({
             </button>
           );
         })}
+          </div>
+        ))}
       </div>
 
       {/* Agent hierarchy (when session selected) */}
