@@ -1,0 +1,42 @@
+suite: configmap mirrors rs/server/src/config.rs Config fields
+# When new Config fields are added in Rust, add the corresponding
+# OPEN_STORY_* env var here. helm-unittest will fail loudly if a
+# field is missing or misnamed — this is the parity gate between
+# the Rust binary and the deploy artifact.
+templates:
+  - configmap.yaml
+tests:
+  - it: surfaces every config field the binary reads
+    asserts:
+      - exists:
+          path: data.OPEN_STORY_HOST
+      - exists:
+          path: data.OPEN_STORY_PORT
+      - exists:
+          path: data.OPEN_STORY_ROLE
+      - exists:
+          path: data.OPEN_STORY_DATA_DIR
+      - exists:
+          path: data.OPEN_STORY_WATCH_DIR
+      - exists:
+          path: data.OPEN_STORY_PI_WATCH_DIR
+      - exists:
+          path: data.OPEN_STORY_HERMES_WATCH_DIR
+      - exists:
+          path: data.OPEN_STORY_DATA_BACKEND
+      - exists:
+          path: data.NATS_URL
+      - exists:
+          path: data.OPEN_STORY_MAX_INITIAL_RECORDS
+      - exists:
+          path: data.OPEN_STORY_WATCH_BACKFILL_HOURS
+      - exists:
+          path: data.OPEN_STORY_TRUNCATION_THRESHOLD
+      - exists:
+          path: data.OPEN_STORY_STALE_THRESHOLD_SECS
+      - exists:
+          path: data.OPEN_STORY_BROADCAST_CHANNEL_SIZE
+      - exists:
+          path: data.OPEN_STORY_METRICS_ENABLED
+      - exists:
+          path: data.OPEN_STORY_RETENTION_DAYS

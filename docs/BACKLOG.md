@@ -4,6 +4,14 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## `/api/search` silently drops the connection at high limits
+
+Surfaced 2026-05-08 while building `scripts/state_provenance.py`. The search endpoint disconnects without a response (HTTP 000 — RemoteDisconnected) when `limit≥~100` on common query terms (e.g. `?q=Sidebar.tsx&limit=200`). At `limit=50` the same query returns 200 in ~12ms. This is a server-side cliff, not a client problem. Two consequences: (1) any consumer asking for "all hits for this term" hits a brick wall right when they need it most, and (2) silent disconnects are the worst failure mode — the consumer doesn't get an error code or a partial result, just a closed socket. Fix candidates: (a) cap limit server-side at a known-safe value, (b) stream the response, (c) return whatever rows fit before the cutoff with a `truncated: true` flag. Either way the contract should be deterministic, not "works most of the time, mysteriously fails on hot keys." For now `state_provenance.py` is pinned to `limit=50` with a comment pointing here.
+
+## Subagent record attribution: `/api/sessions/{id}/records` returns mismatched session_ids
+
+Surfaced 2026-05-08 by `scripts/test_introspection_scenarios.py --invariants` running over the full 488-session corpus. The invariant "PR events from session S all carry session_id == S" was violated by 2 sessions, both subagent-prefixed (`agent-as…`, `agent-ac…`). Concretely: when you fetch `/api/sessions/agent-aXXX/records`, some records returned have a `session_id` field that is NOT `agent-aXXX` — they appear to carry the parent session's id. This is a real semantics question, not a test bug. Two plausible answers and we should pick one explicitly: (1) it's a bug — every record should carry its own session_id and the API/store needs a fix; (2) it's intentional — subagent records belong to the parent session, lineage is encoded via `parent_uuid`/`depth`, and the `/records?session_id=…` query should filter by *parent* session, with subagent-only views getting a different endpoint or query parameter. Either way: document the contract, then either fix the data or fix consumers (including the introspection scripts) to match the documented contract. The deterministic test gives us a pass/fail gate to verify whichever direction we pick.
+
 ## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
 
 ### Boot-replay status on `/api/health`
@@ -502,6 +510,15 @@ The broadcast consumer is the last one still using `ingest_events()` with shared
 
 ---
 
+## Hygiene & repo health
+
+### Review `.gitignore` patterns added during 2026-05-16 WIP push
+The `.gitignore` was expanded in a hurry during the shape-layers WIP push to cover:
+- `captures/`, `*.transcript.jsonl`, `*-session.jsonl`, `*.cloudevents.jsonl` — keep session-derived prose out of git
+- `personal/` — designated home for local-only originals of anonymized docs, drafts, scratch
+
+These patterns were added under time pressure during a sanitization step. Worth reviewing each one for: are the wildcards too broad / too narrow? Should `personal/` live under `docs/research/personal/` instead of repo-root? Are there other categories of derived data (e.g., scratch SQLite probes, screenshot temp files) we should also ignore? Also worth establishing a convention for where the *anonymization mapping* itself lives (currently implicit in commit history; could become a documented `personal/anonymization-mapping.md`).
+
 ## Quality
 
 ### Eval-Apply Data Quality Hardening (recurring)
@@ -626,6 +643,68 @@ The recursive-observability principle test surfaces this: pi-mono sessions never
 
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
+
+---
+
+## Lab — follow-ups from V0 deploy artifact
+
+The deployable lab (`docs/research/lab/`) ships V0 = "what already runs end-to-end, declaratively." These entries extend it to a real public-observatory and eventually a Cloud IDE. Each preserves a security/sovereignty/UX property that V0 doesn't yet need but which the lab needs *before* it opens beyond invite-only.
+
+### Per-session sharing ACLs
+**Why:** the load-bearing security feature for any multi-Person lab. Today every API caller sees every session; "selecting which sessions are shared" must be done correctly before non-owners ever have read access.
+
+**Design (preserved):** `Scope::Private | Pair{members} | LabPublic` — a closed Rust enum so the type checker forces every read site to handle all three. New table `session_acls` (in `rs/store/src/`, parity-implemented in both backends) with `(session_id, owner_person_id, scope, pair_members, version)`. ACL row created atomically with the first event of a session at default `Private`; mutation only via `PUT /api/sessions/{id}/acl` (owner-only). Mid-session scope changes apply prospectively *and* retrospectively (events don't carry their own ACL — one row flip).
+
+The single load-bearing primitive is `ScopedView`, the *only* way to read events from handlers. New `rs/server/src/scoped_view.rs` with `state.scoped_view(&viewer).read_session(...)`; `state.event_store` becomes `pub(crate)` so handlers can no longer reach raw reads. Every handler in `rs/server/src/api.rs` rewritten to take `Extension<ViewerCtx>`. Headline test: `rs/server/tests/acl_neighbor_probe.rs` walks the axum `Router` at test time, calls every endpoint as Person A and Person B, asserts cross-Person session_ids never appear — a future engineer who adds an endpoint that forgets the filter fails this test automatically.
+
+**Precondition for:** multi-Person, OIDC, Cloud IDE, pair mode, every BACKLOG entry below.
+
+### Server-side anonymization for `LabPublic` reads
+**Why:** if a public-scoped session is broadcast with cwd, host, user, file paths, project name, or secrets in prompt text, the sovereignty story shatters in one screenshot.
+
+**Design (preserved):** new `rs/views/src/anonymize.rs` exposes `anonymize_for_lab_public(rec) -> AnonymizedWireRecord`. The returned type is *distinct* from `WireRecord` — there is no path that hands a `WireRecord` to a lab-public subscriber, that's a compile error. Strip/hash: `cwd`, `host`, `user`, file paths (→ `path_hash:<sha256[..12]>`), project name (→ `project_hash:<...>`), tool args containing absolute paths, MCP server names, branch names, transcript_path, principal_id (→ `principal_hash:<...>`); `redact_secrets` pass strips API-key shapes and email addresses from prompt/response text. New broadcast variant `BroadcastMessage::EnrichedAnon` carrying `Vec<AnonymizedWireRecord>`. Test: `rs/views/tests/anonymize_round_trip.rs` — fixture session with sensitive fields, mark LabPublic, assert byte-level absence of every sensitive substring in JSON-serialized result and broadcast frame.
+
+**Precondition for:** public lab feed, pair mode with anonymized observers.
+
+### Audit log of cross-Person reads
+**Why:** the sovereignty story isn't "no one reads your data" — it's "you see who reads your data, when, and on what scope." That guarantee requires an audit trail.
+
+**Design (preserved):** new `acl_reads` table (parity in both backends): `(viewer_person, owner_person, session_id, scope_at_read, acl_version, endpoint, read_at, result)`. `ScopedView::read_session` is the single insertion point — one row per session-read (not per-record). Only cross-Person reads are logged (`viewer != owner`). `GET /api/audit/me` returns reads where `owner_person == viewer.person_id`; no "all reads" endpoint in V0 of this feature. Retention: 365 days, configurable.
+
+### Multi-Person directory
+**Why:** today `[person]` in `config.toml` is a single struct; lab needs a directory of Persons keyed by OIDC subject.
+
+**Design:** extend `rs/server/src/config.rs` `Person` to `Persons` (a directory). The OIDC bridge (next entry) maps `sub` → `Person`. Per-Person SQLCipher key derived from a per-deployment master key + person_id (KDF). All event reads go through `ScopedView` (above), so the change is largely additive once the ACL spine is in place.
+
+### OIDC integration (Keycloak)
+**Why:** V0 ships a single bearer token. Multi-Person lab needs per-Person credentials; rolling our own auth service violates "don't reinvent identity." Keycloak is the sovereign self-host choice (Apache 2.0, mature OIDC, runs in Kubernetes).
+
+**Design:** new `docs/research/lab/modules/keycloak.nix` + Helm chart for keycloak. Bridge in `rs/server/src/auth.rs` extracts `ViewerCtx` from a JWT signed by Keycloak's JWKS endpoint. The personhood-and-principals model maps OIDC `sub` claim → Person.id. V0's static bearer token is preserved as a fallback for local dev and for the lab operator's admin access.
+
+### Cloud IDE workspaces (Coder)
+**Why:** the goal of the lab — invited contributors get a hosted dev environment with claude-code preinstalled, never install anything locally. *Drop-in pairing* in the Royal-Society sense.
+
+**Design:** new `docs/research/lab/modules/coder.nix` + `docs/research/lab/modules/workspace-claude-code.nix`. Workspace template image at `docs/research/lab/workspaces/claude-code.Dockerfile`: Debian + claude-code + OpenStory hooks pre-pointed at the lab's `/hooks` endpoint. BYOK Anthropic API key (encrypted at rest with the Person's per-row SQLCipher key, decrypted into the workspace at session boot, never logged). Per-Person resource quotas (CPU/mem/wall-clock/API spend caps). In-session public URLs for "show your work" via Cloudflare Tunnels.
+
+### Pair mode / live observation
+**Why:** the salon dimension — guests not just watch, they *pair*. Spectator WebSocket on shared sessions plus a pair-mode shared scratch buffer.
+
+**Design:** spectator endpoint subscribes to `BroadcastMessage::EnrichedAnon` filtered to sessions with scope ∋ {Pair{me}, LabPublic}. Pair-mode write access goes to a *scoped shared buffer* (a separate ACL'd doc, NOT the host's filesystem); the host's container is unaffected. New `docs/research/lab/modules/pair-mode.nix` for the workload; the WS layer extension lives in `rs/server/src/ws.rs`.
+
+### Firecracker microVM workspace runtime
+**Why:** Coder's container isolation is fine for invite-only; container escape against adversarial guests is a real, live threat. Firecracker microVMs are the right rung when the lab opens beyond invite-only — same model as Fly.io machines, AWS Lambda, Modal.
+
+**Design:** new `docs/research/lab/modules/firecracker-runtime.nix` replaces the workspace container substrate; Coder workspace lifecycle wraps Firecracker VM lifecycle. Egress allowlists per workspace (default-deny + explicit `allow github.com`, `allow registry.npmjs.org`, etc.). External pen test before public-launch flag is flipped.
+
+### Replicated and federated topology profiles
+**Why:** V0 single-host is the seed; replication is HA, federation is multi-org via NATS leaf-node mesh.
+
+**Design:** new `docs/research/lab/tofu/profiles/replicated.tfvars` (multi-Hetzner-host k3s with replicas) and `docs/research/lab/tofu/profiles/federated.tfvars` (member-org leaf nodes connecting to a central hub via Tailscale + NATS leaf authentication). The leaf-node mode already exists at `deploy/nats-leaf.conf`; this entry plumbs it through the lab's declarative shape.
+
+### NATS account-per-Person hardening
+**Why:** the JetStream consumer leak documented in `docs/research/nats-permissions-spike.md` (`single_account_jetstream_consumer_leak` test) means user/password permissions don't isolate JetStream reads across tenants. Soft scoping is fine for V0 invite-only; account-per-Person closes the leak when the lab opens.
+
+**Design:** generate one NATS account per Person via the lab's bootstrap unit; each Person's workspace connects with that account's `.creds`. `NatsBus::connect()` extension already exists as the seam (`rs/bus/src/nats_bus.rs`). The harness in `rs/bus/tests/harness/` is reusable for the new account-mode tests.
 
 ---
 

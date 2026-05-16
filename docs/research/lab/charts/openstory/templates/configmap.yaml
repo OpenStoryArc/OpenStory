@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openstory.fullname" . }}-config
+  labels:
+    {{- include "openstory.labels" . | nindent 4 }}
+data:
+  # Mirrors rs/server/src/config.rs Config field names.
+  # Sensitive fields (api_token, db_key) are NOT in this ConfigMap;
+  # they're injected from a Secret (see deployment.yaml env section).
+  OPEN_STORY_HOST: {{ .Values.server.host | quote }}
+  OPEN_STORY_PORT: {{ .Values.server.port | quote }}
+  OPEN_STORY_ROLE: {{ .Values.server.role | quote }}
+  OPEN_STORY_DATA_DIR: {{ .Values.storage.dataDir | quote }}
+  OPEN_STORY_WATCH_DIR: {{ .Values.storage.watchDir | quote }}
+  OPEN_STORY_PI_WATCH_DIR: {{ .Values.storage.piWatchDir | quote }}
+  OPEN_STORY_HERMES_WATCH_DIR: {{ .Values.storage.hermesWatchDir | quote }}
+  OPEN_STORY_DATA_BACKEND: {{ .Values.storage.dataBackend | quote }}
+  NATS_URL: {{ .Values.bus.natsUrl | quote }}
+  OPEN_STORY_MAX_INITIAL_RECORDS: {{ .Values.tuning.maxInitialRecords | quote }}
+  OPEN_STORY_WATCH_BACKFILL_HOURS: {{ .Values.tuning.watchBackfillHours | quote }}
+  OPEN_STORY_TRUNCATION_THRESHOLD: {{ .Values.tuning.truncationThreshold | quote }}
+  OPEN_STORY_STALE_THRESHOLD_SECS: {{ .Values.tuning.staleThresholdSecs | quote }}
+  OPEN_STORY_BROADCAST_CHANNEL_SIZE: {{ .Values.tuning.broadcastChannelSize | quote }}
+  OPEN_STORY_METRICS_ENABLED: {{ .Values.tuning.metricsEnabled | quote }}
+  OPEN_STORY_RETENTION_DAYS: {{ .Values.tuning.retentionDays | quote }}
+  {{- if .Values.security.allowedOrigins }}
+  OPEN_STORY_ALLOWED_ORIGINS: {{ join "," .Values.security.allowedOrigins | quote }}
+  {{- end }}

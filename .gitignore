@@ -5,11 +5,25 @@ rs/target/
 node_modules/
 ui/dist/
 
-# Data
+# Data — session JSONL backups, SQLite shape databases, etc.
+# Anything that contains captured user/assistant content stays out of git.
 data/
 data-mongo/
 data.old/
 rs/data/
+
+# Captured probe output / session-derived facts / transcripts.
+# These contain verbatim user prose, paths from people's machines, etc.
+captures/
+*.transcript.jsonl
+*-session.jsonl
+*.cloudevents.jsonl
+
+# Personal — local-only home for content that mirrors public paths but stays
+# off the network. Use this for: originals of anonymized docs, draft notes,
+# scratch analyses, anything you want to keep on disk but not share. Pattern:
+# personal/<mirror of public path>, e.g. personal/research/foo.md → docs/research/foo.md
+personal/
 
 # Screenshots
 screenshots/

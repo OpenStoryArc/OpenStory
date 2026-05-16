@@ -1,0 +1,72 @@
+# OpenStory Helm chart values for the lab V0 deployment.
+#
+# Each option below maps to a field in rs/server/src/config.rs Config.
+# Env var convention: OPEN_STORY_<UPPER_SNAKE>. The chart sets these on
+# the Deployment from this file (via configmap) and from a Kubernetes
+# Secret (for sensitive values, populated by sops-nix on the host).
+#
+# ── algebraic property ──
+# Profile-specific overrides (replicated, federated) live in
+# tofu/profiles/{profile}.tfvars and pass through to a per-profile
+# values-{profile}.yaml. This file is the single-host default.
+
+image:
+  repository: ghcr.io/openstoryarc/open-story
+  tag: "prod"  # pinned by tofu var when deploying; CI sets to commit SHA
+  pullPolicy: IfNotPresent
+
+# ── server ──
+server:
+  host: "0.0.0.0"
+  port: 3002
+  role: "Full"  # Full | Publisher | Consumer
+
+# ── security ──
+# api_token and db_key are NEVER read from this file in prod —
+# the templates pull them from a Kubernetes Secret backed by sops-nix.
+# These keys exist here so OPA's api-token-required.rego can verify
+# that the keyrefs are wired (not for plaintext use).
+security:
+  apiTokenSecretRef:
+    name: openstory-secrets
+    key: api_token
+  dbKeySecretRef:
+    name: openstory-secrets
+    key: db_key
+  allowedOrigins: []  # CORS; empty = localhost defaults only
+
+# ── storage ──
+storage:
+  dataDir: "/data"
+  watchDir: ""        # empty in V0 — we ingest via /hooks, not watcher
+  piWatchDir: ""
+  hermesWatchDir: ""
+  dataBackend: "sqlite"
+  hostPath: "/var/lib/openstory"  # mounted from NixOS host
+
+# ── bus ──
+bus:
+  natsUrl: "nats://nats.openstory.svc.cluster.local:4222"
+
+# ── tuning (defaults from Config) ──
+tuning:
+  maxInitialRecords: 2000
+  watchBackfillHours: 0  # disabled in V0 (no watcher)
+  truncationThreshold: 100000
+  staleThresholdSecs: 300
+  broadcastChannelSize: 256
+  metricsEnabled: true
+  retentionDays: 0
+
+# ── service ──
+service:
+  type: ClusterIP
+  port: 3002
+  # Ingress on :443 lives outside the chart (Caddy on host or
+  # cert-manager+nginx). The chart only exposes ClusterIP.
+
+# ── networkPolicy ──
+# Defense in depth: deny ingress to NATS port from outside namespace.
+# Verified by helm-unittest in tests/networkpolicy_test.yaml.
+networkPolicy:
+  enabled: true

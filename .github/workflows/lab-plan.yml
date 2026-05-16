@@ -1,0 +1,150 @@
+name: Lab Plan
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'docs/research/lab/**'
+      - 'Dockerfile.prod'
+      - 'rs/server/**'
+      - '.github/workflows/lab-plan.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'docs/research/lab/**'
+
+jobs:
+  helm-lint:
+    name: Helm chart lint + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version 0.5.2
+
+      - name: Lint openstory chart
+        run: helm lint docs/research/lab/charts/openstory
+
+      - name: Lint nats chart
+        run: helm lint docs/research/lab/charts/nats
+
+      - name: Unit-test openstory chart
+        run: helm unittest docs/research/lab/charts/openstory
+
+      - name: Unit-test nats chart
+        run: helm unittest docs/research/lab/charts/nats
+
+  policy:
+    name: OPA policies (Conftest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Install OPA
+        run: |
+          curl -L -o /usr/local/bin/opa \
+            https://openpolicyagent.org/downloads/v0.69.0/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+
+      - name: Install Conftest
+        run: |
+          curl -L -o conftest.tar.gz \
+            https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
+          tar -xzf conftest.tar.gz
+          sudo mv conftest /usr/local/bin/
+
+      - name: Unit-test OPA policies
+        run: opa test docs/research/lab/policy/
+
+      - name: Render Helm charts
+        run: |
+          # Use representative test values that satisfy chart requirements.
+          # Real deploys substitute SOPS-decrypted values; here we just need
+          # the structure to render so policies can validate it.
+          mkdir -p /tmp/rendered
+          helm template openstory docs/research/lab/charts/openstory \
+            --namespace openstory \
+            > /tmp/rendered/openstory.yaml
+          helm template nats docs/research/lab/charts/nats \
+            --namespace openstory \
+            > /tmp/rendered/nats.yaml
+
+      - name: Conftest against rendered charts
+        run: |
+          conftest test \
+            --policy docs/research/lab/policy/ \
+            /tmp/rendered/openstory.yaml \
+            /tmp/rendered/nats.yaml
+
+  tofu-plan:
+    name: OpenTofu plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.5
+
+      - name: tofu fmt check
+        working-directory: docs/research/lab/tofu
+        run: tofu fmt -check -recursive
+
+      - name: tofu init (no backend)
+        working-directory: docs/research/lab/tofu
+        run: tofu init -backend=false
+
+      - name: tofu validate
+        working-directory: docs/research/lab/tofu
+        run: tofu validate
+
+      # NOTE: tofu plan requires HCLOUD_TOKEN + CLOUDFLARE_API_TOKEN secrets
+      # to evaluate fully. We omit the live plan in CI to avoid sending
+      # un-reviewed PRs against the real Hetzner project. Operators run
+      # `tofu plan -var-file=profiles/single-host.tfvars` locally before
+      # `tofu apply`.
+
+  spin-up-and-probe:
+    name: Spin up + probe (k3d integration)
+    runs-on: ubuntu-latest
+    # Heavy job — only runs when chart or Rust server code changes.
+    if: contains(github.event.pull_request.changed_files || '', 'docs/research/lab/charts/') || contains(github.event.pull_request.changed_files || '', 'rs/server/') || contains(github.event.pull_request.changed_files || '', 'Dockerfile.prod')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build open-story:test image
+        run: |
+          docker build -t open-story:test ./rs
+
+      - name: Install k3d
+        run: |
+          curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.7.5 bash
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Run spin_up_and_probe
+        run: |
+          chmod +x docs/research/lab/conformance/spin_up_and_probe.sh
+          docs/research/lab/conformance/spin_up_and_probe.sh
+
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          kubectl --context k3d-openstory-lab-test -n openstory describe pod || true
+          kubectl --context k3d-openstory-lab-test -n openstory logs deploy/openstory-openstory --tail=200 || true
+          kubectl --context k3d-openstory-lab-test -n openstory logs deploy/nats --tail=200 || true

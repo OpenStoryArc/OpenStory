@@ -1,6 +1,6 @@
 ---
 name: team-day
-description: Tell the story of a team's work on a given day by running the deterministic team_day pipeline, reading the resulting facts sheet, and composing a short narrative on top. Use when the user asks "what did our team do today / yesterday / on date X", "summarize the team's day", "what did Max and Katie work on", or wants a per-author day report grounded in OpenStory data. Dogfoods OpenStory — never guess from the conversation, always run the pipeline first.
+description: Tell the story of a team's work on a given day (or a range of days) by running the deterministic team_day pipeline, reading the resulting facts sheet(s), and composing a structured narrative on top. Use when the user asks "what did our team do today / yesterday / on date X / the past few days", "summarize the team's day", "what did Engineer A and Engineer B work on", or wants a per-author day report grounded in OpenStory data. Dogfoods OpenStory — never guess from the conversation, always run the pipeline first.
 ---
 
 # team-day
@@ -28,6 +28,8 @@ python3 scripts/team_day/run.py --include-subagents
 python3 scripts/team_day/run.py --mode active
 ```
 
+For multi-day requests ("the past few days", "this week"), run the pipeline once per day in the window. Each day produces its own `captures/team_day/{date}/facts.md`. Compose one report on top of the union of those sheets — do not invent a single-pipeline mode that doesn't exist.
+
 Requires the OpenStory server on `http://localhost:3002` (override with `--url`).
 
 The pipeline writes artifacts to `captures/team_day/{date}/`:
@@ -40,7 +42,7 @@ The pipeline writes artifacts to `captures/team_day/{date}/`:
 - `bundle.json` → final artifact (= 05)
 - **`facts.md`** → human-readable fact sheet — **the only thing you read to write the report**
 
-## Phase 2 — Read the facts sheet
+## Phase 2 — Read the facts sheet(s)
 
 `captures/team_day/{date}/facts.md` contains everything you need:
 
@@ -50,64 +52,82 @@ The pipeline writes artifacts to `captures/team_day/{date}/`:
 - **Health** — ghost / error / compaction / recall counts
 - **Validation warnings** — sessions whose data is inconsistent. Treat flagged sessions with care: do not quote a prompt or count from a flagged session without acknowledging the warning.
 
+For multi-day reports: read every day's sheet, sum the totals yourself, and pattern-match across them for repeated repos / prompt prefixes / file overlap. Themes that show up on ≥2 days are threads worth naming.
+
 ## Phase 3 — Compose the report
 
-The report is a **timeline first**. Optimize for one screen. Aim for ~30 lines
-total. Every line earns its place or gets cut.
+The report has a **fixed section order**. Analysis lives at the top; the timeline is the receipts at the bottom. Aim for one scrollable page — every section earns its place or gets cut.
 
 ```
-# Team Day — {date} ({tz})
+# Team — {date or window} ({tz})
+
+> Eyebrow line: dateline + "grounded in OpenStory session data, not vibes."
+
+## Stat strip (4 cards)
+Sessions · Commits · Merges · One signature number for the window
+(e.g. peak MCP-OS calls, peak files touched, biggest single session).
+Each with a sub-line breaking it down by author.
+
+## Executive summary
+One paragraph (4–6 sentences) as a pull-quote. Lead with totals + the
+center of gravity (the one objective everything else orbits). Name what
+each person carried. Close with the shape of the most recent day.
+This is the only place narrative voice lives at full strength.
+
+## Key objectives — N threads
+Numbered list of 3–6 threads. Each thread:
+- Title (short, declarative)
+- 1–2 sentences citing the prompt(s) and counts that prove it's a thread
+A "thread" requires evidence on ≥2 sessions OR ≥1 session with substantial
+scale (≥10 files OR ≥10 MCP-OS OR an explicit "FEATURE:" / "Spike:" prefix).
+
+## Per person
+One card per author. Header: name + counts (sessions / commits / merges).
+Body: one sentence — asymmetric is fine. If Engineer A worked on one thing their
+line is one clause; if Engineer B braided three threads theirs is one sentence
+with semicolons. Quote verbatim where transcripts exist, mark (label)
+otherwise. Don't pad to match length.
+
+## Hottest files
+Top 5–8 files by session count, each tagged with the author who touched
+them. Bar visual is optional; the count is the point. Skip files that
+only appear in one session unless they're a flagship artifact.
 
 ## Timeline
-One unified chronological strip across the team. Substantial primary sessions
-only (kind != chat AND events ≥ 50 OR files ≥ 1 OR mcp_os ≥ 1). One row each.
+Substantial primary sessions only (kind != chat AND events ≥ 50 OR
+files ≥ 1 OR mcp_os ≥ 1). Group by day with a day-header row showing
+the day's commits/merges. Inside each day, one row per session with:
 
-| EDT  | Who   | Repo             | Headline (verbatim opening, ≤80 chars) | Δ                |
-|------|-------|------------------|---------------------------------------|------------------|
-| 11:23| Katie | telegram-int-local | "Can you check out this repo…"      | 2 files          |
-| 12:17| Max   | OpenStory        | "Did I do work a while ago…"          | 6 MCP, 0 files   |
-| 13:47| Katie | OpenStory        | "Quick question on my current setup…" | 12 files, 3 errs |
-| 15:42| Max   | OpenStory        | "YC Demo: two things…"                | 18 files, 33 MCP |
+  - colored author dot
+  - author pill, repo, time
+  - verbatim opening prompt (≤100 chars), italic, with (label) marker if needed
+  - Δ line: file count, errors, MCP-OS, validation warnings — smallest
+    signal that says what shipped
 
-Δ column: smallest signal that says what shipped — file count, MCP calls,
-errors, ghost flag, validation warning.
+For multi-day windows, the timeline is grouped by day; for a single day,
+it's one flat list under the date.
 
-## One-liners
-One sentence per person. The day in one sentence — that's the test.
-
-- **Katie**: <one sentence>
-- **Max**:   <one sentence>
-
-## Numbers
-- Commits N · Merges M · Hot file: `path` (N sessions)
-- Health: G ghosts · E errors · C compactions · R recall
-
-## Notes (optional, ≤3 lines)
-Only the top items from the watch list / validation warnings.
-Skip the section if there's nothing.
+## Notes & limits
+Bulleted, ≤4 items. Top of the watch list / validation warnings only.
+Always note transcript-vs-label split if it skews per-author readability.
+Always note any cross-repo file paths (project-mismatch warnings).
+Skip the section only if there is genuinely nothing.
 ```
 
-That's the entire report. No "shape of the day" essay, no per-person
-paragraphs, no reframe. The timeline + the one-liners ARE the shape.
+That ordering is the contract: **stat strip → executive summary → objectives → per person → hot files → timeline → notes.** Don't reshuffle. The user asked for analysis first and receipts second; honor that.
+
+### Optional: HTML rendering
+
+If the user asks for an HTML version, write to `/tmp/team_report_{window}.html` with the same section order. Use serif headlines (Charter / Iowan Old Style / Georgia stack), system sans body, light-dark CSS variables, two accent colors (one per author — keep them consistent across runs), tag pills for repos, dot markers per author on timeline rows, and a stat strip at the top. Open with `open` afterward. Do not pull external fonts or scripts — the report should render offline.
 
 ## Voice rules
 
-- **Quote, don't characterize.** Verbatim openings in the headline column.
-  Mark `(label)` if transcript was unavailable.
-- **State problems as problems** in the one-liner if you state anything.
-- **Asymmetric one-liners are fine** — if Max worked on one thing, his line is
-  one clause; if Katie braided three threads, hers is one sentence with a
-  semicolon. Don't pad to match.
-- **Acknowledge limits.** Use ⚠ inline in the Δ column for validation-flagged
-  rows; don't write a paragraph about it.
-
-## Voice rules
-
-- **Quote, don't characterize.** Verbatim prompts in italics; never paraphrase intent.
+- **Quote, don't characterize.** Verbatim openings in italics; never paraphrase intent. Mark `(label)` if transcript was unavailable.
 - **State problems as problems.** "X needed Y" / "X was broken" — not "edited X."
-- **Credentials before claims.** Session ID + scale before meaning.
-- **Per-person sections are mandatory** even if uneven — asymmetry is information.
-- **Acknowledge limits.** If a session was sub-agent-skipped, transcript-empty, or validation-flagged, say so inline rather than substituting fiction.
+- **Credentials before claims.** Counts and session IDs before meaning. The executive summary leads with totals, not adjectives.
+- **Per-person sections are mandatory** even if uneven — asymmetry is information. Don't pad the shorter person's line to match.
+- **Acknowledge limits inline.** ⚠ in the Δ column for validation-flagged rows; one bullet in Notes for transcript gaps. Don't write a paragraph about it.
+- **Asymmetric is fine.** Different days will have different shapes. A "planning / spike day" with low commits but high MCP-OS is a real shape — name it, don't apologize for it.
 
 ## Don't
 
@@ -117,6 +137,7 @@ paragraphs, no reframe. The timeline + the one-liners ARE the shape.
 - Invent connections between sessions that aren't in the facts sheet.
 - Report on subagents as standalone work — they fold into their parent session.
 - Quote a prompt or count from a session listed in `validation.warnings` without flagging it.
+- Put the timeline above the executive summary. Analysis first.
 
 ## Failure modes the pipeline guards against
 

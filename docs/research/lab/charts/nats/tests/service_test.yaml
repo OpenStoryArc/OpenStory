@@ -1,0 +1,19 @@
+suite: NATS service is internal-only
+templates:
+  - service.yaml
+tests:
+  - it: defaults to ClusterIP
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: does not expose leaf port via Service
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 2
+      - notContains:
+          path: spec.ports
+          content:
+            name: leaf

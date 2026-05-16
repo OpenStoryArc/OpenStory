@@ -392,14 +392,10 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `mongo_db` | `openstory` | MongoDB database name (used only when `data_backend = "mongo"`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
-| `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
 | `metrics_enabled` | `false` | Enable Prometheus `/metrics` endpoint |
 | `retention_days` | `0` (no cleanup) | Auto-delete sessions older than N days on boot |
-| `semantic_enabled` | `false` | Enable semantic search (requires Qdrant) |
-| `qdrant_url` | `http://localhost:6334` | Qdrant gRPC endpoint URL |
-| `embedding_model_path` | `""` | Path to ONNX embedding model directory |
 
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).
 

@@ -1,0 +1,38 @@
+# NATS hub chart values for the lab V0 deployment.
+#
+# The hub config is composed from deploy/nats-hub.conf (single source
+# of truth, shared with the legacy docker-compose deploy). The lab's
+# k3s bootstrap unit writes that file to /etc/openstory-lab/nats-hub.conf
+# on the NixOS host; this chart picks it up via hostPath into a ConfigMap.
+
+image:
+  repository: nats
+  tag: "2.10-alpine"
+  pullPolicy: IfNotPresent
+
+# JetStream persistent storage on the host.
+storage:
+  hostPath: /var/lib/nats
+  size: 10Gi
+
+# The hub config file path on the NixOS host (set by modules/nats-hub.nix
+# via environment.etc."openstory-lab/nats-hub.conf").
+hubConfigHostPath: /etc/openstory-lab/nats-hub.conf
+
+service:
+  # Internal-only by default — only the openstory pod talks to NATS,
+  # and only via cluster DNS. NetworkPolicy in the openstory chart
+  # belt-and-braces this.
+  type: ClusterIP
+  clientPort: 4222
+  monitorPort: 8222
+  leafPort: 7422
+
+# Resource limits — modest, single-host lab.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
