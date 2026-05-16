@@ -375,6 +375,8 @@ mod tests {
                 input_tokens: Some(1000),
                 output_tokens: Some(500),
                 total_tokens: None,
+                cache_creation_input_tokens: None,
+                cache_read_input_tokens: None,
                 scope: TokenScope::Turn,
             }));
             assert_eq!(extract_text(&vr), None);
