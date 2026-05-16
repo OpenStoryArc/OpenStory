@@ -176,6 +176,15 @@ pub struct TokenUsage {
     pub output_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u64>,
+    // Prompt-cache accounting. Without these, `input_tokens` alone dramatically
+    // undercounts what a turn cost — cache_read often dwarfs the uncached
+    // delta by 1000x+. Claude Code populates these as
+    // cache_creation_input_tokens / cache_read_input_tokens; pi-mono uses
+    // its native cacheWrite / cacheRead, mapped here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<u64>,
     pub scope: TokenScope,
 }
 

@@ -78,21 +78,30 @@ uv run scripts/query_code_vocab.py        --session SESSION_ID
 uv run scripts/query_snapshot_shapes.py   --session SESSION_ID
 ```
 
-The shape-layer fact sheet has five blocks:
+The shape-layer fact sheet has nine blocks:
 
 1. **Prompt skeleton** — verbs / subjects / objects / chunks / adjectives / adverbs
-   histograms across all 76 prompts. This is *what the user was pointing at*.
+   histograms across all prompts. *What the user was pointing at.*
 2. **Path footprint** — top segments / extensions / tools / naming-vocab and
-   the most-touched paths. This is *where attention went in the codebase*.
+   the most-touched paths. *Where attention went in the codebase.*
 3. **Bash dialect** — programs / per-program subcommands / pipeline%
-   / redirect%. This is *what was actually run*.
-4. **Hourly rhythm** — prompts/paths/bash counts per `MM-DD HH` bucket. This
+   / redirect%. *What was actually run.*
+4. **Change profile** — Edit/Write/MultiEdit deltas, total lines added/removed,
+   top-changed files with edit counts. *The magnitude of the work.*
+5. **Code vocabulary** — identifiers extracted from new code, per language and
+   overall. *The interior calligraphy — names introduced into the code itself.*
+6. **Docs vocabulary** — headers, named concepts, bold terms, link labels
+   from prose files. *Named concepts of the project as it was being written about.*
+7. **Working-memory timeline** — file_snapshot manifests over time:
+   tracked_count, new files, version bumps. *How the working set grew.*
+8. **Hourly rhythm** — prompts/paths/bash counts per `MM-DD HH` bucket. This
    reveals working blocks, break gaps, and sleep boundaries without anyone
    having to label them.
-5. **PR & git activity** — every `gh pr` / `git push` / `git merge` command
+9. **PR & git activity** — every `gh pr` / `git push` / `git merge` command
    with its timestamp. This is the artifact trail of what shipped.
-6. **Prompt sequence** — every prompt in time order with `HH:MM` stamps. This
-   is the *script* of the session.
+
+Plus the **prompt sequence** — every prompt in time order with `HH:MM` stamps.
+The *script* of the session.
 
 ### Phase 2 — Narrate
 
