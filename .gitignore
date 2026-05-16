@@ -1,5 +1,6 @@
-# Rust
-rs/target/
+# Rust — any cargo build dir at any depth (rs/target/ for the main workspace,
+# rs/mcp/target/ for the incubating mcp sub-workspace, etc.)
+**/target/
 
 # Node
 node_modules/

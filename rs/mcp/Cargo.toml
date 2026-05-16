@@ -1,0 +1,25 @@
+# open-story-mcp is its own workspace root during incubation, so it
+# can be developed independently of rs/Cargo.toml's member list.
+# Once the API stabilizes, it'll be promoted into the main workspace.
+[workspace]
+
+[package]
+name = "open-story-mcp"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Rust-native MCP server for open-story — streaming session subscriptions, no Python in the path"
+
+[[bin]]
+name = "open-story-mcp"
+path = "src/bin/open-story-mcp.rs"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
