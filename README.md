@@ -168,13 +168,28 @@ GET /api/search?q=...                              — full-text search across e
 `rs/mcp/` is the agent-facing edge of OpenStory: a single-binary Rust MCP (Model Context Protocol) server that handles both **live streaming subscriptions** (the agent watches its own session in real time) and **query tools** (sessions, search, analytics, transcripts, …). JSON-RPC 2.0 over stdio. Built and tested as a first-class workspace crate.
 
 ```bash
-# build
+# build (SQLite backend only)
 cargo build --release -p open-story-mcp
 
-# run (connects to NATS at $OPENSTORY_NATS_URL or nats://localhost:4222
-# and opens the data dir at $OPENSTORY_DATA_DIR or ./data)
+# build with MongoDB backend support
+cargo build --release -p open-story-mcp --features mongo
+
+# run — picks store backend from OPENSTORY_DATA_BACKEND (default "sqlite",
+# or "mongo" if built with --features mongo). NATS is always required.
 ./rs/target/release/open-story-mcp
 ```
+
+**Environment:**
+
+| Var | Default | Used when |
+|---|---|---|
+| `OPENSTORY_NATS_URL` | `nats://localhost:4222` | always |
+| `OPENSTORY_DATA_BACKEND` | `sqlite` | always — `sqlite` or `mongo` |
+| `OPENSTORY_DATA_DIR` | `./data` | `DATA_BACKEND=sqlite` (SQLite db + plans dir live here) |
+| `OPENSTORY_MONGO_URI` | `mongodb://localhost:27017` | `DATA_BACKEND=mongo` |
+| `OPENSTORY_MONGO_DB` | `openstory` | `DATA_BACKEND=mongo` |
+
+(Match these to the OpenStory server's own `config.toml` so MCP and server share the same store.)
 
 Register it with Claude Code:
 

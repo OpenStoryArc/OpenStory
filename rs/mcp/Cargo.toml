@@ -9,6 +9,14 @@ description = "Rust-native MCP server for open-story — streaming subscriptions
 name = "open-story-mcp"
 path = "src/bin/open-story-mcp.rs"
 
+[features]
+default = []
+# Build with `--features mongo` to enable MongoDB as a selectable backend.
+# Pass-through to open-story-store/mongo; without this feature, the
+# OPENSTORY_DATA_BACKEND=mongo path is compiled out and selecting it
+# at runtime yields a clear error.
+mongo = ["open-story-store/mongo"]
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
