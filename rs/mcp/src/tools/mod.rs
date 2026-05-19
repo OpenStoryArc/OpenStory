@@ -11,6 +11,7 @@
 //! the writer channel to emit notifications. Everything else routes
 //! through `dispatch_query_tool` here.
 
+pub mod per_session;
 pub mod sessions;
 
 use open_story_store::event_store::EventStore;
@@ -48,6 +49,38 @@ pub const TOOLS: &[ToolDef] = &[
                       Args: days (default 7). Returns project_id, project_name, session_count, \
                       event_count, last_activity per project.",
         input_schema: sessions::project_pulse_schema,
+    },
+    // Per-session detail tools.
+    ToolDef {
+        name: "tool_journey",
+        description: "Tool-call sequence for a session, in timestamp order. \
+                      Each entry: {tool, file, timestamp}.",
+        input_schema: per_session::tool_journey_schema,
+    },
+    ToolDef {
+        name: "file_impact",
+        description: "Files read or written in a session, with per-file read/write counts. \
+                      Sorted by total operations.",
+        input_schema: per_session::file_impact_schema,
+    },
+    ToolDef {
+        name: "session_errors",
+        description: "Error events from a session (system.error subtype). \
+                      Each entry: {timestamp, message}.",
+        input_schema: per_session::session_errors_schema,
+    },
+    ToolDef {
+        name: "session_patterns",
+        description: "Detected patterns for a session. Optional `pattern_type` arg \
+                      filters (e.g., turn.sentence, eval_apply.eval, git.workflow).",
+        input_schema: per_session::session_patterns_schema,
+    },
+    ToolDef {
+        name: "session_sentences",
+        description: "Narrative sentences extracted from a session's turn.sentence \
+                      patterns. Each carries verb/object/human_prompt for agent-level \
+                      'what was the agent doing' reasoning.",
+        input_schema: per_session::session_sentences_schema,
     },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
@@ -111,6 +144,11 @@ pub async fn dispatch_query_tool(
         "list_sessions" => sessions::list_sessions(store, args).await,
         "session_synopsis" => sessions::session_synopsis(store, args).await,
         "project_pulse" => sessions::project_pulse(store, args).await,
+        "tool_journey" => per_session::tool_journey(store, args).await,
+        "file_impact" => per_session::file_impact(store, args).await,
+        "session_errors" => per_session::session_errors(store, args).await,
+        "session_patterns" => per_session::session_patterns(store, args).await,
+        "session_sentences" => per_session::session_sentences(store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
