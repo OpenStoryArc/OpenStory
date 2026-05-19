@@ -47,9 +47,10 @@ mod when_a_client_calls_subscribe_session_then_events_are_published {
         let (mut client_write, server_read) = tokio::io::duplex(8192);
         let (server_write, client_read) = tokio::io::duplex(8192);
 
-        let sub_for_server = subscriber.clone();
+        let (store, _tmp) = common::make_test_store();
+        let test_server = open_story_mcp::server::Server::new(subscriber.clone(), store);
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write, sub_for_server)
+            stdio::run(server_read, server_write, test_server)
                 .await
                 .unwrap();
         });
@@ -107,9 +108,10 @@ mod when_the_client_sends_notifications_cancelled_with_the_request_id {
         let (mut client_write, server_read) = tokio::io::duplex(8192);
         let (server_write, client_read) = tokio::io::duplex(8192);
 
-        let sub_for_server = subscriber.clone();
+        let (store, _tmp) = common::make_test_store();
+        let test_server = open_story_mcp::server::Server::new(subscriber.clone(), store);
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write, sub_for_server)
+            stdio::run(server_read, server_write, test_server)
                 .await
                 .unwrap();
         });

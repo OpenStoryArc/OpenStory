@@ -11,9 +11,11 @@
 //! Client cancels via `notifications/cancelled` referencing the original
 //! request id.
 //!
-//! The transport is generic over `S: Subscribe`. Production passes
-//! `NatsBus`. Integration tests pass a `LoopbackSubscriber`.
+//! The transport is generic over `S: Subscribe`. Production passes a
+//! `Server { subscriber: NatsBus, store: SqliteStore }`. Integration
+//! tests pass a `Server { subscriber: LoopbackSubscriber, store: <temp> }`.
 
+use crate::server::Server;
 use crate::subscription::Subscribe;
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -23,7 +25,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Mutex};
 
 /// Drive a stdio MCP session to completion. Returns when stdin closes.
-pub async fn run<R, W, S>(input: R, output: W, subscriber: S) -> Result<()>
+pub async fn run<R, W, S>(input: R, output: W, server: Server<S>) -> Result<()>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -56,7 +58,7 @@ where
         if line.trim().is_empty() {
             continue;
         }
-        handle_line(&line, &subscriber, &tx, &subs).await;
+        handle_line(&line, &server, &tx, &subs).await;
     }
 
     // Stdin closed — tear down everything.
@@ -73,7 +75,7 @@ where
 
 async fn handle_line<S: Subscribe>(
     line: &str,
-    subscriber: &S,
+    server: &Server<S>,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 ) {
@@ -111,11 +113,11 @@ async fn handle_line<S: Subscribe>(
             .unwrap_or("");
         match name {
             "subscribe_session" => {
-                handle_subscribe_session(parsed, subscriber, out, subs).await;
+                handle_subscribe_session(parsed, server, out, subs).await;
                 return;
             }
             "subscribe_tokens" => {
-                handle_subscribe_tokens(parsed, subscriber, out, subs).await;
+                handle_subscribe_tokens(parsed, server, out, subs).await;
                 return;
             }
             _ => {}
@@ -130,7 +132,7 @@ async fn handle_line<S: Subscribe>(
 
 async fn handle_subscribe_session<S: Subscribe>(
     parsed: Value,
-    subscriber: &S,
+    server: &Server<S>,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 ) {
@@ -153,7 +155,7 @@ async fn handle_subscribe_session<S: Subscribe>(
         return;
     };
 
-    let mut subscription = match subscriber.subscribe(&session_id).await {
+    let mut subscription = match server.subscriber.subscribe(&session_id).await {
         Ok(s) => s,
         Err(e) => {
             let resp = crate::protocol::JsonRpcResponse::failure(
@@ -206,7 +208,7 @@ async fn handle_subscribe_session<S: Subscribe>(
 
 async fn handle_subscribe_tokens<S: Subscribe>(
     parsed: Value,
-    subscriber: &S,
+    server: &Server<S>,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 ) {
@@ -229,7 +231,7 @@ async fn handle_subscribe_tokens<S: Subscribe>(
         return;
     };
 
-    let mut subscription = match subscriber.subscribe(&session_id).await {
+    let mut subscription = match server.subscriber.subscribe(&session_id).await {
         Ok(s) => s,
         Err(e) => {
             let resp = crate::protocol::JsonRpcResponse::failure(

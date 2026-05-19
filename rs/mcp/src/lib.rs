@@ -5,6 +5,7 @@
 
 pub mod nats_bus;
 pub mod protocol;
+pub mod server;
 pub mod stdio;
 pub mod subscription;
 pub mod tokens;

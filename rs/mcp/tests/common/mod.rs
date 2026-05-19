@@ -12,6 +12,27 @@
 #![allow(dead_code)]
 
 pub mod nats_container;
+pub mod store_fixture;
+
+pub use store_fixture::make_test_store;
+
+use open_story_mcp::server::Server;
+use tempfile::TempDir;
+
+/// Build a test `Server` holding a fresh `LoopbackSubscriber` and a
+/// temp-dir `SqliteStore`. Returns the server, a clone of the
+/// subscriber the test can use for `.publish(...)`, and the
+/// `TempDir` guard the test must keep in scope.
+///
+/// Usage:
+///     let (server, subscriber, _tmp) = common::make_test_server();
+///     // pass `server` into stdio::run
+///     // call `subscriber.publish(sid, batch)` to fire events
+pub fn make_test_server() -> (Server<LoopbackSubscriber>, LoopbackSubscriber, TempDir) {
+    let (store, dir) = make_test_store();
+    let subscriber = LoopbackSubscriber::new();
+    (Server::new(subscriber.clone(), store), subscriber, dir)
+}
 
 use anyhow::Result;
 use async_trait::async_trait;
