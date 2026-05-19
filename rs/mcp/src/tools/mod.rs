@@ -11,6 +11,7 @@
 //! the writer channel to emit notifications. Everything else routes
 //! through `dispatch_query_tool` here.
 
+pub mod analytics;
 pub mod per_session;
 pub mod projects;
 pub mod search;
@@ -130,6 +131,27 @@ pub const TOOLS: &[ToolDef] = &[
                       Args: project (id), session_limit (default 5).",
         input_schema: projects::recent_files_schema,
     },
+    // Analytics tools.
+    ToolDef {
+        name: "token_usage",
+        description: "Aggregated token usage with cost estimate. Args: days (optional), \
+                      session_id (optional scope), model (sonnet/opus/haiku, default sonnet). \
+                      Includes prompt-cache fields (cache_creation, cache_read) — the silent \
+                      4-5-order-of-magnitude undercount that PR #55 fixed at the views layer.",
+        input_schema: analytics::token_usage_schema,
+    },
+    ToolDef {
+        name: "daily_token_usage",
+        description: "Per-day token usage over a window. Args: days (default 7). \
+                      Returns one entry per UTC date with the same TokenUsage shape.",
+        input_schema: analytics::daily_token_usage_schema,
+    },
+    ToolDef {
+        name: "productivity",
+        description: "Hourly activity density: event counts per hour-of-day (0–23) \
+                      over a window. Args: days (default 30).",
+        input_schema: analytics::productivity_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -204,6 +226,9 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "agent_search" => search::agent_search(&server.store, args).await,
         "project_context" => projects::project_context(&server.store, args).await,
         "recent_files" => projects::recent_files(&server.store, args).await,
+        "token_usage" => analytics::token_usage(&server.store, args).await,
+        "daily_token_usage" => analytics::daily_token_usage(&server.store, args).await,
+        "productivity" => analytics::productivity(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
