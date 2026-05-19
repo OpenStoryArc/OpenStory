@@ -4,14 +4,17 @@
 //! and writes responses (one per line) to `stdout`. Notifications produce
 //! no output.
 //!
-//! Streaming tools (`subscribe_session`) are special-cased: the tool call
-//! returns immediately with `{stream_id, status: "started"}`, then a
-//! background task pumps events from the bus to stdout as
-//! `notifications/openstory/stream` lines tagged with the stream_id.
+//! Streaming tools (`subscribe_session`, `subscribe_tokens`) are
+//! special-cased: the tool call returns immediately with
+//! `{stream_id, status: "started"}`, then a background task pumps events
+//! from the bus to stdout as notification lines tagged with the stream_id.
 //! Client cancels via `notifications/cancelled` referencing the original
 //! request id.
+//!
+//! The transport is generic over `S: Subscribe`. Production passes
+//! `NatsBus`. Integration tests pass a `LoopbackSubscriber`.
 
-use crate::bus::InMemoryBus;
+use crate::subscription::Subscribe;
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -19,21 +22,12 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Mutex};
 
-/// Compat entry — uses a fresh InMemoryBus (no real event flow).
-/// Used by tests that don't exercise subscriptions.
-pub async fn run<R, W>(input: R, output: W) -> Result<()>
+/// Drive a stdio MCP session to completion. Returns when stdin closes.
+pub async fn run<R, W, S>(input: R, output: W, subscriber: S) -> Result<()>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
-    run_with_bus(input, output, InMemoryBus::new()).await
-}
-
-/// Full transport. Subscribes flow through `bus`.
-pub async fn run_with_bus<R, W>(input: R, output: W, bus: InMemoryBus) -> Result<()>
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Subscribe,
 {
     // Single writer task — every line that needs to leave the process
     // goes through this mpsc so the wire stays free of interleaved bytes.
@@ -62,7 +56,7 @@ where
         if line.trim().is_empty() {
             continue;
         }
-        handle_line(&line, &bus, &tx, &subs).await;
+        handle_line(&line, &subscriber, &tx, &subs).await;
     }
 
     // Stdin closed — tear down everything.
@@ -77,9 +71,9 @@ where
     Ok(())
 }
 
-async fn handle_line(
+async fn handle_line<S: Subscribe>(
     line: &str,
-    bus: &InMemoryBus,
+    subscriber: &S,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 ) {
@@ -93,7 +87,6 @@ async fn handle_line(
     };
 
     let method = parsed.get("method").and_then(|v| v.as_str()).unwrap_or("");
-    let id_field = parsed.get("id").cloned();
 
     // notifications/cancelled — tear down the matching subscription.
     if method == "notifications/cancelled" {
@@ -109,16 +102,23 @@ async fn handle_line(
         return;
     }
 
-    // tools/call subscribe_session — start a stream.
+    // tools/call subscribe_session / subscribe_tokens — start a stream.
     if method == "tools/call" {
         let name = parsed
             .get("params")
             .and_then(|p| p.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if name == "subscribe_session" {
-            handle_subscribe_session(parsed, bus, out, subs).await;
-            return;
+        match name {
+            "subscribe_session" => {
+                handle_subscribe_session(parsed, subscriber, out, subs).await;
+                return;
+            }
+            "subscribe_tokens" => {
+                handle_subscribe_tokens(parsed, subscriber, out, subs).await;
+                return;
+            }
+            _ => {}
         }
     }
 
@@ -128,9 +128,9 @@ async fn handle_line(
     }
 }
 
-async fn handle_subscribe_session(
+async fn handle_subscribe_session<S: Subscribe>(
     parsed: Value,
-    bus: &InMemoryBus,
+    subscriber: &S,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 ) {
@@ -153,10 +153,20 @@ async fn handle_subscribe_session(
         return;
     };
 
-    let mut subscription = bus.subscribe(session_id.clone()).await;
+    let mut subscription = match subscriber.subscribe(&session_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            let resp = crate::protocol::JsonRpcResponse::failure(
+                id,
+                crate::protocol::error_code::INTERNAL_ERROR,
+                &format!("subscribe failed: {e}"),
+            );
+            let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+            return;
+        }
+    };
     let stream_id = subscription.stream_id.to_string();
 
-    // Acknowledge immediately.
     let result = json!({
         "isError": false,
         "content": [{
@@ -171,8 +181,6 @@ async fn handle_subscribe_session(
     let response = crate::protocol::JsonRpcResponse::success(id, result);
     let _ = out.send(serde_json::to_string(&response).unwrap()).await;
 
-    // Spawn the pump task. Each delivered event becomes a notification
-    // line on the wire, tagged with the stream_id.
     let pump_out = out.clone();
     let pump_stream_id = stream_id.clone();
     let handle = tokio::spawn(async move {
@@ -189,6 +197,93 @@ async fn handle_subscribe_session(
             });
             if pump_out.send(serde_json::to_string(&notif).unwrap()).await.is_err() {
                 break;
+            }
+        }
+    });
+
+    subs.lock().await.insert(id_key, handle);
+}
+
+async fn handle_subscribe_tokens<S: Subscribe>(
+    parsed: Value,
+    subscriber: &S,
+    out: &mpsc::Sender<String>,
+    subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+) {
+    let id = parsed.get("id").cloned().unwrap_or(Value::Null);
+    let id_key = id_as_key(&id);
+    let session_id = parsed
+        .get("params")
+        .and_then(|p| p.get("arguments"))
+        .and_then(|a| a.get("session_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+
+    let Some(session_id) = session_id else {
+        let resp = crate::protocol::JsonRpcResponse::failure(
+            id,
+            crate::protocol::error_code::INVALID_PARAMS,
+            "subscribe_tokens requires `session_id`",
+        );
+        let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+        return;
+    };
+
+    let mut subscription = match subscriber.subscribe(&session_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            let resp = crate::protocol::JsonRpcResponse::failure(
+                id,
+                crate::protocol::error_code::INTERNAL_ERROR,
+                &format!("subscribe failed: {e}"),
+            );
+            let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+            return;
+        }
+    };
+    let stream_id = subscription.stream_id.to_string();
+
+    let result = json!({
+        "isError": false,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "stream_id": stream_id,
+                "session_id": session_id,
+                "status": "started",
+                "watching": "tokens"
+            })).unwrap(),
+        }]
+    });
+    let response = crate::protocol::JsonRpcResponse::success(id, result);
+    let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+
+    let pump_out = out.clone();
+    let pump_stream_id = stream_id.clone();
+    let handle = tokio::spawn(async move {
+        let mut agg = crate::tokens::TokenAggregator::new();
+        let mut seq: u64 = 1;
+        while let Some(event) = subscription.recv().await {
+            // event.data is the IngestBatch JSON shape:
+            //   { session_id, project_id, events: [CloudEvent, ...] }
+            // TokenAggregator walks events[*].data.raw.message.usage.
+            if let Some((delta, running)) = agg.observe(&event.data) {
+                let notif = json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/openstory/tokens",
+                    "params": {
+                        "stream_id": pump_stream_id,
+                        "seq": seq,
+                        "session_id": event.session_id,
+                        "delta": delta,
+                        "running": running,
+                        "total": running.total(),
+                    }
+                });
+                seq += 1;
+                if pump_out.send(serde_json::to_string(&notif).unwrap()).await.is_err() {
+                    break;
+                }
             }
         }
     });

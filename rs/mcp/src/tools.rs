@@ -54,6 +54,16 @@ pub const SEED_TOOLS: &[ToolDef] = &[
         input_schema: subscribe_session_schema,
         invoke: subscribe_session_marker,
     },
+    ToolDef {
+        name: "subscribe_tokens",
+        description: "Self-reflective token watcher. Subscribes to a session and streams \
+                      a running token tally (input, output, cache_read, cache_create) per \
+                      assistant message. Useful for an agent to watch its own context \
+                      consumption. Emits `notifications/openstory/tokens` with delta + \
+                      running total. Cancel via `notifications/cancelled`.",
+        input_schema: subscribe_session_schema,
+        invoke: subscribe_session_marker,
+    },
 ];
 
 fn subscribe_session_schema() -> Value {

@@ -1,11 +1,15 @@
-//! Streaming notifications over stdio against the InMemoryBus.
+//! Streaming notifications over stdio against the LoopbackSubscriber.
 //!
 //! These tests exercise the end-to-end loop that powers
 //! `subscribe_session`: tool call returns immediately with a
 //! stream_id, then notifications/openstory/stream lines deliver
-//! events as they arrive on the bus.
+//! events as they arrive on the bus. The "bus" here is a
+//! `LoopbackSubscriber` that pushes test-constructed IngestBatches
+//! through the same `pump_subscription` production uses.
 
-use open_story_mcp::bus::InMemoryBus;
+mod common;
+
+use common::{batch_with_raw, LoopbackSubscriber};
 use open_story_mcp::stdio;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -39,13 +43,13 @@ mod when_a_client_calls_subscribe_session_then_events_are_published {
 
     #[tokio::test]
     async fn the_client_receives_the_initial_ack_and_then_per_event_notifications() {
-        let bus = InMemoryBus::new();
+        let subscriber = LoopbackSubscriber::new();
         let (mut client_write, server_read) = tokio::io::duplex(8192);
         let (server_write, client_read) = tokio::io::duplex(8192);
 
-        let bus_for_server = bus.clone();
+        let sub_for_server = subscriber.clone();
         let server = tokio::spawn(async move {
-            stdio::run_with_bus(server_read, server_write, bus_for_server)
+            stdio::run(server_read, server_write, sub_for_server)
                 .await
                 .unwrap();
         });
@@ -67,9 +71,10 @@ mod when_a_client_calls_subscribe_session_then_events_are_published {
         let stream_id = extract_stream_id(&ack);
         assert!(!stream_id.is_empty(), "stream_id must be present in the ack");
 
-        // 2. Publish 3 events on the bus.
+        // 2. Publish 3 batches through the loopback.
         for i in 0..3 {
-            bus.publish("sid-1", json!({"i": i, "msg": format!("event-{i}")})).await;
+            let batch = batch_with_raw("sid-1", json!({"i": i, "msg": format!("event-{i}")}));
+            subscriber.publish("sid-1", batch).await;
         }
 
         // 3. Three notification lines should arrive tagged with stream_id.
@@ -98,13 +103,13 @@ mod when_the_client_sends_notifications_cancelled_with_the_request_id {
 
     #[tokio::test]
     async fn the_stream_stops_and_post_cancel_publishes_are_not_delivered() {
-        let bus = InMemoryBus::new();
+        let subscriber = LoopbackSubscriber::new();
         let (mut client_write, server_read) = tokio::io::duplex(8192);
         let (server_write, client_read) = tokio::io::duplex(8192);
 
-        let bus_for_server = bus.clone();
+        let sub_for_server = subscriber.clone();
         let server = tokio::spawn(async move {
-            stdio::run_with_bus(server_read, server_write, bus_for_server)
+            stdio::run(server_read, server_write, sub_for_server)
                 .await
                 .unwrap();
         });
@@ -125,7 +130,9 @@ mod when_the_client_sends_notifications_cancelled_with_the_request_id {
 
         // Publish 2 events — both should arrive.
         for i in 0..2 {
-            bus.publish("sid-x", json!({"i": i})).await;
+            subscriber
+                .publish("sid-x", batch_with_raw("sid-x", json!({"i": i})))
+                .await;
         }
         for _ in 0..2 {
             let n = read_next_response(&mut reader).await;
@@ -145,7 +152,9 @@ mod when_the_client_sends_notifications_cancelled_with_the_request_id {
         // Give the cancellation a moment to land, then publish more.
         tokio::time::sleep(Duration::from_millis(50)).await;
         for i in 2..5 {
-            bus.publish("sid-x", json!({"i": i})).await;
+            subscriber
+                .publish("sid-x", batch_with_raw("sid-x", json!({"i": i})))
+                .await;
         }
 
         // Now any new notification would be a violation — assert nothing comes within 200ms.

@@ -2,7 +2,12 @@
 //!
 //! Tests use in-memory pipes (DuplexStream) rather than spawning the
 //! binary — same code path as the binary's main(), zero process spawn.
+//! The subscriber argument is a no-op `LoopbackSubscriber` since these
+//! tests don't exercise streaming tools.
 
+mod common;
+
+use common::LoopbackSubscriber;
 use open_story_mcp::stdio;
 use tokio::io::AsyncWriteExt;
 
@@ -15,7 +20,9 @@ mod when_a_client_pipes_an_initialize_request_over_stdio {
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write).await.unwrap();
+            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+                .await
+                .unwrap();
         });
 
         let request = serde_json::json!({
@@ -51,7 +58,9 @@ mod when_a_client_pipes_multiple_requests_back_to_back {
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write).await.unwrap();
+            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+                .await
+                .unwrap();
         });
 
         for id in 1..=3 {
@@ -84,7 +93,9 @@ mod when_a_client_sends_a_notification_then_a_request {
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write).await.unwrap();
+            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+                .await
+                .unwrap();
         });
 
         let notif = serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
