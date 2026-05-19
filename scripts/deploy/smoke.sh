@@ -11,8 +11,9 @@
 #   2. NATS leaf listener bound
 #   3. Open Story /api/sessions returns 200
 #   4. Session count >= MIN_SESSIONS (default 10) — guards against data loss
-#   5. openclaw-mcp container has /opt/mcp-server/server.py and `uv --version`
-#      works inside it
+#   5. openclaw-mcp container has /usr/local/bin/open-story-mcp (the Rust
+#      MCP binary baked into the image by Dockerfile.openclaw) and it
+#      reports a valid `--help`/`--version` exit
 #   6. openclaw.json at runtime contains the mcp.servers.openstory block
 #
 # Usage:
@@ -42,7 +43,7 @@ CHECKS:
     3. NATS leaf listener bound (log scan for "Listening for leafnode")
     4. Open Story /api/sessions returns 200
     5. session count >= MIN_SESSIONS
-    6. openclaw-mcp: /opt/mcp-server/server.py exists and uv --version works
+    6. openclaw-mcp: /usr/local/bin/open-story-mcp exists and is executable
     7. openclaw.json contains mcp.servers.openstory block
 
     Each check is marked [ok] or [FAIL] on its own line. Exits non-zero on
@@ -165,15 +166,15 @@ for envfile in deploy/*.env; do
     [ "$name" = "infra" ] && continue
     ctr="${name}-openclaw-1"
 
-    if docker exec "${ctr}" test -f /opt/mcp-server/server.py 2>/dev/null; then
-        pass "${name}: /opt/mcp-server/server.py present"
+    if docker exec "${ctr}" test -x /usr/local/bin/open-story-mcp 2>/dev/null; then
+        pass "${name}: /usr/local/bin/open-story-mcp present and executable"
     else
-        bad  "${name}: /opt/mcp-server/server.py missing"
+        bad  "${name}: /usr/local/bin/open-story-mcp missing or not executable"
     fi
-    if docker exec "${ctr}" uv --version >/dev/null 2>&1; then
-        pass "${name}: uv --version"
+    if docker exec "${ctr}" test -f /opt/openstory-skill/SKILL.md 2>/dev/null; then
+        pass "${name}: /opt/openstory-skill/SKILL.md present"
     else
-        bad  "${name}: uv --version failed"
+        bad  "${name}: /opt/openstory-skill/SKILL.md missing"
     fi
     if docker exec "${ctr}" grep -q '"openstory"' /home/node/.openclaw/openclaw.json 2>/dev/null; then
         pass "${name}: openclaw.json mcp.servers.openstory present"
