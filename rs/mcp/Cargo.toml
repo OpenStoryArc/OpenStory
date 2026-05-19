@@ -1,9 +1,3 @@
-# open-story-mcp is its own workspace root during incubation, so it
-# can be developed independently of rs/Cargo.toml's member list.
-# Once the API stabilizes (after the full-rewrite PR), it'll be
-# promoted into the main workspace.
-[workspace]
-
 [package]
 name = "open-story-mcp"
 version = "0.1.0"

@@ -1,8 +1,5 @@
 [workspace]
-# Note: `mcp` is intentionally NOT a workspace member — it declares its own
-# [workspace] in rs/mcp/Cargo.toml because it's still incubating and is built
-# independently. Promote it into the members list once its API stabilizes.
-members = [".", "bus", "cli", "core", "patterns", "schemas", "server", "store", "views"]
+members = [".", "bus", "cli", "core", "mcp", "patterns", "schemas", "server", "store", "views"]
 
 [package]
 name = "open-story"

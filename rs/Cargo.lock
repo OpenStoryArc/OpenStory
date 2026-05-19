@@ -2829,6 +2829,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-story-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "async-trait",
+ "chrono",
+ "open-story-bus",
+ "open-story-core",
+ "open-story-store",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "testcontainers",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "open-story-patterns"
 version = "0.1.0"
 dependencies = [
