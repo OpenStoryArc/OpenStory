@@ -12,6 +12,8 @@
 //! through `dispatch_query_tool` here.
 
 pub mod per_session;
+pub mod projects;
+pub mod search;
 pub mod sessions;
 
 use crate::server::Server;
@@ -102,6 +104,32 @@ pub const TOOLS: &[ToolDef] = &[
                       plan_count, duration_ms, start_time. Lower-level than session_story.",
         input_schema: per_session::session_activity_schema,
     },
+    // Search tools.
+    ToolDef {
+        name: "search",
+        description: "Full-text search across indexed events. Args: query (FTS5 syntax), \
+                      limit (default 10), session_id (optional scope). Returns raw FTS hits.",
+        input_schema: search::search_schema,
+    },
+    ToolDef {
+        name: "agent_search",
+        description: "FTS results grouped by session, agent-friendly. Args: query, \
+                      project (optional, case-insensitive substring), limit (default 5). \
+                      Returns top sessions by best_rank with matching events per session.",
+        input_schema: search::agent_search_schema,
+    },
+    // Project-scoped tools.
+    ToolDef {
+        name: "project_context",
+        description: "Recent sessions for a project. Args: project (id), limit (default 5).",
+        input_schema: projects::project_context_schema,
+    },
+    ToolDef {
+        name: "recent_files",
+        description: "Files touched in the most recent sessions of a project. \
+                      Args: project (id), session_limit (default 5).",
+        input_schema: projects::recent_files_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -172,6 +200,10 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "session_plans" => per_session::session_plans(&server.plan_store, args).await,
         "session_transcript" => per_session::session_transcript(&server.store, args).await,
         "session_activity" => per_session::session_activity(&server.store, args).await,
+        "search" => search::search(&server.store, args).await,
+        "agent_search" => search::agent_search(&server.store, args).await,
+        "project_context" => projects::project_context(&server.store, args).await,
+        "recent_files" => projects::recent_files(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
