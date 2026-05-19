@@ -34,6 +34,65 @@ pub fn make_test_server() -> (Server<LoopbackSubscriber>, LoopbackSubscriber, Te
     (Server::new(subscriber.clone(), store), subscriber, dir)
 }
 
+/// Drive a single `tools/call` through stdio against the given server
+/// and return the parsed JSON-RPC response. Closes stdin afterward so
+/// the server task completes.
+///
+/// Useful for query tools where you don't need to interact across
+/// multiple requests; streaming tools need the manual duplex pattern.
+pub async fn call_tool<S>(
+    test_server: Server<S>,
+    name: &str,
+    args: serde_json::Value,
+) -> serde_json::Value
+where
+    S: open_story_mcp::subscription::Subscribe,
+{
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (mut client_w, server_r) = tokio::io::duplex(64 * 1024);
+    let (server_w, client_r) = tokio::io::duplex(64 * 1024);
+
+    let server_task = tokio::spawn(async move {
+        let _ = open_story_mcp::stdio::run(server_r, server_w, test_server).await;
+    });
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": args},
+    });
+    let mut line = serde_json::to_string(&req).unwrap();
+    line.push('\n');
+    client_w.write_all(line.as_bytes()).await.unwrap();
+    drop(client_w); // signal end-of-stream so the server exits
+
+    let mut reader = tokio::io::BufReader::new(client_r).lines();
+    let response_line = reader
+        .next_line()
+        .await
+        .expect("readline must not error")
+        .expect("server must emit one response line");
+    let _ = server_task.await;
+    serde_json::from_str(&response_line).expect("response is valid JSON")
+}
+
+/// Extract the inner JSON payload from a `tools/call` response.
+/// Returns Err(message) if `isError` was true.
+pub fn unwrap_tool_result(response: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let result = &response["result"];
+    let is_err = result["isError"].as_bool().unwrap_or(false);
+    let text = result["content"][0]["text"]
+        .as_str()
+        .ok_or_else(|| "missing content[0].text".to_string())?;
+    if is_err {
+        Err(text.to_string())
+    } else {
+        serde_json::from_str(text).map_err(|e| format!("parse failed: {e}"))
+    }
+}
+
 use anyhow::Result;
 use async_trait::async_trait;
 use open_story_bus::IngestBatch;

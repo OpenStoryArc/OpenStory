@@ -104,27 +104,39 @@ async fn handle_line<S: Subscribe>(
         return;
     }
 
-    // tools/call subscribe_session / subscribe_tokens — start a stream.
+    // tools/call routing:
+    //   subscribe_* → streaming handlers (need writer + JSON-RPC id)
+    //   everything else → async query dispatch (needs store)
     if method == "tools/call" {
+        let id = parsed.get("id").cloned().unwrap_or(Value::Null);
         let name = parsed
             .get("params")
             .and_then(|p| p.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let args = parsed
+            .get("params")
+            .and_then(|p| p.get("arguments"))
+            .cloned()
+            .unwrap_or(Value::Null);
+
         match name {
             "subscribe_session" => {
                 handle_subscribe_session(parsed, server, out, subs).await;
-                return;
             }
             "subscribe_tokens" => {
                 handle_subscribe_tokens(parsed, server, out, subs).await;
-                return;
             }
-            _ => {}
+            _ => {
+                let result = crate::tools::dispatch_query_tool(&server.store, name, args).await;
+                let response = crate::protocol::JsonRpcResponse::success(id, result);
+                let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+            }
         }
+        return;
     }
 
-    // Everything else: delegate to the pure protocol handler.
+    // Everything else (initialize, tools/list, …): pure protocol handler.
     if let Some(resp) = crate::protocol::handle_message(line) {
         let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
     }

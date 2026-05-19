@@ -100,16 +100,15 @@ pub fn handle_message(raw: &str) -> Option<Value> {
     Some(match method {
         "initialize" => handle_initialize(id, params),
         "tools/list" => JsonRpcResponse::success(id, crate::tools::list_tools_result()),
-        "tools/call" => handle_tools_call(id, params),
+        // `tools/call` is NOT routed here — it needs async access to
+        // the store (for query tools) and the writer channel (for
+        // streaming tools), both of which live in `stdio.rs`. The
+        // stdio handler intercepts `tools/call` before reaching this
+        // function; any tools/call that arrives here means the call
+        // came in without the stdio layer wired up (test edge), which
+        // is not a real use case.
         _ => JsonRpcResponse::failure(id, error_code::METHOD_NOT_FOUND, "Method not found"),
     })
-}
-
-fn handle_tools_call(id: Value, params: Value) -> Value {
-    let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or(Value::Null);
-    let result = crate::tools::dispatch_tool_call(name, args);
-    JsonRpcResponse::success(id, result)
 }
 
 fn handle_initialize(id: Value, params: Value) -> Value {
