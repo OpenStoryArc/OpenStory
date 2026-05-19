@@ -1,47 +1,76 @@
-# OpenClaw image with Python + uv + OpenStory MCP server.
+# OpenClaw image with the Rust open-story-mcp binary baked in.
 #
 # OpenClaw's MCP support is stdio-only: it spawns a subprocess and talks
 # JSON-RPC over stdin/stdout. To let OpenClaw agents call OpenStory's MCP
-# tools, the MCP server has to run inside the OpenClaw container.
+# tools, the MCP binary has to live inside the OpenClaw container.
 #
-# This image extends the stock openclaw:latest with:
-#   - Python 3.11+ from Debian
-#   - uv (astral.sh) for fast dependency management
-#   - The mcp-server source at /opt/mcp-server
+# After the 2026-05 cutover the wrapper is native Rust (rs/mcp/) — no
+# Python runtime in this image. The binary talks to a shared Mongo + NATS
+# stack reached over the Docker network.
+#
+# Multi-stage build:
+#   Stage 1: rust:1.83-slim — compiles open-story-mcp with --features mongo.
+#            Layer-cached on Cargo.toml so iteration on source code skips
+#            the dep-compilation step.
+#   Stage 2: openclaw:latest — copies the binary in at /usr/local/bin.
 #
 # Usage:
 #   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 #
 # Prerequisites: openclaw:latest must already be built.
 
+# ── Stage 1: build the Rust MCP binary ────────────────────────────────
+FROM rust:1.88-slim AS mcp-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+        ca-certificates \
+        build-essential \
+        protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Pre-cache deps by copying just the manifests + workspace skeleton first.
+# This way `cargo fetch` (and the slow first cargo build of all deps)
+# only re-runs when Cargo.toml/Cargo.lock change.
+COPY rs/Cargo.toml rs/Cargo.lock ./rs/
+COPY rs/bus/Cargo.toml ./rs/bus/
+COPY rs/cli/Cargo.toml ./rs/cli/
+COPY rs/core/Cargo.toml ./rs/core/
+COPY rs/mcp/Cargo.toml ./rs/mcp/
+COPY rs/patterns/Cargo.toml ./rs/patterns/
+COPY rs/schemas/Cargo.toml ./rs/schemas/
+COPY rs/server/Cargo.toml ./rs/server/
+COPY rs/store/Cargo.toml ./rs/store/
+COPY rs/views/Cargo.toml ./rs/views/
+
+# Now bring in the actual source tree.
+COPY rs/ ./rs/
+
+# Build the Rust MCP with mongo support. Output: /build/rs/target/release/open-story-mcp
+RUN cd rs && cargo build --release -p open-story-mcp --features mongo
+
+# ── Stage 2: openclaw runtime with the binary baked in ───────────────
 FROM openclaw:latest
 
 USER root
 
-# Install Python 3 + pip + curl (for uv installer)
+# The Rust binary is statically-linked enough to run on the openclaw base,
+# but it needs libssl + libsqlite3 + ca-certificates at runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-venv \
-        python3-pip \
-        curl \
         ca-certificates \
+        libssl3 \
+        libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv (standalone binary, no Python deps)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && mv /root/.local/bin/uv /usr/local/bin/uv \
-    && mv /root/.local/bin/uvx /usr/local/bin/uvx \
-    && chmod +x /usr/local/bin/uv /usr/local/bin/uvx
+COPY --from=mcp-builder /build/rs/target/release/open-story-mcp /usr/local/bin/open-story-mcp
+RUN chmod +x /usr/local/bin/open-story-mcp
 
-# Copy the MCP server source into the image
-COPY mcp-server/ /opt/mcp-server/
-
-# Pre-install the MCP server dependencies so the first agent call doesn't
-# pay the cold-start cost of resolving fastmcp + httpx.
-RUN cd /opt/mcp-server && uv sync --frozen
-
-# The OpenClaw container runs as user 'node' (uid 1000). Make sure the
-# mcp-server directory and its .venv are readable by that user.
-RUN chown -R node:node /opt/mcp-server
+# The SKILL.md gets copied into the agent's workspace by the compose entrypoint
+# so the agent's skill loader sees the 21 OpenStory tools.
+RUN mkdir -p /opt/openstory-skill
+COPY rs/mcp/SKILL.md /opt/openstory-skill/SKILL.md
 
 USER node
