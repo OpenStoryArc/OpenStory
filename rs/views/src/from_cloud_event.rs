@@ -399,21 +399,27 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
             }];
 
             // Emit TokenUsage record if token_usage data is present.
-            // Field names differ by agent: Claude Code uses input_tokens/output_tokens,
-            // pi-mono uses input/output.
+            // Field names differ by agent: Claude Code uses input_tokens/output_tokens
+            // plus cache_creation_input_tokens/cache_read_input_tokens; pi-mono
+            // uses input/output plus cacheWrite/cacheRead. Both are preserved.
             if let Some(usage) = token_usage {
-                let (input_tokens, output_tokens, total_tokens) = match agent {
-                    "pi-mono" => (
-                        usage.get("input").and_then(|v| v.as_u64()),
-                        usage.get("output").and_then(|v| v.as_u64()),
-                        usage.get("totalTokens").and_then(|v| v.as_u64()),
-                    ),
-                    _ => (
-                        usage.get("input_tokens").and_then(|v| v.as_u64()),
-                        usage.get("output_tokens").and_then(|v| v.as_u64()),
-                        usage.get("total_tokens").and_then(|v| v.as_u64()),
-                    ),
-                };
+                let (input_tokens, output_tokens, total_tokens, cache_creation, cache_read) =
+                    match agent {
+                        "pi-mono" => (
+                            usage.get("input").and_then(|v| v.as_u64()),
+                            usage.get("output").and_then(|v| v.as_u64()),
+                            usage.get("totalTokens").and_then(|v| v.as_u64()),
+                            usage.get("cacheWrite").and_then(|v| v.as_u64()),
+                            usage.get("cacheRead").and_then(|v| v.as_u64()),
+                        ),
+                        _ => (
+                            usage.get("input_tokens").and_then(|v| v.as_u64()),
+                            usage.get("output_tokens").and_then(|v| v.as_u64()),
+                            usage.get("total_tokens").and_then(|v| v.as_u64()),
+                            usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()),
+                            usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
+                        ),
+                    };
                 if input_tokens.is_some() || output_tokens.is_some() {
                     records.push(ViewRecord {
                         id: format!("{id}:usage"),
@@ -426,6 +432,8 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             input_tokens,
                             output_tokens,
                             total_tokens,
+                            cache_creation_input_tokens: cache_creation,
+                            cache_read_input_tokens: cache_read,
                             scope: TokenScope::Turn,
                         }),
                     });
@@ -892,6 +900,7 @@ mod tests {
                  ensure the data block contains required EventData fields \
                  (raw, seq, session_id)")
     }
+
 
     // describe("from_cloud_event")
     // describe("when event is io.arc.event with subtype message.user.prompt")
@@ -1395,6 +1404,79 @@ mod tests {
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1, "should produce only AssistantMessage");
             assert!(matches!(&records[0].body, RecordBody::AssistantMessage(_)));
+        }
+
+        // describe("when a Claude Code event carries prompt-cache accounting")
+        #[test]
+        fn it_should_preserve_claude_code_cache_creation_and_cache_read_tokens() {
+            let event = make_cloud_event("message.assistant.text", json!({
+                "seq": 2,
+                "session_id": "sess-cache",
+                "model": "claude-sonnet-4-20250514",
+                "token_usage": {
+                    "input_tokens": 6,
+                    "output_tokens": 1,
+                    "cache_creation_input_tokens": 23686,
+                    "cache_read_input_tokens": 26875
+                },
+                "raw": {
+                    "type": "assistant",
+                    "message": {
+                        "model": "claude-sonnet-4-20250514",
+                        "content": [{"type": "text", "text": "Reading."}]
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            assert_eq!(records.len(), 2);
+            match &records[1].body {
+                RecordBody::TokenUsage(tu) => {
+                    assert_eq!(tu.input_tokens, Some(6));
+                    assert_eq!(tu.output_tokens, Some(1));
+                    assert_eq!(tu.cache_creation_input_tokens, Some(23686),
+                        "cache_creation_input_tokens must be preserved — \
+                         it's the bulk of what a turn actually costs");
+                    assert_eq!(tu.cache_read_input_tokens, Some(26875),
+                        "cache_read_input_tokens must be preserved — \
+                         high cache_read = an efficient prompt design signal");
+                }
+                other => panic!("expected TokenUsage, got {:?}", other),
+            }
+        }
+
+        // TODO: pi-mono view-layer cache-field test. The production code at
+        // from_cloud_event.rs maps pi-mono's `cacheWrite`/`cacheRead` onto
+        // the same view-layer fields, but a proper test needs a PiMonoPayload
+        // fixture that satisfies pi-mono's required fields. The translator
+        // side is already covered by translate_pi.rs::test_token_usage_preserved_native.
+
+        // describe("when cache fields are absent (older events)")
+        #[test]
+        fn it_should_leave_cache_fields_none_when_not_supplied() {
+            let event = make_cloud_event("message.assistant.text", json!({
+                "seq": 2,
+                "session_id": "sess-old",
+                "model": "claude-sonnet-4-20250514",
+                "token_usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50
+                },
+                "raw": {
+                    "type": "assistant",
+                    "message": {
+                        "model": "claude-sonnet-4-20250514",
+                        "content": [{"type": "text", "text": "Hi."}]
+                    }
+                }
+            }));
+            let records = from_cloud_event(&event);
+            match &records[1].body {
+                RecordBody::TokenUsage(tu) => {
+                    assert_eq!(tu.cache_creation_input_tokens, None);
+                    assert_eq!(tu.cache_read_input_tokens, None);
+                }
+                other => panic!("expected TokenUsage, got {:?}", other),
+            }
         }
     }
 
