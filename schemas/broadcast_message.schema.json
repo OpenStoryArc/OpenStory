@@ -313,6 +313,22 @@
     },
     "TokenUsage": {
       "properties": {
+        "cache_creation_input_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cache_read_input_tokens": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "input_tokens": {
           "format": "uint64",
           "minimum": 0.0,

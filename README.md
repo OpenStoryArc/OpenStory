@@ -163,6 +163,34 @@ GET /api/search?q=...                              — full-text search across e
 
 **Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
 
+### Streaming MCP server (incubating)
+
+`rs/mcp/` is a Rust-native MCP (Model Context Protocol) server that speaks JSON-RPC 2.0 over stdio and streams live session events to MCP clients. An agent connects, subscribes to a session, and receives a real-time push of every event flowing through NATS — including a self-reflective token tally that lets the agent watch its own context window tick up as it works.
+
+```bash
+# build
+cd rs/mcp && cargo build --release
+
+# run (connects to NATS at $OPENSTORY_NATS_URL or nats://localhost:4222 by default)
+./target/release/open-story-mcp
+```
+
+Tools shipped so far:
+- `list_sessions`, `session_synopsis`, `project_pulse` — scaffolded; store wiring lands next
+- `subscribe_session(session_id)` — streams events as `notifications/openstory/stream`, cancel via `notifications/cancelled`
+- `subscribe_tokens(session_id)` — same shape, but each notification carries `{delta, running, total}` extracted from assistant messages' `usage` blocks
+
+Manual smoke (works against a running NATS + OpenStory server):
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscribe_tokens","arguments":{"session_id":"<your-session-id>"}}}' \
+  | ./rs/mcp/target/release/open-story-mcp
+```
+
+The crate has its own incubation workspace (`rs/mcp/Cargo.toml` declares `[workspace]`) so it can evolve independently of the main workspace until the surface stabilizes. Test it with `cd rs/mcp && cargo test`. Design notes and the staged test plan live in `docs/research/streaming-mcp/`.
+
 ### Deployed agent observability (OpenClaw)
 
 Open Story can observe autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
@@ -433,6 +461,7 @@ open-story/
 │   ├── server/                  open-story-server (HTTP/WS, API, consumer actors)
 │   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
+│   ├── mcp/                     open-story-mcp (Rust MCP server — streaming subscriptions, incubating outside the workspace)
 │   └── tests/                   Integration + principle tests
 ├── schemas/                     Committed JSON Schema files (11 — source of truth)
 ├── ui/                          React dashboard
