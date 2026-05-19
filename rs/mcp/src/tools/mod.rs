@@ -16,6 +16,7 @@ pub mod per_session;
 pub mod projects;
 pub mod search;
 pub mod sessions;
+pub mod story;
 
 use crate::server::Server;
 use crate::subscription::Subscribe;
@@ -152,6 +153,15 @@ pub const TOOLS: &[ToolDef] = &[
                       over a window. Args: days (default 30).",
         input_schema: analytics::productivity_schema,
     },
+    // Narrative tool.
+    ToolDef {
+        name: "session_story",
+        description: "Structured fact-sheet for a session — record types, tool histogram, \
+                      pattern counts, turn-phase mix, sample sentences (verb/object), \
+                      opening + closing prompts, duration. Native Rust port of \
+                      scripts/sessionstory.py; same JSON schema.",
+        input_schema: story::session_story_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -229,6 +239,7 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "token_usage" => analytics::token_usage(&server.store, args).await,
         "daily_token_usage" => analytics::daily_token_usage(&server.store, args).await,
         "productivity" => analytics::productivity(&server.store, args).await,
+        "session_story" => story::session_story(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
