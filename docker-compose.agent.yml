@@ -34,6 +34,10 @@ services:
     volumes:
       - openclaw-state:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
+      # SQLite read access for the Rust MCP. open-story writes here; we
+      # mount it read-only so the MCP can run queries.subscribe_* tools
+      # still flow over NATS, not this volume.
+      - os-data:/os-data:ro
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-18789}:${GATEWAY_PORT:-18789}"
     entrypoint: /bin/sh
@@ -42,9 +46,9 @@ services:
       - |
         mkdir -p /home/node/.openclaw/agents/main/agent /home/node/.openclaw/workspace
         mkdir -p /home/node/.openclaw/workspace/.claude/skills/openstory
-        cp /opt/mcp-server/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
+        cp /opt/openstory-skill/SKILL.md /home/node/.openclaw/workspace/.claude/skills/openstory/SKILL.md 2>/dev/null || true
         cat > /home/node/.openclaw/openclaw.json << 'OCEOF'
-        {"auth":{"profiles":{"anthropic":{"provider":"anthropic","mode":"api_key"}}},"agents":{"defaults":{"model":{"primary":"anthropic/claude-sonnet-4-5"}},"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"mcp":{"servers":{"openstory":{"command":"uv","args":["run","--directory","/opt/mcp-server","python","server.py"],"env":{"OPENSTORY_URL":"http://open-story:3002","OPENSTORY_LABEL":"local"}}}}}
+        {"auth":{"profiles":{"anthropic":{"provider":"anthropic","mode":"api_key"}}},"agents":{"defaults":{"model":{"primary":"anthropic/claude-sonnet-4-5"}},"list":[{"id":"main","default":true,"workspace":"/home/node/.openclaw/workspace"}]},"gateway":{"auth":{"mode":"token","token":"${OPENCLAW_AUTH_TOKEN}"},"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true},"http":{"endpoints":{"chatCompletions":{"enabled":true}}}},"mcp":{"servers":{"openstory":{"command":"/usr/local/bin/open-story-mcp","env":{"OPENSTORY_NATS_URL":"nats://nats:4222","OPENSTORY_DATA_BACKEND":"sqlite","OPENSTORY_DATA_DIR":"/os-data","OPENSTORY_LABEL":"local"}}}}}
         OCEOF
         mkdir -p /home/node/.openclaw/agents/main/agent
         cat > /home/node/.openclaw/agents/main/agent/auth-profiles.json << AUTHEOF
@@ -91,6 +95,12 @@ volumes:
     name: ${COMPOSE_PROJECT_NAME}-openclaw-state
   openclaw-workspace:
     name: ${COMPOSE_PROJECT_NAME}-openclaw-workspace
+  # Shared infra-managed os-data volume — created + written by the
+  # open-story service in docker-compose.infra.yml. Marked external so
+  # the agent compose doesn't try to create or own it.
+  os-data:
+    name: openstory-os-data
+    external: true
 
 networks:
   openstory:
