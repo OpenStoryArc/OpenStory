@@ -172,20 +172,6 @@ pub async fn list_sessions(
 /// Number of recent sessions returned per user in `/api/users`.
 const USERS_RECENT_SESSIONS_PER_USER: usize = 5;
 
-/// `GET /api/users` — aggregate `SessionRow` rows by the `user` field.
-///
-/// Returns one entry per distinct stamped user, sorted by `last_active` DESC.
-/// Sessions with `user: None` (legacy / pre-PR-#42) are excluded — same
-/// posture as the `?user=` filter on `/api/sessions`: a "Users" tab
-/// shouldn't invent an "Unknown" bucket from rows whose origin we don't know.
-///
-/// Each entry includes:
-///   - aggregate counts (session_count, total tokens),
-///   - the set of hosts and projects this user has worked from,
-///   - last activity timestamp,
-///   - the N most-recent sessions (default 5) — the deterministic
-///     stand-in for "what they're doing" until the InsightExtraction
-///     consumer ships and the UI swaps in real semantic insights.
 /// `GET /api/local-info` — what `OPEN_STORY_HOST` / `OPEN_STORY_USER`
 /// resolved to inside this process.
 ///
@@ -204,6 +190,21 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `GET /api/users` — aggregate `SessionRow` rows by the `user` field.
+///
+/// Returns one entry per distinct stamped user, sorted by `last_active` DESC.
+/// Sessions with `user: None` (legacy / pre-PR-#42) are excluded — same
+/// posture as the `?user=` filter on `/api/sessions`: a "Users" tab
+/// shouldn't invent an "Unknown" bucket from rows whose origin we don't know.
+///
+/// Each entry includes:
+///
+///   - aggregate counts (session_count, total tokens),
+///   - the set of hosts and projects this user has worked from,
+///   - last activity timestamp,
+///   - the N most-recent sessions (default 5) — the deterministic
+///     stand-in for "what they're doing" until the InsightExtraction
+///     consumer ships and the UI swaps in real semantic insights.
 pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
     use std::collections::BTreeMap;
 
