@@ -128,7 +128,7 @@ async fn handle_line<S: Subscribe>(
                 handle_subscribe_tokens(parsed, server, out, subs).await;
             }
             _ => {
-                let result = crate::tools::dispatch_query_tool(&server.store, name, args).await;
+                let result = crate::tools::dispatch_query_tool(server, name, args).await;
                 let response = crate::protocol::JsonRpcResponse::success(id, result);
                 let _ = out.send(serde_json::to_string(&response).unwrap()).await;
             }

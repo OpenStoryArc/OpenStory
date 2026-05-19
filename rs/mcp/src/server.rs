@@ -13,16 +13,22 @@
 
 use crate::subscription::Subscribe;
 use open_story_store::event_store::EventStore;
+use open_story_store::plan_store::PlanStore;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Server<S: Subscribe> {
     pub subscriber: S,
     pub store: Arc<dyn EventStore>,
+    pub plan_store: Arc<PlanStore>,
 }
 
 impl<S: Subscribe> Server<S> {
-    pub fn new(subscriber: S, store: Arc<dyn EventStore>) -> Self {
-        Self { subscriber, store }
+    pub fn new(
+        subscriber: S,
+        store: Arc<dyn EventStore>,
+        plan_store: Arc<PlanStore>,
+    ) -> Self {
+        Self { subscriber, store, plan_store }
     }
 }

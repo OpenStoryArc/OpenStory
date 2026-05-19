@@ -14,9 +14,9 @@
 pub mod per_session;
 pub mod sessions;
 
-use open_story_store::event_store::EventStore;
+use crate::server::Server;
+use crate::subscription::Subscribe;
 use serde_json::{json, Value};
-use std::sync::Arc;
 
 pub struct ToolDef {
     pub name: &'static str,
@@ -82,6 +82,26 @@ pub const TOOLS: &[ToolDef] = &[
                       'what was the agent doing' reasoning.",
         input_schema: per_session::session_sentences_schema,
     },
+    ToolDef {
+        name: "session_plans",
+        description: "List `/plan` documents written during a session, newest first. \
+                      Each: {id, session_id, title, timestamp}.",
+        input_schema: per_session::session_plans_schema,
+    },
+    ToolDef {
+        name: "session_transcript",
+        description: "Reconstructed message-like transcript of a session. \
+                      Args: assistant_only (default false), limit (default 500). \
+                      Entries: {role, content, time, id}.",
+        input_schema: per_session::session_transcript_schema,
+    },
+    ToolDef {
+        name: "session_activity",
+        description: "Rich single-shot activity summary: first_prompt, files_touched, \
+                      tool_breakdown, error_messages, last_response, conversation_turns, \
+                      plan_count, duration_ms, start_time. Lower-level than session_story.",
+        input_schema: per_session::session_activity_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -135,20 +155,23 @@ pub fn list_tools_result() -> Value {
 ///
 /// Streaming tools (`subscribe_*`) are NOT routed here — they need the
 /// JSON-RPC id and the writer channel and live in `stdio.rs`.
-pub async fn dispatch_query_tool(
-    store: &Arc<dyn EventStore>,
+pub async fn dispatch_query_tool<S: Subscribe>(
+    server: &Server<S>,
     name: &str,
     args: Value,
 ) -> Value {
     let result: Result<Value, String> = match name {
-        "list_sessions" => sessions::list_sessions(store, args).await,
-        "session_synopsis" => sessions::session_synopsis(store, args).await,
-        "project_pulse" => sessions::project_pulse(store, args).await,
-        "tool_journey" => per_session::tool_journey(store, args).await,
-        "file_impact" => per_session::file_impact(store, args).await,
-        "session_errors" => per_session::session_errors(store, args).await,
-        "session_patterns" => per_session::session_patterns(store, args).await,
-        "session_sentences" => per_session::session_sentences(store, args).await,
+        "list_sessions" => sessions::list_sessions(&server.store, args).await,
+        "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
+        "project_pulse" => sessions::project_pulse(&server.store, args).await,
+        "tool_journey" => per_session::tool_journey(&server.store, args).await,
+        "file_impact" => per_session::file_impact(&server.store, args).await,
+        "session_errors" => per_session::session_errors(&server.store, args).await,
+        "session_patterns" => per_session::session_patterns(&server.store, args).await,
+        "session_sentences" => per_session::session_sentences(&server.store, args).await,
+        "session_plans" => per_session::session_plans(&server.plan_store, args).await,
+        "session_transcript" => per_session::session_transcript(&server.store, args).await,
+        "session_activity" => per_session::session_activity(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }

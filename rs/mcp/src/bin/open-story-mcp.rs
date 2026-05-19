@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use open_story_mcp::nats_bus::NatsBus;
 use open_story_mcp::server::Server;
 use open_story_store::event_store::EventStore;
+use open_story_store::plan_store::PlanStore;
 use open_story_store::sqlite_store::SqliteStore;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +45,13 @@ async fn main() -> Result<()> {
     );
     eprintln!("open-story-mcp: opened store at {data_dir}");
 
-    let server = Server::new(subscriber, store);
+    let plans_dir = data_path.join("plans");
+    std::fs::create_dir_all(&plans_dir).ok(); // idempotent — server may have created it already
+    let plan_store = Arc::new(
+        PlanStore::new(&plans_dir).with_context(|| format!("open PlanStore at {plans_dir:?}"))?,
+    );
+
+    let server = Server::new(subscriber, store, plan_store);
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     open_story_mcp::stdio::run(stdin, stdout, server).await?;

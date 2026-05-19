@@ -10,7 +10,9 @@
 //! land in a subsequent commit alongside the Server-context extensions
 //! they need.
 
+use open_story_store::analysis::activity_summary;
 use open_story_store::event_store::EventStore;
+use open_story_store::plan_store::PlanStore;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -174,4 +176,128 @@ pub async fn session_sentences(
         })
         .collect();
     Ok(json!({ "count": sentences.len(), "sentences": sentences }))
+}
+
+// ── session_plans ────────────────────────────────────────────────
+
+pub fn session_plans_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session UUID"},
+        },
+        "required": ["session_id"],
+        "additionalProperties": false
+    })
+}
+
+pub async fn session_plans(
+    plan_store: &Arc<PlanStore>,
+    args: Value,
+) -> Result<Value, String> {
+    let session_id = extract_session_id(&args)
+        .map_err(|e| format!("session_plans {e}"))?;
+    let mut plans = plan_store.list_for_session(session_id);
+    // Newest first.
+    plans.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    serde_json::to_value(plans).map_err(|e| format!("serialize: {e}"))
+}
+
+// ── session_transcript ──────────────────────────────────────────
+
+pub fn session_transcript_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session UUID"},
+            "assistant_only": {
+                "type": "boolean", "default": false,
+                "description": "Return only assistant messages",
+            },
+            "limit": {
+                "type": "integer", "minimum": 1, "maximum": 5000,
+                "description": "Cap on entries returned (default 500)",
+            },
+        },
+        "required": ["session_id"],
+        "additionalProperties": false
+    })
+}
+
+pub async fn session_transcript(
+    store: &Arc<dyn EventStore>,
+    args: Value,
+) -> Result<Value, String> {
+    let session_id = extract_session_id(&args)
+        .map_err(|e| format!("session_transcript {e}"))?;
+    let assistant_only = args
+        .get("assistant_only")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let limit = args
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(500) as usize;
+
+    let events = store
+        .session_events(session_id)
+        .await
+        .map_err(|e| format!("session_events failed: {e}"))?;
+
+    let entries: Vec<Value> = events
+        .iter()
+        .filter_map(|ev| {
+            // Reconstruct message-like entries from stored events.
+            // Hermes/agent-style: data.raw carries the original message
+            // shape with role + content. Skip events with no role.
+            let raw = ev.get("data").and_then(|d| d.get("raw")).unwrap_or(ev);
+            let inner = raw.get("data").unwrap_or(raw);
+            let role = inner.get("role").and_then(|v| v.as_str())?.to_string();
+            if assistant_only && role != "assistant" {
+                return None;
+            }
+            let content = inner
+                .get("content")
+                .cloned()
+                .unwrap_or(Value::String(String::new()));
+            Some(json!({
+                "role": role,
+                "content": content,
+                "time": ev.get("time").cloned().unwrap_or(Value::Null),
+                "id": ev.get("id").cloned().unwrap_or(Value::Null),
+            }))
+        })
+        .take(limit)
+        .collect();
+    Ok(json!({ "entries": entries }))
+}
+
+// ── session_activity ───────────────────────────────────────────
+
+pub fn session_activity_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Session UUID"},
+        },
+        "required": ["session_id"],
+        "additionalProperties": false
+    })
+}
+
+pub async fn session_activity(
+    store: &Arc<dyn EventStore>,
+    args: Value,
+) -> Result<Value, String> {
+    let session_id = extract_session_id(&args)
+        .map_err(|e| format!("session_activity {e}"))?;
+    let events = store
+        .session_events(session_id)
+        .await
+        .map_err(|e| format!("session_events failed: {e}"))?;
+    // Reuse open_story_store::analysis::activity_summary — the canonical
+    // implementation the server's /api/sessions/{id}/activity endpoint
+    // uses. Drop-in shape match.
+    let summary = activity_summary(&events);
+    serde_json::to_value(summary).map_err(|e| format!("serialize: {e}"))
 }

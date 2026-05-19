@@ -29,9 +29,9 @@ use tempfile::TempDir;
 ///     // pass `server` into stdio::run
 ///     // call `subscriber.publish(sid, batch)` to fire events
 pub fn make_test_server() -> (Server<LoopbackSubscriber>, LoopbackSubscriber, TempDir) {
-    let (store, dir) = make_test_store();
+    let (store, plan_store, dir) = make_test_store();
     let subscriber = LoopbackSubscriber::new();
-    (Server::new(subscriber.clone(), store), subscriber, dir)
+    (Server::new(subscriber.clone(), store, plan_store), subscriber, dir)
 }
 
 /// Drive a single `tools/call` through stdio against the given server

@@ -34,8 +34,8 @@ mod when_list_sessions_is_called_against_an_empty_store {
 
     #[tokio::test]
     async fn it_returns_an_empty_array_with_is_error_false() {
-        let (store, _tmp) = make_test_store();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let (store, plan_store, _tmp) = make_test_store();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "list_sessions", json!({})).await;
 
@@ -53,7 +53,7 @@ mod when_list_sessions_is_called_against_a_seeded_store {
 
     #[tokio::test]
     async fn it_returns_trim_rows_for_every_session() {
-        let (store, _tmp) = make_test_store();
+        let (store, plan_store, _tmp) = make_test_store();
         store
             .upsert_session(&seeded_row("sid-1", "proj-a", "2026-05-19T08:00:00Z", 5))
             .await
@@ -62,7 +62,7 @@ mod when_list_sessions_is_called_against_a_seeded_store {
             .upsert_session(&seeded_row("sid-2", "proj-b", "2026-05-19T09:00:00Z", 10))
             .await
             .unwrap();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "list_sessions", json!({})).await;
 
@@ -87,7 +87,7 @@ mod when_list_sessions_is_called_against_a_seeded_store {
 
     #[tokio::test]
     async fn limit_arg_caps_row_count() {
-        let (store, _tmp) = make_test_store();
+        let (store, plan_store, _tmp) = make_test_store();
         for i in 0..20u32 {
             store
                 .upsert_session(&seeded_row(
@@ -99,7 +99,7 @@ mod when_list_sessions_is_called_against_a_seeded_store {
                 .await
                 .unwrap();
         }
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "list_sessions", json!({"limit": 5})).await;
 
@@ -111,14 +111,14 @@ mod when_list_sessions_is_called_against_a_seeded_store {
 
     #[tokio::test]
     async fn project_filter_returns_only_matching_sessions() {
-        let (store, _tmp) = make_test_store();
+        let (store, plan_store, _tmp) = make_test_store();
         for (id, proj) in [("a-1", "alpha"), ("a-2", "alpha"), ("b-1", "beta")] {
             store
                 .upsert_session(&seeded_row(id, proj, "2026-05-19T10:00:00Z", 1))
                 .await
                 .unwrap();
         }
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "list_sessions", json!({"project": "alpha"})).await;
 
@@ -139,8 +139,8 @@ mod when_session_synopsis_is_called {
 
     #[tokio::test]
     async fn it_returns_an_error_when_session_id_is_missing() {
-        let (store, _tmp) = make_test_store();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let (store, plan_store, _tmp) = make_test_store();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "session_synopsis", json!({})).await;
         assert_eq!(response["result"]["isError"], true);
@@ -148,8 +148,8 @@ mod when_session_synopsis_is_called {
 
     #[tokio::test]
     async fn it_returns_an_error_for_an_unknown_session_id() {
-        let (store, _tmp) = make_test_store();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let (store, plan_store, _tmp) = make_test_store();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "session_synopsis", json!({"session_id": "nope"})).await;
         assert_eq!(response["result"]["isError"], true);
@@ -163,8 +163,8 @@ mod when_tools_call_targets_an_unknown_tool {
 
     #[tokio::test]
     async fn it_returns_is_error_true_with_content_array_no_protocol_error() {
-        let (store, _tmp) = make_test_store();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let (store, plan_store, _tmp) = make_test_store();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "not_a_real_tool", json!({})).await;
         // Tool-level errors are NOT JSON-RPC errors per MCP spec —
@@ -193,8 +193,8 @@ mod when_project_pulse_is_called {
 
     #[tokio::test]
     async fn it_returns_an_empty_array_against_an_empty_store() {
-        let (store, _tmp) = make_test_store();
-        let server = Server::new(LoopbackSubscriber::new(), store);
+        let (store, plan_store, _tmp) = make_test_store();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
 
         let response = call_tool(server, "project_pulse", json!({"days": 7})).await;
 

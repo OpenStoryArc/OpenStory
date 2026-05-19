@@ -114,8 +114,8 @@ mod when_a_client_calls_subscribe_tokens {
         let subscriber = LoopbackSubscriber::new();
         let (mut client_w, server_r) = tokio::io::duplex(8192);
         let (server_w, client_r) = tokio::io::duplex(8192);
-        let (store, _tmp) = common::make_test_store();
-        let test_server = open_story_mcp::server::Server::new(subscriber.clone(), store);
+        let (store, plan_store, _tmp) = common::make_test_store();
+        let test_server = open_story_mcp::server::Server::new(subscriber.clone(), store, plan_store);
         let server = tokio::spawn(async move {
             stdio::run(server_r, server_w, test_server).await.unwrap();
         });
