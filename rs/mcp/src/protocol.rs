@@ -93,9 +93,7 @@ pub fn handle_message(raw: &str) -> Option<Value> {
     let params = parsed.get("params").cloned().unwrap_or(Value::Null);
 
     // Notifications (no `id`) get no response.
-    let Some(id) = id else {
-        return None;
-    };
+    let id = id?;
 
     Some(match method {
         "initialize" => handle_initialize(id, params),

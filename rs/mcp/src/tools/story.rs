@@ -261,10 +261,10 @@ pub async fn session_story(
                     *facts.turn_phase_counts.entry(phase.to_string()).or_insert(0) += 1;
                 }
             }
-            "turn.sentence" => {
-                if facts.sample_sentences.len() < 8 && !p.summary.is_empty() {
-                    facts.sample_sentences.push(p.summary.clone());
-                }
+            "turn.sentence"
+                if facts.sample_sentences.len() < 8 && !p.summary.is_empty() =>
+            {
+                facts.sample_sentences.push(p.summary.clone());
             }
             "error.recovery" => facts.error_recovery_count += 1,
             "test.cycle" => facts.test_cycle_count += 1,

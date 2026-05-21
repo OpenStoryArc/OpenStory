@@ -23,7 +23,7 @@ use open_story_mcp::server::Server;
 use open_story_store::event_store::EventStore;
 use open_story_store::plan_store::PlanStore;
 use open_story_store::sqlite_store::SqliteStore;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[tokio::main(flavor = "current_thread")]
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn open_sqlite_store(data_path: &PathBuf, data_dir: &str) -> Result<SqliteStore> {
+fn open_sqlite_store(data_path: &Path, data_dir: &str) -> Result<SqliteStore> {
     let store = SqliteStore::new(data_path).with_context(|| {
         format!(
             "open-story-mcp requires the OpenStory data dir at {data_dir} \
