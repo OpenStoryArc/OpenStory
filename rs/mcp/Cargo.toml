@@ -32,6 +32,21 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [dev-dependencies]
 async-nats = "0.38"
 async-trait = "0.1"
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+open-story-core = { path = "../core" }
 tempfile = "3"
 testcontainers = { version = "0.27.2", features = ["http_wait"] }
 tokio = { version = "1", features = ["full"] }
+
+# Per-tool latency benchmarks against seeded SqliteStore at small/medium/large
+# session counts. Run with: cargo bench -p open-story-mcp --bench tools
+[[bench]]
+name = "tools"
+harness = false
+
+# Streaming throughput benchmark: publish N events via LoopbackSubscriber
+# and measure end-to-end stdout-line rate from the stdio handler.
+# Run with: cargo bench -p open-story-mcp --bench streaming
+[[bench]]
+name = "streaming"
+harness = false
