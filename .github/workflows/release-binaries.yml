@@ -1,0 +1,151 @@
+name: Build Homebrew bottles
+
+# Runs alongside release.yml (which builds the Docker image).
+# Produces Homebrew bottles for the macOS architectures we care about,
+# attaches them to the GitHub Release, and prints the `bottle do` block
+# that the tap formula needs.
+#
+# Until the tap repo (OpenStoryArc/homebrew-openstory) exists, the
+# bottle JSONs need to be copied into the tap by hand from the release
+# page. A follow-up workflow will automate that push.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to bottle (without leading v)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  bottle:
+    name: Bottle on ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14         # Apple Silicon Sonoma
+            label: arm64_sonoma
+          - os: macos-13         # Intel Ventura
+            label: ventura
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Compute source tarball sha256
+        id: sha
+        run: |
+          url="https://github.com/${{ github.repository }}/archive/refs/tags/${{ steps.ver.outputs.tag }}.tar.gz"
+          # GitHub takes a moment to materialize the auto-archive after a tag push.
+          for _ in 1 2 3 4 5; do
+            sha=$(curl -sL --fail "$url" | shasum -a 256 | awk '{print $1}') && break
+            sleep 5
+          done
+          test -n "$sha"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Patch formula with real sha256
+        run: |
+          sed -i.bak \
+            -e 's/sha256 "0\{64\}"/sha256 "${{ steps.sha.outputs.sha256 }}"/' \
+            Formula/openstory.rb
+          rm -f Formula/openstory.rb.bak
+
+      - name: Stage formula as local tap
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/openstoryarc/homebrew-openstory/Formula"
+          mkdir -p "$tap_dir"
+          cp Formula/openstory.rb "$tap_dir/"
+
+      - name: Audit formula
+        run: brew audit --strict --online openstoryarc/openstory/openstory
+
+      - name: Build + bottle
+        run: |
+          brew install --build-bottle openstoryarc/openstory/openstory
+          brew bottle \
+            --json \
+            --no-rebuild \
+            --root-url="https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.tag }}" \
+            openstoryarc/openstory/openstory
+
+      - name: Rename bottle to brew's expected filename
+        # `brew bottle` produces files with `--` in the name when uploaded to a
+        # third-party host; rename so the formula's bottle block resolves.
+        run: |
+          for f in *.bottle.tar.gz; do
+            mv "$f" "$(echo "$f" | sed 's/openstory--/openstory-/')"
+          done
+          for f in *.bottle.json; do
+            mv "$f" "$(echo "$f" | sed 's/openstory--/openstory-/')" 2>/dev/null || true
+          done
+          ls -lah *.bottle.*
+
+      - name: Upload bottle to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            *.bottle.tar.gz *.bottle.json \
+            --clobber
+
+      - name: Smoke-test the installed binary
+        run: |
+          brew test openstoryarc/openstory/openstory
+          "$(brew --prefix openstoryarc/openstory/openstory)/bin/open-story" --help | head -20
+
+  print-bottle-block:
+    name: Print bottle do block
+    needs: bottle
+    runs-on: macos-14
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Download all bottle JSONs from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ steps.ver.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.bottle.json"
+
+      - name: Print bottle block for the tap formula
+        run: |
+          echo "::group::Paste this into Formula/openstory.rb in the tap repo"
+          echo "bottle do"
+          echo '  root_url "https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.tag }}"'
+          for f in *.bottle.json; do
+            sha=$(jq -r '.. | objects | .sha256? // empty' "$f" | head -1)
+            cellar=$(jq -r '.. | objects | .cellar? // empty' "$f" | head -1)
+            tag=$(jq -r '.. | objects | .tag? // empty' "$f" | head -1)
+            if [ -n "$tag" ] && [ -n "$sha" ]; then
+              echo "  sha256 cellar: :any_skip_relocation, ${tag}: \"$sha\""
+            fi
+          done
+          echo "end"
+          echo "::endgroup::"
