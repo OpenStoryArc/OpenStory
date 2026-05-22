@@ -36,7 +36,7 @@ class Openstory < Formula
     run [
       opt_bin/"open-story", "serve",
       "--static-dir", "#{HOMEBREW_PREFIX}/share/openstory/static",
-      "--data-dir", "#{HOMEBREW_PREFIX}/var/openstory",
+      "--data-dir", "#{HOMEBREW_PREFIX}/var/openstory"
     ]
     keep_alive true
     log_path var/"log/openstory.log"
