@@ -125,7 +125,7 @@ git reset --hard "origin/${BRANCH}"
 git log -1 --format='  head: %h %s'
 
 # sanity: required files for this branch
-for f in deploy/nats-hub.conf deploy/nats-leaf.conf Dockerfile.openclaw mcp-server/SKILL.md docker-compose.infra.yml docker-compose.agent.yml; do
+for f in deploy/nats-hub.conf deploy/nats-leaf.conf Dockerfile.openclaw rs/mcp/SKILL.md docker-compose.infra.yml docker-compose.agent.yml; do
     if [ ! -e "\$f" ]; then
         echo "deploy: expected file missing after checkout: \$f" >&2
         exit 1

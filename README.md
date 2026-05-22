@@ -163,33 +163,61 @@ GET /api/search?q=...                              — full-text search across e
 
 **Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
 
-### Streaming MCP server (incubating)
+### MCP server — 21 tools, all Rust
 
-`rs/mcp/` is a Rust-native MCP (Model Context Protocol) server that speaks JSON-RPC 2.0 over stdio and streams live session events to MCP clients. An agent connects, subscribes to a session, and receives a real-time push of every event flowing through NATS — including a self-reflective token tally that lets the agent watch its own context window tick up as it works.
+`rs/mcp/` is the agent-facing edge of OpenStory: a single-binary Rust MCP (Model Context Protocol) server that handles both **live streaming subscriptions** (the agent watches its own session in real time) and **query tools** (sessions, search, analytics, transcripts, …). JSON-RPC 2.0 over stdio. Built and tested as a first-class workspace crate.
 
 ```bash
-# build
-cd rs/mcp && cargo build --release
+# build (SQLite backend only)
+cargo build --release -p open-story-mcp
 
-# run (connects to NATS at $OPENSTORY_NATS_URL or nats://localhost:4222 by default)
-./target/release/open-story-mcp
+# build with MongoDB backend support
+cargo build --release -p open-story-mcp --features mongo
+
+# run — picks store backend from OPENSTORY_DATA_BACKEND (default "sqlite",
+# or "mongo" if built with --features mongo). NATS is always required.
+./rs/target/release/open-story-mcp
 ```
 
-Tools shipped so far:
-- `list_sessions`, `session_synopsis`, `project_pulse` — scaffolded; store wiring lands next
-- `subscribe_session(session_id)` — streams events as `notifications/openstory/stream`, cancel via `notifications/cancelled`
-- `subscribe_tokens(session_id)` — same shape, but each notification carries `{delta, running, total}` extracted from assistant messages' `usage` blocks
+**Environment:**
 
-Manual smoke (works against a running NATS + OpenStory server):
+| Var | Default | Used when |
+|---|---|---|
+| `OPENSTORY_NATS_URL` | `nats://localhost:4222` | always |
+| `OPENSTORY_DATA_BACKEND` | `sqlite` | always — `sqlite` or `mongo` |
+| `OPENSTORY_DATA_DIR` | `./data` | `DATA_BACKEND=sqlite` (SQLite db + plans dir live here) |
+| `OPENSTORY_MONGO_URI` | `mongodb://localhost:27017` | `DATA_BACKEND=mongo` |
+| `OPENSTORY_MONGO_DB` | `openstory` | `DATA_BACKEND=mongo` |
+
+(Match these to the OpenStory server's own `config.toml` so MCP and server share the same store.)
+
+Register it with Claude Code:
+
+```bash
+claude mcp add openstory stdio /full/path/to/open-story-mcp
+```
+
+**The 21-tool surface:**
+
+| Group | Tools |
+|---|---|
+| Sessions | `list_sessions` (with days/project/limit/after), `session_synopsis`, `session_activity`, `session_story` |
+| Per-session detail | `tool_journey`, `file_impact`, `session_errors`, `session_plans`, `session_patterns`, `session_transcript`, `session_sentences` |
+| Search | `search`, `agent_search` (FTS + per-session grouping) |
+| Projects | `project_pulse`, `project_context`, `recent_files` |
+| Analytics | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
+| Streaming | `subscribe_session`, `subscribe_tokens` — push notifications via `notifications/openstory/{stream,tokens}` |
+
+Manual smoke (against a running NATS + OpenStory server):
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscribe_tokens","arguments":{"session_id":"<your-session-id>"}}}' \
-  | ./rs/mcp/target/release/open-story-mcp
+  | OPENSTORY_NATS_URL=nats://localhost:4222 OPENSTORY_DATA_DIR=./data ./rs/target/release/open-story-mcp
 ```
 
-The crate has its own incubation workspace (`rs/mcp/Cargo.toml` declares `[workspace]`) so it can evolve independently of the main workspace until the surface stabilizes. Test it with `cd rs/mcp && cargo test`. Design notes and the staged test plan live in `docs/research/streaming-mcp/`.
+Test it with `cargo test -p open-story-mcp`. Design notes for the streaming substrate live in `docs/research/streaming-mcp/`.
 
 ### Deployed agent observability (OpenClaw)
 
@@ -461,7 +489,7 @@ open-story/
 │   ├── server/                  open-story-server (HTTP/WS, API, consumer actors)
 │   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
-│   ├── mcp/                     open-story-mcp (Rust MCP server — streaming subscriptions, incubating outside the workspace)
+│   ├── mcp/                     open-story-mcp (Rust MCP server — 21 tools: queries + streaming subscriptions)
 │   └── tests/                   Integration + principle tests
 ├── schemas/                     Committed JSON Schema files (11 — source of truth)
 ├── ui/                          React dashboard

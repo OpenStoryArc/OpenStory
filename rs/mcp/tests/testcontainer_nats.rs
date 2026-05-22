@@ -243,9 +243,14 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
         let publisher = PublisherBus::connect(&url).await.expect("publisher connect");
         publisher.ensure_streams().await.expect("ensure_streams");
 
+        // The binary needs a writable data dir for its SqliteStore.
+        // We point it at a temp dir held alive for the duration of this test.
+        let data_dir = tempfile::tempdir().expect("temp data dir");
+
         let binary = env!("CARGO_BIN_EXE_open-story-mcp");
         let mut child = tokio::process::Command::new(binary)
             .env("OPENSTORY_NATS_URL", &url)
+            .env("OPENSTORY_DATA_DIR", data_dir.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

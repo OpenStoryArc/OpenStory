@@ -16,6 +16,7 @@ COPY Cargo.toml Cargo.lock* ./
 COPY bus/Cargo.toml bus/Cargo.toml
 COPY cli/Cargo.toml cli/Cargo.toml
 COPY core/Cargo.toml core/Cargo.toml
+COPY mcp/Cargo.toml mcp/Cargo.toml
 COPY patterns/Cargo.toml patterns/Cargo.toml
 COPY server/Cargo.toml server/Cargo.toml
 COPY store/Cargo.toml store/Cargo.toml
@@ -23,11 +24,13 @@ COPY views/Cargo.toml views/Cargo.toml
 COPY schemas/Cargo.toml schemas/Cargo.toml
 
 # Create dummy sources to cache dependency builds
-RUN mkdir -p src bus/src cli/src core/src patterns/src schemas/src/bin server/src store/src views/src && \
+RUN mkdir -p src bus/src cli/src core/src mcp/src/bin patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
     echo "fn main() {}" > cli/src/main.rs && \
     echo "pub fn dummy() {}" > core/src/lib.rs && \
+    echo "pub fn dummy() {}" > mcp/src/lib.rs && \
+    echo "fn main() {}" > mcp/src/bin/open-story-mcp.rs && \
     echo "pub fn dummy() {}" > patterns/src/lib.rs && \
     echo "pub fn dummy() {}" > schemas/src/lib.rs && \
     echo "fn main() {}" > schemas/src/bin/generate.rs && \
@@ -45,12 +48,13 @@ COPY src/ src/
 COPY bus/src/ bus/src/
 COPY cli/src/ cli/src/
 COPY core/src/ core/src/
+COPY mcp/src/ mcp/src/
 COPY patterns/src/ patterns/src/
 COPY server/src/ server/src/
 COPY store/src/ store/src/
 COPY views/src/ views/src/
 COPY schemas/src/ schemas/src/
-RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && \
+RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs store/src/lib.rs views/src/lib.rs && \
     if [ -n "$FEATURES" ]; then \
         cargo build --release -p open-story-cli --features "$FEATURES"; \
     else \

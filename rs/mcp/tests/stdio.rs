@@ -7,7 +7,6 @@
 
 mod common;
 
-use common::LoopbackSubscriber;
 use open_story_mcp::stdio;
 use tokio::io::AsyncWriteExt;
 
@@ -19,8 +18,9 @@ mod when_a_client_pipes_an_initialize_request_over_stdio {
         let (mut client_write, server_read) = tokio::io::duplex(4096);
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
+        let (test_server, _subscriber, _tmp) = common::make_test_server();
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+            stdio::run(server_read, server_write, test_server)
                 .await
                 .unwrap();
         });
@@ -57,8 +57,9 @@ mod when_a_client_pipes_multiple_requests_back_to_back {
         let (mut client_write, server_read) = tokio::io::duplex(4096);
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
+        let (test_server, _subscriber, _tmp) = common::make_test_server();
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+            stdio::run(server_read, server_write, test_server)
                 .await
                 .unwrap();
         });
@@ -92,8 +93,9 @@ mod when_a_client_sends_a_notification_then_a_request {
         let (mut client_write, server_read) = tokio::io::duplex(4096);
         let (server_write, mut client_read) = tokio::io::duplex(4096);
 
+        let (test_server, _subscriber, _tmp) = common::make_test_server();
         let server = tokio::spawn(async move {
-            stdio::run(server_read, server_write, LoopbackSubscriber::new())
+            stdio::run(server_read, server_write, test_server)
                 .await
                 .unwrap();
         });

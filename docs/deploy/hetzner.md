@@ -154,7 +154,7 @@ docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 docker build -f Dockerfile.prod -t open-story:prod .
 ```
 
-**`openclaw-mcp:latest`** extends `openclaw:latest` with Python 3 + `uv` + the OpenStory MCP server source. It's the image the `openclaw` service in `docker-compose.agent.yml` actually runs — it lets the OpenClaw agent spawn an `openstory` MCP server as a stdio subprocess and query its own local Open Story instance via the 19 MCP tools. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
+**`openclaw-mcp:latest`** extends `openclaw:latest` with the native Rust `open-story-mcp` binary (multi-stage build — Stage 1 compiles Rust 1.88 with `--features mongo`; Stage 2 copies the binary into `/usr/local/bin/` on the openclaw runtime). It's the image the `openclaw` service in `docker-compose.agent.yml` actually runs — the OpenClaw agent spawns the Rust binary as a stdio subprocess and queries its local Open Story instance via the 21 MCP tools (19 queries + `subscribe_session`/`subscribe_tokens` streaming). The binary talks directly to NATS + SQLite (or Mongo) — no Python, no HTTP hop. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
 
 **Warning**: Docker builds create millions of temporary files that consume filesystem inodes. If you see "no space left on device" errors but `df -h` shows free space, check `df -i /` for inode exhaustion. Fix with `docker system prune -a --force`.
 
@@ -278,15 +278,15 @@ docker compose --project-name bobby --env-file deploy/bobby.env -f docker-compos
 
 **Verifying the MCP integration:**
 
-From inside the OpenClaw container, you can confirm Python + uv + mcp-server are present:
+From inside the OpenClaw container, confirm the Rust binary + SKILL.md are present:
 
 ```bash
-docker exec <openclaw-container-id> sh -c 'ls /opt/mcp-server && which uv && which python3'
+docker exec <openclaw-container-id> sh -c 'test -x /usr/local/bin/open-story-mcp && test -f /opt/openstory-skill/SKILL.md && echo OK'
 ```
 
-You should see `server.py`, `SKILL.md`, `pyproject.toml`, and valid paths for `uv` and `python3`.
+You should see `OK`. The binary itself has no `--version` flag; it expects stdio JSON-RPC.
 
-The agent itself doesn't need any configuration — when it starts a turn, OpenClaw reads `openclaw.json`, sees the `mcp.servers.openstory` block, and spawns the subprocess. Tools from the `openstory` server automatically appear in the agent's tool list alongside its built-in ones.
+The agent itself doesn't need any configuration — when it starts a turn, OpenClaw reads `openclaw.json`, sees the `mcp.servers.openstory` block, and spawns `/usr/local/bin/open-story-mcp` as a stdio subprocess. The binary connects to NATS (`OPENSTORY_NATS_URL`) and the SQLite store at `/os-data` (read-only mount of `openstory-os-data`). Tools from the `openstory` server automatically appear in the agent's tool list alongside its built-in ones — 21 tools total, including the streaming `subscribe_session` and `subscribe_tokens`.
 
 ## Operations
 

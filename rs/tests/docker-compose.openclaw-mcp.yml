@@ -1,17 +1,33 @@
-# Test compose: Open Story + openclaw-mcp container.
+# Test compose: openclaw-mcp (Rust MCP) + open-story + NATS.
 #
-# Verifies that the openclaw-mcp image contains a working OpenStory MCP server
-# that can reach an Open Story instance over the Docker network.
+# Verifies the openclaw-mcp image — produced by Dockerfile.openclaw —
+# contains the Rust open-story-mcp binary and can serve tool calls
+# against a shared SQLite store reached over the Docker network.
 #
-# The openclaw-mcp container just idles — the test execs into it to spawn
-# the MCP server via stdio and sends JSON-RPC directly. This isolates the
-# MCP-tool path from OpenClaw's full gateway (which needs an API key).
+# Architecture under test:
+#
+#   openclaw-mcp (idle until exec'd)
+#        │  exec /usr/local/bin/open-story-mcp via docker exec
+#        ▼
+#   open-story-mcp subprocess  ───NATS────▶  nats
+#                              ───SQLite──▶  os-data ◀── open-story writes here
+#                                            (shared volume, ro on the MCP side)
+#
+# SQLite (not Mongo) is used here to keep the test stack lean and match
+# the layout of docker-compose.{agent,prod}.yml — both of which share
+# os-data between open-story (writer) and openclaw-mcp (reader). The
+# Rust binary still supports Mongo via OPENSTORY_DATA_BACKEND=mongo when
+# the openclaw-mcp image is built with `--features mongo`.
 #
 # Prerequisites:
 #   docker build -t open-story:test ./rs
 #   docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 
 services:
+  nats:
+    image: nats:2.10
+    command: ["-js"]
+
   open-story:
     image: open-story:test
     command:
@@ -24,23 +40,36 @@ services:
       - "/data"
       - "--watch-dir"
       - "/watch"
+    environment:
+      # NB: the server reads NATS_URL (no OPEN_STORY_ prefix) while the
+      # Rust MCP below reads OPENSTORY_NATS_URL. Asymmetric on purpose —
+      # NATS_URL is the canonical NATS env var the server inherits.
+      - NATS_URL=nats://nats:4222
     ports:
       - "3002"
     volumes:
       - os-data:/data
       - ${FIXTURE_DIR:-.}:/watch:ro
+    depends_on:
+      - nats
 
   openclaw-mcp:
     image: openclaw-mcp:latest
-    # Override OpenClaw's default entrypoint — we just need a long-running
-    # container where we can exec `uv run python server.py` as a subprocess.
+    # Idle container — tests exec the Rust MCP via `docker exec`.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - "tail -f /dev/null"
     environment:
-      - OPENSTORY_URL=http://open-story:3002
-      - OPENSTORY_LABEL=local-test
+      - OPENSTORY_NATS_URL=nats://nats:4222
+      - OPENSTORY_DATA_BACKEND=sqlite
+      - OPENSTORY_DATA_DIR=/os-data
+    volumes:
+      # Same volume open-story writes to, mounted read-only here so the
+      # MCP can query the SQLite store. subscribe_* tools still flow via
+      # NATS, not this volume.
+      - os-data:/os-data:ro
     depends_on:
+      - nats
       - open-story
 
 volumes:

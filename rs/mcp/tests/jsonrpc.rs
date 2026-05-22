@@ -99,53 +99,10 @@ mod when_an_mcp_client_sends_notifications_initialized {
     }
 }
 
-// ── A.5 tools/call dispatch ───────────────────────────────────────
-
-mod when_an_mcp_client_calls_tools_call {
-    use super::*;
-
-    fn call_tool(name: &str, args: serde_json::Value) -> serde_json::Value {
-        let raw = json!({
-            "jsonrpc": "2.0",
-            "id": 9,
-            "method": "tools/call",
-            "params": { "name": name, "arguments": args }
-        })
-        .to_string();
-        protocol::handle_message(&raw).expect("tools/call is a request")
-    }
-
-    #[test]
-    fn known_tool_returns_a_content_array_and_is_error_false() {
-        let response = call_tool("project_pulse", json!({}));
-        assert_eq!(response["id"], 9);
-        let result = &response["result"];
-        assert!(
-            result["content"].is_array(),
-            "result.content must be an array, got: {result}"
-        );
-        assert_eq!(result["isError"], false);
-        // Each content item must have a type per MCP spec.
-        for item in result["content"].as_array().unwrap() {
-            assert!(item["type"].is_string(), "content item missing type: {item}");
-        }
-    }
-
-    #[test]
-    fn unknown_tool_returns_is_error_true_not_a_protocol_error() {
-        let response = call_tool("not_a_real_tool", json!({}));
-        // Tool-level errors are NOT JSON-RPC errors per MCP spec —
-        // the tool call succeeds at the protocol layer, isError=true
-        // signals the tool itself failed.
-        assert_eq!(response["id"], 9);
-        assert!(response["error"].is_null(), "tool-not-found should not be a protocol error");
-        assert_eq!(response["result"]["isError"], true);
-        assert!(
-            response["result"]["content"].is_array(),
-            "even errors return content array"
-        );
-    }
-}
+// `tools/call` dispatch tests moved to `tests/sessions.rs` (and
+// `tests/streaming.rs` for subscribe_*) because dispatch now needs
+// the async runtime + a Server context. `protocol::handle_message`
+// no longer routes tools/call directly — it requires the stdio layer.
 
 // ── A.2 Tool registry — tools/list ────────────────────────────────
 

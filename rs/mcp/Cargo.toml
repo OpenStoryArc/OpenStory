@@ -1,23 +1,29 @@
-# open-story-mcp is its own workspace root during incubation, so it
-# can be developed independently of rs/Cargo.toml's member list.
-# Once the API stabilizes, it'll be promoted into the main workspace.
-[workspace]
-
 [package]
 name = "open-story-mcp"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Rust-native MCP server for open-story — streaming session subscriptions, no Python in the path"
+description = "Rust-native MCP server for open-story — streaming subscriptions + query tools, no Python in the path"
 
 [[bin]]
 name = "open-story-mcp"
 path = "src/bin/open-story-mcp.rs"
 
+[features]
+default = []
+# Build with `--features mongo` to enable MongoDB as a selectable backend.
+# Pass-through to open-story-store/mongo; without this feature, the
+# OPENSTORY_DATA_BACKEND=mongo path is compiled out and selecting it
+# at runtime yields a clear error.
+mongo = ["open-story-store/mongo"]
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
+chrono = "0.4"
 open-story-bus = { path = "../bus" }
+open-story-core = { path = "../core" }
+open-story-store = { path = "../store" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
@@ -26,6 +32,21 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [dev-dependencies]
 async-nats = "0.38"
 async-trait = "0.1"
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 open-story-core = { path = "../core" }
+tempfile = "3"
 testcontainers = { version = "0.27.2", features = ["http_wait"] }
 tokio = { version = "1", features = ["full"] }
+
+# Per-tool latency benchmarks against seeded SqliteStore at small/medium/large
+# session counts. Run with: cargo bench -p open-story-mcp --bench tools
+[[bench]]
+name = "tools"
+harness = false
+
+# Streaming throughput benchmark: publish N events via LoopbackSubscriber
+# and measure end-to-end stdout-line rate from the stdio handler.
+# Run with: cargo bench -p open-story-mcp --bench streaming
+[[bench]]
+name = "streaming"
+harness = false

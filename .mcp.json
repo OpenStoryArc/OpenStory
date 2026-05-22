@@ -1,19 +1,12 @@
 {
   "mcpServers": {
     "openstory": {
-      "command": "uv",
-      "args": ["run", "--directory", "mcp-server", "python", "server.py"],
+      "command": "./rs/target/release/open-story-mcp",
       "env": {
-        "OPENSTORY_URL": "${OPENSTORY_LOCAL_URL:-http://localhost:3002}",
+        "OPENSTORY_NATS_URL": "${OPENSTORY_NATS_URL:-nats://localhost:4222}",
+        "OPENSTORY_DATA_BACKEND": "${OPENSTORY_DATA_BACKEND:-sqlite}",
+        "OPENSTORY_DATA_DIR": "${OPENSTORY_DATA_DIR:-./data}",
         "OPENSTORY_LABEL": "local"
-      }
-    },
-    "openstory-remote": {
-      "command": "uv",
-      "args": ["run", "--directory", "mcp-server", "python", "server.py"],
-      "env": {
-        "OPENSTORY_URL": "${OPENSTORY_REMOTE_URL}",
-        "OPENSTORY_LABEL": "remote — all machines"
       }
     }
   }
