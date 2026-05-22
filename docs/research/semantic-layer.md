@@ -36,6 +36,13 @@
 > A note on the snapshot-shape volume: `file_snapshot` records are emitted
 > ~per-turn, so most rows are no-op heartbeats. Filtering to `new_files > 0 OR
 > bumped_files > 0` cuts the noise (~57% of rows have non-zero deltas).
+>
+> **Methodology**: how to turn this substrate into traceable, tiered claims
+> (slides, reports, figures) is documented in
+> [`shape-layers/README.md`](shape-layers/README.md). That doc covers the
+> claim · layer · query · interpretation pattern, cross-layer corroboration,
+> and the three-tier convention for naming what's measured vs. extrapolated
+> vs. interpreted.
 
 ## What
 
