@@ -15,6 +15,7 @@ pub mod ingest;
 pub mod logging;
 pub mod metrics;
 pub mod reconcile;
+pub mod reproject;
 pub mod router;
 pub mod state;
 pub mod tool_schemas;

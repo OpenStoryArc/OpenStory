@@ -139,6 +139,19 @@ pub async fn create_state_with_watch_dirs(
     let sqlite_sessions = store.event_store.list_sessions().await.unwrap_or_default();
     if !sqlite_sessions.is_empty() {
         boot_from_sqlite(&mut store, &sqlite_sessions).await;
+        // Rebuild the in-memory read model from the durable store. boot_from_sqlite
+        // only derives the subagent tree + project map; without this, projections
+        // (which /api/sessions serves token totals + live label/branch from) stay
+        // empty until the watcher re-reads a source — so sessions whose source is
+        // gone or beyond boot_window show 0 tokens despite being durably stored.
+        // Idempotent: the watcher's later re-read dedups against the rebuilt seen_ids.
+        let report = crate::reproject::reproject_all(&store).await;
+        if report.sessions_reprojected > 0 {
+            eprintln!(
+                "  \x1b[32mReprojected {} sessions ({} events) from store\x1b[0m",
+                report.sessions_reprojected, report.events_applied
+            );
+        }
     }
     // If SQLite is empty (first boot), watcher backfill handles everything.
     // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
@@ -370,15 +383,16 @@ mod tests {
         );
     }
 
-    /// Boot rehydrates the durable store but NOT the in-memory projection.
-    /// `/api/sessions` reads token totals (and label/branch live values) from
-    /// `store.projections` (api.rs:~100,141); those are only rebuilt by the
-    /// watcher re-reading source files, never by reconcile/boot_from_sqlite.
-    /// So a session whose source can't be re-read (gone / beyond boot_window —
-    /// pi-mono --no-session, old sessions) is durably present yet shows an
-    /// empty live projection after restart: a stored-vs-live view divergence.
+    /// Boot rebuilds the in-memory projection from the durable store via
+    /// `reproject_all`. `/api/sessions` serves token totals (and live
+    /// label/branch) from `store.projections` (api.rs:~100,141); before the
+    /// reproject step those stayed empty until the watcher re-read a source, so
+    /// a session whose source is gone or beyond boot_window (pi-mono
+    /// --no-session, old sessions) showed 0 tokens despite being durably stored.
+    /// This pins the fix: after boot, the projection exists with the right count
+    /// even with an empty watch dir (no re-readable source).
     #[tokio::test]
-    async fn boot_does_not_rebuild_the_in_memory_projection() {
+    async fn boot_reprojects_the_in_memory_projection_from_store() {
         let tmp = tempfile::tempdir().unwrap();
         let data_dir = tmp.path().join("data");
         let watch_dir = tmp.path().join("watch");
@@ -437,13 +451,18 @@ mod tests {
             "event is durably present after boot"
         );
 
-        // But the in-memory projection was NOT rebuilt — the field
-        // /api/sessions serves token totals from is absent for this session.
+        // And the in-memory projection IS rebuilt from the store — the field
+        // /api/sessions serves token totals from is present with the right
+        // count, even though the watch dir is empty (no source to re-read).
+        let proj = s.store.projections.get("orphan-session");
         assert!(
-            s.store.projections.get("orphan-session").is_none(),
-            "boot rehydrates SQLite but not the projection; this is the \
-             stored-vs-live divergence that an explicit reproject/catch-up \
-             command would close"
+            proj.is_some(),
+            "reproject_all should rebuild the projection from the durable store at boot"
+        );
+        assert_eq!(
+            proj.unwrap().event_count(),
+            1,
+            "reprojected event_count must match the stored events"
         );
     }
 
