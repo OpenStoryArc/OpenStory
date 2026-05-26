@@ -8,6 +8,7 @@
 pub mod api;
 pub mod auth;
 pub mod broadcast;
+pub mod catch_up;
 pub mod config;
 pub mod consumers;
 pub mod event_store_bridge;

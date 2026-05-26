@@ -421,6 +421,21 @@ pub async fn run_server(
         }
     }
 
+    // ── catch-up anti-entropy (consumer + full roles) ──
+    // Peer-generic reconciliation: if OPEN_STORY_CATCH_UP_PEER is set, this node
+    // periodically digest-diffs against that peer and pulls whatever it's
+    // missing — closing the cross-leaf convergence race without depending on
+    // NATS replication timing. The hub is the convenient default peer; nothing
+    // here requires one (the same mechanism supports a hub-less peer mesh).
+    if is_consumer {
+        if let Ok(peer) = std::env::var("OPEN_STORY_CATCH_UP_PEER") {
+            if !peer.trim().is_empty() {
+                let event_store = state.read().await.store.event_store.clone();
+                open_story_server::catch_up::spawn_catch_up(event_store, bus.clone(), peer);
+            }
+        }
+    }
+
     // ── File watcher (publisher + full roles) ──
     // Snapshot the backfill window from config before any closures move it.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);

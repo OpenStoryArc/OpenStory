@@ -96,7 +96,7 @@ fn generate_lab_compose(node_dirs: &[PathBuf]) -> String {
         // Full node: watches its own fixture, publishes to + consumes from its
         // own leaf NATS (a complete local mirror), serves a local dashboard.
         yaml.push_str(&format!(
-            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
+            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    environment:\n      - OPEN_STORY_CATCH_UP_PEER=http://hub:3002\n    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
             mount = docker_path(dir),
         ));
     }
