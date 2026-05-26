@@ -370,6 +370,83 @@ mod tests {
         );
     }
 
+    /// Boot rehydrates the durable store but NOT the in-memory projection.
+    /// `/api/sessions` reads token totals (and label/branch live values) from
+    /// `store.projections` (api.rs:~100,141); those are only rebuilt by the
+    /// watcher re-reading source files, never by reconcile/boot_from_sqlite.
+    /// So a session whose source can't be re-read (gone / beyond boot_window —
+    /// pi-mono --no-session, old sessions) is durably present yet shows an
+    /// empty live projection after restart: a stored-vs-live view divergence.
+    #[tokio::test]
+    async fn boot_does_not_rebuild_the_in_memory_projection() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().join("data");
+        let watch_dir = tmp.path().join("watch");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::create_dir_all(&watch_dir).unwrap();
+
+        {
+            use open_story_store::event_store::{EventStore, SessionRow};
+            use open_story_store::sqlite_store::SqliteStore;
+            let db = SqliteStore::new(&data_dir).unwrap();
+            db.insert_event(
+                "orphan-session",
+                &serde_json::json!({
+                    "id": "orphan-evt-1",
+                    "type": "io.arc.event",
+                    "subtype": "message.user.prompt",
+                    "time": "2025-01-14T10:00:00Z",
+                    "source": "arc://test",
+                    "data": {"text": "stored but no re-readable source"}
+                }),
+            )
+            .await
+            .unwrap();
+            db.upsert_session(&SessionRow {
+                id: "orphan-session".into(),
+                project_id: None,
+                project_name: None,
+                label: Some("orphan".into()),
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: Some("2025-01-14T10:00:00Z".into()),
+                last_event: Some("2025-01-14T10:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
+        let s = state.read().await;
+
+        // Durable store HAS the session after boot.
+        assert_eq!(
+            s.store
+                .event_store
+                .session_events("orphan-session")
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "event is durably present after boot"
+        );
+
+        // But the in-memory projection was NOT rebuilt — the field
+        // /api/sessions serves token totals from is absent for this session.
+        assert!(
+            s.store.projections.get("orphan-session").is_none(),
+            "boot rehydrates SQLite but not the projection; this is the \
+             stored-vs-live divergence that an explicit reproject/catch-up \
+             command would close"
+        );
+    }
+
     /// SQLite boot should pick up ALL sessions, not just recent ones.
     /// (Unlike JSONL boot which uses a 24h window.)
     #[tokio::test]
