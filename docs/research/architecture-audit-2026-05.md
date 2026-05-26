@@ -36,7 +36,7 @@ Severity = blast radius × likelihood × how-hidden.
 | 6 | Codex absent from the translator integrity tests (raw-passthrough, host-stamping, subtype) | Med | ✅ added | `36c5d14` |
 | 7 | After restart, projections aren't rehydrated → `/api/sessions` shows 0 tokens for source-less sessions | Med | ✅ `reproject` at boot | `0e8d731` |
 | 8 | **Federation node→hub loss**: at ~10 concurrent nodes the hub silently drops a session — `subscribe(New)` delivers no backlog, after the inline replay was deleted on a false premise | High | ✅ catch-up subscription (`All`); 10→100 nodes converge | `cffbf30` |
-| 9 | **Federation hub→nodes mirror gap**: faithful lab — hub 10/10 but slowest node 8–9/10. **Confirmed a timing-dependent cross-leaf race** (standalone cold 10-node fails 4/4; warm ramp converges 10/10) — not structural, not random. "Every machine sees all team data" is not robust to a cold fleet boot | High | ⚠️ **OPEN** — confirmed; fix = JetStream sources/mirrors (timing-independent replication), not core interest-propagation | `b2d891e` (red reproducer) |
+| 9 | **Federation hub→nodes mirror gap**: faithful lab — hub 10/10 but slowest node 8–9/10. Confirmed a timing-dependent cross-leaf race (cold 10-node fails 4/4; warm converges) — not structural, not random | High | ✅ **fixed** — app-level catch-up anti-entropy (peer-generic); cold 10-node → fully mirrored in 12.8s. NATS-level sources/mirrors remain an optional transport-layer alternative (#23) | `024fcc2` |
 
 ### Empirical before/after (the two that moved a number)
 - **Ingest (persist batching):** Medium tier ~44 → ~250 ev/s; broke at 13,480 events → now clears 40,400, breaks at 121,120 (~9× ceiling).
