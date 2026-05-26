@@ -56,6 +56,19 @@ const LARGE: SizingTier = SizingTier {
     nats_memory: "512M",
 };
 
+/// Host-scale tier: limits set so high they cannot bind before the
+/// architecture itself does on a workstation-class host. The point is to
+/// find where the *code* breaks (unbounded in-memory caches, SQLite single
+/// writer, NATS stream cap) rather than where a cgroup throttles. Run this
+/// on a machine with headroom (>=16 cores, >=64G).
+const XL: SizingTier = SizingTier {
+    name: "HostScale",
+    server_cpu: "16.0",
+    server_memory: "64G",
+    nats_cpu: "8.0",
+    nats_memory: "16G",
+};
+
 // ── Pipeline result ─────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -215,6 +228,32 @@ async fn start_perf_stack(
 
 // ── Polling helpers ─────────────────────────────────────────────────
 
+/// Extract the sessions array from a `/api/sessions` body, tolerating both
+/// the `{ "sessions": [...], "total": N }` envelope and a bare array.
+///
+/// The API returns the envelope shape; an older bare-array shape is still
+/// accepted defensively. Parsing the body as `Vec<Value>` directly (as this
+/// harness used to) silently fails against the envelope and reports zero
+/// sessions — which masquerades as 100% data loss in the break-finder.
+fn sessions_from_body(body: &Value) -> Vec<Value> {
+    body.get("sessions")
+        .and_then(|v| v.as_array())
+        .or_else(|| body.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Fetch and parse the sessions list, handling either response shape.
+async fn fetch_sessions(url: &str) -> Vec<Value> {
+    match reqwest::get(url).await {
+        Ok(resp) => match resp.json::<Value>().await {
+            Ok(body) => sessions_from_body(&body),
+            Err(_) => Vec::new(),
+        },
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Poll until at least `expected` sessions appear, or timeout.
 async fn wait_for_n_sessions(port: u16, expected: usize, timeout: Duration) -> Vec<Value> {
     let url = format!("http://localhost:{port}/api/sessions");
@@ -222,13 +261,10 @@ async fn wait_for_n_sessions(port: u16, expected: usize, timeout: Duration) -> V
     let mut last_count = 0;
 
     while start.elapsed() < timeout {
-        if let Ok(resp) = reqwest::get(&url).await {
-            if let Ok(sessions) = resp.json::<Vec<Value>>().await {
-                last_count = sessions.len();
-                if last_count >= expected {
-                    return sessions;
-                }
-            }
+        let sessions = fetch_sessions(&url).await;
+        last_count = sessions.len();
+        if last_count >= expected {
+            return sessions;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -238,11 +274,7 @@ async fn wait_for_n_sessions(port: u16, expected: usize, timeout: Duration) -> V
         timeout.as_secs_f64()
     );
     // Return what we have
-    if let Ok(resp) = reqwest::get(&url).await {
-        resp.json::<Vec<Value>>().await.unwrap_or_default()
-    } else {
-        Vec::new()
-    }
+    fetch_sessions(&url).await
 }
 
 /// Poll until a session has at least `expected` view-records, or timeout.
@@ -274,10 +306,7 @@ async fn wait_for_n_records(
 /// Count total view-records across all sessions.
 async fn count_total_records(port: u16) -> usize {
     let sessions_url = format!("http://localhost:{port}/api/sessions");
-    let sessions: Vec<Value> = match reqwest::get(&sessions_url).await {
-        Ok(resp) => resp.json().await.unwrap_or_default(),
-        Err(_) => return 0,
-    };
+    let sessions = fetch_sessions(&sessions_url).await;
 
     let mut total = 0;
     for session in &sessions {
@@ -770,6 +799,14 @@ async fn perf_break_medium() {
     let rounds = run_break_finder(&MEDIUM).await;
     assert!(!rounds.is_empty(), "should complete at least one round");
     assert!(rounds[0].healthy, "round 1 should be healthy");
+    // Round 1 is a trivial load (5×100) — it must actually ingest, not just
+    // respond. Without this the break-finder reports green even at 100% data
+    // loss (which is exactly how a harness/API-shape mismatch hid for so long).
+    assert!(
+        rounds[0].data_loss_pct < 10.0,
+        "round 1 data loss should be <10%, got {:.1}%",
+        rounds[0].data_loss_pct
+    );
     // Medium should survive at least 2 rounds
     if rounds.len() >= 2 {
         assert!(rounds[1].healthy, "round 2 should be healthy on medium");
@@ -783,9 +820,36 @@ async fn perf_break_large() {
     let rounds = run_break_finder(&LARGE).await;
     assert!(!rounds.is_empty(), "should complete at least one round");
     assert!(rounds[0].healthy, "round 1 should be healthy");
+    assert!(
+        rounds[0].data_loss_pct < 10.0,
+        "round 1 data loss should be <10%, got {:.1}%",
+        rounds[0].data_loss_pct
+    );
     // Large should survive at least 3 rounds
     if rounds.len() >= 3 {
         assert!(rounds[2].healthy, "round 3 should be healthy on large");
+    }
+}
+
+/// Break the host-scale tier: 16 CPU / 64G (effectively unconstrained on a
+/// workstation). With the cgroup out of the way, whatever breaks here is the
+/// architecture's own ceiling — read the summary's `healthy` column to tell a
+/// crash/OOM (health=NO) apart from backpressure/timeout (health=yes, loss>5%).
+#[tokio::test]
+#[ignore]
+async fn perf_break_xl() {
+    let rounds = run_break_finder(&XL).await;
+    assert!(!rounds.is_empty(), "should complete at least one round");
+    assert!(rounds[0].healthy, "round 1 should be healthy");
+    assert!(
+        rounds[0].data_loss_pct < 10.0,
+        "round 1 data loss should be <10%, got {:.1}%",
+        rounds[0].data_loss_pct
+    );
+    // With 16 CPU / 64G the host-scale tier should outlast every constrained
+    // tier — surviving deep into the ramp before the architecture gives.
+    if rounds.len() >= 3 {
+        assert!(rounds[2].healthy, "round 3 should be healthy on host-scale");
     }
 }
 
