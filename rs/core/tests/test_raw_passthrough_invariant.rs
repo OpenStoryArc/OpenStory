@@ -194,6 +194,40 @@ fn hermes_fixtures_preserve_data_raw_byte_for_byte() {
 }
 
 #[test]
+fn codex_fixtures_preserve_data_raw_byte_for_byte() {
+    let dir = fixtures_dir().join("codex");
+    let files: Vec<PathBuf> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    if files.is_empty() {
+        // Codex fixtures may not be present in all checkouts — skip
+        // gracefully rather than fail the test.
+        eprintln!("no codex fixtures present, skipping");
+        return;
+    }
+
+    let mut all_failures: Vec<(PathBuf, String)> = Vec::new();
+    for path in &files {
+        for f in raw_passthrough_failures(path) {
+            all_failures.push((path.clone(), f));
+        }
+    }
+
+    if !all_failures.is_empty() {
+        eprintln!("\n❌ raw-passthrough failures in codex fixtures:");
+        for (path, msg) in all_failures.iter().take(5) {
+            eprintln!("  {}: {}", path.file_name().unwrap().to_string_lossy(), msg);
+        }
+        panic!("{} codex raw mutation(s)", all_failures.len());
+    }
+}
+
+#[test]
 fn claude_code_synthetic_fixture_preserves_data_raw() {
     // synthetic.jsonl is hand-rolled Claude Code shape — the canonical
     // exercise of the default translator path.

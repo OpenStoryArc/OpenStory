@@ -85,6 +85,45 @@ fn pi_mono_translator_stamps_host_on_every_decomposed_event() {
     }
 }
 
+// ── codex ──────────────────────────────────────────────────────────
+
+#[test]
+fn codex_translator_stamps_host_on_every_event() {
+    // Codex is the third translator. It must hold the same contract:
+    // host/user baked in at translation time so origin survives the hub.
+    use open_story_core::translate_codex::translate_codex_line;
+
+    // session_meta first so the translator rekeys to the thread id, then
+    // a user_message — both must carry the stamp.
+    let meta = json!({
+        "timestamp": "2026-05-23T12:11:57.894Z",
+        "type": "session_meta",
+        "payload": {
+            "id": "019e54bf-aa76-7d03-b3f4-a2571d0c2117",
+            "cwd": "/home/dev/project",
+            "originator": "codex-tui"
+        }
+    });
+    let user_msg = json!({
+        "timestamp": "2026-05-23T12:11:57.908Z",
+        "type": "event_msg",
+        "payload": {"type": "user_message", "message": "hello codex"}
+    });
+
+    let mut state = TranscriptState::new("sess-host-codex".into());
+    let mut events = translate_codex_line(&meta, &mut state);
+    events.extend(translate_codex_line(&user_msg, &mut state));
+
+    assert!(
+        !events.is_empty(),
+        "codex translator must emit at least one event"
+    );
+    for ce in &events {
+        assert_eq!(ce.agent.as_deref(), Some("codex"));
+        assert_host_stamped(ce);
+    }
+}
+
 // ── invariant helper ────────────────────────────────────────────────
 
 fn assert_host_stamped(ce: &CloudEvent) {
