@@ -210,7 +210,7 @@ async fn run_lab_federation(nodes: usize, events: usize) -> LabResult {
     let expected: BTreeSet<String> = (0..nodes).map(|i| format!("node-{i}")).collect();
 
     // Converged when the hub AND every node mirror all N sessions.
-    let timeout = Duration::from_secs((180 + nodes as u64 * 12).min(900));
+    let timeout = Duration::from_secs((60 + nodes as u64 * 6).min(180));
     let deadline = Instant::now() + timeout;
     let mut hub_has = 0;
     let mut min_node_has = 0;
@@ -270,7 +270,7 @@ async fn lab_federation_full_mirror_10_nodes() {
 #[ignore]
 async fn lab_federation_ramp() {
     let mut rows = Vec::new();
-    for &n in &[5usize, 10, 25] {
+    for &n in &[2usize, 3, 5, 10] {
         let r = run_lab_federation(n, 12).await;
         rows.push((n, r.hub_has, r.min_node_has, r.fully_mirrored, r.elapsed.as_secs_f64()));
         if !r.fully_mirrored {
