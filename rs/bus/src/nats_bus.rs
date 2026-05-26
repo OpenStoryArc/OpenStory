@@ -154,7 +154,20 @@ impl Bus for NatsBus {
             .create_consumer(jetstream::consumer::push::Config {
                 filter_subject: pattern.to_string(),
                 deliver_subject: format!("_deliver.{}", uuid_short()),
-                deliver_policy: jetstream::consumer::DeliverPolicy::New,
+                // Catch-up subscription: deliver the full backlog, then continue
+                // live. `New` delivered no history, so a subscriber that came up
+                // after a publisher had already forwarded its events missed them
+                // forever — the boot-window race that lost ~1 session per 10
+                // concurrently-joining nodes (federation-boot-window-loss). PK
+                // dedup makes the redelivered backlog harmless.
+                //
+                // PROTOTYPE NOTE: this is an *ephemeral* consumer, so `All`
+                // re-reads the whole `events` stream on every (re)subscribe —
+                // O(stream) per boot. Correct, but wasteful at scale. The
+                // production refinement is a *durable named* consumer that
+                // resumes from its last ack (backlog-since-last-seen + live),
+                // the standard catch-up-subscription pattern.
+                deliver_policy: jetstream::consumer::DeliverPolicy::All,
                 ..Default::default()
             })
             .await
