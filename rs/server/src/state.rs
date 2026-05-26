@@ -130,39 +130,18 @@ pub async fn create_state_with_watch_dirs(
         .filter_map(|entry| entry.file_name().to_str().map(|name| name.to_string()))
         .collect();
 
-    // Boot from SQLite if it has data (restart case — data already translated)
+    // Boot from SQLite if it has data (restart case — data already translated).
+    // A single pass per session inside boot_from_sqlite loads each session's
+    // events ONCE and derives both the subagent tree and the cwd→project
+    // mapping. Previously this was two separate full scans (subagent detection
+    // here, project resolution in a second loop), each deserializing every
+    // event of every session to pull one field.
     let sqlite_sessions = store.event_store.list_sessions().await.unwrap_or_default();
     if !sqlite_sessions.is_empty() {
         boot_from_sqlite(&mut store, &sqlite_sessions).await;
     }
     // If SQLite is empty (first boot), watcher backfill handles everything.
     // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
-
-    // Derive project_id and project_name from cwd for all loaded sessions
-    let boot_session_ids: Vec<String> = store
-        .event_store
-        .list_sessions()
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(|r| r.id.clone())
-        .collect();
-    for sid in &boot_session_ids {
-        let events = store
-            .event_store
-            .session_events(sid)
-            .await
-            .unwrap_or_default();
-        if let Some(cwd) = extract_cwd_from_events(&events) {
-            let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
-            store
-                .session_projects
-                .insert(sid.clone(), resolved.project_id);
-            store
-                .session_project_names
-                .insert(sid.clone(), resolved.project_name);
-        }
-    }
 
     Ok(Arc::new(RwLock::new(AppState {
         store,
@@ -199,6 +178,17 @@ async fn boot_from_sqlite(
                 &store.subagent_parents,
                 &store.session_children,
             );
+        }
+        // Derive project_id / project_name from cwd in the SAME pass, reusing
+        // the events we already loaded rather than re-scanning every session.
+        if let Some(cwd) = extract_cwd_from_events(&events) {
+            let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
+            store
+                .session_projects
+                .insert(row.id.clone(), resolved.project_id);
+            store
+                .session_project_names
+                .insert(row.id.clone(), resolved.project_name);
         }
     }
 }

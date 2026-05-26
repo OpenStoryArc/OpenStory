@@ -85,12 +85,19 @@ pub async fn reconcile_local(data_dir: &Path, store: &mut StoreState) -> Result<
             continue;
         }
 
-        for event in &events {
-            match store.event_store.insert_event(&sid, event).await {
-                Ok(true) => report.events_inserted += 1,
-                Ok(false) => report.events_skipped += 1,
-                Err(e) => report.errors.push(format!("{sid}: insert: {e}")),
+        // One transaction per session, not one per event. Reconcile re-reads
+        // OpenStory's own JSONL backup on every boot; the per-event loop paid
+        // one SQLite fsync per event, making boot O(history) in fsyncs. Unlike
+        // the persist consumer, reconcile needs no per-event new/dup flags here
+        // (it doesn't append JSONL — it reads *from* it — or index FTS), so the
+        // plain count-returning insert_batch suffices. See the same fix on the
+        // live path in server/src/consumers/persist.rs.
+        match store.event_store.insert_batch(&sid, &events).await {
+            Ok(new_count) => {
+                report.events_inserted += new_count;
+                report.events_skipped += events.len() - new_count;
             }
+            Err(e) => report.errors.push(format!("{sid}: insert: {e}")),
         }
 
         let row = session_row_from_events(&sid, &events);
