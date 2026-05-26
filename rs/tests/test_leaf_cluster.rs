@@ -32,6 +32,28 @@ async fn get_events(port: u16, session_id: &str) -> Vec<Value> {
     }
 }
 
+/// Fetch `/api/digests` as a map of session_id → digest.
+async fn get_digests(port: u16) -> std::collections::BTreeMap<String, String> {
+    let url = format!("http://localhost:{port}/api/digests");
+    let body: Value = match reqwest::get(&url).await {
+        Ok(resp) => resp.json().await.unwrap_or(Value::Null),
+        Err(_) => Value::Null,
+    };
+    body.get("sessions")
+        .and_then(|s| s.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|d| {
+                    Some((
+                        d["session_id"].as_str()?.to_string(),
+                        d["digest"].as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn session_id_set(sessions: &[Value]) -> BTreeSet<String> {
     sessions
         .iter()
@@ -200,6 +222,38 @@ async fn hub_has_view_records_from_leaf() {
     let first = &records[0];
     assert!(first.get("record_type").is_some());
     assert!(first.get("payload").is_some());
+}
+
+/// CONVERGENCE: leaf and hub must compute IDENTICAL per-session digests once
+/// replication settles. This proves the fleet-health primitive end-to-end —
+/// `/api/digests` on each node, and equal digests for shared sessions means the
+/// event-id sets are byte-identical across the federation (a stronger, cheaper
+/// statement than comparing full event lists, and exactly what `/api/fleet` and
+/// `verify` will rely on). A digest mismatch would mean silent divergence.
+#[tokio::test]
+#[ignore]
+async fn leaf_and_hub_converge_on_matching_digests() {
+    let stack = start_stack(TestConfig::LeafCluster, &fixtures_dir()).await;
+    let hub_port = stack.hub_server_port.expect("hub port");
+
+    wait_for_sessions(stack.server_port, "leaf-server").await;
+    wait_for_sessions(hub_port, "hub-server").await;
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    let leaf = get_digests(stack.server_port).await;
+    let hub = get_digests(hub_port).await;
+
+    assert!(!leaf.is_empty(), "leaf should report digests");
+    for (sid, leaf_digest) in &leaf {
+        match hub.get(sid) {
+            Some(hub_digest) => assert_eq!(
+                hub_digest, leaf_digest,
+                "leaf and hub digests diverge for session {sid} — convergence broken \
+                 (the event-id sets differ across the federation)"
+            ),
+            None => panic!("hub is missing session {sid} that the leaf has"),
+        }
+    }
 }
 
 /// INTEGRITY: a leaf→hub round-trip must preserve session identity, the
