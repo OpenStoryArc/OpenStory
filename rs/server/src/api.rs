@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use chrono::{Timelike, Utc};
+use open_story_bus::Bus;
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
 use crate::logging::{log_event, short_id};
@@ -35,6 +36,43 @@ pub struct SessionListQuery {
     /// Sort mode. `latest` (default), `active`, or `tokens`. Unknown values
     /// fall back to `latest` so the UI never sees a 400 from a typo.
     pub sort: Option<String>,
+}
+
+/// Aggregate node health — the detailed read companion to the dumb `/health`
+/// liveness probe. One view over store / bus / projection state, so the failure
+/// modes the architecture review surfaced (disconnected bus, stale projections
+/// after restart, etc.) become observable instead of silent. Pure observation.
+/// See `docs/research/node-and-network-health.md`. Detailed watcher state lives
+/// at `/api/watchers`.
+pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    let sessions = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let projections = s.store.projections.len();
+
+    Json(json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "store": {
+            "backend": s.config.data_backend.to_string(),
+            "sessions": sessions,
+        },
+        "bus": { "connected": s.bus.is_active() },
+        "projections": {
+            "count": projections,
+            "sessions": sessions,
+            // count covers every session ⇒ the read model is rehydrated.
+            // Goes false when a restart leaves projections un-rebuilt for
+            // source-less sessions (run `reproject`).
+            "fresh": projections >= sessions,
+        },
+        "watchers": s.watcher_diagnostics.snapshots().len(),
+    }))
 }
 
 pub async fn list_sessions(

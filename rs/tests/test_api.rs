@@ -26,6 +26,38 @@ async fn test_list_sessions_empty() {
 }
 
 #[tokio::test]
+async fn test_health_reports_node_status() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    // Ingest one session so the store and the projection are non-empty.
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-health")];
+        seed_and_ingest(&mut s, "sess-health", &events, None).await;
+    }
+
+    let req = Request::get("/api/health").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    assert_eq!(body["status"], "ok");
+    assert!(body["version"].is_string());
+    // store
+    assert!(body["store"]["backend"].is_string(), "backend should be reported");
+    assert_eq!(body["store"]["sessions"].as_u64(), Some(1));
+    // bus — tests use NoopBus, so not connected
+    assert_eq!(body["bus"]["connected"], false);
+    // projection freshness — ingest populated the projection, so count covers
+    // sessions and fresh is true. This is the field that goes false when a
+    // restart leaves projections un-rehydrated (the token-0 divergence).
+    assert_eq!(body["projections"]["sessions"].as_u64(), Some(1));
+    assert!(body["projections"]["count"].as_u64().unwrap() >= 1);
+    assert_eq!(body["projections"]["fresh"], true);
+}
+
+#[tokio::test]
 async fn test_list_sessions_with_data() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
