@@ -58,6 +58,38 @@ async fn test_health_reports_node_status() {
 }
 
 #[tokio::test]
+async fn test_digests_endpoint_reports_per_session_convergence() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events_a = vec![
+            make_event("io.arc.event", "sess-a"),
+            make_event("io.arc.event", "sess-a"),
+        ];
+        seed_and_ingest(&mut s, "sess-a", &events_a, None).await;
+        let events_b = vec![make_event("io.arc.event", "sess-b")];
+        seed_and_ingest(&mut s, "sess-b", &events_b, None).await;
+    }
+
+    let req = Request::get("/api/digests").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    let sessions = body["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 2, "one digest per session");
+    for d in sessions {
+        assert!(d["session_id"].is_string());
+        assert!(d["count"].as_u64().unwrap() >= 1);
+        // FNV-1a 64-bit rendered as 16 hex chars — the cross-node comparison key.
+        let digest = d["digest"].as_str().expect("digest string");
+        assert_eq!(digest.len(), 16, "digest is 16 hex chars, got {digest:?}");
+    }
+}
+
+#[tokio::test]
 async fn test_list_sessions_with_data() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);

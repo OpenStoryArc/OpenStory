@@ -97,6 +97,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::list_sessions),
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
+        .route("/api/digests", axum::routing::get(crate::api::session_digests))
         .route(
             "/api/watchers",
             axum::routing::get(crate::api::list_watchers),

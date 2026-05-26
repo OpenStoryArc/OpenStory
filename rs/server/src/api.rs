@@ -75,6 +75,42 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// Per-session convergence digests — the shared primitive for network health
+/// (`/api/fleet`) and the `verify` action. Each entry is `(session_id, count,
+/// stable event-id hash)`; a peer fetches this and diffs it against its own
+/// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
+/// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
+pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    let sessions = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .unwrap_or_default();
+
+    let mut digests = Vec::with_capacity(sessions.len());
+    for row in &sessions {
+        let events = s
+            .store
+            .event_store
+            .session_events(&row.id)
+            .await
+            .unwrap_or_default();
+        let ids: Vec<String> = events
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        digests.push(crate::fleet::SessionDigest {
+            count: ids.len(),
+            digest: crate::fleet::digest_event_ids(&ids),
+            session_id: row.id.clone(),
+        });
+    }
+
+    Json(json!({ "sessions": digests }))
+}
+
 pub async fn list_sessions(
     State(state): State<SharedState>,
     Query(query): Query<SessionListQuery>,
