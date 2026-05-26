@@ -20,7 +20,37 @@ mod helpers;
 use helpers::compose::{start_stack, TestConfig};
 use helpers::fixtures_dir;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::time::Duration;
+
+/// Fetch a session's events (CloudEvents) from a server.
+async fn get_events(port: u16, session_id: &str) -> Vec<Value> {
+    let url = format!("http://localhost:{port}/api/sessions/{session_id}/events");
+    match reqwest::get(&url).await {
+        Ok(resp) => resp.json::<Vec<Value>>().await.unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn session_id_set(sessions: &[Value]) -> BTreeSet<String> {
+    sessions
+        .iter()
+        .filter_map(|s| s["session_id"].as_str().map(String::from))
+        .collect()
+}
+
+fn host_user(sessions: &[Value], sid: &str) -> (Option<String>, Option<String>) {
+    sessions
+        .iter()
+        .find(|s| s["session_id"].as_str() == Some(sid))
+        .map(|s| {
+            (
+                s["host"].as_str().map(String::from),
+                s["user"].as_str().map(String::from),
+            )
+        })
+        .unwrap_or((None, None))
+}
 
 /// Wait for at least one session to appear on a given port.
 async fn wait_for_sessions(port: u16, label: &str) {
@@ -170,4 +200,80 @@ async fn hub_has_view_records_from_leaf() {
     let first = &records[0];
     assert!(first.get("record_type").is_some());
     assert!(first.get("payload").is_some());
+}
+
+/// INTEGRITY: a leaf→hub round-trip must preserve session identity, the
+/// per-session event set, timestamp order, and origin (host/user) — not just
+/// session *counts*. The existing tests assert presence/counts only; this one
+/// asserts the data actually survives replication intact. If the leaf and hub
+/// derive different session_ids, drop/duplicate events, reorder them, or the
+/// hub re-stamps origin with its own host, this fails where the count tests
+/// pass.
+#[tokio::test]
+#[ignore]
+async fn leaf_to_hub_preserves_identity_order_and_origin() {
+    let stack = start_stack(TestConfig::LeafCluster, &fixtures_dir()).await;
+    let hub_port = stack.hub_server_port.expect("hub port");
+
+    wait_for_sessions(stack.server_port, "leaf-server").await;
+    wait_for_sessions(hub_port, "hub-server").await;
+    // Let replication + hub ingest fully settle before comparing.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+
+    let leaf_sessions = get_sessions(stack.server_port).await;
+    let hub_sessions = get_sessions(hub_port).await;
+    let leaf_ids = session_id_set(&leaf_sessions);
+    let hub_ids = session_id_set(&hub_sessions);
+
+    // (1) Identity: every leaf session id must appear on the hub — same id,
+    // not merely an equal count.
+    let missing: Vec<_> = leaf_ids.difference(&hub_ids).cloned().collect();
+    assert!(
+        missing.is_empty(),
+        "hub is missing leaf session ids {missing:?}\n  leaf={leaf_ids:?}\n  hub={hub_ids:?}"
+    );
+
+    for sid in &leaf_ids {
+        let leaf_events = get_events(stack.server_port, sid).await;
+        let hub_events = get_events(hub_port, sid).await;
+
+        // (2) Dedup/completeness: the set of event ids must match exactly —
+        // no drops, no duplicates introduced by replication.
+        let leaf_eids: BTreeSet<String> = leaf_events
+            .iter()
+            .filter_map(|e| e["id"].as_str().map(String::from))
+            .collect();
+        let hub_eids: BTreeSet<String> = hub_events
+            .iter()
+            .filter_map(|e| e["id"].as_str().map(String::from))
+            .collect();
+        assert_eq!(
+            leaf_eids, hub_eids,
+            "event.id set diverged for session {sid} (leaf {} vs hub {})",
+            leaf_eids.len(),
+            hub_eids.len()
+        );
+
+        // (3) Ordering: hub events must be served in non-decreasing timestamp
+        // order (the API contract the UI relies on).
+        let hub_ts: Vec<&str> = hub_events.iter().filter_map(|e| e["time"].as_str()).collect();
+        let mut sorted = hub_ts.clone();
+        sorted.sort_unstable();
+        assert_eq!(hub_ts, sorted, "hub events for {sid} are not in timestamp order");
+
+        // (4) Origin survival: the hub must report the SAME host/user as the
+        // leaf for this session — the stamp baked in at translation on the
+        // leaf must survive NATS replication, not be overwritten by the hub.
+        let (leaf_host, leaf_user) = host_user(&leaf_sessions, sid);
+        let (hub_host, hub_user) = host_user(&hub_sessions, sid);
+        assert_eq!(
+            hub_host, leaf_host,
+            "origin host diverged for {sid}: hub {hub_host:?} != leaf {leaf_host:?} \
+             (hub may be re-stamping replicated events with its own host)"
+        );
+        assert_eq!(
+            hub_user, leaf_user,
+            "origin user diverged for {sid}: hub {hub_user:?} != leaf {leaf_user:?}"
+        );
+    }
 }
