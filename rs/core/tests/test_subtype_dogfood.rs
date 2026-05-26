@@ -189,3 +189,69 @@ fn every_subtype_in_pi_mono_fixtures_parses_into_the_enum() {
         panic!("{} unknown pi-mono subtype(s)", unknown.len());
     }
 }
+
+// ── Fixture-based codex dogfood (no server required) ──────────────────
+//
+// Codex is the third translator. Same deterministic contract as pi-mono:
+// every subtype it produces from a real rollout fixture must parse into the
+// Subtype enum. Skips gracefully when no codex fixtures are checked out.
+
+fn codex_fixture_paths() -> Vec<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests/fixtures/codex");
+    match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[test]
+fn every_subtype_in_codex_fixtures_parses_into_the_enum() {
+    let fixtures = codex_fixture_paths();
+    if fixtures.is_empty() {
+        eprintln!("no codex fixtures present, skipping");
+        return;
+    }
+
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut unknown: Vec<(String, PathBuf)> = Vec::new();
+
+    for path in &fixtures {
+        let mut state = TranscriptState::new(format!(
+            "dogfood-{}",
+            path.file_stem().unwrap().to_string_lossy()
+        ));
+        let events = read_new_lines(path, &mut state)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        for ce in &events {
+            if let Some(st) = ce.subtype.as_deref() {
+                *counts.entry(st.to_string()).or_insert(0) += 1;
+                if Subtype::from_str(st).is_err() {
+                    unknown.push((st.to_string(), path.clone()));
+                }
+            }
+        }
+    }
+
+    eprintln!("\n── codex fixture subtype distribution ──");
+    for (st, n) in &counts {
+        eprintln!("  {n:>6}  {st}");
+    }
+
+    if !unknown.is_empty() {
+        eprintln!("\n❌ codex subtypes the enum doesn't know:");
+        for (st, path) in &unknown {
+            eprintln!(
+                "  {st}  (in {})",
+                path.file_name().unwrap().to_string_lossy()
+            );
+        }
+        panic!("{} unknown codex subtype(s)", unknown.len());
+    }
+}

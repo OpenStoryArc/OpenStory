@@ -47,6 +47,13 @@ pub enum Subtype {
     LocalCommand,
     #[serde(rename = "system.away_summary")]
     AwaySummary,
+    /// Codex emits a per-turn context frame (cwd, model, timezone) before
+    /// the turn's events.
+    #[serde(rename = "system.turn.context")]
+    TurnContext,
+    /// Codex emits running token accounting as a `token_count` event_msg.
+    #[serde(rename = "system.token_count")]
+    TokenCount,
 
     // ── progress.* — ephemeral streaming ──
     #[serde(rename = "progress.bash")]
@@ -101,6 +108,8 @@ impl Subtype {
             Subtype::ModelChange => "system.model_change",
             Subtype::LocalCommand => "system.local_command",
             Subtype::AwaySummary => "system.away_summary",
+            Subtype::TurnContext => "system.turn.context",
+            Subtype::TokenCount => "system.token_count",
             Subtype::ProgressBash => "progress.bash",
             Subtype::ProgressAgent => "progress.agent",
             Subtype::ProgressHook => "progress.hook",
@@ -136,6 +145,8 @@ impl Subtype {
                 | Subtype::ModelChange
                 | Subtype::LocalCommand
                 | Subtype::AwaySummary
+                | Subtype::TurnContext
+                | Subtype::TokenCount
         )
     }
 
@@ -229,6 +240,8 @@ impl FromStr for Subtype {
             "system.model_change" => Ok(Subtype::ModelChange),
             "system.local_command" => Ok(Subtype::LocalCommand),
             "system.away_summary" => Ok(Subtype::AwaySummary),
+            "system.turn.context" => Ok(Subtype::TurnContext),
+            "system.token_count" => Ok(Subtype::TokenCount),
             "progress.bash" => Ok(Subtype::ProgressBash),
             "progress.agent" => Ok(Subtype::ProgressAgent),
             "progress.hook" => Ok(Subtype::ProgressHook),
@@ -266,6 +279,8 @@ mod tests {
             (Subtype::ModelChange, "system.model_change"),
             (Subtype::LocalCommand, "system.local_command"),
             (Subtype::AwaySummary, "system.away_summary"),
+            (Subtype::TurnContext, "system.turn.context"),
+            (Subtype::TokenCount, "system.token_count"),
             (Subtype::ProgressBash, "progress.bash"),
             (Subtype::ProgressAgent, "progress.agent"),
             (Subtype::ProgressHook, "progress.hook"),
