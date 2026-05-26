@@ -25,7 +25,10 @@ fn claude_code_translator_stamps_host_on_user_message() {
     let mut state = TranscriptState::new("sess-host-claude".into());
     let events = translate_line(&line, &mut state);
 
-    assert!(!events.is_empty(), "translator must emit at least one event");
+    assert!(
+        !events.is_empty(),
+        "translator must emit at least one event"
+    );
     for ce in &events {
         assert_host_stamped(ce);
     }

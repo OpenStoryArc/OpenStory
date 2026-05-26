@@ -146,11 +146,15 @@ fn empty_subtype_still_produces_records() {
         AgentPayload::ClaudeCode(ClaudeCodePayload::new()),
     );
     let event = CloudEvent::new(
-        "arc://test".into(), "io.arc.event".into(), data,
+        "arc://test".into(),
+        "io.arc.event".into(),
+        data,
         None, // no subtype at all
         Some("evt-no-subtype".into()),
         Some("2026-04-17T10:00:00Z".into()),
-        None, None, None,
+        None,
+        None,
+        None,
     );
     let records = from_cloud_event(&event);
     assert!(

@@ -150,10 +150,20 @@ async fn capture_snapshot(fixture_path: &Path, session_id: &str) -> Value {
         .unwrap_or_default();
     // Stable order: by `seq` then `id`.
     events.sort_by(|a, b| {
-        let sa = a.get("data").and_then(|d| d.get("seq")).and_then(|v| v.as_u64()).unwrap_or(0);
-        let sb = b.get("data").and_then(|d| d.get("seq")).and_then(|v| v.as_u64()).unwrap_or(0);
+        let sa = a
+            .get("data")
+            .and_then(|d| d.get("seq"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let sb = b
+            .get("data")
+            .and_then(|d| d.get("seq"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         sa.cmp(&sb).then_with(|| {
-            a.get("id").and_then(|v| v.as_str()).cmp(&b.get("id").and_then(|v| v.as_str()))
+            a.get("id")
+                .and_then(|v| v.as_str())
+                .cmp(&b.get("id").and_then(|v| v.as_str()))
         })
     });
 
@@ -371,10 +381,6 @@ async fn golden_pi_mono_scenario_07_multi_tool() {
 /// Claude Code synthetic session — covers the primary Claude translation path.
 #[tokio::test]
 async fn golden_synthetic_claude() {
-    let actual = capture_snapshot(
-        &fixtures_root().join("synthetic.jsonl"),
-        "synthetic",
-    )
-    .await;
+    let actual = capture_snapshot(&fixtures_root().join("synthetic.jsonl"), "synthetic").await;
     assert_or_update_snapshot("synthetic_claude", &actual);
 }

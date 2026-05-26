@@ -168,12 +168,14 @@ describe("deriveSessions", () => {
       makeEvent({
         session_id: "s1",
         timestamp: "2026-01-01T00:00:02Z",
+        origin_agent: "claude-code",
         record_type: "tool_call",
         payload: { name: "ExitPlanMode", call_id: "c1", input: {}, raw_input: {}, is_error: false },
       }),
       makeEvent({
         session_id: "s1",
         timestamp: "2026-01-01T00:00:03Z",
+        origin_agent: "claude-code",
         record_type: "tool_call",
         payload: { name: "ExitPlanMode", call_id: "c2", input: {}, raw_input: {}, is_error: false },
       }),
@@ -196,18 +198,21 @@ describe("deriveSessions", () => {
       makeEvent({
         session_id: "s1",
         timestamp: "2026-01-01T00:00:01Z",
+        origin_agent: "claude-code",
         record_type: "tool_call",
         payload: { name: "EnterPlanMode", call_id: "c1", input: {}, raw_input: {}, is_error: false },
       }),
       makeEvent({
         session_id: "s1",
         timestamp: "2026-01-01T00:00:02Z",
+        origin_agent: "claude-code",
         record_type: "tool_call",
         payload: { name: "ExitPlanMode", call_id: "c2", input: {}, raw_input: {}, is_error: false },
       }),
       makeEvent({
         session_id: "s1",
         timestamp: "2026-01-01T00:00:03Z",
+        origin_agent: "claude-code",
         record_type: "tool_call",
         payload: { name: "EnterPlanMode", call_id: "c3", input: {}, raw_input: {}, is_error: false },
       }),
@@ -244,6 +249,35 @@ describe("deriveSessions", () => {
     const legacy = sessions.find((s) => s.id === "s-legacy")!;
     expect(legacy.host).toBeNull();
     expect(legacy.user).toBeNull();
+  });
+
+  it("should populate origin agent from REST sessions", () => {
+    const sessions = deriveSessions(
+      [],
+      undefined,
+      [
+        {
+          session_id: "s-pimono",
+          last_event: "2026-05-01T00:00:00Z",
+          start_time: "2026-05-01T00:00:00Z",
+          origin_agent: "pi-mono",
+        },
+      ],
+    );
+
+    expect(sessions[0]!.originAgent).toBe("pi-mono");
+  });
+
+  it("should populate origin agent from loaded records", () => {
+    const events = [
+      makeEvent({
+        session_id: "s-loaded",
+        timestamp: "2026-05-01T00:00:00Z",
+        origin_agent: "codex",
+      }),
+    ];
+    const sessions = deriveSessions(events);
+    expect(sessions[0]!.originAgent).toBe("codex");
   });
 
   it("should default host and user to null for sessions derived from events alone", () => {

@@ -7,10 +7,10 @@ mod helpers;
 
 use std::fs;
 
+use helpers::fixtures_dir;
 use open_story::event_data::AgentPayload;
 use open_story::translate::{translate_line, TranscriptState};
 use open_story_views::from_cloud_event::from_cloud_event;
-use helpers::fixtures_dir;
 
 /// Load synth_origin.jsonl, translate all lines, convert to ViewRecords,
 /// and verify that subagent identity fields are preserved through the pipeline.
@@ -75,7 +75,8 @@ fn real_fixture_progress_events_carry_agent_id() {
         let value: serde_json::Value = serde_json::from_str(line).expect("valid JSON");
 
         // Check if this is a progress event with nested agentId
-        let is_progress_with_nested = value.get("type").and_then(|v| v.as_str()) == Some("progress")
+        let is_progress_with_nested = value.get("type").and_then(|v| v.as_str())
+            == Some("progress")
             && value
                 .get("data")
                 .and_then(|d| d.get("agentId"))

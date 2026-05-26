@@ -68,8 +68,14 @@ mod records_endpoint {
         // Every record should have WireRecord fields
         for record in records {
             assert!(record.get("id").is_some(), "record should have id");
-            assert!(record.get("session_id").is_some(), "record should have session_id");
-            assert!(record.get("timestamp").is_some(), "record should have timestamp");
+            assert!(
+                record.get("session_id").is_some(),
+                "record should have session_id"
+            );
+            assert!(
+                record.get("timestamp").is_some(),
+                "record should have timestamp"
+            );
             assert!(
                 record.get("depth").is_some(),
                 "record should have depth (WireRecord field)"
@@ -112,7 +118,10 @@ mod records_endpoint {
             .iter()
             .find(|r| r["depth"].as_u64() == Some(0))
             .expect("should have a root record with depth 0");
-        assert!(root["parent_uuid"].is_null(), "root should have null parent_uuid");
+        assert!(
+            root["parent_uuid"].is_null(),
+            "root should have null parent_uuid"
+        );
 
         let child = records
             .iter()

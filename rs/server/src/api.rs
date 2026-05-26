@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
@@ -42,14 +42,18 @@ pub async fn list_sessions(
     Query(query): Query<SessionListQuery>,
 ) -> Json<Value> {
     let s = state.read().await;
-    let all_rows = s.store.event_store.list_sessions()
+    let all_rows = s
+        .store
+        .event_store
+        .list_sessions()
         .await
         .unwrap_or_default();
 
     // Filter by `since` if provided (compare last_event timestamp strings lexicographically —
     // they're RFC 3339 so lexicographic order == chronological order).
     let since_filtered: Vec<&_> = if let Some(ref since) = query.since {
-        all_rows.iter()
+        all_rows
+            .iter()
             .filter(|r| r.last_event.as_deref().unwrap_or("") >= since.as_str())
             .collect()
     } else {
@@ -60,7 +64,8 @@ pub async fn list_sessions(
     // is deliberate. A filter like ?host=Maxs-Air should not leak legacy
     // rows whose origin we simply don't know.
     let host_filtered: Vec<&_> = if let Some(ref host) = query.host {
-        since_filtered.into_iter()
+        since_filtered
+            .into_iter()
             .filter(|r| r.host.as_deref() == Some(host.as_str()))
             .collect()
     } else {
@@ -70,7 +75,8 @@ pub async fn list_sessions(
     // User filter: same exact-match semantics as host. Both can be combined:
     // `?host=Katies-Mac-mini&user=katie` narrows to sessions matching both.
     let user_filtered: Vec<&_> = if let Some(ref user) = query.user {
-        host_filtered.into_iter()
+        host_filtered
+            .into_iter()
             .filter(|r| r.user.as_deref() == Some(user.as_str()))
             .collect()
     } else {
@@ -109,10 +115,16 @@ pub async fn list_sessions(
         None => filtered.iter().skip(offset).collect(),
     };
 
-    log_event("api", &format!(
-        "GET /api/sessions ({}/{} sessions, offset={}, limit={:?})",
-        page.len(), total, offset, query.limit,
-    ));
+    log_event(
+        "api",
+        &format!(
+            "GET /api/sessions ({}/{} sessions, offset={}, limit={:?})",
+            page.len(),
+            total,
+            offset,
+            query.limit,
+        ),
+    );
 
     // Build response from SessionRow + projections (no per-session event loading).
     // Detailed fields (tool_calls, files_edited, model, etc.) are available via
@@ -121,7 +133,11 @@ pub async fn list_sessions(
     for row in &page {
         let sid = row.id.as_str();
         let project_id = s.store.session_projects.get(sid).map(|r| r.value().clone());
-        let project_name = s.store.session_project_names.get(sid).map(|r| r.value().clone());
+        let project_name = s
+            .store
+            .session_project_names
+            .get(sid)
+            .map(|r| r.value().clone());
         let (label, branch, total_input_tokens, total_output_tokens) =
             match s.store.projections.get(sid) {
                 Some(proj) => (
@@ -161,11 +177,22 @@ pub async fn list_sessions(
             "total_output_tokens": total_output_tokens,
             "host": row.host,
             "user": row.user,
+            "origin_agent": row.origin_agent,
         }));
     }
     Json(json!({
         "sessions": result,
         "total": total,
+    }))
+}
+
+pub async fn list_watchers(State(state): State<SharedState>) -> Json<Value> {
+    let diagnostics = {
+        let s = state.read().await;
+        s.watcher_diagnostics.clone()
+    };
+    Json(json!({
+        "watchers": diagnostics.snapshots(),
     }))
 }
 
@@ -270,11 +297,7 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
             acc.hosts.insert(host.to_string());
         }
         // project_name preferred for display; fall back to project_id.
-        if let Some(pn) = row
-            .project_name
-            .as_deref()
-            .or(row.project_id.as_deref())
-        {
+        if let Some(pn) = row.project_name.as_deref().or(row.project_id.as_deref()) {
             acc.projects.insert(pn.to_string());
         }
         // RFC 3339 → lexicographic == chronological, so string max works.
@@ -318,22 +341,15 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
                     // Walk hour buckets that overlap the clamped span.
                     let mut bucket_start = span_start;
                     while bucket_start < span_end {
-                        let next_hour = (bucket_start
-                            + chrono::Duration::hours(1))
-                        .date_naive()
-                        .and_hms_opt(
-                            (bucket_start + chrono::Duration::hours(1)).hour(),
-                            0,
-                            0,
-                        )
-                        .map(|d| d.and_utc())
-                        .unwrap_or(bucket_start + chrono::Duration::hours(1));
+                        let next_hour = (bucket_start + chrono::Duration::hours(1))
+                            .date_naive()
+                            .and_hms_opt((bucket_start + chrono::Duration::hours(1)).hour(), 0, 0)
+                            .map(|d| d.and_utc())
+                            .unwrap_or(bucket_start + chrono::Duration::hours(1));
                         let bucket_end = next_hour.min(span_end);
-                        let overlap_secs =
-                            (bucket_end - bucket_start).num_seconds().max(0) as f64;
-                        let bucket_idx = ((bucket_start - window_start)
-                            .num_hours()
-                            .clamp(0, 23)) as usize;
+                        let overlap_secs = (bucket_end - bucket_start).num_seconds().max(0) as f64;
+                        let bucket_idx =
+                            ((bucket_start - window_start).num_hours().clamp(0, 23)) as usize;
                         acc.activity_24h[bucket_idx] +=
                             (overlap_secs * rate_per_sec).round() as u64;
                         bucket_start = bucket_end;
@@ -392,10 +408,7 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
         )
     });
 
-    log_event(
-        "api",
-        &format!("GET /api/users ({} users)", users.len()),
-    );
+    log_event("api", &format!("GET /api/users ({} users)", users.len()));
     Json(json!({
         "users": users,
         "total": all_rows.len(),
@@ -407,8 +420,20 @@ pub async fn get_events(
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
-    log_event("api", &format!("GET /api/sessions/{}/events ({} events)", short_id(&session_id), events.len()));
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
+    log_event(
+        "api",
+        &format!(
+            "GET /api/sessions/{}/events ({} events)",
+            short_id(&session_id),
+            events.len()
+        ),
+    );
     Json(Value::Array(events))
 }
 
@@ -416,11 +441,23 @@ pub async fn get_summary(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/summary", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/summary", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
     let summary = session_summary(&session_id, &events, Some(Utc::now()));
-    let project_id = s.store.session_projects.get(&session_id).map(|r| r.value().clone());
+    let project_id = s
+        .store
+        .session_projects
+        .get(&session_id)
+        .map(|r| r.value().clone());
     Json(json!({
         "session_id": summary.session_id,
         "status": summary.status,
@@ -443,9 +480,17 @@ pub async fn get_activity(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/activity", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/activity", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
     let a = activity_summary(&events);
     Json(json!({
         "first_prompt": a.first_prompt,
@@ -465,7 +510,12 @@ pub async fn get_tools(
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
     let dist = tool_call_distribution(&events);
     Json(serde_json::to_value(dist).unwrap_or(json!({})))
 }
@@ -481,9 +531,17 @@ pub async fn get_transcript(
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<TranscriptQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/transcript", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/transcript", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
     let transcript_path = find_transcript_path(&events);
 
     let data_dir = s.store.data_dir.clone();
@@ -593,13 +651,23 @@ pub async fn get_view_records(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/view-records", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/view-records", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
 
     let view_records: Vec<Value> = events
         .iter()
-        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .filter_map(|event| {
+            serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok()
+        })
         .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .filter_map(|vr| serde_json::to_value(vr).ok())
         .collect();
@@ -620,13 +688,26 @@ pub async fn get_conversation(
     Query(query): Query<ConversationQuery>,
 ) -> axum::response::Response {
     let fmt = query.format.as_deref().unwrap_or("json");
-    log_event("api", &format!("GET /api/sessions/{}/conversation?format={fmt}", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!(
+            "GET /api/sessions/{}/conversation?format={fmt}",
+            short_id(&session_id)
+        ),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
 
     let view_records: Vec<_> = events
         .iter()
-        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .filter_map(|event| {
+            serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok()
+        })
         .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .collect();
 
@@ -649,9 +730,8 @@ pub async fn get_conversation(
                 .body(axum::body::Body::from(html))
                 .unwrap()
         }
-        _ => {
-            axum::response::Json(serde_json::to_value(paired).unwrap_or(json!({"entries": []}))).into_response()
-        }
+        _ => axum::response::Json(serde_json::to_value(paired).unwrap_or(json!({"entries": []})))
+            .into_response(),
     }
 }
 
@@ -659,13 +739,23 @@ pub async fn get_file_changes(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/file-changes", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/file-changes", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let events = s.store.event_store.session_events(&session_id).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
 
     let view_records: Vec<_> = events
         .iter()
-        .filter_map(|event| serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok())
+        .filter_map(|event| {
+            serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()).ok()
+        })
         .flat_map(|ce| open_story_views::from_cloud_event::from_cloud_event(&ce))
         .collect();
 
@@ -689,9 +779,16 @@ pub async fn get_session_meta(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    log_event("api", &format!("GET /api/sessions/{}/meta", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/meta", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let proj = s.store.projections.get(&session_id).ok_or(StatusCode::NOT_FOUND)?;
+    let proj = s
+        .store
+        .projections
+        .get(&session_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
     let meta = proj.query_meta();
     Ok(Json(json!({
         "event_count": meta.event_count,
@@ -707,10 +804,14 @@ pub async fn get_event_content(
     State(state): State<SharedState>,
     AxumPath((session_id, event_id)): AxumPath<(String, String)>,
 ) -> Result<String, StatusCode> {
-    log_event("api", &format!(
-        "GET /api/sessions/{}/events/{}/content",
-        short_id(&session_id), short_id(&event_id)
-    ));
+    log_event(
+        "api",
+        &format!(
+            "GET /api/sessions/{}/events/{}/content",
+            short_id(&session_id),
+            short_id(&event_id)
+        ),
+    );
     let s = state.read().await;
     // Try in-memory cache first, then fall back to EventStore.
     // Key is (session_id, event_id) — the DashMap guard derefs to `&String`.
@@ -730,7 +831,8 @@ pub async fn get_event_content(
         .ok()
         .flatten()
         .ok_or(StatusCode::NOT_FOUND)?;
-    let val: Value = serde_json::from_str(&payload).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let val: Value =
+        serde_json::from_str(&payload).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     // Extract tool_result content from the CloudEvent
     let output = val
         .pointer("/data/raw/message/content")
@@ -738,13 +840,19 @@ pub async fn get_event_content(
         .and_then(|blocks| {
             blocks.iter().find_map(|b| {
                 if b.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
-                    b.get("content").and_then(|c| c.as_str()).map(|s| s.to_string())
+                    b.get("content")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 }
             })
         })
-        .or_else(|| val.pointer("/data/output").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .or_else(|| {
+            val.pointer("/data/output")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(output)
 }
@@ -764,7 +872,10 @@ pub async fn get_patterns(
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<PatternQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/patterns", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/patterns", short_id(&session_id)),
+    );
     let s = state.read().await;
     let result = s
         .store
@@ -779,7 +890,10 @@ pub async fn get_turns(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/turns", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/turns", short_id(&session_id)),
+    );
     let s = state.read().await;
     let turns = s
         .store
@@ -793,7 +907,8 @@ pub async fn get_turns(
 pub async fn list_plans(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let plans: Vec<Value> = s
-        .store.plan_store
+        .store
+        .plan_store
         .list_plans()
         .iter()
         .map(|p| {
@@ -856,9 +971,15 @@ pub async fn get_session_synopsis(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    log_event("api", &format!("GET /api/sessions/{}/synopsis", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/synopsis", short_id(&session_id)),
+    );
     let s = state.read().await;
-    let synopsis = s.store.event_store.query_session_synopsis(&session_id)
+    let synopsis = s
+        .store
+        .event_store
+        .query_session_synopsis(&session_id)
         .await
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(serde_json::to_value(synopsis).unwrap_or(json!({}))))
@@ -869,7 +990,10 @@ pub async fn get_tool_journey(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/tool-journey", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/tool-journey", short_id(&session_id)),
+    );
     let s = state.read().await;
     let journey = s.store.event_store.query_tool_journey(&session_id).await;
     Json(serde_json::to_value(journey).unwrap_or(json!([])))
@@ -880,7 +1004,10 @@ pub async fn get_file_impact(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/file-impact", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/file-impact", short_id(&session_id)),
+    );
     let s = state.read().await;
     let impact = s.store.event_store.query_file_impact(&session_id).await;
     Json(serde_json::to_value(impact).unwrap_or(json!([])))
@@ -891,7 +1018,10 @@ pub async fn get_session_errors(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/sessions/{}/errors", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/errors", short_id(&session_id)),
+    );
     let s = state.read().await;
     let errors = s.store.event_store.query_session_errors(&session_id).await;
     Json(serde_json::to_value(errors).unwrap_or(json!([])))
@@ -912,7 +1042,10 @@ pub async fn get_project_pulse(
     State(state): State<SharedState>,
     Query(query): Query<DaysQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/insights/pulse?days={}", query.days));
+    log_event(
+        "api",
+        &format!("GET /api/insights/pulse?days={}", query.days),
+    );
     let s = state.read().await;
     let pulse = s.store.event_store.query_project_pulse(query.days).await;
     Json(serde_json::to_value(pulse).unwrap_or(json!([])))
@@ -933,16 +1066,17 @@ pub async fn get_tool_evolution(
     State(state): State<SharedState>,
     Query(query): Query<EvolutionQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/insights/tool-evolution?days={}", query.days));
+    log_event(
+        "api",
+        &format!("GET /api/insights/tool-evolution?days={}", query.days),
+    );
     let s = state.read().await;
     let evolution = s.store.event_store.query_tool_evolution(query.days).await;
     Json(serde_json::to_value(evolution).unwrap_or(json!([])))
 }
 
 /// GET /api/insights/efficiency
-pub async fn get_session_efficiency_insights(
-    State(state): State<SharedState>,
-) -> Json<Value> {
+pub async fn get_session_efficiency_insights(State(state): State<SharedState>) -> Json<Value> {
     log_event("api", "GET /api/insights/efficiency");
     let s = state.read().await;
     let efficiency = s.store.event_store.query_session_efficiency().await;
@@ -959,9 +1093,16 @@ pub async fn get_agent_project_context(
     State(state): State<SharedState>,
     Query(query): Query<ProjectQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/agent/project-context?project={}", query.project));
+    log_event(
+        "api",
+        &format!("GET /api/agent/project-context?project={}", query.project),
+    );
     let s = state.read().await;
-    let context = s.store.event_store.query_project_context(&query.project, 5).await;
+    let context = s
+        .store
+        .event_store
+        .query_project_context(&query.project, 5)
+        .await;
     Json(serde_json::to_value(context).unwrap_or(json!([])))
 }
 
@@ -970,9 +1111,16 @@ pub async fn get_agent_recent_files(
     State(state): State<SharedState>,
     Query(query): Query<ProjectQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/agent/recent-files?project={}", query.project));
+    log_event(
+        "api",
+        &format!("GET /api/agent/recent-files?project={}", query.project),
+    );
     let s = state.read().await;
-    let files = s.store.event_store.query_recent_files(&query.project, 5).await;
+    let files = s
+        .store
+        .event_store
+        .query_recent_files(&query.project, 5)
+        .await;
     Json(serde_json::to_value(files).unwrap_or(json!([])))
 }
 
@@ -987,9 +1135,16 @@ pub async fn get_productivity(
     State(state): State<SharedState>,
     Query(query): Query<ProductivityQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/insights/productivity?days={}", query.days));
+    log_event(
+        "api",
+        &format!("GET /api/insights/productivity?days={}", query.days),
+    );
     let s = state.read().await;
-    let hourly = s.store.event_store.query_productivity_by_hour(query.days).await;
+    let hourly = s
+        .store
+        .event_store
+        .query_productivity_by_hour(query.days)
+        .await;
     Json(serde_json::to_value(hourly).unwrap_or(json!([])))
 }
 
@@ -1018,16 +1173,19 @@ pub async fn get_token_usage(
     State(state): State<SharedState>,
     Query(query): Query<TokenUsageQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!(
-        "GET /api/insights/token-usage?days={:?}&session_id={:?}&model={}",
-        query.days, query.session_id, query.model
-    ));
+    log_event(
+        "api",
+        &format!(
+            "GET /api/insights/token-usage?days={:?}&session_id={:?}&model={}",
+            query.days, query.session_id, query.model
+        ),
+    );
     let s = state.read().await;
-    let result = s.store.event_store.query_token_usage(
-        query.days,
-        query.session_id.as_deref(),
-        &query.model,
-    ).await;
+    let result = s
+        .store
+        .event_store
+        .query_token_usage(query.days, query.session_id.as_deref(), &query.model)
+        .await;
     Json(serde_json::to_value(result).unwrap_or(json!({})))
 }
 
@@ -1038,9 +1196,16 @@ pub async fn get_daily_token_usage(
     State(state): State<SharedState>,
     Query(query): Query<DaysQuery>,
 ) -> Json<Value> {
-    log_event("api", &format!("GET /api/insights/token-usage/daily?days={}", query.days));
+    log_event(
+        "api",
+        &format!("GET /api/insights/token-usage/daily?days={}", query.days),
+    );
     let s = state.read().await;
-    let result = s.store.event_store.query_daily_token_usage(Some(query.days)).await;
+    let result = s
+        .store
+        .event_store
+        .query_daily_token_usage(Some(query.days))
+        .await;
     Json(serde_json::to_value(result).unwrap_or(json!([])))
 }
 
@@ -1234,11 +1399,16 @@ pub async fn search_events(
 
     log_event(
         "api",
-        &format!("GET /api/search?q={}", crate::logging::truncate_at_char_boundary(&q, 50)),
+        &format!(
+            "GET /api/search?q={}",
+            crate::logging::truncate_at_char_boundary(&q, 50)
+        ),
     );
 
     let s = state.read().await;
-    let results = s.store.event_store
+    let results = s
+        .store
+        .event_store
         .search_fts(&q, query.limit, query.session_id.as_deref())
         .await
         .map_err(|e| {
@@ -1295,7 +1465,11 @@ pub async fn agent_search(
         &format!(
             "GET /api/agent/search?q={}{}",
             &q[..q.len().min(50)],
-            query.project.as_ref().map(|p| format!("&project={p}")).unwrap_or_default()
+            query
+                .project
+                .as_ref()
+                .map(|p| format!("&project={p}"))
+                .unwrap_or_default()
         ),
     );
 
@@ -1303,7 +1477,9 @@ pub async fn agent_search(
 
     // Search with a higher event limit — we'll group by session
     let event_limit = query.limit * 10;
-    let results = s.store.event_store
+    let results = s
+        .store
+        .event_store
         .search_fts(&q, event_limit, None)
         .await
         .map_err(|e| {
@@ -1320,8 +1496,10 @@ pub async fn agent_search(
 
     // Collect session metadata for enrichment. DashMap iteration gives
     // RefMulti guards; `.key()` and `.value()` extract the pair.
-    let mut session_labels: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut session_event_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut session_labels: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut session_event_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     for entry in s.store.projections.iter() {
         if let Some(label) = entry.value().label() {
             session_labels.insert(entry.key().clone(), label.to_string());
@@ -1330,8 +1508,10 @@ pub async fn agent_search(
     }
 
     // Group results by session
-    let mut session_groups: std::collections::HashMap<String, Vec<&open_story_store::queries::FtsSearchResult>> =
-        std::collections::HashMap::new();
+    let mut session_groups: std::collections::HashMap<
+        String,
+        Vec<&open_story_store::queries::FtsSearchResult>,
+    > = std::collections::HashMap::new();
     for result in &results {
         session_groups
             .entry(result.session_id.clone())
@@ -1390,7 +1570,9 @@ pub async fn agent_search(
     session_results.sort_by(|a, b| {
         let rank_a = a["relevance_rank"].as_f64().unwrap_or(0.0);
         let rank_b = b["relevance_rank"].as_f64().unwrap_or(0.0);
-        rank_a.partial_cmp(&rank_b).unwrap_or(std::cmp::Ordering::Equal)
+        rank_a
+            .partial_cmp(&rank_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
     session_results.truncate(query.limit);
@@ -1443,7 +1625,7 @@ pub async fn get_session_records(
 ) -> Json<Value> {
     use open_story_views::from_cloud_event::from_cloud_event;
     use open_story_views::unified::RecordBody;
-    use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THRESHOLD};
+    use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord, truncate_payload};
 
     let paginated = query.limit.is_some() || query.before_seq.is_some();
     log_event(
@@ -1510,16 +1692,16 @@ pub async fn get_session_records(
 
     let mut wires: Vec<WireRecord> = Vec::new();
     for event in &events {
-        let ce = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone()) {
-            Ok(ce) => ce,
-            Err(_) => continue,
-        };
+        let ce =
+            match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event.clone())
+            {
+                Ok(ce) => ce,
+                Err(_) => continue,
+            };
         for vr in from_cloud_event(&ce) {
             // Parent lookup uses base id (strip fan-out suffix).
             let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
-            let parent_uuid = parent_map
-                .get(&base_id)
-                .and_then(|p| p.clone());
+            let parent_uuid = parent_map.get(&base_id).and_then(|p| p.clone());
             let depth = depth_of(&vr.id, &parent_map);
 
             // Truncation: same rule as the pre-refactor to_wire_record.
@@ -1584,10 +1766,16 @@ pub async fn delete_session(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
-    log_event("api", &format!("DELETE /api/sessions/{}", short_id(&session_id)));
+    log_event(
+        "api",
+        &format!("DELETE /api/sessions/{}", short_id(&session_id)),
+    );
     let s = state.write().await;
 
-    let deleted = s.store.event_store.delete_session(&session_id)
+    let deleted = s
+        .store
+        .event_store
+        .delete_session(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -1631,11 +1819,24 @@ pub async fn delete_session(
 pub async fn export_session(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
-) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), StatusCode> {
-    log_event("api", &format!("GET /api/sessions/{}/export", short_id(&session_id)));
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::header::HeaderName, &'static str); 1],
+        String,
+    ),
+    StatusCode,
+> {
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/export", short_id(&session_id)),
+    );
     let s = state.read().await;
 
-    let jsonl = s.store.event_store.export_session_jsonl(&session_id)
+    let jsonl = s
+        .store
+        .event_store
+        .export_session_jsonl(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

@@ -16,6 +16,7 @@ function makeRecord(
     seq: 1,
     session_id: "sess-1",
     timestamp: "2025-01-09T10:00:00Z",
+    origin_agent: "claude-code",
     record_type: recordType as ViewRecord["record_type"],
     payload: payload as ViewRecord["payload"],
     agent_id: null,

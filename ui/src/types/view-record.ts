@@ -12,6 +12,8 @@ export interface ViewRecord {
   readonly timestamp: string;
   readonly record_type: RecordType;
   readonly payload: RecordPayload;
+  /** Origin platform that produced the event, e.g. "claude-code" or "codex". */
+  readonly origin_agent: string | null;
   /** Subagent identity: which agent produced this event (null = main agent). */
   readonly agent_id: string | null;
   /** Whether this event belongs to a sidechain (subagent file). */

@@ -24,13 +24,13 @@ pub fn token_usage_schema() -> Value {
     })
 }
 
-pub async fn token_usage(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn token_usage(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let days = args.get("days").and_then(|v| v.as_u64()).map(|d| d as u32);
     let session_id = args.get("session_id").and_then(|v| v.as_str());
-    let model = args.get("model").and_then(|v| v.as_str()).unwrap_or("sonnet");
+    let model = args
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("sonnet");
 
     let summary = store.query_token_usage(days, session_id, model).await;
     serde_json::to_value(summary).map_err(|e| format!("serialize: {e}"))
@@ -49,10 +49,7 @@ pub fn daily_token_usage_schema() -> Value {
     })
 }
 
-pub async fn daily_token_usage(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn daily_token_usage(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let days = args.get("days").and_then(|v| v.as_u64()).map(|d| d as u32);
     let daily = store.query_daily_token_usage(days).await;
     serde_json::to_value(daily).map_err(|e| format!("serialize: {e}"))
@@ -71,14 +68,8 @@ pub fn productivity_schema() -> Value {
     })
 }
 
-pub async fn productivity(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let days = args
-        .get("days")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(30) as u32;
+pub async fn productivity(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let days = args.get("days").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
     let hourly = store.query_productivity_by_hour(days).await;
     serde_json::to_value(hourly).map_err(|e| format!("serialize: {e}"))
 }

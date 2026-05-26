@@ -35,12 +35,36 @@ macro_rules! drift_test {
     };
 }
 
-drift_test!(pattern_event_schema_is_up_to_date, PatternEvent, "pattern_event.schema.json");
-drift_test!(structural_turn_schema_is_up_to_date, StructuralTurn, "structural_turn.schema.json");
-drift_test!(ingest_batch_schema_is_up_to_date, IngestBatch, "ingest_batch.schema.json");
-drift_test!(session_row_schema_is_up_to_date, SessionRow, "session_row.schema.json");
-drift_test!(fts_search_result_schema_is_up_to_date, FtsSearchResult, "fts_search_result.schema.json");
-drift_test!(broadcast_message_schema_is_up_to_date, BroadcastMessage, "broadcast_message.schema.json");
+drift_test!(
+    pattern_event_schema_is_up_to_date,
+    PatternEvent,
+    "pattern_event.schema.json"
+);
+drift_test!(
+    structural_turn_schema_is_up_to_date,
+    StructuralTurn,
+    "structural_turn.schema.json"
+);
+drift_test!(
+    ingest_batch_schema_is_up_to_date,
+    IngestBatch,
+    "ingest_batch.schema.json"
+);
+drift_test!(
+    session_row_schema_is_up_to_date,
+    SessionRow,
+    "session_row.schema.json"
+);
+drift_test!(
+    fts_search_result_schema_is_up_to_date,
+    FtsSearchResult,
+    "fts_search_result.schema.json"
+);
+drift_test!(
+    broadcast_message_schema_is_up_to_date,
+    BroadcastMessage,
+    "broadcast_message.schema.json"
+);
 
 fn validator_for(basename: &str) -> jsonschema::Validator {
     let schema = load_schema(basename).expect("schema");
@@ -240,7 +264,9 @@ fn ingest_batch_round_trips_via_schema() {
         Some("message.user.prompt".into()),
         Some("evt-rt".into()),
         Some("2026-04-15T10:00:00Z".into()),
-        None, None, None,
+        None,
+        None,
+        None,
     );
     let batch = IngestBatch {
         session_id: "sess-1".into(),

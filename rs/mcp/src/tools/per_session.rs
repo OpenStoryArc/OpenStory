@@ -35,12 +35,8 @@ pub fn tool_journey_schema() -> Value {
     })
 }
 
-pub async fn tool_journey(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("tool_journey {e}"))?;
+pub async fn tool_journey(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("tool_journey {e}"))?;
     let steps = store.query_tool_journey(session_id).await;
     serde_json::to_value(steps).map_err(|e| format!("serialize: {e}"))
 }
@@ -58,12 +54,8 @@ pub fn file_impact_schema() -> Value {
     })
 }
 
-pub async fn file_impact(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("file_impact {e}"))?;
+pub async fn file_impact(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("file_impact {e}"))?;
     let impact = store.query_file_impact(session_id).await;
     serde_json::to_value(impact).map_err(|e| format!("serialize: {e}"))
 }
@@ -81,12 +73,8 @@ pub fn session_errors_schema() -> Value {
     })
 }
 
-pub async fn session_errors(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_errors {e}"))?;
+pub async fn session_errors(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_errors {e}"))?;
     let errors = store.query_session_errors(session_id).await;
     serde_json::to_value(errors).map_err(|e| format!("serialize: {e}"))
 }
@@ -108,12 +96,8 @@ pub fn session_patterns_schema() -> Value {
     })
 }
 
-pub async fn session_patterns(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_patterns {e}"))?;
+pub async fn session_patterns(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_patterns {e}"))?;
     let pattern_type = args.get("pattern_type").and_then(|v| v.as_str());
     let patterns = store
         .session_patterns(session_id, pattern_type)
@@ -138,16 +122,9 @@ pub fn session_sentences_schema() -> Value {
 
 /// Convenience over `session_patterns(type="turn.sentence")` — returns
 /// a flat list of sentence records pulled from the pattern metadata.
-pub async fn session_sentences(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_sentences {e}"))?;
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+pub async fn session_sentences(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_sentences {e}"))?;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
     let patterns = store
         .session_patterns(session_id, Some("turn.sentence"))
         .await
@@ -191,12 +168,8 @@ pub fn session_plans_schema() -> Value {
     })
 }
 
-pub async fn session_plans(
-    plan_store: &Arc<PlanStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_plans {e}"))?;
+pub async fn session_plans(plan_store: &Arc<PlanStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_plans {e}"))?;
     let mut plans = plan_store.list_for_session(session_id);
     // Newest first.
     plans.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -224,20 +197,13 @@ pub fn session_transcript_schema() -> Value {
     })
 }
 
-pub async fn session_transcript(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_transcript {e}"))?;
+pub async fn session_transcript(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_transcript {e}"))?;
     let assistant_only = args
         .get("assistant_only")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(500) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(500) as usize;
 
     let events = store
         .session_events(session_id)
@@ -285,12 +251,8 @@ pub fn session_activity_schema() -> Value {
     })
 }
 
-pub async fn session_activity(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let session_id = extract_session_id(&args)
-        .map_err(|e| format!("session_activity {e}"))?;
+pub async fn session_activity(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let session_id = extract_session_id(&args).map_err(|e| format!("session_activity {e}"))?;
     let events = store
         .session_events(session_id)
         .await

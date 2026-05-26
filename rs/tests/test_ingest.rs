@@ -153,7 +153,15 @@ async fn ingest_persists_events_to_session_store() {
     assert_eq!(result.count, 2);
 
     // Events stored in session map
-    assert_eq!(s.store.event_store.session_events("sess-p1").await.unwrap().len(), 2);
+    assert_eq!(
+        s.store
+            .event_store
+            .session_events("sess-p1")
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
 
     // JSONL file written to data_dir
     let jsonl_path = tmp.path().join("sess-p1.jsonl");
@@ -234,7 +242,10 @@ async fn ingest_extracts_and_saves_plan_from_exit_plan_mode() {
 
     // Plan should be saved to plan_store
     let plans = s.store.plan_store.list_for_session("sess-plan");
-    assert!(!plans.is_empty(), "Plan should have been extracted and saved");
+    assert!(
+        !plans.is_empty(),
+        "Plan should have been extracted and saved"
+    );
     assert!(
         plans[0].title.contains("Architecture Plan"),
         "Plan title should be extracted from content"
@@ -288,7 +299,10 @@ async fn ingest_records_project_association() {
     ingest_events(&mut s, "sess-proj", &events, Some("my-project")).await;
 
     assert_eq!(
-        s.store.session_projects.get("sess-proj").map(|r| r.value().clone()),
+        s.store
+            .session_projects
+            .get("sess-proj")
+            .map(|r| r.value().clone()),
         Some("my-project".to_string()),
     );
 }
@@ -301,5 +315,11 @@ async fn ingest_returns_zero_for_empty_events() {
     let mut s = state.write().await;
     let result = ingest_events(&mut s, "sess-empty", &[], None).await;
     assert_eq!(result.count, 0);
-    assert!(s.store.event_store.session_events("sess-empty").await.unwrap().is_empty());
+    assert!(s
+        .store
+        .event_store
+        .session_events("sess-empty")
+        .await
+        .unwrap()
+        .is_empty());
 }

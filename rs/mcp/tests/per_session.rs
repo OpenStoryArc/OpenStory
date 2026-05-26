@@ -102,8 +102,7 @@ mod session_patterns {
             json!({"session_id": "sid-x", "pattern_type": "turn.sentence"}),
         )
         .await;
-        let result =
-            unwrap_tool_result(&response).expect("filter arg must not break the call");
+        let result = unwrap_tool_result(&response).expect("filter arg must not break the call");
         assert!(result.as_array().map(|a| a.is_empty()).unwrap_or(false));
     }
 
@@ -123,7 +122,10 @@ mod session_sentences {
     async fn empty_store_returns_zero_count_with_empty_sentences() {
         let result = empty_array_response("session_sentences").await;
         assert_eq!(result["count"], 0);
-        assert!(result["sentences"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(result["sentences"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false));
     }
 
     #[tokio::test]
@@ -159,7 +161,10 @@ mod session_transcript {
     #[tokio::test]
     async fn empty_store_returns_empty_entries_array() {
         let result = empty_array_response("session_transcript").await;
-        assert!(result["entries"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(result["entries"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false));
     }
 
     #[tokio::test]

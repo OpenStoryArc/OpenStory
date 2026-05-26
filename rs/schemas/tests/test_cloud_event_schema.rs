@@ -204,8 +204,8 @@ fn round_trips_each_agent_variant() {
         hermes_delegated_event(),
     ] {
         assert!(v.is_valid(&fixture), "fixture validates");
-        let ce: CloudEvent = serde_json::from_value(fixture.clone())
-            .expect("deserialize as CloudEvent");
+        let ce: CloudEvent =
+            serde_json::from_value(fixture.clone()).expect("deserialize as CloudEvent");
         let reserialized = serde_json::to_value(&ce).unwrap();
         assert!(
             v.is_valid(&reserialized),

@@ -240,7 +240,9 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
     async fn it_completes_handshake_and_streams_notifications_for_a_subscribed_session() {
         let (_container, url) = start_nats_container().await;
         // Connect publisher early so streams exist before the binary subscribes.
-        let publisher = PublisherBus::connect(&url).await.expect("publisher connect");
+        let publisher = PublisherBus::connect(&url)
+            .await
+            .expect("publisher connect");
         publisher.ensure_streams().await.expect("ensure_streams");
 
         // The binary needs a writable data dir for its SqliteStore.
@@ -275,10 +277,16 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "tc", "version": "0"}}
         });
-        stdin.write_all(format!("{init}\n").as_bytes()).await.unwrap();
+        stdin
+            .write_all(format!("{init}\n").as_bytes())
+            .await
+            .unwrap();
 
         let init_line = timeout(ROUND_TRIP_TIMEOUT, reader.next_line())
-            .await.unwrap().unwrap().expect("init response");
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("init response");
         let init_resp: Value = serde_json::from_str(&init_line).unwrap();
         assert_eq!(init_resp["id"], 1);
         assert_eq!(init_resp["result"]["serverInfo"]["name"], "open-story-mcp");
@@ -292,10 +300,16 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "subscribe_session", "arguments": {"session_id": sid}}
         });
-        stdin.write_all(format!("{sub_req}\n").as_bytes()).await.unwrap();
+        stdin
+            .write_all(format!("{sub_req}\n").as_bytes())
+            .await
+            .unwrap();
 
         let ack_line = timeout(ROUND_TRIP_TIMEOUT, reader.next_line())
-            .await.unwrap().unwrap().expect("ack");
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("ack");
         let ack: Value = serde_json::from_str(&ack_line).unwrap();
         assert_eq!(ack["id"], 2);
         assert_eq!(ack["result"]["isError"], false);
@@ -307,10 +321,14 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
         let batch = batch_with_raw(&sid, json!({"marker": "from-test"}));
         publisher
             .publish(&format!("events.test-p.{}.main", sid), &batch)
-            .await.expect("publish");
+            .await
+            .expect("publish");
 
         let notif_line = timeout(ROUND_TRIP_TIMEOUT, reader.next_line())
-            .await.unwrap().unwrap().expect("notification");
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("notification");
         let notif: Value = serde_json::from_str(&notif_line).unwrap();
         assert_eq!(notif["method"], "notifications/openstory/stream");
         assert_eq!(notif["params"]["session_id"], sid);

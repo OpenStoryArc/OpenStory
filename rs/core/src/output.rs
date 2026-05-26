@@ -20,10 +20,7 @@ pub fn write_stdout(event: &CloudEvent) -> Result<()> {
 /// Append a CloudEvent as a single JSONL line to a file.
 pub fn append_file(path: &Path, event: &CloudEvent) -> Result<()> {
     let json = serde_json::to_string(event)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", json)?;
     Ok(())
 }

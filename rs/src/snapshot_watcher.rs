@@ -72,10 +72,7 @@ impl SnapshotState {
 /// 1. **Append** (normal): message_count grew → emit messages[prev_count..]
 /// 2. **Compression**: session_id changed → emit ALL messages (new session)
 /// 3. **Undo/retry**: message_count shrank → reset and emit ALL messages
-pub fn diff_snapshot(
-    state: &mut SnapshotState,
-    snapshot: &Value,
-) -> Vec<Value> {
+pub fn diff_snapshot(state: &mut SnapshotState, snapshot: &Value) -> Vec<Value> {
     let curr_sid = snapshot
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -127,11 +124,23 @@ fn wrap_message(session_id: &str, seq: usize, msg: &Value, timestamp: &str) -> V
 
 /// Wrap session metadata as a session_start event.
 fn wrap_session_start(snapshot: &Value) -> Value {
-    let sid = snapshot.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+    let sid = snapshot
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let model = snapshot.get("model").and_then(|v| v.as_str()).unwrap_or("");
-    let platform = snapshot.get("platform").and_then(|v| v.as_str()).unwrap_or("cli");
-    let system_prompt = snapshot.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
-    let timestamp = snapshot.get("session_start").and_then(|v| v.as_str()).unwrap_or("");
+    let platform = snapshot
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .unwrap_or("cli");
+    let system_prompt = snapshot
+        .get("system_prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let timestamp = snapshot
+        .get("session_start")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let tools: Vec<String> = snapshot
         .get("tools")
@@ -308,7 +317,8 @@ where
                     // Use the session_id from the snapshot JSON, not the filename.
                     // Hermes filenames are `session_<id>.json` but the JSON session_id
                     // is just `<id>` (without the `session_` prefix).
-                    let sid = states.get(path)
+                    let sid = states
+                        .get(path)
                         .map(|s| s.session_id.clone())
                         .unwrap_or_else(|| session_id_from_path(path));
                     let subject = format!("events.hermes.{}.main", sid);
@@ -335,14 +345,12 @@ where
         match res {
             Ok(event) => {
                 // os.replace generates Create or Modify events depending on platform
-                if matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                ) {
+                if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                     for path in &event.paths {
                         match process_snapshot(path, &mut states) {
                             Ok(events) if !events.is_empty() => {
-                                let sid = states.get(path.as_path())
+                                let sid = states
+                                    .get(path.as_path())
                                     .map(|s| s.session_id.clone())
                                     .unwrap_or_else(|| session_id_from_path(path));
                                 let subject = format!("events.hermes.{}.main", sid);
@@ -350,11 +358,7 @@ where
                             }
                             Ok(_) => {}
                             Err(e) => {
-                                eprintln!(
-                                    "Error processing snapshot {}: {}",
-                                    path.display(),
-                                    e
-                                );
+                                eprintln!("Error processing snapshot {}: {}", path.display(), e);
                             }
                         }
                     }
@@ -458,10 +462,7 @@ mod tests {
             let mut state = SnapshotState::new("sess-1".to_string());
             // message_count starts at 0
 
-            let snapshot = make_snapshot(
-                "sess-1",
-                vec![user_msg("hello"), assistant_text("hi")],
-            );
+            let snapshot = make_snapshot("sess-1", vec![user_msg("hello"), assistant_text("hi")]);
 
             let new = diff_snapshot(&mut state, &snapshot);
             assert_eq!(new.len(), 2, "first read emits all messages");
@@ -483,7 +484,11 @@ mod tests {
             );
 
             let new = diff_snapshot(&mut state, &snapshot);
-            assert_eq!(new.len(), 3, "compression emits ALL messages from new session");
+            assert_eq!(
+                new.len(),
+                3,
+                "compression emits ALL messages from new session"
+            );
             assert_eq!(state.session_id, "sess-2");
             assert_eq!(state.message_count, 3);
         }
@@ -554,10 +559,7 @@ mod tests {
             assert!(!events.is_empty(), "should produce CloudEvents");
 
             // Should have: session_start + user + tool_use + tool_result + text
-            let subtypes: Vec<&str> = events
-                .iter()
-                .filter_map(|e| e.subtype.as_deref())
-                .collect();
+            let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
             assert!(
                 subtypes.contains(&"system.session.start"),
                 "should emit session_start on first read"
@@ -591,10 +593,7 @@ mod tests {
             let path = dir.path().join("session_inc001.json");
 
             // First write: 2 messages
-            let snap1 = make_snapshot(
-                "inc001",
-                vec![user_msg("hello"), assistant_text("hi")],
-            );
+            let snap1 = make_snapshot("inc001", vec![user_msg("hello"), assistant_text("hi")]);
             std::fs::write(&path, serde_json::to_string(&snap1).unwrap()).unwrap();
 
             let mut states = HashMap::new();
@@ -678,10 +677,7 @@ mod tests {
 
             // System messages from the messages array should be skipped
             // (the system prompt is in session_start instead)
-            let subtypes: Vec<&str> = events
-                .iter()
-                .filter_map(|e| e.subtype.as_deref())
-                .collect();
+            let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
             assert!(
                 !subtypes.iter().any(|s| s.contains("system.injected")),
                 "system messages should not be emitted as separate events"
@@ -694,10 +690,7 @@ mod tests {
             let path = dir.path().join("session_comp001.json");
 
             // First session
-            let snap1 = make_snapshot(
-                "comp001",
-                vec![user_msg("hello"), assistant_text("hi")],
-            );
+            let snap1 = make_snapshot("comp001", vec![user_msg("hello"), assistant_text("hi")]);
             std::fs::write(&path, serde_json::to_string(&snap1).unwrap()).unwrap();
 
             let mut states = HashMap::new();
@@ -741,7 +734,10 @@ mod tests {
             let msg = user_msg("hello");
             let wrapped = wrap_message("sess-1", 1, &msg, "2026-04-10T10:00:00Z");
 
-            assert!(is_hermes_format(&wrapped), "wrapped message should be detected as Hermes format");
+            assert!(
+                is_hermes_format(&wrapped),
+                "wrapped message should be detected as Hermes format"
+            );
             assert_eq!(wrapped["envelope"]["source"], "hermes");
             assert_eq!(wrapped["envelope"]["session_id"], "sess-1");
             assert_eq!(wrapped["event_type"], "message");
@@ -764,10 +760,7 @@ mod tests {
 
         #[test]
         fn it_should_produce_session_start_event() {
-            let snapshot = make_snapshot(
-                "sess-1",
-                vec![user_msg("hello")],
-            );
+            let snapshot = make_snapshot("sess-1", vec![user_msg("hello")]);
             let start = wrap_session_start(&snapshot);
 
             assert!(is_hermes_format(&start));

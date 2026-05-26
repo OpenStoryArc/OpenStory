@@ -12,6 +12,7 @@ export interface SessionSummary {
   readonly cwd?: string;
   readonly project_id?: string;
   readonly project_name?: string;
+  readonly origin_agent?: string | null;
 }
 
 /** Activity summary from /api/sessions/{id}/activity */

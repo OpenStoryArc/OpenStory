@@ -148,10 +148,7 @@ pub fn is_pi_mono_format(line: &Value) -> bool {
 }
 
 /// Extract message-specific fields into the payload. Returns subtype on success.
-fn apply_message_fields(
-    payload: &mut PiMonoPayload,
-    line: &Value,
-) -> Option<String> {
+fn apply_message_fields(payload: &mut PiMonoPayload, line: &Value) -> Option<String> {
     let message = line.get("message")?;
     let role = message.get("role").and_then(|v| v.as_str())?;
     let content = message
@@ -192,7 +189,11 @@ fn apply_message_fields(
             let content_types: Vec<String> = if let Value::Array(ref blocks) = content {
                 blocks
                     .iter()
-                    .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .filter_map(|b| {
+                        b.get("type")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect()
             } else {
                 vec![]
@@ -242,8 +243,16 @@ fn apply_message_fields(
 
 /// Derive a deterministic event ID for a decomposed content block.
 /// Uses UUID5 so the same input always produces the same ID.
-fn derive_block_event_id(session_id: &str, entry_id: &str, block_index: usize, subtype: &str) -> String {
-    let seed = format!("pi-mono:{}:{}:{}:{}", session_id, entry_id, block_index, subtype);
+fn derive_block_event_id(
+    session_id: &str,
+    entry_id: &str,
+    block_index: usize,
+    subtype: &str,
+) -> String {
+    let seed = format!(
+        "pi-mono:{}:{}:{}:{}",
+        session_id, entry_id, block_index, subtype
+    );
     Uuid::new_v5(&Uuid::NAMESPACE_URL, seed.as_bytes()).to_string()
 }
 
@@ -267,10 +276,19 @@ fn decompose_assistant(
         _ => return vec![],
     };
 
-    let model = message.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let stop_reason = message.get("stopReason").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let model = message
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let stop_reason = message
+        .get("stopReason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let usage = message.get("usage").cloned();
-    let timestamp = line.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let timestamp = line
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let eid_str = entry_id.as_deref().unwrap_or("");
 
     let mut events = Vec::new();
@@ -282,26 +300,46 @@ fn decompose_assistant(
             "thinking" => {
                 let mut p = PiMonoPayload::new();
                 apply_pi_envelope(&mut p, line);
-                p.text = block.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.text = block
+                    .get("thinking")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 p.model = model.clone();
                 ("message.assistant.thinking", p)
             }
             "text" => {
                 let mut p = PiMonoPayload::new();
                 apply_pi_envelope(&mut p, line);
-                p.text = block.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.text = block
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 p.model = model.clone();
-                p.stop_reason = if i == content.len() - 1 { stop_reason.clone() } else { None };
+                p.stop_reason = if i == content.len() - 1 {
+                    stop_reason.clone()
+                } else {
+                    None
+                };
                 ("message.assistant.text", p)
             }
             "toolCall" => {
                 let mut p = PiMonoPayload::new();
                 apply_pi_envelope(&mut p, line);
-                p.tool = block.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
-                p.tool_call_id = block.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                p.tool = block
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                p.tool_call_id = block
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 p.args = block.get("arguments").cloned();
                 p.model = model.clone();
-                p.stop_reason = if i == content.len() - 1 { stop_reason.clone() } else { None };
+                p.stop_reason = if i == content.len() - 1 {
+                    stop_reason.clone()
+                } else {
+                    None
+                };
                 ("message.assistant.tool_use", p)
             }
             _ => continue,
@@ -310,7 +348,11 @@ fn decompose_assistant(
         // Content types for downstream (same for all decomposed events)
         let content_types: Vec<String> = content
             .iter()
-            .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|b| {
+                b.get("type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         if !content_types.is_empty() {
             payload.content_types = Some(content_types);
@@ -422,7 +464,10 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
     }
 
     // Deduplication by entry id
-    let entry_id = line.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let entry_id = line
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     if let Some(ref id) = entry_id {
         if state.seen_uuids.contains(id) {
             return vec![];
@@ -489,7 +534,11 @@ pub fn translate_pi_line(line: &Value, state: &mut TranscriptState) -> Vec<Cloud
             Some("system.model_change".to_string())
         }
         // Spike: skip these entry types
-        "thinking_level_change" | "branch_summary" | "label" | "custom" | "custom_message"
+        "thinking_level_change"
+        | "branch_summary"
+        | "label"
+        | "custom"
+        | "custom_message"
         | "session_info" => {
             return vec![];
         }
@@ -535,7 +584,12 @@ mod tests {
 
     /// Helper: extract PiMonoPayload from event data, panicking if not present.
     fn pi_payload(event: &CloudEvent) -> PiMonoPayload {
-        match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+        match event
+            .data
+            .agent_payload
+            .as_ref()
+            .expect("agent_payload should be Some")
+        {
             AgentPayload::PiMono(pm) => pm.clone(),
             _ => panic!("expected PiMono payload"),
         }
@@ -695,7 +749,10 @@ mod tests {
                 Some(expected_subtype),
                 "{desc}: wrong primary subtype"
             );
-            assert_eq!(events[0].event_type, IO_ARC_EVENT, "{desc}: wrong event type");
+            assert_eq!(
+                events[0].event_type, IO_ARC_EVENT,
+                "{desc}: wrong event type"
+            );
             assert!(
                 events[0].source.starts_with("pi://session/"),
                 "{desc}: wrong source prefix"
@@ -773,7 +830,10 @@ mod tests {
         // Native pi-mono keys — no normalization
         assert_eq!(usage["input"], 150, "native pi-mono key: input");
         assert_eq!(usage["output"], 75, "native pi-mono key: output");
-        assert_eq!(usage["totalTokens"], 1425, "native pi-mono key: totalTokens");
+        assert_eq!(
+            usage["totalTokens"], 1425,
+            "native pi-mono key: totalTokens"
+        );
         assert_eq!(usage["cacheRead"], 1000, "native pi-mono key: cacheRead");
         assert_eq!(usage["cacheWrite"], 200, "native pi-mono key: cacheWrite");
         assert!(usage["cost"].is_object(), "cost preserved");
@@ -799,8 +859,14 @@ mod tests {
         let ed = event_data(&events[0]);
         let raw_content = &ed.raw["message"]["content"];
         // Raw preserves pi-mono's native format — toolCall, not tool_use
-        assert_eq!(raw_content[0]["type"], "toolCall", "raw should preserve toolCall type");
-        assert_eq!(raw_content[0]["arguments"]["path"], "/foo", "raw should preserve arguments key");
+        assert_eq!(
+            raw_content[0]["type"], "toolCall",
+            "raw should preserve toolCall type"
+        );
+        assert_eq!(
+            raw_content[0]["arguments"]["path"], "/foo",
+            "raw should preserve arguments key"
+        );
     }
 
     #[test]
@@ -838,10 +904,19 @@ mod tests {
         let ed = event_data(&events[0]);
         // Raw preserves pi-mono's native format — not normalized
         let raw_msg = &ed.raw["message"];
-        assert_eq!(raw_msg["role"], "toolResult", "raw should preserve toolResult role");
-        assert_eq!(raw_msg["toolCallId"], "tc-1", "raw should preserve toolCallId");
+        assert_eq!(
+            raw_msg["role"], "toolResult",
+            "raw should preserve toolResult role"
+        );
+        assert_eq!(
+            raw_msg["toolCallId"], "tc-1",
+            "raw should preserve toolCallId"
+        );
         assert_eq!(raw_msg["toolName"], "read", "raw should preserve toolName");
-        assert_eq!(raw_msg["content"][0]["type"], "text", "raw content stays as text blocks");
+        assert_eq!(
+            raw_msg["content"][0]["type"], "text",
+            "raw content stays as text blocks"
+        );
         assert_eq!(raw_msg["content"][0]["text"], "file contents here");
     }
 
@@ -1088,8 +1163,15 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events.len(), 3, "thinking+text+stop → 2 decomposed + 1 synthetic turn.complete");
-        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+        assert_eq!(
+            events.len(),
+            3,
+            "thinking+text+stop → 2 decomposed + 1 synthetic turn.complete"
+        );
+        assert_eq!(
+            events[0].subtype.as_deref(),
+            Some("message.assistant.thinking")
+        );
         assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.text"));
         assert_eq!(events[2].subtype.as_deref(), Some("system.turn.complete"));
     }
@@ -1115,10 +1197,20 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events.len(), 3, "thinking+text+tool should produce 3 events");
-        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+        assert_eq!(
+            events.len(),
+            3,
+            "thinking+text+tool should produce 3 events"
+        );
+        assert_eq!(
+            events[0].subtype.as_deref(),
+            Some("message.assistant.thinking")
+        );
         assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.text"));
-        assert_eq!(events[2].subtype.as_deref(), Some("message.assistant.tool_use"));
+        assert_eq!(
+            events[2].subtype.as_deref(),
+            Some("message.assistant.tool_use")
+        );
     }
 
     #[test]
@@ -1142,8 +1234,14 @@ mod tests {
         });
         let events = translate_pi_line(&line, &mut state());
         assert_eq!(events.len(), 2, "two toolCalls should produce 2 events");
-        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
-        assert_eq!(events[1].subtype.as_deref(), Some("message.assistant.tool_use"));
+        assert_eq!(
+            events[0].subtype.as_deref(),
+            Some("message.assistant.tool_use")
+        );
+        assert_eq!(
+            events[1].subtype.as_deref(),
+            Some("message.assistant.tool_use")
+        );
     }
 
     #[test]
@@ -1163,7 +1261,11 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        assert_eq!(events.len(), 2, "text+stop → 1 decomposed + 1 synthetic turn.complete");
+        assert_eq!(
+            events.len(),
+            2,
+            "text+stop → 1 decomposed + 1 synthetic turn.complete"
+        );
         assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.text"));
         assert_eq!(events[1].subtype.as_deref(), Some("system.turn.complete"));
     }
@@ -1187,7 +1289,10 @@ mod tests {
         });
         let events = translate_pi_line(&line, &mut state());
         assert_eq!(events.len(), 1, "single tool should still produce 1 event");
-        assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+        assert_eq!(
+            events[0].subtype.as_deref(),
+            Some("message.assistant.tool_use")
+        );
     }
 
     #[test]
@@ -1211,7 +1316,11 @@ mod tests {
         let events = translate_pi_line(&line, &mut state());
         let ids: Vec<&str> = events.iter().map(|e| e.id.as_str()).collect();
         let unique: std::collections::HashSet<&str> = ids.iter().cloned().collect();
-        assert_eq!(ids.len(), unique.len(), "all decomposed event IDs must be unique");
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "all decomposed event IDs must be unique"
+        );
     }
 
     #[test]
@@ -1264,9 +1373,15 @@ mod tests {
         assert_eq!(raw0, raw1, "thinking and text should share raw");
         assert_eq!(raw1, raw2, "text and tool should share raw");
         // Raw preserves the bundled content array
-        assert_eq!(events[0].data.raw["message"]["content"][0]["type"], "thinking");
+        assert_eq!(
+            events[0].data.raw["message"]["content"][0]["type"],
+            "thinking"
+        );
         assert_eq!(events[0].data.raw["message"]["content"][1]["type"], "text");
-        assert_eq!(events[0].data.raw["message"]["content"][2]["type"], "toolCall");
+        assert_eq!(
+            events[0].data.raw["message"]["content"][2]["type"],
+            "toolCall"
+        );
     }
 
     #[test]
@@ -1293,8 +1408,14 @@ mod tests {
         // Token usage only on the last event
         let pm0 = pi_payload(&events[0]);
         let pm2 = pi_payload(&events[2]);
-        assert!(pm0.token_usage.is_none(), "first event should NOT have token_usage");
-        assert!(pm2.token_usage.is_some(), "last event SHOULD have token_usage");
+        assert!(
+            pm0.token_usage.is_none(),
+            "first event should NOT have token_usage"
+        );
+        assert!(
+            pm2.token_usage.is_some(),
+            "last event SHOULD have token_usage"
+        );
         assert_eq!(pm2.token_usage.as_ref().unwrap()["input"], 100);
     }
 
@@ -1357,7 +1478,10 @@ mod tests {
         assert_eq!(tc.agent.as_deref(), Some("pi-mono"));
         // Raw preserved
         let raw_str = serde_json::to_string(&tc.data.raw).unwrap();
-        assert!(raw_str.contains("\"stopReason\":\"stop\""), "synthetic event preserves bundled raw");
+        assert!(
+            raw_str.contains("\"stopReason\":\"stop\""),
+            "synthetic event preserves bundled raw"
+        );
         // Stop reason on the typed payload
         let pm = pi_payload(tc);
         assert_eq!(pm.stop_reason.as_deref(), Some("stop"));
@@ -1386,7 +1510,11 @@ mod tests {
         let first = translate_pi_line(&line, &mut s);
         let second = translate_pi_line(&line, &mut s);
         // 2 decomposed (thinking, text) + 1 synthetic turn.complete (stopReason="stop") = 3
-        assert_eq!(first.len(), 3, "first should produce 2 decomposed + 1 turn.complete");
+        assert_eq!(
+            first.len(),
+            3,
+            "first should produce 2 decomposed + 1 turn.complete"
+        );
         assert_eq!(second.len(), 0, "duplicate should produce 0 events");
     }
 
@@ -1409,8 +1537,16 @@ mod tests {
         let events = translate_pi_line(&line, &mut state());
         let pm0 = pi_payload(&events[0]); // thinking
         let pm1 = pi_payload(&events[1]); // text
-        assert_eq!(pm0.text.as_deref(), Some("deep thoughts"), "thinking event text");
-        assert_eq!(pm1.text.as_deref(), Some("shallow answer"), "text event text");
+        assert_eq!(
+            pm0.text.as_deref(),
+            Some("deep thoughts"),
+            "thinking event text"
+        );
+        assert_eq!(
+            pm1.text.as_deref(),
+            Some("shallow answer"),
+            "text event text"
+        );
     }
 
     #[test]
@@ -1431,7 +1567,10 @@ mod tests {
             },
         });
         let events = translate_pi_line(&line, &mut state());
-        let tool_event = events.iter().find(|e| e.subtype.as_deref() == Some("message.assistant.tool_use")).unwrap();
+        let tool_event = events
+            .iter()
+            .find(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
+            .unwrap();
         let pm = pi_payload(tool_event);
         assert_eq!(pm.tool.as_deref(), Some("read"));
         assert_eq!(pm.args.as_ref().unwrap()["path"], "/config.toml");
@@ -1468,7 +1607,11 @@ mod tests {
     #[test]
     fn test_format_detection_boundary_table() {
         let cases: Vec<(&str, Value, bool)> = vec![
-            ("session header", json!({"type": "session", "cwd": "/foo"}), true),
+            (
+                "session header",
+                json!({"type": "session", "cwd": "/foo"}),
+                true,
+            ),
             (
                 "message with role",
                 json!({"type": "message", "message": {"role": "user"}}),

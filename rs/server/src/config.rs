@@ -1,7 +1,7 @@
 //! Server configuration — loaded from config.toml, overridable by CLI flags.
 
-use std::path::Path;
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -78,7 +78,10 @@ impl FromStr for Role {
             "full" => Ok(Role::Full),
             "publisher" => Ok(Role::Publisher),
             "consumer" => Ok(Role::Consumer),
-            _ => Err(format!("invalid role '{}': expected full, publisher, or consumer", s)),
+            _ => Err(format!(
+                "invalid role '{}': expected full, publisher, or consumer",
+                s
+            )),
         }
     }
 }
@@ -110,7 +113,16 @@ pub struct Config {
     /// Directory for persisted data (SQLite DB, JSONL, plans).
     pub data_dir: String,
     /// Directory to watch for Claude Code transcript files.
+    pub claude_watch_dir: String,
+    /// Directory to watch for Codex rollout JSONL files.
+    pub codex_watch_dir: String,
+    /// Directory to watch for Claude Code transcript files.
+    /// Legacy alias used when `watch_dirs` is empty and agent-specific roots
+    /// are unset.
     pub watch_dir: String,
+    /// JSONL transcript roots to watch with the same reader pipeline.
+    /// Empty means use `watch_dir` only.
+    pub watch_dirs: Vec<String>,
     /// Directory to watch for pi-mono session files. Empty = disabled.
     pub pi_watch_dir: String,
     /// Directory to watch for Hermes Agent plugin JSONL files. Empty = disabled.
@@ -153,7 +165,6 @@ pub struct Config {
     pub metrics_enabled: bool,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
-
 }
 
 /// Auto-detect the appropriate bind address.
@@ -167,9 +178,7 @@ pub struct Config {
 /// 3. Otherwise: `127.0.0.1`
 fn auto_detect_host() -> String {
     // Container detection
-    if std::path::Path::new("/.dockerenv").exists()
-        || std::env::var("container").is_ok()
-    {
+    if std::path::Path::new("/.dockerenv").exists() || std::env::var("container").is_ok() {
         return "0.0.0.0".to_string();
     }
 
@@ -182,6 +191,25 @@ fn auto_detect_host() -> String {
     "127.0.0.1".to_string()
 }
 
+fn default_home_subdir(parts: &[&str]) -> String {
+    let Some(home) = std::env::var_os(home_env_var()) else {
+        return String::new();
+    };
+    let mut path = std::path::PathBuf::from(home);
+    for part in parts {
+        path.push(part);
+    }
+    path.to_string_lossy().to_string()
+}
+
+fn home_env_var() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "USERPROFILE"
+    } else {
+        "HOME"
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -192,8 +220,11 @@ impl Default for Config {
             db_key: String::new(),
             allowed_origins: Vec::new(),
             data_dir: "./data".to_string(),
+            claude_watch_dir: default_home_subdir(&[".claude", "projects"]),
+            codex_watch_dir: default_home_subdir(&[".codex", "sessions"]),
             watch_dir: String::new(), // resolved at runtime
-            pi_watch_dir: String::new(), // disabled by default
+            watch_dirs: Vec::new(),
+            pi_watch_dir: String::new(),     // disabled by default
             hermes_watch_dir: String::new(), // disabled by default
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".to_string(),
@@ -262,6 +293,14 @@ impl Config {
 # are skipped. Set to 0 to disable the filter (load every JSONL the
 # watcher sees, regardless of age) — useful for tests with static fixture data.
 # watch_backfill_hours = 24
+
+# JSONL transcript roots to watch with the same reader pipeline.
+# Agent-specific roots are used by default. Leave watch_dirs empty to use them.
+# claude_watch_dir = "/Users/me/.claude/projects"
+# codex_watch_dir = "/Users/me/.codex/sessions"
+#
+# Explicit roots override agent-specific defaults.
+# watch_dirs = ["/Users/me/.claude/projects", "/Users/me/.codex/sessions"]
 
 # Payload size (bytes) above which tool outputs are truncated.
 # Full content available via /api/sessions/{id}/events/{eid}/content.
@@ -336,6 +375,8 @@ mod tests {
         assert_eq!(config.role, Role::Full);
         assert_eq!(config.api_token, "");
         assert!(config.allowed_origins.is_empty());
+        assert!(config.claude_watch_dir.ends_with(".claude/projects"));
+        assert!(config.codex_watch_dir.ends_with(".codex/sessions"));
         assert_eq!(config.max_initial_records, 2000);
         assert_eq!(config.watch_backfill_hours, 24);
         assert_eq!(config.truncation_threshold, 100_000);
@@ -403,7 +444,10 @@ mod tests {
             db_key: "my-secret-key".into(),
             allowed_origins: vec!["http://localhost:5173".into()],
             data_dir: "/tmp/data".into(),
+            claude_watch_dir: "/tmp/claude".into(),
+            codex_watch_dir: "/tmp/codex-sessions".into(),
             watch_dir: "/tmp/watch".into(),
+            watch_dirs: vec!["/tmp/watch".into(), "/tmp/codex".into()],
             pi_watch_dir: String::new(),
             hermes_watch_dir: String::new(),
             data_backend: DataBackend::Sqlite,
@@ -425,14 +469,23 @@ mod tests {
         assert_eq!(parsed.stale_threshold_secs, 600);
         assert_eq!(parsed.api_token, "test-token");
         assert_eq!(parsed.allowed_origins, vec!["http://localhost:5173"]);
+        assert_eq!(parsed.claude_watch_dir, "/tmp/claude");
+        assert_eq!(parsed.codex_watch_dir, "/tmp/codex-sessions");
+        assert_eq!(parsed.watch_dirs, vec!["/tmp/watch", "/tmp/codex"]);
         assert!(parsed.metrics_enabled);
     }
 
     #[test]
     fn security_fields_default_to_permissive() {
         let config: Config = toml::from_str("port = 8080").unwrap();
-        assert_eq!(config.api_token, "", "api_token should default to empty (no auth)");
-        assert!(config.allowed_origins.is_empty(), "allowed_origins should default to empty");
+        assert_eq!(
+            config.api_token, "",
+            "api_token should default to empty (no auth)"
+        );
+        assert!(
+            config.allowed_origins.is_empty(),
+            "allowed_origins should default to empty"
+        );
         assert!(!config.metrics_enabled);
     }
 }

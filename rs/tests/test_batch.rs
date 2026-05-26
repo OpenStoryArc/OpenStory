@@ -6,7 +6,9 @@ use open_story::reader::read_new_lines;
 use open_story::translate::TranscriptState;
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 #[test]
@@ -18,21 +20,40 @@ fn test_synthetic_fixture_all_types() {
     let events = read_new_lines(&path, &mut state).unwrap();
 
     // Should have events (the unknown type line produces none)
-    assert!(!events.is_empty(), "should produce events from synthetic fixture");
+    assert!(
+        !events.is_empty(),
+        "should produce events from synthetic fixture"
+    );
 
     // All events should use the unified io.arc.event type
-    let subtypes: std::collections::HashSet<&str> = events
-        .iter()
-        .filter_map(|e| e.subtype.as_deref())
-        .collect();
+    let subtypes: std::collections::HashSet<&str> =
+        events.iter().filter_map(|e| e.subtype.as_deref()).collect();
 
     // Should have subtypes from each category
-    assert!(subtypes.iter().any(|s| s.starts_with("message.user.")), "missing user subtypes");
-    assert!(subtypes.iter().any(|s| s.starts_with("message.assistant.")), "missing assistant subtypes");
-    assert!(subtypes.iter().any(|s| s.starts_with("progress.")), "missing progress subtypes");
-    assert!(subtypes.iter().any(|s| s.starts_with("system.")), "missing system subtypes");
-    assert!(subtypes.iter().any(|s| s.starts_with("file.")), "missing file subtypes");
-    assert!(subtypes.iter().any(|s| s.starts_with("queue.")), "missing queue subtypes");
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("message.user.")),
+        "missing user subtypes"
+    );
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("message.assistant.")),
+        "missing assistant subtypes"
+    );
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("progress.")),
+        "missing progress subtypes"
+    );
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("system.")),
+        "missing system subtypes"
+    );
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("file.")),
+        "missing file subtypes"
+    );
+    assert!(
+        subtypes.iter().any(|s| s.starts_with("queue.")),
+        "missing queue subtypes"
+    );
 
     // All events should be valid CloudEvents with unified type
     for e in &events {
@@ -66,9 +87,20 @@ fn assert_real_session(filename: &str, label: &str) {
         assert!(!e.data.raw.is_null());
     }
 
-    let subtypes: std::collections::HashSet<Option<&str>> = events.iter().map(|e| e.subtype.as_deref()).collect();
-    assert!(subtypes.len() >= 2, "{}: expected multiple subtypes, got: {:?}", label, subtypes);
-    eprintln!("{}: {} events, {} subtypes", label, events.len(), subtypes.len());
+    let subtypes: std::collections::HashSet<Option<&str>> =
+        events.iter().map(|e| e.subtype.as_deref()).collect();
+    assert!(
+        subtypes.len() >= 2,
+        "{}: expected multiple subtypes, got: {:?}",
+        label,
+        subtypes
+    );
+    eprintln!(
+        "{}: {} events, {} subtypes",
+        label,
+        events.len(),
+        subtypes.len()
+    );
 }
 
 #[test]
@@ -119,7 +151,10 @@ fn test_local_corpus() {
         }
 
         total_files += 1;
-        let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+        let session_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
         let mut state = TranscriptState::new(session_id.to_string());
         let events = read_new_lines(path, &mut state).unwrap();
         total_events += events.len() as u64;
@@ -131,5 +166,8 @@ fn test_local_corpus() {
         }
     }
 
-    eprintln!("Local corpus: {} files, {} events", total_files, total_events);
+    eprintln!(
+        "Local corpus: {} files, {} events",
+        total_files, total_events
+    );
 }

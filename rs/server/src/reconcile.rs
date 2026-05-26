@@ -72,10 +72,7 @@ impl ReconcileReport {
 ///
 /// See module docs for invariants. Errors on individual events/sessions
 /// are recorded in `report.errors` and processing continues.
-pub async fn reconcile_local(
-    data_dir: &Path,
-    store: &mut StoreState,
-) -> Result<ReconcileReport> {
+pub async fn reconcile_local(data_dir: &Path, store: &mut StoreState) -> Result<ReconcileReport> {
     let start = Instant::now();
     let mut report = ReconcileReport::default();
 
@@ -101,6 +98,15 @@ pub async fn reconcile_local(
             Ok(()) => report.sessions_upserted += 1,
             Err(e) => report.errors.push(format!("{sid}: upsert: {e}")),
         }
+
+        // Authoritatively recompute first/last_event from the stored events,
+        // excluding synthesized-time subtypes (file.snapshot). The upsert
+        // above uses MIN/MAX-merge, which cannot *lower* a last_event already
+        // polluted by boot-stamped snapshots from a prior run — this SET can.
+        // Heals the "Last Hour" regression on the next boot.
+        if let Err(e) = store.event_store.recompute_session_bounds(&sid).await {
+            report.errors.push(format!("{sid}: recompute bounds: {e}"));
+        }
         report.files_walked += 1;
     }
 
@@ -122,13 +128,32 @@ pub async fn reconcile_local(
 /// snapshot during live ingest; the COALESCE-style upsert preserves any
 /// existing values rather than blanking them out, so this reconciler's
 /// `None` for those fields is the right thing.
+/// True if the event's `subtype` is one whose `time` is synthesized at
+/// translation (e.g. `file.snapshot`) rather than carried by the source
+/// JSONL. Unknown/missing subtypes are treated as real activity (false).
+fn subtype_time_is_synthesized(event: &Value) -> bool {
+    event
+        .get("subtype")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<open_story_core::subtype::Subtype>().ok())
+        .map(|st| st.time_is_synthesized())
+        .unwrap_or(false)
+}
+
 fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
     let event_count = events.len() as u64;
 
     // first_event = MIN(time), last_event = MAX(time) — scan, don't assume order.
+    // Events whose `time` is synthesized at translation (file.snapshot — the
+    // source line has no timestamp, so CloudEvent::new stamps Utc::now()) are
+    // excluded: they otherwise re-stamp a dead session's recency to boot time
+    // on every restart. See `Subtype::time_is_synthesized`.
     let mut first_event: Option<String> = None;
     let mut last_event: Option<String> = None;
     for e in events {
+        if subtype_time_is_synthesized(e) {
+            continue;
+        }
         if let Some(t) = e.get("time").and_then(|v| v.as_str()) {
             first_event = match first_event {
                 Some(curr) if curr.as_str() <= t => Some(curr),
@@ -142,20 +167,21 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
     }
 
     // host / user — first non-None encountered (forward scan).
-    let host = events
-        .iter()
-        .find_map(|e| {
-            e.get("host")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
-    let user = events
-        .iter()
-        .find_map(|e| {
-            e.get("user")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
+    let host = events.iter().find_map(|e| {
+        e.get("host")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
+    let user = events.iter().find_map(|e| {
+        e.get("user")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
+    let origin_agent = events.iter().find_map(|e| {
+        e.get("agent")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
 
     SessionRow {
         id: session_id.to_string(),
@@ -169,6 +195,7 @@ fn session_row_from_events(session_id: &str, events: &[Value]) -> SessionRow {
         last_event,
         host,
         user,
+        origin_agent,
     }
 }
 
@@ -278,10 +305,40 @@ mod tests {
 
     #[test]
     fn no_events_have_time_field_yields_none_first_last() {
+        let events = vec![json!({ "host": "h" }), json!({ "user": "u" })];
+        let row = session_row_from_events("sid", &events);
+        assert_eq!(row.event_count, 2);
+        assert_eq!(row.first_event, None);
+        assert_eq!(row.last_event, None);
+    }
+
+    fn snap(time: &str) -> Value {
+        json!({ "time": time, "subtype": "file.snapshot" })
+    }
+
+    #[test]
+    fn file_snapshot_times_do_not_define_recency() {
+        // The real work ends at 10:02. A later file.snapshot carries a
+        // synthesized (Utc::now-at-translation) timestamp — it must NOT
+        // become last_event, or a dead session looks freshly active after
+        // every boot. This is the "Last Hour" bug.
         let events = vec![
-            json!({ "host": "h" }),
-            json!({ "user": "u" }),
+            json!({ "time": "2026-05-02T10:00:00Z", "subtype": "message.user.prompt" }),
+            json!({ "time": "2026-05-02T10:02:00Z", "subtype": "message.assistant.text" }),
+            snap("2026-05-25T00:42:35Z"), // boot-stamped, 3 weeks later
         ];
+        let row = session_row_from_events("sid", &events);
+        assert_eq!(row.event_count, 3);
+        assert_eq!(row.first_event.as_deref(), Some("2026-05-02T10:00:00Z"));
+        assert_eq!(row.last_event.as_deref(), Some("2026-05-02T10:02:00Z"));
+    }
+
+    #[test]
+    fn snapshot_only_session_yields_none_bounds() {
+        // A session with nothing but file.snapshot events has no real
+        // activity timestamp — bounds are None so the COALESCE upsert
+        // leaves any existing real value untouched.
+        let events = vec![snap("2026-05-25T00:42:35Z"), snap("2026-05-25T00:42:36Z")];
         let row = session_row_from_events("sid", &events);
         assert_eq!(row.event_count, 2);
         assert_eq!(row.first_event, None);

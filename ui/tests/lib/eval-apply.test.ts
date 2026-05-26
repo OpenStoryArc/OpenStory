@@ -31,6 +31,7 @@ function makeRecord(record_type: string, overrides: Partial<WireRecord> = {}): W
     seq,
     session_id: "agent-test123",
     timestamp: `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
+    origin_agent: "claude-code",
     record_type: record_type as any,
     payload: {},
     agent_id: null,

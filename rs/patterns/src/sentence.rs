@@ -68,7 +68,9 @@ const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ToolSearch", "ExitPlanM
 pub fn classify_tool(name: &str, input: &str) -> ToolRole {
     let lower = name.to_ascii_lowercase();
 
-    if PREPARATORY_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name))
+    if PREPARATORY_TOOLS
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(name))
         || matches!(lower.as_str(), "find" | "ls")
     {
         return ToolRole::Preparatory;
@@ -76,17 +78,34 @@ pub fn classify_tool(name: &str, input: &str) -> ToolRole {
     if CREATIVE_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
         return ToolRole::Creative;
     }
-    if DELEGATORY_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
+    if DELEGATORY_TOOLS
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(name))
+    {
         return ToolRole::Delegatory;
     }
-    if INTERACTIVE_TOOLS.iter().any(|t| t.eq_ignore_ascii_case(name)) {
+    if INTERACTIVE_TOOLS
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(name))
+    {
         return ToolRole::Interactive;
     }
 
     // Bash depends on the command
     if lower == "bash" {
         let lower = input.to_lowercase();
-        if regex_match_any(&lower, &["test", "spec", "jest", "vitest", "pytest", "cargo test", "npm test"]) {
+        if regex_match_any(
+            &lower,
+            &[
+                "test",
+                "spec",
+                "jest",
+                "vitest",
+                "pytest",
+                "cargo test",
+                "npm test",
+            ],
+        ) {
             return ToolRole::Verificatory;
         }
         if regex_match_any(&lower, &["install", "brew ", "apt ", "npm i ", "pip "]) {
@@ -164,7 +183,14 @@ pub fn build_sentence(turn: &StructuralTurn) -> TurnSentence {
     };
 
     // Compose one-liner
-    let one_liner = compose_one_liner(&subject, &verb, &object, &adverbial, &subordinates, &predicate);
+    let one_liner = compose_one_liner(
+        &subject,
+        &verb,
+        &object,
+        &adverbial,
+        &subordinates,
+        &predicate,
+    );
 
     TurnSentence {
         subject,
@@ -187,10 +213,22 @@ fn extract_verb_and_object(
         return infer_from_eval(turn);
     }
 
-    let creative = by_role.get(&ToolRole::Creative).map(|v| v.as_slice()).unwrap_or(&[]);
-    let preparatory = by_role.get(&ToolRole::Preparatory).map(|v| v.as_slice()).unwrap_or(&[]);
-    let verificatory = by_role.get(&ToolRole::Verificatory).map(|v| v.as_slice()).unwrap_or(&[]);
-    let delegatory = by_role.get(&ToolRole::Delegatory).map(|v| v.as_slice()).unwrap_or(&[]);
+    let creative = by_role
+        .get(&ToolRole::Creative)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+    let preparatory = by_role
+        .get(&ToolRole::Preparatory)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+    let verificatory = by_role
+        .get(&ToolRole::Verificatory)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+    let delegatory = by_role
+        .get(&ToolRole::Delegatory)
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
 
     if !creative.is_empty() {
         return extract_creative_verb(creative);
@@ -205,7 +243,10 @@ fn extract_verb_and_object(
         return extract_verificatory_verb(verificatory, preparatory);
     }
 
-    ("worked on".to_string(), summarize_inputs(classified.iter().map(|(a, _)| *a).collect()))
+    (
+        "worked on".to_string(),
+        summarize_inputs(classified.iter().map(|(a, _)| *a).collect()),
+    )
 }
 
 fn infer_from_eval(turn: &StructuralTurn) -> (String, String) {
@@ -230,10 +271,16 @@ fn extract_creative_verb(creative: &[&ApplyRecord]) -> (String, String) {
         return ("committed".to_string(), "changes".to_string());
     }
     if !writes.is_empty() {
-        return ("wrote".to_string(), summarize_files(writes.iter().map(|a| &a.input_summary).collect()));
+        return (
+            "wrote".to_string(),
+            summarize_files(writes.iter().map(|a| &a.input_summary).collect()),
+        );
     }
     if !edits.is_empty() {
-        return ("edited".to_string(), summarize_files(edits.iter().map(|a| &a.input_summary).collect()));
+        return (
+            "edited".to_string(),
+            summarize_files(edits.iter().map(|a| &a.input_summary).collect()),
+        );
     }
     ("created".to_string(), summarize_inputs(creative.to_vec()))
 }
@@ -241,22 +288,44 @@ fn extract_creative_verb(creative: &[&ApplyRecord]) -> (String, String) {
 fn extract_delegatory_verb(delegatory: &[&ApplyRecord]) -> (String, String) {
     if delegatory.len() == 1 {
         let desc = &delegatory[0].input_summary;
-        return ("delegated".to_string(), if desc.is_empty() { "a sub-task".to_string() } else { desc.clone() });
+        return (
+            "delegated".to_string(),
+            if desc.is_empty() {
+                "a sub-task".to_string()
+            } else {
+                desc.clone()
+            },
+        );
     }
-    ("delegated".to_string(), format!("{} sub-tasks", delegatory.len()))
+    (
+        "delegated".to_string(),
+        format!("{} sub-tasks", delegatory.len()),
+    )
 }
 
 fn extract_preparatory_verb(preparatory: &[&ApplyRecord]) -> (String, String) {
-    let reads: Vec<&&ApplyRecord> = preparatory.iter().filter(|a| a.tool_name == "Read").collect();
-    let greps: Vec<&&ApplyRecord> = preparatory.iter().filter(|a| a.tool_name == "Grep").collect();
+    let reads: Vec<&&ApplyRecord> = preparatory
+        .iter()
+        .filter(|a| a.tool_name == "Read")
+        .collect();
+    let greps: Vec<&&ApplyRecord> = preparatory
+        .iter()
+        .filter(|a| a.tool_name == "Grep")
+        .collect();
 
     if !greps.is_empty() {
         return ("searched for".to_string(), greps[0].input_summary.clone());
     }
     if !reads.is_empty() {
-        return ("read".to_string(), summarize_files(reads.iter().map(|a| &a.input_summary).collect()));
+        return (
+            "read".to_string(),
+            summarize_files(reads.iter().map(|a| &a.input_summary).collect()),
+        );
     }
-    ("explored".to_string(), summarize_inputs(preparatory.to_vec()))
+    (
+        "explored".to_string(),
+        summarize_inputs(preparatory.to_vec()),
+    )
 }
 
 fn extract_verificatory_verb(
@@ -267,7 +336,10 @@ fn extract_verificatory_verb(
         .iter()
         .filter(|a| {
             let lower = a.input_summary.to_lowercase();
-            lower.contains("test") || lower.contains("spec") || lower.contains("jest") || lower.contains("vitest")
+            lower.contains("test")
+                || lower.contains("spec")
+                || lower.contains("jest")
+                || lower.contains("vitest")
         })
         .collect();
     if !tests.is_empty() {
@@ -278,7 +350,10 @@ fn extract_verificatory_verb(
     if preparatory.len() > verificatory.len() {
         return extract_preparatory_verb(preparatory);
     }
-    ("checked".to_string(), summarize_inputs(verificatory.to_vec()))
+    (
+        "checked".to_string(),
+        summarize_inputs(verificatory.to_vec()),
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -330,16 +405,32 @@ fn build_subordinates(
 fn summarize_for_clause(role: ToolRole, tools: &[&ApplyRecord]) -> String {
     match role {
         ToolRole::Preparatory => {
-            let reads: Vec<&&ApplyRecord> = tools.iter().filter(|a| a.tool_name == "Read").collect();
+            let reads: Vec<&&ApplyRecord> =
+                tools.iter().filter(|a| a.tool_name == "Read").collect();
             if !reads.is_empty() {
                 return summarize_files(reads.iter().map(|a| &a.input_summary).collect());
             }
-            format!("{} source{}", tools.len(), if tools.len() > 1 { "s" } else { "" })
+            format!(
+                "{} source{}",
+                tools.len(),
+                if tools.len() > 1 { "s" } else { "" }
+            )
         }
         ToolRole::Creative => summarize_files(tools.iter().map(|a| &a.input_summary).collect()),
-        ToolRole::Verificatory => format!("{} check{}", tools.len(), if tools.len() > 1 { "s" } else { "" }),
-        ToolRole::Delegatory => tools.first().map(|a| a.input_summary.clone()).unwrap_or_else(|| "a sub-agent".to_string()),
-        ToolRole::Interactive => format!("{} interaction{}", tools.len(), if tools.len() > 1 { "s" } else { "" }),
+        ToolRole::Verificatory => format!(
+            "{} check{}",
+            tools.len(),
+            if tools.len() > 1 { "s" } else { "" }
+        ),
+        ToolRole::Delegatory => tools
+            .first()
+            .map(|a| a.input_summary.clone())
+            .unwrap_or_else(|| "a sub-agent".to_string()),
+        ToolRole::Interactive => format!(
+            "{} interaction{}",
+            tools.len(),
+            if tools.len() > 1 { "s" } else { "" }
+        ),
     }
 }
 
@@ -380,14 +471,28 @@ fn compose_one_liner(
 fn get_dominant_role(
     by_role: &std::collections::HashMap<ToolRole, Vec<&ApplyRecord>>,
 ) -> Option<ToolRole> {
-    if by_role.get(&ToolRole::Creative).map(|v| !v.is_empty()).unwrap_or(false) {
+    if by_role
+        .get(&ToolRole::Creative)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         return Some(ToolRole::Creative);
     }
-    if by_role.get(&ToolRole::Delegatory).map(|v| !v.is_empty()).unwrap_or(false) {
+    if by_role
+        .get(&ToolRole::Delegatory)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         return Some(ToolRole::Delegatory);
     }
-    let has_prep = by_role.get(&ToolRole::Preparatory).map(|v| !v.is_empty()).unwrap_or(false);
-    let has_verif = by_role.get(&ToolRole::Verificatory).map(|v| !v.is_empty()).unwrap_or(false);
+    let has_prep = by_role
+        .get(&ToolRole::Preparatory)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let has_verif = by_role
+        .get(&ToolRole::Verificatory)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
     if has_prep && !has_verif {
         return Some(ToolRole::Preparatory);
     }
@@ -411,9 +516,7 @@ fn summarize_files(paths: Vec<&String>) -> String {
     let names: Vec<&str> = paths
         .iter()
         .filter(|p| !p.is_empty())
-        .map(|p| {
-            p.rsplit('/').next().unwrap_or(p)
-        })
+        .map(|p| p.rsplit('/').next().unwrap_or(p))
         .collect();
 
     if names.is_empty() {
@@ -449,7 +552,11 @@ fn summarize_inputs(applies: Vec<&ApplyRecord>) -> String {
     }
     if applies.len() == 1 {
         let s = &applies[0].input_summary;
-        if s.len() > 60 { format!("{}...", truncate_str(s, 57)) } else { s.clone() }
+        if s.len() > 60 {
+            format!("{}...", truncate_str(s, 57))
+        } else {
+            s.clone()
+        }
     } else {
         format!("{} operations", applies.len())
     }
@@ -625,12 +732,18 @@ mod tests {
 
     #[test]
     fn grep_is_preparatory() {
-        assert_eq!(classify_tool("Grep", "pattern: TODO"), ToolRole::Preparatory);
+        assert_eq!(
+            classify_tool("Grep", "pattern: TODO"),
+            ToolRole::Preparatory
+        );
     }
 
     #[test]
     fn write_is_creative() {
-        assert_eq!(classify_tool("Write", "/scheme/01-types.scm"), ToolRole::Creative);
+        assert_eq!(
+            classify_tool("Write", "/scheme/01-types.scm"),
+            ToolRole::Creative
+        );
     }
 
     #[test]
@@ -640,32 +753,50 @@ mod tests {
 
     #[test]
     fn bash_with_test_is_verificatory() {
-        assert_eq!(classify_tool("Bash", "npx tsx test.ts"), ToolRole::Verificatory);
+        assert_eq!(
+            classify_tool("Bash", "npx tsx test.ts"),
+            ToolRole::Verificatory
+        );
     }
 
     #[test]
     fn bash_with_cargo_test_is_verificatory() {
-        assert_eq!(classify_tool("Bash", "cd rs && cargo test"), ToolRole::Verificatory);
+        assert_eq!(
+            classify_tool("Bash", "cd rs && cargo test"),
+            ToolRole::Verificatory
+        );
     }
 
     #[test]
     fn bash_with_install_is_preparatory() {
-        assert_eq!(classify_tool("Bash", "brew install chibi-scheme"), ToolRole::Preparatory);
+        assert_eq!(
+            classify_tool("Bash", "brew install chibi-scheme"),
+            ToolRole::Preparatory
+        );
     }
 
     #[test]
     fn bash_with_git_commit_is_creative() {
-        assert_eq!(classify_tool("Bash", "git commit -m 'fix'"), ToolRole::Creative);
+        assert_eq!(
+            classify_tool("Bash", "git commit -m 'fix'"),
+            ToolRole::Creative
+        );
     }
 
     #[test]
     fn bash_with_git_push_is_creative() {
-        assert_eq!(classify_tool("Bash", "git push fork main"), ToolRole::Creative);
+        assert_eq!(
+            classify_tool("Bash", "git push fork main"),
+            ToolRole::Creative
+        );
     }
 
     #[test]
     fn agent_is_delegatory() {
-        assert_eq!(classify_tool("Agent", "Explore the codebase"), ToolRole::Delegatory);
+        assert_eq!(
+            classify_tool("Agent", "Explore the codebase"),
+            ToolRole::Delegatory
+        );
     }
 
     #[test]
@@ -675,7 +806,10 @@ mod tests {
 
     #[test]
     fn web_search_is_preparatory() {
-        assert_eq!(classify_tool("WebSearch", "MIT lambda papers"), ToolRole::Preparatory);
+        assert_eq!(
+            classify_tool("WebSearch", "MIT lambda papers"),
+            ToolRole::Preparatory
+        );
     }
 
     // ── Pi-mono tool name compatibility (case-insensitive) ──
@@ -806,10 +940,19 @@ mod tests {
             "object should mention files: {}",
             s.object
         );
-        assert!(!s.subordinates.is_empty(), "should have subordinate clauses");
+        assert!(
+            !s.subordinates.is_empty(),
+            "should have subordinate clauses"
+        );
         let roles: Vec<ToolRole> = s.subordinates.iter().map(|c| c.role).collect();
-        assert!(roles.contains(&ToolRole::Preparatory), "should have preparatory clause");
-        assert!(roles.contains(&ToolRole::Verificatory), "should have verificatory clause");
+        assert!(
+            roles.contains(&ToolRole::Preparatory),
+            "should have preparatory clause"
+        );
+        assert!(
+            roles.contains(&ToolRole::Verificatory),
+            "should have verificatory clause"
+        );
     }
 
     #[test]
@@ -858,8 +1001,14 @@ mod tests {
         let s = build_sentence(&turn);
         let roles: Vec<ToolRole> = s.subordinates.iter().map(|c| c.role).collect();
         if roles.contains(&ToolRole::Preparatory) && roles.contains(&ToolRole::Verificatory) {
-            let prep_idx = roles.iter().position(|r| *r == ToolRole::Preparatory).unwrap();
-            let verif_idx = roles.iter().position(|r| *r == ToolRole::Verificatory).unwrap();
+            let prep_idx = roles
+                .iter()
+                .position(|r| *r == ToolRole::Preparatory)
+                .unwrap();
+            let verif_idx = roles
+                .iter()
+                .position(|r| *r == ToolRole::Verificatory)
+                .unwrap();
             assert!(prep_idx < verif_idx, "preparatory before verificatory");
         }
     }
@@ -880,7 +1029,10 @@ mod tests {
             t.applies = vec![apply("Bash", "ls")];
         });
         let s = build_sentence(&turn);
-        assert!(s.one_liner.contains("Claude"), "one-liner should have subject");
+        assert!(
+            s.one_liner.contains("Claude"),
+            "one-liner should have subject"
+        );
         assert!(s.one_liner.len() > 10, "one-liner should be substantial");
     }
 

@@ -51,8 +51,14 @@ async fn ws_handshake_receives_initial_state() {
     assert_eq!(json["kind"], "initial_state");
     assert!(json["patterns"].is_array());
     assert!(json["session_labels"].is_object());
-    assert!(json.get("records").is_none(), "records lane was removed from initial_state");
-    assert!(json.get("filter_counts").is_none(), "filter_counts lane was removed from initial_state");
+    assert!(
+        json.get("records").is_none(),
+        "records lane was removed from initial_state"
+    );
+    assert!(
+        json.get("filter_counts").is_none(),
+        "filter_counts lane was removed from initial_state"
+    );
 
     ws.close(None).await.ok();
 }
@@ -80,7 +86,11 @@ async fn ws_receives_broadcast_after_hook_ingest() {
     let (mut ws, _) = connect_async(&url).await.expect("WS connect failed");
 
     // Consume the initial_state message
-    let _ = ws.next().await.expect("no initial_state").expect("ws error");
+    let _ = ws
+        .next()
+        .await
+        .expect("no initial_state")
+        .expect("ws error");
 
     // Broadcast an event through the broadcast channel
     {

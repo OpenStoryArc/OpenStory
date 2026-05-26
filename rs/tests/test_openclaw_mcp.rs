@@ -119,10 +119,8 @@ async fn start_stack() -> (McpStack, tempfile::TempDir) {
 
     // Wait for fixtures to flow watcher → translator → NATS → mongo → REST.
     for _ in 0..60 {
-        if let Ok(resp) = reqwest::get(format!(
-            "http://localhost:{open_story_port}/api/sessions"
-        ))
-        .await
+        if let Ok(resp) =
+            reqwest::get(format!("http://localhost:{open_story_port}/api/sessions")).await
         {
             if let Ok(body) = resp.json::<Value>().await {
                 let count = body
@@ -184,7 +182,10 @@ fn exec_mcp_rpc(project: &str, method: &str, params: Value, response_id: u64) ->
     // the Rust MCP with the file piped into its stdin.
     let _ = Command::new("docker")
         .args([
-            "compose", "-p", project, "cp",
+            "compose",
+            "-p",
+            project,
+            "cp",
             &format!("{host_path}/{file_name}"),
             "openclaw-mcp:/tmp/mcp-input.jsonl",
         ])
@@ -198,8 +199,16 @@ fn exec_mcp_rpc(project: &str, method: &str, params: Value, response_id: u64) ->
     // here is fine — the binary only opens NATS + a read-only SQLite.
     let output = Command::new("docker")
         .args([
-            "compose", "-p", project, "exec", "-T", "--user", "root", "openclaw-mcp",
-            "sh", "-c",
+            "compose",
+            "-p",
+            project,
+            "exec",
+            "-T",
+            "--user",
+            "root",
+            "openclaw-mcp",
+            "sh",
+            "-c",
             "cat /tmp/mcp-input.jsonl | /usr/local/bin/open-story-mcp 2>/dev/null",
         ])
         .env("MSYS_NO_PATHCONV", "1")
@@ -242,8 +251,14 @@ async fn openclaw_mcp_image_has_the_rust_binary() {
 
     let output = Command::new("docker")
         .args([
-            "compose", "-p", &stack.project, "exec", "-T", "openclaw-mcp",
-            "sh", "-c",
+            "compose",
+            "-p",
+            &stack.project,
+            "exec",
+            "-T",
+            "openclaw-mcp",
+            "sh",
+            "-c",
             "ls -la /usr/local/bin/open-story-mcp && file /usr/local/bin/open-story-mcp || true",
         ])
         .output()
@@ -278,7 +293,8 @@ async fn openclaw_mcp_initialize_handshake() {
         "Rust MCP must include streaming tools (subscribe_session); got: {names:?}"
     );
     assert_eq!(
-        tools.len(), 21,
+        tools.len(),
+        21,
         "Rust MCP ships 21 tools; got {}",
         tools.len()
     );
@@ -291,14 +307,20 @@ async fn openclaw_mcp_initialize_handshake() {
 async fn openclaw_mcp_list_sessions_returns_fixtures() {
     let (stack, _tmp) = start_stack().await;
 
-    let response = exec_mcp_rpc(&stack.project, "tools/call", json!({
-        "name": "list_sessions",
-        "arguments": {},
-    }), 1);
+    let response = exec_mcp_rpc(
+        &stack.project,
+        "tools/call",
+        json!({
+            "name": "list_sessions",
+            "arguments": {},
+        }),
+        1,
+    );
 
     assert_eq!(
         response["result"]["isError"], false,
-        "list_sessions must succeed; got: {:?}", response["result"]
+        "list_sessions must succeed; got: {:?}",
+        response["result"]
     );
     let text = response["result"]["content"][0]["text"]
         .as_str()

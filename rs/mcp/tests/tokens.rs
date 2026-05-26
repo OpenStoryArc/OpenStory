@@ -95,9 +95,7 @@ mod when_observed_repeatedly {
 
 // ── integration: subscribe_tokens over stdio + LoopbackSubscriber ──
 
-async fn read_line<R: tokio::io::AsyncRead + Unpin>(
-    reader: &mut Lines<BufReader<R>>,
-) -> Value {
+async fn read_line<R: tokio::io::AsyncRead + Unpin>(reader: &mut Lines<BufReader<R>>) -> Value {
     let line = timeout(Duration::from_millis(500), reader.next_line())
         .await
         .expect("response within 500ms")
@@ -115,7 +113,8 @@ mod when_a_client_calls_subscribe_tokens {
         let (mut client_w, server_r) = tokio::io::duplex(8192);
         let (server_w, client_r) = tokio::io::duplex(8192);
         let (store, plan_store, _tmp) = common::make_test_store();
-        let test_server = open_story_mcp::server::Server::new(subscriber.clone(), store, plan_store);
+        let test_server =
+            open_story_mcp::server::Server::new(subscriber.clone(), store, plan_store);
         let server = tokio::spawn(async move {
             stdio::run(server_r, server_w, test_server).await.unwrap();
         });
@@ -144,7 +143,10 @@ mod when_a_client_calls_subscribe_tokens {
             )
             .await;
         subscriber
-            .publish("sid-tok", batch_with_raw("sid-tok", json!({"type": "user"})))
+            .publish(
+                "sid-tok",
+                batch_with_raw("sid-tok", json!({"type": "user"})),
+            )
             .await;
         subscriber
             .publish(
@@ -180,6 +182,9 @@ mod when_a_client_calls_subscribe_tokens {
         }
 
         drop(client_w);
-        timeout(Duration::from_millis(500), server).await.unwrap().unwrap();
+        timeout(Duration::from_millis(500), server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

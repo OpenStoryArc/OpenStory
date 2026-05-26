@@ -19,4 +19,5 @@ pub mod router;
 pub mod state;
 pub mod tool_schemas;
 pub mod transcript;
+pub mod watcher_diagnostics;
 pub mod ws;

@@ -75,7 +75,11 @@ async fn api_layer_observes_consumer_updates_without_sync_step() {
 
     consumer.process_batch(
         "sess-api",
-        &[make_event_with_id("message.user.prompt", "sess-api", "evt-a")],
+        &[make_event_with_id(
+            "message.user.prompt",
+            "sess-api",
+            "evt-a",
+        )],
     );
 
     // An API-shaped read (clone of the Arc, get by session_id) returns

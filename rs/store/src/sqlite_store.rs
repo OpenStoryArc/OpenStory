@@ -59,7 +59,9 @@ impl SqliteStore {
                 #[cfg(not(feature = "encryption"))]
                 {
                     let _ = k; // suppress unused warning
-                    eprintln!("  \x1b[33mWarning: db_key set but `encryption` feature not enabled\x1b[0m");
+                    eprintln!(
+                        "  \x1b[33mWarning: db_key set but `encryption` feature not enabled\x1b[0m"
+                    );
                     eprintln!("  \x1b[33mBuild with --features open-story-store/encryption for SQLCipher\x1b[0m");
                 }
             }
@@ -113,7 +115,8 @@ impl SqliteStore {
                 first_event  TEXT,
                 last_event   TEXT,
                 host         TEXT,
-                user         TEXT
+                user         TEXT,
+                origin_agent TEXT
             );
             -- idx_sessions_host is created below, *after* the host-column
             -- migration. Creating it here would fail on legacy databases
@@ -171,7 +174,8 @@ impl SqliteStore {
         // pre-dating the host column survive boot — see the comment in
         // the CREATE TABLE block above.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN host TEXT");
-        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host)");
+        let _ =
+            conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host)");
 
         // Migration: add user column + index. Same idempotency story as host.
         // The CREATE INDEX is intentionally *after* the ALTER TABLE rather
@@ -181,7 +185,16 @@ impl SqliteStore {
         // batch failure cascades into a JsonlStore fallback, which is the
         // bug pattern that triggered fix/sqlite-migration-ordering.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN user TEXT");
-        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user)");
+        let _ =
+            conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user)");
+
+        // Migration: add origin_agent column for agent-platform labels
+        // (`claude-code`, `codex`, `pi-mono`, `hermes`). Same idempotent
+        // migration pattern as host/user.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN origin_agent TEXT");
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_origin_agent ON sessions(origin_agent)",
+        );
 
         Ok(())
     }
@@ -278,11 +291,7 @@ impl SqliteStore {
     /// Count of records in the FTS5 index (used for backfill check).
     fn fts_count_inner(&self) -> Result<u64> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM events_fts",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM events_fts", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
@@ -305,10 +314,22 @@ impl EventStore for SqliteStore {
     async fn insert_event(&self, session_id: &str, event: &Value) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-        let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
-        let timestamp = event.get("time").and_then(|v| v.as_str()).unwrap_or_default();
-        let agent_id = event.get("data").and_then(|d| d.get("agent_id")).and_then(|v| v.as_str());
-        let parent_uuid = event.get("data").and_then(|d| d.get("parent_uuid")).and_then(|v| v.as_str());
+        let subtype = event
+            .get("subtype")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let timestamp = event
+            .get("time")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let agent_id = event
+            .get("data")
+            .and_then(|d| d.get("agent_id"))
+            .and_then(|v| v.as_str());
+        let parent_uuid = event
+            .get("data")
+            .and_then(|d| d.get("parent_uuid"))
+            .and_then(|v| v.as_str());
         let payload = serde_json::to_string(event)?;
 
         let rows = conn.execute(
@@ -326,10 +347,22 @@ impl EventStore for SqliteStore {
         let mut count = 0;
         for event in events {
             let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
-            let timestamp = event.get("time").and_then(|v| v.as_str()).unwrap_or_default();
-            let agent_id = event.get("data").and_then(|d| d.get("agent_id")).and_then(|v| v.as_str());
-            let parent_uuid = event.get("data").and_then(|d| d.get("parent_uuid")).and_then(|v| v.as_str());
+            let subtype = event
+                .get("subtype")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let timestamp = event
+                .get("time")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let agent_id = event
+                .get("data")
+                .and_then(|d| d.get("agent_id"))
+                .and_then(|v| v.as_str());
+            let parent_uuid = event
+                .get("data")
+                .and_then(|d| d.get("parent_uuid"))
+                .and_then(|v| v.as_str());
             let payload = serde_json::to_string(event)?;
 
             let rows = tx.execute(
@@ -347,9 +380,8 @@ impl EventStore for SqliteStore {
 
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC")?;
         let rows = stmt.query_map([session_id], |row| {
             let payload: String = row.get(0)?;
             Ok(payload)
@@ -367,7 +399,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, origin_agent
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -383,6 +415,7 @@ impl EventStore for SqliteStore {
                 last_event: row.get(8)?,
                 host: row.get(9)?,
                 user: row.get(10)?,
+                origin_agent: row.get(11)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -407,9 +440,10 @@ impl EventStore for SqliteStore {
         // ingest. See `docs/research/CONSTELLATION.md` (R1, P1) and
         // commit message for the May 2026 reconciler PR.
         //
-        // - `host`, `user`, `project_id`, `project_name`, `label`, `branch`
-        //   use **COALESCE(excluded.x, sessions.x)** — a fresh batch with
-        //   x=None must not blank out a value already on the row.
+        // - `host`, `user`, `origin_agent`, `project_id`, `project_name`,
+        //   `label`, `branch` use **COALESCE(excluded.x, sessions.x)** — a
+        //   fresh batch with x=None must not blank out a value already on the
+        //   row.
         // - `event_count` uses **MAX(excluded, sessions)** — counts only
         //   ever grow; a stale snapshot must not reduce them.
         // - `first_event` uses **MIN(...)** with COALESCE wrappers —
@@ -420,8 +454,8 @@ impl EventStore for SqliteStore {
         // RFC 3339 strings sort lexicographically → chronologically, so
         // MIN/MAX on the TEXT columns is correct.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, origin_agent)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = COALESCE(excluded.project_id, sessions.project_id),
                 project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -437,7 +471,8 @@ impl EventStore for SqliteStore {
                     COALESCE(sessions.last_event, excluded.last_event)
                 ),
                 host = COALESCE(excluded.host, sessions.host),
-                user = COALESCE(excluded.user, sessions.user)",
+                user = COALESCE(excluded.user, sessions.user),
+                origin_agent = COALESCE(excluded.origin_agent, sessions.origin_agent)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -449,9 +484,54 @@ impl EventStore for SqliteStore {
                 session.last_event,
                 session.host,
                 session.user,
+                session.origin_agent,
             ],
         )?;
         Ok(())
+    }
+
+    async fn recompute_session_bounds(
+        &self,
+        session_id: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+
+        // Exclude subtypes whose `time` is synthesized at translation. The
+        // list is a compile-time const of our own string literals (no
+        // injection surface), so interpolating it into the IN clause is safe.
+        let exclusion = open_story_core::subtype::SYNTHESIZED_TIME_SUBTYPES
+            .iter()
+            .map(|s| format!("'{s}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // Authoritative SET (not MIN/MAX-merge): can lower a last_event that
+        // was polluted by boot-stamped snapshots. ?1 is reused for all three
+        // session-id bind points.
+        let sql = format!(
+            "UPDATE sessions SET
+                first_event = (SELECT MIN(timestamp) FROM events
+                    WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion})),
+                last_event = (SELECT MAX(timestamp) FROM events
+                    WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))
+             WHERE id = ?1"
+        );
+        conn.execute(&sql, rusqlite::params![session_id])?;
+
+        match conn.query_row(
+            "SELECT first_event, last_event FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                ))
+            },
+        ) {
+            Ok(bounds) => Ok(bounds),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok((None, None)),
+            Err(e) => Err(e.into()),
+        }
     }
 
     async fn update_session_label(&self, session_id: &str, label: &str) -> Result<()> {
@@ -468,7 +548,10 @@ impl EventStore for SqliteStore {
         let metadata = serde_json::to_string(&pattern.metadata)?;
         let event_ids = serde_json::to_string(&pattern.event_ids)?;
         // Generate a deterministic ID from pattern type + start time + session
-        let id = format!("{}:{}:{}", pattern.pattern_type, pattern.started_at, session_id);
+        let id = format!(
+            "{}:{}:{}",
+            pattern.pattern_type, pattern.started_at, session_id
+        );
         conn.execute(
             "INSERT OR IGNORE INTO patterns (id, session_id, type, start_time, end_time, metadata, summary, event_ids)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -531,9 +614,8 @@ impl EventStore for SqliteStore {
 
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number")?;
         let turns = stmt
             .query_map([session_id], |row| {
                 let data: String = row.get(0)?;
@@ -545,12 +627,7 @@ impl EventStore for SqliteStore {
         Ok(turns)
     }
 
-    async fn upsert_plan(
-        &self,
-        plan_id: &str,
-        session_id: &str,
-        content: &str,
-    ) -> Result<()> {
+    async fn upsert_plan(&self, plan_id: &str, session_id: &str, content: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -578,7 +655,10 @@ impl EventStore for SqliteStore {
 
     // ── Query method overrides ──────────────────────────────────────
 
-    async fn query_session_synopsis(&self, session_id: &str) -> Option<crate::queries::SessionSynopsis> {
+    async fn query_session_synopsis(
+        &self,
+        session_id: &str,
+    ) -> Option<crate::queries::SessionSynopsis> {
         self.with_connection(|conn| crate::queries::session_synopsis(conn, session_id))
     }
 
@@ -606,7 +686,11 @@ impl EventStore for SqliteStore {
         self.with_connection(crate::queries::session_efficiency)
     }
 
-    async fn query_project_context(&self, project_id: &str, limit: usize) -> Vec<crate::queries::ProjectSession> {
+    async fn query_project_context(
+        &self,
+        project_id: &str,
+        limit: usize,
+    ) -> Vec<crate::queries::ProjectSession> {
         self.with_connection(|conn| crate::queries::project_context(conn, project_id, limit))
     }
 
@@ -618,11 +702,19 @@ impl EventStore for SqliteStore {
         self.with_connection(|conn| crate::queries::productivity_by_hour(conn, days))
     }
 
-    async fn query_token_usage(&self, days: Option<u32>, session_id: Option<&str>, model: &str) -> crate::queries::TokenUsageSummary {
+    async fn query_token_usage(
+        &self,
+        days: Option<u32>,
+        session_id: Option<&str>,
+        model: &str,
+    ) -> crate::queries::TokenUsageSummary {
         self.with_connection(|conn| crate::queries::token_usage(conn, days, session_id, model))
     }
 
-    async fn query_daily_token_usage(&self, days: Option<u32>) -> Vec<crate::queries::DailyTokenUsage> {
+    async fn query_daily_token_usage(
+        &self,
+        days: Option<u32>,
+    ) -> Vec<crate::queries::DailyTokenUsage> {
         self.with_connection(|conn| crate::queries::daily_token_usage(conn, days))
     }
 
@@ -632,10 +724,8 @@ impl EventStore for SqliteStore {
         let conn = self.conn.lock().unwrap();
         // Delete FTS5 entries before events (contentless table has no cascade triggers)
         conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [session_id])?;
-        let events_deleted: u64 = conn.execute(
-            "DELETE FROM events WHERE session_id = ?1",
-            [session_id],
-        )? as u64;
+        let events_deleted: u64 =
+            conn.execute("DELETE FROM events WHERE session_id = ?1", [session_id])? as u64;
         conn.execute("DELETE FROM patterns WHERE session_id = ?1", [session_id])?;
         conn.execute("DELETE FROM plans WHERE session_id = ?1", [session_id])?;
         conn.execute("DELETE FROM sessions WHERE id = ?1", [session_id])?;
@@ -667,11 +757,22 @@ impl EventStore for SqliteStore {
         Ok(total)
     }
 
-    async fn index_fts(&self, event_id: &str, session_id: &str, record_type: &str, text: &str) -> Result<()> {
+    async fn index_fts(
+        &self,
+        event_id: &str,
+        session_id: &str,
+        record_type: &str,
+        text: &str,
+    ) -> Result<()> {
         self.index_fts_inner(event_id, session_id, record_type, text)
     }
 
-    async fn search_fts(&self, query: &str, limit: usize, session_filter: Option<&str>) -> Result<Vec<crate::queries::FtsSearchResult>> {
+    async fn search_fts(
+        &self,
+        query: &str,
+        limit: usize,
+        session_filter: Option<&str>,
+    ) -> Result<Vec<crate::queries::FtsSearchResult>> {
         self.search_fts_inner(query, limit, session_filter)
     }
 
@@ -710,8 +811,7 @@ impl PatternRow {
             .as_deref()
             .and_then(|m| serde_json::from_str(m).ok())
             .unwrap_or(Value::Null);
-        let event_ids: Vec<String> = serde_json::from_str(&self.event_ids)
-            .unwrap_or_default();
+        let event_ids: Vec<String> = serde_json::from_str(&self.event_ids).unwrap_or_default();
 
         PatternEvent {
             pattern_type: self.pattern_type,
@@ -790,9 +890,18 @@ mod tests {
     #[tokio::test]
     async fn session_events_returns_ordered_by_timestamp() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z")).await.unwrap();
-        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).await.unwrap();
-        store.insert_event("sess-1", &test_event("evt-3", "2025-01-14T00:00:03Z")).await.unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z"))
+            .await
+            .unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z"))
+            .await
+            .unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-3", "2025-01-14T00:00:03Z"))
+            .await
+            .unwrap();
 
         let events = store.session_events("sess-1").await.unwrap();
         assert_eq!(events.len(), 3);
@@ -804,7 +913,11 @@ mod tests {
     #[tokio::test]
     async fn session_events_unknown_session_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.session_events("nonexistent").await.unwrap().is_empty());
+        assert!(store
+            .session_events("nonexistent")
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     // ── Phase 1d: insert_batch ──
@@ -823,7 +936,10 @@ mod tests {
     #[tokio::test]
     async fn insert_batch_deduplicates() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z")).await.unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z"))
+            .await
+            .unwrap();
 
         let events = vec![
             test_event("evt-1", "2025-01-14T00:00:01Z"), // duplicate
@@ -849,19 +965,23 @@ mod tests {
     #[tokio::test]
     async fn upsert_session_then_list() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-1".into(),
-            project_id: Some("proj-1".into()),
-            project_name: Some("My Project".into()),
-            label: Some("fix auth bug".into()),
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-1".into(),
+                project_id: Some("proj-1".into()),
+                project_name: Some("My Project".into()),
+                label: Some("fix auth bug".into()),
                 custom_label: None,
-            branch: Some("main".into()),
-            event_count: 42,
-            first_event: Some("2025-01-14T00:00:00Z".into()),
-            last_event: Some("2025-01-14T01:00:00Z".into()),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                branch: Some("main".into()),
+                event_count: 42,
+                first_event: Some("2025-01-14T00:00:00Z".into()),
+                last_event: Some("2025-01-14T01:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions.len(), 1);
@@ -873,29 +993,41 @@ mod tests {
     #[tokio::test]
     async fn upsert_session_updates_existing() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-1".into(),
-            project_id: None, project_name: None,
-            label: Some("old label".into()),
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-1".into(),
+                project_id: None,
+                project_name: None,
+                label: Some("old label".into()),
                 custom_label: None,
-            branch: None,
-            event_count: 10,
-            first_event: None, last_event: None,
-            host: None,
-            user: None,
-        }).await.unwrap();
+                branch: None,
+                event_count: 10,
+                first_event: None,
+                last_event: None,
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
-        store.upsert_session(&SessionRow {
-            id: "sess-1".into(),
-            project_id: None, project_name: None,
-            label: Some("new label".into()),
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-1".into(),
+                project_id: None,
+                project_name: None,
+                label: Some("new label".into()),
                 custom_label: None,
-            branch: Some("feature".into()),
-            event_count: 20,
-            first_event: None, last_event: Some("2025-01-14T02:00:00Z".into()),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                branch: Some("feature".into()),
+                event_count: 20,
+                first_event: None,
+                last_event: Some("2025-01-14T02:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions.len(), 1);
@@ -920,6 +1052,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("Maxs-Air".into()),
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -948,6 +1081,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: Some("debian-16gb-ash-1".into()),
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -966,6 +1100,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:01:00Z".into()),
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -991,6 +1126,7 @@ mod tests {
                 last_event: Some("2026-04-21T00:00:00Z".into()),
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -1003,22 +1139,40 @@ mod tests {
     #[tokio::test]
     async fn list_sessions_sorted_by_last_event_desc() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_session(&SessionRow {
-            id: "old".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 0,
+        store
+            .upsert_session(&SessionRow {
+                id: "old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 0,
                 custom_label: None,
-            first_event: None, last_event: Some("2025-01-13T00:00:00Z".into()),
-            host: None,
-            user: None,
-        }).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "new".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 0,
+                first_event: None,
+                last_event: Some("2025-01-13T00:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "new".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 0,
                 custom_label: None,
-            first_event: None, last_event: Some("2025-01-14T00:00:00Z".into()),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                first_event: None,
+                last_event: Some("2025-01-14T00:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         let sessions = store.list_sessions().await.unwrap();
         assert_eq!(sessions[0].id, "new");
@@ -1055,11 +1209,32 @@ mod tests {
     #[tokio::test]
     async fn session_patterns_filter_by_type() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:00Z")).await.unwrap();
-        store.insert_pattern("sess-1", &test_pattern("error_recovery", "2025-01-14T00:00:01Z")).await.unwrap();
-        store.insert_pattern("sess-1", &test_pattern("test_cycle", "2025-01-14T00:00:02Z")).await.unwrap();
+        store
+            .insert_pattern(
+                "sess-1",
+                &test_pattern("test_cycle", "2025-01-14T00:00:00Z"),
+            )
+            .await
+            .unwrap();
+        store
+            .insert_pattern(
+                "sess-1",
+                &test_pattern("error_recovery", "2025-01-14T00:00:01Z"),
+            )
+            .await
+            .unwrap();
+        store
+            .insert_pattern(
+                "sess-1",
+                &test_pattern("test_cycle", "2025-01-14T00:00:02Z"),
+            )
+            .await
+            .unwrap();
 
-        let filtered = store.session_patterns("sess-1", Some("test_cycle")).await.unwrap();
+        let filtered = store
+            .session_patterns("sess-1", Some("test_cycle"))
+            .await
+            .unwrap();
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().all(|p| p.pattern_type == "test_cycle"));
 
@@ -1070,7 +1245,11 @@ mod tests {
     #[tokio::test]
     async fn session_patterns_empty_session() {
         let store = SqliteStore::in_memory().unwrap();
-        assert!(store.session_patterns("nonexistent", None).await.unwrap().is_empty());
+        assert!(store
+            .session_patterns("nonexistent", None)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     // ── Phase 1g: upsert_plan + full_payload ──
@@ -1078,14 +1257,19 @@ mod tests {
     #[tokio::test]
     async fn upsert_and_retrieve_plan() {
         let store = SqliteStore::in_memory().unwrap();
-        store.upsert_plan("plan-1", "sess-1", "# My Plan\n\nStep 1...").await.unwrap();
+        store
+            .upsert_plan("plan-1", "sess-1", "# My Plan\n\nStep 1...")
+            .await
+            .unwrap();
 
         let conn = store.conn.lock().unwrap();
-        let content: String = conn.query_row(
-            "SELECT content FROM plans WHERE id = ?1",
-            ["plan-1"],
-            |row| row.get(0),
-        ).unwrap();
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM plans WHERE id = ?1",
+                ["plan-1"],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(content, "# My Plan\n\nStep 1...");
     }
 
@@ -1096,11 +1280,13 @@ mod tests {
         store.upsert_plan("plan-1", "sess-1", "v2").await.unwrap();
 
         let conn = store.conn.lock().unwrap();
-        let content: String = conn.query_row(
-            "SELECT content FROM plans WHERE id = ?1",
-            ["plan-1"],
-            |row| row.get(0),
-        ).unwrap();
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM plans WHERE id = ?1",
+                ["plan-1"],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(content, "v2");
     }
 
@@ -1128,17 +1314,35 @@ mod tests {
         let store = SqliteStore::in_memory().unwrap();
 
         // Insert events, session, pattern, plan
-        store.insert_event("sess-del", &test_event("evt-d1", "2025-01-14T00:00:00Z")).await.unwrap();
-        store.insert_event("sess-del", &test_event("evt-d2", "2025-01-14T00:00:01Z")).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-del".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 2,
+        store
+            .insert_event("sess-del", &test_event("evt-d1", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
+        store
+            .insert_event("sess-del", &test_event("evt-d2", "2025-01-14T00:00:01Z"))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-del".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 2,
                 custom_label: None,
-            first_event: None, last_event: None,
-            host: None,
-            user: None,
-        }).await.unwrap();
-        store.upsert_plan("plan-del", "sess-del", "plan content").await.unwrap();
+                first_event: None,
+                last_event: None,
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        store
+            .upsert_plan("plan-del", "sess-del", "plan content")
+            .await
+            .unwrap();
 
         let deleted = store.delete_session("sess-del").await.unwrap();
         assert_eq!(deleted, 2, "should delete 2 events");
@@ -1150,24 +1354,48 @@ mod tests {
     async fn delete_session_does_not_affect_other_sessions() {
         let store = SqliteStore::in_memory().unwrap();
 
-        store.insert_event("sess-keep", &test_event("evt-k1", "2025-01-14T00:00:00Z")).await.unwrap();
-        store.insert_event("sess-del2", &test_event("evt-d1", "2025-01-14T00:00:00Z")).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-keep".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 1,
+        store
+            .insert_event("sess-keep", &test_event("evt-k1", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
+        store
+            .insert_event("sess-del2", &test_event("evt-d1", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-keep".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
-            first_event: None, last_event: None,
-            host: None,
-            user: None,
-        }).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-del2".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 1,
+                first_event: None,
+                last_event: None,
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-del2".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
-            first_event: None, last_event: None,
-            host: None,
-            user: None,
-        }).await.unwrap();
+                first_event: None,
+                last_event: None,
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         store.delete_session("sess-del2").await.unwrap();
 
@@ -1187,8 +1415,14 @@ mod tests {
     #[tokio::test]
     async fn export_session_jsonl_returns_newline_delimited() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-exp", &test_event("evt-e1", "2025-01-14T00:00:01Z")).await.unwrap();
-        store.insert_event("sess-exp", &test_event("evt-e2", "2025-01-14T00:00:02Z")).await.unwrap();
+        store
+            .insert_event("sess-exp", &test_event("evt-e1", "2025-01-14T00:00:01Z"))
+            .await
+            .unwrap();
+        store
+            .insert_event("sess-exp", &test_event("evt-e2", "2025-01-14T00:00:02Z"))
+            .await
+            .unwrap();
 
         let jsonl = store.export_session_jsonl("sess-exp").await.unwrap();
         let lines: Vec<&str> = jsonl.lines().collect();
@@ -1215,29 +1449,51 @@ mod tests {
         let store = SqliteStore::in_memory().unwrap();
 
         // Old session (90 days ago)
-        store.insert_event("sess-old", &test_event("evt-old", "2025-12-01T00:00:00Z")).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-old".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 1,
+        store
+            .insert_event("sess-old", &test_event("evt-old", "2025-12-01T00:00:00Z"))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
-            first_event: Some("2025-12-01T00:00:00Z".into()),
-            last_event: Some("2025-12-01T00:00:00Z".into()),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                first_event: Some("2025-12-01T00:00:00Z".into()),
+                last_event: Some("2025-12-01T00:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         // Recent session
         let now = chrono::Utc::now().to_rfc3339();
-        store.insert_event("sess-new", &test_event("evt-new", &now)).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-new".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 1,
+        store
+            .insert_event("sess-new", &test_event("evt-new", &now))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-new".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
-            first_event: Some(now.clone()),
-            last_event: Some(now),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                first_event: Some(now.clone()),
+                last_event: Some(now),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         let deleted = store.cleanup_old_sessions(30).await.unwrap();
         assert_eq!(deleted, 1, "should delete 1 old event");
@@ -1249,16 +1505,27 @@ mod tests {
     async fn cleanup_with_no_old_sessions_deletes_nothing() {
         let store = SqliteStore::in_memory().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        store.insert_event("sess-recent", &test_event("evt-r", &now)).await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-recent".into(), project_id: None, project_name: None,
-            label: None, branch: None, event_count: 1,
+        store
+            .insert_event("sess-recent", &test_event("evt-r", &now))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-recent".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
-            first_event: Some(now.clone()),
-            last_event: Some(now),
-            host: None,
-            user: None,
-        }).await.unwrap();
+                first_event: Some(now.clone()),
+                last_event: Some(now),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         let deleted = store.cleanup_old_sessions(7).await.unwrap();
         assert_eq!(deleted, 0);
@@ -1274,7 +1541,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), Some("test-key-123")).unwrap();
 
-        store.insert_event("sess-enc", &test_event("evt-enc-1", "2025-01-14T00:00:00Z")).await.unwrap();
+        store
+            .insert_event("sess-enc", &test_event("evt-enc-1", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
         let events = store.session_events("sess-enc").await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["id"], "evt-enc-1");
@@ -1284,7 +1554,10 @@ mod tests {
     async fn new_with_key_none_is_same_as_new() {
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), None).unwrap();
-        store.insert_event("sess-nk", &test_event("evt-nk", "2025-01-14T00:00:00Z")).await.unwrap();
+        store
+            .insert_event("sess-nk", &test_event("evt-nk", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
 
         // Readable by new() (no key)
         let store2 = SqliteStore::new(tmp.path()).unwrap();
@@ -1295,7 +1568,10 @@ mod tests {
     async fn new_with_empty_key_is_same_as_no_key() {
         let tmp = TempDir::new().unwrap();
         let store = SqliteStore::new_with_key(tmp.path(), Some("")).unwrap();
-        store.insert_event("sess-ek", &test_event("evt-ek", "2025-01-14T00:00:00Z")).await.unwrap();
+        store
+            .insert_event("sess-ek", &test_event("evt-ek", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
 
         let store2 = SqliteStore::new(tmp.path()).unwrap();
         let events = store2.session_events("sess-ek").await.unwrap();
@@ -1307,8 +1583,24 @@ mod tests {
     #[tokio::test]
     async fn fts5_index_and_search() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "fix the authentication bug").await.unwrap();
-        store.index_fts("evt-2", "sess-1", "assistant_message", "I will fix the login flow").await.unwrap();
+        store
+            .index_fts(
+                "evt-1",
+                "sess-1",
+                "user_message",
+                "fix the authentication bug",
+            )
+            .await
+            .unwrap();
+        store
+            .index_fts(
+                "evt-2",
+                "sess-1",
+                "assistant_message",
+                "I will fix the login flow",
+            )
+            .await
+            .unwrap();
 
         let results = store.search_fts("authentication", 10, None).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -1320,7 +1612,15 @@ mod tests {
     #[tokio::test]
     async fn fts5_porter_stemming() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "debugging the test failures").await.unwrap();
+        store
+            .index_fts(
+                "evt-1",
+                "sess-1",
+                "user_message",
+                "debugging the test failures",
+            )
+            .await
+            .unwrap();
 
         // "debug" should match "debugging" via porter stemmer
         let results = store.search_fts("debug", 10, None).await.unwrap();
@@ -1331,10 +1631,19 @@ mod tests {
     #[tokio::test]
     async fn fts5_session_filter() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "deploy the application").await.unwrap();
-        store.index_fts("evt-2", "sess-2", "user_message", "deploy the database").await.unwrap();
+        store
+            .index_fts("evt-1", "sess-1", "user_message", "deploy the application")
+            .await
+            .unwrap();
+        store
+            .index_fts("evt-2", "sess-2", "user_message", "deploy the database")
+            .await
+            .unwrap();
 
-        let results = store.search_fts("deploy", 10, Some("sess-1")).await.unwrap();
+        let results = store
+            .search_fts("deploy", 10, Some("sess-1"))
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].session_id, "sess-1");
     }
@@ -1342,7 +1651,10 @@ mod tests {
     #[tokio::test]
     async fn fts5_empty_query_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "hello world").await.unwrap();
+        store
+            .index_fts("evt-1", "sess-1", "user_message", "hello world")
+            .await
+            .unwrap();
 
         let results = store.search_fts("", 10, None).await.unwrap();
         assert!(results.is_empty());
@@ -1351,7 +1663,10 @@ mod tests {
     #[tokio::test]
     async fn fts5_no_match_returns_empty() {
         let store = SqliteStore::in_memory().unwrap();
-        store.index_fts("evt-1", "sess-1", "user_message", "hello world").await.unwrap();
+        store
+            .index_fts("evt-1", "sess-1", "user_message", "hello world")
+            .await
+            .unwrap();
 
         let results = store.search_fts("nonexistent", 10, None).await.unwrap();
         assert!(results.is_empty());
@@ -1360,15 +1675,36 @@ mod tests {
     #[tokio::test]
     async fn fts5_delete_session_removes_entries() {
         let store = SqliteStore::in_memory().unwrap();
-        store.insert_event("sess-fts", &test_event("evt-fts1", "2025-01-14T00:00:00Z")).await.unwrap();
-        store.index_fts("evt-fts1", "sess-fts", "user_message", "search test content").await.unwrap();
-        store.upsert_session(&SessionRow {
-            id: "sess-fts".into(), project_id: None, project_name: None,
-            label: None, custom_label: None, branch: None, event_count: 1,
-            first_event: None, last_event: None,
-            host: None,
-            user: None,
-        }).await.unwrap();
+        store
+            .insert_event("sess-fts", &test_event("evt-fts1", "2025-01-14T00:00:00Z"))
+            .await
+            .unwrap();
+        store
+            .index_fts(
+                "evt-fts1",
+                "sess-fts",
+                "user_message",
+                "search test content",
+            )
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-fts".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: None,
+                last_event: None,
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
         // Verify it's searchable
         assert_eq!(store.search_fts("search", 10, None).await.unwrap().len(), 1);
@@ -1377,7 +1713,11 @@ mod tests {
         store.delete_session("sess-fts").await.unwrap();
 
         // Verify FTS entries are gone
-        assert!(store.search_fts("search", 10, None).await.unwrap().is_empty());
+        assert!(store
+            .search_fts("search", 10, None)
+            .await
+            .unwrap()
+            .is_empty());
         assert_eq!(store.fts_count().await.unwrap(), 0);
     }
 
@@ -1385,8 +1725,19 @@ mod tests {
     async fn fts5_rank_ordering() {
         let store = SqliteStore::in_memory().unwrap();
         // evt-2 has "rust" twice, should rank higher
-        store.index_fts("evt-1", "sess-1", "user_message", "learn rust programming").await.unwrap();
-        store.index_fts("evt-2", "sess-1", "assistant_message", "rust is great for rust projects").await.unwrap();
+        store
+            .index_fts("evt-1", "sess-1", "user_message", "learn rust programming")
+            .await
+            .unwrap();
+        store
+            .index_fts(
+                "evt-2",
+                "sess-1",
+                "assistant_message",
+                "rust is great for rust projects",
+            )
+            .await
+            .unwrap();
 
         let results = store.search_fts("rust", 10, None).await.unwrap();
         assert_eq!(results.len(), 2);
@@ -1399,8 +1750,14 @@ mod tests {
         let store = SqliteStore::in_memory().unwrap();
         assert_eq!(store.fts_count().await.unwrap(), 0);
 
-        store.index_fts("evt-1", "sess-1", "user_message", "hello").await.unwrap();
-        store.index_fts("evt-2", "sess-1", "user_message", "world").await.unwrap();
+        store
+            .index_fts("evt-1", "sess-1", "user_message", "hello")
+            .await
+            .unwrap();
+        store
+            .index_fts("evt-2", "sess-1", "user_message", "world")
+            .await
+            .unwrap();
         assert_eq!(store.fts_count().await.unwrap(), 2);
     }
 
@@ -1408,7 +1765,15 @@ mod tests {
     async fn fts5_limit_respected() {
         let store = SqliteStore::in_memory().unwrap();
         for i in 0..10 {
-            store.index_fts(&format!("evt-{i}"), "sess-1", "user_message", "common search term").await.unwrap();
+            store
+                .index_fts(
+                    &format!("evt-{i}"),
+                    "sess-1",
+                    "user_message",
+                    "common search term",
+                )
+                .await
+                .unwrap();
         }
 
         let results = store.search_fts("common", 3, None).await.unwrap();
@@ -1510,7 +1875,13 @@ mod tests {
         match ce.data.agent_payload {
             Some(open_story_core::event_data::AgentPayload::ClaudeCode(p)) => {
                 assert_eq!(p.tool.as_deref(), Some("Bash"));
-                assert_eq!(p.args.as_ref().and_then(|a| a.get("command")).and_then(|v| v.as_str()), Some("ls"));
+                assert_eq!(
+                    p.args
+                        .as_ref()
+                        .and_then(|a| a.get("command"))
+                        .and_then(|v| v.as_str()),
+                    Some("ls")
+                );
             }
             other => panic!("expected ClaudeCode variant, got {:?}", other),
         }
@@ -1614,6 +1985,7 @@ mod tests {
             last_event: Some("2025-01-02T00:00:10Z".into()),
             host: Some("kloughra-mac".into()),
             user: None,
+            origin_agent: None,
         };
         store.upsert_session(&row).await.unwrap();
 

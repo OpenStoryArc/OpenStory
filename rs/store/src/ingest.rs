@@ -187,7 +187,8 @@ mod tests {
             // The fixture already provided an agent_payload object — promote
             // it into the tagged enum shape if it isn't already.
             let mut p = existing.as_object().cloned().unwrap_or_default();
-            p.entry("_variant".to_string()).or_insert(json!("claude-code"));
+            p.entry("_variant".to_string())
+                .or_insert(json!("claude-code"));
             p.entry("meta".to_string())
                 .or_insert(json!({"agent": "claude-code"}));
             for (k, v) in data_obj {
@@ -214,8 +215,7 @@ mod tests {
             }),
         );
         // Ensure required CloudEvent envelope fields exist.
-        top.entry("specversion".to_string())
-            .or_insert(json!("1.0"));
+        top.entry("specversion".to_string()).or_insert(json!("1.0"));
         top.entry("source".to_string())
             .or_insert(json!("arc://test"));
         top.entry("datacontenttype".to_string())
@@ -472,6 +472,7 @@ mod tests {
             timestamp: "2025-01-14T00:00:00Z".to_string(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body: RecordBody::ToolResult(ToolResult {
                 call_id: "toolu_big".to_string(),
                 output: Some(large_output),
@@ -497,6 +498,7 @@ mod tests {
             timestamp: "2025-01-14T00:00:00Z".to_string(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body: RecordBody::ToolResult(ToolResult {
                 call_id: "toolu_sm".to_string(),
                 output: Some("small output".to_string()),
@@ -522,6 +524,7 @@ mod tests {
             timestamp: "2025-01-14T00:00:00Z".to_string(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body: RecordBody::UserMessage(UserMessage {
                 content: MessageContent::Text("hello".to_string()),
                 images: vec![],
@@ -559,6 +562,7 @@ mod tests {
             timestamp: "2026-04-14T00:00:00Z".to_string(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body: RecordBody::UserMessage(UserMessage {
                 content: MessageContent::Text("hi".to_string()),
                 images: vec![],
@@ -567,7 +571,10 @@ mod tests {
 
         let wire = to_wire_record(&vr, &proj);
         assert_eq!(wire.depth, 0, "depth defaults to 0 when event unprojected");
-        assert_eq!(wire.parent_uuid, None, "parent_uuid is None when event unprojected");
+        assert_eq!(
+            wire.parent_uuid, None,
+            "parent_uuid is None when event unprojected"
+        );
     }
 
     #[test]

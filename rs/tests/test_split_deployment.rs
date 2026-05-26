@@ -7,9 +7,9 @@
 
 mod helpers;
 
-use std::time::Duration;
-use helpers::compose::{TestConfig, start_stack};
+use helpers::compose::{start_stack, TestConfig};
 use helpers::fixtures_dir;
+use std::time::Duration;
 
 /// Split stack starts — both publisher and consumer report healthy.
 #[tokio::test]
@@ -21,7 +21,9 @@ async fn split_publisher_and_consumer_start() {
     assert!(stack.is_healthy().await, "consumer should be healthy");
 
     // Publisher should be healthy (serves /health)
-    let publisher_port = stack.publisher_port.expect("split stack should have publisher port");
+    let publisher_port = stack
+        .publisher_port
+        .expect("split stack should have publisher port");
     let resp = reqwest::get(format!("http://localhost:{publisher_port}/health"))
         .await
         .expect("publisher health check");
@@ -41,7 +43,11 @@ async fn split_publisher_has_no_api() {
     let resp = reqwest::get(format!("http://localhost:{publisher_port}/api/sessions"))
         .await
         .expect("request to publisher /api/sessions");
-    assert_eq!(resp.status(), 404, "publisher should not serve /api/sessions");
+    assert_eq!(
+        resp.status(),
+        404,
+        "publisher should not serve /api/sessions"
+    );
 }
 
 /// Consumer should report role=consumer in health check.
@@ -75,7 +81,10 @@ async fn split_events_flow_publisher_to_consumer() {
         .await
         .expect("get sessions");
     let sessions: Vec<serde_json::Value> = resp.json().await.unwrap();
-    assert!(!sessions.is_empty(), "consumer should have sessions from publisher");
+    assert!(
+        !sessions.is_empty(),
+        "consumer should have sessions from publisher"
+    );
 }
 
 /// POST /hooks to publisher flows through NATS to consumer.

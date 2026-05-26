@@ -9,6 +9,7 @@ function makeRecord(overrides: Omit<Partial<WireRecord>, "payload"> & { payload?
     seq: 1,
     session_id: "s1",
     timestamp: "2026-01-01T00:00:00Z",
+    origin_agent: "claude-code",
     record_type: "assistant_message",
     payload: { model: "test", content: [{ type: "text", text: "hello" }] },
     agent_id: null,

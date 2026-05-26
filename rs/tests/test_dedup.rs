@@ -26,7 +26,15 @@ async fn test_ingest_same_batch_twice() {
     let second = ingest_events(&mut s, "sess-1", &events, None).await;
     assert_eq!(second.count, 0);
 
-    assert_eq!(s.store.event_store.session_events("sess-1").await.unwrap().len(), 2);
+    assert_eq!(
+        s.store
+            .event_store
+            .session_events("sess-1")
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[tokio::test]
@@ -34,9 +42,7 @@ async fn test_dedup_across_hook_and_ingest() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    let events = vec![
-        make_event_with_id("io.arc.event", "sess-1", "evt-xxx"),
-    ];
+    let events = vec![make_event_with_id("io.arc.event", "sess-1", "evt-xxx")];
 
     let mut s = state.write().await;
 
@@ -49,7 +55,15 @@ async fn test_dedup_across_hook_and_ingest() {
     assert_eq!(result.count, 0);
 
     // Only 1 event stored
-    assert_eq!(s.store.event_store.session_events("sess-1").await.unwrap().len(), 1);
+    assert_eq!(
+        s.store
+            .event_store
+            .session_events("sess-1")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 // `test_seen_ids_loaded_from_persistence` retired — it asserted that

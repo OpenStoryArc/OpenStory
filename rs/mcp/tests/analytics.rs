@@ -28,7 +28,10 @@ mod token_usage {
         assert_eq!(result["output_tokens"], 0);
         // Cache fields exist even on empty store (Option<u64>, flattened
         // via #[serde(skip_serializing_if = "None")] → absent OR 0).
-        assert!(result["sessions"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(result["sessions"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false));
     }
 
     #[tokio::test]
@@ -43,7 +46,10 @@ mod token_usage {
         )
         .await;
         let result = unwrap_tool_result(&response).expect("model arg must not break");
-        assert!(result["cost"].is_object(), "result must include cost estimate");
+        assert!(
+            result["cost"].is_object(),
+            "result must include cost estimate"
+        );
     }
 
     #[tokio::test]
@@ -65,8 +71,7 @@ mod daily_token_usage {
 
     #[tokio::test]
     async fn empty_store_returns_empty_array() {
-        let response =
-            call_tool(fresh_server(), "daily_token_usage", json!({"days": 7})).await;
+        let response = call_tool(fresh_server(), "daily_token_usage", json!({"days": 7})).await;
         let result = unwrap_tool_result(&response).expect("daily_token_usage must succeed");
         assert!(result.as_array().map(|a| a.is_empty()).unwrap_or(false));
     }
@@ -86,8 +91,7 @@ mod productivity {
 
     #[tokio::test]
     async fn empty_store_returns_empty_array() {
-        let response =
-            call_tool(fresh_server(), "productivity", json!({"days": 30})).await;
+        let response = call_tool(fresh_server(), "productivity", json!({"days": 30})).await;
         let result = unwrap_tool_result(&response).expect("productivity must succeed");
         assert!(result.as_array().map(|a| a.is_empty()).unwrap_or(false));
     }

@@ -16,21 +16,44 @@ pub mod transcript;
 pub mod ws;
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use open_story_bus::{Bus, IngestBatch};
 use open_story_server::logging::{event_type_summary, log_event, short_id};
+use open_story_server::metrics;
+use open_story_server::watcher_diagnostics::{
+    PublishObservation, WatcherActorConfig, WatcherProtocol,
+};
 
 pub use broadcast::BroadcastMessage;
+pub use ingest::{
+    IngestResult, ReplayContext, ingest_events, is_plan_event, replay_boot_sessions, to_wire_record,
+};
 pub use open_story_server::config;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
 pub use open_story_server::reconcile;
-pub use open_story_server::router::{build_router, build_publisher_router};
-pub use state::{AppState, SharedState, create_state};
-pub use ingest::{ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult, ReplayContext};
+pub use open_story_server::router::{build_publisher_router, build_router};
+pub use open_story_server::watcher_diagnostics;
+pub use state::{AppState, SharedState, create_state, create_state_with_watch_dirs};
+
+fn agent_for_watch_dir(path: &Path, claude_watch_dir: &str, codex_watch_dir: &str) -> &'static str {
+    let path_text = path.to_string_lossy();
+    if !codex_watch_dir.is_empty() && path == Path::new(codex_watch_dir) {
+        return "codex";
+    }
+    if !claude_watch_dir.is_empty() && path == Path::new(claude_watch_dir) {
+        return "claude-code";
+    }
+    if path_text.contains(".codex") && path_text.contains("sessions") {
+        "codex"
+    } else {
+        "claude-code"
+    }
+}
 
 /// Start the server on the given host:port, with file watcher for live events.
 ///
@@ -43,7 +66,7 @@ pub async fn run_server(
     port: u16,
     data_dir: &Path,
     static_dir: Option<&Path>,
-    watch_dir: &Path,
+    watch_dirs: &[PathBuf],
     bus: Arc<dyn Bus>,
     config: Config,
 ) -> Result<()> {
@@ -52,8 +75,14 @@ pub async fn run_server(
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
     let hermes_watch_dir = config.hermes_watch_dir.clone();
+    let claude_watch_dir = config.claude_watch_dir.clone();
+    let codex_watch_dir = config.codex_watch_dir.clone();
 
-    let state = create_state(data_dir, watch_dir, bus.clone(), config).await?;
+    let primary_watch_dir = watch_dirs
+        .first()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from(&config.watch_dir));
+    let state = create_state_with_watch_dirs(data_dir, watch_dirs, bus.clone(), config).await?;
 
     // ── Banner ──
     {
@@ -67,7 +96,13 @@ pub async fn run_server(
         eprintln!("  \x1b[2m────────────────────────────────────\x1b[0m");
 
         if is_consumer {
-            let session_count = s.store.event_store.list_sessions().await.unwrap_or_default().len();
+            let session_count = s
+                .store
+                .event_store
+                .list_sessions()
+                .await
+                .unwrap_or_default()
+                .len();
             eprintln!("  \x1b[2mSessions loaded:\x1b[0m {session_count}");
             eprintln!("  \x1b[2mData dir:\x1b[0m       {}", data_dir.display());
         }
@@ -172,10 +207,15 @@ pub async fn run_server(
                                 .process_batch(&batch.session_id, &batch.events, project_id)
                                 .await;
                             if result.persisted > 0 {
-                                log_event("persist", &format!(
-                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
-                                    short_id(&batch.session_id), result.persisted, result.skipped
-                                ));
+                                log_event(
+                                    "persist",
+                                    &format!(
+                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
+                                        short_id(&batch.session_id),
+                                        result.persisted,
+                                        result.skipped
+                                    ),
+                                );
                             }
                         }
                     }
@@ -238,14 +278,10 @@ pub async fn run_server(
                                 } else {
                                     batch.project_id.as_str()
                                 };
-                                let subject = format!(
-                                    "patterns.{}.{}",
-                                    project, batch.session_id,
-                                );
+                                let subject = format!("patterns.{}.{}", project, batch.session_id,);
                                 if let Ok(payload) = serde_json::to_vec(&result.patterns) {
-                                    if let Err(e) = patterns_bus
-                                        .publish_bytes(&subject, &payload)
-                                        .await
+                                    if let Err(e) =
+                                        patterns_bus.publish_bytes(&subject, &payload).await
                                     {
                                         eprintln!(
                                             "patterns consumer publish_bytes({subject}) failed: {e}"
@@ -253,10 +289,15 @@ pub async fn run_server(
                                     }
                                 }
 
-                                log_event("patterns", &format!(
-                                    "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
-                                    short_id(&batch.session_id), result.patterns.len(), result.turns.len()
-                                ));
+                                log_event(
+                                    "patterns",
+                                    &format!(
+                                        "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
+                                        short_id(&batch.session_id),
+                                        result.patterns.len(),
+                                        result.turns.len()
+                                    ),
+                                );
                             }
                         }
                     }
@@ -362,10 +403,15 @@ pub async fn run_server(
                             }
 
                             if emitted > 0 {
-                                log_event("broadcast", &format!(
-                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                    short_id(&session_id), emitted, summary
-                                ));
+                                log_event(
+                                    "broadcast",
+                                    &format!(
+                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                        short_id(&session_id),
+                                        emitted,
+                                        summary
+                                    ),
+                                );
                             }
                         }
                     }
@@ -382,23 +428,72 @@ pub async fn run_server(
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
         // for local-mode operation was unreachable and has been deleted.
-        let watcher_bus = bus.clone();
-        let watcher_dir = watch_dir.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = crate::watcher::watch_with_callback(&watcher_dir, backfill_window, |session_id, project_id, subject, events| {
-                let batch = IngestBatch {
-                    session_id: session_id.to_string(),
-                    project_id: project_id.unwrap_or("").to_string(),
-                    events: events.to_vec(),
-                };
-                let rt = tokio::runtime::Handle::current();
-                if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                    eprintln!("Bus publish error: {e}");
-                }
-            }) {
-                eprintln!("Watcher error: {}", e);
+        for watcher_dir in watch_dirs.iter().cloned() {
+            if !watcher_dir.exists() {
+                eprintln!(
+                    "Watcher skipped missing directory: {}",
+                    watcher_dir.display()
+                );
+                continue;
             }
-        });
+            let watcher_bus = bus.clone();
+            let diagnostics = {
+                let s = state.read().await;
+                s.watcher_diagnostics.clone()
+            };
+            let agent = agent_for_watch_dir(
+                &watcher_dir,
+                claude_watch_dir.as_str(),
+                codex_watch_dir.as_str(),
+            );
+            let actor = diagnostics.register_actor(&WatcherActorConfig::new(
+                agent,
+                WatcherProtocol::AppendJsonl,
+                watcher_dir.clone(),
+            ));
+            let observer = crate::watcher::WatcherObserver {
+                diagnostics: diagnostics.clone(),
+                actor: actor.clone(),
+            };
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::watcher::watch_with_callback_observed(
+                    &watcher_dir,
+                    backfill_window,
+                    Some(observer),
+                    |session_id, project_id, subject, events| {
+                        let batch = IngestBatch {
+                            session_id: session_id.to_string(),
+                            project_id: project_id.unwrap_or("").to_string(),
+                            events: events.to_vec(),
+                        };
+                        let first_subtype = events.first().and_then(|event| event.subtype.clone());
+                        let last_subtype = events.last().and_then(|event| event.subtype.clone());
+                        let started = std::time::Instant::now();
+                        let rt = tokio::runtime::Handle::current();
+                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let success = result.is_ok();
+                        diagnostics.record_publish(
+                            &actor,
+                            PublishObservation {
+                                subject: subject.to_string(),
+                                session_id: session_id.to_string(),
+                                event_count: events.len(),
+                                first_subtype,
+                                last_subtype,
+                                success,
+                                latency_ms: started.elapsed().as_millis(),
+                            },
+                        );
+                        metrics::record_watcher_publish(&actor, success);
+                        if let Err(e) = result {
+                            eprintln!("Bus publish error: {e}");
+                        }
+                    },
+                ) {
+                    eprintln!("Watcher error for {}: {e}", watcher_dir.display());
+                }
+            });
+        }
     }
 
     // ── Pi-mono watcher (optional second watch directory) ──
@@ -406,18 +501,54 @@ pub async fn run_server(
         let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
         if pi_dir.exists() {
             let watcher_bus = bus.clone();
+            let diagnostics = {
+                let s = state.read().await;
+                s.watcher_diagnostics.clone()
+            };
+            let actor = diagnostics.register_actor(&WatcherActorConfig::new(
+                "pi-mono",
+                WatcherProtocol::AppendJsonl,
+                pi_dir.clone(),
+            ));
+            let observer = crate::watcher::WatcherObserver {
+                diagnostics: diagnostics.clone(),
+                actor: actor.clone(),
+            };
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::watcher::watch_with_callback(&pi_dir, backfill_window, |session_id, project_id, subject, events| {
-                    let batch = IngestBatch {
-                        session_id: session_id.to_string(),
-                        project_id: project_id.unwrap_or("").to_string(),
-                        events: events.to_vec(),
-                    };
-                    let rt = tokio::runtime::Handle::current();
-                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                        eprintln!("Pi-mono bus publish error: {e}");
-                    }
-                }) {
+                if let Err(e) = crate::watcher::watch_with_callback_observed(
+                    &pi_dir,
+                    backfill_window,
+                    Some(observer),
+                    |session_id, project_id, subject, events| {
+                        let batch = IngestBatch {
+                            session_id: session_id.to_string(),
+                            project_id: project_id.unwrap_or("").to_string(),
+                            events: events.to_vec(),
+                        };
+                        let first_subtype = events.first().and_then(|event| event.subtype.clone());
+                        let last_subtype = events.last().and_then(|event| event.subtype.clone());
+                        let started = std::time::Instant::now();
+                        let rt = tokio::runtime::Handle::current();
+                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let success = result.is_ok();
+                        diagnostics.record_publish(
+                            &actor,
+                            PublishObservation {
+                                subject: subject.to_string(),
+                                session_id: session_id.to_string(),
+                                event_count: events.len(),
+                                first_subtype,
+                                last_subtype,
+                                success,
+                                latency_ms: started.elapsed().as_millis(),
+                            },
+                        );
+                        metrics::record_watcher_publish(&actor, success);
+                        if let Err(e) = result {
+                            eprintln!("Pi-mono bus publish error: {e}");
+                        }
+                    },
+                ) {
                     eprintln!("Pi-mono watcher error: {}", e);
                 }
             });
@@ -437,30 +568,58 @@ pub async fn run_server(
     if is_publisher && !hermes_watch_dir.is_empty() {
         let hermes_dir = std::path::PathBuf::from(&hermes_watch_dir);
         if hermes_dir.exists() {
+            {
+                let diagnostics = {
+                    let s = state.read().await;
+                    s.watcher_diagnostics.clone()
+                };
+                diagnostics.register_actor(&WatcherActorConfig::new(
+                    "hermes",
+                    WatcherProtocol::Snapshot,
+                    hermes_dir.clone(),
+                ));
+            }
             let watcher_bus = bus.clone();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::snapshot_watcher::watch_snapshots(&hermes_dir, backfill_window, |session_id, project_id, subject, events| {
-                    let batch = IngestBatch {
-                        session_id: session_id.to_string(),
-                        project_id: project_id.unwrap_or("").to_string(),
-                        events: events.to_vec(),
-                    };
-                    let rt = tokio::runtime::Handle::current();
-                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
-                        eprintln!("Hermes bus publish error: {e}");
-                    }
-                }) {
+                if let Err(e) = crate::snapshot_watcher::watch_snapshots(
+                    &hermes_dir,
+                    backfill_window,
+                    |session_id, project_id, subject, events| {
+                        let batch = IngestBatch {
+                            session_id: session_id.to_string(),
+                            project_id: project_id.unwrap_or("").to_string(),
+                            events: events.to_vec(),
+                        };
+                        let rt = tokio::runtime::Handle::current();
+                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                            eprintln!("Hermes bus publish error: {e}");
+                        }
+                    },
+                ) {
                     eprintln!("Hermes snapshot watcher error: {}", e);
                 }
             });
-            eprintln!("  \x1b[2mHermes watch dir:\x1b[0m {} (snapshot mode)", hermes_watch_dir);
+            eprintln!(
+                "  \x1b[2mHermes watch dir:\x1b[0m {} (snapshot mode)",
+                hermes_watch_dir
+            );
         }
     }
 
     // ── Bind and serve ──
     let addr = format!("{host}:{port}");
     if is_publisher {
-        eprintln!("  \x1b[2mWatch dir:\x1b[0m      {}", watch_dir.display());
+        if watch_dirs.len() == 1 {
+            eprintln!(
+                "  \x1b[2mWatch dir:\x1b[0m      {}",
+                primary_watch_dir.display()
+            );
+        } else {
+            eprintln!("  \x1b[2mWatch dirs:\x1b[0m     {}", watch_dirs.len());
+            for watch_dir in watch_dirs {
+                eprintln!("    {}", watch_dir.display());
+            }
+        }
     }
     eprintln!("  \x1b[2mServing on:\x1b[0m      \x1b[4mhttp://{addr}\x1b[0m");
     eprintln!("  \x1b[2m────────────────────────────────────\x1b[0m\n");

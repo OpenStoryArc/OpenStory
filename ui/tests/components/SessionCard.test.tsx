@@ -25,6 +25,17 @@ describe("SessionCard", () => {
     expect(screen.getByText("ongoing")).toBeTruthy();
   });
 
+  it("renders the origin agent badge", () => {
+    render(
+      <SessionCard
+        session={makeSession({ origin_agent: "pi-mono" })}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("session-card-agent-badge").textContent).toBe("pi-mono");
+  });
+
   it("renders first_prompt when available", () => {
     render(
       <SessionCard

@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
+use crate::translate_codex::{is_codex_rollout_format, translate_codex_line};
 use crate::translate_hermes::{is_hermes_format, translate_hermes_line};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
@@ -101,6 +102,8 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
         if state.format == TranscriptFormat::Unknown {
             state.format = if is_hermes_format(&obj) {
                 TranscriptFormat::Hermes
+            } else if is_codex_rollout_format(&obj) {
+                TranscriptFormat::Codex
             } else if is_pi_mono_format(&obj) {
                 TranscriptFormat::PiMono
             } else {
@@ -110,6 +113,7 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
         let new_events = match state.format {
             TranscriptFormat::Hermes => translate_hermes_line(&obj, state),
+            TranscriptFormat::Codex => translate_codex_line(&obj, state),
             TranscriptFormat::PiMono => translate_pi_line(&obj, state),
             _ => translate_line(&obj, state),
         };
@@ -140,7 +144,10 @@ mod tests {
         let events = read_new_lines(tmp.path(), &mut state).unwrap();
 
         assert_eq!(events.len(), 0, "partial line should yield zero events");
-        assert_eq!(state.byte_offset, 0, "offset must not advance past partial line");
+        assert_eq!(
+            state.byte_offset, 0,
+            "offset must not advance past partial line"
+        );
     }
 
     #[test]
@@ -152,11 +159,17 @@ mod tests {
         let _ = read_new_lines(tmp.path(), &mut state).unwrap();
         assert_eq!(state.byte_offset, 0);
 
-        let mut f = std::fs::OpenOptions::new().append(true).open(tmp.path()).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(tmp.path())
+            .unwrap();
         writeln!(f, r#"bc","message":{{"role":"user","content":"hi"}}}}"#).unwrap();
 
         let _ = read_new_lines(tmp.path(), &mut state).unwrap();
-        assert!(state.byte_offset > 0, "offset must advance past the completed line");
+        assert!(
+            state.byte_offset > 0,
+            "offset must advance past the completed line"
+        );
     }
 
     #[test]

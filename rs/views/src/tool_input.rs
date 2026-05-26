@@ -49,10 +49,7 @@ pub enum ToolInput {
     CronList,
 
     // -- Escape hatch --
-    Unknown {
-        name: String,
-        raw: Value,
-    },
+    Unknown { name: String, raw: Value },
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +312,7 @@ pub fn parse_tool_input(name: &str, input: Value) -> ToolInput {
             "read" => try_tool!(Read, ReadInput),
             "edit" => try_tool!(Edit, EditInput),
             "write" => try_tool!(Write, WriteInput),
-            "glob" | "find" => try_tool!(Glob, GlobInput),  // pi-mono uses 'find'
+            "glob" | "find" => try_tool!(Glob, GlobInput), // pi-mono uses 'find'
             "grep" => try_tool!(Grep, GrepInput),
             "notebookedit" => try_tool!(NotebookEdit, NotebookEditInput),
 
@@ -785,8 +782,8 @@ mod tests {
 
     // describe("ToolInput serialization roundtrip")
     mod serialization {
-        use crate::tool_input::{parse_tool_input, ToolInput};
         use super::*;
+        use crate::tool_input::{parse_tool_input, ToolInput};
 
         #[test]
         fn it_should_roundtrip_through_json() {
@@ -814,8 +811,10 @@ mod tests {
             let result = parse_tool_input("write", input);
             match result {
                 ToolInput::Write(w) => {
-                    assert_eq!(w.file_path, "/tmp/snake.py",
-                        "should accept 'path' as alias for file_path");
+                    assert_eq!(
+                        w.file_path, "/tmp/snake.py",
+                        "should accept 'path' as alias for file_path"
+                    );
                     assert_eq!(w.content, "print('hi')");
                 }
                 other => panic!("expected Write, got {:?}", other),
@@ -828,8 +827,10 @@ mod tests {
             let result = parse_tool_input("read", input);
             match result {
                 ToolInput::Read(r) => {
-                    assert_eq!(r.file_path, "/tmp/config.toml",
-                        "should accept 'path' as alias for file_path");
+                    assert_eq!(
+                        r.file_path, "/tmp/config.toml",
+                        "should accept 'path' as alias for file_path"
+                    );
                 }
                 other => panic!("expected Read, got {:?}", other),
             }

@@ -7,17 +7,15 @@ use axum::http::Request;
 use helpers::{body_json, make_event, send_request, test_state};
 use tempfile::TempDir;
 
-use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use helpers::seed_and_ingest;
+use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 
 #[tokio::test]
 async fn test_list_sessions_empty() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
@@ -41,15 +39,11 @@ async fn test_list_sessions_with_data() {
         ];
         seed_and_ingest(&mut s, "session-a", &events_a, None).await;
 
-        let events_b = vec![
-            make_event("io.arc.event", "session-b"),
-        ];
+        let events_b = vec![make_event("io.arc.event", "session-b")];
         seed_and_ingest(&mut s, "session-b", &events_b, None).await;
     }
 
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
@@ -167,9 +161,7 @@ async fn test_list_sessions_includes_project_id() {
         seed_and_ingest(&mut s, "session-no-project", &events2, None).await;
     }
 
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
@@ -225,7 +217,10 @@ async fn test_cors_allows_localhost_origin() {
     assert_eq!(resp.status(), 200);
 
     let cors = resp.headers().get("access-control-allow-origin");
-    assert!(cors.is_some(), "CORS header should be present for localhost origin");
+    assert!(
+        cors.is_some(),
+        "CORS header should be present for localhost origin"
+    );
     assert_eq!(cors.unwrap(), "http://localhost:5173");
 }
 
@@ -249,7 +244,11 @@ async fn test_cors_rejects_unknown_origin() {
 
 // ── Activity endpoint ──────────────────────────────────────────────
 
-fn make_rich_event(event_type: &str, session_id: &str, subtype: Option<&str>) -> open_story::cloud_event::CloudEvent {
+fn make_rich_event(
+    event_type: &str,
+    session_id: &str,
+    subtype: Option<&str>,
+) -> open_story::cloud_event::CloudEvent {
     let mut payload = ClaudeCodePayload::new();
     payload.text = Some("test".to_string());
     payload.tool = Some("Read".to_string());
@@ -264,7 +263,11 @@ fn make_rich_event(event_type: &str, session_id: &str, subtype: Option<&str>) ->
         event_type.to_string(),
         data,
         subtype.map(|s| s.to_string()),
-        None, None, None, None, None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
 }
 
@@ -277,7 +280,11 @@ async fn test_get_activity() {
         let mut s = state.write().await;
         let events = vec![
             make_rich_event("io.arc.event", "sess-act", Some("message.user.prompt")),
-            make_rich_event("io.arc.event", "sess-act", Some("message.assistant.tool_use")),
+            make_rich_event(
+                "io.arc.event",
+                "sess-act",
+                Some("message.assistant.tool_use"),
+            ),
             make_rich_event("io.arc.event", "sess-act", Some("message.assistant.text")),
         ];
         seed_and_ingest(&mut s, "sess-act", &events, None).await;
@@ -325,8 +332,16 @@ async fn test_get_tools() {
     {
         let mut s = state.write().await;
         let events = vec![
-            make_rich_event("io.arc.event", "sess-tools", Some("message.assistant.tool_use")),
-            make_rich_event("io.arc.event", "sess-tools", Some("message.assistant.tool_use")),
+            make_rich_event(
+                "io.arc.event",
+                "sess-tools",
+                Some("message.assistant.tool_use"),
+            ),
+            make_rich_event(
+                "io.arc.event",
+                "sess-tools",
+                Some("message.assistant.tool_use"),
+            ),
         ];
         seed_and_ingest(&mut s, "sess-tools", &events, None).await;
     }
@@ -392,9 +407,7 @@ async fn test_list_plans_empty() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    let req = Request::get("/api/plans")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/plans").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
@@ -498,7 +511,9 @@ async fn test_session_plans_includes_subagent_plans() {
         "parent session plans should include subagent plans"
     );
     assert!(
-        plans.iter().any(|p| p["title"].as_str() == Some("Subagent Plan")),
+        plans
+            .iter()
+            .any(|p| p["title"].as_str() == Some("Subagent Plan")),
         "should find the subagent's plan under the parent session"
     );
 }
@@ -517,9 +532,7 @@ async fn test_list_sessions_includes_label_branch_and_tokens() {
         seed_and_ingest(&mut s, "sess-fields", &[event], Some("my-project")).await;
     }
 
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
@@ -573,16 +586,17 @@ async fn test_list_sessions_returns_wrapped_format() {
         seed_and_ingest(&mut s, "sess-fmt", &events, None).await;
     }
 
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
     // Response should be { sessions: [...], total: N }
-    assert!(body["sessions"].is_array(), "response should have 'sessions' array");
+    assert!(
+        body["sessions"].is_array(),
+        "response should have 'sessions' array"
+    );
     assert_eq!(body["total"].as_u64(), Some(1));
     assert_eq!(body["sessions"].as_array().unwrap().len(), 1);
     assert_eq!(body["sessions"][0]["session_id"], "sess-fmt");
@@ -652,11 +666,17 @@ async fn test_list_sessions_sort_active_orders_by_event_count_desc() {
     // assertion proves the sort actually ran.
     {
         let mut s = state.write().await;
-        let mid: Vec<_> = (0..3).map(|_| make_event("io.arc.event", "sess-mid")).collect();
+        let mid: Vec<_> = (0..3)
+            .map(|_| make_event("io.arc.event", "sess-mid"))
+            .collect();
         seed_and_ingest(&mut s, "sess-mid", &mid, None).await;
-        let big: Vec<_> = (0..7).map(|_| make_event("io.arc.event", "sess-big")).collect();
+        let big: Vec<_> = (0..7)
+            .map(|_| make_event("io.arc.event", "sess-big"))
+            .collect();
         seed_and_ingest(&mut s, "sess-big", &big, None).await;
-        let small: Vec<_> = (0..1).map(|_| make_event("io.arc.event", "sess-small")).collect();
+        let small: Vec<_> = (0..1)
+            .map(|_| make_event("io.arc.event", "sess-small"))
+            .collect();
         seed_and_ingest(&mut s, "sess-small", &small, None).await;
     }
 
@@ -703,7 +723,10 @@ async fn test_list_sessions_includes_host_field_in_response() {
 
     let body = body_json(resp).await;
     let sessions = body["sessions"].as_array().unwrap();
-    let row = sessions.iter().find(|s| s["session_id"] == "sess-has-host").unwrap();
+    let row = sessions
+        .iter()
+        .find(|s| s["session_id"] == "sess-has-host")
+        .unwrap();
     assert_eq!(row["host"], "Maxs-Air");
 }
 
@@ -722,9 +745,17 @@ async fn test_list_sessions_host_is_null_for_pre_migration_events() {
     let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
     let resp = send_request(state, req).await;
     let body = body_json(resp).await;
-    let row = body["sessions"].as_array().unwrap().iter()
-        .find(|s| s["session_id"] == "sess-no-host").unwrap();
-    assert!(row["host"].is_null(), "pre-migration rows must report host: null, got {:?}", row["host"]);
+    let row = body["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["session_id"] == "sess-no-host")
+        .unwrap();
+    assert!(
+        row["host"].is_null(),
+        "pre-migration rows must report host: null, got {:?}",
+        row["host"]
+    );
 }
 
 #[tokio::test]
@@ -788,7 +819,9 @@ async fn test_list_sessions_host_filter_excludes_none_hosts() {
         seed_and_ingest(&mut s, "sess-legacy", &[legacy], None).await;
     }
 
-    let req = Request::get("/api/sessions?host=Maxs-Air").body(Body::empty()).unwrap();
+    let req = Request::get("/api/sessions?host=Maxs-Air")
+        .body(Body::empty())
+        .unwrap();
     let resp = send_request(state, req).await;
     let body = body_json(resp).await;
     let sessions = body["sessions"].as_array().unwrap();
@@ -803,9 +836,7 @@ async fn test_search_without_q_param_returns_400() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    let req = Request::get("/api/search")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/search").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 400);
@@ -819,9 +850,7 @@ async fn test_search_with_empty_q_returns_400() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
 
-    let req = Request::get("/api/search?q=")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/search?q=").body(Body::empty()).unwrap();
 
     let resp = send_request(state, req).await;
     assert_eq!(resp.status(), 400);
@@ -931,13 +960,13 @@ async fn test_agent_tools_includes_search() {
     let body = body_json(resp).await;
     let tools = body.as_array().unwrap();
     let search_tool = tools.iter().find(|t| t["name"] == "search");
-    assert!(
-        search_tool.is_some(),
-        "agent tools should include search"
-    );
+    assert!(search_tool.is_some(), "agent tools should include search");
     let tool = search_tool.unwrap();
     assert_eq!(tool["endpoint"], "/api/agent/search");
-    assert!(tool["parameters"]["required"].as_array().unwrap().contains(&serde_json::json!("q")));
+    assert!(tool["parameters"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("q")));
 }
 
 // ── Session lifecycle endpoints ─────────────────────────────────────
@@ -957,7 +986,10 @@ fn make_error_event(session_id: &str, id: &str) -> open_story::cloud_event::Clou
         data,
         Some("system.error".to_string()),
         Some(id.to_string()),
-        None, None, None, None,
+        None,
+        None,
+        None,
+        None,
     )
 }
 
@@ -1008,9 +1040,7 @@ async fn test_delete_session_removes_session() {
     assert!(body["events_deleted"].as_u64().unwrap() >= 3);
 
     // Verify session is gone from list
-    let req = Request::get("/api/sessions")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
     let resp = send_request(state, req).await;
     let body = body_json(resp).await;
     let sessions = body["sessions"].as_array().unwrap();
@@ -1018,7 +1048,10 @@ async fn test_delete_session_removes_session() {
         .iter()
         .filter_map(|s| s["session_id"].as_str())
         .collect();
-    assert!(!ids.contains(&"sess-del"), "deleted session should not appear in list");
+    assert!(
+        !ids.contains(&"sess-del"),
+        "deleted session should not appear in list"
+    );
 }
 
 #[tokio::test]
@@ -1069,8 +1102,8 @@ async fn test_export_session_returns_jsonl() {
 
     // Each line should be valid JSON
     for line in &lines {
-        let parsed: serde_json::Value = serde_json::from_str(line)
-            .expect("each JSONL line should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(line).expect("each JSONL line should be valid JSON");
         assert!(parsed.is_object());
     }
 }
@@ -1102,7 +1135,9 @@ async fn test_synopsis_returns_data() {
     let body = body_json(resp).await;
     assert!(body.is_object(), "synopsis should return an object");
     assert!(
-        body.get("session_id").is_some() || body.get("event_count").is_some() || body.get("tool_count").is_some(),
+        body.get("session_id").is_some()
+            || body.get("event_count").is_some()
+            || body.get("tool_count").is_some(),
         "synopsis should contain session data fields"
     );
 }
@@ -1144,7 +1179,10 @@ async fn test_tool_journey_returns_sequence() {
 
     let body = body_json(resp).await;
     let journey = body.as_array().unwrap();
-    assert!(!journey.is_empty(), "tool journey should contain entries for ingested tool events");
+    assert!(
+        !journey.is_empty(),
+        "tool journey should contain entries for ingested tool events"
+    );
 }
 
 #[tokio::test]
@@ -1348,7 +1386,10 @@ async fn test_project_context_returns_sessions() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert!(body.is_array() || body.is_object(), "project-context should return data");
+    assert!(
+        body.is_array() || body.is_object(),
+        "project-context should return data"
+    );
 }
 
 #[tokio::test]
@@ -1391,7 +1432,10 @@ async fn test_recent_files_returns_modified_files() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert!(body.is_array() || body.is_object(), "recent-files should return data");
+    assert!(
+        body.is_array() || body.is_object(),
+        "recent-files should return data"
+    );
 }
 
 #[tokio::test]
@@ -1452,9 +1496,15 @@ async fn test_meta_returns_projection_data() {
     assert_eq!(resp.status(), 200);
 
     let body = body_json(resp).await;
-    assert!(body["event_count"].is_number(), "meta should include event_count");
+    assert!(
+        body["event_count"].is_number(),
+        "meta should include event_count"
+    );
     assert!(body["event_count"].as_u64().unwrap() >= 3);
-    assert!(body["filter_counts"].is_object(), "meta should include filter_counts");
+    assert!(
+        body["filter_counts"].is_object(),
+        "meta should include filter_counts"
+    );
 }
 
 #[tokio::test]
@@ -1593,10 +1643,7 @@ async fn test_list_users_activity_24h_session_in_window_distributes_to_correct_b
     let state = test_state(&data_dir);
     {
         let mut s = state.write().await;
-        let events = vec![
-            event_at("sess-recent", 90),
-            event_at("sess-recent", 30),
-        ];
+        let events = vec![event_at("sess-recent", 90), event_at("sess-recent", 30)];
         seed_and_ingest(&mut s, "sess-recent", &events, Some("proj-A")).await;
     }
 
@@ -1623,7 +1670,11 @@ async fn test_list_users_activity_24h_session_in_window_distributes_to_correct_b
     );
     // Older buckets ([0..21]) should be empty.
     for (i, &b) in buckets.iter().enumerate().take(21) {
-        assert_eq!(b, 0, "bucket[{}] should be 0 for events all in last 90 min", i);
+        assert_eq!(
+            b, 0,
+            "bucket[{}] should be 0 for events all in last 90 min",
+            i
+        );
     }
     // At least one of the two most-recent hour buckets must have data.
     assert!(
@@ -1709,7 +1760,11 @@ async fn test_list_users_activity_24h_session_spanning_window_edge_clips_correct
     // The in-window portion is roughly hours 0..4 (24h ago to 20h ago);
     // total contribution ≤ event_count.
     let total: u64 = buckets.iter().sum();
-    assert!(total <= 2, "in-window contribution capped at event_count, got {}", total);
+    assert!(
+        total <= 2,
+        "in-window contribution capped at event_count, got {}",
+        total
+    );
 }
 
 #[tokio::test]

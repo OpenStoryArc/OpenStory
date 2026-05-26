@@ -44,7 +44,11 @@ async fn every_live_event_validates_against_committed_schema() {
     let ids: Vec<String> = sessions
         .iter()
         .take(SESSION_SAMPLE)
-        .filter_map(|s| s.get("session_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|s| {
+            s.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
     assert!(!ids.is_empty(), "no sessions");
 
@@ -78,11 +82,7 @@ async fn every_live_event_validates_against_committed_schema() {
                         .map(|e| format!("  {}: {}", e.instance_path, e))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    first_failures.push((
-                        agent,
-                        ev.get("id").cloned().unwrap_or(Value::Null),
-                        msg,
-                    ));
+                    first_failures.push((agent, ev.get("id").cloned().unwrap_or(Value::Null), msg));
                 }
             }
         }
@@ -91,9 +91,7 @@ async fn every_live_event_validates_against_committed_schema() {
     eprintln!("\n── validation by agent ──");
     for (agent, (ok, bad)) in &by_agent {
         let total_agent = ok + bad;
-        eprintln!(
-            "  {agent:<12}  ok: {ok:>6}   invalid: {bad:>4}   total: {total_agent}"
-        );
+        eprintln!("  {agent:<12}  ok: {ok:>6}   invalid: {bad:>4}   total: {total_agent}");
     }
     eprintln!("  ────────────────────────────────────");
     eprintln!("  total events: {total}");

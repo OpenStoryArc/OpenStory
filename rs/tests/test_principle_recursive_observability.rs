@@ -99,8 +99,15 @@ async fn openstory_observes_its_own_development_sessions_legibly() {
     let mut silent_despite_turn_boundary: Vec<(String, String, String, usize)> = Vec::new();
 
     for session in &qualifying {
-        let id = session.get("session_id").and_then(|v| v.as_str()).unwrap_or("?").to_string();
-        let label = session.get("label").and_then(|v| v.as_str()).map(String::from);
+        let id = session
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let label = session
+            .get("label")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let patterns = fetch_patterns(&client, &id).await;
         let sentences: Vec<&Value> = patterns
@@ -218,7 +225,10 @@ async fn openstory_observes_its_own_development_sessions_legibly() {
     let worst_session = reports.first();
     if let Some(w) = worst_session {
         if w.legibility_ratio < LEGIBILITY_THRESHOLD && !w.worst.is_empty() {
-            eprintln!("\n  worst-session degenerate sentence examples ({}):", short(&w.id));
+            eprintln!(
+                "\n  worst-session degenerate sentence examples ({}):",
+                short(&w.id)
+            );
             for s in &w.worst {
                 eprintln!("    {s}");
             }
@@ -356,9 +366,15 @@ async fn fetch_patterns(client: &reqwest::Client, session_id: &str) -> Vec<Value
 fn legibility_issues(summary: &str, metadata: &Value) -> Vec<&'static str> {
     let mut issues = Vec::new();
 
-    let subject = metadata.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+    let subject = metadata
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let verb = metadata.get("verb").and_then(|v| v.as_str()).unwrap_or("");
-    let object = metadata.get("object").and_then(|v| v.as_str()).unwrap_or("");
+    let object = metadata
+        .get("object")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let subordinates_empty = metadata
         .get("subordinates")
         .and_then(|v| v.as_array())
@@ -382,6 +398,9 @@ fn legibility_issues(summary: &str, metadata: &Value) -> Vec<&'static str> {
 }
 
 fn short(id: &str) -> &str {
-    if id.len() >= 12 { &id[..12] } else { id }
+    if id.len() >= 12 {
+        &id[..12]
+    } else {
+        id
+    }
 }
-

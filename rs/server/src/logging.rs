@@ -1,7 +1,7 @@
 //! Logging helpers (metadata only — never log message content).
 
-use open_story_core::cloud_event::CloudEvent;
 use chrono::Local;
+use open_story_core::cloud_event::CloudEvent;
 
 /// Short session ID for display (first 8 chars). UTF-8-safe.
 ///
@@ -20,9 +20,7 @@ pub use open_story_core::strings::truncate_at_char_boundary;
 /// Format a log line with timestamp, category label, and message.
 pub fn log_event(category: &str, message: &str) {
     let now = Local::now().format("%H:%M:%S");
-    eprintln!(
-        "\x1b[2m{now}\x1b[0m \x1b[36m{category:>5}\x1b[0m {message}"
-    );
+    eprintln!("\x1b[2m{now}\x1b[0m \x1b[36m{category:>5}\x1b[0m {message}");
 }
 
 /// Summarize a batch of CloudEvents as a compact subtype list.
@@ -30,11 +28,7 @@ pub fn log_event(category: &str, message: &str) {
 pub fn event_type_summary(events: &[CloudEvent]) -> String {
     let types: Vec<&str> = events
         .iter()
-        .map(|e| {
-            e.subtype
-                .as_deref()
-                .unwrap_or(&e.event_type)
-        })
+        .map(|e| e.subtype.as_deref().unwrap_or(&e.event_type))
         .collect();
     if types.is_empty() {
         return String::new();
@@ -105,7 +99,11 @@ mod tests {
         assert_eq!(s.len(), 51);
         let truncated = truncate_at_char_boundary(&s, 50);
         assert!(truncated.len() <= 50);
-        assert_eq!(truncated.len() % 3, 0, "must be a multiple of 3 bytes (whole 日 chars)");
+        assert_eq!(
+            truncated.len() % 3,
+            0,
+            "must be a multiple of 3 bytes (whole 日 chars)"
+        );
         // Should be 16 日 chars = 48 bytes
         assert_eq!(truncated.chars().count(), 16);
     }

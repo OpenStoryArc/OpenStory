@@ -33,7 +33,10 @@ fn test_backfill_multiple_files() {
 
     for name in &["a.jsonl", "b.jsonl"] {
         let path = dir.path().join(name);
-        let content = format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": "hi"}}));
+        let content = format!(
+            "{}\n",
+            json!({"type": "user", "message": {"role": "user", "content": "hi"}})
+        );
         fs::write(&path, &content).unwrap();
     }
 
@@ -47,14 +50,15 @@ fn test_backfill_multiple_files() {
 fn test_backfill_ignores_non_jsonl() {
     let dir = TempDir::new().unwrap();
 
-    fs::write(
-        dir.path().join("notes.txt"),
-        "not a jsonl file\n",
-    ).unwrap();
+    fs::write(dir.path().join("notes.txt"), "not a jsonl file\n").unwrap();
     fs::write(
         dir.path().join("data.jsonl"),
-        format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": "hi"}})),
-    ).unwrap();
+        format!(
+            "{}\n",
+            json!({"type": "user", "message": {"role": "user", "content": "hi"}})
+        ),
+    )
+    .unwrap();
 
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
     let count = backfill(dir.path(), &mut states, None, false).unwrap();
@@ -69,7 +73,10 @@ fn test_backfill_nested_directories() {
     fs::create_dir_all(&nested).unwrap();
 
     let path = nested.join("session.jsonl");
-    let content = format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": "nested"}}));
+    let content = format!(
+        "{}\n",
+        json!({"type": "user", "message": {"role": "user", "content": "nested"}})
+    );
     fs::write(&path, &content).unwrap();
 
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
@@ -83,7 +90,10 @@ fn test_backfill_with_output_file() {
     let input = dir.path().join("session.jsonl");
     let output = dir.path().join("output.jsonl");
 
-    let content = format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": "hi"}}));
+    let content = format!(
+        "{}\n",
+        json!({"type": "user", "message": {"role": "user", "content": "hi"}})
+    );
     fs::write(&input, &content).unwrap();
 
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
@@ -99,7 +109,10 @@ fn test_backfill_with_output_file() {
 fn test_session_id_from_filename() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("my-cool-session.jsonl");
-    let content = format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": "hi"}}));
+    let content = format!(
+        "{}\n",
+        json!({"type": "user", "message": {"role": "user", "content": "hi"}})
+    );
     fs::write(&path, &content).unwrap();
 
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();

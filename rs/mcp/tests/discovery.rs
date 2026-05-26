@@ -20,8 +20,7 @@ mod search {
 
     #[tokio::test]
     async fn empty_store_returns_empty_results() {
-        let response =
-            call_tool(fresh_server(), "search", json!({"query": "anything"})).await;
+        let response = call_tool(fresh_server(), "search", json!({"query": "anything"})).await;
         let result = unwrap_tool_result(&response).expect("search must succeed");
         assert!(result.as_array().map(|a| a.is_empty()).unwrap_or(false));
     }
@@ -34,8 +33,7 @@ mod search {
 
     #[tokio::test]
     async fn empty_query_string_returns_is_error_true() {
-        let response =
-            call_tool(fresh_server(), "search", json!({"query": ""})).await;
+        let response = call_tool(fresh_server(), "search", json!({"query": ""})).await;
         assert_eq!(response["result"]["isError"], true);
     }
 
@@ -60,10 +58,12 @@ mod agent_search {
     async fn empty_store_returns_query_with_empty_results_array() {
         let response =
             call_tool(fresh_server(), "agent_search", json!({"query": "anything"})).await;
-        let result: Value =
-            unwrap_tool_result(&response).expect("agent_search must succeed");
+        let result: Value = unwrap_tool_result(&response).expect("agent_search must succeed");
         assert_eq!(result["query"], "anything");
-        assert!(result["results"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(result["results"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false));
     }
 
     #[tokio::test]

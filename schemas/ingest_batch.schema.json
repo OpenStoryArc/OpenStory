@@ -494,6 +494,111 @@
             "meta"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "description": "Typed extraction for Codex rollout JSONL events.\n\nCodex persists session streams as JSONL lines with a stable outer `{ timestamp, type, payload }` envelope. The payload shapes vary by line type, so this adapter lifts the common story fields while preserving the untouched raw line in `EventData::raw`.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "codex"
+              ],
+              "type": "string"
+            },
+            "args": true,
+            "call_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cli_version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "item_type": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "meta": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PayloadMeta"
+                }
+              ],
+              "description": "The tag."
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "originator": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "output": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phase": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "thread_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token_usage": true,
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turn_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "_variant",
+            "meta"
+          ],
+          "type": "object"
         }
       ]
     },

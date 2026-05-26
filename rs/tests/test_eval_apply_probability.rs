@@ -24,14 +24,14 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use open_story_core::cloud_event::CloudEvent;
 use open_story::patterns::EvalApplyDetector;
+use open_story_core::cloud_event::CloudEvent;
 
 /// Load the fixture file and parse into class → events map.
 fn load_fixtures() -> HashMap<String, Vec<CloudEvent>> {
     let raw = include_str!("fixtures/turn_probability_classes.json");
-    let parsed: HashMap<String, Value> = serde_json::from_str(raw)
-        .expect("fixture file should be valid JSON");
+    let parsed: HashMap<String, Value> =
+        serde_json::from_str(raw).expect("fixture file should be valid JSON");
 
     let mut classes = HashMap::new();
     for (class_name, class_data) in &parsed {
@@ -54,7 +54,10 @@ fn load_fixtures() -> HashMap<String, Vec<CloudEvent>> {
 /// (pattern_events, completed_turns).
 fn feed_sequence(
     events: &[CloudEvent],
-) -> (Vec<open_story::patterns::PatternEvent>, Vec<open_story::patterns::StructuralTurn>) {
+) -> (
+    Vec<open_story::patterns::PatternEvent>,
+    Vec<open_story::patterns::StructuralTurn>,
+) {
     let mut det = EvalApplyDetector::new();
     let mut all_patterns = Vec::new();
 
@@ -90,8 +93,13 @@ fn fixture_shape(class_name: &str, fixtures: &HashMap<String, Vec<CloudEvent>>) 
 #[test]
 fn pure_text_produces_terminal_turn_with_no_applies() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("pure_text").expect("fixture should have pure_text class");
-    assert!(!events.is_empty(), "pure_text fixture should have events (got 0 — deserialization failed?)");
+    let events = fixtures
+        .get("pure_text")
+        .expect("fixture should have pure_text class");
+    assert!(
+        !events.is_empty(),
+        "pure_text fixture should have events (got 0 — deserialization failed?)"
+    );
 
     let (patterns, turns) = feed_sequence(events);
 
@@ -114,7 +122,8 @@ fn pure_text_produces_terminal_turn_with_no_applies() {
     assert_eq!(turn.stop_reason, "end_turn", "pure_text stop_reason");
     assert!(turn.env_delta > 0, "pure_text should have env_delta > 0");
     assert_eq!(
-        turn.eval.as_ref().unwrap().decision, "text_only",
+        turn.eval.as_ref().unwrap().decision,
+        "text_only",
         "pure_text eval.decision should be text_only"
     );
 
@@ -134,7 +143,9 @@ fn pure_text_produces_terminal_turn_with_no_applies() {
 #[test]
 fn single_tool_produces_turn_with_one_apply() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("single_tool").expect("fixture should have single_tool class");
+    let events = fixtures
+        .get("single_tool")
+        .expect("fixture should have single_tool class");
     assert!(!events.is_empty(), "single_tool fixture should have events");
 
     let (patterns, turns) = feed_sequence(events);
@@ -165,7 +176,9 @@ fn single_tool_produces_turn_with_one_apply() {
         "should emit eval"
     );
     assert!(
-        patterns.iter().any(|p| p.pattern_type == "eval_apply.apply"),
+        patterns
+            .iter()
+            .any(|p| p.pattern_type == "eval_apply.apply"),
         "should emit apply"
     );
 }
@@ -179,7 +192,9 @@ fn single_tool_produces_turn_with_one_apply() {
 #[test]
 fn multi_tool_produces_turn_with_multiple_applies() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("multi_tool").expect("fixture should have multi_tool class");
+    let events = fixtures
+        .get("multi_tool")
+        .expect("fixture should have multi_tool class");
     assert!(!events.is_empty(), "multi_tool fixture should have events");
 
     let (patterns, turns) = feed_sequence(events);
@@ -225,8 +240,13 @@ fn multi_tool_produces_turn_with_multiple_applies() {
 #[test]
 fn tool_then_text_has_eval_content_from_text_message() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("tool_then_text").expect("fixture should have tool_then_text class");
-    assert!(!events.is_empty(), "tool_then_text fixture should have events");
+    let events = fixtures
+        .get("tool_then_text")
+        .expect("fixture should have tool_then_text class");
+    assert!(
+        !events.is_empty(),
+        "tool_then_text fixture should have events"
+    );
 
     let (_patterns, turns) = feed_sequence(events);
 
@@ -261,8 +281,13 @@ fn tool_then_text_has_eval_content_from_text_message() {
 #[test]
 fn with_thinking_turn_is_recognized() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("with_thinking").expect("fixture should have with_thinking class");
-    assert!(!events.is_empty(), "with_thinking fixture should have events");
+    let events = fixtures
+        .get("with_thinking")
+        .expect("fixture should have with_thinking class");
+    assert!(
+        !events.is_empty(),
+        "with_thinking fixture should have events"
+    );
 
     let (_patterns, turns) = feed_sequence(events);
 
@@ -286,8 +311,13 @@ fn with_thinking_turn_is_recognized() {
 #[test]
 fn multi_user_prompt_produces_turn() {
     let fixtures = load_fixtures();
-    let events = fixtures.get("multi_user_prompt").expect("fixture should have multi_user_prompt class");
-    assert!(!events.is_empty(), "multi_user_prompt fixture should have events");
+    let events = fixtures
+        .get("multi_user_prompt")
+        .expect("fixture should have multi_user_prompt class");
+    assert!(
+        !events.is_empty(),
+        "multi_user_prompt fixture should have events"
+    );
 
     let (_patterns, turns) = feed_sequence(events);
 

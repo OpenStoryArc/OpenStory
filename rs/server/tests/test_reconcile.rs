@@ -73,14 +73,40 @@ async fn reconcile_populates_empty_store_from_jsonl() {
     let data_dir = tmp.path();
     let mut store = StoreState::new(data_dir).unwrap();
 
-    write_jsonl(data_dir, "sess-katie", &[
-        ce("evt-1", "2026-05-01T10:00:00Z", Some("Katies-Mac-mini"), Some("katie")),
-        ce("evt-2", "2026-05-01T10:00:01Z", Some("Katies-Mac-mini"), Some("katie")),
-        ce("evt-3", "2026-05-01T10:05:00Z", Some("Katies-Mac-mini"), Some("katie")),
-    ]);
-    write_jsonl(data_dir, "sess-max", &[
-        ce("evt-4", "2026-05-01T11:00:00Z", Some("Maxs-Air"), Some("max")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-katie",
+        &[
+            ce(
+                "evt-1",
+                "2026-05-01T10:00:00Z",
+                Some("Katies-Mac-mini"),
+                Some("katie"),
+            ),
+            ce(
+                "evt-2",
+                "2026-05-01T10:00:01Z",
+                Some("Katies-Mac-mini"),
+                Some("katie"),
+            ),
+            ce(
+                "evt-3",
+                "2026-05-01T10:05:00Z",
+                Some("Katies-Mac-mini"),
+                Some("katie"),
+            ),
+        ],
+    );
+    write_jsonl(
+        data_dir,
+        "sess-max",
+        &[ce(
+            "evt-4",
+            "2026-05-01T11:00:00Z",
+            Some("Maxs-Air"),
+            Some("max"),
+        )],
+    );
 
     let report = reconcile_local(data_dir, &mut store).await.unwrap();
 
@@ -93,14 +119,20 @@ async fn reconcile_populates_empty_store_from_jsonl() {
     let sessions = store.event_store.list_sessions().await.unwrap();
     assert_eq!(sessions.len(), 2);
 
-    let katie = sessions.iter().find(|r| r.id == "sess-katie").expect("katie session");
+    let katie = sessions
+        .iter()
+        .find(|r| r.id == "sess-katie")
+        .expect("katie session");
     assert_eq!(katie.host.as_deref(), Some("Katies-Mac-mini"));
     assert_eq!(katie.user.as_deref(), Some("katie"));
     assert_eq!(katie.event_count, 3);
     assert_eq!(katie.first_event.as_deref(), Some("2026-05-01T10:00:00Z"));
     assert_eq!(katie.last_event.as_deref(), Some("2026-05-01T10:05:00Z"));
 
-    let max = sessions.iter().find(|r| r.id == "sess-max").expect("max session");
+    let max = sessions
+        .iter()
+        .find(|r| r.id == "sess-max")
+        .expect("max session");
     assert_eq!(max.host.as_deref(), Some("Maxs-Air"));
     assert_eq!(max.user.as_deref(), Some("max"));
     assert_eq!(max.event_count, 1);
@@ -112,10 +144,14 @@ async fn reconcile_is_idempotent() {
     let data_dir = tmp.path();
     let mut store = StoreState::new(data_dir).unwrap();
 
-    write_jsonl(data_dir, "sess-1", &[
-        ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-        ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[
+            ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
+            ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
+        ],
+    );
 
     let r1 = reconcile_local(data_dir, &mut store).await.unwrap();
     assert_eq!(r1.events_inserted, 2);
@@ -124,7 +160,10 @@ async fn reconcile_is_idempotent() {
     // Second run — every event is already present.
     let r2 = reconcile_local(data_dir, &mut store).await.unwrap();
     assert_eq!(r2.events_inserted, 0, "second run should insert nothing");
-    assert_eq!(r2.events_skipped, 2, "second run should skip both events via PK dedup");
+    assert_eq!(
+        r2.events_skipped, 2,
+        "second run should skip both events via PK dedup"
+    );
     assert_eq!(r2.sessions_upserted, 1);
     assert!(r2.errors.is_empty());
 
@@ -147,11 +186,15 @@ async fn reconcile_partial_drift_heals() {
     store.event_store.insert_event("sess-1", &e1).await.unwrap();
 
     // JSONL has all three events (the disk-truth view).
-    write_jsonl(data_dir, "sess-1", &[
-        e1.clone(),
-        ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
-        ce("evt-3", "2026-05-01T10:00:02Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[
+            e1.clone(),
+            ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
+            ce("evt-3", "2026-05-01T10:00:02Z", Some("h"), Some("u")),
+        ],
+    );
 
     let report = reconcile_local(data_dir, &mut store).await.unwrap();
 
@@ -178,10 +221,14 @@ async fn reconcile_handles_corrupt_jsonl_line() {
     let path = data_dir.join("sess-corrupt.jsonl");
     fs::create_dir_all(data_dir).unwrap();
     let mut content = String::new();
-    content.push_str(&serde_json::to_string(&ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u"))).unwrap());
+    content.push_str(
+        &serde_json::to_string(&ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u"))).unwrap(),
+    );
     content.push('\n');
     content.push_str("{ this is not valid JSON ::: ]]\n");
-    content.push_str(&serde_json::to_string(&ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u"))).unwrap());
+    content.push_str(
+        &serde_json::to_string(&ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u"))).unwrap(),
+    );
     content.push('\n');
     fs::write(&path, content).unwrap();
 
@@ -191,7 +238,11 @@ async fn reconcile_handles_corrupt_jsonl_line() {
     assert_eq!(report.events_inserted, 2);
     assert_eq!(report.sessions_upserted, 1);
 
-    let events = store.event_store.session_events("sess-corrupt").await.unwrap();
+    let events = store
+        .event_store
+        .session_events("sess-corrupt")
+        .await
+        .unwrap();
     assert_eq!(events.len(), 2);
 }
 
@@ -202,9 +253,11 @@ async fn reconcile_preserves_existing_custom_label() {
     let mut store = StoreState::new(data_dir).unwrap();
 
     // Populate the store via the reconciler first.
-    write_jsonl(data_dir, "sess-1", &[
-        ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u"))],
+    );
     reconcile_local(data_dir, &mut store).await.unwrap();
 
     // The user gives the session a custom label via the dedicated API path.
@@ -216,10 +269,14 @@ async fn reconcile_preserves_existing_custom_label() {
 
     // Append a new event to JSONL and reconcile again — the reconciler
     // upserts the session row but must not blank out the custom label.
-    write_jsonl(data_dir, "sess-1", &[
-        ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-        ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[
+            ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
+            ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
+        ],
+    );
     reconcile_local(data_dir, &mut store).await.unwrap();
 
     let sessions = store.event_store.list_sessions().await.unwrap();
@@ -256,15 +313,24 @@ async fn reconcile_session_row_does_not_regress_frontier() {
         last_event: Some("2026-05-01T20:00:00Z".to_string()),
         host: Some("h".to_string()),
         user: Some("u".to_string()),
+        origin_agent: None,
     };
-    store.event_store.upsert_session(&advanced_row).await.unwrap();
+    store
+        .event_store
+        .upsert_session(&advanced_row)
+        .await
+        .unwrap();
 
     // JSONL has only a stale snapshot — 3 events earlier in the day.
-    write_jsonl(data_dir, "sess-1", &[
-        ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-        ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
-        ce("evt-3", "2026-05-01T10:00:02Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[
+            ce("evt-1", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
+            ce("evt-2", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
+            ce("evt-3", "2026-05-01T10:00:02Z", Some("h"), Some("u")),
+        ],
+    );
 
     reconcile_local(data_dir, &mut store).await.unwrap();
 
@@ -274,8 +340,11 @@ async fn reconcile_session_row_does_not_regress_frontier() {
     // event_count: MAX(100, 3) → 100 (NOT regressed to 3).
     assert_eq!(row.event_count, 100, "event_count must not regress");
     // last_event: MAX preserves the later timestamp.
-    assert_eq!(row.last_event.as_deref(), Some("2026-05-01T20:00:00Z"),
-        "last_event must not regress");
+    assert_eq!(
+        row.last_event.as_deref(),
+        Some("2026-05-01T20:00:00Z"),
+        "last_event must not regress"
+    );
     // first_event: MIN — the stale snapshot's earlier first matches what
     // was already there; either way the same value wins.
     assert_eq!(row.first_event.as_deref(), Some("2026-05-01T10:00:00Z"));
@@ -293,18 +362,28 @@ async fn reconcile_reports_accurate_counts() {
     let data_dir = tmp.path();
     let mut store = StoreState::new(data_dir).unwrap();
 
-    write_jsonl(data_dir, "sess-1", &[
-        ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-        ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
-    ]);
-    write_jsonl(data_dir, "sess-2", &[
-        ce("c", "2026-05-01T11:00:00Z", Some("h"), Some("u")),
-    ]);
-    write_jsonl(data_dir, "sess-3", &[
-        ce("d", "2026-05-01T12:00:00Z", Some("h"), Some("u")),
-        ce("e", "2026-05-01T12:00:01Z", Some("h"), Some("u")),
-        ce("f", "2026-05-01T12:00:02Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-1",
+        &[
+            ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
+            ce("b", "2026-05-01T10:00:01Z", Some("h"), Some("u")),
+        ],
+    );
+    write_jsonl(
+        data_dir,
+        "sess-2",
+        &[ce("c", "2026-05-01T11:00:00Z", Some("h"), Some("u"))],
+    );
+    write_jsonl(
+        data_dir,
+        "sess-3",
+        &[
+            ce("d", "2026-05-01T12:00:00Z", Some("h"), Some("u")),
+            ce("e", "2026-05-01T12:00:01Z", Some("h"), Some("u")),
+            ce("f", "2026-05-01T12:00:02Z", Some("h"), Some("u")),
+        ],
+    );
 
     let report = reconcile_local(data_dir, &mut store).await.unwrap();
 
@@ -330,9 +409,11 @@ async fn reconcile_skips_empty_jsonl_files() {
     // Write an empty .jsonl file alongside a real one.
     fs::create_dir_all(data_dir).unwrap();
     fs::write(data_dir.join("sess-empty.jsonl"), "").unwrap();
-    write_jsonl(data_dir, "sess-real", &[
-        ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u")),
-    ]);
+    write_jsonl(
+        data_dir,
+        "sess-real",
+        &[ce("a", "2026-05-01T10:00:00Z", Some("h"), Some("u"))],
+    );
 
     let report = reconcile_local(data_dir, &mut store).await.unwrap();
 

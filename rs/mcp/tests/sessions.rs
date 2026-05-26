@@ -40,10 +40,9 @@ mod when_list_sessions_is_called_against_an_empty_store {
         let response = call_tool(server, "list_sessions", json!({})).await;
 
         assert_eq!(response["result"]["isError"], false);
-        let rows: Vec<serde_json::Value> = serde_json::from_str(
-            response["result"]["content"][0]["text"].as_str().unwrap(),
-        )
-        .unwrap();
+        let rows: Vec<serde_json::Value> =
+            serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
+                .unwrap();
         assert!(rows.is_empty(), "empty store → empty array, got {rows:?}");
     }
 }
@@ -106,7 +105,12 @@ mod when_list_sessions_is_called_against_a_seeded_store {
         let rows: Vec<serde_json::Value> =
             serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap())
                 .unwrap();
-        assert_eq!(rows.len(), 5, "limit=5 must cap rows at 5, got {}", rows.len());
+        assert_eq!(
+            rows.len(),
+            5,
+            "limit=5 must cap rows at 5, got {}",
+            rows.len()
+        );
     }
 
     #[tokio::test]
@@ -170,7 +174,10 @@ mod when_tools_call_targets_an_unknown_tool {
         // Tool-level errors are NOT JSON-RPC errors per MCP spec —
         // the tool call succeeds at the protocol layer; isError=true
         // signals the tool itself failed.
-        assert!(response["error"].is_null(), "tool-not-found is NOT a protocol error");
+        assert!(
+            response["error"].is_null(),
+            "tool-not-found is NOT a protocol error"
+        );
         assert_eq!(response["result"]["isError"], true);
         assert!(
             response["result"]["content"].is_array(),

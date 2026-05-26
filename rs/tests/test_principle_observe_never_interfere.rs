@@ -101,7 +101,9 @@ fn observe_never_interfere_no_writes_to_watch_dir_paths() {
     let mut allowlisted: Vec<(PathBuf, usize, String)> = Vec::new();
 
     for path in &files {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
 
         // Inline #[cfg(test)] modules are production files but contain
         // test code that can legitimately create/write fixtures. Naive

@@ -53,14 +53,8 @@ impl PatternsConsumer {
     ///
     /// Returns detected patterns and completed turns. The caller is responsible
     /// for publishing PatternEvents to the bus (patterns.{project}.{session}).
-    pub fn process_batch(
-        &mut self,
-        session_id: &str,
-        events: &[CloudEvent],
-    ) -> PatternsResult {
-        let pipeline = self.pipelines
-            .entry(session_id.to_string())
-            .or_default();
+    pub fn process_batch(&mut self, session_id: &str, events: &[CloudEvent]) -> PatternsResult {
+        let pipeline = self.pipelines.entry(session_id.to_string()).or_default();
 
         let mut all_patterns = Vec::new();
         let mut all_turns = Vec::new();
@@ -119,7 +113,10 @@ impl PatternsConsumer {
             }
             PatternsResult { patterns, turns }
         } else {
-            PatternsResult { patterns: Vec::new(), turns: Vec::new() }
+            PatternsResult {
+                patterns: Vec::new(),
+                turns: Vec::new(),
+            }
         }
     }
 }
@@ -163,7 +160,9 @@ mod tests {
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("test".to_string());
         let data = EventData::with_payload(
-            json!({}), 0, session_id.to_string(),
+            json!({}),
+            0,
+            session_id.to_string(),
             AgentPayload::ClaudeCode(payload),
         );
         CloudEvent::new(
@@ -171,7 +170,10 @@ mod tests {
             "io.arc.event".into(),
             data,
             Some(subtype.into()),
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
             Some("claude-code".into()),
         )
     }
@@ -199,9 +201,7 @@ mod tests {
     fn processes_durable_events() {
         let mut consumer = PatternsConsumer::new();
         // A single prompt won't produce a complete turn, but it should be processed
-        let events = vec![
-            make_event("sess-1", "message.user.prompt"),
-        ];
+        let events = vec![make_event("sess-1", "message.user.prompt")];
         let result = consumer.process_batch("sess-1", &events);
         // No turn completed yet (need assistant response + turn_end)
         assert_eq!(result.turns.len(), 0);

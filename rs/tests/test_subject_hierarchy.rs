@@ -19,16 +19,12 @@ use open_story_bus::{Bus, IngestBatch};
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::event_data::EventData;
 use serde_json::json;
-use testcontainers::{GenericImage, ImageExt};
 use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 
 /// Create a minimal CloudEvent for testing.
 fn test_event(session_id: &str, subtype: &str) -> CloudEvent {
-    let data = EventData::new(
-        json!({"test": true}),
-        1,
-        session_id.to_string(),
-    );
+    let data = EventData::new(json!({"test": true}), 1, session_id.to_string());
     CloudEvent::new(
         format!("arc://test/{session_id}"),
         "io.arc.event".to_string(),
@@ -57,7 +53,10 @@ async fn start_nats() -> (NatsBus, testcontainers::ContainerAsync<GenericImage>)
     let mut bus = None;
     for _ in 0..10 {
         match NatsBus::connect(&nats_url).await {
-            Ok(b) => { bus = Some(b); break; }
+            Ok(b) => {
+                bus = Some(b);
+                break;
+            }
             Err(_) => tokio::time::sleep(std::time::Duration::from_millis(500)).await,
         }
     }
@@ -107,8 +106,14 @@ fn session_wildcard_pattern_matches_both() {
     let agent = subject_for_agent("openstory", "06907d46", "a6dcf911");
     let prefix = "events.openstory.06907d46.";
 
-    assert!(main.starts_with(prefix), "main subject starts with session prefix");
-    assert!(agent.starts_with(prefix), "agent subject starts with session prefix");
+    assert!(
+        main.starts_with(prefix),
+        "main subject starts with session prefix"
+    );
+    assert!(
+        agent.starts_with(prefix),
+        "agent subject starts with session prefix"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -120,7 +125,10 @@ async fn publish_and_subscribe_with_hierarchical_subjects() {
     let (bus, _container) = start_nats().await;
 
     // Subscribe to all openstory events
-    let mut sub = bus.subscribe("events.openstory.>").await.expect("subscribe");
+    let mut sub = bus
+        .subscribe("events.openstory.>")
+        .await
+        .expect("subscribe");
 
     // Publish main agent event
     let main_batch = IngestBatch {
@@ -129,7 +137,8 @@ async fn publish_and_subscribe_with_hierarchical_subjects() {
         events: vec![test_event("06907d46", "message.user.prompt")],
     };
     bus.publish("events.openstory.06907d46.main", &main_batch)
-        .await.expect("publish main");
+        .await
+        .expect("publish main");
 
     // Publish subagent event
     let agent_batch = IngestBatch {
@@ -138,18 +147,19 @@ async fn publish_and_subscribe_with_hierarchical_subjects() {
         events: vec![test_event("06907d46", "message.assistant.tool_use")],
     };
     bus.publish("events.openstory.06907d46.agent.a6dcf911", &agent_batch)
-        .await.expect("publish agent");
+        .await
+        .expect("publish agent");
 
     // Receive both
-    let first = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout first").expect("receive first");
+    let first = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout first")
+        .expect("receive first");
 
-    let second = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout second").expect("receive second");
+    let second = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout second")
+        .expect("receive second");
 
     assert_eq!(first.session_id, "06907d46");
     assert_eq!(second.session_id, "06907d46");
@@ -160,8 +170,10 @@ async fn session_wildcard_receives_main_and_all_subagents() {
     let (bus, _container) = start_nats().await;
 
     // Subscribe to one session's events (main + agents)
-    let mut sub = bus.subscribe("events.openstory.06907d46.>")
-        .await.expect("subscribe");
+    let mut sub = bus
+        .subscribe("events.openstory.06907d46.>")
+        .await
+        .expect("subscribe");
 
     // Publish main
     let main_batch = IngestBatch {
@@ -170,7 +182,8 @@ async fn session_wildcard_receives_main_and_all_subagents() {
         events: vec![test_event("06907d46", "message.user.prompt")],
     };
     bus.publish("events.openstory.06907d46.main", &main_batch)
-        .await.expect("publish main");
+        .await
+        .expect("publish main");
 
     // Publish two different subagents
     for agent_id in &["a6dcf911", "afdf1bb2"] {
@@ -179,22 +192,29 @@ async fn session_wildcard_receives_main_and_all_subagents() {
             project_id: "openstory".to_string(),
             events: vec![test_event("06907d46", "message.assistant.text")],
         };
-        bus.publish(&subject_for_agent("openstory", "06907d46", agent_id), &batch)
-            .await.expect("publish agent");
+        bus.publish(
+            &subject_for_agent("openstory", "06907d46", agent_id),
+            &batch,
+        )
+        .await
+        .expect("publish agent");
     }
 
     // Should receive all 3
     let mut received = Vec::new();
     for _ in 0..3 {
-        let batch = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            sub.receiver.recv(),
-        ).await.expect("timeout").expect("receive");
+        let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+            .await
+            .expect("timeout")
+            .expect("receive");
         received.push(batch);
     }
 
     assert_eq!(received.len(), 3, "should receive main + 2 agents");
-    assert!(received.iter().all(|b| b.session_id == "06907d46"), "all from same session");
+    assert!(
+        received.iter().all(|b| b.session_id == "06907d46"),
+        "all from same session"
+    );
 }
 
 #[tokio::test]
@@ -202,8 +222,10 @@ async fn agent_only_subscription_excludes_main() {
     let (bus, _container) = start_nats().await;
 
     // Subscribe to ONLY subagent events (not main)
-    let mut sub = bus.subscribe("events.openstory.06907d46.agent.>")
-        .await.expect("subscribe");
+    let mut sub = bus
+        .subscribe("events.openstory.06907d46.agent.>")
+        .await
+        .expect("subscribe");
 
     // Publish main — should NOT be received
     let main_batch = IngestBatch {
@@ -212,7 +234,8 @@ async fn agent_only_subscription_excludes_main() {
         events: vec![test_event("06907d46", "message.user.prompt")],
     };
     bus.publish("events.openstory.06907d46.main", &main_batch)
-        .await.expect("publish main");
+        .await
+        .expect("publish main");
 
     // Publish subagent — SHOULD be received
     let agent_batch = IngestBatch {
@@ -221,22 +244,27 @@ async fn agent_only_subscription_excludes_main() {
         events: vec![test_event("06907d46", "message.assistant.tool_use")],
     };
     bus.publish("events.openstory.06907d46.agent.a6dcf911", &agent_batch)
-        .await.expect("publish agent");
+        .await
+        .expect("publish agent");
 
     // Should receive only the agent event
-    let received = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let received = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
 
-    assert_eq!(received.events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+    assert_eq!(
+        received.events[0].subtype.as_deref(),
+        Some("message.assistant.tool_use")
+    );
 
     // Main should NOT arrive (give it a moment to be sure)
-    let no_more = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        sub.receiver.recv(),
-    ).await;
-    assert!(no_more.is_err(), "should not receive main agent event on agent.> subscription");
+    let no_more =
+        tokio::time::timeout(std::time::Duration::from_secs(2), sub.receiver.recv()).await;
+    assert!(
+        no_more.is_err(),
+        "should not receive main agent event on agent.> subscription"
+    );
 }
 
 #[tokio::test]
@@ -244,7 +272,10 @@ async fn different_projects_are_isolated() {
     let (bus, _container) = start_nats().await;
 
     // Subscribe to openstory only
-    let mut sub = bus.subscribe("events.openstory.>").await.expect("subscribe");
+    let mut sub = bus
+        .subscribe("events.openstory.>")
+        .await
+        .expect("subscribe");
 
     // Publish to openstory
     let os_batch = IngestBatch {
@@ -252,7 +283,9 @@ async fn different_projects_are_isolated() {
         project_id: "openstory".to_string(),
         events: vec![test_event("06907d46", "message.user.prompt")],
     };
-    bus.publish("events.openstory.06907d46.main", &os_batch).await.expect("publish os");
+    bus.publish("events.openstory.06907d46.main", &os_batch)
+        .await
+        .expect("publish os");
 
     // Publish to openclaw — should NOT be received
     let oc_batch = IngestBatch {
@@ -260,19 +293,22 @@ async fn different_projects_are_isolated() {
         project_id: "openclaw".to_string(),
         events: vec![test_event("b9a810f6", "message.user.prompt")],
     };
-    bus.publish("events.openclaw.b9a810f6.main", &oc_batch).await.expect("publish oc");
+    bus.publish("events.openclaw.b9a810f6.main", &oc_batch)
+        .await
+        .expect("publish oc");
 
     // Should receive only openstory
-    let received = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let received = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
     assert_eq!(received.project_id, "openstory");
 
     // openclaw should not arrive
-    let no_more = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        sub.receiver.recv(),
-    ).await;
-    assert!(no_more.is_err(), "openclaw event should not reach openstory subscription");
+    let no_more =
+        tokio::time::timeout(std::time::Duration::from_secs(2), sub.receiver.recv()).await;
+    assert!(
+        no_more.is_err(),
+        "openclaw event should not reach openstory subscription"
+    );
 }

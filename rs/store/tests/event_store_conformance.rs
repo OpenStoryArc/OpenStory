@@ -31,8 +31,8 @@ use open_story_store::event_store::{EventStore, SessionRow};
 // warnings during the Phase 5 TDD walk.
 #[allow(unused_imports)]
 use open_story_store::queries::{
-    HourlyActivity, ProjectPulse, ProjectSession, SessionError, SessionSynopsis,
-    ToolCount, ToolStep,
+    HourlyActivity, ProjectPulse, ProjectSession, SessionError, SessionSynopsis, ToolCount,
+    ToolStep,
 };
 
 // ───────────────────────────────────────────────────────────────────────
@@ -54,8 +54,8 @@ fn ts_offset(hours_ago: i64, extra_minutes_ago: i64) -> String {
     (chrono::Utc::now()
         - chrono::Duration::hours(hours_ago)
         - chrono::Duration::minutes(extra_minutes_ago))
-        .format(TS_FORMAT)
-        .to_string()
+    .format(TS_FORMAT)
+    .to_string()
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -93,6 +93,7 @@ fn test_session_row(id: &str, label: Option<&str>) -> SessionRow {
         last_event: Some("2025-01-14T01:00:00Z".to_string()),
         host: None,
         user: None,
+        origin_agent: None,
     }
 }
 
@@ -258,9 +259,7 @@ pub async fn it_updates_an_existing_session_on_upsert(store: Arc<dyn EventStore>
 /// Without this guarantee, boot replay (which sends batches in non-
 /// chronological order) corrupts the persisted span and the "Latest" /
 /// "Today" filters in the UI return wrong rows.
-pub async fn it_preserves_first_and_last_event_span_across_upserts(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_preserves_first_and_last_event_span_across_upserts(store: Arc<dyn EventStore>) {
     // Round 1: persist the OLDEST batch (events from 04-08).
     let mut row = test_session_row("sess-span", Some("span"));
     row.first_event = Some("2026-04-08T00:58:35.005Z".to_string());
@@ -292,6 +291,71 @@ pub async fn it_preserves_first_and_last_event_span_across_upserts(
         found.last_event.as_deref(),
         Some("2026-04-30T11:23:30.568Z"),
         "last_event must be the running MAX, not the latest batch's last"
+    );
+}
+
+/// Build a minimal stored-event Value with an explicit subtype and time.
+fn bounds_event(id: &str, session_id: &str, subtype: &str, time: &str) -> Value {
+    json!({
+        "id": id,
+        "type": "io.arc.event",
+        "subtype": subtype,
+        "source": format!("arc://transcript/{session_id}"),
+        "time": time,
+        "data": { "raw": {}, "seq": 1, "session_id": session_id }
+    })
+}
+
+/// `recompute_session_bounds` derives first/last_event from the stored
+/// events but must EXCLUDE synthesized-time subtypes (`file.snapshot`): their
+/// `time` is `Utc::now()`-at-translation, not real activity. A snapshot dated
+/// far in the future must not become `last_event`. This is the fix for the
+/// "Last Hour" regression where dead sessions re-surfaced as recent.
+pub async fn it_recompute_session_bounds_excludes_synthesized_subtypes(store: Arc<dyn EventStore>) {
+    let sid = "sess-recompute-excl";
+    store.upsert_session(&test_session_row(sid, Some("x"))).await.unwrap();
+    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
+    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
+    // Boot-stamped snapshot, far in the future — must be ignored.
+    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+
+    let (first, last) = store.recompute_session_bounds(sid).await.unwrap();
+    assert_eq!(first.as_deref(), Some("2025-01-14T00:00:00Z"));
+    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "snapshot time must not define last_event");
+
+    // The persisted row must reflect the recomputed bounds.
+    let sessions = store.list_sessions().await.unwrap();
+    let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
+    assert_eq!(row.first_event.as_deref(), Some("2025-01-14T00:00:00Z"));
+    assert_eq!(row.last_event.as_deref(), Some("2025-01-14T00:05:00Z"));
+}
+
+/// `recompute_session_bounds` is authoritative: it must be able to LOWER a
+/// `last_event` that was already polluted to a boot-time value. Unlike the
+/// MIN/MAX-merge in `upsert_session` (which can only raise `last_event`),
+/// this is what actually heals a row left wrong by a prior boot.
+pub async fn it_recompute_session_bounds_lowers_a_polluted_value(store: Arc<dyn EventStore>) {
+    let sid = "sess-recompute-heal";
+    // Simulate the polluted row: last_event stamped at a bogus future time.
+    let mut polluted = test_session_row(sid, Some("polluted"));
+    polluted.first_event = Some("2025-01-14T00:00:00Z".to_string());
+    polluted.last_event = Some("2025-06-01T00:00:00Z".to_string());
+    store.upsert_session(&polluted).await.unwrap();
+
+    // The only real activity ends at 00:05 — plus a boot-stamped snapshot.
+    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
+    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
+    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+
+    let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
+    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "recompute must lower the polluted last_event");
+
+    let sessions = store.list_sessions().await.unwrap();
+    let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
+    assert_eq!(
+        row.last_event.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "the healed value must be lower than the polluted one — proves authoritative SET, not MAX-merge"
     );
 }
 
@@ -331,7 +395,10 @@ pub async fn it_advances_event_count_when_newer_provided(store: Arc<dyn EventSto
 
     let sessions = store.list_sessions().await.unwrap();
     let found = sessions.iter().find(|s| s.id == "sess-adv").unwrap();
-    assert_eq!(found.event_count, 200, "MAX semantics must let advances through");
+    assert_eq!(
+        found.event_count, 200,
+        "MAX semantics must let advances through"
+    );
 }
 
 /// COALESCE contract: `upsert_session` with `label = None` must NOT blank
@@ -348,7 +415,10 @@ pub async fn it_does_not_blank_label_with_none(store: Arc<dyn EventStore>) {
     store.upsert_session(&stale).await.unwrap();
 
     let sessions = store.list_sessions().await.unwrap();
-    let found = sessions.iter().find(|s| s.id == "sess-coalesce-label").unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-coalesce-label")
+        .unwrap();
     assert_eq!(
         found.label.as_deref(),
         Some("Auto Label"),
@@ -366,7 +436,10 @@ pub async fn it_does_not_blank_branch_with_none(store: Arc<dyn EventStore>) {
     store.upsert_session(&stale).await.unwrap();
 
     let sessions = store.list_sessions().await.unwrap();
-    let found = sessions.iter().find(|s| s.id == "sess-coalesce-branch").unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-coalesce-branch")
+        .unwrap();
     assert_eq!(
         found.branch.as_deref(),
         Some("main"),
@@ -384,7 +457,10 @@ pub async fn it_does_not_blank_project_id_with_none(store: Arc<dyn EventStore>) 
     store.upsert_session(&stale).await.unwrap();
 
     let sessions = store.list_sessions().await.unwrap();
-    let found = sessions.iter().find(|s| s.id == "sess-coalesce-pid").unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-coalesce-pid")
+        .unwrap();
     assert_eq!(
         found.project_id.as_deref(),
         Some("test-project"),
@@ -401,7 +477,10 @@ pub async fn it_does_not_blank_project_name_with_none(store: Arc<dyn EventStore>
     store.upsert_session(&stale).await.unwrap();
 
     let sessions = store.list_sessions().await.unwrap();
-    let found = sessions.iter().find(|s| s.id == "sess-coalesce-pname").unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-coalesce-pname")
+        .unwrap();
     assert_eq!(
         found.project_name.as_deref(),
         Some("Test Project"),
@@ -414,9 +493,7 @@ pub async fn it_does_not_blank_project_name_with_none(store: Arc<dyn EventStore>
 /// order serialization, no coordination — the upsert primitive itself
 /// is the converging operator. Validates that the lock-free monotone
 /// semantics hold under genuine concurrent load.
-pub async fn it_concurrent_upserts_converge_to_max_event_count(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_concurrent_upserts_converge_to_max_event_count(store: Arc<dyn EventStore>) {
     let row = test_session_row("sess-concurrent", Some("converge"));
     store.upsert_session(&row).await.unwrap();
 
@@ -427,7 +504,11 @@ pub async fn it_concurrent_upserts_converge_to_max_event_count(
     let mut handles = Vec::new();
     for i in 0..50u64 {
         // Mix of low and high values, with the maximum (1000) included.
-        let count = if i == 25 { target_max } else { (i * 17 + 3) % 700 + 1 };
+        let count = if i == 25 {
+            target_max
+        } else {
+            (i * 17 + 3) % 700 + 1
+        };
         let store_c = store.clone();
         handles.push(tokio::spawn(async move {
             let mut r = test_session_row("sess-concurrent", Some("converge"));
@@ -529,7 +610,11 @@ pub async fn it_persists_and_queries_a_structural_turn(store: Arc<dyn EventStore
     store.insert_turn("sess-turn", &turn).await.unwrap();
 
     let turns = store.session_turns("sess-turn").await.unwrap();
-    assert_eq!(turns.len(), 1, "inserted turn must come back from session_turns");
+    assert_eq!(
+        turns.len(),
+        1,
+        "inserted turn must come back from session_turns"
+    );
     assert_eq!(turns[0].turn_number, 1);
     assert_eq!(turns[0].session_id, "sess-turn");
     assert_eq!(turns[0].timestamp, "2025-01-14T00:00:00Z");
@@ -623,7 +708,10 @@ pub async fn it_returns_the_full_payload_for_a_known_event(store: Arc<dyn EventS
     store.insert_event("sess-fp", &event).await.unwrap();
 
     let payload = store.full_payload("fp").await.unwrap();
-    assert!(payload.is_some(), "full_payload must return Some for known event");
+    assert!(
+        payload.is_some(),
+        "full_payload must return Some for known event"
+    );
     let parsed: Value = serde_json::from_str(&payload.unwrap()).unwrap();
     assert_eq!(parsed["id"], "fp");
 }
@@ -701,11 +789,7 @@ pub async fn it_deletes_a_session_and_all_its_data(store: Arc<dyn EventStore>) {
     let deleted = store.delete_session("sess-del").await.unwrap();
     assert_eq!(deleted, 2, "delete_session must report event count deleted");
 
-    assert!(store
-        .session_events("sess-del")
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(store.session_events("sess-del").await.unwrap().is_empty());
     assert!(store
         .list_sessions()
         .await
@@ -955,9 +1039,30 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
     // sess-A2: proj-alpha, 8  events, started ~12h ago
     // sess-B1: proj-beta,  5  events, started ~6h  ago
     let session_rows = [
-        ("sess-A1", "proj-alpha", "Alpha", "build feature X", ts_offset(24, 11), ts_offset(24, 0)),
-        ("sess-A2", "proj-alpha", "Alpha", "fix auth bug",    ts_offset(12, 7),  ts_offset(12, 0)),
-        ("sess-B1", "proj-beta",  "Beta",  "explore data",    ts_offset(6, 4),   ts_offset(6, 0)),
+        (
+            "sess-A1",
+            "proj-alpha",
+            "Alpha",
+            "build feature X",
+            ts_offset(24, 11),
+            ts_offset(24, 0),
+        ),
+        (
+            "sess-A2",
+            "proj-alpha",
+            "Alpha",
+            "fix auth bug",
+            ts_offset(12, 7),
+            ts_offset(12, 0),
+        ),
+        (
+            "sess-B1",
+            "proj-beta",
+            "Beta",
+            "explore data",
+            ts_offset(6, 4),
+            ts_offset(6, 0),
+        ),
     ];
     for (id, pid, pname, label, first, last) in &session_rows {
         store
@@ -973,6 +1078,7 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
                 last_event: Some(last.clone()),
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -980,18 +1086,77 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
 
     // ── sess-A1 events ── 12 events: 1 prompt, 5 tool_use, 5 results, 1 error
     let a1_events = vec![
-        user_prompt_event("a1-p1",  "sess-A1", &ts_offset(24, 11), "build feature X"),
-        tool_use_event(   "a1-t1",  "sess-A1", &ts_offset(24, 10), "Edit", Some("src/main.rs")),
-        tool_use_event(   "a1-t2",  "sess-A1", &ts_offset(24, 9),  "Edit", Some("src/main.rs")),
-        tool_use_event(   "a1-t3",  "sess-A1", &ts_offset(24, 8),  "Bash", None),
-        tool_use_event(   "a1-t4",  "sess-A1", &ts_offset(24, 7),  "Read", Some("src/main.rs")),
-        tool_use_event(   "a1-t5",  "sess-A1", &ts_offset(24, 6),  "Read", Some("Cargo.toml")),
-        analytics_event("a1-r1",  "sess-A1", &ts_offset(24, 5), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a1-r2",  "sess-A1", &ts_offset(24, 4), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a1-r3",  "sess-A1", &ts_offset(24, 3), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a1-r4",  "sess-A1", &ts_offset(24, 2), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a1-r5",  "sess-A1", &ts_offset(24, 1), "message.user.tool_result", json!({"text":"ok"})),
-        error_event(      "a1-e1",  "sess-A1", &ts_offset(24, 0),  "compile error: trait bound not satisfied"),
+        user_prompt_event("a1-p1", "sess-A1", &ts_offset(24, 11), "build feature X"),
+        tool_use_event(
+            "a1-t1",
+            "sess-A1",
+            &ts_offset(24, 10),
+            "Edit",
+            Some("src/main.rs"),
+        ),
+        tool_use_event(
+            "a1-t2",
+            "sess-A1",
+            &ts_offset(24, 9),
+            "Edit",
+            Some("src/main.rs"),
+        ),
+        tool_use_event("a1-t3", "sess-A1", &ts_offset(24, 8), "Bash", None),
+        tool_use_event(
+            "a1-t4",
+            "sess-A1",
+            &ts_offset(24, 7),
+            "Read",
+            Some("src/main.rs"),
+        ),
+        tool_use_event(
+            "a1-t5",
+            "sess-A1",
+            &ts_offset(24, 6),
+            "Read",
+            Some("Cargo.toml"),
+        ),
+        analytics_event(
+            "a1-r1",
+            "sess-A1",
+            &ts_offset(24, 5),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a1-r2",
+            "sess-A1",
+            &ts_offset(24, 4),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a1-r3",
+            "sess-A1",
+            &ts_offset(24, 3),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a1-r4",
+            "sess-A1",
+            &ts_offset(24, 2),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a1-r5",
+            "sess-A1",
+            &ts_offset(24, 1),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        error_event(
+            "a1-e1",
+            "sess-A1",
+            &ts_offset(24, 0),
+            "compile error: trait bound not satisfied",
+        ),
     ];
     for e in &a1_events {
         store.insert_event("sess-A1", e).await.unwrap();
@@ -999,14 +1164,49 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
 
     // ── sess-A2 events ── 8 events: 1 prompt, 3 tool_use, 3 results, 1 error
     let a2_events = vec![
-        user_prompt_event("a2-p1",  "sess-A2", &ts_offset(12, 7),  "fix auth bug"),
-        tool_use_event(   "a2-t1",  "sess-A2", &ts_offset(12, 6),  "Read", Some("tests/auth.rs")),
-        tool_use_event(   "a2-t2",  "sess-A2", &ts_offset(12, 5),  "Read", Some("tests/auth.rs")),
-        tool_use_event(   "a2-t3",  "sess-A2", &ts_offset(12, 4),  "Bash", None),
-        analytics_event("a2-r1",  "sess-A2", &ts_offset(12, 3), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a2-r2",  "sess-A2", &ts_offset(12, 2), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("a2-r3",  "sess-A2", &ts_offset(12, 1), "message.user.tool_result", json!({"text":"ok"})),
-        error_event(      "a2-e1",  "sess-A2", &ts_offset(12, 0),  "test failure: assertion left != right"),
+        user_prompt_event("a2-p1", "sess-A2", &ts_offset(12, 7), "fix auth bug"),
+        tool_use_event(
+            "a2-t1",
+            "sess-A2",
+            &ts_offset(12, 6),
+            "Read",
+            Some("tests/auth.rs"),
+        ),
+        tool_use_event(
+            "a2-t2",
+            "sess-A2",
+            &ts_offset(12, 5),
+            "Read",
+            Some("tests/auth.rs"),
+        ),
+        tool_use_event("a2-t3", "sess-A2", &ts_offset(12, 4), "Bash", None),
+        analytics_event(
+            "a2-r1",
+            "sess-A2",
+            &ts_offset(12, 3),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a2-r2",
+            "sess-A2",
+            &ts_offset(12, 2),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "a2-r3",
+            "sess-A2",
+            &ts_offset(12, 1),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        error_event(
+            "a2-e1",
+            "sess-A2",
+            &ts_offset(12, 0),
+            "test failure: assertion left != right",
+        ),
     ];
     for e in &a2_events {
         store.insert_event("sess-A2", e).await.unwrap();
@@ -1014,11 +1214,35 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
 
     // ── sess-B1 events ── 5 events: 1 prompt, 2 tool_use, 2 results
     let b1_events = vec![
-        user_prompt_event("b1-p1",  "sess-B1", &ts_offset(6, 4),  "explore data"),
-        tool_use_event(   "b1-t1",  "sess-B1", &ts_offset(6, 3),  "Grep", Some("data/raw/")),
-        tool_use_event(   "b1-t2",  "sess-B1", &ts_offset(6, 2),  "Glob", Some("data/raw/*.csv")),
-        analytics_event("b1-r1",  "sess-B1", &ts_offset(6, 1), "message.user.tool_result", json!({"text":"ok"})),
-        analytics_event("b1-r2",  "sess-B1", &ts_offset(6, 0), "message.user.tool_result", json!({"text":"ok"})),
+        user_prompt_event("b1-p1", "sess-B1", &ts_offset(6, 4), "explore data"),
+        tool_use_event(
+            "b1-t1",
+            "sess-B1",
+            &ts_offset(6, 3),
+            "Grep",
+            Some("data/raw/"),
+        ),
+        tool_use_event(
+            "b1-t2",
+            "sess-B1",
+            &ts_offset(6, 2),
+            "Glob",
+            Some("data/raw/*.csv"),
+        ),
+        analytics_event(
+            "b1-r1",
+            "sess-B1",
+            &ts_offset(6, 1),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
+        analytics_event(
+            "b1-r2",
+            "sess-B1",
+            &ts_offset(6, 0),
+            "message.user.tool_result",
+            json!({"text":"ok"}),
+        ),
     ];
     for e in &b1_events {
         store.insert_event("sess-B1", e).await.unwrap();
@@ -1077,9 +1301,33 @@ pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventSto
     // queries don't depend on it for THIS query, but project_pulse
     // does). Update event_count via re-upsert before querying.
     let updates = [
-        ("sess-A1", "proj-alpha", "Alpha", "build feature X", ts_offset(24, 11), ts_offset(24, 0), 12u64),
-        ("sess-A2", "proj-alpha", "Alpha", "fix auth bug",    ts_offset(12, 7),  ts_offset(12, 0), 8u64),
-        ("sess-B1", "proj-beta",  "Beta",  "explore data",    ts_offset(6, 4),   ts_offset(6, 0),  5u64),
+        (
+            "sess-A1",
+            "proj-alpha",
+            "Alpha",
+            "build feature X",
+            ts_offset(24, 11),
+            ts_offset(24, 0),
+            12u64,
+        ),
+        (
+            "sess-A2",
+            "proj-alpha",
+            "Alpha",
+            "fix auth bug",
+            ts_offset(12, 7),
+            ts_offset(12, 0),
+            8u64,
+        ),
+        (
+            "sess-B1",
+            "proj-beta",
+            "Beta",
+            "explore data",
+            ts_offset(6, 4),
+            ts_offset(6, 0),
+            5u64,
+        ),
     ];
     for (id, pid, pname, label, first, last, count) in &updates {
         store
@@ -1095,6 +1343,7 @@ pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventSto
                 last_event: Some(last.clone()),
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -1123,11 +1372,17 @@ pub async fn it_returns_session_errors_in_timestamp_order(store: Arc<dyn EventSt
     let result = store.query_session_errors("sess-A1").await;
 
     assert_eq!(result.len(), 1, "sess-A1 has 1 error event");
-    assert_eq!(result[0].message, "compile error: trait bound not satisfied");
+    assert_eq!(
+        result[0].message,
+        "compile error: trait bound not satisfied"
+    );
 
     let result_a2 = store.query_session_errors("sess-A2").await;
     assert_eq!(result_a2.len(), 1, "sess-A2 has 1 error event");
-    assert_eq!(result_a2[0].message, "test failure: assertion left != right");
+    assert_eq!(
+        result_a2[0].message,
+        "test failure: assertion left != right"
+    );
 
     let result_b1 = store.query_session_errors("sess-B1").await;
     assert!(result_b1.is_empty(), "sess-B1 has no error events");
@@ -1160,9 +1415,27 @@ pub async fn it_returns_a_session_synopsis(store: Arc<dyn EventStore>) {
     let mut canonical = synopsis.top_tools.clone();
     canonical.sort_by(|a, b| (b.count, &a.tool).cmp(&(a.count, &b.tool)));
     assert_eq!(canonical.len(), 3, "3 distinct tools in sess-A1");
-    assert_eq!(canonical[0], ToolCount { tool: "Edit".into(), count: 2 });
-    assert_eq!(canonical[1], ToolCount { tool: "Read".into(), count: 2 });
-    assert_eq!(canonical[2], ToolCount { tool: "Bash".into(), count: 1 });
+    assert_eq!(
+        canonical[0],
+        ToolCount {
+            tool: "Edit".into(),
+            count: 2
+        }
+    );
+    assert_eq!(
+        canonical[1],
+        ToolCount {
+            tool: "Read".into(),
+            count: 2
+        }
+    );
+    assert_eq!(
+        canonical[2],
+        ToolCount {
+            tool: "Bash".into(),
+            count: 1
+        }
+    );
 }
 
 /// §8.2 — `query_session_synopsis` returns None for an unknown session.
@@ -1213,9 +1486,7 @@ pub async fn it_returns_tool_journey_empty_for_unknown_session(store: Arc<dyn Ev
 /// struct doesn't carry `last_event` — so the Vec ordering is opaque
 /// at the API surface and we test on SET membership instead.
 /// C2 with canonical sort by `session_id` ASC.
-pub async fn it_returns_session_efficiency_for_recent_sessions(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_returns_session_efficiency_for_recent_sessions(store: Arc<dyn EventStore>) {
     seed_analytics_universe(&*store).await;
 
     let result = store.query_session_efficiency().await;
@@ -1354,9 +1625,33 @@ async fn seed_token_usage_events(store: &dyn EventStore) {
     // Token records for each session, mirroring the §7.5 spec
     // (input, output, cache_read, cache_creation):
     let token_events = [
-        ("evt-tok-1", "sess-A1", &ts_offset(24, 0), 1000u64, 500u64, 200u64, 100u64),
-        ("evt-tok-2", "sess-A2", &ts_offset(12, 0), 800u64, 300u64, 150u64, 50u64),
-        ("evt-tok-3", "sess-B1", &ts_offset(6, 0),  600u64, 200u64, 100u64, 25u64),
+        (
+            "evt-tok-1",
+            "sess-A1",
+            &ts_offset(24, 0),
+            1000u64,
+            500u64,
+            200u64,
+            100u64,
+        ),
+        (
+            "evt-tok-2",
+            "sess-A2",
+            &ts_offset(12, 0),
+            800u64,
+            300u64,
+            150u64,
+            50u64,
+        ),
+        (
+            "evt-tok-3",
+            "sess-B1",
+            &ts_offset(6, 0),
+            600u64,
+            200u64,
+            100u64,
+            25u64,
+        ),
     ];
     for (id, sid, ts, input, output, cache_read, cache_creation) in &token_events {
         let event = json!({
@@ -1392,9 +1687,7 @@ async fn seed_token_usage_events(store: &dyn EventStore) {
 /// §8.14 — `query_token_usage(None, None, "sonnet")` returns the full
 /// summary across all sessions with cost computed for the sonnet
 /// model. C1 strict equality (sums + cost from shared Rust function).
-pub async fn it_returns_token_usage_summary_for_all_sessions(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_returns_token_usage_summary_for_all_sessions(store: Arc<dyn EventStore>) {
     seed_analytics_universe(&*store).await;
     seed_token_usage_events(&*store).await;
 
@@ -1445,9 +1738,7 @@ pub async fn it_returns_token_usage_summary_for_all_sessions(
 
 /// §8.15 — `query_token_usage(None, Some("sess-A1"), "sonnet")`
 /// returns just the requested session's tokens.
-pub async fn it_returns_token_usage_for_a_specific_session(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_returns_token_usage_for_a_specific_session(store: Arc<dyn EventStore>) {
     seed_analytics_universe(&*store).await;
     seed_token_usage_events(&*store).await;
 
@@ -1464,9 +1755,7 @@ pub async fn it_returns_token_usage_for_a_specific_session(
 
 /// §8.17 — `query_token_usage` with no matching sessions returns a
 /// zero summary with the cost still computed for the requested model.
-pub async fn it_returns_zero_token_summary_when_no_sessions_match(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_returns_zero_token_summary_when_no_sessions_match(store: Arc<dyn EventStore>) {
     // Empty store — no seed.
     let result = store.query_token_usage(None, None, "opus").await;
 
@@ -1482,9 +1771,7 @@ pub async fn it_returns_zero_token_summary_when_no_sessions_match(
 
 /// §8.18 — `query_daily_token_usage` buckets token records by date
 /// prefix (first 10 chars of timestamp). C1 strict equality.
-pub async fn it_returns_daily_token_usage_bucketed_by_date(
-    store: Arc<dyn EventStore>,
-) {
+pub async fn it_returns_daily_token_usage_bucketed_by_date(store: Arc<dyn EventStore>) {
     seed_analytics_universe(&*store).await;
     seed_token_usage_events(&*store).await;
 
@@ -1608,6 +1895,11 @@ macro_rules! for_each_conformance_test {
         $macro!(it_lists_sessions_ordered_by_last_event_desc);
         $macro!(it_updates_an_existing_session_on_upsert);
         $macro!(it_preserves_first_and_last_event_span_across_upserts);
+        // Recompute bounds — authoritative recency that excludes
+        // synthesized-time subtypes (file.snapshot) and can lower a polluted
+        // last_event. The "Last Hour" regression fix.
+        $macro!(it_recompute_session_bounds_excludes_synthesized_subtypes);
+        $macro!(it_recompute_session_bounds_lowers_a_polluted_value);
         // Upsert hardening — monotone frontier + COALESCE-style protection.
         // See `docs/research/CONSTELLATION.md` R1 + the upsert hardening
         // commit. These guarantee the upsert primitive is safe to call from
@@ -1714,10 +2006,7 @@ mod mongo_backend {
             .await
             .expect("start mongo:7 testcontainer (is Docker running?)");
 
-        let host = container
-            .get_host()
-            .await
-            .expect("mongo container host");
+        let host = container.get_host().await.expect("mongo container host");
         let port = container
             .get_host_port_ipv4(27017)
             .await

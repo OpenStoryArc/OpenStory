@@ -57,8 +57,7 @@ pub struct InitialState {
 pub fn build_initial_state(state: &AppState) -> InitialState {
     let mut session_labels: HashMap<String, SessionLabel> = HashMap::new();
     let mut all_patterns: Vec<PatternEvent> = Vec::new();
-    let mut included_sessions: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut included_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let cutoff = recency_cutoff(state.config.watch_backfill_hours);
 
@@ -121,10 +120,7 @@ fn recency_cutoff(hours: u64) -> Option<String> {
 /// cutoff. When `cutoff` is `None`, every projection is recent.
 /// Empty projections are treated as recent (they were just created and
 /// haven't been written to yet).
-fn is_recent(
-    proj: &open_story_store::projection::SessionProjection,
-    cutoff: Option<&str>,
-) -> bool {
+fn is_recent(proj: &open_story_store::projection::SessionProjection, cutoff: Option<&str>) -> bool {
     let Some(cutoff) = cutoff else {
         return true;
     };
@@ -234,6 +230,7 @@ mod tests {
         AppState {
             store,
             transcript_states: HashMap::new(),
+            watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
             config,
@@ -279,11 +276,21 @@ mod tests {
         let state = fresh_app_state(&tmp);
 
         let mut p1 = SessionProjection::new("sess-1");
-        p1.append(&user_event("evt-a", "sess-1", "2026-04-15T00:00:00Z", "first"));
+        p1.append(&user_event(
+            "evt-a",
+            "sess-1",
+            "2026-04-15T00:00:00Z",
+            "first",
+        ));
         state.store.projections.insert("sess-1".to_string(), p1);
 
         let mut p2 = SessionProjection::new("sess-2");
-        p2.append(&user_event("evt-b", "sess-2", "2026-04-15T00:00:01Z", "second"));
+        p2.append(&user_event(
+            "evt-b",
+            "sess-2",
+            "2026-04-15T00:00:01Z",
+            "second",
+        ));
         state.store.projections.insert("sess-2".to_string(), p2);
 
         let init = build_initial_state(&state);
@@ -297,7 +304,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let state = fresh_app_state(&tmp);
         let mut p = SessionProjection::new("sess-x");
-        p.append(&user_event("evt-1", "sess-x", "2026-04-15T00:00:00Z", "implement feature thing"));
+        p.append(&user_event(
+            "evt-1",
+            "sess-x",
+            "2026-04-15T00:00:00Z",
+            "implement feature thing",
+        ));
         state.store.projections.insert("sess-x".to_string(), p);
 
         let init = build_initial_state(&state);

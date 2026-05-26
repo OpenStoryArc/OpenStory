@@ -71,15 +71,13 @@ impl ProjectionsConsumer {
     }
 
     /// Process a batch of CloudEvents — update projections.
-    pub fn process_batch(
-        &mut self,
-        session_id: &str,
-        events: &[CloudEvent],
-    ) -> ProjectionsResult {
+    pub fn process_batch(&mut self, session_id: &str, events: &[CloudEvent]) -> ProjectionsResult {
         let mut label_changed = false;
 
         for ce in events {
-            let Ok(val) = serde_json::to_value(ce) else { continue };
+            let Ok(val) = serde_json::to_value(ce) else {
+                continue;
+            };
 
             // Track subagent → parent relationship (shared helper).
             open_story_store::state::detect_subagent_relationship(
@@ -148,7 +146,9 @@ mod tests {
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("test".to_string());
         let data = EventData::with_payload(
-            json!({}), 0, session_id.to_string(),
+            json!({}),
+            0,
+            session_id.to_string(),
             AgentPayload::ClaudeCode(payload),
         );
         CloudEvent::new(
@@ -156,7 +156,10 @@ mod tests {
             "io.arc.event".into(),
             data,
             Some(subtype.into()),
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
             Some("claude-code".into()),
         )
     }
@@ -207,7 +210,10 @@ mod tests {
         let shared = empty_shared_map();
         let mut consumer =
             ProjectionsConsumer::new(shared.clone(), empty_parents(), empty_children());
-        consumer.process_batch("sess-shared", &[make_event("sess-shared", "message.user.prompt")]);
+        consumer.process_batch(
+            "sess-shared",
+            &[make_event("sess-shared", "message.user.prompt")],
+        );
 
         // The external holder of the Arc sees the same projection.
         assert!(

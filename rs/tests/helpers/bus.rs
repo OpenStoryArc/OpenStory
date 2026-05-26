@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use open_story::cloud_event::CloudEvent;
-use open_story::server::{consumers, SharedState};
+use open_story::server::{SharedState, consumers};
 use open_story_patterns::PatternEvent;
 use open_story_store::persistence::SessionStore;
 use open_story_store::projection::SessionProjection;
@@ -120,7 +120,10 @@ impl TestActors {
         events: &[CloudEvent],
         project_id: Option<&str>,
     ) -> DriveResult {
-        let persist_res = self.persist.process_batch(session_id, events, project_id).await;
+        let persist_res = self
+            .persist
+            .process_batch(session_id, events, project_id)
+            .await;
         let _projection_res = self.projections.process_batch(session_id, events);
         let patterns_res = self.patterns.process_batch(session_id, events);
 

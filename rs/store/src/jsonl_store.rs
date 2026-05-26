@@ -66,6 +66,7 @@ impl EventStore for JsonlStore {
                 last_event: None,
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .collect())
     }
@@ -89,20 +90,22 @@ impl EventStore for JsonlStore {
         Ok(vec![])
     }
 
-    async fn insert_turn(&self, _session_id: &str, _turn: &open_story_patterns::StructuralTurn) -> Result<()> {
+    async fn insert_turn(
+        &self,
+        _session_id: &str,
+        _turn: &open_story_patterns::StructuralTurn,
+    ) -> Result<()> {
         Ok(())
     }
 
-    async fn session_turns(&self, _session_id: &str) -> Result<Vec<open_story_patterns::StructuralTurn>> {
+    async fn session_turns(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<open_story_patterns::StructuralTurn>> {
         Ok(vec![])
     }
 
-    async fn upsert_plan(
-        &self,
-        _plan_id: &str,
-        _session_id: &str,
-        _content: &str,
-    ) -> Result<()> {
+    async fn upsert_plan(&self, _plan_id: &str, _session_id: &str, _content: &str) -> Result<()> {
         // No-op: plans not persisted in JSONL mode
         Ok(())
     }
@@ -175,7 +178,11 @@ mod tests {
     #[tokio::test]
     async fn session_patterns_returns_empty() {
         let (_tmp, store) = setup();
-        assert!(store.session_patterns("sess-1", None).await.unwrap().is_empty());
+        assert!(store
+            .session_patterns("sess-1", None)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -199,6 +206,7 @@ mod tests {
             last_event: None,
             host: None,
             user: None,
+            origin_agent: None,
         };
         // Should not error
         store.upsert_session(&row).await.unwrap();

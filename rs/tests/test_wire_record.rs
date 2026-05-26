@@ -7,9 +7,9 @@
 
 mod helpers;
 
-use helpers::{body_text, make_event_with_large_payload, send_request, test_state};
 use axum::body::Body;
 use axum::http::Request;
+use helpers::{body_text, make_event_with_large_payload, send_request, test_state};
 use tempfile::TempDir;
 
 use open_story_views::unified::{RecordBody, SystemEvent};
@@ -24,7 +24,12 @@ use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THR
 mod wire_record_serialization {
     use super::*;
 
-    fn make_wire(depth: u16, parent_uuid: Option<&str>, truncated: bool, payload_bytes: u64) -> WireRecord {
+    fn make_wire(
+        depth: u16,
+        parent_uuid: Option<&str>,
+        truncated: bool,
+        payload_bytes: u64,
+    ) -> WireRecord {
         WireRecord {
             record: ViewRecord {
                 id: "evt-001".into(),
@@ -90,22 +95,29 @@ mod truncation {
     fn boundary_table_truncation_threshold() {
         let cases: Vec<(usize, bool, usize)> = vec![
             // (content_size, expected_truncated, expected_output_len)
-            (0,     false, 0),
-            (100,   false, 100),
-            (2000,  false, 2000),
-            (2001,  true,  2000),
-            (50000, true,  2000),
+            (0, false, 0),
+            (100, false, 100),
+            (2000, false, 2000),
+            (2001, true, 2000),
+            (50000, true, 2000),
         ];
 
         for (content_size, expected_truncated, expected_output_len) in cases {
             let content = "x".repeat(content_size);
             let result = truncate_payload(&content, TRUNCATION_THRESHOLD);
-            assert_eq!(result.truncated, expected_truncated,
-                "content_size={content_size}: truncated");
-            assert_eq!(result.output.len(), expected_output_len,
-                "content_size={content_size}: output length");
-            assert_eq!(result.original_bytes, content_size,
-                "content_size={content_size}: original bytes preserved");
+            assert_eq!(
+                result.truncated, expected_truncated,
+                "content_size={content_size}: truncated"
+            );
+            assert_eq!(
+                result.output.len(),
+                expected_output_len,
+                "content_size={content_size}: output length"
+            );
+            assert_eq!(
+                result.original_bytes, content_size,
+                "content_size={content_size}: original bytes preserved"
+            );
         }
     }
 
@@ -139,7 +151,8 @@ mod content_endpoint {
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-big/content")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let resp = send_request(state, req).await;
         assert_eq!(resp.status(), 200);
         let body = body_text(resp).await;
@@ -152,7 +165,8 @@ mod content_endpoint {
         let state = test_state(&data_dir);
 
         let req = Request::get("/api/sessions/no-session/events/no-event/content")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let resp = send_request(state, req).await;
         assert_eq!(resp.status(), 404);
     }
@@ -172,7 +186,8 @@ mod content_endpoint {
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-small/content")
-            .body(Body::empty()).unwrap();
+            .body(Body::empty())
+            .unwrap();
         let resp = send_request(state, req).await;
         assert_eq!(resp.status(), 200);
     }

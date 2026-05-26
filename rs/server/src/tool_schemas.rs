@@ -3,7 +3,7 @@
 //! Port of Python tool_schemas.py.
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FieldMeta {
@@ -42,13 +42,23 @@ pub fn schemas_to_json() -> Value {
     let schemas: Vec<ToolSchemaMeta> = vec![
         ToolSchemaMeta {
             tool_name: "Read".into(),
-            fields: vec![fr("file_path"), f("offset", "int", false), f("limit", "int", false), fo("pages")],
+            fields: vec![
+                fr("file_path"),
+                f("offset", "int", false),
+                f("limit", "int", false),
+                fo("pages"),
+            ],
             display_fields: vec!["file_path".into()],
             display_formatter: "file_basename".into(),
         },
         ToolSchemaMeta {
             tool_name: "Edit".into(),
-            fields: vec![fr("file_path"), fr("old_string"), fr("new_string"), f("replace_all", "bool", false)],
+            fields: vec![
+                fr("file_path"),
+                fr("old_string"),
+                fr("new_string"),
+                f("replace_all", "bool", false),
+            ],
             display_fields: vec!["file_path".into()],
             display_formatter: "file_basename".into(),
         },
@@ -60,13 +70,25 @@ pub fn schemas_to_json() -> Value {
         },
         ToolSchemaMeta {
             tool_name: "Bash".into(),
-            fields: vec![fr("command"), fo("description"), f("timeout", "int", false), f("run_in_background", "bool", false)],
+            fields: vec![
+                fr("command"),
+                fo("description"),
+                f("timeout", "int", false),
+                f("run_in_background", "bool", false),
+            ],
             display_fields: vec!["command".into()],
             display_formatter: "truncate".into(),
         },
         ToolSchemaMeta {
             tool_name: "Grep".into(),
-            fields: vec![fr("pattern"), fo("path"), fo("glob"), fo("type"), fo("output_mode"), f("head_limit", "int", false)],
+            fields: vec![
+                fr("pattern"),
+                fo("path"),
+                fo("glob"),
+                fo("type"),
+                fo("output_mode"),
+                f("head_limit", "int", false),
+            ],
             display_fields: vec!["pattern".into(), "path".into()],
             display_formatter: "truncate".into(),
         },
@@ -78,7 +100,13 @@ pub fn schemas_to_json() -> Value {
         },
         ToolSchemaMeta {
             tool_name: "Agent".into(),
-            fields: vec![fr("prompt"), fr("subagent_type"), fr("description"), fo("model"), fo("isolation")],
+            fields: vec![
+                fr("prompt"),
+                fr("subagent_type"),
+                fr("description"),
+                fo("model"),
+                fo("isolation"),
+            ],
             display_fields: vec!["subagent_type".into(), "description".into()],
             display_formatter: "subagent".into(),
         },
@@ -120,7 +148,13 @@ pub fn schemas_to_json() -> Value {
         },
         ToolSchemaMeta {
             tool_name: "NotebookEdit".into(),
-            fields: vec![fr("notebook_path"), fr("new_source"), fo("cell_id"), fo("cell_type"), fo("edit_mode")],
+            fields: vec![
+                fr("notebook_path"),
+                fr("new_source"),
+                fo("cell_id"),
+                fo("cell_type"),
+                fo("edit_mode"),
+            ],
             display_fields: vec!["notebook_path".into()],
             display_formatter: "file_basename".into(),
         },
@@ -156,7 +190,11 @@ pub fn schemas_to_json() -> Value {
         },
         ToolSchemaMeta {
             tool_name: "TaskOutput".into(),
-            fields: vec![fr("task_id"), f("block", "bool", false), f("timeout", "int", false)],
+            fields: vec![
+                fr("task_id"),
+                f("block", "bool", false),
+                f("timeout", "int", false),
+            ],
             display_fields: vec!["task_id".into()],
             display_formatter: "literal".into(),
         },
@@ -210,6 +248,10 @@ mod tests {
         assert_eq!(read["tool_name"], "Read");
         assert_eq!(read["display_formatter"], "file_basename");
         let fields = read["fields"].as_array().unwrap();
-        assert!(fields.iter().any(|f| f["name"] == "file_path" && f["required"] == true));
+        assert!(
+            fields
+                .iter()
+                .any(|f| f["name"] == "file_path" && f["required"] == true)
+        );
     }
 }

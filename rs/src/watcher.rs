@@ -10,6 +10,10 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use open_story_server::metrics;
+use open_story_server::watcher_diagnostics::{
+    FileProcessObservation, WatcherBackfillSnapshot, WatcherDiagnostics, canonicalize_path,
+};
 use walkdir::WalkDir;
 
 /// Max events per NATS batch. Keeps message size under NATS max_payload (default 1MB).
@@ -20,23 +24,118 @@ use crate::cloud_event::CloudEvent;
 use crate::output::emit_events;
 use crate::paths::{nats_subject_from_path, project_id_from_path, session_id_from_path};
 use crate::reader::read_new_lines;
-use crate::translate::TranscriptState;
+use crate::translate::{TranscriptFormat, TranscriptState};
+
+#[derive(Clone)]
+pub struct WatcherObserver {
+    pub diagnostics: WatcherDiagnostics,
+    pub actor: String,
+}
 
 /// Process a single file: read new lines, return events.
 fn process_file_raw(
     path: &Path,
     states: &mut HashMap<PathBuf, TranscriptState>,
 ) -> Result<Vec<CloudEvent>> {
+    process_file_raw_observed(path, states, None)
+}
+
+fn process_file_raw_observed(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    observer: Option<&WatcherObserver>,
+) -> Result<Vec<CloudEvent>> {
     if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return Ok(vec![]);
     }
 
-    let canonical = path.to_path_buf();
+    let canonical = canonicalize_path(path);
     let state = states
         .entry(canonical.clone())
         .or_insert_with(|| TranscriptState::new(session_id_from_path(path)));
+    let byte_offset_before = state.byte_offset;
+    let line_count_before = state.line_count;
 
-    read_new_lines(path, state)
+    let events = read_new_lines(path, state)?;
+
+    if let Some(observer) = observer {
+        let byte_offset_after = state.byte_offset;
+        let line_count_after = state.line_count;
+        let subtypes = events
+            .iter()
+            .filter_map(|event| event.subtype.clone())
+            .collect::<Vec<_>>();
+        observer.diagnostics.record_file(
+            &observer.actor,
+            FileProcessObservation {
+                path: path.to_path_buf(),
+                canonical_path: canonical,
+                byte_offset_before,
+                byte_offset_after,
+                line_count_before,
+                line_count_after,
+                format: transcript_format_label(&state.format).to_string(),
+                events_emitted: events.len(),
+                subtypes,
+            },
+        );
+        metrics::record_watcher_file_processed(
+            &observer.actor,
+            events.len() as u64,
+            byte_offset_after == byte_offset_before,
+        );
+    }
+
+    Ok(events)
+}
+
+fn process_watch_path_raw(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+) -> Result<Vec<(PathBuf, Vec<CloudEvent>)>> {
+    process_watch_path_raw_observed(path, states, None)
+}
+
+fn process_watch_path_raw_observed(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    observer: Option<&WatcherObserver>,
+) -> Result<Vec<(PathBuf, Vec<CloudEvent>)>> {
+    if path.is_dir() {
+        let mut batches = Vec::new();
+        for entry in WalkDir::new(path)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+        {
+            let candidate = entry.path();
+            if candidate.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let events = process_file_raw_observed(candidate, states, observer)?;
+            if !events.is_empty() {
+                batches.push((candidate.to_path_buf(), events));
+            }
+        }
+        Ok(batches)
+    } else {
+        let events = process_file_raw_observed(path, states, observer)?;
+        if events.is_empty() {
+            Ok(Vec::new())
+        } else {
+            Ok(vec![(path.to_path_buf(), events)])
+        }
+    }
+}
+
+fn transcript_format_label(format: &TranscriptFormat) -> &'static str {
+    match format {
+        TranscriptFormat::Unknown => "unknown",
+        TranscriptFormat::ClaudeCode => "claude-code",
+        TranscriptFormat::Codex => "codex",
+        TranscriptFormat::PiMono => "pi-mono",
+        TranscriptFormat::Hermes => "hermes",
+    }
 }
 
 /// Decide whether a file's mtime falls within the backfill window.
@@ -47,11 +146,7 @@ fn process_file_raw(
 ///
 /// Pure function — extracted from `watch_with_callback` so the
 /// boundary table can be tested without spinning up a watcher.
-fn is_in_backfill_window(
-    window: Option<Duration>,
-    mtime: SystemTime,
-    now: SystemTime,
-) -> bool {
+fn is_in_backfill_window(window: Option<Duration>, mtime: SystemTime, now: SystemTime) -> bool {
     match window {
         None => true,
         Some(w) => now.duration_since(mtime).unwrap_or(Duration::ZERO) <= w,
@@ -107,6 +202,18 @@ pub fn backfill(
 pub fn watch_with_callback<F>(
     watch_dir: &Path,
     backfill_window_hours: Option<u64>,
+    on_events: F,
+) -> Result<()>
+where
+    F: FnMut(&str, Option<&str>, &str, Vec<CloudEvent>),
+{
+    watch_with_callback_observed(watch_dir, backfill_window_hours, None, on_events)
+}
+
+pub fn watch_with_callback_observed<F>(
+    watch_dir: &Path,
+    backfill_window_hours: Option<u64>,
+    observer: Option<WatcherObserver>,
     mut on_events: F,
 ) -> Result<()>
 where
@@ -124,6 +231,8 @@ where
 
         let mut total = 0u64;
         let mut skipped = 0u64;
+        let mut files_seen = 0u64;
+        let mut files_loaded = 0u64;
         for entry in WalkDir::new(watch_dir)
             .follow_links(true)
             .into_iter()
@@ -133,6 +242,7 @@ where
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
+            files_seen += 1;
 
             // Skip files older than the configured backfill window.
             let in_window = match entry.metadata().ok().and_then(|m| m.modified().ok()) {
@@ -145,7 +255,8 @@ where
                 continue;
             }
 
-            let events = process_file_raw(path, &mut states)?;
+            let events = process_file_raw_observed(path, &mut states, observer.as_ref())?;
+            files_loaded += 1;
             if !events.is_empty() {
                 total += events.len() as u64;
                 let sid = session_id_from_path(path);
@@ -165,6 +276,18 @@ where
             "Backfilled {} events from {} (skipped {} older)",
             total, window_desc, skipped
         );
+        if let Some(observer) = observer.as_ref() {
+            observer.diagnostics.record_backfill(
+                &observer.actor,
+                WatcherBackfillSnapshot {
+                    window_hours: Some(window_hours),
+                    files_seen,
+                    files_loaded,
+                    events_emitted: total,
+                    files_skipped: skipped,
+                },
+            );
+        }
     }
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
@@ -177,21 +300,35 @@ where
     for res in rx {
         match res {
             Ok(event) => {
-                if matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                ) {
+                let kind = format!("{:?}", event.kind);
+                let accepted = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
+                if let Some(observer) = observer.as_ref() {
+                    observer.diagnostics.record_notify(
+                        &observer.actor,
+                        kind.as_str(),
+                        &event.paths,
+                        accepted,
+                        (!accepted).then_some("unsupported_kind"),
+                    );
+                    metrics::record_watcher_raw_event(&observer.actor, kind.as_str());
+                    if !accepted {
+                        metrics::record_watcher_ignored_event(&observer.actor, "unsupported_kind");
+                    }
+                }
+                if accepted {
                     for path in &event.paths {
-                        match process_file_raw(path, &mut states) {
-                            Ok(events) if !events.is_empty() => {
-                                let sid = session_id_from_path(path);
-                                let pid = project_id_from_path(path, watch_dir);
-                                let subject = nats_subject_from_path(path, watch_dir);
-                                for chunk in events.chunks(BATCH_CHUNK_SIZE) {
-                                    on_events(&sid, pid.as_deref(), &subject, chunk.to_vec());
+                        match process_watch_path_raw_observed(path, &mut states, observer.as_ref())
+                        {
+                            Ok(batches) => {
+                                for (source_path, events) in batches {
+                                    let sid = session_id_from_path(&source_path);
+                                    let pid = project_id_from_path(&source_path, watch_dir);
+                                    let subject = nats_subject_from_path(&source_path, watch_dir);
+                                    for chunk in events.chunks(BATCH_CHUNK_SIZE) {
+                                        on_events(&sid, pid.as_deref(), &subject, chunk.to_vec());
+                                    }
                                 }
                             }
-                            Ok(_) => {}
                             Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
                         }
                     }
@@ -217,7 +354,10 @@ mod tests {
         let mut states = HashMap::new();
         let events = process_file_raw(tmp.path(), &mut states).unwrap();
         assert_eq!(events.len(), 0);
-        assert!(states.is_empty(), "non-jsonl file must not initialize state");
+        assert!(
+            states.is_empty(),
+            "non-jsonl file must not initialize state"
+        );
     }
 
     #[test]
@@ -248,6 +388,55 @@ mod tests {
         process_file_raw(tmp.path(), &mut states).unwrap();
 
         assert_eq!(states.len(), 1, "state must be reused, not recreated");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn process_file_raw_reuses_state_for_equivalent_paths() {
+        // macOS can report the same file through different spellings
+        // (`/var/...` vs `/private/var/...`, symlinked paths, etc.). The
+        // watcher state key must be canonical, or a later notify event can
+        // re-read an already-backfilled rollout from byte 0.
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("session.jsonl");
+        std::fs::write(&real, "").unwrap();
+        let alias = dir.path().join("alias.jsonl");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let mut states = HashMap::new();
+
+        process_file_raw(&real, &mut states).unwrap();
+        process_file_raw(&alias, &mut states).unwrap();
+
+        assert_eq!(states.len(), 1, "equivalent paths must share state");
+    }
+
+    #[test]
+    fn process_watch_path_raw_expands_directory_events_to_nested_jsonl_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("2026").join("05").join("24");
+        std::fs::create_dir_all(&nested).unwrap();
+        let rollout =
+            nested.join("rollout-2026-05-24T09-01-22-019e5a13-69cf-7b13-baeb-d6891eafd55e.jsonl");
+        std::fs::write(
+            &rollout,
+            r#"{"timestamp":"2026-05-24T13:01:22.000Z","type":"session_meta","payload":{"id":"019e5a13-69cf-7b13-baeb-d6891eafd55e","cwd":"/Users/maxglassie/projects/OpenStory/rs","originator":"codex-api","cli_version":"0.133.0"}}
+"#,
+        )
+        .unwrap();
+
+        let mut states = HashMap::new();
+        let batches = process_watch_path_raw(dir.path(), &mut states).unwrap();
+        let events: Vec<CloudEvent> = batches
+            .iter()
+            .flat_map(|(_, events)| events.iter().cloned())
+            .collect();
+
+        assert_eq!(events.len(), 1);
+        assert!(states.contains_key(&rollout));
+        assert_eq!(
+            events[0].data.session_id,
+            "019e5a13-69cf-7b13-baeb-d6891eafd55e"
+        );
     }
 
     // ── is_in_backfill_window — boundary table ────────────────────────
@@ -292,7 +481,11 @@ mod tests {
         // safest to include rather than silently drop.
         let now = SystemTime::now();
         let future_mtime = now + Duration::from_secs(60);
-        assert!(is_in_backfill_window(Some(Duration::from_secs(3600)), future_mtime, now));
+        assert!(is_in_backfill_window(
+            Some(Duration::from_secs(3600)),
+            future_mtime,
+            now
+        ));
     }
 }
 
@@ -322,13 +515,17 @@ pub fn watch_directory(
     for res in rx {
         match res {
             Ok(event) => {
-                if matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                ) {
+                if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                     for path in &event.paths {
-                        if let Err(e) = process_file(path, &mut states, output_file, stdout) {
-                            eprintln!("Error processing {}: {}", path.display(), e);
+                        match process_watch_path_raw(path, &mut states) {
+                            Ok(batches) => {
+                                for (_, events) in batches {
+                                    if let Err(e) = emit_events(&events, output_file, stdout) {
+                                        eprintln!("Error emitting {}: {}", path.display(), e);
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
                         }
                     }
                 }
@@ -339,4 +536,3 @@ pub fn watch_directory(
 
     Ok(())
 }
-

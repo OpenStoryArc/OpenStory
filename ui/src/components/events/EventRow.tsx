@@ -4,6 +4,7 @@ import { viewRecordLabel, viewRecordSummary } from "@/lib/view-record-transforms
 import { viewRecordColor, isGitBashRecord } from "@/lib/view-record-transforms";
 import { compactTime } from "@/lib/time";
 import { gitCommandRisk, GIT_RISK_COLORS } from "@/lib/git-commands";
+import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 interface EventRowProps {
   record: ViewRecord;
@@ -16,6 +17,8 @@ export const EventRow = memo(
   function EventRow({ record, selected, onClick, isNew }: EventRowProps) {
     const color = viewRecordColor(record);
     const label = viewRecordLabel(record.record_type);
+    const agentLabel = originAgentLabel(record.origin_agent);
+    const agentColor = originAgentColor(record.origin_agent);
 
     // Tool name as subtype for tool_call records
     const subtype = record.record_type === "tool_call"
@@ -43,6 +46,16 @@ export const EventRow = memo(
         <span className="w-16 text-[#565f89] flex-shrink-0">
           {compactTime(record.timestamp)}
         </span>
+        {agentLabel && (
+          <span
+            className="w-14 flex-shrink-0 px-1.5 py-0.5 rounded text-center whitespace-nowrap"
+            style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+            title={`Agent: ${agentLabel}`}
+            data-testid="event-agent-badge"
+          >
+            {agentLabel}
+          </span>
+        )}
         <span
           className="w-20 flex-shrink-0 px-1.5 py-0.5 rounded text-center whitespace-nowrap"
           style={{ color, backgroundColor: `${color}20` }}

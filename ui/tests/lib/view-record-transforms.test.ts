@@ -20,6 +20,7 @@ function makeRecord(
     seq: 1,
     session_id: "test-session",
     timestamp: "2026-01-01T00:00:00Z",
+    origin_agent: "claude-code",
     agent_id: null,
     is_sidechain: false,
     ...overrides,

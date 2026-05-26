@@ -17,11 +17,11 @@
 use std::collections::HashMap;
 
 use open_story_core::cloud_event::CloudEvent;
+use open_story_store::projection::{SessionProjection, is_ephemeral};
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
 use open_story_views::view_record::ViewRecord;
-use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
-use open_story_store::projection::{is_ephemeral, SessionProjection};
+use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord};
 
 use crate::broadcast::BroadcastMessage;
 use open_story_store::ingest::to_wire_record;
@@ -90,7 +90,10 @@ impl BroadcastConsumer {
         records: &[ViewRecord],
         projection: &SessionProjection,
     ) -> Vec<WireRecord> {
-        records.iter().map(|vr| to_wire_record(vr, projection)).collect()
+        records
+            .iter()
+            .map(|vr| to_wire_record(vr, projection))
+            .collect()
     }
 
     /// Get the full payload for a truncated record (for lazy-load API).
@@ -125,7 +128,9 @@ impl BroadcastConsumer {
         let mut messages = Vec::new();
 
         for ce in events {
-            let Ok(val) = serde_json::to_value(ce) else { continue };
+            let Ok(val) = serde_json::to_value(ce) else {
+                continue;
+            };
 
             let view_records = from_cloud_event(ce);
 
@@ -199,7 +204,9 @@ mod tests {
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("test content".to_string());
         let data = EventData::with_payload(
-            json!({}), 0, session_id.to_string(),
+            json!({}),
+            0,
+            session_id.to_string(),
             AgentPayload::ClaudeCode(payload),
         );
         CloudEvent::new(
@@ -207,7 +214,10 @@ mod tests {
             "io.arc.event".into(),
             data,
             Some(subtype.into()),
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
             Some("claude-code".into()),
         )
     }

@@ -38,8 +38,7 @@ pub fn load_schema(basename: &str) -> Result<Value> {
 
 /// Load any JSON file.
 pub fn load_json(path: &Path) -> Result<Value> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let value = serde_json::from_slice(&bytes)
         .with_context(|| format!("parsing {} as JSON", path.display()))?;
     Ok(value)

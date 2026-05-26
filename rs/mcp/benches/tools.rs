@@ -29,11 +29,8 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
-const SIZES: &[(&str, usize, usize)] = &[
-    ("small",  10, 30),
-    ("medium", 100, 30),
-    ("large",  1000, 30),
-];
+const SIZES: &[(&str, usize, usize)] =
+    &[("small", 10, 30), ("medium", 100, 30), ("large", 1000, 30)];
 
 /// One-time setup per size: seed the store and wrap it in an Arc so
 /// every bench iteration cheaply rebuilds a fresh `Server`.
@@ -70,20 +67,16 @@ fn bench_list_sessions(c: &mut Criterion) {
     for &(label, sessions, events) in SIZES {
         let seeded = setup(&rt, sessions, events);
         group.throughput(Throughput::Elements(sessions as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(label),
-            &seeded,
-            |b, seeded| {
-                b.to_async(&rt).iter(|| {
-                    let store = seeded.store.clone();
-                    let plans = seeded.plan_store.clone();
-                    async move {
-                        let server = Server::new(LoopbackSubscriber::new(), store, plans);
-                        call_tool(server, "list_sessions", json!({})).await
-                    }
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(label), &seeded, |b, seeded| {
+            b.to_async(&rt).iter(|| {
+                let store = seeded.store.clone();
+                let plans = seeded.plan_store.clone();
+                async move {
+                    let server = Server::new(LoopbackSubscriber::new(), store, plans);
+                    call_tool(server, "list_sessions", json!({})).await
+                }
+            });
+        });
     }
     group.finish();
 }
@@ -108,12 +101,7 @@ fn bench_session_synopsis(c: &mut Criterion) {
                     let sid = sid.clone();
                     async move {
                         let server = Server::new(LoopbackSubscriber::new(), store, plans);
-                        call_tool(
-                            server,
-                            "session_synopsis",
-                            json!({ "session_id": sid }),
-                        )
-                        .await
+                        call_tool(server, "session_synopsis", json!({ "session_id": sid })).await
                     }
                 });
             },
@@ -130,25 +118,16 @@ fn bench_search(c: &mut Criterion) {
     for &(label, sessions, events) in SIZES {
         let seeded = setup(&rt, sessions, events);
         group.throughput(Throughput::Elements((sessions * events) as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(label),
-            &seeded,
-            |b, seeded| {
-                b.to_async(&rt).iter(|| {
-                    let store = seeded.store.clone();
-                    let plans = seeded.plan_store.clone();
-                    async move {
-                        let server = Server::new(LoopbackSubscriber::new(), store, plans);
-                        call_tool(
-                            server,
-                            "search",
-                            json!({ "query": "auth.rs", "limit": 50 }),
-                        )
-                        .await
-                    }
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(label), &seeded, |b, seeded| {
+            b.to_async(&rt).iter(|| {
+                let store = seeded.store.clone();
+                let plans = seeded.plan_store.clone();
+                async move {
+                    let server = Server::new(LoopbackSubscriber::new(), store, plans);
+                    call_tool(server, "search", json!({ "query": "auth.rs", "limit": 50 })).await
+                }
+            });
+        });
     }
     group.finish();
 }

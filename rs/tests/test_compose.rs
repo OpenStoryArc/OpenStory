@@ -35,7 +35,9 @@ fn fixture_mount_path() -> String {
         let _ = filetime::set_file_mtime(&path, now);
     }
 
-    let canonical = fixture_dir.canonicalize().expect("canonicalize fixture dir");
+    let canonical = fixture_dir
+        .canonicalize()
+        .expect("canonicalize fixture dir");
     let s = canonical.to_string_lossy().to_string();
 
     // Strip \\?\ UNC prefix and convert backslashes for Docker on Windows
@@ -130,7 +132,9 @@ async fn compose_sessions_load_via_nats_bus() {
         .json()
         .await
         .unwrap();
-    let sessions = body.get("sessions").and_then(|v| v.as_array())
+    let sessions = body
+        .get("sessions")
+        .and_then(|v| v.as_array())
         .or_else(|| body.as_array())
         .expect("sessions array");
 
@@ -153,7 +157,9 @@ async fn compose_view_records_via_nats_bus() {
         .json()
         .await
         .unwrap();
-    let sessions = body.get("sessions").and_then(|v| v.as_array())
+    let sessions = body
+        .get("sessions")
+        .and_then(|v| v.as_array())
         .or_else(|| body.as_array())
         .expect("sessions array");
 

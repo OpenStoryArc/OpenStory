@@ -82,7 +82,9 @@ fn any_pi_payload() -> impl Strategy<Value = PiMonoPayload> {
 fn any_agent_payload(agent: &str) -> BoxedStrategy<AgentPayload> {
     match agent {
         "pi-mono" => any_pi_payload().prop_map(AgentPayload::PiMono).boxed(),
-        _ => any_claude_payload().prop_map(AgentPayload::ClaudeCode).boxed(),
+        _ => any_claude_payload()
+            .prop_map(AgentPayload::ClaudeCode)
+            .boxed(),
     }
 }
 
@@ -98,12 +100,7 @@ pub fn any_cloud_event() -> impl Strategy<Value = CloudEvent> {
     )
         .prop_flat_map(|(sid, subtype, agent, uuid, seq)| {
             any_agent_payload(&agent).prop_map(move |ap| {
-                let data = EventData::with_payload(
-                    serde_json::json!({}),
-                    seq,
-                    sid.clone(),
-                    ap,
-                );
+                let data = EventData::with_payload(serde_json::json!({}), seq, sid.clone(), ap);
                 CloudEvent::new(
                     format!("arc://transcript/{sid}"),
                     "io.arc.event".to_string(),

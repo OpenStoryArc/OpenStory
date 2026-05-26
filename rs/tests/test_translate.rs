@@ -28,7 +28,12 @@ fn base_entry(overrides: Value) -> Value {
 
 /// Helper: extract ClaudeCodePayload from event, panicking if not present.
 fn cc_payload(event: &open_story::cloud_event::CloudEvent) -> &ClaudeCodePayload {
-    match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+    match event
+        .data
+        .agent_payload
+        .as_ref()
+        .expect("agent_payload should be Some")
+    {
         AgentPayload::ClaudeCode(cc) => cc,
         _ => panic!("expected ClaudeCode payload"),
     }
@@ -74,7 +79,10 @@ fn test_assistant_text_subtype() {
     let p = cc_payload(e);
     assert_eq!(p.model.as_deref(), Some("claude-opus-4-6"));
     assert_eq!(p.token_usage.as_ref().unwrap()["input_tokens"], 10);
-    assert_eq!(p.stop_reason.as_ref().and_then(|v| v.as_str()), Some("end_turn"));
+    assert_eq!(
+        p.stop_reason.as_ref().and_then(|v| v.as_str()),
+        Some("end_turn")
+    );
     assert_eq!(p.message_id.as_deref(), Some("msg_123"));
 }
 
@@ -92,7 +100,10 @@ fn test_assistant_tool_use_subtype() {
         },
     }));
     let events = translate_line(&line, &mut state());
-    assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.assistant.tool_use")
+    );
 }
 
 #[test]
@@ -105,7 +116,10 @@ fn test_assistant_thinking_subtype() {
         },
     }));
     let events = translate_line(&line, &mut state());
-    assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.assistant.thinking")
+    );
 }
 
 #[test]
@@ -143,7 +157,10 @@ fn test_content_types_listed() {
     }));
     let events = translate_line(&line, &mut state());
     let p = cc_payload(&events[0]);
-    assert_eq!(p.content_types, Some(vec!["thinking".to_string(), "text".to_string()]));
+    assert_eq!(
+        p.content_types,
+        Some(vec!["thinking".to_string(), "text".to_string()])
+    );
 }
 
 #[test]
@@ -182,7 +199,10 @@ fn test_user_tool_result_subtype() {
         },
     }));
     let events = translate_line(&line, &mut state());
-    assert_eq!(events[0].subtype.as_deref(), Some("message.user.tool_result"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.user.tool_result")
+    );
 }
 
 #[test]
@@ -237,7 +257,10 @@ fn test_unknown_progress_type() {
         "data": {"type": "new_future_type"},
     }));
     let events = translate_line(&line, &mut state());
-    assert_eq!(events[0].subtype.as_deref(), Some("progress.new_future_type"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("progress.new_future_type")
+    );
 }
 
 // ── System events ──────────────────────────────────────────
@@ -374,8 +397,12 @@ fn test_duplicate_uuid_skipped() {
 #[test]
 fn test_different_uuids_both_processed() {
     let mut s = state();
-    let line1 = base_entry(json!({"type": "user", "uuid": "uuid-1", "message": {"role": "user", "content": "a"}}));
-    let line2 = base_entry(json!({"type": "user", "uuid": "uuid-2", "message": {"role": "user", "content": "b"}}));
+    let line1 = base_entry(
+        json!({"type": "user", "uuid": "uuid-1", "message": {"role": "user", "content": "a"}}),
+    );
+    let line2 = base_entry(
+        json!({"type": "user", "uuid": "uuid-2", "message": {"role": "user", "content": "b"}}),
+    );
     let events1 = translate_line(&line1, &mut s);
     let events2 = translate_line(&line2, &mut s);
     assert_eq!(events1.len(), 1);
@@ -502,7 +529,10 @@ fn test_user_tool_result_produces_arc_event_type() {
     }));
     let events = translate_line(&line, &mut state());
     assert_eq!(events[0].event_type, IO_ARC_EVENT);
-    assert_eq!(events[0].subtype.as_deref(), Some("message.user.tool_result"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.user.tool_result")
+    );
 }
 
 #[test]
@@ -533,7 +563,10 @@ fn test_assistant_tool_use_subtype_hierarchical() {
     }));
     let events = translate_line(&line, &mut state());
     assert_eq!(events[0].event_type, IO_ARC_EVENT);
-    assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.tool_use"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.assistant.tool_use")
+    );
 }
 
 #[test]
@@ -547,7 +580,10 @@ fn test_assistant_thinking_subtype_hierarchical() {
     }));
     let events = translate_line(&line, &mut state());
     assert_eq!(events[0].event_type, IO_ARC_EVENT);
-    assert_eq!(events[0].subtype.as_deref(), Some("message.assistant.thinking"));
+    assert_eq!(
+        events[0].subtype.as_deref(),
+        Some("message.assistant.thinking")
+    );
 }
 
 #[test]
@@ -752,8 +788,14 @@ fn test_main_agent_event_has_is_sidechain_false_no_agent_id() {
     let events = translate_line(&line, &mut state());
     let p = cc_payload(&events[0]);
     assert_eq!(p.is_sidechain, Some(false));
-    assert!(p.agent_id.is_none(), "agent_id should be absent for main agent");
-    assert!(p.parent_tool_use_id.is_none(), "parent_tool_use_id should be absent");
+    assert!(
+        p.agent_id.is_none(),
+        "agent_id should be absent for main agent"
+    );
+    assert!(
+        p.parent_tool_use_id.is_none(),
+        "parent_tool_use_id should be absent"
+    );
 }
 
 #[test]
@@ -803,7 +845,10 @@ fn test_null_agent_id_is_omitted_from_envelope() {
     let events = translate_line(&line, &mut state());
     let p = cc_payload(&events[0]);
     assert_eq!(p.is_sidechain, Some(false));
-    assert!(p.agent_id.is_none(), "null agent_id should be absent from payload");
+    assert!(
+        p.agent_id.is_none(),
+        "null agent_id should be absent from payload"
+    );
 }
 
 // ── snake_case envelope boundary table ───────────────────────
@@ -844,12 +889,30 @@ fn test_envelope_keys_are_all_snake_case() {
     assert_eq!(p.slug.as_deref(), Some("my-slug"));
 
     // No camelCase keys should exist in the extra bag
-    assert!(p.extra.get("sessionId").is_none(), "camelCase sessionId should not exist");
-    assert!(p.extra.get("parentUuid").is_none(), "camelCase parentUuid should not exist");
-    assert!(p.extra.get("gitBranch").is_none(), "camelCase gitBranch should not exist");
-    assert!(p.extra.get("agentId").is_none(), "camelCase agentId should not exist");
-    assert!(p.extra.get("parentToolUseID").is_none(), "camelCase parentToolUseID should not exist");
-    assert!(p.extra.get("isSidechain").is_none(), "camelCase isSidechain should not exist");
+    assert!(
+        p.extra.get("sessionId").is_none(),
+        "camelCase sessionId should not exist"
+    );
+    assert!(
+        p.extra.get("parentUuid").is_none(),
+        "camelCase parentUuid should not exist"
+    );
+    assert!(
+        p.extra.get("gitBranch").is_none(),
+        "camelCase gitBranch should not exist"
+    );
+    assert!(
+        p.extra.get("agentId").is_none(),
+        "camelCase agentId should not exist"
+    );
+    assert!(
+        p.extra.get("parentToolUseID").is_none(),
+        "camelCase parentToolUseID should not exist"
+    );
+    assert!(
+        p.extra.get("isSidechain").is_none(),
+        "camelCase isSidechain should not exist"
+    );
 }
 
 /// Extras keys from apply_user/apply_system must also be snake_case.
@@ -1044,7 +1107,10 @@ fn test_tool_outcome_none_without_preceding_tool_use() {
     let result_events = translate_line(&result_line, &mut s);
 
     let p = cc_payload(&result_events[0]);
-    assert!(p.tool_outcome.is_none(), "should be None without matching tool_use");
+    assert!(
+        p.tool_outcome.is_none(),
+        "should be None without matching tool_use"
+    );
 }
 
 /// Plain user prompt messages should not have tool_outcome.
@@ -1095,7 +1161,11 @@ fn test_tool_result_text_surfaced_on_payload() {
     let result_events = translate_line(&result_line, &mut s);
 
     let p = cc_payload(&result_events[0]);
-    assert_eq!(p.text.as_deref(), Some(file_content), "payload.text should contain tool result content");
+    assert_eq!(
+        p.text.as_deref(),
+        Some(file_content),
+        "payload.text should contain tool result content"
+    );
 }
 
 /// Tool result with empty content should not set payload.text.
@@ -1129,7 +1199,10 @@ fn test_tool_result_empty_content_no_text() {
     let result_events = translate_line(&result_line, &mut s);
 
     let p = cc_payload(&result_events[0]);
-    assert!(p.text.is_none(), "empty content should not set payload.text");
+    assert!(
+        p.text.is_none(),
+        "empty content should not set payload.text"
+    );
 }
 
 /// Agent tool_result with toolUseResult.agentId should set agent_id on SubAgentSpawned.
@@ -1195,7 +1268,8 @@ fn test_agent_tool_result_enriches_subagent_spawned_with_agent_id() {
         events: vec![ce.clone()],
     };
     let serialized = serde_json::to_string(&batch).expect("serialize IngestBatch");
-    let deserialized: open_story_bus::IngestBatch = serde_json::from_str(&serialized).expect("deserialize IngestBatch");
+    let deserialized: open_story_bus::IngestBatch =
+        serde_json::from_str(&serialized).expect("deserialize IngestBatch");
 
     let rt_ce = &deserialized.events[0];
     let rt_p = cc_payload(rt_ce);
@@ -1211,6 +1285,8 @@ fn test_agent_tool_result_enriches_subagent_spawned_with_agent_id() {
     // Also verify serde_json::to_value (what persist consumer uses to store in SQLite)
     let val = serde_json::to_value(rt_ce).expect("to_value");
     let val_outcome = &val["data"]["agent_payload"]["tool_outcome"];
-    assert_eq!(val_outcome["agent_id"], "a6dcf911fa2a142b1",
-        "agent_id must survive to_value (the SQLite storage path)");
+    assert_eq!(
+        val_outcome["agent_id"], "a6dcf911fa2a142b1",
+        "agent_id must survive to_value (the SQLite storage path)"
+    );
 }

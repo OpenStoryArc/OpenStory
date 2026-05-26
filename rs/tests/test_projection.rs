@@ -8,12 +8,12 @@
 
 mod helpers;
 
-use helpers::{
-    body_json, make_assistant_text, make_event,
-    make_tool_result, make_tool_use, make_user_prompt, send_request, test_state,
-};
 use axum::body::Body;
 use axum::http::Request;
+use helpers::{
+    body_json, make_assistant_text, make_event, make_tool_result, make_tool_use, make_user_prompt,
+    send_request, test_state,
+};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
@@ -136,13 +136,54 @@ mod filter_counts {
         // Realistic event sequence
         let events = vec![
             to_value(&make_user_prompt("test-session", "evt-1")),
-            to_value(&make_tool_use("test-session", "evt-2", Some("evt-1"), "Bash", "cargo test")),
-            to_value(&make_tool_result("test-session", "evt-3", Some("evt-2"), "toolu_evt-2", "test result: ok. 5 passed")),
-            to_value(&make_assistant_text("test-session", "evt-4", Some("evt-3"), "All tests pass")),
-            to_value(&make_tool_use("test-session", "evt-5", Some("evt-4"), "Edit", "/src/lib.rs")),
-            to_value(&make_tool_result("test-session", "evt-6", Some("evt-5"), "toolu_evt-5", "file updated")),
-            to_value(&make_tool_use("test-session", "evt-7", Some("evt-6"), "Bash", "git add .")),
-            to_value(&make_tool_result("test-session", "evt-8", Some("evt-7"), "toolu_evt-7", "[master abc] fix")),
+            to_value(&make_tool_use(
+                "test-session",
+                "evt-2",
+                Some("evt-1"),
+                "Bash",
+                "cargo test",
+            )),
+            to_value(&make_tool_result(
+                "test-session",
+                "evt-3",
+                Some("evt-2"),
+                "toolu_evt-2",
+                "test result: ok. 5 passed",
+            )),
+            to_value(&make_assistant_text(
+                "test-session",
+                "evt-4",
+                Some("evt-3"),
+                "All tests pass",
+            )),
+            to_value(&make_tool_use(
+                "test-session",
+                "evt-5",
+                Some("evt-4"),
+                "Edit",
+                "/src/lib.rs",
+            )),
+            to_value(&make_tool_result(
+                "test-session",
+                "evt-6",
+                Some("evt-5"),
+                "toolu_evt-5",
+                "file updated",
+            )),
+            to_value(&make_tool_use(
+                "test-session",
+                "evt-7",
+                Some("evt-6"),
+                "Bash",
+                "git add .",
+            )),
+            to_value(&make_tool_result(
+                "test-session",
+                "evt-8",
+                Some("evt-7"),
+                "toolu_evt-7",
+                "[master abc] fix",
+            )),
         ];
 
         for event in &events {
@@ -167,7 +208,11 @@ mod filter_counts {
 
         proj.append(&to_value(&make_user_prompt("test-session", "evt-1")));
         proj.append(&to_value(&make_tool_use(
-            "test-session", "evt-2", Some("evt-1"), "Read", "/foo.rs",
+            "test-session",
+            "evt-2",
+            Some("evt-1"),
+            "Read",
+            "/foo.rs",
         )));
 
         let meta = proj.query_meta();
@@ -206,7 +251,10 @@ mod projection_labels {
         // Second prompt does NOT overwrite
         let e2 = make_user_prompt("test-session", "evt-2");
         let result = proj.append(&to_value(&e2));
-        assert!(!result.label_changed, "label should not change on second prompt");
+        assert!(
+            !result.label_changed,
+            "label should not change on second prompt"
+        );
         assert_eq!(proj.label(), Some("test prompt"));
     }
 
@@ -301,7 +349,10 @@ mod appstate_integration {
         let s = state.read().await;
         let init = build_initial_state(&s);
         let labels = &init.session_labels;
-        assert!(labels.contains_key("sess-1"), "should have label for sess-1");
+        assert!(
+            labels.contains_key("sess-1"),
+            "should have label for sess-1"
+        );
         let label = labels.get("sess-1").unwrap();
         assert_eq!(label.label.as_deref(), Some("test prompt"));
     }

@@ -85,7 +85,7 @@ fn record_type_for(subtype: &str) -> &'static str {
 
 fn extract_text(payload: &Value) -> Option<String> {
     // Try common shapes: message.content (string), message.content[].text,
-    // message.text (string)
+    // message.text (string), then Codex rollout payload.message/text.
     if let Some(msg) = payload.get("message") {
         if let Some(s) = msg.get("content").and_then(|v| v.as_str()) {
             return Some(s.to_string());
@@ -105,6 +105,14 @@ fn extract_text(payload: &Value) -> Option<String> {
             }
         }
         if let Some(s) = msg.get("text").and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(codex_payload) = payload.get("payload") {
+        if let Some(s) = codex_payload.get("message").and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+        if let Some(s) = codex_payload.get("text").and_then(|v| v.as_str()) {
             return Some(s.to_string());
         }
     }
@@ -131,10 +139,7 @@ fn truncate(s: &str, n: usize) -> String {
     }
 }
 
-pub async fn session_story(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn session_story(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let session_id = args
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -155,7 +160,10 @@ pub async fn session_story(
     for ev in &events {
         let subtype = ev.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
         let record_type = record_type_for(subtype).to_string();
-        *facts.record_type_counts.entry(record_type.clone()).or_insert(0) += 1;
+        *facts
+            .record_type_counts
+            .entry(record_type.clone())
+            .or_insert(0) += 1;
 
         let data = ev.get("data").cloned().unwrap_or(Value::Null);
         let raw = data.get("raw").cloned().unwrap_or_else(|| data.clone());
@@ -174,8 +182,14 @@ pub async fn session_story(
                         raw.get("message")
                             .and_then(|m| m.get("content"))
                             .and_then(|c| c.as_array())
-                            .and_then(|arr| arr.iter().find(|x| x.get("type").and_then(|t| t.as_str()) == Some("tool_use")))
-                            .and_then(|tu| tu.get("name").and_then(|v| v.as_str()).map(str::to_string))
+                            .and_then(|arr| {
+                                arr.iter().find(|x| {
+                                    x.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                                })
+                            })
+                            .and_then(|tu| {
+                                tu.get("name").and_then(|v| v.as_str()).map(str::to_string)
+                            })
                     })
                     .unwrap_or_else(|| "?".to_string());
                 *facts.tool_call_counts.entry(name).or_insert(0) += 1;
@@ -254,16 +268,20 @@ pub async fn session_story(
         .map_err(|e| format!("session_patterns failed: {e}"))?;
     facts.pattern_total = patterns.len() as u64;
     for p in &patterns {
-        *facts.pattern_type_counts.entry(p.pattern_type.clone()).or_insert(0) += 1;
+        *facts
+            .pattern_type_counts
+            .entry(p.pattern_type.clone())
+            .or_insert(0) += 1;
         match p.pattern_type.as_str() {
             "turn.phase" => {
                 if let Some(phase) = p.metadata.get("phase").and_then(|v| v.as_str()) {
-                    *facts.turn_phase_counts.entry(phase.to_string()).or_insert(0) += 1;
+                    *facts
+                        .turn_phase_counts
+                        .entry(phase.to_string())
+                        .or_insert(0) += 1;
                 }
             }
-            "turn.sentence"
-                if facts.sample_sentences.len() < 8 && !p.summary.is_empty() =>
-            {
+            "turn.sentence" if facts.sample_sentences.len() < 8 && !p.summary.is_empty() => {
                 facts.sample_sentences.push(p.summary.clone());
             }
             "error.recovery" => facts.error_recovery_count += 1,

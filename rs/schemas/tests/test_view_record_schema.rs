@@ -222,5 +222,8 @@ fn wire_record_rejects_missing_record_type() {
         "payload_bytes": 0
         // missing record_type + payload
     });
-    assert!(!v.is_valid(&bad), "missing record_type must reject — proves flatten+tag survived generation");
+    assert!(
+        !v.is_valid(&bad),
+        "missing record_type must reject — proves flatten+tag survived generation"
+    );
 }

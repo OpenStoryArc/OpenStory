@@ -5,6 +5,7 @@ import { truncate } from "@/lib/event-transforms";
 import { STATUS_COLORS } from "@/lib/event-transforms";
 import { tick$ } from "@/streams/clock";
 import { useObservable } from "@/hooks/use-observable";
+import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 interface SessionCardProps {
   session: SessionSummary;
@@ -30,6 +31,8 @@ export const SessionCard = memo(function SessionCard({
     ? formatDuration(now - new Date(session.start_time).getTime())
     : null;
   const isStale = session.status === "stale";
+  const agentLabel = originAgentLabel(session.origin_agent);
+  const agentColor = originAgentColor(session.origin_agent);
 
   return (
     <button
@@ -39,21 +42,33 @@ export const SessionCard = memo(function SessionCard({
       }`}
     >
       <div className="flex items-center justify-between mb-1">
-        <span
-          className={`text-xs font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-1${isStale ? " opacity-60" : ""}`}
-          style={{ color: statusColor, backgroundColor: `${statusColor}20` }}
-        >
-          {isActive && (
+        <div className="flex items-center gap-1.5 min-w-0">
+          {agentLabel && (
             <span
-              className="inline-block w-1.5 h-1.5 rounded-full pulse-live"
-              style={{ backgroundColor: statusColor }}
-            />
+              className="text-xs font-medium px-1.5 py-0.5 rounded"
+              style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+              title={`Agent: ${agentLabel}`}
+              data-testid="session-card-agent-badge"
+            >
+              {agentLabel}
+            </span>
           )}
-          {session.status}
-          {elapsed && (
-            <span className="text-[#565f89] font-normal ml-1">{elapsed}</span>
-          )}
-        </span>
+          <span
+            className={`text-xs font-medium px-1.5 py-0.5 rounded inline-flex items-center gap-1${isStale ? " opacity-60" : ""}`}
+            style={{ color: statusColor, backgroundColor: `${statusColor}20` }}
+          >
+            {isActive && (
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full pulse-live"
+                style={{ backgroundColor: statusColor }}
+              />
+            )}
+            {session.status}
+            {elapsed && (
+              <span className="text-[#565f89] font-normal ml-1">{elapsed}</span>
+            )}
+          </span>
+        </div>
         <span className="text-xs text-[#565f89]">
           {timeAgo}
         </span>

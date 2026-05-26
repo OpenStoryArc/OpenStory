@@ -209,7 +209,11 @@ async fn handle_subscribe_session<S: Subscribe>(
                     "data": event.data,
                 }
             });
-            if pump_out.send(serde_json::to_string(&notif).unwrap()).await.is_err() {
+            if pump_out
+                .send(serde_json::to_string(&notif).unwrap())
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -295,7 +299,11 @@ async fn handle_subscribe_tokens<S: Subscribe>(
                     }
                 });
                 seq += 1;
-                if pump_out.send(serde_json::to_string(&notif).unwrap()).await.is_err() {
+                if pump_out
+                    .send(serde_json::to_string(&notif).unwrap())
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }

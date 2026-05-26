@@ -11,8 +11,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use open_story_core::cloud_event::CloudEvent;
 use open_story::patterns::{EvalApplyDetector, StructuralTurn};
+use open_story_core::cloud_event::CloudEvent;
 
 /// Load the probability class fixtures and extract all CloudEvents.
 fn load_all_fixture_events() -> HashMap<String, Vec<CloudEvent>> {
@@ -244,7 +244,10 @@ fn first_and_last_event_ids_define_turn_identity() {
                 assert!(
                     ranges.insert(range),
                     "Class {}: Turn {} has duplicate event range {}..{}",
-                    class_name, turn.turn_number, &first[..8], &last[..8]
+                    class_name,
+                    turn.turn_number,
+                    &first[..8],
+                    &last[..8]
                 );
             }
         }

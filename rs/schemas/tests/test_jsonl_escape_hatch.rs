@@ -109,7 +109,10 @@ fn every_line_in_every_session_jsonl_validates_as_cloud_event() {
         per_file.push((path.clone(), ok, bad));
     }
 
-    eprintln!("\n── JSONL escape-hatch validation ({} files) ──", files.len());
+    eprintln!(
+        "\n── JSONL escape-hatch validation ({} files) ──",
+        files.len()
+    );
     let files_ok = per_file.iter().filter(|(_, _, b)| *b == 0).count();
     let files_bad = per_file.len() - files_ok;
     eprintln!("  files fully valid : {files_ok}");

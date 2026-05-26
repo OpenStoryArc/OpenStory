@@ -361,10 +361,23 @@ mod tests {
         // Dedup is now solely the EventStore PRIMARY KEY's job — the legacy
         // in-memory `seen_event_ids` HashSet was retired alongside the
         // /hooks endpoint that needed it.
-        assert!(state.event_store.insert_event("sess-1", &event).await.unwrap());
-        assert!(!state.event_store.insert_event("sess-1", &event).await.unwrap(), "dedup via PK");
+        assert!(state
+            .event_store
+            .insert_event("sess-1", &event)
+            .await
+            .unwrap());
+        assert!(
+            !state
+                .event_store
+                .insert_event("sess-1", &event)
+                .await
+                .unwrap(),
+            "dedup via PK"
+        );
 
-        let mut proj = state.projections.entry("sess-1".to_string())
+        let mut proj = state
+            .projections
+            .entry("sess-1".to_string())
             .or_insert_with(|| SessionProjection::new("sess-1"));
         let result = proj.append(&event);
 
@@ -398,8 +411,14 @@ mod tests {
         let children: DashMap<String, Vec<String>> = DashMap::new();
         detect_subagent_relationship(&event, "agent-456", &parents, &children);
 
-        assert_eq!(parents.get("agent-456").map(|r| r.value().clone()), Some("parent-123".to_string()));
-        assert_eq!(children.get("parent-123").map(|r| r.value().clone()), Some(vec!["agent-456".to_string()]));
+        assert_eq!(
+            parents.get("agent-456").map(|r| r.value().clone()),
+            Some("parent-123".to_string())
+        );
+        assert_eq!(
+            children.get("parent-123").map(|r| r.value().clone()),
+            Some(vec!["agent-456".to_string()])
+        );
     }
 
     #[test]

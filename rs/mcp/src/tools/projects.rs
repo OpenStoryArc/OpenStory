@@ -26,16 +26,9 @@ pub fn project_context_schema() -> Value {
     })
 }
 
-pub async fn project_context(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let project = extract_project(&args)
-        .map_err(|e| format!("project_context {e}"))?;
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5) as usize;
+pub async fn project_context(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let project = extract_project(&args).map_err(|e| format!("project_context {e}"))?;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
     let sessions = store.query_project_context(project, limit).await;
     serde_json::to_value(sessions).map_err(|e| format!("serialize: {e}"))
 }
@@ -53,12 +46,8 @@ pub fn recent_files_schema() -> Value {
     })
 }
 
-pub async fn recent_files(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let project = extract_project(&args)
-        .map_err(|e| format!("recent_files {e}"))?;
+pub async fn recent_files(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let project = extract_project(&args).map_err(|e| format!("recent_files {e}"))?;
     let session_limit = args
         .get("session_limit")
         .and_then(|v| v.as_u64())

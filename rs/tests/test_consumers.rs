@@ -19,8 +19,8 @@ use open_story_bus::{Bus, IngestBatch};
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use serde_json::json;
-use testcontainers::{GenericImage, ImageExt};
 use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 
 /// Start a NATS container and return a connected NatsBus.
 async fn start_nats() -> (NatsBus, testcontainers::ContainerAsync<GenericImage>) {
@@ -36,7 +36,10 @@ async fn start_nats() -> (NatsBus, testcontainers::ContainerAsync<GenericImage>)
     let mut bus = None;
     for _ in 0..10 {
         match NatsBus::connect(&nats_url).await {
-            Ok(b) => { bus = Some(b); break; }
+            Ok(b) => {
+                bus = Some(b);
+                break;
+            }
             Err(_) => tokio::time::sleep(std::time::Duration::from_millis(500)).await,
         }
     }
@@ -98,10 +101,10 @@ async fn persist_consumer_receives_and_can_store_events() {
     publish_batch(&bus, "test-project", "sess-1", events).await;
 
     // Persist consumer receives the batch
-    let batch = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
 
     assert_eq!(batch.session_id, "sess-1");
     assert_eq!(batch.project_id, "test-project");
@@ -124,15 +127,15 @@ async fn persist_consumer_can_dedup_by_event_id() {
     publish_batch(&bus, "test-project", "sess-1", vec![event.clone()]).await;
 
     // Consumer receives BOTH batches (dedup is consumer's responsibility, not NATS)
-    let batch1 = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive first");
+    let batch1 = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive first");
 
-    let batch2 = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive second");
+    let batch2 = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive second");
 
     // Both carry the same event ID — persist consumer must dedup
     assert_eq!(batch1.events[0].id, "dedup-test-id");
@@ -157,14 +160,16 @@ async fn patterns_consumer_receives_events_for_detection() {
     ];
     publish_batch(&bus, "test-project", "sess-1", events).await;
 
-    let batch = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
 
     // Patterns consumer receives the full turn sequence
     assert_eq!(batch.events.len(), 4);
-    let subtypes: Vec<&str> = batch.events.iter()
+    let subtypes: Vec<&str> = batch
+        .events
+        .iter()
         .filter_map(|e| e.subtype.as_deref())
         .collect();
     assert!(subtypes.contains(&"message.user.prompt"));
@@ -188,7 +193,9 @@ async fn projections_consumer_receives_events_for_metadata() {
         "output_tokens": 300,
     }));
     let data = EventData::with_payload(
-        json!({}), 0, "sess-1".to_string(),
+        json!({}),
+        0,
+        "sess-1".to_string(),
         AgentPayload::ClaudeCode(payload),
     );
     let event = CloudEvent::new(
@@ -196,18 +203,25 @@ async fn projections_consumer_receives_events_for_metadata() {
         "io.arc.event".into(),
         data,
         Some("message.assistant.text".into()),
-        None, None, None, None,
+        None,
+        None,
+        None,
+        None,
         Some("claude-code".into()),
     );
     publish_batch(&bus, "test-project", "sess-1", vec![event]).await;
 
-    let batch = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
 
     // Projections consumer can extract token usage from the event
-    let ap = batch.events[0].data.agent_payload.as_ref().expect("has payload");
+    let ap = batch.events[0]
+        .data
+        .agent_payload
+        .as_ref()
+        .expect("has payload");
     let tokens = ap.token_usage().expect("has token_usage");
     assert_eq!(tokens["input_tokens"], 1500);
     assert_eq!(tokens["output_tokens"], 300);
@@ -222,13 +236,18 @@ async fn broadcast_consumer_receives_from_events_stream() {
     let (bus, _container) = start_nats().await;
     let mut sub = bus.subscribe("events.>").await.expect("subscribe events");
 
-    publish_batch(&bus, "test-project", "sess-1",
-        vec![make_typed_event("sess-1", "message.user.prompt")]).await;
+    publish_batch(
+        &bus,
+        "test-project",
+        "sess-1",
+        vec![make_typed_event("sess-1", "message.user.prompt")],
+    )
+    .await;
 
-    let batch = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive");
+    let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive");
 
     assert_eq!(batch.session_id, "sess-1");
 }
@@ -246,19 +265,30 @@ async fn multiple_consumers_each_receive_same_events() {
     let mut patterns_sub = bus.subscribe("events.>").await.expect("patterns subscribe");
 
     // Publish one batch
-    publish_batch(&bus, "test-project", "sess-1",
-        vec![make_typed_event("sess-1", "message.user.prompt")]).await;
+    publish_batch(
+        &bus,
+        "test-project",
+        "sess-1",
+        vec![make_typed_event("sess-1", "message.user.prompt")],
+    )
+    .await;
 
     // BOTH consumers should receive the batch
     let persist_batch = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         persist_sub.receiver.recv(),
-    ).await.expect("persist timeout").expect("persist receive");
+    )
+    .await
+    .expect("persist timeout")
+    .expect("persist receive");
 
     let patterns_batch = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         patterns_sub.receiver.recv(),
-    ).await.expect("patterns timeout").expect("patterns receive");
+    )
+    .await
+    .expect("patterns timeout")
+    .expect("patterns receive");
 
     assert_eq!(persist_batch.session_id, "sess-1");
     assert_eq!(patterns_batch.session_id, "sess-1");
@@ -274,13 +304,21 @@ async fn broadcast_consumer_can_subscribe_to_multiple_streams() {
     let mut events_sub = bus.subscribe("events.>").await.expect("events subscribe");
 
     // Publish to events stream
-    publish_batch(&bus, "test-project", "sess-1",
-        vec![make_typed_event("sess-1", "message.user.prompt")]).await;
+    publish_batch(
+        &bus,
+        "test-project",
+        "sess-1",
+        vec![make_typed_event("sess-1", "message.user.prompt")],
+    )
+    .await;
 
     let events_batch = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         events_sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive events");
+    )
+    .await
+    .expect("timeout")
+    .expect("receive events");
 
     assert_eq!(events_batch.session_id, "sess-1");
 

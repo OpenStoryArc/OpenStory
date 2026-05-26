@@ -2,9 +2,9 @@
 
 use std::path::Path;
 
+use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::middleware;
-use axum::Router;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -74,8 +74,7 @@ async fn health(State(state): State<SharedState>) -> axum::Json<serde_json::Valu
 /// endpoint was retired, publisher mode only responds to health checks
 /// — events arrive via the file watcher and flow through NATS.
 pub fn build_publisher_router(state: SharedState, config: &Config) -> Router {
-    let publisher_router = Router::new()
-        .route("/health", axum::routing::get(health));
+    let publisher_router = Router::new().route("/health", axum::routing::get(health));
 
     let cors = build_cors(config);
 
@@ -93,9 +92,19 @@ pub fn build_publisher_router(state: SharedState, config: &Config) -> Router {
 /// Build the axum Router with all routes.
 pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Config) -> Router {
     let api_router = Router::new()
-        .route("/api/sessions", axum::routing::get(crate::api::list_sessions))
+        .route(
+            "/api/sessions",
+            axum::routing::get(crate::api::list_sessions),
+        )
+        .route(
+            "/api/watchers",
+            axum::routing::get(crate::api::list_watchers),
+        )
         .route("/api/users", axum::routing::get(crate::api::list_users))
-        .route("/api/local-info", axum::routing::get(crate::api::list_local_info))
+        .route(
+            "/api/local-info",
+            axum::routing::get(crate::api::list_local_info),
+        )
         .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
@@ -141,7 +150,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::get_session_plans),
         )
         .route("/api/plans", axum::routing::get(crate::api::list_plans))
-        .route("/api/plans/{plan_id}", axum::routing::get(crate::api::get_plan))
+        .route(
+            "/api/plans/{plan_id}",
+            axum::routing::get(crate::api::get_plan),
+        )
         .route(
             "/api/tool-schemas",
             axum::routing::get(crate::api::get_tool_schemas),
@@ -185,16 +197,46 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/sessions/{session_id}/errors",
             axum::routing::get(crate::api::get_session_errors),
         )
-        .route("/api/insights/pulse", axum::routing::get(crate::api::get_project_pulse))
-        .route("/api/insights/tool-evolution", axum::routing::get(crate::api::get_tool_evolution))
-        .route("/api/insights/efficiency", axum::routing::get(crate::api::get_session_efficiency_insights))
-        .route("/api/insights/productivity", axum::routing::get(crate::api::get_productivity))
-        .route("/api/insights/token-usage", axum::routing::get(crate::api::get_token_usage))
-        .route("/api/insights/token-usage/daily", axum::routing::get(crate::api::get_daily_token_usage))
-        .route("/api/agent/tools", axum::routing::get(crate::api::get_agent_tools))
-        .route("/api/agent/project-context", axum::routing::get(crate::api::get_agent_project_context))
-        .route("/api/agent/recent-files", axum::routing::get(crate::api::get_agent_recent_files))
-        .route("/api/agent/search", axum::routing::get(crate::api::agent_search))
+        .route(
+            "/api/insights/pulse",
+            axum::routing::get(crate::api::get_project_pulse),
+        )
+        .route(
+            "/api/insights/tool-evolution",
+            axum::routing::get(crate::api::get_tool_evolution),
+        )
+        .route(
+            "/api/insights/efficiency",
+            axum::routing::get(crate::api::get_session_efficiency_insights),
+        )
+        .route(
+            "/api/insights/productivity",
+            axum::routing::get(crate::api::get_productivity),
+        )
+        .route(
+            "/api/insights/token-usage",
+            axum::routing::get(crate::api::get_token_usage),
+        )
+        .route(
+            "/api/insights/token-usage/daily",
+            axum::routing::get(crate::api::get_daily_token_usage),
+        )
+        .route(
+            "/api/agent/tools",
+            axum::routing::get(crate::api::get_agent_tools),
+        )
+        .route(
+            "/api/agent/project-context",
+            axum::routing::get(crate::api::get_agent_project_context),
+        )
+        .route(
+            "/api/agent/recent-files",
+            axum::routing::get(crate::api::get_agent_recent_files),
+        )
+        .route(
+            "/api/agent/search",
+            axum::routing::get(crate::api::agent_search),
+        )
         // ── Search ──
         .route("/api/search", axum::routing::get(crate::api::search_events))
         // ── Core routes ──
@@ -259,11 +301,11 @@ mod tests {
     }
 
     fn test_state() -> SharedState {
-        use std::collections::HashMap;
-        use std::sync::Arc;
-        use tokio::sync::{broadcast, RwLock};
         use open_story_bus::noop_bus::NoopBus;
         use open_story_store::state::StoreState;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+        use tokio::sync::{RwLock, broadcast};
 
         let tmp = tempfile::tempdir().unwrap();
         let store = StoreState::new(tmp.path()).unwrap();
@@ -274,6 +316,7 @@ mod tests {
         Arc::new(RwLock::new(crate::state::AppState {
             store,
             transcript_states: HashMap::new(),
+            watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
             config: Config::default(),
@@ -283,12 +326,15 @@ mod tests {
 
     #[tokio::test]
     async fn publisher_router_serves_health_only_after_hooks_retirement() {
-        use tower::ServiceExt;
-        use axum::http::Request;
         use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
 
         let state = test_state();
-        let config = Config { role: Role::Publisher, ..Config::default() };
+        let config = Config {
+            role: Role::Publisher,
+            ..Config::default()
+        };
         let router = build_publisher_router(state.clone(), &config);
 
         // GET /health should return 200
@@ -304,9 +350,9 @@ mod tests {
 
     #[tokio::test]
     async fn full_router_has_health_endpoint() {
-        use tower::ServiceExt;
-        use axum::http::Request;
         use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
 
         let state = test_state();
         let config = Config::default();
@@ -322,5 +368,35 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["status"], "ok");
         assert_eq!(body["role"], "full");
+    }
+
+    #[tokio::test]
+    async fn full_router_exposes_watcher_diagnostics() {
+        use axum::body::Body;
+        use axum::http::Request;
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let state = test_state();
+        {
+            let diagnostics = state.read().await.watcher_diagnostics.clone();
+            diagnostics.register_actor(&crate::watcher_diagnostics::WatcherActorConfig::new(
+                "codex",
+                crate::watcher_diagnostics::WatcherProtocol::AppendJsonl,
+                std::path::PathBuf::from("/tmp/codex"),
+            ));
+        }
+        let config = Config::default();
+        let router = build_router(state.clone(), None, &config);
+
+        let req = Request::get("/api/watchers").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(body["watchers"].as_array().unwrap().len(), 1);
+        assert_eq!(body["watchers"][0]["agent"], "codex");
+        assert_eq!(body["watchers"][0]["protocol"], "append-jsonl");
     }
 }

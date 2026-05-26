@@ -14,6 +14,7 @@ function rec(
     seq: 0,
     session_id: "s1",
     timestamp: `2025-01-12T10:00:0${id}Z`,
+    origin_agent: "claude-code",
     record_type: record_type as WireRecord["record_type"],
     payload: payload as WireRecord["payload"],
     agent_id: null,

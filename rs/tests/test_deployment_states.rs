@@ -295,8 +295,14 @@ async fn state_team_hub() {
     let alice = ids.iter().filter(|id| id.contains("alice")).count();
     let bob = ids.iter().filter(|id| id.contains("bob")).count();
 
-    assert!(alice >= 1, "hub should have at least 1 alice session, got {alice}");
-    assert!(bob >= 1, "hub should have at least 1 bob session, got {bob}");
+    assert!(
+        alice >= 1,
+        "hub should have at least 1 alice session, got {alice}"
+    );
+    assert!(
+        bob >= 1,
+        "hub should have at least 1 bob session, got {bob}"
+    );
     assert!(
         hub_sessions.len() >= 4,
         "hub should have at least 4 sessions, got {}",
