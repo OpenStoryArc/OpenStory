@@ -127,40 +127,55 @@ impl PersistConsumer {
             }
         }
 
+        // Batch the three durable writes (SQLite insert, JSONL append, FTS
+        // index) at the grain the bus already delivers — one IngestBatch — so
+        // a backfilled transcript costs ~3 fsyncs, not 3 per event. The
+        // per-event path topped out at ~44 ev/s and was CPU-invariant: a
+        // serial fsync wall, not a compute one. Dedup semantics are preserved
+        // exactly — JSONL append and FTS still gate on which events were
+        // freshly inserted (the `insert_batch_returning` flags).
+        let mut ces = Vec::with_capacity(events.len());
+        let mut vals: Vec<serde_json::Value> = Vec::with_capacity(events.len());
         for ce in events {
-            let Ok(val) = serde_json::to_value(ce) else {
-                continue;
-            };
+            if let Ok(val) = serde_json::to_value(ce) {
+                ces.push(ce);
+                vals.push(val);
+            }
+        }
 
-            // EventStore PK is the dedup boundary. Returns Ok(false) when the
-            // event_id already exists, Ok(true) on a fresh insert.
-            let inserted = event_store
-                .insert_event(session_id, &val)
-                .await
-                .unwrap_or(false);
+        // EventStore PK is the dedup boundary. Flags are per-event: true on a
+        // fresh insert, false when the event_id already existed.
+        let flags = event_store
+            .insert_batch_returning(session_id, &vals)
+            .await
+            .unwrap_or_else(|_| vec![false; vals.len()]);
 
+        let mut new_vals: Vec<&serde_json::Value> = Vec::new();
+        let mut fts: Vec<(String, String, String, String)> = Vec::new();
+        for (i, &inserted) in flags.iter().enumerate() {
             if !inserted {
                 skipped += 1;
                 continue;
             }
-
-            // Append to JSONL backup only on a successful insert — duplicates
-            // shouldn't pollute the sovereignty escape hatch.
-            let _ = session_store.append(session_id, &val);
-
-            // Index in the full-text index.
-            let view_records = from_cloud_event(ce);
-            for vr in &view_records {
-                if let Some(text) = open_story_store::extract::extract_text(vr) {
+            // Only freshly-inserted events touch the sovereignty escape hatch
+            // (JSONL) and the search index — duplicates must not pollute them.
+            new_vals.push(&vals[i]);
+            for vr in from_cloud_event(ces[i]) {
+                if let Some(text) = open_story_store::extract::extract_text(&vr) {
                     let record_type = open_story_store::extract::record_type_str(&vr.body);
-                    let _ = event_store
-                        .index_fts(&vr.id, session_id, record_type, &text)
-                        .await;
+                    fts.push((
+                        vr.id.clone(),
+                        session_id.to_string(),
+                        record_type.to_string(),
+                        text,
+                    ));
                 }
             }
-
             persisted += 1;
         }
+
+        let _ = session_store.append_batch(session_id, &new_vals);
+        let _ = event_store.index_fts_batch(&fts).await;
 
         // Upsert the session row AFTER the events are durable. Takes a
         // tight projection snapshot and drops the DashMap Ref before

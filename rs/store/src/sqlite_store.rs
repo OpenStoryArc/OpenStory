@@ -378,6 +378,45 @@ impl EventStore for SqliteStore {
         Ok(count)
     }
 
+    async fn insert_batch_returning(
+        &self,
+        session_id: &str,
+        events: &[Value],
+    ) -> Result<Vec<bool>> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut flags = Vec::with_capacity(events.len());
+        for event in events {
+            let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            let subtype = event
+                .get("subtype")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let timestamp = event
+                .get("time")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let agent_id = event
+                .get("data")
+                .and_then(|d| d.get("agent_id"))
+                .and_then(|v| v.as_str());
+            let parent_uuid = event
+                .get("data")
+                .and_then(|d| d.get("parent_uuid"))
+                .and_then(|v| v.as_str());
+            let payload = serde_json::to_string(event)?;
+
+            let rows = tx.execute(
+                "INSERT OR IGNORE INTO events (id, session_id, subtype, timestamp, agent_id, parent_uuid, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![id, session_id, subtype, timestamp, agent_id, parent_uuid, payload],
+            )?;
+            flags.push(rows > 0);
+        }
+        tx.commit()?;
+        Ok(flags)
+    }
+
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
@@ -767,6 +806,19 @@ impl EventStore for SqliteStore {
         self.index_fts_inner(event_id, session_id, record_type, text)
     }
 
+    async fn index_fts_batch(&self, records: &[(String, String, String, String)]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for (event_id, session_id, record_type, text) in records {
+            tx.execute(
+                "INSERT INTO events_fts(event_id, session_id, record_type, content) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![event_id, session_id, record_type, text],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     async fn search_fts(
         &self,
         query: &str,
@@ -952,6 +1004,29 @@ mod tests {
     async fn insert_batch_empty() {
         let store = SqliteStore::in_memory().unwrap();
         assert_eq!(store.insert_batch("sess-1", &[]).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn insert_batch_returning_flags_new_vs_duplicate_in_order() {
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z"))
+            .await
+            .unwrap();
+
+        // evt-1 new, evt-2 duplicate, evt-3 new — flags must line up by index.
+        let events = vec![
+            test_event("evt-1", "2025-01-14T00:00:01Z"),
+            test_event("evt-2", "2025-01-14T00:00:02Z"),
+            test_event("evt-3", "2025-01-14T00:00:03Z"),
+        ];
+        let flags = store
+            .insert_batch_returning("sess-1", &events)
+            .await
+            .unwrap();
+        assert_eq!(flags, vec![true, false, true]);
+        // And the new ones are actually persisted (single-transaction commit).
+        assert_eq!(store.session_events("sess-1").await.unwrap().len(), 3);
     }
 
     // ── Phase 1e: list_sessions + upsert_session ──

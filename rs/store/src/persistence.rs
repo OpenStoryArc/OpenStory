@@ -44,6 +44,27 @@ impl SessionStore {
         Ok(())
     }
 
+    /// Append many events to one session's JSONL in a single file open.
+    ///
+    /// `append` reopens the file per call; for a batch (e.g. backfill of a
+    /// whole transcript at once) that's one open/write/close syscall trio per
+    /// event. This opens once and writes all lines, which is the JSONL half of
+    /// the batched persist path (the SQLite half is `insert_batch_returning`).
+    pub fn append_batch(&self, session_id: &str, events: &[&Value]) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let path = self.path(session_id);
+        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut buf = String::new();
+        for event in events {
+            buf.push_str(&serde_json::to_string(event)?);
+            buf.push('\n');
+        }
+        file.write_all(buf.as_bytes())?;
+        Ok(())
+    }
+
     /// Return all session IDs (from JSONL filenames).
     pub fn list_sessions(&self) -> Vec<String> {
         let mut sessions = Vec::new();
