@@ -68,15 +68,11 @@ impl NatsBus {
     /// Ensure the "events" stream exists with durable retention.
     /// Call this once on startup.
     pub async fn ensure_streams(&self) -> Result<()> {
-        // Events stream — durable, limits-based retention
+        // Events stream — durable, limits-based retention. Solo mode binds
+        // `events.>`; federation mode (host-scoped binding + mirror) is set up
+        // via `ensure_federation_streams`.
         self.jetstream
-            .get_or_create_stream(stream::Config {
-                name: "events".to_string(),
-                subjects: vec!["events.>".to_string()],
-                retention: stream::RetentionPolicy::Limits,
-                max_bytes: 1_073_741_824, // 1 GB default
-                ..Default::default()
-            })
+            .get_or_create_stream(events_stream_config("", None))
             .await
             .context("failed to create/get 'events' JetStream stream")?;
 
@@ -261,4 +257,125 @@ impl Bus for NatsBus {
 
 fn uuid_short() -> String {
     uuid::Uuid::new_v4().to_string()[..8].to_string()
+}
+
+// ── Federation stream-config builders (Phase 2) ──────────────────────────
+// Pure functions producing the JetStream configs for federation. Kept pure so
+// the config shapes are unit-testable without a broker; the topology/scale
+// behavior is proven by the testcontainer lab. See
+// docs/research/jetstream-sources-federation.md.
+
+const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
+
+/// The local `events` stream this node publishes into.
+///
+/// - **Solo** (`hub_domain = None`): binds `events.>` — captures everything,
+///   unchanged from pre-federation behavior.
+/// - **Federation**: binds ONLY `events.{host}.>` so the racy core leafnode
+///   propagation can't cross-pollinate streams and the hub aggregate can't
+///   double-count (the load-bearing spike finding). Publish-only, no sources.
+pub(crate) fn events_stream_config(host: &str, hub_domain: Option<&str>) -> stream::Config {
+    let subjects = match hub_domain {
+        None => vec!["events.>".to_string()],
+        Some(_) => vec![format!("events.{host}.>")],
+    };
+    stream::Config {
+        name: "events".to_string(),
+        subjects,
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: EVENTS_MAX_BYTES,
+        ..Default::default()
+    }
+}
+
+/// The source-only fleet mirror: pulls everyone else's events down from the
+/// hub aggregate across the JetStream domain boundary. No subjects → no
+/// publishers → structurally cannot loop (and JetStream self-origin loop
+/// prevention excludes this leaf's own events). The complete fleet view on a
+/// node is therefore `events ∪ events-mirror`.
+pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
+    stream::Config {
+        name: "events-mirror".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: EVENTS_MAX_BYTES,
+        sources: Some(vec![stream::Source {
+            name: "events-agg".to_string(),
+            domain: Some(hub_domain.to_string()),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    }
+}
+
+/// The hub aggregate that leaves self-register into (decentralized enumeration
+/// — Option 3). Source-only; each leaf adds its own `events` stream as a source
+/// via the cross-domain API. Created empty here.
+pub(crate) fn events_aggregate_config() -> stream::Config {
+    stream::Config {
+        name: "events-agg".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: EVENTS_MAX_BYTES,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod federation_config_tests {
+    //! Phase 2 (federation): the pure stream-config builders. See
+    //! docs/research/jetstream-sources-federation.md. These are container-free
+    //! unit tests of the config shapes; the topology/scale behavior is proven
+    //! by the testcontainer lab.
+    use super::*;
+
+    #[test]
+    fn solo_events_stream_binds_everything() {
+        // No hub domain → solo mode → unchanged from today: capture `events.>`.
+        let cfg = events_stream_config("maxs-air", None);
+        assert_eq!(cfg.name, "events");
+        assert_eq!(cfg.subjects, vec!["events.>".to_string()]);
+        assert!(cfg.sources.is_none(), "solo events stream sources nothing");
+        assert!(matches!(cfg.retention, stream::RetentionPolicy::Limits));
+    }
+
+    #[test]
+    fn federation_events_stream_binds_only_own_host() {
+        // Hub domain set → bind ONLY this host's namespace so core leafnode
+        // propagation can't cross-pollinate and the hub aggregate can't
+        // double-count (the load-bearing spike finding).
+        let cfg = events_stream_config("maxs-air", Some("hub"));
+        assert_eq!(cfg.name, "events");
+        assert_eq!(cfg.subjects, vec!["events.maxs-air.>".to_string()]);
+        assert!(cfg.sources.is_none(), "local events stream is publish-only");
+    }
+
+    #[test]
+    fn mirror_stream_sources_the_hub_aggregate_cross_domain() {
+        // Source-only (no subjects → no publishers → cannot loop). Pulls the
+        // fleet down from `events-agg` living in the hub JetStream domain.
+        let cfg = events_mirror_config("hub");
+        assert_eq!(cfg.name, "events-mirror");
+        assert!(
+            cfg.subjects.is_empty(),
+            "mirror is source-only — binds no subjects, so it cannot loop"
+        );
+        let sources = cfg.sources.as_ref().expect("mirror must have a source");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "events-agg");
+        assert_eq!(
+            sources[0].domain.as_deref(),
+            Some("hub"),
+            "source must reach across the hub JetStream domain"
+        );
+    }
+
+    #[test]
+    fn aggregate_config_is_source_only_with_no_subjects() {
+        // The hub aggregate the leaves self-register into: source-only, named
+        // events-agg, no direct subjects.
+        let cfg = events_aggregate_config();
+        assert_eq!(cfg.name, "events-agg");
+        assert!(cfg.subjects.is_empty());
+    }
 }
