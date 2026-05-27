@@ -165,7 +165,7 @@ async fn watcher_backfill_translates_agent_id() {
             if !events.is_empty() {
                 let sid = session_id_from_path(path);
                 let pid = project_id_from_path(path, &wd);
-                let subject = nats_subject_from_path(path, &wd);
+                let subject = nats_subject_from_path(path, &wd, open_story_core::host::host());
                 let batch = IngestBatch {
                     session_id: sid,
                     project_id: pid.unwrap_or_default(),

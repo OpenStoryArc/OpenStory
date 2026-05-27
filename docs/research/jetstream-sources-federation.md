@@ -156,10 +156,22 @@ Each phase = its own branch/PR, atomic commits, `just test` before push.
 - Blast radius low (no positional subject parsers; wildcard routing unaffected). Solo mode unchanged.
 
 **Phase 2 — JetStream sources federation** *(spike → production; depends on P1)*
-- RED: new testcontainer suite `rs/tests/test_federation_lab.rs::lab_federation_jetstream_sources_10_nodes` — domains on, **catch-up OFF**; assert `fully_mirrored` cold (the scenario that fails 4/4 today). Add a **late-joiner** container variant (one node starts +30s) — sources must still backfill.
 - GREEN: `ensure_streams` federation mode (`OPEN_STORY_HUB_DOMAIN`): local `events` bound to `events.{host}.>`; source-only `events-mirror` sourcing the hub aggregate; self-register into the aggregate via the cross-domain API. Consumers read `events ∪ events-mirror`.
 - Faster inner loop: port the spike's hub+2-leaf shape into the reusable `nats-permissions` subprocess harness for sub-second red/green before the full container lab.
-- **Measure** convergence vs catch-up's 12.8s + aggregate-bytes overhead. **→ v0 ship line is decided here, with numbers in hand.**
+
+- **RED — exercise multiple topologies and scale, all via testcontainers** (`rs/tests/test_federation_lab.rs`). Each asserts `fully_mirrored` **cold with catch-up OFF** — pure transport convergence:
+
+  | # | Topology | What it proves | Container shape |
+  |---|---|---|---|
+  | T1 | **Solo multi-device** — 1 person, N devices, one account, no hub | intra-person device mirroring (the common case) | N leaves peering, no central hub |
+  | T2 | **Single-hub star** — N leaves → 1 hub (today's lab shape) | team aggregation + every-node-mirrors-all | N leaves + 1 hub (≈2N+1 containers) |
+  | T3 | **Multi-hub / mesh** — leaves → 2 hubs, hubs source each other | hub-to-hub sourcing converges with **no double-count** across hubs (the loop-prevention + namespacing claim at the hub tier) | 2 hubs + leaves split across them |
+
+  Plus the lifecycle + scale variants:
+  - **Late-joiner**: one node starts +30s after the rest — sources must backfill it gap-free (the cold-boot race that fails 4/4 today).
+  - **Scale ramp**: extend `lab_federation_ramp` to **10 → 25 → 50 → 100 nodes**, recording convergence time and the single-host container ceiling (where Docker/runner resources, not the protocol, break it). 100-node is the headline scale test — gate it behind `--ignored` (and a `RUN_SCALE_TESTS` env) so it's opt-in, not on every `cargo test`.
+
+- **Measure** convergence vs catch-up's 12.8s, per topology, plus aggregate-bytes overhead and the 100-node ceiling. **→ v0 ship line is decided here, with numbers in hand.**
 
 **Phase 3 — Accounts = person isolation** *(depends on P2)*
 - RED: testcontainer with two accounts (two persons) — assert person A's JetStream is invisible to person B *without* an explicit export/import; assert export/import makes a shared stream visible. (Extend the `nats-permissions` harness — it already proves account isolation.)
