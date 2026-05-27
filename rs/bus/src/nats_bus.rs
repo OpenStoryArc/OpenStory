@@ -308,6 +308,30 @@ pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
     }
 }
 
+/// Idempotently add this leaf's `events` stream (in its own JetStream domain)
+/// as a source on the hub aggregate's source list. Returns `true` if a source
+/// was added, `false` if it was already present.
+///
+/// Sources are keyed by `(name, domain)`: every leaf names its stream `events`,
+/// so the **domain** distinguishes leaves. The merge is **additive** — it never
+/// drops a peer's source — which is what lets a read-modify-write across
+/// concurrently-joining leaves not lose registrations (the I/O layer still
+/// retries on a write conflict; this keeps the merge itself correct).
+pub(crate) fn ensure_self_source(sources: &mut Vec<stream::Source>, my_domain: &str) -> bool {
+    let already = sources
+        .iter()
+        .any(|s| s.name == "events" && s.domain.as_deref() == Some(my_domain));
+    if already {
+        return false;
+    }
+    sources.push(stream::Source {
+        name: "events".to_string(),
+        domain: Some(my_domain.to_string()),
+        ..Default::default()
+    });
+    true
+}
+
 /// The hub aggregate that leaves self-register into (decentralized enumeration
 /// — Option 3). Source-only; each leaf adds its own `events` stream as a source
 /// via the cross-domain API. Created empty here.
@@ -377,5 +401,48 @@ mod federation_config_tests {
         let cfg = events_aggregate_config();
         assert_eq!(cfg.name, "events-agg");
         assert!(cfg.subjects.is_empty());
+    }
+
+    // ── self-registration merge (decentralized enumeration, Option 3) ──────
+    // Each leaf adds its own `events` stream (in its own JetStream domain) as a
+    // source on the shared hub aggregate. Sources are keyed by (name, domain) —
+    // all leaves name their stream "events", so the DOMAIN distinguishes them.
+    // The merge must be idempotent (re-registration is a no-op) and additive
+    // (never clobber a peer's source) — the latter is what keeps a read-modify-
+    // write across concurrent leaves from losing registrations.
+
+    #[test]
+    fn self_register_adds_own_source_to_empty_aggregate() {
+        let mut sources = vec![];
+        let added = ensure_self_source(&mut sources, "leaf-maxs-air");
+        assert!(added, "first registration adds a source");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "events");
+        assert_eq!(sources[0].domain.as_deref(), Some("leaf-maxs-air"));
+    }
+
+    #[test]
+    fn self_register_is_idempotent() {
+        let mut sources = vec![];
+        ensure_self_source(&mut sources, "leaf-maxs-air");
+        let added_again = ensure_self_source(&mut sources, "leaf-maxs-air");
+        assert!(!added_again, "re-registration is a no-op");
+        assert_eq!(sources.len(), 1, "no duplicate source for the same domain");
+    }
+
+    #[test]
+    fn self_register_preserves_peer_sources() {
+        // A leaf joining must NOT clobber peers already registered on the agg.
+        let mut sources = vec![stream::Source {
+            name: "events".to_string(),
+            domain: Some("leaf-katies-mini".to_string()),
+            ..Default::default()
+        }];
+        let added = ensure_self_source(&mut sources, "leaf-maxs-air");
+        assert!(added);
+        assert_eq!(sources.len(), 2, "peer source preserved, own source added");
+        let domains: Vec<_> = sources.iter().filter_map(|s| s.domain.as_deref()).collect();
+        assert!(domains.contains(&"leaf-katies-mini"));
+        assert!(domains.contains(&"leaf-maxs-air"));
     }
 }
