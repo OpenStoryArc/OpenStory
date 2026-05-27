@@ -93,13 +93,86 @@ fleet view (local ∪ mirror) → leaf-0:5  leaf-1:5   ✅
 
 2. **Source loops — solved by topology, not by filters.** The split into a publish-only local `events` and a **source-only** `events-mirror` (no subjects → no publishers → structurally cannot loop) is the mechanism. JetStream additionally applies **self-origin loop prevention**: a leaf's mirror *excludes events that originated on that leaf*. So the complete picture on any node is `local events ∪ events-mirror` — **the OpenStory consumer must read both streams** (or read the hub aggregate directly when online). This is the one consumer-side change Idea A forces.
 
-3. **NEW, load-bearing: per-node subject namespacing is mandatory.** First spike run double-counted (`hub agg:10` for 5 events) because the *old* core leafnode subject propagation still cross-pollinated every stream binding `events.>`. Fix: each leaf binds **only its own namespace** `events.<node>.>`. This both removes reliance on the racy core mechanism and stops double-counting. **Schema implication:** today's subject `events.{project}.{session}.main` has no node component; federation needs `events.{node}.{project}.{session}.main` (or equivalent). This is the biggest production change Idea A requires and must land before wiring `ensure_streams`.
+3. **NEW, load-bearing: per-node subject namespacing is mandatory.** First spike run double-counted (`hub agg:10` for 5 events) because the *old* core leafnode subject propagation still cross-pollinated every stream binding `events.>`. Fix: each leaf binds **only its own namespace** `events.<node>.>`. This both removes reliance on the racy core mechanism and stops double-counting. **Schema implication:** today's subject `events.{project}.{session}.main` has no node component; federation needs `events.{host}.{project}.{session}.main`. The `<node>` token **is** the existing `host` primitive (`rs/core/src/host.rs`) — already resolved, cached, and normalized to be *"safe to compose into a NATS subject token"* (its docstring literally anticipates this). So this is a small change (thread `host::host()` into `nats_subject_from_path`), not a new identity invention, and it must land before wiring `ensure_streams`. **Blast radius confirmed low:** nothing parses the subject positionally — routing is wildcard (`events.>`) and `project`/`session` derive from the file path, not the subject — so inserting `{host}` leaves existing subscriptions and consumers intact.
 
 - **Min NATS version:** validated on `nats:2-alpine` (the lab's pin) — no version bump needed.
 
-## Next steps (implementation)
+## Layered identity: federation → permissions → personhood
 
-1. **Subject schema:** add a node component to event subjects (`events.{node}.…`). Gate on federation mode so solo subjects are unchanged.
-2. **`ensure_streams` (federation mode):** local `events` bound to `events.{node}.>`; source-only `events-mirror` sourcing the hub aggregate; self-register into the hub aggregate via the hub-domain API.
-3. **Consumer:** union `events` + `events-mirror` for the fleet view (the persist/broadcast consumers subscribe to both).
-4. **Lab variant:** `lab_federation_jetstream_sources_10_nodes` — domains on, catch-up **off**; assert `fully_mirrored` cold. Compare convergence time + late-joiner behavior against catch-up's 12.8s.
+Federation is not a standalone feature — it is the **first layer of the identity model** the project has been quietly building toward (`docs/research/personhood-and-principals.md`, `docs/research/nats-permissions-spike.md`). All four layers express themselves through the **same NATS mechanism**: the subject string + the account boundary. The subject is the universal coordinate — routing key (core), stream/source filter (JetStream), and permission unit (security) at once. Designing the subject for federation alone would force re-migrating the most load-bearing string in the system three more times. So we design it once, with all four layers in view.
+
+### The codebase already encoded the intent
+
+Two orthogonal, subject-safe identity primitives exist, both stamped on the payload today, both waiting to become subject tokens:
+
+- **`host`** (`rs/core/src/host.rs`) — *"which machine produced this event?"*
+- **`user`** (`rs/core/src/user.rs`) — *"which human did the work?"*
+
+Both normalize identically and document themselves as *"safe to compose into a NATS subject token."* They are the building blocks of the layers below.
+
+### The four layers (each rides subjects + sources + accounts)
+
+| Layer | NATS primitive | Identity primitive | Sovereignty meaning |
+|---|---|---|---|
+| **1. Federation / routing** | subject token + JetStream source filter | `host` in subject | which device, where events flow |
+| **2. Person isolation** | **account** (JetStream is per-account; cross-account only via export/import) | person = account | hard isolation; sharing is deliberate |
+| **3. Permissions / roles** | pub/sub allow-deny over subject patterns; users in account | principal = user-in-account | "persons own, principals act" |
+| **4. Edge sovereignty** | `filter_subject` on sources (egress + ingress) | session-granular | each device decides what it shares & stores |
+
+### The sharpening: `host` ≠ person
+
+The sovereignty boundary is the **person**, not the machine — a person owns many machines. So:
+
+- **Account = person** → the hard isolation boundary. Cross-person convergence is **consent-bound export/import**, not raw mirroring.
+- **`host` = subject token** → the device axis *within* an account — the federation routing this doc's spike needs.
+- **`user` = payload stamp (already done)** → attribution that **survives cross-account sharing** (Katie sees your shared stream; events still read `user=max`).
+
+This reframes the lab's "every machine sees all team data": **intra-person** (your own fleet, one account) is free device mirroring — exactly the JetStream-sources mechanism here. **Inter-person** (a team) is consent-bound sharing layered on top via accounts. Nothing in this design is thrown away when permissions arrive; it gets *scoped*.
+
+### Layer 4: per-device share/store selectivity
+
+Each node decides, at **session granularity**, two orthogonal, **edge-enforced** policies — both implemented with the *same* `filter_subject` lever the spike used for loop-prevention:
+
+- **Share** (egress): whether a session's subject is sourced **up** into the hub aggregate. **A session not shared never leaves the device** — enforced by omission; the hub cannot source what the leaf doesn't expose. This is the strongest form of the soul's "your data is yours."
+- **Store** (ingress): `filter_subject` on the mirror's source **down** from the aggregate, plus store retention — which fleet sessions this device keeps locally.
+
+**Authority vs. enforcement:** the *capability* is enforced at the device (sovereignty is edge-local); the *authority* to set policy is the person's (the directory). "Persons own, principals act."
+
+### Three consistency invariants the implementation MUST uphold
+
+1. **Catch-up respects share.** `/api/digests` + `/api/sessions/{id}/events` (used by `catch_up.rs`) must filter to the **shared set**, or the app-level backstop leaks exactly what the transport correctly withheld.
+2. **Store retention consults the policy.** Always keep your *own* sessions (sovereign local record); mirror others' only where opted in.
+3. **Revocation is a known hard edge.** Un-sharing drops the source (stops new flow instantly); purging already-propagated copies from peers/hub is the revocability problem (personhood Q1/Q9) — named, not assumed free.
+
+## Implementation plan — TDD + testcontainers throughout
+
+**Methodology (non-negotiable, per CLAUDE.md):** red → green → refactor. Every phase starts with a failing test. Convergence/topology behavior is proven with **testcontainers**, not assertions about config — the project's whole integration net is container-based (`rs/tests/test_federation_lab.rs`, `test_leaf_cluster`, `test_deployment_states.rs`, the `nats-permissions` harness on `wip/shape-layers-and-friends`). New behavior gets a container test that *fails first*. Keep the shipped catch-up (`024fcc2`) as the topology-agnostic backstop; sources become the fast native path.
+
+Each phase = its own branch/PR, atomic commits, `just test` before push.
+
+**Phase 1 — `host` in the subject** *(foundation; unblocks all)*
+- RED: extend `rs/tests/test_subject_hierarchy.rs` — assert `events.{host}.{project}.{session}.main` and that `events.{host}.{project}.{session}.>` still fans in main + subagents.
+- GREEN: thread `host::host()` into `nats_subject_from_path` (`rs/core/src/paths.rs`).
+- Blast radius low (no positional subject parsers; wildcard routing unaffected). Solo mode unchanged.
+
+**Phase 2 — JetStream sources federation** *(spike → production; depends on P1)*
+- RED: new testcontainer suite `rs/tests/test_federation_lab.rs::lab_federation_jetstream_sources_10_nodes` — domains on, **catch-up OFF**; assert `fully_mirrored` cold (the scenario that fails 4/4 today). Add a **late-joiner** container variant (one node starts +30s) — sources must still backfill.
+- GREEN: `ensure_streams` federation mode (`OPEN_STORY_HUB_DOMAIN`): local `events` bound to `events.{host}.>`; source-only `events-mirror` sourcing the hub aggregate; self-register into the aggregate via the cross-domain API. Consumers read `events ∪ events-mirror`.
+- Faster inner loop: port the spike's hub+2-leaf shape into the reusable `nats-permissions` subprocess harness for sub-second red/green before the full container lab.
+- **Measure** convergence vs catch-up's 12.8s + aggregate-bytes overhead. **→ v0 ship line is decided here, with numbers in hand.**
+
+**Phase 3 — Accounts = person isolation** *(depends on P2)*
+- RED: testcontainer with two accounts (two persons) — assert person A's JetStream is invisible to person B *without* an explicit export/import; assert export/import makes a shared stream visible. (Extend the `nats-permissions` harness — it already proves account isolation.)
+- GREEN: account dimension in `Config` + `NatsBus::connect()`; v0 single-account but structured so per-person accounts are a config split. Source/mirror wiring parameterized by account.
+
+**Phase 4 — Per-device share/store filters** *(edge sovereignty; depends on P1+P2)*
+- RED: testcontainer — node marks session X private; assert X **never** appears on the hub or any peer (egress filter) and that catch-up/digests also exclude it (invariant ①). Second test: node opts out of storing project Y; assert Y is absent locally but still on the hub (ingress filter). Third: retention keeps own sessions regardless (invariant ②).
+- GREEN: per-node share/store policy (config); `filter_subject` on source-out / source-in; digest + catch-up filtered to shared set; retention consults policy.
+
+**Phase 5 — Grants / roles / permissions** *(fullest realization; depends on P3+P4)*
+- RED: per-subject permission tests on the `nats-permissions` harness (publish/subscribe violations); cross-person export/import = consent-bound sharing; role = permission profile.
+- GREEN: user/password→NKEYs auth; roles catalog; participant directory. Reconcile with in-flight `feat/person-id-fleet-view`.
+
+### Tracking
+
+These become `docs/BACKLOG.md` entries (one per phase, branch-per-item). The stale `BACKLOG.md:457` claim — *"all sessions land on every node, JetStream propagates bidirectionally"* — should be corrected: that's the racy core-propagation this work replaces.
