@@ -94,7 +94,7 @@ fn is_codex_rollout_relative_path(relative: &Path) -> bool {
 ///
 /// The subject hierarchy encodes the parent-child relationship so NATS
 /// wildcard subscriptions can target a session + all its subagents.
-pub fn nats_subject_from_path(path: &Path, watch_dir: &Path) -> String {
+pub fn nats_subject_from_path(path: &Path, watch_dir: &Path, host: &str) -> String {
     let project = project_id_from_path(path, watch_dir).unwrap_or_else(|| "unknown".to_string());
     let session_id = session_id_from_path(path);
     let file_stem = session_id.as_str();
@@ -114,9 +114,9 @@ pub fn nats_subject_from_path(path: &Path, watch_dir: &Path) -> String {
             .and_then(|p| p.file_name())
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
-        format!("events.{project}.{parent_session}.agent.{agent_id}")
+        format!("events.{host}.{project}.{parent_session}.agent.{agent_id}")
     } else {
-        format!("events.{project}.{file_stem}.main")
+        format!("events.{host}.{project}.{file_stem}.main")
     }
 }
 
@@ -224,13 +224,21 @@ mod tests {
 
     // -- nats_subject_from_path --
 
+    // Phase 1 (federation): the subject now carries a leading `host` token —
+    // `events.{host}.{project}.{session}.main` — so each leaf's JetStream
+    // stream can bind only its own `events.{host}.>` namespace (see
+    // docs/research/jetstream-sources-federation.md). Host is injected as a
+    // parameter to keep the builder pure and tests deterministic; production
+    // resolves it once via `crate::host::host()` at the watcher edge.
+    const TEST_HOST: &str = "maxs-air";
+
     #[test]
     fn subject_for_main_agent_session() {
         let watch_dir = PathBuf::from("/home/user/.claude/projects");
         let path = PathBuf::from("/home/user/.claude/projects/my-project/06907d46-uuid.jsonl");
         assert_eq!(
-            nats_subject_from_path(&path, &watch_dir),
-            "events.my-project.06907d46-uuid.main"
+            nats_subject_from_path(&path, &watch_dir, TEST_HOST),
+            "events.maxs-air.my-project.06907d46-uuid.main"
         );
     }
 
@@ -241,8 +249,8 @@ mod tests {
             "/Users/maxglassie/.codex/sessions/2026/05/23/rollout-2026-05-23T08-11-47-019e54bf-aa76-7d03-b3f4-a2571d0c2117.jsonl",
         );
         assert_eq!(
-            nats_subject_from_path(&path, &watch_dir),
-            "events.unknown.019e54bf-aa76-7d03-b3f4-a2571d0c2117.main"
+            nats_subject_from_path(&path, &watch_dir, TEST_HOST),
+            "events.maxs-air.unknown.019e54bf-aa76-7d03-b3f4-a2571d0c2117.main"
         );
     }
 
@@ -253,8 +261,8 @@ mod tests {
             "/home/user/.claude/projects/my-project/06907d46-uuid/subagents/agent-a6dcf911.jsonl",
         );
         assert_eq!(
-            nats_subject_from_path(&path, &watch_dir),
-            "events.my-project.06907d46-uuid.agent.a6dcf911"
+            nats_subject_from_path(&path, &watch_dir, TEST_HOST),
+            "events.maxs-air.my-project.06907d46-uuid.agent.a6dcf911"
         );
     }
 
@@ -265,8 +273,8 @@ mod tests {
             "/home/user/.claude/projects/proj/sess-123/subagents/agent-abc123def.jsonl",
         );
         assert_eq!(
-            nats_subject_from_path(&path, &watch_dir),
-            "events.proj.sess-123.agent.abc123def"
+            nats_subject_from_path(&path, &watch_dir, TEST_HOST),
+            "events.maxs-air.proj.sess-123.agent.abc123def"
         );
     }
 
@@ -275,9 +283,24 @@ mod tests {
         let watch_dir = PathBuf::from("/home/user/.claude/projects");
         let path = PathBuf::from("/home/user/.claude/projects/session.jsonl");
         assert_eq!(
-            nats_subject_from_path(&path, &watch_dir),
-            "events.unknown.session.main"
+            nats_subject_from_path(&path, &watch_dir, TEST_HOST),
+            "events.maxs-air.unknown.session.main"
         );
+    }
+
+    #[test]
+    fn host_token_lets_one_leaf_bind_its_own_namespace() {
+        // The federation invariant: two hosts in the same project/session
+        // produce distinct top-level namespaces, so a leaf binding
+        // `events.{host}.>` captures only its own events (no cross-pollination).
+        let watch = PathBuf::from("/watch");
+        let path = PathBuf::from("/watch/proj/sess.jsonl");
+        let a = nats_subject_from_path(&path, &watch, "maxs-air");
+        let b = nats_subject_from_path(&path, &watch, "katies-mini");
+        assert_eq!(a, "events.maxs-air.proj.sess.main");
+        assert_eq!(b, "events.katies-mini.proj.sess.main");
+        assert!(a.starts_with("events.maxs-air."));
+        assert!(!b.starts_with("events.maxs-air."));
     }
 
     // ── T3: characterization — current behavior under unusual paths ────
@@ -293,8 +316,8 @@ mod tests {
         let watch = PathBuf::from("/watch");
         let path = PathBuf::from("/watch/my.project/sess.jsonl");
         assert_eq!(
-            nats_subject_from_path(&path, &watch),
-            "events.my.project.sess.main"
+            nats_subject_from_path(&path, &watch, TEST_HOST),
+            "events.maxs-air.my.project.sess.main"
         );
     }
 
@@ -305,8 +328,8 @@ mod tests {
         // flows through verbatim. The event would fail to publish.
         let watch = PathBuf::from("/watch");
         let path = PathBuf::from("/watch/My Project/sess.jsonl");
-        let subject = nats_subject_from_path(&path, &watch);
-        assert_eq!(subject, "events.My Project.sess.main");
+        let subject = nats_subject_from_path(&path, &watch, TEST_HOST);
+        assert_eq!(subject, "events.maxs-air.My Project.sess.main");
         assert!(
             subject.contains(' '),
             "space survives into subject — NATS publish will fail"
@@ -320,8 +343,8 @@ mod tests {
         let watch = PathBuf::from("/watch");
         let path = PathBuf::from("/watch/proj/sess-*.jsonl");
         assert_eq!(
-            nats_subject_from_path(&path, &watch),
-            "events.proj.sess-*.main"
+            nats_subject_from_path(&path, &watch, TEST_HOST),
+            "events.maxs-air.proj.sess-*.main"
         );
     }
 }
