@@ -49,6 +49,14 @@
         "null"
       ]
     },
+    "origin_agent": {
+      "default": null,
+      "description": "Agent platform that produced this session (for example `claude-code`, `codex`, `pi-mono`, or `hermes`). Populated from the first CloudEvent in a batch and coalesced like host/user.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "project_id": {
       "type": [
         "string",

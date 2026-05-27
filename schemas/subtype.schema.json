@@ -28,6 +28,20 @@
       "type": "string"
     },
     {
+      "description": "Codex emits a per-turn context frame (cwd, model, timezone) before the turn's events.",
+      "enum": [
+        "system.turn.context"
+      ],
+      "type": "string"
+    },
+    {
+      "description": "Codex emits running token accounting as a `token_count` event_msg.",
+      "enum": [
+        "system.token_count"
+      ],
+      "type": "string"
+    },
+    {
       "description": "Claude Code emits this with camelCase on the wire.",
       "enum": [
         "queue.popAll"

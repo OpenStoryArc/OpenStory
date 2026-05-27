@@ -43,6 +43,7 @@ mod wire_record_serialization {
                 }),
                 agent_id: None,
                 is_sidechain: false,
+                origin_agent: None,
             },
             depth,
             parent_uuid: parent_uuid.map(|s| s.to_string()),

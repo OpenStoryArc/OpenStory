@@ -1653,6 +1653,13 @@
           "description": "Whether this event belongs to a sidechain (subagent file).",
           "type": "boolean"
         },
+        "origin_agent": {
+          "description": "Origin platform that produced the event (for example `claude-code` or `codex`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "seq": {
           "description": "Sequence number from open-story's ingest pipeline.",
           "format": "uint64",
@@ -1936,6 +1943,13 @@
           "default": false,
           "description": "Whether this event belongs to a sidechain (subagent file).",
           "type": "boolean"
+        },
+        "origin_agent": {
+          "description": "Origin platform that produced the event (for example `claude-code` or `codex`).",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "parent_uuid": {
           "description": "Parent event UUID, if not a root node.",
