@@ -299,6 +299,193 @@ async fn lab_federation_full_mirror_10_nodes_cold() {
     );
 }
 
+/// Orchestrate a late-joiner T2 test: bring up nats-hub + hub + every
+/// nats-leaf and node EXCEPT the last leaf; wait for that subset to fully
+/// mirror; sleep `late_delay_secs`; bring up the late leaf; wait for the
+/// full fleet to converge. Returns the final LabResult including total
+/// elapsed (initial settle + delay + backfill).
+async fn run_lab_federation_late_joiner(nodes: usize, events: usize, late_delay_secs: u64) -> LabResult {
+    assert!(nodes >= 2, "late-joiner needs at least 2 nodes");
+    eprintln!(
+        "\n  ══ Lab federation (late joiner, cold): {nodes} nodes × {events} events, late=+{late_delay_secs}s ══"
+    );
+    let fixtures = tempfile::TempDir::new().unwrap();
+    let node_dirs = generate_node_fixtures(fixtures.path(), nodes, events);
+    let compose_file = fixtures.path().join("docker-compose.lab.yml");
+    std::fs::write(&compose_file, generate_lab_compose(&node_dirs, false)).unwrap();
+
+    let project = format!("oslab-lj-{nodes}-{}", std::process::id());
+    let lab = Lab {
+        project: project.clone(),
+        compose_file: compose_file.clone(),
+        _fixtures: fixtures,
+    };
+
+    // Phase 1 — bring up nats-hub + hub + nodes 0..N-1 (excluding the last).
+    let last = nodes - 1;
+    let mut up1_args = vec![
+        "compose".to_string(),
+        "-f".to_string(),
+        compose_file.to_string_lossy().into_owned(),
+        "-p".to_string(),
+        project.clone(),
+        "up".to_string(),
+        "-d".to_string(),
+        "--remove-orphans".to_string(),
+        "nats-hub".to_string(),
+        "hub".to_string(),
+    ];
+    for i in 0..last {
+        up1_args.push(format!("nats-leaf-{i}"));
+        up1_args.push(format!("node-{i}"));
+    }
+    let started = Instant::now();
+    let up = Command::new("docker")
+        .args(&up1_args)
+        .env("MSYS_NO_PATHCONV", "1")
+        .output()
+        .expect("compose up phase 1");
+    if !up.status.success() {
+        eprintln!(
+            "  compose up phase-1 FAILED:\n  {}",
+            String::from_utf8_lossy(&up.stderr).lines().take(8).collect::<Vec<_>>().join("\n  ")
+        );
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    }
+
+    // Wait for hub + the first N-1 nodes to fully mirror the N-1 sessions.
+    let Some(hub_port) = wait_for_service_port(&project, &compose_file, "hub").await else {
+        eprintln!("  never discovered hub port (phase 1)");
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    };
+    let mut early_node_ports: Vec<u16> = Vec::new();
+    for i in 0..last {
+        if let Some(p) = wait_for_service_port(&project, &compose_file, &format!("node-{i}")).await {
+            early_node_ports.push(p);
+        }
+    }
+    let early_expected: BTreeSet<String> = (0..last).map(|i| format!("node-{i}")).collect();
+    let phase1_deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let hub = session_ids(hub_port).await;
+        let hub_ok = early_expected.is_subset(&hub);
+        let mut min = usize::MAX;
+        for &p in &early_node_ports {
+            min = min.min(session_ids(p).await.len());
+        }
+        let nodes_ok = early_node_ports.is_empty() || min >= last;
+        if hub_ok && nodes_ok {
+            break;
+        }
+        if Instant::now() >= phase1_deadline {
+            eprintln!("  phase 1 never converged (hub_ok={hub_ok}, min={min}/{last})");
+            return LabResult { nodes, hub_has: hub.len(), min_node_has: min, fully_mirrored: false, elapsed: started.elapsed() };
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    eprintln!("    phase 1 settled in {:.1}s ({last}/{last} mirrored)", started.elapsed().as_secs_f64());
+
+    // Late-joiner delay.
+    tokio::time::sleep(Duration::from_secs(late_delay_secs)).await;
+    let late_start = Instant::now();
+
+    // Phase 2 — bring up the last nats-leaf + node.
+    let up2 = Command::new("docker")
+        .args([
+            "compose",
+            "-f",
+            &compose_file.to_string_lossy(),
+            "-p",
+            &project,
+            "up",
+            "-d",
+            &format!("nats-leaf-{last}"),
+            &format!("node-{last}"),
+        ])
+        .env("MSYS_NO_PATHCONV", "1")
+        .output()
+        .expect("compose up phase 2");
+    if !up2.status.success() {
+        eprintln!(
+            "  compose up phase-2 FAILED:\n  {}",
+            String::from_utf8_lossy(&up2.stderr).lines().take(8).collect::<Vec<_>>().join("\n  ")
+        );
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    }
+    let Some(late_port) = wait_for_service_port(&project, &compose_file, &format!("node-{last}")).await else {
+        eprintln!("  never discovered late node-{last} port");
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    };
+    let mut all_node_ports = early_node_ports.clone();
+    all_node_ports.push(late_port);
+
+    // Wait for full convergence: hub sees all N, every leaf (including the
+    // late one) mirrors all N.
+    let expected: BTreeSet<String> = (0..nodes).map(|i| format!("node-{i}")).collect();
+    let backfill_deadline = Instant::now() + Duration::from_secs(60);
+    let mut hub_has = 0;
+    let mut min_node_has = 0;
+    loop {
+        let hub = session_ids(hub_port).await;
+        hub_has = hub.len();
+        let mut min = usize::MAX;
+        for &p in &all_node_ports {
+            min = min.min(session_ids(p).await.len());
+        }
+        min_node_has = min;
+        if expected.is_subset(&hub) && min_node_has >= nodes {
+            break;
+        }
+        if Instant::now() >= backfill_deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let backfill_elapsed = late_start.elapsed();
+    let total_elapsed = started.elapsed();
+    let fully_mirrored = hub_has >= nodes && min_node_has >= nodes;
+    eprintln!(
+        "  late joiner backfill: hub {hub_has}/{nodes}, slowest node {min_node_has}/{nodes} in {:.1}s after late start (total {:.1}s, fully_mirrored={fully_mirrored})",
+        backfill_elapsed.as_secs_f64(),
+        total_elapsed.as_secs_f64()
+    );
+    drop(lab);
+    LabResult { nodes, hub_has, min_node_has, fully_mirrored, elapsed: total_elapsed }
+}
+
+async fn wait_for_service_port(project: &str, compose_file: &Path, service: &str) -> Option<u16> {
+    for _ in 0..40 {
+        if let Some(p) = service_port(project, compose_file, service) {
+            return Some(p);
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    None
+}
+
+/// T2 late-joiner backfill (Phase 2b Step 3) — `N-1` nodes come up first
+/// and fully mirror, then the Nth node starts +30s later. Asserts the late
+/// joiner catches up *gap-free*: hub sees all N sessions, the late leaf
+/// mirrors the existing N-1 sessions via `events-mirror`, and every other
+/// leaf picks up the late joiner's own session.
+///
+/// Cold (catch-up OFF) — proves the JetStream sources transport backfills
+/// a node that joins after the rest of the fleet has settled. This is the
+/// cold-boot race that historically failed 4/4 (federation-boot-window-loss
+/// memory): the JetStream sources path closes it because the late mirror
+/// sources from `events-agg` with `DeliverPolicy::All`, replaying the full
+/// history of every peer's events.
+#[tokio::test]
+#[ignore]
+async fn lab_federation_late_joiner_10_nodes_cold() {
+    let r = run_lab_federation_late_joiner(10, 12, 30).await;
+    assert!(
+        r.fully_mirrored,
+        "late joiner cold: every node must mirror all {} sessions (hub {}/{}, slowest node {}/{})",
+        r.nodes, r.hub_has, r.nodes, r.min_node_has, r.nodes
+    );
+}
+
 /// Ramp the faithful topology until full mirroring breaks — the single-host
 /// ceiling for the real lab shape (≈2 containers/node).
 #[tokio::test]
