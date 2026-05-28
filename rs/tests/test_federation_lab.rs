@@ -598,6 +598,153 @@ async fn lab_federation_t1_solo_multi_device_3_nodes_cold() {
     );
 }
 
+// ── T3 (multi-hub mesh) ────────────────────────────────────────────────────
+// Two hubs source each other; leaves split across them. Proves loop-prevention
+// and the per-host namespacing claim at the hub tier: a given event has
+// exactly one origin host, so it lands once in each hub's events-agg
+// regardless of how many hops it took.
+
+/// NATS hub-A for T3 — listens for incoming leafnodes (both real leaves and
+/// hub-B). JetStream `domain: hub-a` so cross-domain sources reach it.
+fn t3_hub_a_nats_service() -> String {
+    format!(
+        "  nats-hub-a:\n    image: nats:2-alpine\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'NCFG'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: \"hub-a\" }}\n        authorization {{ token: \"{TOKEN}\" }}\n        leafnodes {{ listen: \"0.0.0.0:7422\" }}\n        NCFG\n        exec nats-server -c /tmp/nats.conf\n"
+    )
+}
+
+/// NATS hub-B for T3 — leafnoded UP to hub-A (asymmetric: hub-B is a leaf of
+/// hub-A) AND listens for its own leaves. JetStream `domain: hub-b`. The
+/// leafnode link to hub-A is what carries cross-domain `$JS.hub-a.API` /
+/// `$JS.hub-b.API` reachability between the two hubs.
+fn t3_hub_b_nats_service() -> String {
+    format!(
+        "  nats-hub-b:\n    image: nats:2-alpine\n    depends_on: [nats-hub-a]\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'NCFG'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: \"hub-b\" }}\n        authorization {{ token: \"{TOKEN}\" }}\n        leafnodes {{ listen: \"0.0.0.0:7422\", remotes [ {{ url: \"nats://{TOKEN}@nats-hub-a:7422\" }} ] }}\n        NCFG\n        exec nats-server -c /tmp/nats.conf\n"
+    )
+}
+
+/// A leaf NATS in T3 — connects to a specific hub by label.
+fn t3_leaf_nats_service(i: usize, hub_label: char) -> String {
+    let lower = hub_label.to_ascii_lowercase();
+    format!(
+        "  nats-leaf-{i}:\n    image: nats:2-alpine\n    depends_on: [nats-hub-{lower}]\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'NCFG'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: \"node-{i}\" }}\n        leafnodes {{ remotes [ {{ url: \"nats://{TOKEN}@nats-hub-{lower}:7422\" }} ] }}\n        NCFG\n        exec nats-server -c /tmp/nats.conf\n"
+    )
+}
+
+/// Build a T3 compose: 2 hubs (a, b) source each other, N leaves split.
+/// Leaf i attaches to hub-a if i is even, hub-b if i is odd.
+fn generate_t3_lab_compose(node_dirs: &[PathBuf]) -> String {
+    let mut yaml = String::from("services:\n");
+    yaml.push_str(&t3_hub_a_nats_service());
+    yaml.push_str(&t3_hub_b_nats_service());
+    // openstory hubs — each sources the OTHER hub's events-agg.
+    for &(label, peer) in &[('a', 'b'), ('b', 'a')] {
+        let lower = label;
+        let plower = peer;
+        yaml.push_str(&format!(
+            "  hub-{lower}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"consumer\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://{TOKEN}@nats-hub-{lower}:4222\", \"--data-dir\", \"/data\"]\n    environment:\n      - OPEN_STORY_HUB_DOMAIN=hub-{lower}\n      - OPEN_STORY_PEER_HUB_DOMAINS=hub-{plower}\n    ports:\n      - \"3002\"\n    depends_on:\n      - nats-hub-{lower}\n      - nats-hub-{plower}\n"
+        ));
+    }
+    for (i, dir) in node_dirs.iter().enumerate() {
+        let hub_label = if i % 2 == 0 { 'a' } else { 'b' };
+        yaml.push_str(&t3_leaf_nats_service(i, hub_label));
+        yaml.push_str(&format!(
+            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    environment:\n      - OPEN_STORY_HOST=node-{i}\n      - OPEN_STORY_HUB_DOMAIN=hub-{hub_label}\n    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on: [nats-leaf-{i}]\n",
+            mount = docker_path(dir),
+        ));
+    }
+    yaml
+}
+
+async fn run_t3_lab(nodes: usize, events: usize) -> LabResult {
+    eprintln!("\n  ══ Lab T3 (multi-hub mesh): {nodes} nodes × {events} events (2 hubs, leaves split) ══");
+    let fixtures = tempfile::TempDir::new().unwrap();
+    let node_dirs = generate_node_fixtures(fixtures.path(), nodes, events);
+    let compose_file = fixtures.path().join("docker-compose.t3.yml");
+    std::fs::write(&compose_file, generate_t3_lab_compose(&node_dirs)).unwrap();
+
+    let project = format!("ost3-{nodes}-{}", std::process::id());
+    let lab = Lab {
+        project: project.clone(),
+        compose_file: compose_file.clone(),
+        _fixtures: fixtures,
+    };
+
+    let started = Instant::now();
+    let up = Command::new("docker")
+        .args([
+            "compose", "-f", &compose_file.to_string_lossy(),
+            "-p", &project, "up", "-d", "--remove-orphans",
+        ])
+        .env("MSYS_NO_PATHCONV", "1")
+        .output()
+        .expect("compose up");
+    if !up.status.success() {
+        eprintln!(
+            "  compose up FAILED:\n  {}",
+            String::from_utf8_lossy(&up.stderr).lines().take(8).collect::<Vec<_>>().join("\n  ")
+        );
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    }
+
+    // Two hubs — assert BOTH reach the full session set, and every leaf does.
+    let hub_a_port = wait_for_service_port(&project, &compose_file, "hub-a").await;
+    let hub_b_port = wait_for_service_port(&project, &compose_file, "hub-b").await;
+    let (Some(hub_a_port), Some(hub_b_port)) = (hub_a_port, hub_b_port) else {
+        eprintln!("  never discovered both hub ports");
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    };
+    let mut node_ports: Vec<u16> = Vec::new();
+    for i in 0..nodes {
+        if let Some(p) = wait_for_service_port(&project, &compose_file, &format!("node-{i}")).await {
+            node_ports.push(p);
+        }
+    }
+
+    let expected: BTreeSet<String> = (0..nodes).map(|i| format!("node-{i}")).collect();
+    let timeout = Duration::from_secs((90 + nodes as u64 * 6).min(240));
+    let deadline = Instant::now() + timeout;
+    let mut hub_min = 0;
+    let mut min_node_has = 0;
+    loop {
+        let a = session_ids(hub_a_port).await;
+        let b = session_ids(hub_b_port).await;
+        hub_min = a.len().min(b.len());
+        let mut min = usize::MAX;
+        for &p in &node_ports {
+            min = min.min(session_ids(p).await.len());
+        }
+        min_node_has = if node_ports.is_empty() { 0 } else { min };
+        if expected.is_subset(&a) && expected.is_subset(&b) && min_node_has >= nodes {
+            break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let elapsed = started.elapsed();
+    let fully_mirrored = hub_min >= nodes && min_node_has >= nodes;
+    eprintln!(
+        "  T3 {nodes} nodes → hub-min {hub_min}/{nodes}, slowest node {min_node_has}/{nodes} in {:.1}s, fully_mirrored={fully_mirrored}",
+        elapsed.as_secs_f64()
+    );
+    drop(lab);
+    LabResult { nodes, hub_has: hub_min, min_node_has, fully_mirrored, elapsed }
+}
+
+/// T3 multi-hub mesh — 4 leaves split across 2 hubs that source each other.
+/// Cold catch-up OFF. Asserts every leaf and every hub sees all 4 sessions.
+#[tokio::test]
+#[ignore]
+async fn lab_federation_t3_multi_hub_4_nodes_cold() {
+    let r = run_t3_lab(4, 12).await;
+    assert!(
+        r.fully_mirrored,
+        "T3 cold: every hub and leaf must mirror all {} sessions (hub-min {}/{}, slowest node {}/{})",
+        r.nodes, r.hub_has, r.nodes, r.min_node_has, r.nodes
+    );
+}
+
 async fn wait_for_service_port(project: &str, compose_file: &Path, service: &str) -> Option<u16> {
     for _ in 0..40 {
         if let Some(p) = service_port(project, compose_file, service) {

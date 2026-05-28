@@ -463,16 +463,25 @@ async fn main() -> Result<()> {
             });
             let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
 
+            // T3 multi-hub mesh: a hub also sources peer hubs' aggregates.
+            let peer_hub_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .unwrap_or_default();
+
             let bus: Arc<dyn Bus> = if let Some(dom) = hub_domain.clone().filter(|_| is_hub) {
                 // Hub role: own NATS configured with `domain: <dom>`; create
                 // events-agg so leaves can self-register sources into it.
+                // In T3, also source peer hubs' events-agg streams.
                 match NatsBus::connect_hub(&nats_url, &dom).await {
                     Ok(nats_bus) => {
                         nats_bus.ensure_streams().await
                             .with_context(|| "NATS stream setup (hub) failed")?;
-                        nats_bus.ensure_aggregate().await
+                        nats_bus.ensure_aggregate(&peer_hub_domains).await
                             .with_context(|| "NATS events-agg setup (hub) failed")?;
-                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom})");
+                        let peer_label = if peer_hub_domains.is_empty() { String::new() } else { format!(" peers=[{}]", peer_hub_domains.join(",")) };
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom}{peer_label})");
                         Arc::new(nats_bus)
                     }
                     Err(e) => anyhow::bail!("NATS unavailable (hub): {e}\nNATS URL: {nats_url}"),

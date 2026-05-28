@@ -52,6 +52,10 @@ pub struct NatsBus {
     /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
     /// underlying NATS server is configured with that domain too.
     jetstream: jetstream::Context,
+    /// The JetStream domain `jetstream` is pinned to, when federation is
+    /// active. `None` in solo mode. Carried explicitly because the
+    /// async-nats Context doesn't expose its domain via a public getter.
+    local_domain: Option<String>,
     client: async_nats::Client,
     federation: Option<Federation>,
 }
@@ -113,7 +117,7 @@ impl NatsBus {
             Some(d) => jetstream::with_domain(client.clone(), d),
         };
 
-        Ok(Self { jetstream, client, federation })
+        Ok(Self { jetstream, local_domain, client, federation })
     }
 
     /// Extract token from `nats://TOKEN@host:port` URL.
@@ -221,12 +225,36 @@ impl NatsBus {
     /// sources on it. Idempotent: `get_or_create_stream` handles re-runs.
     /// The aggregate is source-only — leaves register themselves, no
     /// subjects are ever published directly to it.
-    pub async fn ensure_aggregate(&self) -> Result<()> {
+    ///
+    /// For **T3 multi-hub mesh**, pass the domains of peer hubs whose
+    /// `events-agg` should also be sourced into this one. Hub-to-hub
+    /// sourcing converges without double-counting thanks to per-host
+    /// subject namespacing — a given event has exactly one origin host.
+    pub async fn ensure_aggregate(&self, peer_hub_domains: &[String]) -> Result<()> {
         self.jetstream
             .get_or_create_stream(events_aggregate_config())
             .await
             .context("failed to create/get 'events-agg' JetStream stream")?;
+        if !peer_hub_domains.is_empty() {
+            let my_hub_domain = self
+                .jetstream_domain()
+                .ok_or_else(|| anyhow::anyhow!("hub mode requires a JetStream domain"))?;
+            register_peer_hubs(self.client.clone(), &my_hub_domain, peer_hub_domains)
+                .await
+                .context("failed to register peer hubs on events-agg")?;
+        }
         Ok(())
+    }
+
+    /// The JetStream domain this bus's local context is pinned to, if any.
+    /// Used by `ensure_aggregate` for T3 cross-domain access into our own
+    /// `events-agg`.
+    fn jetstream_domain(&self) -> Option<String> {
+        // Round-trip through the context's prefix: `$JS.<domain>.API`.
+        // We stored the client and domain at construction time, but the
+        // Context doesn't expose its domain directly. Carry it explicitly
+        // below — see the `local_domain` field added in this commit.
+        self.local_domain.clone()
     }
 
     /// Create an ephemeral push consumer on the named stream filtered by
@@ -539,6 +567,40 @@ pub(crate) fn events_aggregate_config() -> stream::Config {
     }
 }
 
+/// Idempotently add peer hubs' `events-agg` streams as sources on the
+/// shared aggregate list, so a leaf attached to *this* hub also receives
+/// events from leaves attached to peer hubs. Same merge semantics as
+/// [`ensure_self_source`] (idempotent + additive), keyed by
+/// `(name="events-agg", external.api="$JS.<peer>.API")`.
+///
+/// This is the T3 multi-hub mesh primitive. Combined with the per-host
+/// subject namespacing (`events.{host}.>`) each leaf publishes, hub-to-hub
+/// sourcing converges without double-counting: a given event has exactly
+/// one origin host, so it appears once in each hub's events-agg regardless
+/// of how many hops it took.
+pub(crate) fn ensure_peer_hub_source(
+    sources: &mut Vec<stream::Source>,
+    peer_hub_domain: &str,
+) -> bool {
+    let want_prefix = js_api_prefix(peer_hub_domain);
+    let already = sources.iter().any(|s| {
+        s.name == "events-agg"
+            && s.external.as_ref().map(|e| e.api_prefix.as_str()) == Some(want_prefix.as_str())
+    });
+    if already {
+        return false;
+    }
+    sources.push(stream::Source {
+        name: "events-agg".to_string(),
+        external: Some(stream::External {
+            api_prefix: want_prefix,
+            delivery_prefix: None,
+        }),
+        ..Default::default()
+    });
+    true
+}
+
 /// Cross-domain self-registration on the hub aggregate (Option 3 in action).
 ///
 /// Reads the hub's `events-agg` config across the JetStream domain boundary,
@@ -549,6 +611,54 @@ pub(crate) fn events_aggregate_config() -> stream::Config {
 /// source already there and re-applies its own on retry.
 ///
 /// Returns `Ok(())` whether registration was newly added or already present.
+/// Idempotently add each peer hub's `events-agg` as a source on **this**
+/// hub's `events-agg`. The T3 multi-hub mesh setup step the hub runs on
+/// boot. Uses the same get→merge→update→retry pattern as
+/// [`register_self_with_hub`]; the merge is additive (peers preserved),
+/// so a concurrent hub joining doesn't lose this hub's existing sources.
+pub(crate) async fn register_peer_hubs(
+    client: async_nats::Client,
+    my_hub_domain: &str,
+    peer_hub_domains: &[String],
+) -> Result<()> {
+    let my_js = jetstream::with_domain(client, my_hub_domain);
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..5u32 {
+        let mut agg = match my_js.get_stream("events-agg").await {
+            Ok(s) => s,
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!("get_stream(events-agg) failed: {e}"));
+                tokio::time::sleep(std::time::Duration::from_millis(100 * (1u64 << attempt))).await;
+                continue;
+            }
+        };
+        let mut cfg = agg.info().await
+            .with_context(|| "info(events-agg) failed")?
+            .config
+            .clone();
+        let mut sources = cfg.sources.unwrap_or_default();
+        let mut any_added = false;
+        for peer in peer_hub_domains {
+            if ensure_peer_hub_source(&mut sources, peer) {
+                any_added = true;
+            }
+        }
+        cfg.sources = Some(sources);
+        if !any_added {
+            return Ok(()); // all peer hubs already registered
+        }
+        match my_js.update_stream(&cfg).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!("update_stream(events-agg) failed: {e}"));
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("peer hub registration failed: unknown")))
+        .context("peer-hub registration on events-agg exhausted retries")
+}
+
 pub(crate) async fn register_self_with_hub(
     client: async_nats::Client,
     hub_domain: &str,
@@ -705,6 +815,42 @@ mod federation_config_tests {
         let added_again = ensure_self_source(&mut sources, "leaf-maxs-air");
         assert!(!added_again, "re-registration is a no-op");
         assert_eq!(sources.len(), 1, "no duplicate source for the same domain");
+    }
+
+    // ── T3 multi-hub mesh: hub-to-hub source registration ─────────────────
+
+    #[test]
+    fn peer_hub_register_adds_agg_source_to_empty_list() {
+        let mut sources = vec![];
+        let added = ensure_peer_hub_source(&mut sources, "hub-B");
+        assert!(added);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "events-agg");
+        let ext = sources[0].external.as_ref().expect("external set");
+        assert_eq!(ext.api_prefix, "$JS.hub-B.API");
+    }
+
+    #[test]
+    fn peer_hub_register_is_idempotent() {
+        let mut sources = vec![];
+        ensure_peer_hub_source(&mut sources, "hub-B");
+        let again = ensure_peer_hub_source(&mut sources, "hub-B");
+        assert!(!again);
+        assert_eq!(sources.len(), 1);
+    }
+
+    #[test]
+    fn peer_hub_and_leaf_sources_coexist() {
+        // A hub aggregate carries BOTH leaf sources (name=events) and peer
+        // hub sources (name=events-agg). The merge functions must not
+        // collide with each other.
+        let mut sources = vec![];
+        ensure_self_source(&mut sources, "leaf-maxs-air");
+        ensure_peer_hub_source(&mut sources, "hub-B");
+        assert_eq!(sources.len(), 2);
+        let names: Vec<_> = sources.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"events"));
+        assert!(names.contains(&"events-agg"));
     }
 
     #[test]
