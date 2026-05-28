@@ -453,6 +453,151 @@ async fn run_lab_federation_late_joiner(nodes: usize, events: usize, late_delay_
     LabResult { nodes, hub_has, min_node_has, fully_mirrored, elapsed: total_elapsed }
 }
 
+// ── T1 (solo multi-device, no hub) ─────────────────────────────────────────
+// N devices peering directly via JetStream cross-domain sources. There is
+// no openstory hub container and no `events-agg`; each device's mirror
+// sources every peer's local `events` stream. A "rendezvous-only" NATS is
+// still needed for leafnode routing — it's plain infrastructure, runs no
+// JetStream domain, holds no application streams.
+
+/// Rendezvous NATS: leafnode listener only. JetStream disabled because it
+/// doesn't host any application streams in T1 — it's purely a routing relay
+/// so leaves can reach each other's `$JS.<peer>.API` over leafnode hops.
+fn t1_rendezvous_nats_service() -> String {
+    format!(
+        "  nats-rendezvous:\n    image: nats:2-alpine\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'NCFG'\n        listen: 0.0.0.0:4222\n        authorization {{ token: \"{TOKEN}\" }}\n        leafnodes {{ listen: \"0.0.0.0:7422\" }}\n        NCFG\n        exec nats-server -c /tmp/nats.conf\n"
+    )
+}
+
+fn generate_t1_lab_compose(node_dirs: &[PathBuf]) -> String {
+    let n = node_dirs.len();
+    let mut yaml = String::from("services:\n");
+    yaml.push_str(&t1_rendezvous_nats_service());
+    // Each device's peer list: every node EXCEPT itself.
+    let all_hosts: Vec<String> = (0..n).map(|i| format!("node-{i}")).collect();
+    for (i, dir) in node_dirs.iter().enumerate() {
+        // Leaf NATS: JetStream domain == this device's host, leafnoded to
+        // the rendezvous so peers can reach this node's $JS.node-{i}.API.
+        yaml.push_str(&format!(
+            "  nats-leaf-{i}:\n    image: nats:2-alpine\n    depends_on: [nats-rendezvous]\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'NCFG'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: \"node-{i}\" }}\n        leafnodes {{ remotes [ {{ url: \"nats://{TOKEN}@nats-rendezvous:7422\" }} ] }}\n        NCFG\n        exec nats-server -c /tmp/nats.conf\n"
+        ));
+        // openstory node: federation mesh mode (peer list excludes self).
+        let peers: Vec<&str> = all_hosts
+            .iter()
+            .filter(|h| h.as_str() != format!("node-{i}").as_str())
+            .map(|s| s.as_str())
+            .collect();
+        let peer_csv = peers.join(",");
+        yaml.push_str(&format!(
+            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    environment:\n      - OPEN_STORY_HOST=node-{i}\n      - OPEN_STORY_PEER_DOMAINS={peer_csv}\n    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on: [nats-leaf-{i}]\n",
+            mount = docker_path(dir),
+        ));
+    }
+    yaml
+}
+
+async fn run_t1_lab(nodes: usize, events: usize) -> LabResult {
+    eprintln!("\n  ══ Lab T1 (solo multi-device, no hub): {nodes} nodes × {events} events ══");
+    let fixtures = tempfile::TempDir::new().unwrap();
+    let node_dirs = generate_node_fixtures(fixtures.path(), nodes, events);
+    let compose_file = fixtures.path().join("docker-compose.t1.yml");
+    std::fs::write(&compose_file, generate_t1_lab_compose(&node_dirs)).unwrap();
+
+    let project = format!("ost1-{nodes}-{}", std::process::id());
+    let lab = Lab {
+        project: project.clone(),
+        compose_file: compose_file.clone(),
+        _fixtures: fixtures,
+    };
+
+    let started = Instant::now();
+    let up = Command::new("docker")
+        .args([
+            "compose",
+            "-f",
+            &compose_file.to_string_lossy(),
+            "-p",
+            &project,
+            "up",
+            "-d",
+            "--remove-orphans",
+        ])
+        .env("MSYS_NO_PATHCONV", "1")
+        .output()
+        .expect("compose up");
+    if !up.status.success() {
+        eprintln!(
+            "  compose up FAILED:\n  {}",
+            String::from_utf8_lossy(&up.stderr).lines().take(8).collect::<Vec<_>>().join("\n  ")
+        );
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    }
+
+    // No hub in T1 — discover every node port directly.
+    let mut node_ports: Vec<u16> = Vec::with_capacity(nodes);
+    for i in 0..nodes {
+        if let Some(p) = wait_for_service_port(&project, &compose_file, &format!("node-{i}")).await {
+            node_ports.push(p);
+        }
+    }
+    if node_ports.len() != nodes {
+        eprintln!("  only discovered {}/{nodes} node ports", node_ports.len());
+        return LabResult { nodes, hub_has: 0, min_node_has: 0, fully_mirrored: false, elapsed: started.elapsed() };
+    }
+
+    let expected: BTreeSet<String> = (0..nodes).map(|i| format!("node-{i}")).collect();
+    let timeout = Duration::from_secs((60 + nodes as u64 * 6).min(180));
+    let deadline = Instant::now() + timeout;
+    let mut min_node_has = 0;
+    loop {
+        let mut min = usize::MAX;
+        for &p in &node_ports {
+            min = min.min(session_ids(p).await.len());
+        }
+        min_node_has = min;
+        // Convergence in T1: every node sees every session (no hub).
+        let mut all_have_all = true;
+        for &p in &node_ports {
+            let s = session_ids(p).await;
+            if !expected.is_subset(&s) {
+                all_have_all = false;
+                break;
+            }
+        }
+        if all_have_all {
+            break;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let elapsed = started.elapsed();
+    let fully_mirrored = min_node_has >= nodes;
+    eprintln!(
+        "  T1 {nodes} nodes → slowest node {min_node_has}/{nodes} in {:.1}s, fully_mirrored={fully_mirrored}",
+        elapsed.as_secs_f64()
+    );
+    drop(lab);
+    // hub_has is meaningless in T1 — reuse min_node_has so the result type
+    // stays the same; assertions key off `fully_mirrored` or `min_node_has`.
+    LabResult { nodes, hub_has: min_node_has, min_node_has, fully_mirrored, elapsed }
+}
+
+/// T1 solo multi-device, 3 nodes — Phase 2b Step 4. The laptop/desktop/phone
+/// case: no hub, every device sources every other device's `events` stream
+/// directly. Asserts every device converges to all 3 sessions cold.
+#[tokio::test]
+#[ignore]
+async fn lab_federation_t1_solo_multi_device_3_nodes_cold() {
+    let r = run_t1_lab(3, 12).await;
+    assert!(
+        r.fully_mirrored,
+        "T1 cold: every device must mirror all {} sessions (slowest {}/{})",
+        r.nodes, r.min_node_has, r.nodes
+    );
+}
+
 async fn wait_for_service_port(project: &str, compose_file: &Path, service: &str) -> Option<u16> {
     for _ in 0..40 {
         if let Some(p) = service_port(project, compose_file, service) {

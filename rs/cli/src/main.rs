@@ -18,7 +18,7 @@ use open_story::server::Config;
 use open_story::server::config::{DataBackend, Role};
 use open_story::watcher;
 use open_story_bus::Bus;
-use open_story_bus::nats_bus::{Federation, NatsBus};
+use open_story_bus::nats_bus::{Federation, FederationPeers, NatsBus};
 use open_story_store::sqlite_store::SqliteStore;
 
 #[derive(Parser, Debug)]
@@ -449,17 +449,77 @@ async fn main() -> Result<()> {
             // To enable a no-NATS demo path in the future, build a
             // first-class InProcessBus that actually delivers to the
             // consumers — don't resurrect NoopBus here.
-            // Federation mode is opted in via OPEN_STORY_HUB_DOMAIN.
-            // Hub role + hub_domain → create events-agg (solo bus + extra).
-            // Leaf (any other role) + hub_domain → federation bus: host-scoped
-            // local events stream, source-only events-mirror, self-register
-            // on the hub's events-agg via the cross-domain API.
-            // Unset → solo, as before.
+            // Federation mode is opted in via env vars:
+            //   OPEN_STORY_HUB_DOMAIN=<dom>       T2/T3 hub-star (with hubs)
+            //   OPEN_STORY_PEER_DOMAINS=<comma>   T1 solo multi-device mesh
+            // Hub role + hub_domain → hub-side: create events-agg.
+            // Leaf + hub_domain → Hub federation peers (Phase 2a/b).
+            // Leaf + peer_domains → Mesh federation peers (Phase 2b Step 4).
+            // Both unset → solo, as before.
             let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok().filter(|s| !s.is_empty());
+            let peer_domains_raw = std::env::var("OPEN_STORY_PEER_DOMAINS").ok().filter(|s| !s.is_empty());
+            let peer_domains: Option<Vec<String>> = peer_domains_raw.as_ref().map(|s| {
+                s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            });
             let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
 
-            let bus: Arc<dyn Bus> = match (hub_domain, is_hub) {
-                (None, _) => match NatsBus::connect(&nats_url).await {
+            let bus: Arc<dyn Bus> = if let Some(dom) = hub_domain.clone().filter(|_| is_hub) {
+                // Hub role: own NATS configured with `domain: <dom>`; create
+                // events-agg so leaves can self-register sources into it.
+                match NatsBus::connect_hub(&nats_url, &dom).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| "NATS stream setup (hub) failed")?;
+                        nats_bus.ensure_aggregate().await
+                            .with_context(|| "NATS events-agg setup (hub) failed")?;
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom})");
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (hub): {e}\nNATS URL: {nats_url}"),
+                }
+            } else if let Some(dom) = hub_domain {
+                // Leaf attached to a hub (T2/T3).
+                let host = open_story_core::host::host().to_string();
+                let fed = Federation {
+                    host: host.clone(),
+                    peers: FederationPeers::Hub { hub_domain: dom.clone() },
+                };
+                match NatsBus::connect_federation(&nats_url, fed).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| format!("NATS stream setup (leaf, hub={dom}) failed"))?;
+                        eprintln!(
+                            "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: leaf host={host} → hub={dom})"
+                        );
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (leaf): {e}\nNATS URL: {nats_url}"),
+                }
+            } else if let Some(peers) = peer_domains {
+                // T1 solo multi-device mesh: no hub, source from each peer.
+                let host = open_story_core::host::host().to_string();
+                // Filter the host out of its own peer list defensively — the
+                // operator might pass the full fleet list to every device.
+                let peer_filtered: Vec<String> = peers.into_iter().filter(|p| p != &host).collect();
+                let fed = Federation {
+                    host: host.clone(),
+                    peers: FederationPeers::Mesh { peer_domains: peer_filtered.clone() },
+                };
+                match NatsBus::connect_federation(&nats_url, fed).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| format!("NATS stream setup (mesh, peers={peer_filtered:?}) failed"))?;
+                        eprintln!(
+                            "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: mesh host={host} peers={})",
+                            peer_filtered.join(",")
+                        );
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (mesh leaf): {e}\nNATS URL: {nats_url}"),
+                }
+            } else {
+                // Solo.
+                match NatsBus::connect(&nats_url).await {
                     Ok(nats_bus) => {
                         if let Err(e) = nats_bus.ensure_streams().await {
                             anyhow::bail!(
@@ -479,35 +539,6 @@ async fn main() -> Result<()> {
                              and start it (`just up` handles this automatically).\n\
                              NATS URL: {nats_url}"
                         );
-                    }
-                },
-                (Some(dom), true) => match NatsBus::connect_hub(&nats_url, &dom).await {
-                    Ok(nats_bus) => {
-                        nats_bus.ensure_streams().await
-                            .with_context(|| "NATS stream setup (hub) failed")?;
-                        nats_bus.ensure_aggregate().await
-                            .with_context(|| "NATS events-agg setup (hub) failed")?;
-                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom})");
-                        Arc::new(nats_bus)
-                    }
-                    Err(e) => anyhow::bail!("NATS unavailable (hub): {e}\nNATS URL: {nats_url}"),
-                },
-                (Some(dom), false) => {
-                    let fed = Federation {
-                        host: open_story_core::host::host().to_string(),
-                        hub_domain: dom.clone(),
-                    };
-                    match NatsBus::connect_federation(&nats_url, fed.clone()).await {
-                        Ok(nats_bus) => {
-                            nats_bus.ensure_streams().await
-                                .with_context(|| format!("NATS stream setup (leaf, hub_domain={dom}) failed"))?;
-                            eprintln!(
-                                "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: leaf host={} → hub={})",
-                                fed.host, dom
-                            );
-                            Arc::new(nats_bus)
-                        }
-                        Err(e) => anyhow::bail!("NATS unavailable (leaf): {e}\nNATS URL: {nats_url}"),
                     }
                 }
             };

@@ -14,18 +14,31 @@ use crate::{Bus, BusSubscription, IngestBatch};
 /// Federation mode configuration for `NatsBus`.
 ///
 /// Presence of a `Federation` flips the bus from solo (single local `events`
-/// stream bound to `events.>`) to federated (host-scoped local `events`, a
-/// source-only `events-mirror` sourcing the hub aggregate across the JetStream
-/// domain boundary, and self-registration into the hub's `events-agg`).
+/// stream bound to `events.>`) to federated (host-scoped local `events`
+/// stream + a source-only `events-mirror` stream pulling the rest of the
+/// fleet). The peer topology — hub-star (T2) or device mesh (T1) — is
+/// captured in [`FederationPeers`].
 #[derive(Clone, Debug)]
 pub struct Federation {
     /// This node's host identity. Used as the `events.{host}.>` subject
-    /// prefix and as this node's JetStream domain (so sources on the hub
-    /// aggregate distinguish leaves by domain).
+    /// prefix and as this node's local JetStream domain.
     pub host: String,
-    /// The hub's JetStream domain (typically `"hub"`). The `events-mirror`
-    /// stream sources `events-agg` across this domain.
-    pub hub_domain: String,
+    /// Where this node pulls fleet events from.
+    pub peers: FederationPeers,
+}
+
+/// Peer topology for federation.
+///
+/// - **Hub** (T2/T3): leaves source from a single hub aggregate
+///   (`events-agg` at `hub_domain`) and self-register into it. The hub
+///   itself runs a separate role (`connect_hub` + `ensure_aggregate`).
+/// - **Mesh** (T1, solo multi-device): there is no hub aggregate. Each
+///   device's `events-mirror` sources directly from every peer's local
+///   `events` stream — one source per peer domain. No registration step.
+#[derive(Clone, Debug)]
+pub enum FederationPeers {
+    Hub { hub_domain: String },
+    Mesh { peer_domains: Vec<String> },
 }
 
 /// Default Bus implementation using NATS JetStream.
@@ -61,10 +74,13 @@ impl NatsBus {
 
     /// Connect to NATS and set up JetStream in federation (leaf) mode.
     ///
-    /// On `ensure_streams` the bus will create a host-scoped local `events`
-    /// stream, a source-only `events-mirror` sourcing the hub aggregate
-    /// across the `hub_domain` JetStream domain, and self-register this
-    /// leaf's `events` stream as a source on the hub's `events-agg`.
+    /// On `ensure_streams` the bus creates a host-scoped local `events`
+    /// stream and a source-only `events-mirror`. The mirror's source set
+    /// depends on `federation.peers`:
+    /// - `Hub { hub_domain }` — sources the hub's `events-agg` across
+    ///   `$JS.<hub_domain>.API`, plus self-registers this leaf into it.
+    /// - `Mesh { peer_domains }` — sources every peer's `events` stream
+    ///   directly across `$JS.<peer>.API` (no aggregate, no registration).
     pub async fn connect_federation(nats_url: &str, federation: Federation) -> Result<Self> {
         // Leaf's local NATS is configured with `domain: <host>`, so the
         // local JetStream API lives under `$JS.<host>.API.>`.
@@ -124,40 +140,44 @@ impl NatsBus {
     }
 
     /// Ensure the "events" stream exists with durable retention.
-    /// Call this once on startup. Branches on `federation`: solo mode binds
-    /// `events.>` and is done; federation also creates the host-scoped local
-    /// `events`, the source-only `events-mirror`, and self-registers this
-    /// leaf into the hub's `events-agg`.
+    /// Call this once on startup. Branches on `federation`:
+    /// - **solo**: binds `events.>` and is done.
+    /// - **federation/Hub**: binds `events.{host}.>` + creates source-only
+    ///   `events-mirror` sourcing the hub aggregate + self-registers into
+    ///   the hub's `events-agg`.
+    /// - **federation/Mesh**: binds `events.{host}.>` + creates source-only
+    ///   `events-mirror` sourcing every peer's local `events` stream
+    ///   (one source per peer domain, no aggregate, no registration).
     pub async fn ensure_streams(&self) -> Result<()> {
-        // Events stream — durable, limits-based retention. The same pure
-        // builder drives both modes; the (host, hub_domain) it gets decides
-        // the subject binding.
-        let (host, hub_domain) = match &self.federation {
-            None => ("", None),
-            Some(fed) => (fed.host.as_str(), Some(fed.hub_domain.as_str())),
+        // Events stream — same pure builder for solo + federation. The
+        // (host, federation-active) flag decides the subject binding.
+        let (host, fed_active) = match &self.federation {
+            None => ("", false),
+            Some(fed) => (fed.host.as_str(), true),
         };
         self.jetstream
-            .get_or_create_stream(events_stream_config(host, hub_domain))
+            .get_or_create_stream(events_stream_config(host, fed_active))
             .await
             .context("failed to create/get 'events' JetStream stream")?;
 
-        // Federation: also create the source-only mirror and self-register
-        // on the hub aggregate. The mirror has no subjects (cannot loop), and
-        // self-origin events are excluded by JetStream — so the fleet view is
-        // `events ∪ events-mirror` with no duplication.
         if let Some(fed) = &self.federation {
-            self.jetstream
-                .get_or_create_stream(events_mirror_config(&fed.hub_domain))
-                .await
-                .context("failed to create/get 'events-mirror' JetStream stream")?;
-
-            register_self_with_hub(
-                self.client.clone(),
-                &fed.hub_domain,
-                &fed.host,
-            )
-            .await
-            .context("failed to self-register as source on hub events-agg")?;
+            match &fed.peers {
+                FederationPeers::Hub { hub_domain } => {
+                    self.jetstream
+                        .get_or_create_stream(events_mirror_config(hub_domain))
+                        .await
+                        .context("failed to create/get 'events-mirror' (Hub) stream")?;
+                    register_self_with_hub(self.client.clone(), hub_domain, &fed.host)
+                        .await
+                        .context("failed to self-register as source on hub events-agg")?;
+                }
+                FederationPeers::Mesh { peer_domains } => {
+                    self.jetstream
+                        .get_or_create_stream(events_mirror_mesh_config(peer_domains))
+                        .await
+                        .context("failed to create/get 'events-mirror' (Mesh) stream")?;
+                }
+            }
         }
 
         // Changes stream — interest-based (only kept while subscribers exist)
@@ -396,15 +416,18 @@ const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
 
 /// The local `events` stream this node publishes into.
 ///
-/// - **Solo** (`hub_domain = None`): binds `events.>` — captures everything,
+/// - **Solo** (`federation = false`): binds `events.>` — captures everything,
 ///   unchanged from pre-federation behavior.
-/// - **Federation**: binds ONLY `events.{host}.>` so the racy core leafnode
-///   propagation can't cross-pollinate streams and the hub aggregate can't
-///   double-count (the load-bearing spike finding). Publish-only, no sources.
-pub(crate) fn events_stream_config(host: &str, hub_domain: Option<&str>) -> stream::Config {
-    let subjects = match hub_domain {
-        None => vec!["events.>".to_string()],
-        Some(_) => vec![format!("events.{host}.>")],
+/// - **Federation** (`federation = true`): binds ONLY `events.{host}.>` so
+///   the racy core leafnode propagation can't cross-pollinate streams and
+///   peers can't double-count (the load-bearing spike finding). Publish-only,
+///   no sources. Same shape for Hub (T2/T3) and Mesh (T1) — the `events-mirror`
+///   carries the topology difference.
+pub(crate) fn events_stream_config(host: &str, federation: bool) -> stream::Config {
+    let subjects = if federation {
+        vec![format!("events.{host}.>")]
+    } else {
+        vec!["events.>".to_string()]
     };
     stream::Config {
         name: "events".to_string(),
@@ -444,6 +467,34 @@ pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
 /// not accept as a top-level Source key, so we always emit `external` here.
 fn js_api_prefix(domain: &str) -> String {
     format!("$JS.{domain}.API")
+}
+
+/// Mesh-mode mirror (T1 solo multi-device): no hub aggregate, instead one
+/// source per peer's local `events` stream. Each peer publishes only into
+/// `events.<peer>.>` (the spike's per-host namespace finding), so collecting
+/// every peer's `events` stream into the mirror gives the full fleet view
+/// without overlap. Self-origin loop prevention still excludes this node's
+/// own events, so `events ∪ events-mirror` is the fleet without duplication.
+pub(crate) fn events_mirror_mesh_config(peer_domains: &[String]) -> stream::Config {
+    let sources: Vec<stream::Source> = peer_domains
+        .iter()
+        .map(|peer| stream::Source {
+            name: "events".to_string(),
+            external: Some(stream::External {
+                api_prefix: js_api_prefix(peer),
+                delivery_prefix: None,
+            }),
+            ..Default::default()
+        })
+        .collect();
+    stream::Config {
+        name: "events-mirror".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: EVENTS_MAX_BYTES,
+        sources: Some(sources),
+        ..Default::default()
+    }
 }
 
 /// Idempotently add this leaf's `events` stream (in its own JetStream domain)
@@ -546,8 +597,8 @@ mod federation_config_tests {
 
     #[test]
     fn solo_events_stream_binds_everything() {
-        // No hub domain → solo mode → unchanged from today: capture `events.>`.
-        let cfg = events_stream_config("maxs-air", None);
+        // No federation → unchanged from today: capture `events.>`.
+        let cfg = events_stream_config("maxs-air", false);
         assert_eq!(cfg.name, "events");
         assert_eq!(cfg.subjects, vec!["events.>".to_string()]);
         assert!(cfg.sources.is_none(), "solo events stream sources nothing");
@@ -556,13 +607,47 @@ mod federation_config_tests {
 
     #[test]
     fn federation_events_stream_binds_only_own_host() {
-        // Hub domain set → bind ONLY this host's namespace so core leafnode
-        // propagation can't cross-pollinate and the hub aggregate can't
-        // double-count (the load-bearing spike finding).
-        let cfg = events_stream_config("maxs-air", Some("hub"));
+        // Federation → bind ONLY this host's namespace so core leafnode
+        // propagation can't cross-pollinate and peers can't double-count
+        // (the load-bearing spike finding). Same shape for Hub + Mesh.
+        let cfg = events_stream_config("maxs-air", true);
         assert_eq!(cfg.name, "events");
         assert_eq!(cfg.subjects, vec!["events.maxs-air.>".to_string()]);
         assert!(cfg.sources.is_none(), "local events stream is publish-only");
+    }
+
+    #[test]
+    fn mesh_mirror_sources_each_peer_directly() {
+        // T1 solo multi-device: no hub aggregate, one source per peer.
+        // The mirror collects every peer's local `events` stream across
+        // their own JetStream domain.
+        let cfg = events_mirror_mesh_config(&[
+            "laptop".to_string(),
+            "phone".to_string(),
+        ]);
+        assert_eq!(cfg.name, "events-mirror");
+        assert!(cfg.subjects.is_empty(), "mesh mirror is source-only");
+        let sources = cfg.sources.as_ref().expect("mesh mirror must have sources");
+        assert_eq!(sources.len(), 2, "one source per peer");
+        let prefixes: Vec<_> = sources
+            .iter()
+            .filter_map(|s| s.external.as_ref().map(|e| e.api_prefix.as_str()))
+            .collect();
+        assert!(prefixes.contains(&"$JS.laptop.API"));
+        assert!(prefixes.contains(&"$JS.phone.API"));
+        for s in sources {
+            assert_eq!(s.name, "events", "mesh sources each peer's local `events`");
+        }
+    }
+
+    #[test]
+    fn mesh_mirror_with_no_peers_has_empty_sources() {
+        // A degenerate case: a single device in a "mesh" of one is just
+        // a no-op for ingress (nothing to mirror). Should still be a
+        // valid stream config — empty sources, not a panic.
+        let cfg = events_mirror_mesh_config(&[]);
+        let sources = cfg.sources.as_ref().expect("Some(empty) not None");
+        assert!(sources.is_empty());
     }
 
     #[test]
