@@ -642,6 +642,26 @@ The recursive-observability principle test surfaces this: pi-mono sessions never
 ### CI Testcontainers Spike
 Investigate what's needed to run Docker-based testcontainer tests (compose tests, container integration tests) in GitHub Actions CI. Currently skipped because CI runners lack the local `open-story:test` image and Docker setup. Spike should cover: GitHub Actions Docker service containers vs Docker-in-Docker, building the test image in CI (caching strategies for the Rust build), NATS sidecar setup, and whether the compose tests can run within the free-tier minute budget. Goal is a concrete proposal, not implementation.
 
+## Distribution
+
+### Publish the homebrew-openstory tap (first release)
+The formula at [`Formula/openstory.rb`](../Formula/openstory.rb) and the bottle workflow at [`.github/workflows/release-binaries.yml`](../.github/workflows/release-binaries.yml) are in place; what's left is the actual publish dance for v0.1.0:
+1. Cut `v0.1.0` tag on master (`git tag -a v0.1.0 -m "v0.1.0" && git push --tags`). Triggers both `release.yml` (Docker image to GHCR) and `release-binaries.yml` (macOS bottles on macos-14 + macos-13).
+2. Wait for `release-binaries.yml` to upload `*.bottle.tar.gz` + `*.bottle.json` to the GitHub Release page, and check the workflow's `print-bottle-block` job for the `bottle do` snippet.
+3. Create the `OpenStoryArc/homebrew-openstory` repo on GitHub (empty, public).
+4. Push a single commit with `Formula/openstory.rb` — same content as in this repo, but with the real sha256 substituted and the `bottle do` block pasted in.
+5. Verify on a clean macOS user account: `brew tap OpenStoryArc/openstory && brew install openstory && brew services start nats-server && brew services start openstory && curl -fsS http://localhost:3002/api/sessions`.
+6. Update `README.md` with the `brew tap` + `brew install` instructions.
+
+### Auto-update tap on tag push
+Today the bottle workflow uploads artifacts and prints the `bottle do` block; a human pastes it into the tap repo. Wire a final job that checks out `homebrew-openstory`, regenerates `Formula/openstory.rb` from this repo's copy + the new bottle JSONs, commits with a `Co-Authored-By` line, and pushes. Needs a deploy key or PAT scoped to the tap repo (don't reuse `GITHUB_TOKEN` — it can't push cross-repo).
+
+### Sibling `openstory-mcp` formula
+`rs/mcp/` (the streaming MCP server) is intentionally outside the main workspace (`rs/Cargo.toml:2-4`) during incubation. Once it stabilizes, ship as a second formula `openstory-mcp.rb` in the same tap, with `depends_on "openstory"` so users can `brew install openstoryarc/openstory/openstory-mcp` and get both. Defer until the MCP crate joins the workspace.
+
+### Homebrew-core qualification (long-term)
+The current formula declares `depends_on "nats-server"` — homebrew-core forbids that pattern (formulas must not require an external service to be useful). To qualify for core, OpenStory needs a no-NATS or embedded-NATS mode. Design notes already exist in [`docs/research/nats-permissions-spike.md`](research/nats-permissions-spike.md). Other gates: stable 1.0, 40+ stars, 30-day notability waiting period. Tap-only is the right home until those are cleared.
+
 ---
 
 ## Done (not tracked here)
