@@ -797,5 +797,68 @@ async fn lab_federation_ramp() {
     for (n, hub, node, ok, secs) in &rows {
         eprintln!("  {n:>6} {hub:>8} {node:>10} {:>10} {secs:>8.1}", ok);
     }
-    assert!(rows.first().map(|r| r.3).unwrap_or(false), "5 faithful nodes must fully mirror");
+    assert!(rows.first().map(|r| r.3).unwrap_or(false), "smallest faithful ramp must fully mirror");
+}
+
+/// T2 cold-boot scale ramp (Phase 2b Step 6). Records convergence time and
+/// the single-host container ceiling. Reports the highest-N that converged
+/// — that IS the v0 ship-line number for THIS hardware.
+///
+/// Steps: 5 → 10 → 25 → 50 nodes (catch-up OFF, pure JetStream sources).
+/// `RUN_SCALE_TESTS=1` adds the 100-node leg (≈200 containers on one
+/// host; only meaningful with adequate compute).
+///
+/// **Assertion**: the smallest step (5 nodes) must converge — anything
+/// less and federation itself is broken, which is what the smoke / T1 /
+/// T2 / T3 tests would also catch. Larger N is recorded as data; the
+/// test prints the ceiling at the bottom but does NOT fail on it. Use
+/// the printed ceiling as the headline single-host scale number; treat
+/// "ceiling lower than expected" as a signal worth investigating (likely
+/// `register_self_with_hub` racing against early leaf publishes) rather
+/// than a CI gate.
+#[tokio::test]
+#[ignore]
+async fn lab_federation_ramp_cold() {
+    let mut sizes: Vec<usize> = vec![5, 10, 25, 50];
+    let run_100 = std::env::var("RUN_SCALE_TESTS").ok().filter(|s| !s.is_empty()).is_some();
+    if run_100 {
+        sizes.push(100);
+    } else {
+        eprintln!("  (RUN_SCALE_TESTS not set — skipping 100-node leg)");
+    }
+
+    let mut rows = Vec::new();
+    for (idx, n) in sizes.iter().enumerate() {
+        // Between iterations, let docker fully settle teardown of the
+        // previous lab. Without this, the immediately-following compose
+        // up sees daemon contention and self-registration races we can
+        // reproduce that don't show in the standalone tests.
+        if idx > 0 {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+        let r = run_lab_federation(*n, 12, false).await;
+        let ok = r.fully_mirrored;
+        rows.push((*n, r.hub_has, r.min_node_has, ok, r.elapsed.as_secs_f64()));
+        if !ok {
+            eprintln!("  ↳ {n} nodes did NOT fully mirror — stopping ramp here");
+            break;
+        }
+    }
+    let ceiling = rows.iter().filter(|r| r.3).map(|r| r.0).max().unwrap_or(0);
+
+    eprintln!("\n  ══ Lab federation cold ramp summary ══");
+    eprintln!("  {:>6} {:>8} {:>10} {:>10} {:>8}", "Nodes", "Hub", "SlowNode", "Mirrored", "Time(s)");
+    for (n, hub, node, ok, secs) in &rows {
+        eprintln!("  {n:>6} {hub:>8} {node:>10} {:>10} {secs:>8.1}", ok);
+    }
+    eprintln!("\n  Single-host container ceiling on this hardware: {ceiling} nodes (cold, catch-up OFF)");
+
+    // Floor assertion: the smallest step proves federation works at all.
+    // The standalone `lab_federation_full_mirror_10_nodes_cold` test
+    // covers 10 nodes consistently; here we accept 5 as proof-of-life.
+    let smallest_ok = rows.first().map(|r| r.3).unwrap_or(false);
+    assert!(
+        smallest_ok,
+        "smallest ramp step (5 nodes) must converge — anything less and federation itself is broken (see T1/T2/T3 tests for finer signals)"
+    );
 }
