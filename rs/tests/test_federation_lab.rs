@@ -71,40 +71,50 @@ fn generate_node_fixtures(root: &Path, n: usize, events: usize) -> Vec<PathBuf> 
 }
 
 /// A NATS hub: client port 4222 (token auth) + leaf listener 7422.
+/// JetStream `domain: hub` so cross-domain sources (`$JS.hub.API`) reach it
+/// from leaf-domain NATSes.
 fn hub_nats_service() -> String {
     format!(
-        "  nats-hub:\n    image: nats:2-alpine\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'EOF'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 2GB }}\n        authorization {{ token: \"{TOKEN}\" }}\n        leafnodes {{ listen: \"0.0.0.0:7422\" }}\n        EOF\n        exec nats-server -c /tmp/nats.conf\n"
+        "  nats-hub:\n    image: nats:2-alpine\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'EOF'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: hub }}\n        authorization {{ token: \"{TOKEN}\" }}\n        leafnodes {{ listen: \"0.0.0.0:7422\" }}\n        EOF\n        exec nats-server -c /tmp/nats.conf\n"
     )
 }
 
-/// A per-node NATS leaf: local JetStream, federates up to the hub at :7422.
+/// A per-node NATS leaf: local JetStream with `domain: node-{i}` so the hub
+/// aggregate can source it as a distinct domain, federated up to the hub at
+/// :7422 over a token leafnode. The domain MUST match the host token used by
+/// the openstory leaf (`OPEN_STORY_HOST=node-{i}`) so the subject
+/// `events.node-{i}.>` lines up with the source registered on `events-agg`.
 fn leaf_nats_service(i: usize) -> String {
     format!(
-        "  nats-leaf-{i}:\n    image: nats:2-alpine\n    depends_on:\n      - nats-hub\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'EOF'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 2GB }}\n        leafnodes {{ remotes [ {{ url: \"nats://{TOKEN}@nats-hub:7422\" }} ] }}\n        EOF\n        exec nats-server -c /tmp/nats.conf\n"
+        "  nats-leaf-{i}:\n    image: nats:2-alpine\n    depends_on:\n      - nats-hub\n    entrypoint: [\"/bin/sh\", \"-c\"]\n    command:\n      - |\n        cat > /tmp/nats.conf <<'EOF'\n        listen: 0.0.0.0:4222\n        jetstream {{ store_dir: /data/jetstream, max_mem: 256MB, max_file: 8GB, domain: \"node-{i}\" }}\n        leafnodes {{ remotes [ {{ url: \"nats://{TOKEN}@nats-hub:7422\" }} ] }}\n        EOF\n        exec nats-server -c /tmp/nats.conf\n"
     )
 }
 
 fn generate_lab_compose(node_dirs: &[PathBuf], catch_up: bool) -> String {
     let mut yaml = String::from("services:\n");
     yaml.push_str(&hub_nats_service());
-    // Hub dashboard: consumer on the hub NATS.
+    // Hub dashboard: consumer on the hub NATS. OPEN_STORY_HUB_DOMAIN tells
+    // the openstory CLI it is the hub of a federation — `ensure_aggregate`
+    // creates the `events-agg` source-only stream that leaves register into.
     yaml.push_str(&format!(
-        "  hub:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"consumer\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://{TOKEN}@nats-hub:4222\", \"--data-dir\", \"/data\"]\n    ports:\n      - \"3002\"\n    depends_on:\n      - nats-hub\n"
+        "  hub:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"consumer\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://{TOKEN}@nats-hub:4222\", \"--data-dir\", \"/data\"]\n    environment:\n      - OPEN_STORY_HUB_DOMAIN=hub\n    ports:\n      - \"3002\"\n    depends_on:\n      - nats-hub\n"
     ));
-    // Optional env block — when catch_up is off we want a *pure transport*
-    // convergence test (Phase 2b RED). When on, the HTTP catch-up backstop
-    // shipped in `024fcc2` papers over the JetStream cold-boot race.
-    let env_block = if catch_up {
-        "    environment:\n      - OPEN_STORY_CATCH_UP_PEER=http://hub:3002\n"
+    // Leaf env: ALWAYS federation (HUB_DOMAIN + HOST). Optionally also the
+    // HTTP catch-up backstop — when off, the cold-boot test exercises pure
+    // JetStream-sources convergence; when on, the shipped backstop covers
+    // any leftover gap.
+    let catch_up_env = if catch_up {
+        "      - OPEN_STORY_CATCH_UP_PEER=http://hub:3002\n"
     } else {
         ""
     };
     for (i, dir) in node_dirs.iter().enumerate() {
         yaml.push_str(&leaf_nats_service(i));
         // Full node: watches its own fixture, publishes to + consumes from its
-        // own leaf NATS (a complete local mirror), serves a local dashboard.
+        // own leaf NATS (host-scoped `events.node-{i}.>`), reads the fleet
+        // from `events-mirror` sourcing `events-agg` over the hub domain.
         yaml.push_str(&format!(
-            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n{env_block}    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
+            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    environment:\n      - OPEN_STORY_HOST=node-{i}\n      - OPEN_STORY_HUB_DOMAIN=hub\n{catch_up_env}    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
             mount = docker_path(dir),
         ));
     }

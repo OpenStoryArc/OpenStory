@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use open_story::server;
@@ -18,7 +18,7 @@ use open_story::server::Config;
 use open_story::server::config::{DataBackend, Role};
 use open_story::watcher;
 use open_story_bus::Bus;
-use open_story_bus::nats_bus::NatsBus;
+use open_story_bus::nats_bus::{Federation, NatsBus};
 use open_story_store::sqlite_store::SqliteStore;
 
 #[derive(Parser, Debug)]
@@ -449,26 +449,66 @@ async fn main() -> Result<()> {
             // To enable a no-NATS demo path in the future, build a
             // first-class InProcessBus that actually delivers to the
             // consumers — don't resurrect NoopBus here.
-            let bus: Arc<dyn Bus> = match NatsBus::connect(&nats_url).await {
-                Ok(nats_bus) => {
-                    if let Err(e) = nats_bus.ensure_streams().await {
+            // Federation mode is opted in via OPEN_STORY_HUB_DOMAIN.
+            // Hub role + hub_domain → create events-agg (solo bus + extra).
+            // Leaf (any other role) + hub_domain → federation bus: host-scoped
+            // local events stream, source-only events-mirror, self-register
+            // on the hub's events-agg via the cross-domain API.
+            // Unset → solo, as before.
+            let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok().filter(|s| !s.is_empty());
+            let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
+
+            let bus: Arc<dyn Bus> = match (hub_domain, is_hub) {
+                (None, _) => match NatsBus::connect(&nats_url).await {
+                    Ok(nats_bus) => {
+                        if let Err(e) = nats_bus.ensure_streams().await {
+                            anyhow::bail!(
+                                "NATS stream setup failed: {e}\n\
+                                 NATS JetStream is required. Install with `brew install nats-server` \
+                                 and start it (`just up` handles this automatically).\n\
+                                 NATS URL: {nats_url}"
+                            );
+                        }
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (solo)");
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => {
                         anyhow::bail!(
-                            "NATS stream setup failed: {e}\n\
+                            "NATS unavailable: {e}\n\
                              NATS JetStream is required. Install with `brew install nats-server` \
                              and start it (`just up` handles this automatically).\n\
                              NATS URL: {nats_url}"
                         );
                     }
-                    eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url}");
-                    Arc::new(nats_bus)
-                }
-                Err(e) => {
-                    anyhow::bail!(
-                        "NATS unavailable: {e}\n\
-                         NATS JetStream is required. Install with `brew install nats-server` \
-                         and start it (`just up` handles this automatically).\n\
-                         NATS URL: {nats_url}"
-                    );
+                },
+                (Some(dom), true) => match NatsBus::connect_hub(&nats_url, &dom).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| "NATS stream setup (hub) failed")?;
+                        nats_bus.ensure_aggregate().await
+                            .with_context(|| "NATS events-agg setup (hub) failed")?;
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom})");
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (hub): {e}\nNATS URL: {nats_url}"),
+                },
+                (Some(dom), false) => {
+                    let fed = Federation {
+                        host: open_story_core::host::host().to_string(),
+                        hub_domain: dom.clone(),
+                    };
+                    match NatsBus::connect_federation(&nats_url, fed.clone()).await {
+                        Ok(nats_bus) => {
+                            nats_bus.ensure_streams().await
+                                .with_context(|| format!("NATS stream setup (leaf, hub_domain={dom}) failed"))?;
+                            eprintln!(
+                                "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: leaf host={} → hub={})",
+                                fed.host, dom
+                            );
+                            Arc::new(nats_bus)
+                        }
+                        Err(e) => anyhow::bail!("NATS unavailable (leaf): {e}\nNATS URL: {nats_url}"),
+                    }
                 }
             };
 

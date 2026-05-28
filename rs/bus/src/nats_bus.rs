@@ -11,20 +11,72 @@ use tokio::sync::mpsc;
 
 use crate::{Bus, BusSubscription, IngestBatch};
 
+/// Federation mode configuration for `NatsBus`.
+///
+/// Presence of a `Federation` flips the bus from solo (single local `events`
+/// stream bound to `events.>`) to federated (host-scoped local `events`, a
+/// source-only `events-mirror` sourcing the hub aggregate across the JetStream
+/// domain boundary, and self-registration into the hub's `events-agg`).
+#[derive(Clone, Debug)]
+pub struct Federation {
+    /// This node's host identity. Used as the `events.{host}.>` subject
+    /// prefix and as this node's JetStream domain (so sources on the hub
+    /// aggregate distinguish leaves by domain).
+    pub host: String,
+    /// The hub's JetStream domain (typically `"hub"`). The `events-mirror`
+    /// stream sources `events-agg` across this domain.
+    pub hub_domain: String,
+}
+
 /// Default Bus implementation using NATS JetStream.
 ///
 /// Events are published to JetStream subjects and persisted in durable streams.
 /// Subscribers receive events via JetStream consumers. Replay reads from the
 /// beginning of the stream for boot recovery.
 pub struct NatsBus {
+    /// JetStream context for *this node's own NATS*. In solo mode this is a
+    /// vanilla context (`$JS.API.>`); in federation mode it's pinned to the
+    /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
+    /// underlying NATS server is configured with that domain too.
     jetstream: jetstream::Context,
+    client: async_nats::Client,
+    federation: Option<Federation>,
 }
 
 impl NatsBus {
-    /// Connect to NATS and set up JetStream.
+    /// Connect to NATS and set up JetStream in solo mode.
     ///
     /// Supports token auth via URL userinfo: `nats://TOKEN@host:port`.
     pub async fn connect(nats_url: &str) -> Result<Self> {
+        Self::connect_inner(nats_url, None, None).await
+    }
+
+    /// Connect to NATS in hub mode: local JetStream is pinned to `hub_domain`
+    /// (the hub's NATS config has `jetstream { domain: <hub_domain> }`). Used
+    /// by the hub-side server, which holds the `events-agg` aggregate stream
+    /// that leaves source.
+    pub async fn connect_hub(nats_url: &str, hub_domain: &str) -> Result<Self> {
+        Self::connect_inner(nats_url, Some(hub_domain.to_string()), None).await
+    }
+
+    /// Connect to NATS and set up JetStream in federation (leaf) mode.
+    ///
+    /// On `ensure_streams` the bus will create a host-scoped local `events`
+    /// stream, a source-only `events-mirror` sourcing the hub aggregate
+    /// across the `hub_domain` JetStream domain, and self-register this
+    /// leaf's `events` stream as a source on the hub's `events-agg`.
+    pub async fn connect_federation(nats_url: &str, federation: Federation) -> Result<Self> {
+        // Leaf's local NATS is configured with `domain: <host>`, so the
+        // local JetStream API lives under `$JS.<host>.API.>`.
+        let local_domain = federation.host.clone();
+        Self::connect_inner(nats_url, Some(local_domain), Some(federation)).await
+    }
+
+    async fn connect_inner(
+        nats_url: &str,
+        local_domain: Option<String>,
+        federation: Option<Federation>,
+    ) -> Result<Self> {
         let client = if let Some(token) = Self::extract_token(nats_url) {
             let clean_url = Self::strip_userinfo(nats_url);
             async_nats::ConnectOptions::with_token(token)
@@ -37,9 +89,15 @@ impl NatsBus {
                 .with_context(|| format!("failed to connect to NATS at {nats_url}"))?
         };
 
-        let jetstream = jetstream::new(client);
+        // Domain-aware local JetStream: when the underlying NATS has
+        // `jetstream { domain: D }` configured, its API moves to
+        // `$JS.D.API.>` and a vanilla context can't reach it.
+        let jetstream = match &local_domain {
+            None => jetstream::new(client.clone()),
+            Some(d) => jetstream::with_domain(client.clone(), d),
+        };
 
-        Ok(Self { jetstream })
+        Ok(Self { jetstream, client, federation })
     }
 
     /// Extract token from `nats://TOKEN@host:port` URL.
@@ -66,15 +124,41 @@ impl NatsBus {
     }
 
     /// Ensure the "events" stream exists with durable retention.
-    /// Call this once on startup.
+    /// Call this once on startup. Branches on `federation`: solo mode binds
+    /// `events.>` and is done; federation also creates the host-scoped local
+    /// `events`, the source-only `events-mirror`, and self-registers this
+    /// leaf into the hub's `events-agg`.
     pub async fn ensure_streams(&self) -> Result<()> {
-        // Events stream — durable, limits-based retention. Solo mode binds
-        // `events.>`; federation mode (host-scoped binding + mirror) is set up
-        // via `ensure_federation_streams`.
+        // Events stream — durable, limits-based retention. The same pure
+        // builder drives both modes; the (host, hub_domain) it gets decides
+        // the subject binding.
+        let (host, hub_domain) = match &self.federation {
+            None => ("", None),
+            Some(fed) => (fed.host.as_str(), Some(fed.hub_domain.as_str())),
+        };
         self.jetstream
-            .get_or_create_stream(events_stream_config("", None))
+            .get_or_create_stream(events_stream_config(host, hub_domain))
             .await
             .context("failed to create/get 'events' JetStream stream")?;
+
+        // Federation: also create the source-only mirror and self-register
+        // on the hub aggregate. The mirror has no subjects (cannot loop), and
+        // self-origin events are excluded by JetStream — so the fleet view is
+        // `events ∪ events-mirror` with no duplication.
+        if let Some(fed) = &self.federation {
+            self.jetstream
+                .get_or_create_stream(events_mirror_config(&fed.hub_domain))
+                .await
+                .context("failed to create/get 'events-mirror' JetStream stream")?;
+
+            register_self_with_hub(
+                self.client.clone(),
+                &fed.hub_domain,
+                &fed.host,
+            )
+            .await
+            .context("failed to self-register as source on hub events-agg")?;
+        }
 
         // Changes stream — interest-based (only kept while subscribers exist)
         self.jetstream
@@ -111,6 +195,77 @@ impl NatsBus {
     pub fn jetstream(&self) -> &jetstream::Context {
         &self.jetstream
     }
+
+    /// Create the federation aggregate stream (`events-agg`). Called on the
+    /// **hub** so that leaves can self-register their `events` streams as
+    /// sources on it. Idempotent: `get_or_create_stream` handles re-runs.
+    /// The aggregate is source-only — leaves register themselves, no
+    /// subjects are ever published directly to it.
+    pub async fn ensure_aggregate(&self) -> Result<()> {
+        self.jetstream
+            .get_or_create_stream(events_aggregate_config())
+            .await
+            .context("failed to create/get 'events-agg' JetStream stream")?;
+        Ok(())
+    }
+
+    /// Create an ephemeral push consumer on the named stream filtered by
+    /// `pattern`, deserialize each message as an `IngestBatch`, and pump
+    /// into `tx`. Used by both solo (one consumer on `events`) and
+    /// federation (two consumers: `events` + `events-mirror`).
+    async fn spawn_consumer(
+        &self,
+        tx: mpsc::Sender<IngestBatch>,
+        stream_name: &str,
+        pattern: &str,
+    ) -> Result<()> {
+        let stream = self
+            .jetstream
+            .get_stream(stream_name)
+            .await
+            .with_context(|| format!("failed to get '{stream_name}' stream"))?;
+
+        let consumer = stream
+            .create_consumer(jetstream::consumer::push::Config {
+                filter_subject: pattern.to_string(),
+                deliver_subject: format!("_deliver.{}", uuid_short()),
+                // Catch-up subscription semantics: deliver the full backlog,
+                // then continue live. See federation-boot-window-loss memory
+                // for the race this closes. PK dedup makes redelivery safe.
+                // Ephemeral consumer → O(stream) per subscribe (acceptable
+                // for boot; production refinement is a durable named
+                // consumer resuming from last ack).
+                deliver_policy: jetstream::consumer::DeliverPolicy::All,
+                ..Default::default()
+            })
+            .await
+            .with_context(|| format!("failed to create push consumer on '{stream_name}'"))?;
+
+        let mut messages = consumer
+            .messages()
+            .await
+            .with_context(|| format!("failed to get message stream on '{stream_name}'"))?;
+
+        let label = stream_name.to_string();
+        tokio::spawn(async move {
+            while let Some(Ok(msg)) = messages.next().await {
+                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
+                    Ok(batch) => {
+                        if tx.send(batch).await.is_err() {
+                            break; // receiver dropped
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("bus[{label}]: failed to deserialize IngestBatch: {e}");
+                    }
+                }
+                if let Err(e) = msg.ack().await {
+                    eprintln!("bus[{label}]: failed to ack message: {e}");
+                }
+            }
+        });
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -140,119 +295,91 @@ impl Bus for NatsBus {
     }
 
     async fn subscribe(&self, pattern: &str) -> Result<BusSubscription> {
-        let stream = self
-            .jetstream
-            .get_stream("events")
-            .await
-            .context("failed to get 'events' stream")?;
-
-        let consumer = stream
-            .create_consumer(jetstream::consumer::push::Config {
-                filter_subject: pattern.to_string(),
-                deliver_subject: format!("_deliver.{}", uuid_short()),
-                // Catch-up subscription: deliver the full backlog, then continue
-                // live. `New` delivered no history, so a subscriber that came up
-                // after a publisher had already forwarded its events missed them
-                // forever — the boot-window race that lost ~1 session per 10
-                // concurrently-joining nodes (federation-boot-window-loss). PK
-                // dedup makes the redelivered backlog harmless.
-                //
-                // PROTOTYPE NOTE: this is an *ephemeral* consumer, so `All`
-                // re-reads the whole `events` stream on every (re)subscribe —
-                // O(stream) per boot. Correct, but wasteful at scale. The
-                // production refinement is a *durable named* consumer that
-                // resumes from its last ack (backlog-since-last-seen + live),
-                // the standard catch-up-subscription pattern.
-                deliver_policy: jetstream::consumer::DeliverPolicy::All,
-                ..Default::default()
-            })
-            .await
-            .context("failed to create push consumer")?;
-
-        let mut messages = consumer
-            .messages()
-            .await
-            .context("failed to get message stream")?;
-
+        // Solo: one consumer on `events`. Federation: consumers on BOTH
+        // `events` (own host's namespace) and `events-mirror` (fleet sourced
+        // from the hub aggregate). Both pump into one shared mpsc so callers
+        // see a single unified stream.
         let (tx, rx) = mpsc::channel(256);
-
-        tokio::spawn(async move {
-            while let Some(Ok(msg)) = messages.next().await {
-                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
-                    Ok(batch) => {
-                        if tx.send(batch).await.is_err() {
-                            break; // receiver dropped
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("bus: failed to deserialize IngestBatch: {e}");
-                    }
-                }
-                // Acknowledge the message
-                if let Err(e) = msg.ack().await {
-                    eprintln!("bus: failed to ack message: {e}");
-                }
-            }
-        });
-
+        self.spawn_consumer(tx.clone(), "events", pattern).await
+            .context("failed to spawn 'events' consumer")?;
+        if self.federation.is_some() {
+            self.spawn_consumer(tx, "events-mirror", pattern).await
+                .context("failed to spawn 'events-mirror' consumer")?;
+        }
         Ok(BusSubscription { receiver: rx })
     }
 
     async fn replay(&self, pattern: &str) -> Result<Vec<IngestBatch>> {
-        let mut stream = self
-            .jetstream
-            .get_stream("events")
-            .await
-            .context("failed to get 'events' stream for replay")?;
-
-        let info = stream.info().await.context("failed to get stream info")?;
-        let total = info.state.messages;
-
-        if total == 0 {
-            return Ok(vec![]);
+        // Solo: replay `events`. Federation: replay BOTH `events`
+        // (own host's namespace) and `events-mirror` (fleet sourced from hub
+        // aggregate). Order within each stream is preserved; cross-stream
+        // ordering is not guaranteed (and event-ID dedup downstream makes
+        // ordering irrelevant for correctness).
+        let mut all = replay_one(&self.jetstream, "events", pattern).await
+            .context("replay 'events' failed")?;
+        if self.federation.is_some() {
+            let mirror = replay_one(&self.jetstream, "events-mirror", pattern).await
+                .context("replay 'events-mirror' failed")?;
+            all.extend(mirror);
         }
-
-        let consumer = stream
-            .create_consumer(jetstream::consumer::pull::Config {
-                filter_subject: pattern.to_string(),
-                deliver_policy: jetstream::consumer::DeliverPolicy::All,
-                ..Default::default()
-            })
-            .await
-            .context("failed to create pull consumer for replay")?;
-
-        let mut messages = consumer
-            .messages()
-            .await
-            .context("failed to get replay message stream")?;
-
-        let mut batches = Vec::new();
-        let mut count = 0u64;
-
-        while count < total {
-            match tokio::time::timeout(std::time::Duration::from_secs(5), messages.next()).await {
-                Ok(Some(Ok(msg))) => {
-                    match serde_json::from_slice::<IngestBatch>(&msg.payload) {
-                        Ok(batch) => batches.push(batch),
-                        Err(e) => eprintln!("bus: replay: failed to deserialize: {e}"),
-                    }
-                    let _ = msg.ack().await;
-                    count += 1;
-                }
-                Ok(Some(Err(e))) => {
-                    eprintln!("bus: replay: message error: {e}");
-                    break;
-                }
-                Ok(None) => break,
-                Err(_) => {
-                    // Timeout — we've read all available messages
-                    break;
-                }
-            }
-        }
-
-        Ok(batches)
+        Ok(all)
     }
+}
+
+async fn replay_one(
+    js: &jetstream::Context,
+    stream_name: &str,
+    pattern: &str,
+) -> Result<Vec<IngestBatch>> {
+    let mut stream = match js.get_stream(stream_name).await {
+        Ok(s) => s,
+        // Solo bus replaying when federation streams don't exist locally
+        // is not an error — return empty.
+        Err(_) => return Ok(vec![]),
+    };
+
+    let info = stream.info().await
+        .with_context(|| format!("failed to get '{stream_name}' info"))?;
+    let total = info.state.messages;
+    if total == 0 {
+        return Ok(vec![]);
+    }
+
+    let consumer = stream
+        .create_consumer(jetstream::consumer::pull::Config {
+            filter_subject: pattern.to_string(),
+            deliver_policy: jetstream::consumer::DeliverPolicy::All,
+            ..Default::default()
+        })
+        .await
+        .with_context(|| format!("failed to create pull consumer on '{stream_name}'"))?;
+
+    let mut messages = consumer
+        .messages()
+        .await
+        .with_context(|| format!("failed to get replay messages on '{stream_name}'"))?;
+
+    let mut batches = Vec::new();
+    let mut count = 0u64;
+    while count < total {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), messages.next()).await {
+            Ok(Some(Ok(msg))) => {
+                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
+                    Ok(batch) => batches.push(batch),
+                    Err(e) => eprintln!("bus[{stream_name}]: replay deserialize: {e}"),
+                }
+                let _ = msg.ack().await;
+                count += 1;
+            }
+            Ok(Some(Err(e))) => {
+                eprintln!("bus[{stream_name}]: replay message error: {e}");
+                break;
+            }
+            Ok(None) => break,
+            Err(_) => break, // timeout = done
+        }
+    }
+    Ok(batches)
 }
 
 fn uuid_short() -> String {
@@ -301,11 +428,22 @@ pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
         max_bytes: EVENTS_MAX_BYTES,
         sources: Some(vec![stream::Source {
             name: "events-agg".to_string(),
-            domain: Some(hub_domain.to_string()),
+            external: Some(stream::External {
+                api_prefix: js_api_prefix(hub_domain),
+                delivery_prefix: None,
+            }),
             ..Default::default()
         }]),
         ..Default::default()
     }
+}
+
+/// `$JS.<domain>.API` — the JetStream API prefix for a named domain. This is
+/// the wire-format the NATS server expects on a `Source.external.api`; the
+/// `Source.domain` field is an async-nats convenience that older brokers do
+/// not accept as a top-level Source key, so we always emit `external` here.
+fn js_api_prefix(domain: &str) -> String {
+    format!("$JS.{domain}.API")
 }
 
 /// Idempotently add this leaf's `events` stream (in its own JetStream domain)
@@ -318,15 +456,20 @@ pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
 /// concurrently-joining leaves not lose registrations (the I/O layer still
 /// retries on a write conflict; this keeps the merge itself correct).
 pub(crate) fn ensure_self_source(sources: &mut Vec<stream::Source>, my_domain: &str) -> bool {
-    let already = sources
-        .iter()
-        .any(|s| s.name == "events" && s.domain.as_deref() == Some(my_domain));
+    let want_prefix = js_api_prefix(my_domain);
+    let already = sources.iter().any(|s| {
+        s.name == "events"
+            && s.external.as_ref().map(|e| e.api_prefix.as_str()) == Some(want_prefix.as_str())
+    });
     if already {
         return false;
     }
     sources.push(stream::Source {
         name: "events".to_string(),
-        domain: Some(my_domain.to_string()),
+        external: Some(stream::External {
+            api_prefix: want_prefix,
+            delivery_prefix: None,
+        }),
         ..Default::default()
     });
     true
@@ -343,6 +486,54 @@ pub(crate) fn events_aggregate_config() -> stream::Config {
         max_bytes: EVENTS_MAX_BYTES,
         ..Default::default()
     }
+}
+
+/// Cross-domain self-registration on the hub aggregate (Option 3 in action).
+///
+/// Reads the hub's `events-agg` config across the JetStream domain boundary,
+/// merges this leaf's source idempotently via [`ensure_self_source`], and
+/// writes the updated config back. Retries on write conflict — a read-
+/// modify-write across concurrently-joining leaves can collide; the merge is
+/// additive (peers preserved), so the loser of a race just sees its peer's
+/// source already there and re-applies its own on retry.
+///
+/// Returns `Ok(())` whether registration was newly added or already present.
+pub(crate) async fn register_self_with_hub(
+    client: async_nats::Client,
+    hub_domain: &str,
+    my_domain: &str,
+) -> Result<()> {
+    let hub_js = jetstream::with_domain(client, hub_domain);
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..5u32 {
+        let mut agg = match hub_js.get_stream("events-agg").await {
+            Ok(s) => s,
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!("get_stream(events-agg) failed: {e}"));
+                tokio::time::sleep(std::time::Duration::from_millis(100 * (1u64 << attempt))).await;
+                continue;
+            }
+        };
+        let mut cfg = agg.info().await
+            .with_context(|| "info(events-agg) failed")?
+            .config
+            .clone();
+        let mut sources = cfg.sources.unwrap_or_default();
+        let added = ensure_self_source(&mut sources, my_domain);
+        cfg.sources = Some(sources);
+        if !added {
+            return Ok(());
+        }
+        match hub_js.update_stream(&cfg).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_err = Some(anyhow::anyhow!("update_stream(events-agg) failed: {e}"));
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("hub registration failed: unknown")))
+        .context("hub events-agg self-registration exhausted retries")
 }
 
 #[cfg(test)]
@@ -387,11 +578,11 @@ mod federation_config_tests {
         let sources = cfg.sources.as_ref().expect("mirror must have a source");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "events-agg");
-        assert_eq!(
-            sources[0].domain.as_deref(),
-            Some("hub"),
-            "source must reach across the hub JetStream domain"
-        );
+        // Cross-domain reach is encoded as `external.api = "$JS.<domain>.API"`
+        // (the wire format), not the convenience `domain` field — older
+        // brokers reject `domain` as a top-level Source key.
+        let external = sources[0].external.as_ref().expect("must use external for cross-domain");
+        assert_eq!(external.api_prefix, "$JS.hub.API");
     }
 
     #[test]
@@ -418,7 +609,8 @@ mod federation_config_tests {
         assert!(added, "first registration adds a source");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "events");
-        assert_eq!(sources[0].domain.as_deref(), Some("leaf-maxs-air"));
+        let ext = sources[0].external.as_ref().expect("external set");
+        assert_eq!(ext.api_prefix, "$JS.leaf-maxs-air.API");
     }
 
     #[test]
@@ -435,14 +627,20 @@ mod federation_config_tests {
         // A leaf joining must NOT clobber peers already registered on the agg.
         let mut sources = vec![stream::Source {
             name: "events".to_string(),
-            domain: Some("leaf-katies-mini".to_string()),
+            external: Some(stream::External {
+                api_prefix: "$JS.leaf-katies-mini.API".to_string(),
+                delivery_prefix: None,
+            }),
             ..Default::default()
         }];
         let added = ensure_self_source(&mut sources, "leaf-maxs-air");
         assert!(added);
         assert_eq!(sources.len(), 2, "peer source preserved, own source added");
-        let domains: Vec<_> = sources.iter().filter_map(|s| s.domain.as_deref()).collect();
-        assert!(domains.contains(&"leaf-katies-mini"));
-        assert!(domains.contains(&"leaf-maxs-air"));
+        let prefixes: Vec<_> = sources
+            .iter()
+            .filter_map(|s| s.external.as_ref().map(|e| e.api_prefix.as_str()))
+            .collect();
+        assert!(prefixes.contains(&"$JS.leaf-katies-mini.API"));
+        assert!(prefixes.contains(&"$JS.leaf-maxs-air.API"));
     }
 }
