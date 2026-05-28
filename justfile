@@ -84,10 +84,14 @@ up:
       exit 1
     fi
     if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
       if [ -f .env ]; then set -a; source .env; set +a; fi
-      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
-      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
+      if [ -n "${NATS_LEAF_URL:-}" ]; then
+        echo "Starting NATS JetStream (leaf node → hub)..."
+        nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
+      else
+        echo "Starting NATS JetStream (standalone, local-only)..."
+        nats-server -c nats.conf &disown 2>/dev/null
+      fi
       sleep 1
     else
       echo "NATS already running on :4222"
@@ -103,7 +107,9 @@ up:
     OPEN_STORY_MONGO_DB=openstory \
       cargo run --manifest-path rs/cli/Cargo.toml --features mongo -- serve &
     sleep 2
-    cd ui && npm run dev &
+    cd ui
+    [ -d node_modules ] || { echo "Installing UI dependencies..."; npm install; }
+    npm run dev &
     wait
 
 # Same as `just up` but uses SQLite (no Docker / Mongo container required)
@@ -123,10 +129,14 @@ up-no-mongo:
       exit 1
     fi
     if ! lsof -i :4222 &>/dev/null 2>&1; then
-      echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
       if [ -f .env ]; then set -a; source .env; set +a; fi
-      : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
-      nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
+      if [ -n "${NATS_LEAF_URL:-}" ]; then
+        echo "Starting NATS JetStream (leaf node → hub)..."
+        nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
+      else
+        echo "Starting NATS JetStream (standalone, local-only)..."
+        nats-server -c nats.conf &disown 2>/dev/null
+      fi
       sleep 1
     else
       echo "NATS already running on :4222"
@@ -136,7 +146,9 @@ up-no-mongo:
     cargo build --manifest-path rs/cli/Cargo.toml
     cargo run --manifest-path rs/cli/Cargo.toml -- serve &
     sleep 2
-    cd ui && npm run dev &
+    cd ui
+    [ -d node_modules ] || { echo "Installing UI dependencies..."; npm install; }
+    npm run dev &
     wait
 
 # Start MongoDB (mongo:7) as a Docker container (idempotent)
@@ -189,13 +201,18 @@ mongo-reset: mongo-stop
       echo "No openstory-mongo-data volume to remove"
     fi
 
-# Start NATS JetStream standalone (leaf node → Hetzner hub)
+# Start NATS JetStream — leaf node (NATS_LEAF_URL set in .env) or standalone (default)
 nats:
     #!/usr/bin/env bash
     set -e
     if [ -f .env ]; then set -a; source .env; set +a; fi
-    : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
-    nats-server -c deploy/nats-leaf.conf
+    if [ -n "${NATS_LEAF_URL:-}" ]; then
+      echo "Starting NATS JetStream (leaf node → hub)..."
+      exec nats-server -c deploy/nats-leaf.conf
+    else
+      echo "Starting NATS JetStream (standalone, local-only)..."
+      exec nats-server -c nats.conf
+    fi
 
 # Stop NATS
 nats-stop:
