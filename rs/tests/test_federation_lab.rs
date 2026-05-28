@@ -84,19 +84,27 @@ fn leaf_nats_service(i: usize) -> String {
     )
 }
 
-fn generate_lab_compose(node_dirs: &[PathBuf]) -> String {
+fn generate_lab_compose(node_dirs: &[PathBuf], catch_up: bool) -> String {
     let mut yaml = String::from("services:\n");
     yaml.push_str(&hub_nats_service());
     // Hub dashboard: consumer on the hub NATS.
     yaml.push_str(&format!(
         "  hub:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"consumer\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://{TOKEN}@nats-hub:4222\", \"--data-dir\", \"/data\"]\n    ports:\n      - \"3002\"\n    depends_on:\n      - nats-hub\n"
     ));
+    // Optional env block — when catch_up is off we want a *pure transport*
+    // convergence test (Phase 2b RED). When on, the HTTP catch-up backstop
+    // shipped in `024fcc2` papers over the JetStream cold-boot race.
+    let env_block = if catch_up {
+        "    environment:\n      - OPEN_STORY_CATCH_UP_PEER=http://hub:3002\n"
+    } else {
+        ""
+    };
     for (i, dir) in node_dirs.iter().enumerate() {
         yaml.push_str(&leaf_nats_service(i));
         // Full node: watches its own fixture, publishes to + consumes from its
         // own leaf NATS (a complete local mirror), serves a local dashboard.
         yaml.push_str(&format!(
-            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n    environment:\n      - OPEN_STORY_CATCH_UP_PEER=http://hub:3002\n    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
+            "  node-{i}:\n    image: open-story:test\n    command: [\"serve\", \"--role\", \"full\", \"--host\", \"0.0.0.0\", \"--port\", \"3002\", \"--nats-url\", \"nats://nats-leaf-{i}:4222\", \"--data-dir\", \"/data\", \"--watch-dir\", \"/watch\"]\n{env_block}    ports:\n      - \"3002\"\n    volumes:\n      - {mount}:/watch:ro\n    depends_on:\n      - nats-leaf-{i}\n",
             mount = docker_path(dir),
         ));
     }
@@ -146,12 +154,13 @@ struct LabResult {
     elapsed: Duration,
 }
 
-async fn run_lab_federation(nodes: usize, events: usize) -> LabResult {
-    eprintln!("\n  ══ Lab federation (faithful): {nodes} nodes × {events} events ══");
+async fn run_lab_federation(nodes: usize, events: usize, catch_up: bool) -> LabResult {
+    let label = if catch_up { "faithful, catch-up ON" } else { "faithful, catch-up OFF (cold)" };
+    eprintln!("\n  ══ Lab federation ({label}): {nodes} nodes × {events} events ══");
     let fixtures = tempfile::TempDir::new().unwrap();
     let node_dirs = generate_node_fixtures(fixtures.path(), nodes, events);
     let compose_file = fixtures.path().join("docker-compose.lab.yml");
-    std::fs::write(&compose_file, generate_lab_compose(&node_dirs)).unwrap();
+    std::fs::write(&compose_file, generate_lab_compose(&node_dirs, catch_up)).unwrap();
 
     let project = format!("oslab-{nodes}-{}", std::process::id());
     let lab = Lab {
@@ -256,10 +265,26 @@ async fn run_lab_federation(nodes: usize, events: usize) -> LabResult {
 #[tokio::test]
 #[ignore]
 async fn lab_federation_full_mirror_10_nodes() {
-    let r = run_lab_federation(10, 12).await;
+    let r = run_lab_federation(10, 12, true).await;
     assert!(
         r.fully_mirrored,
         "every node must mirror all {} sessions (hub {}/{}, slowest node {}/{})",
+        r.nodes, r.hub_has, r.nodes, r.min_node_has, r.nodes
+    );
+}
+
+/// T2 cold-boot — Phase 2b RED. Same 10-node star as above but with the
+/// HTTP catch-up backstop disabled, so convergence depends purely on
+/// JetStream transport. Per `federation-bidirectional-mirror-gap`, today
+/// this gets ~8/10 on the slowest leaf — the gap Idea A's cross-domain
+/// I/O wrapper is meant to close. Goes green when Phase 2b Step 2 lands.
+#[tokio::test]
+#[ignore]
+async fn lab_federation_full_mirror_10_nodes_cold() {
+    let r = run_lab_federation(10, 12, false).await;
+    assert!(
+        r.fully_mirrored,
+        "cold boot (no catch-up): every node must mirror all {} sessions (hub {}/{}, slowest node {}/{})",
         r.nodes, r.hub_has, r.nodes, r.min_node_has, r.nodes
     );
 }
@@ -271,7 +296,7 @@ async fn lab_federation_full_mirror_10_nodes() {
 async fn lab_federation_ramp() {
     let mut rows = Vec::new();
     for &n in &[2usize, 3, 5, 10] {
-        let r = run_lab_federation(n, 12).await;
+        let r = run_lab_federation(n, 12, true).await;
         rows.push((n, r.hub_has, r.min_node_has, r.fully_mirrored, r.elapsed.as_secs_f64()));
         if !r.fully_mirrored {
             eprintln!("  *** full mirroring broke at {n} faithful nodes ***");
