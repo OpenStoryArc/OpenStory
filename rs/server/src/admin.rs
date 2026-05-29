@@ -33,7 +33,7 @@ use crate::state::SharedState;
 /// One of the four topology shapes the federation can be in, from this
 /// node's vantage. Encoded kebab-case for the JSON wire (`solo`, `t1`,
 /// `t2`, `t3`) so the UI can branch with a single string compare.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TopologyShape {
     Solo,
@@ -43,7 +43,7 @@ pub enum TopologyShape {
 }
 
 /// What this node is doing in the topology.
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeRole {
     /// Standalone — no federation.
@@ -55,7 +55,7 @@ pub enum NodeRole {
 }
 
 /// This node's identity + configuration view.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct NodeInfo {
     pub host: String,
     pub role: NodeRole,
@@ -73,7 +73,7 @@ pub struct NodeInfo {
 /// A single host known to be (or to have been) part of the fleet, from
 /// this device's vantage. Used to render the "whole topology" view —
 /// not just self + configured peers, but every node we have evidence of.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct NodeSummary {
     pub host: String,
     pub is_self: bool,
@@ -88,7 +88,7 @@ pub struct NodeSummary {
     pub source: NodeEvidence,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum NodeEvidence {
     SelfNode,
@@ -98,7 +98,7 @@ pub enum NodeEvidence {
 }
 
 /// What `/api/admin/topology` returns.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct Topology {
     pub shape: TopologyShape,
     #[serde(rename = "self")]

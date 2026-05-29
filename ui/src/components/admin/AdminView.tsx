@@ -13,38 +13,23 @@
  *   - admin_token middleware (optional)
  */
 
-import { useEffect, useState } from "react";
-import {
-  fetchTopology,
-  type Topology,
-  type TopologyShape,
-} from "@/lib/admin-api";
+import { useMemo } from "react";
+import type { Topology, TopologyShape } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
 import { FleetGrid } from "@/components/admin/FleetGrid";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
+import { admin$ } from "@/streams/admin";
+import { useObservable } from "@/hooks/use-observable";
 
 export function AdminView() {
-  const [topology, setTopology] = useState<Topology | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    setLoading(true);
-    fetchTopology(ctrl.signal)
-      .then((t) => {
-        if (ctrl.signal.aborted) return;
-        setTopology(t);
-        setError(null);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (ctrl.signal.aborted) return;
-        setError(err instanceof Error ? err.message : String(err));
-        setLoading(false);
-      });
-    return () => ctrl.abort();
-  }, []);
+  // Sink: subscribe to the admin topology stream. First emission is the
+  // REST-seeded snapshot; subsequent emissions are WS-pushed frames.
+  // The stream itself is process-wide (shareReplay 1) so remounting
+  // AdminView doesn't refetch.
+  const stream = useMemo(() => admin$(), []);
+  const topology = useObservable<Topology | null>(stream, null);
+  const loading = topology === null;
+  const error: string | null = null;
 
   return (
     <div className="p-6 max-w-5xl mx-auto" data-testid="admin-view">

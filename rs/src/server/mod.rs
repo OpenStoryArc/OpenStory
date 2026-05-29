@@ -423,31 +423,56 @@ pub async fn run_server(
 
         // ── Actor 5: admin topology broadcaster (SICP stream-mux) ──
         //
-        // Owns updates to AppState.admin_topology_tx. v0.2 Step 5 ships
-        // the actor with a pulse-channel input; Step 6 will wire its
-        // pulse input to bus.subscribe("changes.>") and to JetStream
-        // advisories. For now the actor sits ready — the cache is
-        // already seeded at boot by `create_state_with_watch_dirs`, so
-        // the REST endpoint serves correctly even without pulses.
+        // Owns updates to AppState.admin_topology_tx. Composes existing
+        // streams: subscribes to the WS broadcast channel (every event
+        // flowing to clients) and pulses the actor on each message. The
+        // actor's diff-vs-cache check prevents downstream spam — only
+        // topology changes propagate to WS subscribers.
         {
             let s = state.read().await;
             let watch_tx = s.admin_topology_tx.clone();
             let event_store = s.store.event_store.clone();
+            let mut broadcast_rx = s.broadcast_tx.subscribe();
             let host = open_story_core::host::host().to_string();
             let role = s.config.role;
             drop(s);
             let env = open_story_server::admin::EnvInputs::from_env();
-            // Pulse channel: receiver goes to the actor; sender is held
-            // here for Step 6 to wire into bus.subscribe(). For now it
-            // simply sits as a no-op sender.
-            let (_pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
-            let _handle = open_story_server::consumers::admin_broadcaster::spawn(
+            let (pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
+            let _actor_handle = open_story_server::consumers::admin_broadcaster::spawn(
                 watch_tx, event_store, env, host, role, pulse_rx,
             );
-            // _pulse_tx is dropped at the end of this scope → actor's loop
-            // exits immediately. Acceptable for Step 5 (cache is already
-            // seeded); Step 6 keeps the sender alive for the lifetime of
-            // the bus subscription.
+            // Pulse forwarder: WS broadcast events → pulse channel.
+            // Drops lagged messages (RecvError::Lagged) silently — we
+            // only need the "something happened" signal, not the payload.
+            tokio::spawn(async move {
+                while let Ok(_msg) = broadcast_rx.recv().await {
+                    if pulse_tx.send(()).await.is_err() {
+                        break; // actor closed; exit forwarder
+                    }
+                }
+            });
+
+            // Topology push: when the watch channel fires (broadcaster
+            // wrote a new frame), translate it to a BroadcastMessage and
+            // push to the WS broadcast channel. UI sinks receive it.
+            let push_state = state.clone();
+            tokio::spawn(async move {
+                let mut topology_rx = {
+                    let s = push_state.read().await;
+                    s.admin_topology_tx.subscribe()
+                };
+                loop {
+                    if topology_rx.changed().await.is_err() {
+                        break; // broadcaster dropped
+                    }
+                    let frame = topology_rx.borrow_and_update().clone();
+                    let msg = crate::server::BroadcastMessage::AdminTopologyChanged {
+                        topology: frame,
+                    };
+                    let tx = push_state.read().await.broadcast_tx.clone();
+                    let _ = tx.send(msg);
+                }
+            });
         }
     }
 
