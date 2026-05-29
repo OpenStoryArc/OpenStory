@@ -783,22 +783,44 @@ impl EventStore for SqliteStore {
         Ok(events_deleted)
     }
 
-    async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
+    async fn cleanup_old_sessions(
+        &self,
+        retention_days: u32,
+        keep_host: Option<&str>,
+    ) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let conn = self.conn.lock().unwrap();
 
-        // Find sessions older than cutoff
-        let mut stmt = conn.prepare(
-            "SELECT id FROM sessions WHERE last_event < ?1 OR (last_event IS NULL AND first_event < ?1)",
-        )?;
-        let session_ids: Vec<String> = stmt
-            .query_map([&cutoff_str], |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+        // Invariant ②: when keep_host is set, exclude rows whose host
+        // matches — your own data is yours, always. NULL host is treated
+        // as foreign here (mirrored from a pre-stamping peer) and is
+        // eligible for sweep.
+        let ids: Vec<String> = if let Some(host) = keep_host {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM sessions \
+                 WHERE (last_event < ?1 OR (last_event IS NULL AND first_event < ?1)) \
+                   AND (host IS NULL OR host <> ?2)",
+            )?;
+            let rows = stmt
+                .query_map(rusqlite::params![&cutoff_str, host], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM sessions \
+                 WHERE last_event < ?1 OR (last_event IS NULL AND first_event < ?1)",
+            )?;
+            let rows = stmt
+                .query_map([&cutoff_str], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        };
 
         let mut total = 0u64;
-        for sid in &session_ids {
+        for sid in &ids {
             conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [sid])?;
             total += conn.execute("DELETE FROM events WHERE session_id = ?1", [sid])? as u64;
             conn.execute("DELETE FROM patterns WHERE session_id = ?1", [sid])?;
@@ -1710,10 +1732,76 @@ mod tests {
             .await
             .unwrap();
 
-        let deleted = store.cleanup_old_sessions(30).await.unwrap();
+        let deleted = store.cleanup_old_sessions(30, None).await.unwrap();
         assert_eq!(deleted, 1, "should delete 1 old event");
         assert_eq!(store.list_sessions().await.unwrap().len(), 1);
         assert_eq!(store.list_sessions().await.unwrap()[0].id, "sess-new");
+    }
+
+    #[tokio::test]
+    async fn cleanup_preserves_own_host_sessions_invariant_two() {
+        // Invariant ② — federation Phase 4: sessions whose `host` matches
+        // the passed `keep_host` must NEVER be swept, regardless of age.
+        // Your own data is yours, always.
+        let store = SqliteStore::in_memory().unwrap();
+
+        // An OLD session belonging to THIS host (must be preserved).
+        let old_ts = "2025-12-01T00:00:00Z";
+        store
+            .insert_event("sess-mine-old", &test_event("evt-mine", old_ts))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-mine-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
+                custom_label: None,
+                first_event: Some(old_ts.into()),
+                last_event: Some(old_ts.into()),
+                host: Some("a1".into()),
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+
+        // An OLD session belonging to a PEER (eligible for sweep).
+        store
+            .insert_event("sess-peer-old", &test_event("evt-peer", old_ts))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-peer-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
+                custom_label: None,
+                first_event: Some(old_ts.into()),
+                last_event: Some(old_ts.into()),
+                host: Some("katies-mini".into()),
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+
+        let deleted = store.cleanup_old_sessions(30, Some("a1")).await.unwrap();
+        assert_eq!(deleted, 1, "only the peer session should be deleted");
+        let remaining: Vec<String> = store
+            .list_sessions()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(remaining, vec!["sess-mine-old"], "own old session preserved");
     }
 
     #[tokio::test]
@@ -1742,7 +1830,7 @@ mod tests {
             .await
             .unwrap();
 
-        let deleted = store.cleanup_old_sessions(7).await.unwrap();
+        let deleted = store.cleanup_old_sessions(7, None).await.unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(store.list_sessions().await.unwrap().len(), 1);
     }

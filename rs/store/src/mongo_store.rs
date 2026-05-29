@@ -522,14 +522,22 @@ impl EventStore for MongoStore {
     /// Delete sessions whose `last_event` is older than the cutoff.
     /// Mirrors `SqliteStore::cleanup_old_sessions`. Returns the total
     /// count of events removed across all deleted sessions.
-    async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
+    ///
+    /// Invariant ②: when `keep_host` is set, sessions whose `host`
+    /// matches are excluded from the sweep — your own data is yours,
+    /// always.
+    async fn cleanup_old_sessions(
+        &self,
+        retention_days: u32,
+        keep_host: Option<&str>,
+    ) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
 
         // Find stale sessions. Match SQLite semantics: stale = last_event
         // older than cutoff, OR last_event missing AND first_event older.
-        let filter = doc! {
+        let age_filter = doc! {
             "$or": [
                 { "last_event": { "$lt": &cutoff_str } },
                 {
@@ -539,6 +547,23 @@ impl EventStore for MongoStore {
                     ]
                 }
             ]
+        };
+        // Invariant ②: exclude rows whose host == keep_host (NULL host is
+        // treated as foreign so pre-migration / pre-stamping mirrors
+        // remain eligible for sweep).
+        let filter = match keep_host {
+            None => age_filter,
+            Some(host) => doc! {
+                "$and": [
+                    age_filter,
+                    {
+                        "$or": [
+                            { "host": Bson::Null },
+                            { "host": { "$ne": host } },
+                        ]
+                    }
+                ]
+            },
         };
         let mut cursor = sessions
             .find(filter)

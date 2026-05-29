@@ -217,9 +217,21 @@ pub trait EventStore: Send + Sync {
         Ok(lines.join("\n"))
     }
 
-    /// Delete sessions older than `retention_days`.
-    /// Returns the number of sessions deleted.
-    async fn cleanup_old_sessions(&self, _retention_days: u32) -> Result<u64> {
+    /// Delete sessions whose most recent activity is older than
+    /// `retention_days`. Returns the number of sessions deleted.
+    ///
+    /// **Invariant ② (federation Phase 4):** sessions whose `host` equals
+    /// `keep_host` MUST be preserved regardless of age — your own data is
+    /// yours, always; only fleet-mirrored sessions are eligible for the
+    /// sweep. Pass `None` only when operating outside federation (single-
+    /// host dev cleanup or a legacy retention sweep that hasn't been
+    /// audited for sovereignty). Default impl is a no-op for backends that
+    /// don't track session bounds.
+    async fn cleanup_old_sessions(
+        &self,
+        _retention_days: u32,
+        _keep_host: Option<&str>,
+    ) -> Result<u64> {
         Ok(0)
     }
 
