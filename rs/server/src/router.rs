@@ -112,6 +112,14 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::admin::get_topology),
         )
         .route(
+            "/api/admin/share-policy",
+            axum::routing::get(crate::admin::list_share_policy),
+        )
+        .route(
+            "/api/admin/share-policy/{session_id}",
+            axum::routing::put(crate::admin::set_share_policy),
+        )
+        .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
         )

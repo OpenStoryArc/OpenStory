@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
@@ -195,6 +195,18 @@ impl SqliteStore {
         let _ = conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_sessions_origin_agent ON sessions(origin_agent)",
         );
+
+        // Share policy table (Admin v0 → Phase 4 edge sovereignty).
+        // A session WITHOUT a row defaults to `Shared` — explicit policies
+        // are only written when the operator marks something Private.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS share_policy (
+                session_id TEXT PRIMARY KEY,
+                mode       TEXT NOT NULL CHECK (mode IN ('shared','private')),
+                updated_at TEXT NOT NULL DEFAULT '',
+                updated_by TEXT
+            );",
+        )?;
 
         Ok(())
     }
@@ -831,6 +843,77 @@ impl EventStore for SqliteStore {
     async fn fts_count(&self) -> Result<u64> {
         self.fts_count_inner()
     }
+
+    // ── Share policy ─────────────────────────────────────────────────────
+
+    async fn get_share_policy(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::event_store::SharePolicyMode> {
+        use std::str::FromStr;
+        let conn = self.conn.lock().unwrap();
+        let row: Option<String> = conn
+            .query_row(
+                "SELECT mode FROM share_policy WHERE session_id = ?1",
+                rusqlite::params![session_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match row {
+            None => Ok(crate::event_store::SharePolicyMode::Shared),
+            Some(s) => crate::event_store::SharePolicyMode::from_str(&s)
+                .map_err(|e| anyhow::anyhow!("invalid share_policy row for {session_id}: {e}")),
+        }
+    }
+
+    async fn set_share_policy(
+        &self,
+        session_id: &str,
+        mode: crate::event_store::SharePolicyMode,
+        updated_by: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO share_policy(session_id, mode, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(session_id) DO UPDATE SET
+                 mode = excluded.mode,
+                 updated_at = excluded.updated_at,
+                 updated_by = excluded.updated_by",
+            rusqlite::params![session_id, mode.as_str(), now, updated_by],
+        )?;
+        Ok(())
+    }
+
+    async fn list_share_policies(&self) -> Result<Vec<crate::event_store::SharePolicyRow>> {
+        use std::str::FromStr;
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT session_id, mode, updated_at, updated_by FROM share_policy ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|(session_id, mode, updated_at, updated_by)| {
+                let mode = crate::event_store::SharePolicyMode::from_str(&mode)
+                    .map_err(|e| anyhow::anyhow!("invalid share_policy row for {session_id}: {e}"))?;
+                Ok(crate::event_store::SharePolicyRow {
+                    session_id,
+                    mode,
+                    updated_at,
+                    updated_by,
+                })
+            })
+            .collect()
+    }
 }
 
 /// Helper for reading pattern rows from SQLite.
@@ -899,6 +982,63 @@ mod tests {
         assert!(store.table_exists("sessions"));
         assert!(store.table_exists("patterns"));
         assert!(store.table_exists("plans"));
+        assert!(store.table_exists("share_policy"));
+    }
+
+    // ── Share policy ──
+
+    #[tokio::test]
+    async fn share_policy_defaults_to_shared_for_unknown_session() {
+        let store = SqliteStore::in_memory().unwrap();
+        let mode = store.get_share_policy("never-seen").await.unwrap();
+        assert_eq!(mode, crate::event_store::SharePolicyMode::Shared);
+    }
+
+    #[tokio::test]
+    async fn share_policy_round_trips_private() {
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .set_share_policy("sess-1", crate::event_store::SharePolicyMode::Private, Some("max"))
+            .await
+            .unwrap();
+        let mode = store.get_share_policy("sess-1").await.unwrap();
+        assert_eq!(mode, crate::event_store::SharePolicyMode::Private);
+    }
+
+    #[tokio::test]
+    async fn share_policy_set_is_upsert_not_insert() {
+        // Flipping shared → private → shared should leave a single row with
+        // the latest value, not panic on PK conflict.
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .set_share_policy("sess-2", crate::event_store::SharePolicyMode::Private, None)
+            .await
+            .unwrap();
+        store
+            .set_share_policy("sess-2", crate::event_store::SharePolicyMode::Shared, None)
+            .await
+            .unwrap();
+        let mode = store.get_share_policy("sess-2").await.unwrap();
+        assert_eq!(mode, crate::event_store::SharePolicyMode::Shared);
+        let all = store.list_share_policies().await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].session_id, "sess-2");
+    }
+
+    #[tokio::test]
+    async fn share_policy_list_returns_only_explicitly_set_rows() {
+        let store = SqliteStore::in_memory().unwrap();
+        // No writes → empty list (everyone defaults to Shared).
+        let empty = store.list_share_policies().await.unwrap();
+        assert!(empty.is_empty());
+        // After one write, only that session appears.
+        store
+            .set_share_policy("a", crate::event_store::SharePolicyMode::Private, None)
+            .await
+            .unwrap();
+        let one = store.list_share_policies().await.unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].mode, crate::event_store::SharePolicyMode::Private);
     }
 
     #[test]

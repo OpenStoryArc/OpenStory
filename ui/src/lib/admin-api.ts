@@ -32,3 +32,43 @@ export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
   }
   return res.json();
 }
+
+// ── Share policy ────────────────────────────────────────────────────────
+
+export type SharePolicyMode = "shared" | "private";
+
+export interface SharePolicyRow {
+  readonly session_id: string;
+  readonly mode: SharePolicyMode;
+  readonly updated_at: string;
+  readonly updated_by: string | null;
+}
+
+export interface SharePolicyResponse {
+  readonly default_mode: SharePolicyMode;
+  readonly policies: readonly SharePolicyRow[];
+}
+
+export async function fetchSharePolicies(signal?: AbortSignal): Promise<SharePolicyResponse> {
+  const res = await fetch("/api/admin/share-policy", { signal });
+  if (!res.ok) {
+    throw new Error(`fetchSharePolicies: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function setSharePolicy(
+  sessionId: string,
+  mode: SharePolicyMode,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/admin/share-policy/${encodeURIComponent(sessionId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(`setSharePolicy(${sessionId}, ${mode}): ${res.status} ${res.statusText}`);
+  }
+}

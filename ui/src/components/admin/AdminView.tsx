@@ -20,6 +20,7 @@ import {
   type TopologyShape,
 } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
+import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 
 export function AdminView() {
   const [topology, setTopology] = useState<Topology | null>(null);
@@ -75,11 +76,23 @@ export function AdminView() {
             <NodeIdentity topology={topology} />
           </section>
 
-          <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <h3 className="text-sm font-medium text-[#c0caf5] mb-3">
               Topology
             </h3>
             <TopologyMap topology={topology} />
+          </section>
+
+          <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#c0caf5]">Share policy</h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Sessions originating on this device. <code>shared</code> means
+                they flow into the federation aggregate; <code>private</code>{" "}
+                means they never leave this device. Default is <code>shared</code>.
+              </p>
+            </header>
+            <SharePolicyTable selfHost={topology.self.host} />
           </section>
         </>
       )}

@@ -19,9 +19,12 @@
 //!   its own perspective; cross-hub fanout is the hubs' concern).
 
 use axum::Json;
-use axum::extract::State;
-use serde::Serialize;
-use serde_json::Value;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use open_story_store::event_store::{SharePolicyMode, SharePolicyRow};
 
 use crate::config::Role;
 use crate::logging::log_event;
@@ -168,6 +171,72 @@ pub async fn get_topology(State(state): State<SharedState>) -> Json<Value> {
         &peer_domains,
     );
     Json(serde_json::to_value(&topology).expect("Topology serializes"))
+}
+
+// ── Share policy endpoints ───────────────────────────────────────────────
+//
+// v0 contract:
+//   GET  /api/admin/share-policy             → list policies + default
+//   PUT  /api/admin/share-policy/{id}        body { "mode": "shared"|"private" }
+//
+// Sessions without a row are SHARED by default (sovereignty-by-default at
+// the operator's choice — turning something private is an explicit act).
+//
+// What this commit DOES NOT do (deferred per the v0 plan):
+//   - mutate `events-agg`'s source `filter_subject` on PUT (the bus-level
+//     enforcement of share=private). The DB write is the *authority*; the
+//     bus reconciles on the next ensure_streams cycle.
+//   - filter `/api/digests` and `/api/sessions/{id}/events` by policy
+//     (invariant ①). Both are separate commits.
+
+#[derive(Debug, Deserialize)]
+pub struct SetSharePolicyBody {
+    pub mode: SharePolicyMode,
+}
+
+/// `GET /api/admin/share-policy` — list every session with an explicitly-set
+/// share policy. The response also includes `default_mode` so the UI can
+/// render unlisted sessions correctly without re-deriving the convention.
+pub async fn list_share_policy(State(state): State<SharedState>) -> Json<Value> {
+    log_event("api", "GET /api/admin/share-policy");
+    let s = state.read().await;
+    let policies: Vec<SharePolicyRow> = s
+        .store
+        .event_store
+        .list_share_policies()
+        .await
+        .unwrap_or_default();
+    drop(s);
+    Json(json!({
+        "default_mode": SharePolicyMode::Shared.as_str(),
+        "policies": policies,
+    }))
+}
+
+/// `PUT /api/admin/share-policy/{session_id}` — set this session's mode.
+pub async fn set_share_policy(
+    State(state): State<SharedState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<SetSharePolicyBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    log_event(
+        "api",
+        &format!(
+            "PUT /api/admin/share-policy/{session_id} → {}",
+            body.mode.as_str()
+        ),
+    );
+    let s = state.read().await;
+    let res = s
+        .store
+        .event_store
+        .set_share_policy(&session_id, body.mode, None)
+        .await;
+    drop(s);
+    match res {
+        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
+    }
 }
 
 #[cfg(test)]
