@@ -493,8 +493,25 @@ pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
 /// the wire-format the NATS server expects on a `Source.external.api`; the
 /// `Source.domain` field is an async-nats convenience that older brokers do
 /// not accept as a top-level Source key, so we always emit `external` here.
-fn js_api_prefix(domain: &str) -> String {
+pub(crate) fn js_api_prefix(domain: &str) -> String {
     format!("$JS.{domain}.API")
+}
+
+/// Inverse of [`js_api_prefix`] — read a domain back out of a wire-format
+/// `$JS.<domain>.API` string. Returns `None` for inputs that don't fit the
+/// envelope (missing `$JS.` prefix, missing `.API` suffix, empty domain,
+/// or anything else). Case-sensitive: `.api` is *not* accepted, matching
+/// NATS's own behavior.
+///
+/// Used by the admin module to surface which leaf each source on the
+/// hub's `events-agg` belongs to.
+pub fn parse_js_api_prefix(s: &str) -> Option<String> {
+    let inner = s.strip_prefix("$JS.")?.strip_suffix(".API")?;
+    if inner.is_empty() {
+        None
+    } else {
+        Some(inner.to_string())
+    }
 }
 
 /// Mesh-mode mirror (T1 solo multi-device): no hub aggregate, instead one
@@ -778,6 +795,62 @@ mod federation_config_tests {
         // brokers reject `domain` as a top-level Source key.
         let external = sources[0].external.as_ref().expect("must use external for cross-domain");
         assert_eq!(external.api_prefix, "$JS.hub.API");
+    }
+
+    // ── Inverse of js_api_prefix — read a domain back from the wire format ─
+    // Admin v0.2 (live JetStream introspection): when we read a SourceInfo
+    // off `events-agg` and want to surface "which leaf is this source from",
+    // we parse `external.api_prefix` back into the leaf's domain. The
+    // function MUST be a faithful inverse of `js_api_prefix(domain)`.
+
+    #[test]
+    fn parse_js_api_prefix_returns_domain_for_leaf_api() {
+        assert_eq!(
+            parse_js_api_prefix("$JS.node-0.API"),
+            Some("node-0".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_js_api_prefix_handles_hub_label() {
+        assert_eq!(parse_js_api_prefix("$JS.hub.API"), Some("hub".to_string()));
+    }
+
+    #[test]
+    fn parse_js_api_prefix_round_trips_with_js_api_prefix() {
+        // The load-bearing property — any domain we emit must come back.
+        for d in ["a1", "Maxs-Air", "node-99", "hub-b", "leaf-katies-mini"] {
+            let emitted = js_api_prefix(d);
+            assert_eq!(parse_js_api_prefix(&emitted), Some(d.to_string()), "round-trip {d}");
+        }
+    }
+
+    #[test]
+    fn parse_js_api_prefix_rejects_missing_prefix() {
+        assert_eq!(parse_js_api_prefix("node-0"), None);
+        assert_eq!(parse_js_api_prefix("JS.node-0.API"), None, "no leading $");
+    }
+
+    #[test]
+    fn parse_js_api_prefix_rejects_missing_suffix() {
+        // No `.API` tail — could be a cluster prefix or a typo. Refuse.
+        assert_eq!(parse_js_api_prefix("$JS.node-0"), None);
+        assert_eq!(parse_js_api_prefix("$JS.node-0.api"), None, "case-sensitive");
+    }
+
+    #[test]
+    fn parse_js_api_prefix_rejects_empty_domain() {
+        // `$JS..API` — a structurally valid envelope around an empty domain.
+        // Treat as invalid; an empty domain can't be a routing key.
+        assert_eq!(parse_js_api_prefix("$JS..API"), None);
+        assert_eq!(parse_js_api_prefix(""), None);
+    }
+
+    #[test]
+    fn parse_js_api_prefix_rejects_garbage() {
+        assert_eq!(parse_js_api_prefix("garbage"), None);
+        assert_eq!(parse_js_api_prefix("$"), None);
+        assert_eq!(parse_js_api_prefix("$JS"), None);
     }
 
     #[test]
