@@ -20,9 +20,19 @@ export interface NodeInfo {
   readonly peer_domains: readonly string[];
 }
 
+export type NodeEvidence = "self-node" | "sessions" | "peer-config" | "hub-config";
+
+export interface NodeSummary {
+  readonly host: string;
+  readonly is_self: boolean;
+  readonly session_count: number;
+  readonly source: NodeEvidence;
+}
+
 export interface Topology {
   readonly shape: TopologyShape;
   readonly self: NodeInfo;
+  readonly nodes: readonly NodeSummary[];
 }
 
 export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {

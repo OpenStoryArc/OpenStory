@@ -20,6 +20,7 @@ import {
   type TopologyShape,
 } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
+import { FleetGrid } from "@/components/admin/FleetGrid";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 
 export function AdminView() {
@@ -77,9 +78,24 @@ export function AdminView() {
           </section>
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
-            <h3 className="text-sm font-medium text-[#c0caf5] mb-3">
-              Topology
-            </h3>
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#c0caf5]">Fleet</h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Every host this device has evidence of — self, hosts seen in
+                stored sessions, and configured peers/hubs.
+              </p>
+            </header>
+            <FleetGrid nodes={topology.nodes} />
+          </section>
+
+          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#c0caf5]">Shape</h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Connectivity from this device's vantage. The Fleet panel above
+                shows <em>presence</em>; this shows how data flows.
+              </p>
+            </header>
             <TopologyMap topology={topology} />
           </section>
 

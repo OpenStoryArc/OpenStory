@@ -70,22 +70,58 @@ pub struct NodeInfo {
     pub peer_domains: Vec<String>,
 }
 
+/// A single host known to be (or to have been) part of the fleet, from
+/// this device's vantage. Used to render the "whole topology" view —
+/// not just self + configured peers, but every node we have evidence of.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct NodeSummary {
+    pub host: String,
+    pub is_self: bool,
+    /// How many sessions originating on this host have landed in local
+    /// storage. Zero is meaningful: it means the host is *configured* as
+    /// a peer (env var) but we haven't seen events from it yet.
+    pub session_count: u64,
+    /// Why we know about this host. `"self"` = this device. `"sessions"`
+    /// = at least one SessionRow has this host. `"peer-config"` = this
+    /// host appears in `OPEN_STORY_PEER_DOMAINS` (T1 mesh). `"hub-config"`
+    /// = this host is the configured `OPEN_STORY_HUB_DOMAIN` (T2/T3).
+    pub source: NodeEvidence,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeEvidence {
+    SelfNode,
+    Sessions,
+    PeerConfig,
+    HubConfig,
+}
+
 /// What `/api/admin/topology` returns.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Topology {
     pub shape: TopologyShape,
     #[serde(rename = "self")]
     pub self_: NodeInfo,
+    /// Every host this device has evidence of — self plus any host
+    /// appearing in `SessionRow.host` plus any configured peer. Sorted
+    /// self-first then alphabetically. Used to render the fleet view.
+    pub nodes: Vec<NodeSummary>,
 }
 
-/// Pure derivation: shape and node info from inputs. No I/O, no env reads
-/// — those happen at the handler boundary. Testable in isolation.
+/// Pure derivation: shape, node info, and fleet roster from inputs. No I/O,
+/// no env reads — those happen at the handler boundary. Testable in
+/// isolation. `session_hosts` is a (host, count) tally from the local
+/// session store; the function merges that with the configured peers so
+/// the returned `nodes` includes both seen-in-data and known-by-config
+/// fleet members.
 pub fn derive_topology(
     host: &str,
     role: Role,
     hub_domain: Option<&str>,
     peer_hub_domains: &[String],
     peer_domains: &[String],
+    session_hosts: &[(String, u64)],
 ) -> Topology {
     // Discriminate the federation mode.
     // - hub_domain set + Consumer role  → this node IS a hub
@@ -116,6 +152,77 @@ pub fn derive_topology(
         (None, false) => (TopologyShape::Solo, NodeRole::Solo, None),
     };
 
+    // Build the fleet roster: union of (self, session-host counts,
+    // configured peers). Configured peers with 0 sessions still appear
+    // — that's the "expected fleet" the operator told us about.
+    let mut nodes: std::collections::BTreeMap<String, NodeSummary> =
+        std::collections::BTreeMap::new();
+
+    // Self always appears, even with zero sessions.
+    nodes.insert(
+        host.to_string(),
+        NodeSummary {
+            host: host.to_string(),
+            is_self: true,
+            session_count: 0,
+            source: NodeEvidence::SelfNode,
+        },
+    );
+
+    // Sessions: every distinct origin host with its count.
+    for (h, count) in session_hosts {
+        let entry = nodes.entry(h.clone()).or_insert_with(|| NodeSummary {
+            host: h.clone(),
+            is_self: h == host,
+            session_count: 0,
+            source: NodeEvidence::Sessions,
+        });
+        entry.session_count = entry.session_count.saturating_add(*count);
+        // Promote source: self > sessions > peer-config > hub-config.
+        if !entry.is_self {
+            entry.source = NodeEvidence::Sessions;
+        }
+    }
+
+    // Configured T1 peers (presence-only; session_count stays 0 if unseen).
+    for p in peer_domains {
+        nodes.entry(p.clone()).or_insert_with(|| NodeSummary {
+            host: p.clone(),
+            is_self: p == host,
+            session_count: 0,
+            source: NodeEvidence::PeerConfig,
+        });
+    }
+
+    // Configured hub (T2/T3) — record presence; not the same kind of
+    // peer (it's an aggregator), but the operator should see it.
+    if let Some(h) = hub_domain {
+        nodes.entry(h.to_string()).or_insert_with(|| NodeSummary {
+            host: h.to_string(),
+            is_self: h == host,
+            session_count: 0,
+            source: NodeEvidence::HubConfig,
+        });
+    }
+
+    // Peer hubs (T3) — same treatment.
+    for h in peer_hub_domains {
+        nodes.entry(h.clone()).or_insert_with(|| NodeSummary {
+            host: h.clone(),
+            is_self: h == host,
+            session_count: 0,
+            source: NodeEvidence::HubConfig,
+        });
+    }
+
+    // Self first, then alphabetical for stability across reloads.
+    let mut nodes: Vec<NodeSummary> = nodes.into_values().collect();
+    nodes.sort_by(|a, b| match (a.is_self, b.is_self) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.host.cmp(&b.host),
+    });
+
     Topology {
         shape,
         self_: NodeInfo {
@@ -126,18 +233,39 @@ pub fn derive_topology(
             peer_hub_domains: peer_hub_domains.to_vec(),
             peer_domains: peer_domains.to_vec(),
         },
+        nodes,
     }
 }
 
 /// `GET /api/admin/topology` — read this node's federation view.
 ///
-/// Reads the same env vars the CLI boot path consumes, then delegates to
-/// the pure [`derive_topology`]. Side-effects (env reads) at the edge;
-/// the discrimination logic stays testable.
+/// Reads the federation env vars + tallies distinct hosts from the local
+/// session store, then delegates to the pure [`derive_topology`]. The
+/// result includes a `nodes` array suitable for rendering the whole
+/// fleet visible from this device.
 pub async fn get_topology(State(state): State<SharedState>) -> Json<Value> {
     log_event("api", "GET /api/admin/topology");
     let s = state.read().await;
     let role = s.config.role;
+    // Tally hosts seen in stored sessions. NULL host (pre-stamping) is
+    // skipped — we can't claim "this node exists" from rows where the
+    // origin was never recorded.
+    let session_hosts: Vec<(String, u64)> = {
+        let mut tally: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+        let rows = s
+            .store
+            .event_store
+            .list_sessions()
+            .await
+            .unwrap_or_default();
+        for row in rows {
+            if let Some(h) = row.host {
+                *tally.entry(h).or_insert(0) += 1;
+            }
+        }
+        tally.into_iter().collect()
+    };
     drop(s);
 
     let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN")
@@ -169,6 +297,7 @@ pub async fn get_topology(State(state): State<SharedState>) -> Json<Value> {
         hub_domain.as_deref(),
         &peer_hub_domains,
         &peer_domains,
+        &session_hosts,
     );
     Json(serde_json::to_value(&topology).expect("Topology serializes"))
 }
@@ -266,7 +395,7 @@ mod tests {
 
     #[test]
     fn solo_with_no_flags() {
-        let t = derive_topology("a1", Role::Full, None, &[], &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], &[]);
         assert_eq!(t.shape, TopologyShape::Solo);
         assert_eq!(t.self_.role, NodeRole::Solo);
         assert_eq!(t.self_.domain, None);
@@ -275,7 +404,7 @@ mod tests {
 
     #[test]
     fn hub_with_no_peer_hubs_is_t2() {
-        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[]);
+        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[], &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.domain.as_deref(), Some("hub"));
@@ -285,7 +414,7 @@ mod tests {
     #[test]
     fn hub_with_peer_hubs_is_t3() {
         let peers = vec!["hub-b".to_string()];
-        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[]);
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T3);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.peer_hub_domains, peers);
@@ -295,7 +424,7 @@ mod tests {
     fn leaf_attached_to_hub_is_t2_from_its_vantage() {
         // Even if the hub itself is part of a T3 mesh, the LEAF sees
         // exactly one hub. Cross-hub fanout is the hub's concern.
-        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[], &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.domain.as_deref(), Some("node-0"));
@@ -306,7 +435,7 @@ mod tests {
     #[test]
     fn peers_only_is_t1_mesh() {
         let peers = vec!["laptop".to_string(), "phone".to_string()];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, &[]);
         assert_eq!(t.shape, TopologyShape::T1);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.peer_domains, peers);
@@ -318,18 +447,90 @@ mod tests {
         // If both are set somehow, hub-mode wins — matches the CLI's
         // dispatch order (hub_domain checked before peer_domains).
         let peers = vec!["foo".to_string()];
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers, &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
     }
 
     #[test]
     fn topology_serializes_to_expected_shape() {
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], &[]);
         let v = serde_json::to_value(&t).unwrap();
         assert_eq!(v["shape"], "t2");
         assert_eq!(v["self"]["host"], "node-0");
         assert_eq!(v["self"]["role"], "leaf");
         assert_eq!(v["self"]["hub_domain"], "hub");
+    }
+
+    // ── Fleet roster — the `nodes` array ──────────────────────────────────
+
+    #[test]
+    fn solo_with_no_evidence_lists_just_self() {
+        let t = derive_topology("a1", Role::Full, None, &[], &[], &[]);
+        assert_eq!(t.nodes.len(), 1);
+        assert_eq!(t.nodes[0].host, "a1");
+        assert!(t.nodes[0].is_self);
+        assert_eq!(t.nodes[0].source, NodeEvidence::SelfNode);
+    }
+
+    #[test]
+    fn fleet_includes_hosts_seen_in_sessions() {
+        // Even in solo mode, if SessionRows expose other hosts (e.g. via
+        // prior NATS sharing), they show up in the fleet view.
+        let sessions = vec![
+            ("a1".to_string(), 32u64),
+            ("Maxs-Air".to_string(), 4),
+        ];
+        let t = derive_topology("a1", Role::Full, None, &[], &[], &sessions);
+        let hosts: Vec<&str> = t.nodes.iter().map(|n| n.host.as_str()).collect();
+        assert_eq!(hosts, vec!["a1", "Maxs-Air"], "self first, then alpha");
+        let self_node = t.nodes.iter().find(|n| n.is_self).unwrap();
+        assert_eq!(self_node.host, "a1");
+        assert_eq!(self_node.session_count, 32);
+        let peer = t.nodes.iter().find(|n| n.host == "Maxs-Air").unwrap();
+        assert!(!peer.is_self);
+        assert_eq!(peer.session_count, 4);
+        assert_eq!(peer.source, NodeEvidence::Sessions);
+    }
+
+    #[test]
+    fn fleet_includes_configured_peers_with_zero_session_count() {
+        // T1 mesh: peers from env config that we haven't seen events
+        // from yet still appear — the operator told us they exist.
+        let peers = vec!["laptop".to_string(), "phone".to_string()];
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, &[]);
+        let by_host: std::collections::HashMap<_, _> =
+            t.nodes.iter().map(|n| (n.host.as_str(), n)).collect();
+        assert_eq!(by_host["laptop"].session_count, 0);
+        assert_eq!(by_host["laptop"].source, NodeEvidence::PeerConfig);
+        assert_eq!(by_host["phone"].source, NodeEvidence::PeerConfig);
+    }
+
+    #[test]
+    fn fleet_merges_session_and_config_sources() {
+        // A host appears in BOTH peer_domains and sessions — session
+        // evidence wins (we've actually seen events).
+        let peers = vec!["laptop".to_string()];
+        let sessions = vec![("laptop".to_string(), 7)];
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, &sessions);
+        let laptop = t.nodes.iter().find(|n| n.host == "laptop").unwrap();
+        assert_eq!(laptop.session_count, 7);
+        assert_eq!(laptop.source, NodeEvidence::Sessions);
+    }
+
+    #[test]
+    fn fleet_includes_hub_in_t2_view() {
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], &[]);
+        let hub = t.nodes.iter().find(|n| n.host == "hub").unwrap();
+        assert_eq!(hub.source, NodeEvidence::HubConfig);
+        assert!(!hub.is_self);
+    }
+
+    #[test]
+    fn fleet_includes_peer_hubs_in_t3_view() {
+        let peers = vec!["hub-b".to_string()];
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], &[]);
+        let hub_b = t.nodes.iter().find(|n| n.host == "hub-b").unwrap();
+        assert_eq!(hub_b.source, NodeEvidence::HubConfig);
     }
 }

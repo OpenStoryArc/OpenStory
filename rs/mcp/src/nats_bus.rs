@@ -36,17 +36,16 @@ impl NatsBus {
 #[async_trait]
 impl Subscribe for NatsBus {
     async fn subscribe(&self, session_id: &str) -> Result<Subscription> {
-        // Subject convention: events.{project}.{session}.{main|agent.id}
+        // Subject convention: events.{host}.{project}.{session}.{main|agent.id}
         // (see open_story_core::paths::nats_subject_from_path).
         //
-        // The `*` wildcard matches a single token = `{project}`.
-        // The `>` wildcard matches trailing tokens = `main` or `agent.{id}`.
+        // Each `*` matches a single token: first `*` = host, second = project.
+        // The `>` matches trailing tokens = `main` or `agent.{id}`.
         //
-        // When the cybersecurity spike's
-        // `events.{person_id}.{principal_id}.{project}.{session}.>`
-        // proposal lands, update this wildcard — or, better, pull subject
-        // construction into open_story_bus and call a typed helper.
-        let pattern = format!("events.*.{}.>", session_id);
+        // If the subject scheme grows further (e.g., person_id / principal_id),
+        // pull subject construction into open_story_bus and call a typed helper
+        // so subscribe and publish can't drift again.
+        let pattern = format!("events.*.*.{}.>", session_id);
         let bus_sub = self.inner.subscribe(&pattern).await?;
 
         let sub_id = uuid::Uuid::new_v4();
