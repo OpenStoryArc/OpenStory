@@ -17,6 +17,7 @@ import { useMemo } from "react";
 import type { Topology, TopologyShape } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
 import { FleetGrid } from "@/components/admin/FleetGrid";
+import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 import { admin$ } from "@/streams/admin";
 import { useObservable } from "@/hooks/use-observable";
@@ -72,6 +73,20 @@ export function AdminView() {
             </header>
             <FleetGrid nodes={topology.nodes} />
           </section>
+
+          {topology.live_sources && (
+            <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[#1a1b26] p-4">
+              <header className="mb-3">
+                <h3 className="text-sm font-medium text-[#bb9af7]">
+                  Live sources <span className="text-xs text-[#565f89]">— from JetStream events-agg</span>
+                </h3>
+                <p className="text-xs text-[#565f89] mt-0.5">
+                  Authoritative fleet roster — every leaf currently registered with the hub aggregate, with delivery state.
+                </p>
+              </header>
+              <LiveSourcesPanel sources={topology.live_sources} />
+            </section>
+          )}
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">

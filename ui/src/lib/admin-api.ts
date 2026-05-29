@@ -29,10 +29,21 @@ export interface NodeSummary {
   readonly source: NodeEvidence;
 }
 
+export interface LiveSourceSummary {
+  readonly name: string;
+  readonly host: string | null;
+  readonly api_prefix: string | null;
+  readonly lag: number;
+  readonly active_ms: number | null;
+}
+
 export interface Topology {
   readonly shape: TopologyShape;
   readonly self: NodeInfo;
   readonly nodes: readonly NodeSummary[];
+  /** Authoritative fleet roster from JetStream's events-agg.sources[].
+   *  null when this node has no JetStream context (NoopBus) or isn't a hub. */
+  readonly live_sources?: readonly LiveSourceSummary[] | null;
 }
 
 export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {

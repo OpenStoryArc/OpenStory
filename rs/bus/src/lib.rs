@@ -9,6 +9,11 @@
 pub mod nats_bus;
 pub mod noop_bus;
 
+// Re-export the async-nats JetStream context so server-side code
+// (admin module) can hold a typed reference without depending on
+// async-nats directly. Keeps the dependency graph clean.
+pub use async_nats::jetstream::Context as JetstreamContext;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use open_story_core::cloud_event::CloudEvent;

@@ -34,18 +34,21 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
+use open_story_bus::Bus;
 use open_story_store::event_store::EventStore;
 
-use crate::admin::{EnvInputs, Topology, compute_topology};
+use crate::admin::{EnvInputs, Topology, compute_topology, fetch_live_sources};
 use crate::config::Role;
 
 /// Spawn the broadcaster actor. Owns `watch_tx` (write side); reads
 /// sessions via the `event_store` trait — *only* needs that capability,
-/// not the wider `StoreState`. The actor runs until `pulse_rx` is closed
-/// (typically: server shutdown).
+/// not the wider `StoreState`. Optionally holds an `Arc<dyn Bus>` so it
+/// can enrich each frame with live JetStream source state when one is
+/// available. The actor runs until `pulse_rx` is closed.
 pub fn spawn(
     watch_tx: watch::Sender<Topology>,
     event_store: Arc<dyn EventStore>,
+    bus: Option<Arc<dyn Bus>>,
     env: EnvInputs,
     host: String,
     role: Role,
@@ -54,9 +57,17 @@ pub fn spawn(
     tokio::spawn(async move {
         while pulse_rx.recv().await.is_some() {
             let session_hosts = tally_session_hosts(&*event_store).await;
-            let next = compute_topology(&host, role, &env, &session_hosts);
+            let mut next = compute_topology(&host, role, &env, &session_hosts);
+            // Enrich with live JetStream sources when the bus exposes a
+            // context. Solo / NoopBus: no change. Federation: surfaces
+            // every leaf registered on events-agg with active/lag state.
+            if let Some(b) = bus.as_ref() {
+                if let Some(js) = b.jetstream() {
+                    next.live_sources = fetch_live_sources(js).await;
+                }
+            }
             // Eq dedup — only broadcast frames that actually differ from
-            // the current cached value. Cheap (Topology is small + Eq).
+            // the current cached value.
             let changed = { *watch_tx.borrow() != next };
             if changed {
                 let _previous = watch_tx.send_replace(next);
@@ -103,6 +114,7 @@ mod tests {
         let handle = spawn(
             watch_tx,
             event_store.clone(),
+            None, // bus not under test here
             EnvInputs::default(),
             "a1".to_string(),
             Role::Full,
@@ -161,6 +173,7 @@ mod tests {
         let _handle = spawn(
             watch_tx,
             event_store,
+            None,
             EnvInputs::default(),
             "a1".to_string(),
             Role::Full,

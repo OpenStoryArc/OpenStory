@@ -439,7 +439,13 @@ pub async fn run_server(
             let env = open_story_server::admin::EnvInputs::from_env();
             let (pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
             let _actor_handle = open_story_server::consumers::admin_broadcaster::spawn(
-                watch_tx, event_store, env, host, role, pulse_rx,
+                watch_tx,
+                event_store,
+                Some(bus.clone()),
+                env,
+                host,
+                role,
+                pulse_rx,
             );
             // Pulse forwarder: WS broadcast events → pulse channel.
             // Drops lagged messages (RecvError::Lagged) silently — we

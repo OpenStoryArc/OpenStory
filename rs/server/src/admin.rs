@@ -107,6 +107,37 @@ pub struct Topology {
     /// appearing in `SessionRow.host` plus any configured peer. Sorted
     /// self-first then alphabetically. Used to render the fleet view.
     pub nodes: Vec<NodeSummary>,
+    /// Authoritative fleet roster from JetStream's `events-agg.sources[]`.
+    /// `None` when this node has no JetStream context (NoopBus) or is
+    /// not in a hub-visible mode. `Some(empty)` when JetStream is up
+    /// but no leaves have registered yet (just-booted hub).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_sources: Option<Vec<LiveSourceSummary>>,
+}
+
+/// UI-facing projection of `open_story_bus::nats_bus::LiveSourceEntry` —
+/// renamed `active_ms` → `active_ms` and re-derived so the admin module
+/// doesn't pull bus types into its public API. (Same shape; future-proofs
+/// against changes to the upstream type.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LiveSourceSummary {
+    pub name: String,
+    pub host: Option<String>,
+    pub api_prefix: Option<String>,
+    pub lag: u64,
+    pub active_ms: Option<u64>,
+}
+
+impl LiveSourceSummary {
+    pub fn from_bus(entry: &open_story_bus::nats_bus::LiveSourceEntry) -> Self {
+        Self {
+            name: entry.name.clone(),
+            host: entry.host.clone(),
+            api_prefix: entry.api_prefix.clone(),
+            lag: entry.lag,
+            active_ms: entry.active_ms,
+        }
+    }
 }
 
 /// Federation env-var snapshot — the subset of process env that
@@ -293,7 +324,27 @@ pub fn derive_topology(
             peer_domains: peer_domains.to_vec(),
         },
         nodes,
+        live_sources: None,
     }
+}
+
+/// Fetch the live `events-agg` source state from JetStream, if reachable.
+/// Returns `None` when the stream doesn't exist (solo / T1 / leaf) or
+/// the call errors (transient — UI shows the cached `None` and the next
+/// pulse will retry). Pure-ish: takes the context as a parameter, no
+/// global state.
+pub async fn fetch_live_sources(
+    js: &open_story_bus::JetstreamContext,
+) -> Option<Vec<LiveSourceSummary>> {
+    let mut stream = js.get_stream("events-agg").await.ok()?;
+    let info = stream.info().await.ok()?;
+    let config_sources = info.config.sources.clone().unwrap_or_default();
+    let runtime_sources = info.sources.clone();
+    let entries = open_story_bus::nats_bus::derive_live_sources(
+        &config_sources,
+        &runtime_sources,
+    );
+    Some(entries.iter().map(LiveSourceSummary::from_bus).collect())
 }
 
 /// `GET /api/admin/topology` — serve the cached topology snapshot.
