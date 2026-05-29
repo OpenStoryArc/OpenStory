@@ -108,6 +108,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::list_local_info),
         )
         .route(
+            "/api/admin/topology",
+            axum::routing::get(crate::admin::get_topology),
+        )
+        .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
         )

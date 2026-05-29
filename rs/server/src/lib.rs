@@ -5,6 +5,7 @@
 //! calls `run_server()` from the parent `open-story` crate which wires
 //! this together with the file watcher.
 
+pub mod admin;
 pub mod api;
 pub mod auth;
 pub mod broadcast;

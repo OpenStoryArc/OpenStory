@@ -3,7 +3,7 @@
 import type { DetailView } from "@/components/explore/ExploreView";
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "users";
+  view: "live" | "explore" | "story" | "users" | "admin";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -21,7 +21,7 @@ export interface HashRoute {
   timeFilter?: "1h" | "today" | "week" | "all";
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "users"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "search"]);
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
@@ -55,10 +55,10 @@ export function parseHash(hash: string): HashRoute {
 
   const parts = path.split("/").filter(Boolean);
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "users")
+    ? (parts[0] as "live" | "explore" | "story" | "users" | "admin")
     : "live";
 
-  if (view === "users") {
+  if (view === "users" || view === "admin") {
     return { view };
   }
 
