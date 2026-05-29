@@ -1,2 +1,5 @@
 python-telegram-bot==21.10
 httpx>=0.27
+# Pin idna ≥3.10 — 3.9 has GHSA-65pc-fj4g-8rjx (DoS via long names).
+# python-telegram-bot pulls idna transitively via httpx → anyio → idna.
+idna>=3.10

@@ -1,8 +1,18 @@
 //! Bearer token authentication middleware.
 //!
-//! When `api_token` is configured, all API requests must include
-//! `Authorization: Bearer <token>`. Empty config = pass-through (no auth).
-//! WebSocket auth uses `?token=` query param (browsers can't set WS headers).
+//! When `api_token` is configured, requests must present the token via one
+//! of two channels:
+//!   1. `Authorization: Bearer <token>` header (preferred — used by the
+//!      REST API and tooling like curl).
+//!   2. `?token=<token>` query parameter (fallback — used by browser
+//!      WebSocket upgrades, which cannot set custom request headers).
+//!
+//! Empty config = pass-through (no auth).
+//!
+//! **Caveat on `?token=`:** URLs land in proxy access logs and the
+//! browser's `Referer` header. The fallback exists only because the
+//! browser WebSocket API gives no other way to pass a credential on
+//! upgrade. Prefer the Bearer header from any non-browser caller.
 
 use axum::extract::Request;
 use axum::http::{StatusCode, header};
@@ -21,10 +31,20 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     result == 0
 }
 
-/// Axum middleware that validates Bearer token authentication.
-///
-/// If `expected_token` is empty, all requests pass through (no auth configured).
-/// Otherwise, requests must include `Authorization: Bearer <token>` header.
+/// Extract `token=...` from a query string. Returns the raw token bytes
+/// without URL-decoding — tokens are opaque bytes and decoding could
+/// mask malformed input.
+fn extract_query_token<'a>(query: &'a str) -> Option<&'a str> {
+    for pair in query.split('&') {
+        if let Some(rest) = pair.strip_prefix("token=") {
+            return Some(rest);
+        }
+    }
+    None
+}
+
+/// Axum middleware that validates token authentication via Bearer header
+/// or `?token=` query param. See module docs for the channel rationale.
 pub async fn auth_middleware(
     request: Request,
     next: Next,
@@ -35,23 +55,32 @@ pub async fn auth_middleware(
         return Ok(next.run(request).await);
     }
 
-    // Check Authorization header
-    let auth_header = request
+    // Channel 1: Authorization: Bearer <token>
+    let header_token = request
         .headers()
         .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
 
-    match auth_header {
-        Some(value) if value.starts_with("Bearer ") => {
-            let token = &value[7..];
-            if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
-                Ok(next.run(request).await)
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
+    if let Some(token) = header_token {
+        if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
+            return Ok(next.run(request).await);
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
+        // Header present but wrong — don't fall through to query-param
+        // check. An attacker who supplies both should never be helped
+        // by trying multiple channels in one request.
+        return Err(StatusCode::UNAUTHORIZED);
     }
+
+    // Channel 2: ?token= query param (browser WS fallback)
+    let query_token = request.uri().query().and_then(extract_query_token);
+    if let Some(token) = query_token {
+        if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
+            return Ok(next.run(request).await);
+        }
+    }
+
+    Err(StatusCode::UNAUTHORIZED)
 }
 
 #[cfg(test)]

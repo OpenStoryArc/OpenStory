@@ -21,23 +21,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Copy workspace manifests first for layer caching
+# Copy workspace manifests first for layer caching.
+# This list MUST include every workspace member in rs/Cargo.toml — if a
+# new crate is added to the workspace without being added here, the
+# build fails with "failed to read /build/<new-crate>/Cargo.toml". The
+# `mcp` crate hit that exact regression in 2026-05; the test image
+# (Dockerfile in rs/) and the prod image must stay in sync.
 COPY rs/Cargo.toml rs/Cargo.lock* ./
 COPY rs/bus/Cargo.toml bus/Cargo.toml
 COPY rs/cli/Cargo.toml cli/Cargo.toml
 COPY rs/core/Cargo.toml core/Cargo.toml
+COPY rs/mcp/Cargo.toml mcp/Cargo.toml
 COPY rs/patterns/Cargo.toml patterns/Cargo.toml
 COPY rs/schemas/Cargo.toml schemas/Cargo.toml
 COPY rs/server/Cargo.toml server/Cargo.toml
 COPY rs/store/Cargo.toml store/Cargo.toml
 COPY rs/views/Cargo.toml views/Cargo.toml
 
-# Create dummy sources to cache dependency builds
-RUN mkdir -p src bus/src cli/src core/src patterns/src schemas/src/bin server/src store/src views/src && \
+# Create dummy sources to cache dependency builds. The bench stubs
+# under mcp/benches/ are required because mcp/Cargo.toml declares
+# [[bench]] entries — cargo refuses to parse the manifest without
+# those files, even though `cargo build -p open-story-cli` doesn't
+# build the benches themselves.
+RUN mkdir -p src bus/src cli/src core/src mcp/src/bin mcp/benches patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
     echo "fn main() {}" > cli/src/main.rs && \
     echo "pub fn dummy() {}" > core/src/lib.rs && \
+    echo "pub fn dummy() {}" > mcp/src/lib.rs && \
+    echo "fn main() {}" > mcp/src/bin/open-story-mcp.rs && \
+    echo "fn main() {}" > mcp/benches/tools.rs && \
+    echo "fn main() {}" > mcp/benches/streaming.rs && \
     echo "pub fn dummy() {}" > patterns/src/lib.rs && \
     echo "pub fn dummy() {}" > schemas/src/lib.rs && \
     echo "fn main() {}" > schemas/src/bin/generate.rs && \
@@ -51,22 +65,35 @@ COPY rs/src/ src/
 COPY rs/bus/src/ bus/src/
 COPY rs/cli/src/ cli/src/
 COPY rs/core/src/ core/src/
+COPY rs/mcp/src/ mcp/src/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
 COPY rs/store/src/ store/src/
 COPY rs/views/src/ views/src/
 RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \
-    patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs \
-    store/src/lib.rs views/src/lib.rs && \
+    mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs \
+    server/src/lib.rs store/src/lib.rs views/src/lib.rs && \
     cargo build --release -p open-story-cli
 
 # ── Stage 3: Runtime ──
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
+# `apt-get upgrade` pulls in security patches Debian shipped after the
+# base image was built (trivy/grype flag those as CVEs even when the
+# fix is already in the apt feed). `--no-install-recommends` keeps the
+# runtime minimal — every extra binary is more CVE surface. We delete
+# the apt lists in the same RUN to avoid bloating the image layer.
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    apt-get autoremove -y --purge && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+
+# curl was previously installed for the docker-compose healthcheck.
+# Dropping it removes ~5 CVEs from the curl/libcurl4/libldap/libssh2
+# chain that Debian has no fix for yet. The healthcheck is now a
+# pure-bash TCP probe — see docker-compose.prod.yml.
 
 COPY --from=rs-builder /build/target/release/open-story /usr/local/bin/open-story
 COPY --from=ui-builder /ui/dist /static

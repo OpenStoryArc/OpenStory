@@ -32,6 +32,19 @@ pub(crate) fn format_ts(dt: chrono::DateTime<chrono::Utc>) -> String {
     dt.format(TS_FORMAT).to_string()
 }
 
+/// `now() - days`, saturating at `MIN_UTC` on overflow.
+///
+/// `chrono::DateTime - Duration` panics on overflow, so an unauthenticated
+/// `/api/insights/*?days=4294967295` request used to take down the request
+/// task. Saturating at MIN_UTC means a huge `days` is equivalent to "all
+/// time" — the query just returns every row, which is what the caller
+/// effectively asked for.
+fn cutoff_for_days(days: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now()
+        .checked_sub_signed(chrono::Duration::days(days as i64))
+        .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC)
+}
+
 // ── FTS5 Search ────────────────────────────────────────────────────
 
 /// Result from a full-text search query.
@@ -324,7 +337,7 @@ pub struct ProjectPulse {
 
 /// Query project activity over the last N days.
 pub fn project_pulse(conn: &Connection, days: u32) -> Vec<ProjectPulse> {
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff = cutoff_for_days(days);
     let cutoff_str = format_ts(cutoff);
 
     let mut stmt = conn
@@ -383,7 +396,7 @@ pub struct ToolEvolution {
 /// Buckets each event into the week beginning on Monday (ISO 8601
 /// week start). Returns one row per `(bucket_start, tool)` pair.
 pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff = cutoff_for_days(days);
     let cutoff_str = format_ts(cutoff);
 
     // SQLite's `weekday` modifier in `strftime`/`date` returns 0 for
@@ -589,7 +602,7 @@ pub struct HourlyActivity {
 
 /// Query activity density by hour of day.
 pub fn productivity_by_hour(conn: &Connection, days: u32) -> Vec<HourlyActivity> {
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+    let cutoff = cutoff_for_days(days);
     let cutoff_str = format_ts(cutoff);
 
     let mut stmt = conn
@@ -727,7 +740,7 @@ pub fn token_usage(
             vec![Box::new(sid.to_string())],
         ),
         (Some(d), None) => {
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
+            let cutoff = cutoff_for_days(d);
             (
                 "SELECT id, label, project_name, first_event, last_event FROM sessions WHERE last_event > ?1 ORDER BY last_event DESC".into(),
                 vec![Box::new(format_ts(cutoff))],
@@ -857,7 +870,7 @@ pub fn token_usage(
 pub fn daily_token_usage(conn: &Connection, days: Option<u32>) -> Vec<DailyTokenUsage> {
     let (where_clause, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match days {
         Some(d) => {
-            let cutoff = chrono::Utc::now() - chrono::Duration::days(d as i64);
+            let cutoff = cutoff_for_days(d);
             (
                 "AND e.timestamp > ?1".into(),
                 vec![Box::new(format_ts(cutoff))],
