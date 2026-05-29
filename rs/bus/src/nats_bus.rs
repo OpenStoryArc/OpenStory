@@ -372,6 +372,10 @@ impl Bus for NatsBus {
         }
         Ok(all)
     }
+
+    fn jetstream(&self) -> Option<&async_nats::jetstream::Context> {
+        Some(&self.jetstream)
+    }
 }
 
 async fn replay_one(
