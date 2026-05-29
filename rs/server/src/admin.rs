@@ -95,6 +95,11 @@ pub enum NodeEvidence {
     Sessions,
     PeerConfig,
     HubConfig,
+    /// The NATS leafnode upstream — `OPEN_STORY_NATS_HUB` env var. This is
+    /// the network-topology layer (the box that carries our traffic),
+    /// distinct from `HubConfig` which names the JetStream-domain layer.
+    /// A deployment can have both, or just one, or neither (truly solo).
+    NatsLeafnodeHub,
 }
 
 /// What `/api/admin/topology` returns.
@@ -149,6 +154,12 @@ pub struct EnvInputs {
     pub hub_domain: Option<String>,
     pub peer_hub_domains: Vec<String>,
     pub peer_domains: Vec<String>,
+    /// The NATS leafnode upstream this node forwards to. Distinct from
+    /// `hub_domain` (JetStream-domain layer) — this is the network-
+    /// topology layer that handles actual packet routing. A deployment
+    /// can run both layers (JetStream-domain federation on top of NATS
+    /// leafnode forwarding) or just one.
+    pub nats_leafnode_hub: Option<String>,
 }
 
 impl EnvInputs {
@@ -176,6 +187,9 @@ impl EnvInputs {
                 .filter(|v| !v.is_empty())
                 .map(split)
                 .unwrap_or_default(),
+            nats_leafnode_hub: std::env::var("OPEN_STORY_NATS_HUB")
+                .ok()
+                .filter(|v| !v.is_empty()),
         }
     }
 }
@@ -195,6 +209,7 @@ pub fn compute_topology(
         env.hub_domain.as_deref(),
         &env.peer_hub_domains,
         &env.peer_domains,
+        env.nats_leafnode_hub.as_deref(),
         session_hosts,
     )
 }
@@ -211,6 +226,7 @@ pub fn derive_topology(
     hub_domain: Option<&str>,
     peer_hub_domains: &[String],
     peer_domains: &[String],
+    nats_leafnode_hub: Option<&str>,
     session_hosts: &[(String, u64)],
 ) -> Topology {
     // Discriminate the federation mode.
@@ -302,6 +318,19 @@ pub fn derive_topology(
             is_self: h == host,
             session_count: 0,
             source: NodeEvidence::HubConfig,
+        });
+    }
+
+    // NATS leafnode upstream — the network-routing hub (independent of
+    // whether the JetStream-domain federation is in play). If the host
+    // already appears via session or peer evidence, we don't overwrite —
+    // only add when it's a name we haven't seen otherwise.
+    if let Some(h) = nats_leafnode_hub {
+        nodes.entry(h.to_string()).or_insert_with(|| NodeSummary {
+            host: h.to_string(),
+            is_self: h == host,
+            session_count: 0,
+            source: NodeEvidence::NatsLeafnodeHub,
         });
     }
 
@@ -455,7 +484,7 @@ mod tests {
 
     #[test]
     fn solo_with_no_flags() {
-        let t = derive_topology("a1", Role::Full, None, &[], &[], &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[]);
         assert_eq!(t.shape, TopologyShape::Solo);
         assert_eq!(t.self_.role, NodeRole::Solo);
         assert_eq!(t.self_.domain, None);
@@ -464,7 +493,7 @@ mod tests {
 
     #[test]
     fn hub_with_no_peer_hubs_is_t2() {
-        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[], &[]);
+        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[], None, &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.domain.as_deref(), Some("hub"));
@@ -474,7 +503,7 @@ mod tests {
     #[test]
     fn hub_with_peer_hubs_is_t3() {
         let peers = vec!["hub-b".to_string()];
-        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], &[]);
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[]);
         assert_eq!(t.shape, TopologyShape::T3);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.peer_hub_domains, peers);
@@ -484,7 +513,7 @@ mod tests {
     fn leaf_attached_to_hub_is_t2_from_its_vantage() {
         // Even if the hub itself is part of a T3 mesh, the LEAF sees
         // exactly one hub. Cross-hub fanout is the hub's concern.
-        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[], &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[], None, &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.domain.as_deref(), Some("node-0"));
@@ -495,7 +524,7 @@ mod tests {
     #[test]
     fn peers_only_is_t1_mesh() {
         let peers = vec!["laptop".to_string(), "phone".to_string()];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[]);
         assert_eq!(t.shape, TopologyShape::T1);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.peer_domains, peers);
@@ -507,14 +536,14 @@ mod tests {
         // If both are set somehow, hub-mode wins — matches the CLI's
         // dispatch order (hub_domain checked before peer_domains).
         let peers = vec!["foo".to_string()];
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers, &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers, None, &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
     }
 
     #[test]
     fn topology_serializes_to_expected_shape() {
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[]);
         let v = serde_json::to_value(&t).unwrap();
         assert_eq!(v["shape"], "t2");
         assert_eq!(v["self"]["host"], "node-0");
@@ -526,7 +555,7 @@ mod tests {
 
     #[test]
     fn solo_with_no_evidence_lists_just_self() {
-        let t = derive_topology("a1", Role::Full, None, &[], &[], &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[]);
         assert_eq!(t.nodes.len(), 1);
         assert_eq!(t.nodes[0].host, "a1");
         assert!(t.nodes[0].is_self);
@@ -541,7 +570,7 @@ mod tests {
             ("a1".to_string(), 32u64),
             ("Maxs-Air".to_string(), 4),
         ];
-        let t = derive_topology("a1", Role::Full, None, &[], &[], &sessions);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &sessions);
         let hosts: Vec<&str> = t.nodes.iter().map(|n| n.host.as_str()).collect();
         assert_eq!(hosts, vec!["a1", "Maxs-Air"], "self first, then alpha");
         let self_node = t.nodes.iter().find(|n| n.is_self).unwrap();
@@ -558,7 +587,7 @@ mod tests {
         // T1 mesh: peers from env config that we haven't seen events
         // from yet still appear — the operator told us they exist.
         let peers = vec!["laptop".to_string(), "phone".to_string()];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[]);
         let by_host: std::collections::HashMap<_, _> =
             t.nodes.iter().map(|n| (n.host.as_str(), n)).collect();
         assert_eq!(by_host["laptop"].session_count, 0);
@@ -572,7 +601,7 @@ mod tests {
         // evidence wins (we've actually seen events).
         let peers = vec!["laptop".to_string()];
         let sessions = vec![("laptop".to_string(), 7)];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, &sessions);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &sessions);
         let laptop = t.nodes.iter().find(|n| n.host == "laptop").unwrap();
         assert_eq!(laptop.session_count, 7);
         assert_eq!(laptop.source, NodeEvidence::Sessions);
@@ -580,7 +609,7 @@ mod tests {
 
     #[test]
     fn fleet_includes_hub_in_t2_view() {
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[]);
         let hub = t.nodes.iter().find(|n| n.host == "hub").unwrap();
         assert_eq!(hub.source, NodeEvidence::HubConfig);
         assert!(!hub.is_self);
@@ -589,8 +618,56 @@ mod tests {
     #[test]
     fn fleet_includes_peer_hubs_in_t3_view() {
         let peers = vec!["hub-b".to_string()];
-        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], &[]);
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[]);
         let hub_b = t.nodes.iter().find(|n| n.host == "hub-b").unwrap();
         assert_eq!(hub_b.source, NodeEvidence::HubConfig);
+    }
+
+    #[test]
+    fn fleet_includes_nats_leafnode_hub_in_solo_when_set() {
+        // Solo mode (no JetStream-domain federation) + a NATS leafnode
+        // upstream → the hub IS represented in the fleet view because
+        // it's a routing-layer participant, even though no sessions
+        // originate there and no JS-domain envelope mentions it.
+        let t = derive_topology(
+            "a1",
+            Role::Full,
+            None,
+            &[],
+            &[],
+            Some("hub.openstoryarc.com"),
+            &[],
+        );
+        let hub = t
+            .nodes
+            .iter()
+            .find(|n| n.host == "hub.openstoryarc.com")
+            .expect("the leafnode hub must show up in the fleet");
+        assert_eq!(hub.source, NodeEvidence::NatsLeafnodeHub);
+        assert_eq!(hub.session_count, 0, "hubs don't author sessions");
+        assert!(!hub.is_self);
+    }
+
+    #[test]
+    fn nats_leafnode_hub_doesnt_overwrite_session_evidence() {
+        // If the hub host also somehow appears as a session host, the
+        // session evidence wins (stronger signal — we've SEEN events
+        // attributed to it).
+        let t = derive_topology(
+            "a1",
+            Role::Full,
+            None,
+            &[],
+            &[],
+            Some("hub.openstoryarc.com"),
+            &[("hub.openstoryarc.com".to_string(), 3)],
+        );
+        let hub = t
+            .nodes
+            .iter()
+            .find(|n| n.host == "hub.openstoryarc.com")
+            .unwrap();
+        assert_eq!(hub.source, NodeEvidence::Sessions);
+        assert_eq!(hub.session_count, 3);
     }
 }

@@ -20,7 +20,12 @@ export interface NodeInfo {
   readonly peer_domains: readonly string[];
 }
 
-export type NodeEvidence = "self-node" | "sessions" | "peer-config" | "hub-config";
+export type NodeEvidence =
+  | "self-node"
+  | "sessions"
+  | "peer-config"
+  | "hub-config"
+  | "nats-leafnode-hub";
 
 export interface NodeSummary {
   readonly host: string;

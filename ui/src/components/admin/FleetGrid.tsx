@@ -36,11 +36,12 @@ function NodeCard({ node }: { node: NodeSummary }) {
     sessions: "seen in sessions",
     "peer-config": "configured peer",
     "hub-config": "configured hub",
+    "nats-leafnode-hub": "NATS upstream hub",
   } as const)[node.source];
 
   const evidenceColor = node.is_self
     ? "text-[#1a1b26]"
-    : node.source === "hub-config"
+    : node.source === "hub-config" || node.source === "nats-leafnode-hub"
       ? "text-[#bb9af7]"
       : node.source === "peer-config"
         ? "text-[#7aa2f7]"

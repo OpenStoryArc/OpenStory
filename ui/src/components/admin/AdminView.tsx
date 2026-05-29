@@ -74,19 +74,40 @@ export function AdminView() {
             <FleetGrid nodes={topology.nodes} />
           </section>
 
-          {topology.live_sources && (
-            <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[#1a1b26] p-4">
-              <header className="mb-3">
-                <h3 className="text-sm font-medium text-[#bb9af7]">
-                  Live sources <span className="text-xs text-[#565f89]">— from JetStream events-agg</span>
-                </h3>
-                <p className="text-xs text-[#565f89] mt-0.5">
-                  Authoritative fleet roster — every leaf currently registered with the hub aggregate, with delivery state.
-                </p>
-              </header>
+          <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[#1a1b26] p-4">
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#bb9af7]">
+                Live sources <span className="text-xs text-[#565f89]">— from JetStream events-agg</span>
+              </h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Authoritative fleet roster — every leaf currently registered with the hub aggregate, with delivery state.
+              </p>
+            </header>
+            {topology.live_sources ? (
               <LiveSourcesPanel sources={topology.live_sources} />
-            </section>
-          )}
+            ) : (
+              <div className="rounded border border-dashed border-[#414868] p-3 text-sm text-[#565f89]">
+                <p>
+                  <strong className="text-[#c0caf5]">Not federated.</strong>{" "}
+                  JetStream's <code>events-agg</code> stream isn't reachable
+                  from this node — either there's no NATS context (NoopBus) or
+                  no events-agg has been created yet. The wire is in place;
+                  the panel will populate the moment a hub aggregate appears.
+                </p>
+                <p className="mt-2 text-xs">
+                  To light it up locally:{" "}
+                  <code className="bg-[#16161e] px-1 py-0.5 rounded">
+                    OPEN_STORY_HUB_DOMAIN=hub just serve
+                  </code>{" "}
+                  with NATS configured{" "}
+                  <code className="bg-[#16161e] px-1 py-0.5 rounded">
+                    jetstream {`{ domain: hub }`}
+                  </code>
+                  .
+                </p>
+              </div>
+            )}
+          </section>
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">
