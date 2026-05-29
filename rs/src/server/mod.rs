@@ -420,6 +420,35 @@ pub async fn run_server(
                 }
             });
         }
+
+        // ── Actor 5: admin topology broadcaster (SICP stream-mux) ──
+        //
+        // Owns updates to AppState.admin_topology_tx. v0.2 Step 5 ships
+        // the actor with a pulse-channel input; Step 6 will wire its
+        // pulse input to bus.subscribe("changes.>") and to JetStream
+        // advisories. For now the actor sits ready — the cache is
+        // already seeded at boot by `create_state_with_watch_dirs`, so
+        // the REST endpoint serves correctly even without pulses.
+        {
+            let s = state.read().await;
+            let watch_tx = s.admin_topology_tx.clone();
+            let event_store = s.store.event_store.clone();
+            let host = open_story_core::host::host().to_string();
+            let role = s.config.role;
+            drop(s);
+            let env = open_story_server::admin::EnvInputs::from_env();
+            // Pulse channel: receiver goes to the actor; sender is held
+            // here for Step 6 to wire into bus.subscribe(). For now it
+            // simply sits as a no-op sender.
+            let (_pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
+            let _handle = open_story_server::consumers::admin_broadcaster::spawn(
+                watch_tx, event_store, env, host, role, pulse_rx,
+            );
+            // _pulse_tx is dropped at the end of this scope → actor's loop
+            // exits immediately. Acceptable for Step 5 (cache is already
+            // seeded); Step 6 keeps the sender alive for the lifetime of
+            // the bus subscription.
+        }
     }
 
     // ── catch-up anti-entropy (consumer + full roles) ──

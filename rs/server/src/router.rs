@@ -327,13 +327,23 @@ mod tests {
         let watch_dir = tmp.path().join("watch");
         std::fs::create_dir_all(&watch_dir).unwrap();
 
+        let config = Config::default();
+        let initial_topology = crate::admin::compute_topology(
+            "test-host",
+            config.role,
+            &crate::admin::EnvInputs::default(),
+            &[],
+        );
+        let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
         Arc::new(RwLock::new(crate::state::AppState {
             store,
             transcript_states: HashMap::new(),
             watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
-            config: Config::default(),
+            admin_topology_tx,
+            config,
             watch_dir,
         }))
     }

@@ -227,12 +227,20 @@ mod tests {
         // disable the recency filter (hours = 0 → include everything) unless
         // a test sets it explicitly.
         config.watch_backfill_hours = 0;
+        let initial_topology = crate::admin::compute_topology(
+            "test-host",
+            config.role,
+            &crate::admin::EnvInputs::default(),
+            &[],
+        );
+        let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
         AppState {
             store,
             transcript_states: HashMap::new(),
             watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
+            admin_topology_tx,
             config,
             watch_dir,
         }

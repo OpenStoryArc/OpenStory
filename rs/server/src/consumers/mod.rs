@@ -7,6 +7,7 @@
 //! > "The system is a network of independent actors communicating through messages.
 //! > Each actor has a single responsibility and its own lifecycle."
 
+pub mod admin_broadcaster;
 pub mod broadcast;
 #[cfg(test)]
 pub mod broadcast_proptest;
