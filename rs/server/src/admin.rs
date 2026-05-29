@@ -182,12 +182,31 @@ pub async fn get_topology(State(state): State<SharedState>) -> Json<Value> {
 // Sessions without a row are SHARED by default (sovereignty-by-default at
 // the operator's choice — turning something private is an explicit act).
 //
-// What this commit DOES NOT do (deferred per the v0 plan):
-//   - mutate `events-agg`'s source `filter_subject` on PUT (the bus-level
-//     enforcement of share=private). The DB write is the *authority*; the
-//     bus reconciles on the next ensure_streams cycle.
-//   - filter `/api/digests` and `/api/sessions/{id}/events` by policy
-//     (invariant ①). Both are separate commits.
+// What this layer DOES NOT do (deferred to a Phase 4 follow-up):
+//
+//   - Mutate `events-agg`'s source `filter_subject` on PUT (bus-level
+//     enforcement). The DB write is the *authority*; once the subject
+//     scheme distinguishes shared vs private (a Phase 4 prerequisite),
+//     the bus can reconcile from the policy table on every
+//     `ensure_streams` cycle.
+//
+// ── Named hard edge — invariant ③ (revocation = stop-flow, not purge) ─
+//
+// Marking a session private STOPS new visibility immediately (the API
+// filter from invariant ① gates `/api/digests` and `/api/sessions/{id}/
+// events`). It does NOT delete events on this device — `cleanup_old_
+// sessions` with `keep_host=Some(self)` preserves them (invariant ②) and
+// flipping back to `shared` restores access unchanged. Cf.
+// `test_revocation_is_stop_flow_not_purge_invariant_three`.
+//
+// What it CANNOT do today: purge or invalidate copies already mirrored
+// to peer devices. That's the personhood Q1/Q9 problem (research doc
+// jetstream-sources-federation.md §"Three consistency invariants"). It
+// is *named*, not assumed-free — the operator should know that un-share
+// stops *new flow* and that distributed propagated copies persist on
+// peers until those operators consent to a purge. Operational solutions
+// (cooperative purge protocol, retention coordination, encrypted-at-rest
+// with key revocation) are explicit Phase 5+ work.
 
 #[derive(Debug, Deserialize)]
 pub struct SetSharePolicyBody {

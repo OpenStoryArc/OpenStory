@@ -247,6 +247,84 @@ async fn test_get_events_404s_on_private_session_invariant_one() {
     );
 }
 
+// ── Invariant ③ — revocation is stop-flow, not purge ────────────────────
+//
+// Naming the hard edge the research doc surfaces: marking a session
+// private STOPS new visibility (the API filter from invariant ① kicks in
+// immediately), but does NOT delete the events on disk. Local data
+// remains intact — flipping back to `shared` restores API access without
+// rebuilding anything. Peer-mirrored copies on OTHER devices are the
+// unresolved part of revocation (the personhood Q1/Q9 problem); this
+// test pins the *local* half of the contract.
+#[tokio::test]
+async fn test_revocation_is_stop_flow_not_purge_invariant_three() {
+    use open_story_store::event_store::SharePolicyMode;
+
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![
+            make_event("io.arc.event", "sess-toggle"),
+            make_event("io.arc.event", "sess-toggle"),
+            make_event("io.arc.event", "sess-toggle"),
+        ];
+        seed_and_ingest(&mut s, "sess-toggle", &events, None).await;
+    }
+
+    // 1. While shared, three events are visible.
+    let req = Request::get("/api/sessions/sess-toggle/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state.clone(), req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(body_json(resp).await.as_array().unwrap().len(), 3);
+
+    // 2. Mark private — events on disk are NOT deleted, just gated.
+    {
+        let s = state.write().await;
+        s.store
+            .event_store
+            .set_share_policy("sess-toggle", SharePolicyMode::Private, None)
+            .await
+            .expect("set private");
+        // Sanity: store still has the events (count via direct read).
+        let evs = s
+            .store
+            .event_store
+            .session_events("sess-toggle")
+            .await
+            .unwrap();
+        assert_eq!(evs.len(), 3, "events are NOT purged from storage");
+    }
+    let req = Request::get("/api/sessions/sess-toggle/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state.clone(), req).await;
+    assert_eq!(resp.status(), 404, "API gates while private");
+
+    // 3. Flip back to shared — API access is restored from the same rows.
+    {
+        let s = state.write().await;
+        s.store
+            .event_store
+            .set_share_policy("sess-toggle", SharePolicyMode::Shared, None)
+            .await
+            .expect("set shared");
+    }
+    let req = Request::get("/api/sessions/sess-toggle/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        body_json(resp).await.as_array().unwrap().len(),
+        3,
+        "events come back unchanged — stop-flow toggled, not destroyed"
+    );
+}
+
 #[tokio::test]
 async fn test_get_events_still_returns_shared_after_policy_table_exists() {
     // Defense-in-depth: confirm the new private-filter branch doesn't
