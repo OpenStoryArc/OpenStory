@@ -514,6 +514,57 @@ pub fn parse_js_api_prefix(s: &str) -> Option<String> {
     }
 }
 
+/// One row in the live JetStream fleet view — surfaces the configured
+/// identity (`name`, `host`, `api_prefix`) paired with the runtime delivery
+/// state (`lag`, `active_ms`) of a single source on a stream's `sources[]`.
+///
+/// `host` is `None` when the configured source has no `external` (a
+/// same-domain local source — rare in our topology but legal) or when the
+/// `api_prefix` doesn't parse as `$JS.<domain>.API` (a misconfiguration
+/// the UI should surface).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LiveSourceEntry {
+    pub name: String,
+    pub host: Option<String>,
+    pub api_prefix: Option<String>,
+    pub lag: u64,
+    /// Milliseconds since the source was last seen active. `None` means
+    /// "never seen" (the source exists but hasn't delivered yet).
+    pub active_ms: Option<u64>,
+}
+
+/// Pair configured sources (`stream::Source`) with runtime source state
+/// (`stream::SourceInfo`) into a flat fleet view. Pairing is positional —
+/// the standard NATS layout where `config.sources[i]` and
+/// `state.sources[i]` describe the same source. If the lists differ in
+/// length (transient: just-added config not yet started runtime side), we
+/// emit only the prefix that's matched.
+///
+/// Pure: no I/O. Tested in isolation; the I/O wrapper that fetches both
+/// halves from a live JetStream lives at the admin handler boundary.
+pub fn derive_live_sources(
+    config: &[stream::Source],
+    runtime: &[async_nats::jetstream::stream::SourceInfo],
+) -> Vec<LiveSourceEntry> {
+    config
+        .iter()
+        .zip(runtime.iter())
+        .map(|(c, r)| {
+            let api_prefix = c.external.as_ref().map(|e| e.api_prefix.clone());
+            let host = api_prefix
+                .as_deref()
+                .and_then(parse_js_api_prefix);
+            LiveSourceEntry {
+                name: c.name.clone(),
+                host,
+                api_prefix,
+                lag: r.lag,
+                active_ms: r.active.map(|d| d.as_millis() as u64),
+            }
+        })
+        .collect()
+}
+
 /// Mesh-mode mirror (T1 solo multi-device): no hub aggregate, instead one
 /// source per peer's local `events` stream. Each peer publishes only into
 /// `events.<peer>.>` (the spike's per-host namespace finding), so collecting
@@ -851,6 +902,108 @@ mod federation_config_tests {
         assert_eq!(parse_js_api_prefix("garbage"), None);
         assert_eq!(parse_js_api_prefix("$"), None);
         assert_eq!(parse_js_api_prefix("$JS"), None);
+    }
+
+    // ── derive_live_sources: pair (config, runtime) into a fleet view ─────
+    // Step 2 of Admin v0.2: the configured `Source` list tells us WHICH
+    // leaves are registered (via external.api_prefix → domain); the runtime
+    // `SourceInfo` list tells us their delivery state (active, lag).
+    // Pairing is positional — the standard NATS layout. Pure function.
+
+    use async_nats::jetstream::stream::SourceInfo;
+    use std::time::Duration;
+
+    fn cfg_src(name: &str, api: Option<&str>) -> stream::Source {
+        stream::Source {
+            name: name.to_string(),
+            external: api.map(|p| stream::External {
+                api_prefix: p.to_string(),
+                delivery_prefix: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn runtime_src(name: &str, lag: u64, active: Option<Duration>) -> SourceInfo {
+        SourceInfo {
+            name: name.to_string(),
+            lag,
+            active,
+            filter_subject: None,
+            subject_transform_dest: None,
+            subject_transforms: vec![],
+        }
+    }
+
+    #[test]
+    fn derive_live_sources_returns_empty_for_empty_inputs() {
+        let out = derive_live_sources(&[], &[]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn derive_live_sources_pairs_config_and_runtime_positionally() {
+        let cfg = vec![
+            cfg_src("events", Some("$JS.node-0.API")),
+            cfg_src("events", Some("$JS.node-1.API")),
+        ];
+        let rt = vec![
+            runtime_src("events", 0, Some(Duration::from_millis(50))),
+            runtime_src("events", 3, Some(Duration::from_secs(2))),
+        ];
+        let out = derive_live_sources(&cfg, &rt);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].name, "events");
+        assert_eq!(out[0].host.as_deref(), Some("node-0"));
+        assert_eq!(out[0].api_prefix.as_deref(), Some("$JS.node-0.API"));
+        assert_eq!(out[0].lag, 0);
+        assert_eq!(out[0].active_ms, Some(50));
+        assert_eq!(out[1].host.as_deref(), Some("node-1"));
+        assert_eq!(out[1].lag, 3);
+        assert_eq!(out[1].active_ms, Some(2000));
+    }
+
+    #[test]
+    fn derive_live_sources_handles_local_source_without_external() {
+        // A source without `external` is a same-domain source (e.g. a hub
+        // sourcing a local leaf in the rare cluster setup). Host is None;
+        // api_prefix is None; rest passes through.
+        let cfg = vec![cfg_src("events", None)];
+        let rt = vec![runtime_src("events", 0, None)];
+        let out = derive_live_sources(&cfg, &rt);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].host.is_none());
+        assert!(out[0].api_prefix.is_none());
+        assert!(out[0].active_ms.is_none(), "Active=None means never seen");
+    }
+
+    #[test]
+    fn derive_live_sources_tolerates_length_mismatch() {
+        // Defensive: if the runtime hasn't caught up to the configured
+        // sources (just-added, not yet started), zip-min the lists rather
+        // than panic. The shorter list bounds the output.
+        let cfg = vec![
+            cfg_src("events", Some("$JS.node-0.API")),
+            cfg_src("events", Some("$JS.node-1.API")),
+            cfg_src("events", Some("$JS.node-2.API")),
+        ];
+        let rt = vec![runtime_src("events", 0, None)]; // only one runtime entry
+        let out = derive_live_sources(&cfg, &rt);
+        assert_eq!(out.len(), 1, "min(cfg.len(), rt.len())");
+        assert_eq!(out[0].host.as_deref(), Some("node-0"));
+    }
+
+    #[test]
+    fn derive_live_sources_handles_unparseable_api_prefix() {
+        // A source with a malformed api_prefix gets host=None but keeps
+        // the raw api_prefix for the UI to surface (helpful for debugging
+        // a misconfigured deployment).
+        let cfg = vec![cfg_src("events", Some("not-a-valid-prefix"))];
+        let rt = vec![runtime_src("events", 0, None)];
+        let out = derive_live_sources(&cfg, &rt);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].host.is_none());
+        assert_eq!(out[0].api_prefix.as_deref(), Some("not-a-valid-prefix"));
     }
 
     #[test]
