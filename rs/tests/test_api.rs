@@ -167,6 +167,117 @@ async fn test_get_events_unknown_session() {
     assert!(events.is_empty());
 }
 
+// ── Invariant ① — catch-up respects share policy ─────────────────────────
+//
+// `share_policy[id] = private` means the session must not leak through
+// the app-level catch-up path. Two endpoints carry the contract:
+//   /api/digests           → omit private sessions entirely
+//   /api/sessions/{id}/events → 404 (deny existence)
+//
+// Together these mean a peer running catch-up against this node sees the
+// private session as "not on this device" — same shape as never having
+// observed it, exactly what the federation transport's `filter_subject`
+// would also produce.
+
+#[tokio::test]
+async fn test_digests_omit_private_sessions_invariant_one() {
+    use open_story_store::event_store::SharePolicyMode;
+
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events_a = vec![make_event("io.arc.event", "sess-shared")];
+        seed_and_ingest(&mut s, "sess-shared", &events_a, None).await;
+        let events_b = vec![make_event("io.arc.event", "sess-private")];
+        seed_and_ingest(&mut s, "sess-private", &events_b, None).await;
+
+        // Mark one private — the other stays at default (shared).
+        s.store
+            .event_store
+            .set_share_policy("sess-private", SharePolicyMode::Private, None)
+            .await
+            .expect("set share policy");
+    }
+
+    let req = Request::get("/api/digests").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    let ids: Vec<&str> = body["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["session_id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&"sess-shared"), "shared session must appear");
+    assert!(
+        !ids.contains(&"sess-private"),
+        "private session must be omitted (invariant ①)"
+    );
+}
+
+#[tokio::test]
+async fn test_get_events_404s_on_private_session_invariant_one() {
+    use open_story_store::event_store::SharePolicyMode;
+
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-secret")];
+        seed_and_ingest(&mut s, "sess-secret", &events, None).await;
+        s.store
+            .event_store
+            .set_share_policy("sess-secret", SharePolicyMode::Private, None)
+            .await
+            .expect("set share policy");
+    }
+
+    let req = Request::get("/api/sessions/sess-secret/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "private session must 404 — denying existence so peer catch-up stops asking"
+    );
+}
+
+#[tokio::test]
+async fn test_get_events_still_returns_shared_after_policy_table_exists() {
+    // Defense-in-depth: confirm the new private-filter branch doesn't
+    // accidentally suppress shared sessions when the policy table is
+    // populated for OTHER sessions.
+    use open_story_store::event_store::SharePolicyMode;
+
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-keep")];
+        seed_and_ingest(&mut s, "sess-keep", &events, None).await;
+        // Some other session is private — shouldn't affect this one.
+        s.store
+            .event_store
+            .set_share_policy("sess-other", SharePolicyMode::Private, None)
+            .await
+            .expect("set share policy");
+    }
+
+    let req = Request::get("/api/sessions/sess-keep/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    assert_eq!(body.as_array().unwrap().len(), 1);
+}
+
 #[tokio::test]
 async fn test_get_summary() {
     let data_dir = TempDir::new().unwrap();

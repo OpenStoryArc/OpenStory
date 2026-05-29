@@ -1,6 +1,6 @@
 //! REST API handlers — all /api/* routes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use axum::Json;
@@ -80,6 +80,14 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
 /// stable event-id hash)`; a peer fetches this and diffs it against its own
 /// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
 /// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
+///
+/// **Invariant ① (federation Phase 4):** sessions marked `private` in
+/// `share_policy` are omitted entirely from the digest. The catch-up backstop
+/// fetches digests then asks for missing sessions — if a private session
+/// appeared here, a peer would request it via `/api/sessions/{id}/events`
+/// and the app-level path would leak exactly what the federation transport
+/// correctly withheld. The DB authority is the operator's; this endpoint
+/// honors it.
 pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let sessions = s
@@ -88,9 +96,13 @@ pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
         .list_sessions()
         .await
         .unwrap_or_default();
+    let private = private_session_ids(&s).await;
 
     let mut digests = Vec::with_capacity(sessions.len());
     for row in &sessions {
+        if private.contains(&row.id) {
+            continue; // invariant ①: don't even disclose existence
+        }
         let events = s
             .store
             .event_store
@@ -109,6 +121,26 @@ pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
     }
 
     Json(json!({ "sessions": digests }))
+}
+
+/// Resolve the set of session IDs the operator has marked **private**.
+/// A read failure here returns an empty set — fail-open at the read so a
+/// store hiccup doesn't *introduce* exposure that wasn't there before, but
+/// also doesn't silently expand the private set (which would deny legitimate
+/// reads). Both directions of failure are bounded by the operator's
+/// authoritative writes; only writes can change visibility.
+async fn private_session_ids(state: &crate::state::AppState) -> HashSet<String> {
+    use open_story_store::event_store::SharePolicyMode;
+    state
+        .store
+        .event_store
+        .list_share_policies()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| matches!(r.mode, SharePolicyMode::Private))
+        .map(|r| r.session_id)
+        .collect()
 }
 
 pub async fn list_sessions(
@@ -489,11 +521,27 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `GET /api/sessions/{session_id}/events` — full event stream for a session.
+///
+/// **Invariant ① (federation Phase 4):** if the session is marked `private`
+/// in `share_policy`, returns 404 — denying existence rather than 403'ing or
+/// 200-with-empty so that the catch-up peer's diff sees "not on this device"
+/// and stops asking. The operator's policy is the authority.
 pub async fn get_events(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, StatusCode> {
     let s = state.read().await;
+    if private_session_ids(&s).await.contains(&session_id) {
+        log_event(
+            "api",
+            &format!(
+                "GET /api/sessions/{}/events → 404 (private)",
+                short_id(&session_id)
+            ),
+        );
+        return Err(StatusCode::NOT_FOUND);
+    }
     let events = s
         .store
         .event_store
@@ -508,7 +556,7 @@ pub async fn get_events(
             events.len()
         ),
     );
-    Json(Value::Array(events))
+    Ok(Json(Value::Array(events)))
 }
 
 pub async fn get_summary(
