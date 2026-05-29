@@ -109,6 +109,65 @@ pub struct Topology {
     pub nodes: Vec<NodeSummary>,
 }
 
+/// Federation env-var snapshot — the subset of process env that
+/// `derive_topology` and `compute_topology` consume. Snapshotting at the
+/// boundary keeps the derivation pure and testable; an actor refreshes
+/// the snapshot only when it has reason to (boot, SIGHUP, etc.).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EnvInputs {
+    pub hub_domain: Option<String>,
+    pub peer_hub_domains: Vec<String>,
+    pub peer_domains: Vec<String>,
+}
+
+impl EnvInputs {
+    /// Read the federation env vars at the I/O boundary. Used once per
+    /// boot (and on policy reconciliation); not called in the request hot
+    /// path — the cached Topology already reflects this snapshot.
+    pub fn from_env() -> Self {
+        let split = |v: String| -> Vec<String> {
+            v.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        };
+        Self {
+            hub_domain: std::env::var("OPEN_STORY_HUB_DOMAIN")
+                .ok()
+                .filter(|v| !v.is_empty()),
+            peer_hub_domains: std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(split)
+                .unwrap_or_default(),
+            peer_domains: std::env::var("OPEN_STORY_PEER_DOMAINS")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(split)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// Pure top-level helper — same inputs the handler used to gather inline,
+/// now an explicit boundary. Wraps [`derive_topology`] so the broadcaster
+/// can call one function with one snapshot at a time.
+pub fn compute_topology(
+    host: &str,
+    role: Role,
+    env: &EnvInputs,
+    session_hosts: &[(String, u64)],
+) -> Topology {
+    derive_topology(
+        host,
+        role,
+        env.hub_domain.as_deref(),
+        &env.peer_hub_domains,
+        &env.peer_domains,
+        session_hosts,
+    )
+}
+
 /// Pure derivation: shape, node info, and fleet roster from inputs. No I/O,
 /// no env reads — those happen at the handler boundary. Testable in
 /// isolation. `session_hosts` is a (host, count) tally from the local
@@ -237,68 +296,18 @@ pub fn derive_topology(
     }
 }
 
-/// `GET /api/admin/topology` — read this node's federation view.
+/// `GET /api/admin/topology` — serve the cached topology snapshot.
 ///
-/// Reads the federation env vars + tallies distinct hosts from the local
-/// session store, then delegates to the pure [`derive_topology`]. The
-/// result includes a `nodes` array suitable for rendering the whole
-/// fleet visible from this device.
+/// Reads the current frame from the `admin_topology_tx` watch channel —
+/// the broadcaster owns updates; this handler just serves the latest
+/// snapshot. No JetStream queries, no env reads, no session tallies on
+/// the request hot path. SICP stream-with-memory pattern: `borrow()` is
+/// the "force this stream's current value" operation.
 pub async fn get_topology(State(state): State<SharedState>) -> Json<Value> {
     log_event("api", "GET /api/admin/topology");
     let s = state.read().await;
-    let role = s.config.role;
-    // Tally hosts seen in stored sessions. NULL host (pre-stamping) is
-    // skipped — we can't claim "this node exists" from rows where the
-    // origin was never recorded.
-    let session_hosts: Vec<(String, u64)> = {
-        let mut tally: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
-        let rows = s
-            .store
-            .event_store
-            .list_sessions()
-            .await
-            .unwrap_or_default();
-        for row in rows {
-            if let Some(h) = row.host {
-                *tally.entry(h).or_insert(0) += 1;
-            }
-        }
-        tally.into_iter().collect()
-    };
+    let topology = s.admin_topology_tx.borrow().clone();
     drop(s);
-
-    let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN")
-        .ok()
-        .filter(|v| !v.is_empty());
-    let peer_hub_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-    let peer_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_DOMAINS")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-    let topology = derive_topology(
-        open_story_core::host::host(),
-        role,
-        hub_domain.as_deref(),
-        &peer_hub_domains,
-        &peer_domains,
-        &session_hosts,
-    );
     Json(serde_json::to_value(&topology).expect("Topology serializes"))
 }
 

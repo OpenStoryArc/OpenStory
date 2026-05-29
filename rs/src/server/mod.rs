@@ -32,6 +32,7 @@ pub use broadcast::BroadcastMessage;
 pub use ingest::{
     IngestResult, ReplayContext, ingest_events, is_plan_event, replay_boot_sessions, to_wire_record,
 };
+pub use open_story_server::admin;
 pub use open_story_server::config;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;

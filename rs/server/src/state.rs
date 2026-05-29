@@ -34,6 +34,12 @@ pub struct AppState {
     // ── bus ── event bus for publishing
     pub bus: Arc<dyn Bus>,
 
+    // ── admin: live topology as a watch channel (SICP stream-with-memory).
+    // The broadcaster (consumers/admin_broadcaster) owns updates; the REST
+    // handler reads via `.borrow()`. Initialized at boot from a fresh
+    // `compute_topology` so the first GET never sees an uninitialized state.
+    pub admin_topology_tx: tokio::sync::watch::Sender<crate::admin::Topology>,
+
     // ── configuration ──
     pub config: Config,
     pub watch_dir: PathBuf,
@@ -156,12 +162,36 @@ pub async fn create_state_with_watch_dirs(
     // If SQLite is empty (first boot), watcher backfill handles everything.
     // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
 
+    // Seed the admin topology stream with the initial snapshot — `nodes`
+    // populated from whatever sessions just loaded. The broadcaster will
+    // re-derive on every input event after boot.
+    let initial_topology = {
+        let session_hosts: Vec<(String, u64)> = {
+            let mut tally: HashMap<String, u64> = HashMap::new();
+            let rows = store.event_store.list_sessions().await.unwrap_or_default();
+            for row in rows {
+                if let Some(h) = row.host {
+                    *tally.entry(h).or_insert(0) += 1;
+                }
+            }
+            tally.into_iter().collect()
+        };
+        crate::admin::compute_topology(
+            open_story_core::host::host(),
+            config.role,
+            &crate::admin::EnvInputs::from_env(),
+            &session_hosts,
+        )
+    };
+    let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
     Ok(Arc::new(RwLock::new(AppState {
         store,
         transcript_states: HashMap::new(),
         watcher_diagnostics: WatcherDiagnostics::default(),
         broadcast_tx,
         bus,
+        admin_topology_tx,
         config,
         watch_dir,
     })))
