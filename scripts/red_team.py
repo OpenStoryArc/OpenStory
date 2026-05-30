@@ -581,6 +581,163 @@ def probe_supply_chain_publishers() -> Probe:
     return p
 
 
+# ── SAST: probes that read OUR OWN code, not deps ─────────────────────
+
+
+def probe_hadolint() -> Probe:
+    """Lint every Dockerfile in the repo for misconfig + bad patterns."""
+    p = Probe(name="hadolint", category="sast", severity="medium")
+    bin_path = "/tmp/hadolint" if Path("/tmp/hadolint").exists() else shutil.which("hadolint")
+    if not bin_path:
+        p.status = "skipped"
+        p.detail = "hadolint not installed (download from github.com/hadolint/hadolint/releases)"
+        return p
+
+    # Find all production Dockerfiles tracked by git. Test fixtures
+    # (rs/tests/fixtures/) contain intentionally-malformed inputs.
+    code, out, _ = run(
+        ["git", "ls-files", "*Dockerfile*", ":!:**/fixtures/**"],
+        cwd=REPO_ROOT,
+        timeout=30,
+    )
+    if code != 0:
+        p.status = "error"
+        p.detail = "git ls-files failed"
+        return p
+    files = [REPO_ROOT / f for f in out.strip().split("\n") if f and (REPO_ROOT / f).exists()]
+    if not files:
+        p.status = "skipped"
+        p.detail = "no Dockerfiles tracked"
+        return p
+
+    cfg = REPO_ROOT / ".hadolint.yaml"
+    cmd = [bin_path]
+    if cfg.exists():
+        cmd += ["--config", str(cfg)]
+    cmd += [str(f) for f in files]
+
+    t0 = time.time()
+    code, out, _ = run(cmd, cwd=REPO_ROOT, timeout=60)
+    p.duration_ms = int((time.time() - t0) * 1000)
+    findings = [l for l in out.splitlines() if l.strip()]
+    p.findings = findings[:15]
+    p.status = "green" if code == 0 else "red"
+    p.detail = f"{len(files)} Dockerfiles, {len(findings)} findings"
+    return p
+
+
+def probe_gitleaks() -> Probe:
+    """Scan git tree + history for committed secrets."""
+    p = Probe(name="gitleaks", category="sast", severity="high")
+    bin_path = "/tmp/gitleaks" if Path("/tmp/gitleaks").exists() else shutil.which("gitleaks")
+    if not bin_path:
+        p.status = "skipped"
+        p.detail = "gitleaks not installed (download from github.com/gitleaks/gitleaks/releases)"
+        return p
+
+    cfg = REPO_ROOT / ".gitleaks.toml"
+    cmd = [bin_path, "detect", "--no-banner", "--report-format=json", "--report-path=/tmp/gitleaks-rt.json"]
+    if cfg.exists():
+        cmd += ["--config", str(cfg)]
+
+    t0 = time.time()
+    code, _, _ = run(cmd, cwd=REPO_ROOT, timeout=300)
+    p.duration_ms = int((time.time() - t0) * 1000)
+    report = Path("/tmp/gitleaks-rt.json")
+    findings = []
+    if report.exists():
+        try:
+            data = json.loads(report.read_text() or "[]")
+            findings = [
+                f"[{f.get('RuleID')}] {f.get('File')}:{f.get('StartLine')} ({(f.get('Commit') or '')[:8]})"
+                for f in data
+            ]
+        except json.JSONDecodeError:
+            pass
+    p.findings = findings[:10]
+    p.status = "green" if code == 0 else "red"
+    p.detail = f"{len(findings)} leaks (after allowlist)"
+    return p
+
+
+def probe_semgrep() -> Probe:
+    """Multi-language SAST (OWASP / Rust / TS / Python / Dockerfile / secrets)."""
+    p = Probe(name="semgrep (multi-lang SAST)", category="sast", severity="high")
+    # Prefer Docker — keeps install path zero
+    if not have("docker"):
+        p.status = "skipped"
+        p.detail = "docker not available (semgrep ships as a container)"
+        return p
+
+    t0 = time.time()
+    code, out, _ = run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{REPO_ROOT}:/src",
+            "-w", "/src",
+            "semgrep/semgrep",
+            "semgrep", "scan",
+            "--config", "p/owasp-top-ten",
+            "--config", "p/rust",
+            "--config", "p/typescript",
+            "--config", "p/python",
+            "--config", "p/dockerfile",
+            "--config", "p/secrets",
+            "--quiet", "--metrics", "off", "--error",
+        ],
+        timeout=900,
+    )
+    p.duration_ms = int((time.time() - t0) * 1000)
+    findings = [l for l in out.splitlines() if l.strip() and not l.startswith("Scanning")]
+    p.findings = findings[:15]
+    p.status = "green" if code == 0 else "red"
+    p.detail = f"exit={code}"
+    return p
+
+
+def probe_bandit() -> Probe:
+    """Python security lint (telegram-bot + scripts/)."""
+    p = Probe(name="bandit (python SAST)", category="sast", severity="medium")
+    if not have("docker"):
+        p.status = "skipped"
+        p.detail = "docker not available"
+        return p
+
+    cfg_arg = ["-c", "bandit.yaml"] if (REPO_ROOT / "bandit.yaml").exists() else []
+    t0 = time.time()
+    code, out, _ = run(
+        [
+            "docker", "run", "--rm",
+            "-v", f"{REPO_ROOT}:/src",
+            "-w", "/src",
+            "cytopia/bandit",
+            *cfg_arg,
+            "-r", "telegram-bot", "scripts",
+            "-ll",   # medium+ only
+            "-f", "json", "-o", "/src/.bandit-rt.json",
+        ],
+        timeout=180,
+    )
+    p.duration_ms = int((time.time() - t0) * 1000)
+    report = REPO_ROOT / ".bandit-rt.json"
+    findings = []
+    if report.exists():
+        try:
+            d = json.loads(report.read_text())
+            for r in d.get("results", []):
+                findings.append(
+                    f"[{r.get('test_id')}] {r.get('filename', '?')}:"
+                    f"{r.get('line_number', '?')} {r.get('issue_text', '')[:80]}"
+                )
+        except json.JSONDecodeError:
+            pass
+    p.findings = findings[:10]
+    # Bandit exits 1 when findings exist at the severity filter; 0 means clean.
+    p.status = "green" if not findings else "red"
+    p.detail = f"{len(findings)} medium+ findings"
+    return p
+
+
 def probe_install_scripts() -> Probe:
     """Flag npm packages with install scripts (potential supply-chain entry points)."""
     p = Probe(name="npm install-script audit", category="policy", severity="low")
@@ -629,7 +786,7 @@ def print_human(probes: list[Probe]) -> None:
     by_cat: dict[str, list[Probe]] = {}
     for p in probes:
         by_cat.setdefault(p.category, []).append(p)
-    for cat in ["deps", "policy", "tests"]:
+    for cat in ["deps", "policy", "sast", "tests"]:
         if cat not in by_cat:
             continue
         print(f"\n{ANSI_BOLD}{cat}{ANSI_RESET}")
@@ -678,7 +835,7 @@ def main() -> int:
     ap.add_argument("--quick", action="store_true", help="skip container + slow probes")
     ap.add_argument(
         "--only",
-        choices=["deps", "policy", "tests", "all"],
+        choices=["deps", "policy", "sast", "tests", "all"],
         default="all",
         help="run only one probe category",
     )
@@ -708,6 +865,14 @@ def main() -> int:
             probes.append(probe_clippy())
             probes.append(probe_supply_chain_publishers())
             probes.append(probe_cargo_geiger())
+
+    if args.only in ("all", "sast"):
+        probes.append(probe_hadolint())
+        probes.append(probe_gitleaks())
+        probes.append(probe_bandit())
+        if not args.quick:
+            # semgrep takes 60-180s — full mode only.
+            probes.append(probe_semgrep())
 
     if args.only in ("all", "tests"):
         probes.append(probe_security_test_suite())

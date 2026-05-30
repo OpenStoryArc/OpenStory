@@ -65,3 +65,7 @@ deploy/*.local.conf
 # Local-only content (never pushed)
 personal/
 captures/
+.bandit-rt.json
+.bandit-report.json
+.semgrep-report.json
+/tmp/gitleaks-rt.json

@@ -40,9 +40,15 @@ jobs:
 
       - name: Resolve version
         id: ver
+        # Pass inputs via env, not direct ${{ }} interpolation — otherwise a
+        # crafted workflow_dispatch input like `'; rm -rf / #` becomes literal
+        # shell. See https://securitylab.github.com/research/github-actions-untrusted-input/
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            v="${{ inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            v="$INPUT_VERSION"
           else
             v="${GITHUB_REF_NAME#v}"
           fi
@@ -118,9 +124,14 @@ jobs:
     steps:
       - name: Resolve version
         id: ver
+        # Pass inputs via env, not direct ${{ }} interpolation — same
+        # shell-injection reason as the build job above.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            v="${{ inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            v="$INPUT_VERSION"
           else
             v="${GITHUB_REF_NAME#v}"
           fi

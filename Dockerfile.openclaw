@@ -50,9 +50,16 @@ COPY rs/views/Cargo.toml ./rs/views/
 COPY rs/ ./rs/
 
 # Build the Rust MCP with mongo support. Output: /build/rs/target/release/open-story-mcp
-RUN cd rs && cargo build --release -p open-story-mcp --features mongo
+WORKDIR /build/rs
+RUN cargo build --release -p open-story-mcp --features mongo
 
 # ── Stage 2: openclaw runtime with the binary baked in ───────────────
+#
+# openclaw is a locally-built base image (the build flow expects
+# `docker build -t openclaw:latest ~/projects/openclaw` to have run
+# first — see prerequisites in docker-compose.prod.yml header).
+# Pinning to a digest would defeat that flow.
+# hadolint ignore=DL3007
 FROM openclaw:latest
 
 USER root

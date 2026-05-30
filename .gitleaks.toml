@@ -1,0 +1,31 @@
+# gitleaks configuration — extends the default ruleset with an allowlist
+# for known test fixtures. Real secrets must NEVER be allowlisted here —
+# rotate them, then update.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known test fixtures + anonymization scaffolding (not real credentials)"
+
+# Test fixture tokens in the security test suite. These are literal
+# strings used to verify the auth middleware accepts/rejects them.
+paths = [
+    '''rs/tests/test_security_aggressive\.rs''',
+    '''rs/tests/test_security\.rs''',
+    '''rs/server/src/auth\.rs''',  # constant_time_eq test fixtures
+]
+
+# The anonymization script (scripts/synth/*) contains synthetic-looking
+# secrets that *demonstrate what to redact*. They've always been fake
+# Stripe/etc patterns. Historical commits scanned by gitleaks still
+# contain them — allowlist by regex content match.
+regexes = [
+    '''sk_live_abcdefghijklmnop12345''',         # canonical Stripe synth example
+    '''the-real-token''',
+    '''supersecret-1234''',
+    '''my-secret''',
+    '''ws-token''',
+    '''secret-token-123''',
+    '''wrong-token-456''',
+]
