@@ -165,6 +165,11 @@ pub async fn create_state_with_watch_dirs(
     // Seed the admin topology stream with the initial snapshot — `nodes`
     // populated from whatever sessions just loaded. The broadcaster will
     // re-derive on every input event after boot.
+    //
+    // EnvInputs::from_env_and_discover reads explicit env vars AND tries
+    // NATS-monitor auto-discovery of the leafnode upstream — best-effort,
+    // silent None on any failure.
+    let env_inputs = crate::admin::EnvInputs::from_env_and_discover().await;
     let initial_topology = {
         let session_hosts: Vec<(String, u64)> = {
             let mut tally: HashMap<String, u64> = HashMap::new();
@@ -179,7 +184,7 @@ pub async fn create_state_with_watch_dirs(
         crate::admin::compute_topology(
             open_story_core::host::host(),
             config.role,
-            &crate::admin::EnvInputs::from_env(),
+            &env_inputs,
             &session_hosts,
         )
     };

@@ -436,7 +436,7 @@ pub async fn run_server(
             let host = open_story_core::host::host().to_string();
             let role = s.config.role;
             drop(s);
-            let env = open_story_server::admin::EnvInputs::from_env();
+            let env = open_story_server::admin::EnvInputs::from_env_and_discover().await;
             let (pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
             let _actor_handle = open_story_server::consumers::admin_broadcaster::spawn(
                 watch_tx,

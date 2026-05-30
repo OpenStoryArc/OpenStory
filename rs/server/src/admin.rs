@@ -30,6 +30,52 @@ use crate::config::Role;
 use crate::logging::log_event;
 use crate::state::SharedState;
 
+// ── Leafnode discovery via the NATS monitoring HTTP API ─────────────────
+//
+// `http://<local-nats>:8222/leafz` returns each active leafnode
+// connection. When `is_spoke: true`, this NATS server is forwarding
+// upstream to the entry's `ip`/`port` — i.e., the upstream IS the hub.
+// Pure parsing function tested against a real captured response; the
+// async wrapper does the HTTP fetch with a short timeout.
+
+/// Parse a `/leafz` JSON response. Returns the IP of the upstream hub
+/// when this NATS reports being a spoke; `None` otherwise.
+pub fn parse_leafnode_upstream(json: &serde_json::Value) -> Option<String> {
+    let leafs = json.get("leafs")?.as_array()?;
+    for leaf in leafs {
+        let is_spoke = leaf
+            .get("is_spoke")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !is_spoke {
+            continue;
+        }
+        if let Some(ip) = leaf.get("ip").and_then(|v| v.as_str()) {
+            if !ip.is_empty() {
+                return Some(ip.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Fetch `/leafz` from a local NATS monitoring URL and parse out the
+/// upstream hub. Returns `None` on any failure (no NATS, monitor port
+/// off, parse fail, no spoke leaf). 500ms total timeout — this is
+/// best-effort discovery, not load-bearing.
+pub async fn discover_leafnode_upstream(monitor_url: &str) -> Option<String> {
+    let url = format!("{}/leafz", monitor_url.trim_end_matches('/'));
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        reqwest::get(&url),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let json: serde_json::Value = resp.json().await.ok()?;
+    parse_leafnode_upstream(&json)
+}
+
 /// One of the four topology shapes the federation can be in, from this
 /// node's vantage. Encoded kebab-case for the JSON wire (`solo`, `t1`,
 /// `t2`, `t3`) so the UI can branch with a single string compare.
@@ -191,6 +237,23 @@ impl EnvInputs {
                 .ok()
                 .filter(|v| !v.is_empty()),
         }
+    }
+
+    /// Read env vars + attempt leafnode auto-discovery via NATS monitoring
+    /// HTTP API. Explicit `OPEN_STORY_NATS_HUB` takes precedence; discovery
+    /// only fills `nats_leafnode_hub` when the env var is unset. Best-
+    /// effort — a missing NATS, monitor port, or non-leaf NATS gracefully
+    /// produces a `None` here and the field stays unset.
+    pub async fn from_env_and_discover() -> Self {
+        let mut env = Self::from_env();
+        if env.nats_leafnode_hub.is_none() {
+            let monitor_url = std::env::var("OPEN_STORY_NATS_MONITOR_URL")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "http://localhost:8222".to_string());
+            env.nats_leafnode_hub = discover_leafnode_upstream(&monitor_url).await;
+        }
+        env
     }
 }
 
@@ -646,6 +709,77 @@ mod tests {
         assert_eq!(hub.source, NodeEvidence::NatsLeafnodeHub);
         assert_eq!(hub.session_count, 0, "hubs don't author sessions");
         assert!(!hub.is_self);
+    }
+
+    // ── parse_leafnode_upstream — extract upstream from /leafz JSON ─────
+
+    #[test]
+    fn parse_leafnode_upstream_returns_ip_when_spoke() {
+        // Real /leafz response captured from a live local NATS leaf
+        // forwarding to a Tailscale hub at 100.77.40.95:7422.
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "server_id": "NBJ7H2AIFQHMIOQ",
+                "leafnodes": 1,
+                "leafs": [{
+                    "id": 5,
+                    "name": "NBHHLYXLZTUAU4W",
+                    "is_spoke": true,
+                    "ip": "100.77.40.95",
+                    "port": 7422,
+                    "rtt": "38.985481ms"
+                }]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parse_leafnode_upstream(&json),
+            Some("100.77.40.95".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_leafnode_upstream_skips_non_spoke_entries() {
+        // is_spoke: false means the OTHER end is the spoke (we are the
+        // hub being connected to) — that's not our upstream.
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "leafs": [
+                    { "is_spoke": false, "ip": "10.0.0.1" },
+                    { "is_spoke": true, "ip": "100.77.40.95" }
+                ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parse_leafnode_upstream(&json),
+            Some("100.77.40.95".to_string()),
+            "should skip the hub entry and pick the spoke entry"
+        );
+    }
+
+    #[test]
+    fn parse_leafnode_upstream_returns_none_when_no_leafs() {
+        let json: serde_json::Value = serde_json::from_str(r#"{"leafs": []}"#).unwrap();
+        assert!(parse_leafnode_upstream(&json).is_none());
+    }
+
+    #[test]
+    fn parse_leafnode_upstream_returns_none_for_malformed_input() {
+        let bad: serde_json::Value = serde_json::from_str(r#"{"unrelated": "field"}"#).unwrap();
+        assert!(parse_leafnode_upstream(&bad).is_none());
+    }
+
+    #[test]
+    fn parse_leafnode_upstream_handles_missing_ip() {
+        // A spoke entry with no `ip` field — gracefully None.
+        let json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "leafs": [{ "is_spoke": true, "name": "id-only" }]
+            }"#,
+        )
+        .unwrap();
+        assert!(parse_leafnode_upstream(&json).is_none());
     }
 
     #[test]
