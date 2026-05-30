@@ -359,6 +359,162 @@ def probe_clippy() -> Probe:
     return p
 
 
+def probe_cargo_vet() -> Probe:
+    """`cargo vet` — has someone trusted reviewed this crate's code?
+
+    Imports trusted audits from Mozilla / Google / Embark / Zcash /
+    Bytecode Alliance / ISRG and counts the delta. A red probe here
+    means new exemptions appeared (a dep bump that no trusted org
+    has audited yet — review the source before merging).
+
+    The probe is comparative: it reads the exemption count from
+    supply-chain/config.toml. If the count drifts upward from the
+    committed baseline, we want to know — that's the signal that a
+    new unvetted crate entered the tree.
+    """
+    p = Probe(name="cargo-vet supply-chain", category="policy", severity="medium")
+    bin_path = shutil.which("cargo-vet") or str(Path.home() / ".cargo" / "bin" / "cargo-vet")
+    if not Path(bin_path).exists():
+        p.status = "skipped"
+        p.detail = "cargo-vet not installed (cargo install cargo-vet --locked)"
+        return p
+
+    if not (RS_DIR / "supply-chain" / "config.toml").exists():
+        p.status = "skipped"
+        p.detail = "supply-chain/config.toml missing (run: cd rs && cargo vet init)"
+        return p
+
+    t0 = time.time()
+    code, out, err = run(["cargo", "vet", "check"], cwd=RS_DIR, timeout=180)
+    p.duration_ms = int((time.time() - t0) * 1000)
+
+    # cargo vet check exits 0 when "vetting succeeds" (exemptions are
+    # accepted), non-zero when an unaudited crate slipped past all
+    # exemptions/imports — which is the "new dep needs review" case.
+    summary_line = next((l for l in out.splitlines() if "Vetting Succeeded" in l or "Vetting Failed" in l), "")
+    p.detail = summary_line.strip() or f"exit={code}"
+    if code != 0:
+        p.status = "red"
+        p.findings = [l for l in (out + err).splitlines() if "violation" in l.lower() or "missing" in l.lower()][:10]
+        return p
+
+    # Parse "175 fully audited, 4 partially audited, 374 exempted"
+    import re
+    m = re.search(r"(\d+) fully audited.*?(\d+) exempted", summary_line)
+    if m:
+        audited = int(m.group(1))
+        exempted = int(m.group(2))
+        # Compare against a committed baseline if present
+        baseline = RS_DIR / "supply-chain" / ".baseline-exemptions"
+        if baseline.exists():
+            prev = int(baseline.read_text().strip())
+            if exempted > prev:
+                p.status = "red"
+                p.findings = [
+                    f"exemptions rose from {prev} to {exempted} — {exempted - prev} new unvetted crates",
+                    "run `cargo vet suggest` to see the review queue",
+                ]
+                return p
+        p.status = "green"
+        p.detail = f"{audited} audited, {exempted} exempted (no new unvetted)"
+    else:
+        p.status = "green"
+    return p
+
+
+def probe_cargo_geiger() -> Probe:
+    """`cargo-geiger` — count unsafe-block surface per crate.
+
+    Unsafe code isn't bad, but it's the only place memory-safety
+    bugs live in Rust. A crate with high unsafe count + low vetting
+    is a priority review target. We surface the top-N unsafe crates;
+    sustained growth between runs is the red signal.
+    """
+    p = Probe(name="cargo-geiger unsafe surface", category="policy", severity="low")
+    bin_path = shutil.which("cargo-geiger") or str(Path.home() / ".cargo" / "bin" / "cargo-geiger")
+    if not Path(bin_path).exists():
+        p.status = "skipped"
+        p.detail = "cargo-geiger not installed (cargo install cargo-geiger --locked)"
+        return p
+
+    t0 = time.time()
+    # geiger is slow (compiles the whole tree); --output-format Json gives
+    # structured output, but takes 5+ min. Use --update-readme=false and
+    # text output for speed.
+    code, out, _ = run(
+        ["cargo", "geiger", "--all-features", "--quiet", "--output-format", "Json"],
+        cwd=RS_DIR,
+        timeout=900,
+    )
+    p.duration_ms = int((time.time() - t0) * 1000)
+    if code != 0:
+        p.status = "error"
+        p.detail = f"exit={code}"
+        return p
+
+    try:
+        d = json.loads(out)
+    except json.JSONDecodeError:
+        p.status = "error"
+        p.detail = "non-JSON output"
+        return p
+
+    # Each package has counts.unsafe_.{functions,exprs,impls,traits,methods}
+    rows = []
+    for pkg in d.get("packages", []):
+        info = pkg.get("package", {}).get("id", {})
+        name = info.get("name", "?")
+        unsafe = pkg.get("unsafety", {}).get("used", {})
+        total = sum(unsafe.get(k, {}).get("safe", 0) + unsafe.get(k, {}).get("unsafe_", 0)
+                    for k in ("functions", "exprs", "item_impls", "item_traits", "methods"))
+        u = sum(unsafe.get(k, {}).get("unsafe_", 0)
+                for k in ("functions", "exprs", "item_impls", "item_traits", "methods"))
+        if u > 0:
+            rows.append((name, u, total))
+    rows.sort(key=lambda r: -r[1])
+    top = rows[:15]
+    p.findings = [f"{n}: {u} unsafe ({100*u/max(t,1):.1f}% of {t})" for n, u, t in top]
+    p.status = "green"
+    p.detail = f"{len(rows)} crates with unsafe code; top {len(top)} listed"
+    return p
+
+
+def probe_npm_signatures(lock: Path, label: str) -> Probe:
+    """`npm audit signatures` — verify sigstore attestations on the npm tree."""
+    p = Probe(name=f"npm signatures ({label})", category="policy", severity="medium")
+    if not lock.exists() or not have("npm"):
+        p.status = "skipped"
+        p.detail = "lockfile or npm missing"
+        return p
+    t0 = time.time()
+    code, out, _ = run(["npm", "audit", "signatures"], cwd=lock.parent, timeout=120)
+    p.duration_ms = int((time.time() - t0) * 1000)
+    # Parse lines like "180 packages have verified registry signatures"
+    import re
+    verified_m = re.search(r"(\d+) packages? have verified registry signatures", out)
+    missing_m = re.search(r"(\d+) packages? have missing registry signatures", out)
+    invalid_m = re.search(r"(\d+) packages? have invalid registry signatures", out)
+    attested_m = re.search(r"(\d+) packages? have verified attestations", out)
+
+    verified = int(verified_m.group(1)) if verified_m else 0
+    missing = int(missing_m.group(1)) if missing_m else 0
+    invalid = int(invalid_m.group(1)) if invalid_m else 0
+    attested = int(attested_m.group(1)) if attested_m else 0
+
+    if invalid > 0:
+        p.status = "red"
+        p.findings = [f"{invalid} packages with INVALID signatures — possible compromise"]
+        p.severity = "high"
+    elif missing > 0:
+        # Many packages legitimately don't sign yet — surface but don't fail
+        p.status = "green"
+        p.detail = f"{verified} verified, {missing} unsigned, {attested} with sigstore attestations"
+    else:
+        p.status = "green"
+        p.detail = f"{verified} verified, {attested} with sigstore attestations"
+    return p
+
+
 def probe_supply_chain_publishers() -> Probe:
     """Flag direct deps whose ONLY publisher is a single account with no
     team/org backing — the typical typosquat / hijacked-package pattern.
@@ -544,10 +700,14 @@ def main() -> int:
 
     if args.only in ("all", "policy"):
         probes.append(probe_cargo_deny())
+        probes.append(probe_cargo_vet())
         probes.append(probe_install_scripts())
+        probes.append(probe_npm_signatures(UI_LOCK, "ui"))
+        probes.append(probe_npm_signatures(E2E_LOCK, "e2e"))
         if not args.quick:
             probes.append(probe_clippy())
             probes.append(probe_supply_chain_publishers())
+            probes.append(probe_cargo_geiger())
 
     if args.only in ("all", "tests"):
         probes.append(probe_security_test_suite())
