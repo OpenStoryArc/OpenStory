@@ -164,6 +164,21 @@ pub struct Topology {
     /// but no leaves have registered yet (just-booted hub).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_sources: Option<Vec<LiveSourceSummary>>,
+    /// Phase 5.7+ — fleet roster grouped by the person who owns each host's
+    /// sessions. Derived from `SessionRow.person_id`. A host appears in
+    /// every cluster of a person who has sessions on it (one host, many
+    /// users is normal — e.g. a shared dev box). Default empty for
+    /// pre-PR-#54 callers / tests that don't populate `session_owners`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clusters_by_person: Vec<PersonCluster>,
+}
+
+/// One person's fleet: the hosts where they own sessions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct PersonCluster {
+    pub person_id: String,
+    /// Hosts sorted alphabetically for deterministic comparison.
+    pub hosts: Vec<String>,
 }
 
 /// UI-facing projection of `open_story_bus::nats_bus::LiveSourceEntry` —
@@ -274,6 +289,33 @@ pub fn compute_topology(
         &env.peer_domains,
         env.nats_leafnode_hub.as_deref(),
         session_hosts,
+        &[],
+    )
+}
+
+/// Phase 5.7 — variant that also computes person clusters from session ownership.
+///
+/// `session_owners` is a list of `(host, person_id)` pairs from
+/// `SessionRow.host` × `SessionRow.person_id`. Hosts can appear multiple
+/// times (one per person who has sessions there). Derives
+/// `Topology::clusters_by_person`; the rest of the output is identical to
+/// [`compute_topology`].
+pub fn compute_topology_with_owners(
+    host: &str,
+    role: Role,
+    env: &EnvInputs,
+    session_hosts: &[(String, u64)],
+    session_owners: &[(String, String)],
+) -> Topology {
+    derive_topology(
+        host,
+        role,
+        env.hub_domain.as_deref(),
+        &env.peer_hub_domains,
+        &env.peer_domains,
+        env.nats_leafnode_hub.as_deref(),
+        session_hosts,
+        session_owners,
     )
 }
 
@@ -291,6 +333,7 @@ pub fn derive_topology(
     peer_domains: &[String],
     nats_leafnode_hub: Option<&str>,
     session_hosts: &[(String, u64)],
+    session_owners: &[(String, String)],
 ) -> Topology {
     // Discriminate the federation mode.
     // - hub_domain set + Consumer role  → this node IS a hub
@@ -405,6 +448,26 @@ pub fn derive_topology(
         _ => a.host.cmp(&b.host),
     });
 
+    // Person clusters — group hosts by the person who owns sessions on them.
+    // BTreeMap → BTreeSet keeps the output deterministic: persons in sorted
+    // order, hosts sorted alphabetically within each cluster. A host appears
+    // in every cluster of a person who has sessions on it.
+    let mut clusters_acc: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for (host, person_id) in session_owners {
+        clusters_acc
+            .entry(person_id.clone())
+            .or_default()
+            .insert(host.clone());
+    }
+    let clusters_by_person: Vec<PersonCluster> = clusters_acc
+        .into_iter()
+        .map(|(person_id, hosts)| PersonCluster {
+            person_id,
+            hosts: hosts.into_iter().collect(),
+        })
+        .collect();
+
     Topology {
         shape,
         self_: NodeInfo {
@@ -417,6 +480,7 @@ pub fn derive_topology(
         },
         nodes,
         live_sources: None,
+        clusters_by_person,
     }
 }
 
@@ -640,7 +704,7 @@ mod tests {
 
     #[test]
     fn solo_with_no_flags() {
-        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::Solo);
         assert_eq!(t.self_.role, NodeRole::Solo);
         assert_eq!(t.self_.domain, None);
@@ -649,7 +713,7 @@ mod tests {
 
     #[test]
     fn hub_with_no_peer_hubs_is_t2() {
-        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[], None, &[]);
+        let t = derive_topology("hub", Role::Consumer, Some("hub"), &[], &[], None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.domain.as_deref(), Some("hub"));
@@ -659,7 +723,7 @@ mod tests {
     #[test]
     fn hub_with_peer_hubs_is_t3() {
         let peers = vec!["hub-b".to_string()];
-        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[]);
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T3);
         assert_eq!(t.self_.role, NodeRole::Hub);
         assert_eq!(t.self_.peer_hub_domains, peers);
@@ -669,7 +733,7 @@ mod tests {
     fn leaf_attached_to_hub_is_t2_from_its_vantage() {
         // Even if the hub itself is part of a T3 mesh, the LEAF sees
         // exactly one hub. Cross-hub fanout is the hub's concern.
-        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[], None, &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub-a"), &[], &[], None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.domain.as_deref(), Some("node-0"));
@@ -680,7 +744,7 @@ mod tests {
     #[test]
     fn peers_only_is_t1_mesh() {
         let peers = vec!["laptop".to_string(), "phone".to_string()];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T1);
         assert_eq!(t.self_.role, NodeRole::Leaf);
         assert_eq!(t.self_.peer_domains, peers);
@@ -692,14 +756,14 @@ mod tests {
         // If both are set somehow, hub-mode wins — matches the CLI's
         // dispatch order (hub_domain checked before peer_domains).
         let peers = vec!["foo".to_string()];
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers, None, &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &peers, None, &[], &[]);
         assert_eq!(t.shape, TopologyShape::T2);
         assert_eq!(t.self_.role, NodeRole::Leaf);
     }
 
     #[test]
     fn topology_serializes_to_expected_shape() {
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[], &[]);
         let v = serde_json::to_value(&t).unwrap();
         assert_eq!(v["shape"], "t2");
         assert_eq!(v["self"]["host"], "node-0");
@@ -711,7 +775,7 @@ mod tests {
 
     #[test]
     fn solo_with_no_evidence_lists_just_self() {
-        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &[], &[]);
         assert_eq!(t.nodes.len(), 1);
         assert_eq!(t.nodes[0].host, "a1");
         assert!(t.nodes[0].is_self);
@@ -726,7 +790,7 @@ mod tests {
             ("a1".to_string(), 32u64),
             ("Maxs-Air".to_string(), 4),
         ];
-        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &sessions);
+        let t = derive_topology("a1", Role::Full, None, &[], &[], None, &sessions, &[]);
         let hosts: Vec<&str> = t.nodes.iter().map(|n| n.host.as_str()).collect();
         assert_eq!(hosts, vec!["a1", "Maxs-Air"], "self first, then alpha");
         let self_node = t.nodes.iter().find(|n| n.is_self).unwrap();
@@ -743,7 +807,7 @@ mod tests {
         // T1 mesh: peers from env config that we haven't seen events
         // from yet still appear — the operator told us they exist.
         let peers = vec!["laptop".to_string(), "phone".to_string()];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[]);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &[], &[]);
         let by_host: std::collections::HashMap<_, _> =
             t.nodes.iter().map(|n| (n.host.as_str(), n)).collect();
         assert_eq!(by_host["laptop"].session_count, 0);
@@ -757,7 +821,7 @@ mod tests {
         // evidence wins (we've actually seen events).
         let peers = vec!["laptop".to_string()];
         let sessions = vec![("laptop".to_string(), 7)];
-        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &sessions);
+        let t = derive_topology("a1", Role::Full, None, &[], &peers, None, &sessions, &[]);
         let laptop = t.nodes.iter().find(|n| n.host == "laptop").unwrap();
         assert_eq!(laptop.session_count, 7);
         assert_eq!(laptop.source, NodeEvidence::Sessions);
@@ -765,7 +829,7 @@ mod tests {
 
     #[test]
     fn fleet_includes_hub_in_t2_view() {
-        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[]);
+        let t = derive_topology("node-0", Role::Full, Some("hub"), &[], &[], None, &[], &[]);
         let hub = t.nodes.iter().find(|n| n.host == "hub").unwrap();
         assert_eq!(hub.source, NodeEvidence::HubConfig);
         assert!(!hub.is_self);
@@ -774,7 +838,7 @@ mod tests {
     #[test]
     fn fleet_includes_peer_hubs_in_t3_view() {
         let peers = vec!["hub-b".to_string()];
-        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[]);
+        let t = derive_topology("hub-a", Role::Consumer, Some("hub-a"), &peers, &[], None, &[], &[]);
         let hub_b = t.nodes.iter().find(|n| n.host == "hub-b").unwrap();
         assert_eq!(hub_b.source, NodeEvidence::HubConfig);
     }
@@ -792,6 +856,7 @@ mod tests {
             &[],
             &[],
             Some("hub.openstoryarc.com"),
+            &[],
             &[],
         );
         let hub = t
@@ -888,6 +953,7 @@ mod tests {
             &[],
             Some("hub.openstoryarc.com"),
             &[("hub.openstoryarc.com".to_string(), 3)],
+            &[],
         );
         let hub = t
             .nodes
@@ -896,5 +962,97 @@ mod tests {
             .unwrap();
         assert_eq!(hub.source, NodeEvidence::Sessions);
         assert_eq!(hub.session_count, 3);
+    }
+
+    // ── Phase 5.7 — Person clustering ──────────────────────────────────
+
+    fn owners(items: &[(&str, &str)]) -> Vec<(String, String)> {
+        items
+            .iter()
+            .map(|(h, p)| (h.to_string(), p.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn empty_session_owners_produces_no_person_clusters() {
+        let t = compute_topology("a1", Role::Full, &EnvInputs::default(), &[]);
+        assert!(t.clusters_by_person.is_empty());
+    }
+
+    #[test]
+    fn one_person_with_multiple_hosts_collapses_into_one_cluster() {
+        let owners = owners(&[("a1", "max"), ("laptop", "max"), ("a1", "max")]);
+        let t = compute_topology_with_owners(
+            "a1",
+            Role::Full,
+            &EnvInputs::default(),
+            &[],
+            &owners,
+        );
+        assert_eq!(t.clusters_by_person.len(), 1);
+        assert_eq!(t.clusters_by_person[0].person_id, "max");
+        // Hosts deduped + sorted.
+        assert_eq!(t.clusters_by_person[0].hosts, vec!["a1", "laptop"]);
+    }
+
+    #[test]
+    fn two_persons_become_two_clusters_in_sorted_order() {
+        // BTreeMap ordering → katie before max alphabetically.
+        let owners = owners(&[
+            ("a1", "max"),
+            ("laptop", "max"),
+            ("a1", "katie"),
+        ]);
+        let t = compute_topology_with_owners(
+            "a1",
+            Role::Full,
+            &EnvInputs::default(),
+            &[],
+            &owners,
+        );
+        assert_eq!(t.clusters_by_person.len(), 2);
+        assert_eq!(t.clusters_by_person[0].person_id, "katie");
+        assert_eq!(t.clusters_by_person[0].hosts, vec!["a1"]);
+        assert_eq!(t.clusters_by_person[1].person_id, "max");
+        assert_eq!(t.clusters_by_person[1].hosts, vec!["a1", "laptop"]);
+    }
+
+    #[test]
+    fn shared_host_appears_in_every_person_cluster_that_uses_it() {
+        // `a1` is a shared dev box: both max and katie have sessions there.
+        // It MUST appear in both clusters — not a backdoor that hides one
+        // person's presence on a host.
+        let owners = owners(&[("a1", "max"), ("a1", "katie")]);
+        let t = compute_topology_with_owners(
+            "a1",
+            Role::Full,
+            &EnvInputs::default(),
+            &[],
+            &owners,
+        );
+        assert_eq!(t.clusters_by_person.len(), 2);
+        for cluster in &t.clusters_by_person {
+            assert!(
+                cluster.hosts.contains(&"a1".to_string()),
+                "expected `a1` in cluster {}, got {:?}",
+                cluster.person_id,
+                cluster.hosts
+            );
+        }
+    }
+
+    #[test]
+    fn compute_topology_default_path_produces_empty_clusters() {
+        // Backwards compat: callers that haven't migrated to the new
+        // function get an empty clusters_by_person, NOT a panic or null.
+        let t = compute_topology(
+            "a1",
+            Role::Full,
+            &EnvInputs::default(),
+            &[("peer".to_string(), 5)],
+        );
+        assert!(t.clusters_by_person.is_empty());
+        // Other fields unchanged.
+        assert_eq!(t.nodes.len(), 2); // self + peer
     }
 }

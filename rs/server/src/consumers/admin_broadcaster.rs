@@ -37,7 +37,9 @@ use tokio::task::JoinHandle;
 use open_story_bus::Bus;
 use open_story_store::event_store::EventStore;
 
-use crate::admin::{EnvInputs, Topology, compute_topology, fetch_live_sources};
+use crate::admin::{
+    compute_topology, compute_topology_with_owners, fetch_live_sources, EnvInputs, Topology,
+};
 use crate::config::Role;
 
 /// Spawn the broadcaster actor. Owns `watch_tx` (write side); reads
@@ -56,8 +58,15 @@ pub fn spawn(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         while pulse_rx.recv().await.is_some() {
-            let session_hosts = tally_session_hosts(&*event_store).await;
-            let mut next = compute_topology(&host, role, &env, &session_hosts);
+            let (session_hosts, session_owners) =
+                tally_session_hosts_and_owners(&*event_store).await;
+            let mut next = compute_topology_with_owners(
+                &host,
+                role,
+                &env,
+                &session_hosts,
+                &session_owners,
+            );
             // Enrich with live JetStream sources when the bus exposes a
             // context. Solo / NoopBus: no change. Federation: surfaces
             // every leaf registered on events-agg with active/lag state.
@@ -76,18 +85,30 @@ pub fn spawn(
     })
 }
 
-/// I/O at the boundary: read distinct host counts from the store. NULL
-/// host is skipped (pre-stamping rows we can't attribute).
-async fn tally_session_hosts(event_store: &dyn EventStore) -> Vec<(String, u64)> {
+/// I/O at the boundary: read host tallies AND (host, person_id) ownership
+/// pairs from the store. NULL host is skipped for both — pre-stamping rows
+/// we can't attribute. NULL person_id is skipped for the ownership pairs
+/// (it's a real "we don't know" signal — the existing fleet tally still
+/// records the host).
+async fn tally_session_hosts_and_owners(
+    event_store: &dyn EventStore,
+) -> (Vec<(String, u64)>, Vec<(String, String)>) {
     let rows = event_store.list_sessions().await.unwrap_or_default();
     let mut tally: std::collections::HashMap<String, u64> =
         std::collections::HashMap::new();
+    let mut owners_set: std::collections::BTreeSet<(String, String)> =
+        std::collections::BTreeSet::new();
     for row in rows {
-        if let Some(h) = row.host {
-            *tally.entry(h).or_insert(0) += 1;
+        let Some(h) = row.host else { continue };
+        *tally.entry(h.clone()).or_insert(0) += 1;
+        if let Some(p) = row.person_id {
+            owners_set.insert((h, p));
         }
     }
-    tally.into_iter().collect()
+    (
+        tally.into_iter().collect(),
+        owners_set.into_iter().collect(),
+    )
 }
 
 #[cfg(test)]
