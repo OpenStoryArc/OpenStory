@@ -274,8 +274,12 @@ impl EventStore for MongoStore {
         }
         if let Some(origin_agent) = session.origin_agent.as_deref() {
             set_doc.insert("origin_agent", origin_agent);
+        }
         if let Some(person_id) = session.person_id.as_deref() {
             set_doc.insert("person_id", person_id);
+        }
+        if let Some(principal_id) = session.principal_id.as_deref() {
+            set_doc.insert("principal_id", principal_id);
         }
         if let Some(pid) = session.project_id.as_deref() {
             set_doc.insert("project_id", pid);
