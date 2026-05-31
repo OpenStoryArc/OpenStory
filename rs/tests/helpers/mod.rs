@@ -56,6 +56,7 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
         watch_dir,
         account_config_writer: None,
         account_config_reloader: None,
+        role_directory: Arc::new(open_story::server::directory::NoopRoleDirectory),
     }))
 }
 

@@ -57,6 +57,12 @@ pub struct AppState {
     /// that only care about the disk write).
     pub account_config_reloader:
         Option<Arc<dyn crate::account_config::NatsReloader>>,
+
+    /// Phase 6.5 — role lookup for the local principal. Defaults to
+    /// `NoopRoleDirectory`, which fails-closed on every role-gated route.
+    /// Boot wires `EmbeddedRoleDirectory` when `Config::roles_db_path`
+    /// is set.
+    pub role_directory: Arc<dyn crate::directory::RoleDirectory>,
 }
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -211,6 +217,9 @@ pub async fn create_state_with_watch_dirs(
     let (account_config_writer, account_config_reloader) =
         build_account_config(&config);
 
+    // ── Phase 6.5 boot-wire: role directory.
+    let role_directory = build_role_directory(&config);
+
     Ok(Arc::new(RwLock::new(AppState {
         store,
         transcript_states: HashMap::new(),
@@ -222,7 +231,29 @@ pub async fn create_state_with_watch_dirs(
         watch_dir,
         account_config_writer,
         account_config_reloader,
+        role_directory,
     })))
+}
+
+/// Build the role directory based on config. SQLite-backed when
+/// `roles_db_path` is set; `NoopRoleDirectory` otherwise (fail-closed).
+fn build_role_directory(
+    config: &Config,
+) -> Arc<dyn crate::directory::RoleDirectory> {
+    use crate::directory::{EmbeddedRoleDirectory, NoopRoleDirectory};
+    if config.roles_db_path.is_empty() {
+        return Arc::new(NoopRoleDirectory);
+    }
+    match EmbeddedRoleDirectory::open(Path::new(&config.roles_db_path)) {
+        Ok(d) => Arc::new(d),
+        Err(e) => {
+            eprintln!(
+                "warning: could not open roles_db_path {}: {e}; falling back to NoopRoleDirectory (all role-gated routes will 403)",
+                config.roles_db_path
+            );
+            Arc::new(NoopRoleDirectory)
+        }
+    }
 }
 
 /// Build the AccountConfigWriter + matching NatsReloader from config.

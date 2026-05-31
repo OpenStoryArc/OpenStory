@@ -189,6 +189,19 @@ pub struct Config {
     /// won't see them until restart — useful for tests, dangerous in prod).
     #[serde(default = "default_nats_reload_command")]
     pub nats_reload_command: String,
+    /// Phase 6.5 — which principal this OpenStory instance represents.
+    /// Used by the role middleware to look up the operator's role in the
+    /// `RoleDirectory`. Empty → all role-gated routes return 403
+    /// (fail-closed sovereignty: no principal identity, no permission).
+    #[serde(default)]
+    pub local_principal_id: String,
+    /// Path to the SQLite file backing `EmbeddedRoleDirectory`. Empty →
+    /// no role directory; `NoopRoleDirectory` is wired in instead, which
+    /// returns `None` for every lookup and therefore 403s every role-gated
+    /// request. Set this *and* populate the `participants` table to
+    /// enable Layer 3 permissions.
+    #[serde(default)]
+    pub roles_db_path: String,
     /// SQLCipher encryption key for the database. Empty = unencrypted.
     pub db_key: String,
     /// Allowed CORS origins. Empty = allow localhost defaults only.
@@ -317,6 +330,8 @@ impl Default for Config {
             admin_token: String::new(),
             nats_accounts_conf_path: String::new(),
             nats_reload_command: default_nats_reload_command(),
+            local_principal_id: String::new(),
+            roles_db_path: String::new(),
             db_key: String::new(),
             allowed_origins: Vec::new(),
             data_dir: "./data".to_string(),
@@ -626,6 +641,8 @@ mod tests {
             admin_token: "test-admin-token".into(),
             nats_accounts_conf_path: "/tmp/test-nats.conf".into(),
             nats_reload_command: "true".into(),
+            local_principal_id: "test-principal".into(),
+            roles_db_path: "/tmp/test-roles.db".into(),
             db_key: "my-secret-key".into(),
             allowed_origins: vec!["http://localhost:5173".into()],
             data_dir: "/tmp/data".into(),

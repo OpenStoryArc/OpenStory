@@ -28,11 +28,39 @@ use open_story_bus::noop_bus::NoopBus;
 use open_story_server::account_config::{AccountConfigWriter, NatsReloader};
 use open_story_server::admin::compute_topology;
 use open_story_server::config::Config;
+use open_story_server::directory::{
+    EmbeddedRoleDirectory, Participant, Role, RoleDirectory,
+};
 use open_story_server::router::build_router;
 use open_story_server::state::AppState;
 use open_story_server::watcher_diagnostics::WatcherDiagnostics;
 use open_story_store::event_store::SessionRow;
 use open_story_store::state::StoreState;
+
+/// Phase 6.6 — share-with-person sits behind the role-required gate.
+/// All tests here assume the local principal has Admin role so the gate
+/// passes and we can pin handler-side behavior. Role-gating itself is
+/// tested in test_admin_auth.rs.
+const TEST_PRINCIPAL: &str = "test-principal";
+
+async fn admin_role_directory() -> Arc<dyn RoleDirectory> {
+    let dir = EmbeddedRoleDirectory::in_memory().unwrap();
+    dir.upsert_participant(Participant {
+        principal_id: TEST_PRINCIPAL.into(),
+        person_id: "max".into(),
+        role: Role::Admin,
+        created_at: "2026-05-31T00:00:00Z".into(),
+    })
+    .await
+    .unwrap();
+    Arc::new(dir)
+}
+
+fn config_with_principal() -> Config {
+    let mut c = Config::default();
+    c.local_principal_id = TEST_PRINCIPAL.to_string();
+    c
+}
 
 fn person(name: &str, user: &str) -> AccountSpec {
     AccountSpec {
@@ -54,7 +82,7 @@ async fn test_state_with_writer(
 ) {
     let store = StoreState::new(tmp.path()).unwrap();
     let (broadcast_tx, _) = broadcast::channel(256);
-    let config = Config::default();
+    let config = config_with_principal();
     let initial_topology = compute_topology(
         "test-host",
         config.role,
@@ -83,6 +111,7 @@ async fn test_state_with_writer(
         watch_dir: tmp.path().join("watch"),
         account_config_writer: Some(writer.clone()),
         account_config_reloader: None,
+        role_directory: admin_role_directory().await,
     }));
     (state, writer)
 }
@@ -241,7 +270,7 @@ async fn share_with_person_auto_creates_stub_for_unknown_target_person() {
     let tmp = tempfile::tempdir().unwrap();
     let store = StoreState::new(tmp.path()).unwrap();
     let (broadcast_tx, _) = broadcast::channel(256);
-    let config = Config::default();
+    let config = config_with_principal();
     let initial_topology = compute_topology(
         "test-host",
         config.role,
@@ -267,6 +296,7 @@ async fn share_with_person_auto_creates_stub_for_unknown_target_person() {
         watch_dir: tmp.path().join("watch"),
         account_config_writer: Some(writer.clone()),
         account_config_reloader: None,
+        role_directory: admin_role_directory().await,
     }));
     seed_session(&state, "sess-Z", "max").await;
 
@@ -290,7 +320,7 @@ async fn share_with_person_invokes_reloader_after_persist() {
     let tmp = tempfile::tempdir().unwrap();
     let store = StoreState::new(tmp.path()).unwrap();
     let (broadcast_tx, _) = broadcast::channel(256);
-    let config = Config::default();
+    let config = config_with_principal();
     let initial_topology = compute_topology(
         "test-host",
         config.role,
@@ -322,6 +352,7 @@ async fn share_with_person_invokes_reloader_after_persist() {
         watch_dir: tmp.path().join("watch"),
         account_config_writer: Some(writer.clone()),
         account_config_reloader: Some(reloader),
+        role_directory: admin_role_directory().await,
     }));
     seed_session(&state, "sess-RX", "max").await;
 
@@ -345,7 +376,7 @@ async fn share_with_person_returns_503_when_writer_not_configured() {
     let tmp = tempfile::tempdir().unwrap();
     let store = StoreState::new(tmp.path()).unwrap();
     let (broadcast_tx, _) = broadcast::channel(256);
-    let config = Config::default();
+    let config = config_with_principal();
     let initial_topology = compute_topology(
         "test-host",
         config.role,
@@ -365,6 +396,7 @@ async fn share_with_person_returns_503_when_writer_not_configured() {
         watch_dir: tmp.path().join("watch"),
         account_config_writer: None,
         account_config_reloader: None,
+        role_directory: admin_role_directory().await,
     }));
 
     let resp = post_share(

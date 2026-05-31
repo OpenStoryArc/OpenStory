@@ -14,10 +14,13 @@
 //! browser WebSocket API gives no other way to pass a credential on
 //! upgrade. Prefer the Bearer header from any non-browser caller.
 
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::Response;
+
+use crate::directory::Role;
+use crate::state::SharedState;
 
 /// Constant-time comparison to prevent timing attacks on token values.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -139,6 +142,44 @@ pub async fn admin_only_middleware(
         return Err(StatusCode::FORBIDDEN);
     }
     Err(StatusCode::UNAUTHORIZED)
+}
+
+/// Phase 6.5+6.6 — role-required middleware. Looks up the *local
+/// principal*'s role in the `RoleDirectory` and refuses the request when
+/// it falls below the route's minimum requirement.
+///
+/// Fail-closed posture:
+/// - `local_principal_id` empty → 403 (no identity, no permission).
+/// - Directory returns `None` for the principal → 403 (no role assigned).
+/// - Directory returns Err → 500 (transient or genuinely broken; the
+///   operator should investigate, not be silently permitted).
+/// - Role found but below `required` → 403.
+///
+/// This runs *in addition to* the token-tier middleware
+/// (`admin_only_middleware` for policy-write routes). The token check
+/// asserts "this caller is authenticated as an admin-tier requester";
+/// the role check asserts "the local operator has Admin role assigned in
+/// the directory." Both must pass.
+pub async fn require_admin_role_middleware(
+    State(state): State<SharedState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let (principal_id, directory) = {
+        let s = state.read().await;
+        (
+            s.config.local_principal_id.clone(),
+            s.role_directory.clone(),
+        )
+    };
+    if principal_id.is_empty() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    match directory.role_for_principal(&principal_id).await {
+        Ok(Some(role)) if role >= Role::Admin => Ok(next.run(request).await),
+        Ok(_) => Err(StatusCode::FORBIDDEN),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 #[cfg(test)]

@@ -275,13 +275,21 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/admin/share-with-person",
             axum::routing::post(crate::admin::share_with_person),
         )
+        // Layer order is outermost-first: the require_admin_role check
+        // runs BEFORE the token check, but both must pass before the
+        // handler runs. (Token check verifies the caller; role check
+        // verifies the local principal has the assigned permission.)
         .layer(middleware::from_fn(move |req, next| {
             let api_t = api_token_for_admin.clone();
             let admin_t = admin_token.clone();
             async move {
                 crate::auth::admin_only_middleware(req, next, api_t, admin_t).await
             }
-        }));
+        }))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::require_admin_role_middleware,
+        ));
 
     // Apply the generic auth_middleware to api_router BEFORE merging in
     // admin_writes_router. This way the admin writes are wrapped only by
@@ -377,6 +385,7 @@ mod tests {
             watch_dir,
             account_config_writer: None,
             account_config_reloader: None,
+            role_directory: Arc::new(crate::directory::NoopRoleDirectory),
         }))
     }
 

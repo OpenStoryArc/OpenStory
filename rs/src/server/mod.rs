@@ -34,6 +34,7 @@ pub use ingest::{
 };
 pub use open_story_server::admin;
 pub use open_story_server::config;
+pub use open_story_server::directory;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
 pub use open_story_server::reconcile;
