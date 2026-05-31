@@ -116,14 +116,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/admin/share-policy",
             axum::routing::get(crate::admin::list_share_policy),
         )
-        .route(
-            "/api/admin/share-policy/{session_id}",
-            axum::routing::put(crate::admin::set_share_policy),
-        )
-        .route(
-            "/api/admin/share-with-person",
-            axum::routing::post(crate::admin::share_with_person),
-        )
+        // NB: Policy WRITES (PUT/POST below) move to `admin_writes_router`
+        // below so they get the `admin_only_middleware` instead of the
+        // generic `auth_middleware`. The GET above is read-only and stays
+        // on the api_token surface.
         .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
@@ -264,13 +260,42 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
 
     let cors = build_cors(config);
 
-    // Auth middleware — wraps all routes. Empty token = pass-through.
-    let api_token = config.api_token.clone();
-    let router = api_router
+    // Phase 6.2 — policy-write routes get the admin_only middleware so a
+    // read-only api_token holder can't mutate share policy or trigger a
+    // cross-person share. Empty `admin_token` falls back to api_token
+    // semantics (backwards compat for single-token deployments).
+    let api_token_for_admin = config.api_token.clone();
+    let admin_token = config.admin_token.clone();
+    let admin_writes_router = Router::new()
+        .route(
+            "/api/admin/share-policy/{session_id}",
+            axum::routing::put(crate::admin::set_share_policy),
+        )
+        .route(
+            "/api/admin/share-with-person",
+            axum::routing::post(crate::admin::share_with_person),
+        )
         .layer(middleware::from_fn(move |req, next| {
-            let token = api_token.clone();
-            async move { crate::auth::auth_middleware(req, next, token).await }
-        }))
+            let api_t = api_token_for_admin.clone();
+            let admin_t = admin_token.clone();
+            async move {
+                crate::auth::admin_only_middleware(req, next, api_t, admin_t).await
+            }
+        }));
+
+    // Apply the generic auth_middleware to api_router BEFORE merging in
+    // admin_writes_router. This way the admin writes are wrapped only by
+    // admin_only_middleware (which already handles the api_token fallback
+    // when admin_token is empty), not by both — which would otherwise
+    // reject a valid admin_token as "not the api_token."
+    let api_token = config.api_token.clone();
+    let api_router = api_router.layer(middleware::from_fn(move |req, next| {
+        let token = api_token.clone();
+        async move { crate::auth::auth_middleware(req, next, token).await }
+    }));
+
+    let router = api_router
+        .merge(admin_writes_router)
         .layer(cors)
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
         .with_state(state);

@@ -83,6 +83,64 @@ pub async fn auth_middleware(
     Err(StatusCode::UNAUTHORIZED)
 }
 
+/// Phase 6.1 — admin-only middleware. Distinct credential from `api_token`
+/// so a read-only API caller can't escalate to policy writes.
+///
+/// Semantics:
+///   - `admin_token` empty: fall back to `api_token` (backwards-compat for
+///     single-token deployments — admin routes behave like any other auth'd
+///     route).
+///   - `admin_token` set: ONLY `admin_token` is accepted. Presenting
+///     `api_token` on an admin route returns 403, never 200. This is the
+///     escalation surface the test pins.
+///
+/// Same Bearer-or-query channels as `auth_middleware`, same constant-time
+/// comparison. 403 (not 401) when a valid `api_token` is presented — the
+/// caller IS authenticated, they're just not authorized for this surface.
+pub async fn admin_only_middleware(
+    request: Request,
+    next: Next,
+    api_token: String,
+    admin_token: String,
+) -> Result<Response, StatusCode> {
+    // No admin separation configured: delegate to the api_token check.
+    if admin_token.is_empty() {
+        return auth_middleware(request, next, api_token).await;
+    }
+
+    let presented = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|s| s.to_string())
+        .or_else(|| {
+            request
+                .uri()
+                .query()
+                .and_then(extract_query_token)
+                .map(|s| s.to_string())
+        });
+
+    let Some(token) = presented else {
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+
+    if constant_time_eq(token.as_bytes(), admin_token.as_bytes()) {
+        return Ok(next.run(request).await);
+    }
+    // Distinguish "valid api_token but wrong tier" from "garbage token":
+    // both fail, but the former is a 403 (authorized, not permitted) and
+    // the latter is a 401 (couldn't authenticate at all). The test on
+    // line 6.1 pins this distinction.
+    if !api_token.is_empty()
+        && constant_time_eq(token.as_bytes(), api_token.as_bytes())
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Err(StatusCode::UNAUTHORIZED)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

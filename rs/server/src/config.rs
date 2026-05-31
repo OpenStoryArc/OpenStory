@@ -163,6 +163,12 @@ pub struct Config {
     // ── security ──
     /// Bearer token for API authentication. Empty = no auth (pass-through).
     pub api_token: String,
+    /// Bearer token for **admin** mutations (Phase 6.1). Separate from
+    /// `api_token` so a read-only API caller cannot escalate to policy
+    /// writes. Empty = no admin separation (`api_token` accepted on
+    /// admin routes too, preserving single-token deployments).
+    #[serde(default)]
+    pub admin_token: String,
     /// SQLCipher encryption key for the database. Empty = unencrypted.
     pub db_key: String,
     /// Allowed CORS origins. Empty = allow localhost defaults only.
@@ -284,6 +290,7 @@ impl Default for Config {
             port: 3002,
             role: Role::Full,
             api_token: String::new(),
+            admin_token: String::new(),
             db_key: String::new(),
             allowed_origins: Vec::new(),
             data_dir: "./data".to_string(),
@@ -590,6 +597,7 @@ mod tests {
             port: 9999,
             role: Role::Full,
             api_token: "test-token".into(),
+            admin_token: "test-admin-token".into(),
             db_key: "my-secret-key".into(),
             allowed_origins: vec!["http://localhost:5173".into()],
             data_dir: "/tmp/data".into(),
