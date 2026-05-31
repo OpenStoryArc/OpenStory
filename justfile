@@ -54,7 +54,7 @@ kill-port port:
         taskkill //F //PID "$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
       fi
     elif command -v lsof &>/dev/null; then
-      pid=$(lsof -ti :{{port}} 2>/dev/null | head -1)
+      pid=$(lsof -ti :{{port}} -sTCP:LISTEN 2>/dev/null | head -1)
       if [ -n "$pid" ]; then
         echo "Killing process $pid on port {{port}}"
         kill "$pid" 2>/dev/null || true
@@ -83,8 +83,7 @@ up:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
-      if [ -f .env ]; then set -a; source .env; set +a; fi
+    if ! lsof -i :4222 -sTCP:LISTEN &>/dev/null 2>&1; then
       if [ -n "${NATS_LEAF_URL:-}" ]; then
         echo "Starting NATS JetStream (leaf node → hub)..."
         nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
@@ -128,8 +127,7 @@ up-no-mongo:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
-      if [ -f .env ]; then set -a; source .env; set +a; fi
+    if ! lsof -i :4222 -sTCP:LISTEN &>/dev/null 2>&1; then
       if [ -n "${NATS_LEAF_URL:-}" ]; then
         echo "Starting NATS JetStream (leaf node → hub)..."
         nats-server -c deploy/nats-leaf.conf &disown 2>/dev/null
@@ -150,6 +148,19 @@ up-no-mongo:
     [ -d node_modules ] || { echo "Installing UI dependencies..."; npm install; }
     npm run dev &
     wait
+
+# Boot in federation/leaf mode — sources .env.federation, then runs `just up`.
+up-federation:
+    #!/usr/bin/env bash
+    set -e
+    if [ ! -f .env.federation ]; then
+      echo "ERROR: .env.federation not found."
+      echo "Create it with a line like:"
+      echo "  NATS_LEAF_URL=nats://<creds>@<hub-host>:7422"
+      exit 1
+    fi
+    set -a; source .env.federation; set +a
+    exec just up
 
 # Start MongoDB (mongo:7) as a Docker container (idempotent)
 mongo:
@@ -201,11 +212,11 @@ mongo-reset: mongo-stop
       echo "No openstory-mongo-data volume to remove"
     fi
 
-# Start NATS JetStream — leaf node (NATS_LEAF_URL set in .env) or standalone (default)
+# Start NATS JetStream — leaf node if NATS_LEAF_URL is exported, otherwise standalone.
+# For federation/leaf mode, source .env.federation first or use `just up-federation`.
 nats:
     #!/usr/bin/env bash
     set -e
-    if [ -f .env ]; then set -a; source .env; set +a; fi
     if [ -n "${NATS_LEAF_URL:-}" ]; then
       echo "Starting NATS JetStream (leaf node → hub)..."
       exec nats-server -c deploy/nats-leaf.conf

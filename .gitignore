@@ -51,6 +51,7 @@ __pycache__/
 # Generated history
 history/
 .env
+.env.federation
 deploy/*.env
 !deploy/*.env.example
 
