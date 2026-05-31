@@ -42,6 +42,7 @@ hermes_container = []
 
 [dev-dependencies]
 filetime = "0.2"
+rusqlite = "0.35"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

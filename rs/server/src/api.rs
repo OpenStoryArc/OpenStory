@@ -89,7 +89,9 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
 /// and the app-level path would leak exactly what the federation transport
 /// correctly withheld. The DB authority is the operator's; this endpoint
 /// honors it.
-pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
+pub async fn session_digests(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, StatusCode> {
     let s = state.read().await;
     let sessions = s
         .store
@@ -97,7 +99,7 @@ pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
         .list_sessions()
         .await
         .unwrap_or_default();
-    let private = private_session_ids(&s).await;
+    let private = private_session_ids(&s).await?;
 
     let mut digests = Vec::with_capacity(sessions.len());
     for row in &sessions {
@@ -121,27 +123,37 @@ pub async fn session_digests(State(state): State<SharedState>) -> Json<Value> {
         });
     }
 
-    Json(json!({ "sessions": digests }))
+    Ok(Json(json!({ "sessions": digests })))
 }
 
 /// Resolve the set of session IDs the operator has marked **private**.
-/// A read failure here returns an empty set — fail-open at the read so a
-/// store hiccup doesn't *introduce* exposure that wasn't there before, but
-/// also doesn't silently expand the private set (which would deny legitimate
-/// reads). Both directions of failure are bounded by the operator's
-/// authoritative writes; only writes can change visibility.
-async fn private_session_ids(state: &crate::state::AppState) -> HashSet<String> {
+///
+/// Phase 4.4: fails closed. A store read error is propagated as
+/// `Err(StatusCode::SERVICE_UNAVAILABLE)`; the calling endpoint surfaces
+/// it as a 5xx and MUST NOT swallow the failure to an empty set —
+/// silently emitting digests for private sessions would widen exposure
+/// on the sovereignty path. No LKG cache per the approved plan.
+async fn private_session_ids(
+    state: &crate::state::AppState,
+) -> Result<HashSet<String>, StatusCode> {
     use open_story_store::event_store::SharePolicyMode;
-    state
+    let rows = state
         .store
         .event_store
         .list_share_policies()
         .await
-        .unwrap_or_default()
+        .map_err(|e| {
+            log_event(
+                "api",
+                &format!("private_session_ids → 503 (list_share_policies error: {e})"),
+            );
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+    Ok(rows
         .into_iter()
         .filter(|r| matches!(r.mode, SharePolicyMode::Private))
         .map(|r| r.session_id)
-        .collect()
+        .collect())
 }
 
 pub async fn list_sessions(

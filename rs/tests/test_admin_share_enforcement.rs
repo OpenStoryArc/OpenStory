@@ -90,6 +90,53 @@ async fn private_session_returns_404_on_all_per_session_endpoints() {
     );
 }
 
+/// Phase 4.3 RED — share-policy read errors must fail closed.
+///
+/// Today `private_session_ids` does `.unwrap_or_default()` and the gate
+/// extractor does `.unwrap_or(SharePolicyMode::Shared)`. Both fail open:
+/// a transient SQLite hiccup silently widens exposure on the privacy
+/// path. For sovereignty the safer default is fail-closed.
+///
+/// We simulate the failure by dropping the `share_policy` table mid-test
+/// via a second SQLite connection to the same DB file — the live
+/// connection's next read returns "no such table" which currently gets
+/// swallowed and lets the endpoint return 200.
+///
+/// Phase 4.4 propagates the Err to 503 SERVICE_UNAVAILABLE; this test
+/// then turns GREEN.
+#[tokio::test]
+async fn share_policy_read_error_returns_503_not_200() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-x")];
+        seed_and_ingest(&mut s, "sess-x", &events, None).await;
+    }
+
+    // Break the share_policy table by dropping it via a second connection.
+    let db_path = data_dir.path().join("open-story.db");
+    let conn = rusqlite::Connection::open(&db_path).expect("open second connection");
+    conn.execute("DROP TABLE share_policy", [])
+        .expect("drop share_policy");
+    drop(conn);
+
+    // Without a share_policy table, the gate's read should err and the
+    // endpoint must 503 — not return the session's content as if it
+    // were shared.
+    let req = Request::get("/api/sessions/sess-x/summary")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    let status = resp.status().as_u16();
+    assert!(
+        status >= 500 && status < 600,
+        "share-policy read error must fail closed (5xx); got {status}. \
+         A transient store hiccup must not silently widen exposure."
+    );
+}
+
 /// Defense-in-depth: marking a different session private must NOT affect
 /// reads on a shared session sharing the same store. Catches a future
 /// regression where a global gate accidentally hides everything.

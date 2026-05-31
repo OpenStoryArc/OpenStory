@@ -53,12 +53,28 @@ impl FromRequestParts<SharedState> for RequirePublicSession {
             .as_str();
 
         let s = state.read().await;
+        // Phase 4.4: fail closed. A transient store error on the privacy
+        // path must NOT silently widen exposure — return 503 so the
+        // caller sees degraded availability instead of getting private
+        // session content as if it were shared. Per the approved plan
+        // we hard-fail (no LKG cache); the alternative was rejected for
+        // the sovereignty-significant case where stale policies could
+        // leak hours of data on a long store outage.
         let mode = s
             .store
             .event_store
             .get_share_policy(session_id)
             .await
-            .unwrap_or(SharePolicyMode::Shared);
+            .map_err(|e| {
+                log_event(
+                    "api",
+                    &format!(
+                        "GATE  /api/sessions/{}/* → 503 (share_policy read error: {e})",
+                        short_id(session_id)
+                    ),
+                );
+                StatusCode::SERVICE_UNAVAILABLE
+            })?;
         if matches!(mode, SharePolicyMode::Private) {
             log_event(
                 "api",
