@@ -546,6 +546,7 @@ mod tests {
             admin_topology_tx,
             config,
             watch_dir,
+            account_config_writer: None,
         }
     }
 

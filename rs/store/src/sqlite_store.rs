@@ -481,8 +481,8 @@ impl EventStore for SqliteStore {
                 host: row.get(9)?,
                 user: row.get(10)?,
                 origin_agent: row.get(11)?,
-                person_id: row.get(11)?,
-                principal_id: row.get(12)?,
+                person_id: row.get(12)?,
+                principal_id: row.get(13)?,
             })
         })?;
         let mut sessions = Vec::new();

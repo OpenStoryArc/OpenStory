@@ -513,6 +513,99 @@ pub async fn list_share_policy(State(state): State<SharedState>) -> Json<Value> 
     }))
 }
 
+/// `POST /api/admin/share-with-person` — record consent for one person to
+/// receive another's session events via per-account NATS export/import.
+///
+/// Body: `{ "session_id": "...", "person_id": "..." }` — share `session_id`
+/// (owned by whoever stamped it) with `person_id` (the recipient).
+///
+/// The handler:
+///   1. Looks up the session's owner from the `SessionRow.person_id` field.
+///   2. Derives the source and destination account names by convention:
+///      `PERSON_{ID}` in SCREAMING_SNAKE_CASE.
+///   3. Calls `AccountConfigWriter::add_share` for the session's subject
+///      and persists the updated conf to disk.
+///
+/// Reload (signaling nats-server to pick up the new conf) is a separate
+/// concern — happens through the `NatsReloader` wired at boot, not by this
+/// handler. Tests + the in-memory check use the writer directly without
+/// requiring a live nats-server.
+///
+/// Returns:
+/// - `204 No Content` on success.
+/// - `503 Service Unavailable` if no `account_config_writer` is configured.
+/// - `404 Not Found` if the session is unknown.
+/// - `409 Conflict` if the session has no `person_id` stamp.
+#[derive(Debug, Deserialize)]
+pub struct ShareWithPersonBody {
+    pub session_id: String,
+    pub person_id: String,
+}
+
+pub async fn share_with_person(
+    State(state): State<SharedState>,
+    Json(body): Json<ShareWithPersonBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    log_event(
+        "api",
+        &format!(
+            "POST /api/admin/share-with-person session={} target={}",
+            body.session_id, body.person_id
+        ),
+    );
+
+    let s = state.read().await;
+    let Some(writer) = s.account_config_writer.clone() else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no account_config_writer configured — multi-account NATS not wired on this node"
+                .into(),
+        ));
+    };
+
+    let sessions = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    drop(s);
+    let row = sessions
+        .into_iter()
+        .find(|r| r.id == body.session_id)
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("session not found: {}", body.session_id),
+        ))?;
+
+    let owner = row.person_id.ok_or((
+        StatusCode::CONFLICT,
+        format!(
+            "session {} has no person_id stamped — cannot determine source account",
+            body.session_id
+        ),
+    ))?;
+
+    let from_account = person_account_name(&owner);
+    let to_account = person_account_name(&body.person_id);
+    let subject = format!("events.*.{}.>", body.session_id);
+
+    writer
+        .add_share(&from_account, &to_account, &subject)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    writer
+        .persist()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Convention: PersonId `max` → NATS account `PERSON_MAX`. Hyphens in IDs
+/// become underscores; lowercase becomes uppercase.
+fn person_account_name(person_id: &str) -> String {
+    format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
+}
+
 /// `PUT /api/admin/share-policy/{session_id}` — set this session's mode.
 pub async fn set_share_policy(
     State(state): State<SharedState>,

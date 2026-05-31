@@ -43,6 +43,13 @@ pub struct AppState {
     // ── configuration ──
     pub config: Config,
     pub watch_dir: PathBuf,
+
+    // ── account config writer (Phase 5.4) ──
+    // `None` for solo / single-account deployments and for tests that don't
+    // exercise cross-person sharing. `Some(_)` when the server is configured
+    // with a multi-account nats-server conf and is allowed to mutate it via
+    // POST /api/admin/share-with-person.
+    pub account_config_writer: Option<Arc<crate::account_config::AccountConfigWriter>>,
 }
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -199,6 +206,7 @@ pub async fn create_state_with_watch_dirs(
         admin_topology_tx,
         config,
         watch_dir,
+        account_config_writer: None,
     })))
 }
 

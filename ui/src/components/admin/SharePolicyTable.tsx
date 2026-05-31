@@ -17,6 +17,7 @@ import {
   setSharePolicy,
   type SharePolicyMode,
 } from "@/lib/admin-api";
+import { shareSessionWithPerson } from "@/lib/share-with-person";
 
 interface SessionLite {
   readonly session_id: string;
@@ -94,6 +95,21 @@ export function SharePolicyTable({ selfHost }: Props) {
     }
   };
 
+  const handleShareWithPerson = async (sessionId: string) => {
+    // MVP gesture: prompt() for a person_id. Phase 5.9 will replace this
+    // with a proper dropdown of known persons from the topology view.
+    const personId = window.prompt(
+      "Share this session with which person? (enter person_id)",
+    );
+    if (!personId) return;
+    try {
+      await shareSessionWithPerson(sessionId, personId.trim());
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   if (!sessions) {
     return <p className="text-sm text-[#565f89]">Loading sessions…</p>;
   }
@@ -156,6 +172,15 @@ export function SharePolicyTable({ selfHost }: Props) {
                       aria-label={`Toggle share policy for ${s.label ?? s.session_id}`}
                     >
                       {mode === "private" ? "private" : "shared"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShareWithPerson(s.session_id)}
+                      className="ml-2 rounded px-2 py-1 text-xs font-medium bg-[#7aa2f7]/20 text-[#7aa2f7] hover:bg-[#7aa2f7]/30 cursor-pointer transition-colors"
+                      data-testid={`share-with-person-${s.session_id}`}
+                      aria-label={`Share ${s.label ?? s.session_id} with another person`}
+                    >
+                      share with…
                     </button>
                   </td>
                 </tr>

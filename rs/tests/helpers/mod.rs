@@ -54,6 +54,7 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
         admin_topology_tx,
         config,
         watch_dir,
+        account_config_writer: None,
     }))
 }
 

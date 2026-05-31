@@ -121,6 +121,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::put(crate::admin::set_share_policy),
         )
         .route(
+            "/api/admin/share-with-person",
+            axum::routing::post(crate::admin::share_with_person),
+        )
+        .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
         )
@@ -346,6 +350,7 @@ mod tests {
             admin_topology_tx,
             config,
             watch_dir,
+            account_config_writer: None,
         }))
     }
 
