@@ -577,15 +577,25 @@ impl EventStore for SqliteStore {
             .join(", ");
 
         // Authoritative SET (not MIN/MAX-merge): can lower a last_event that
-        // was polluted by boot-stamped snapshots. ?1 is reused for all three
-        // session-id bind points.
+        // was polluted by boot-stamped snapshots. Gated on event-count
+        // consistency: only fire when the events table is at least as
+        // complete as the session row claims. If the row's event_count
+        // is *ahead* of COUNT(events) — typically because a live persist
+        // consumer has already incremented the row from a NATS event the
+        // reconciler hasn't yet seen — the events table doesn't carry
+        // ground truth for that frontier, and recomputing would regress
+        // the row. Skipping is correct in that case; the row's existing
+        // first/last_event come from the live path and are authoritative.
+        // ?1 is reused for every session-id bind point.
         let sql = format!(
             "UPDATE sessions SET
                 first_event = (SELECT MIN(timestamp) FROM events
                     WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion})),
                 last_event = (SELECT MAX(timestamp) FROM events
                     WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))
-             WHERE id = ?1"
+             WHERE id = ?1
+               AND event_count <= (SELECT COUNT(*) FROM events
+                    WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))"
         );
         conn.execute(&sql, rusqlite::params![session_id])?;
 

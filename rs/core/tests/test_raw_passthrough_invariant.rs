@@ -136,15 +136,24 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
         groups.entry(raw_str).or_default().push(ev);
     }
 
-    // For pi-mono scenario_07, line 5 has [toolCall, toolCall] which
-    // decomposes to 2 events sharing the same raw. So we expect at least
-    // one group with multiple events all referencing the same raw.
+    // Two sources of multi-event groups in scenario_07:
+    //   (a) The [toolCall, toolCall] line decomposes into 2 tool_use events.
+    //   (b) Any single-block line with stopReason="stop" ALSO produces 2
+    //       events (the original + a synthesized system.turn.complete from
+    //       commit d01484d). Both share the same raw.
+    //
+    // Invariant we care about: every multi-event group shares raw
+    // byte-for-byte (DR2). Additionally, the toolCall decomposition must
+    // exist somewhere — that's the property the test was originally
+    // written to pin (raw is the bundled multi-block original, not a per-
+    // block slice).
     let multi_groups: Vec<_> = groups.iter().filter(|(_, evs)| evs.len() > 1).collect();
     assert!(
         !multi_groups.is_empty(),
         "scenario_07 should produce at least one decomposed group"
     );
-    for (raw, evs) in multi_groups {
+
+    for (_, evs) in &multi_groups {
         let first = serde_json::to_string(&evs[0].data.raw).unwrap();
         for ev in &evs[1..] {
             let other = serde_json::to_string(&ev.data.raw).unwrap();
@@ -153,12 +162,21 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
                 "decomposed events from one bundled line must share data.raw byte-for-byte"
             );
         }
-        // Ensure raw is the bundled (multi-block) original, not a slice.
-        assert!(
-            raw.contains("toolCall"),
-            "decomposed event's raw should preserve the full bundled content array"
-        );
     }
+
+    // The original-content-array invariant: at least one multi-group's
+    // raw is the bundled `[toolCall, toolCall]` line (not per-block
+    // slices). Without this, a future "optimizer" that stripped per-event
+    // raw down to just the matching block would slip through.
+    let toolcall_group_present = multi_groups
+        .iter()
+        .any(|(raw, _)| raw.contains("toolCall"));
+    assert!(
+        toolcall_group_present,
+        "scenario_07 should contain at least one decomposed group whose raw \
+         carries the full toolCall content array — the per-event raw must \
+         be the bundled original line, not a per-block slice"
+    );
 }
 
 #[test]
