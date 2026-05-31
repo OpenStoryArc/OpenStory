@@ -15,6 +15,7 @@ use open_story_bus::Bus;
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
 use crate::logging::{log_event, short_id};
+use crate::share_gate::RequirePublicSession;
 use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
 use crate::transcript::{find_transcript_path, read_transcript};
@@ -528,20 +529,11 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
 /// 200-with-empty so that the catch-up peer's diff sees "not on this device"
 /// and stops asking. The operator's policy is the authority.
 pub async fn get_events(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
     let s = state.read().await;
-    if private_session_ids(&s).await.contains(&session_id) {
-        log_event(
-            "api",
-            &format!(
-                "GET /api/sessions/{}/events → 404 (private)",
-                short_id(&session_id)
-            ),
-        );
-        return Err(StatusCode::NOT_FOUND);
-    }
     let events = s
         .store
         .event_store
@@ -560,6 +552,7 @@ pub async fn get_events(
 }
 
 pub async fn get_summary(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -599,6 +592,7 @@ pub async fn get_summary(
 }
 
 pub async fn get_activity(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -628,6 +622,7 @@ pub async fn get_activity(
 }
 
 pub async fn get_tools(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -649,6 +644,7 @@ pub struct TranscriptQuery {
 }
 
 pub async fn get_transcript(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<TranscriptQuery>,
@@ -770,6 +766,7 @@ pub async fn get_transcript(
 // ---------------------------------------------------------------------------
 
 pub async fn get_view_records(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -805,6 +802,7 @@ pub struct ConversationQuery {
 }
 
 pub async fn get_conversation(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<ConversationQuery>,
@@ -858,6 +856,7 @@ pub async fn get_conversation(
 }
 
 pub async fn get_file_changes(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -898,6 +897,7 @@ pub async fn get_tool_schemas() -> Json<Value> {
 /// Returns cached projection metadata: event_count and filter_counts.
 /// O(1) — reads from the projection cache, never iterates rows.
 pub async fn get_session_meta(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -923,6 +923,7 @@ pub async fn get_session_meta(
 /// Returns the full (untruncated) payload for a truncated record.
 /// Returns 404 if the session/event doesn't exist or wasn't truncated.
 pub async fn get_event_content(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath((session_id, event_id)): AxumPath<(String, String)>,
 ) -> Result<String, StatusCode> {
@@ -990,6 +991,7 @@ pub struct PatternQuery {
 /// Returns all detected patterns for a session. Optional `?type=` query
 /// parameter filters by pattern_type (e.g., `?type=git.workflow`).
 pub async fn get_patterns(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<PatternQuery>,
@@ -1009,6 +1011,7 @@ pub async fn get_patterns(
 }
 
 pub async fn get_turns(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1057,6 +1060,7 @@ pub async fn get_plan(
 }
 
 pub async fn get_session_plans(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1090,6 +1094,7 @@ pub async fn get_session_plans(
 
 /// GET /api/sessions/{session_id}/synopsis
 pub async fn get_session_synopsis(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -1109,6 +1114,7 @@ pub async fn get_session_synopsis(
 
 /// GET /api/sessions/{session_id}/tool-journey
 pub async fn get_tool_journey(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1123,6 +1129,7 @@ pub async fn get_tool_journey(
 
 /// GET /api/sessions/{session_id}/file-impact
 pub async fn get_file_impact(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1137,6 +1144,7 @@ pub async fn get_file_impact(
 
 /// GET /api/sessions/{session_id}/errors
 pub async fn get_session_errors(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1741,6 +1749,7 @@ const MAX_RECORDS_LIMIT: usize = 2000;
 /// rather than any in-memory cache, so any event persisted to the store
 /// is visible here regardless of which ingest path wrote it.
 pub async fn get_session_records(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<SessionRecordsQuery>,
@@ -1939,6 +1948,7 @@ pub async fn delete_session(
 /// Returns all events for a session as newline-delimited JSON (JSONL).
 /// Content-Type: application/x-ndjson for proper JSONL handling.
 pub async fn export_session(
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<
