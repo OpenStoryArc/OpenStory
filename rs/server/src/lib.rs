@@ -13,6 +13,7 @@ pub mod broadcast;
 pub mod catch_up;
 pub mod config;
 pub mod consumers;
+pub mod directory;
 pub mod event_store_bridge;
 pub mod fleet;
 pub mod ingest;
