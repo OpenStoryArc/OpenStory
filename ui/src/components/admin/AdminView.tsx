@@ -16,6 +16,7 @@
 import { useMemo } from "react";
 import type { Topology, TopologyShape } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
+import { PersonClustersView } from "@/components/admin/PersonClustersView";
 import { FleetGrid } from "@/components/admin/FleetGrid";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
@@ -118,6 +119,21 @@ export function AdminView() {
               </p>
             </header>
             <TopologyMap topology={topology} />
+          </section>
+
+          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#c0caf5]">Person clusters</h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Fleet grouped by sovereign owner. A host can appear under
+                multiple persons — a shared dev box is normal. Cross-person
+                share edges are added in a follow-up.
+              </p>
+            </header>
+            <PersonClustersView
+              clusters={topology.clusters_by_person ?? []}
+              selfHost={topology.self.host}
+            />
           </section>
 
           <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">

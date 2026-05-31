@@ -42,6 +42,14 @@ export interface LiveSourceSummary {
   readonly active_ms: number | null;
 }
 
+/** Phase 5.7+ — fleet roster grouped by the person who owns sessions on each host.
+ *  A host can appear in multiple clusters (one per person who has sessions there).
+ *  Empty/absent when no sessions in the local store have a person_id stamp. */
+export interface PersonCluster {
+  readonly person_id: string;
+  readonly hosts: readonly string[];
+}
+
 export interface Topology {
   readonly shape: TopologyShape;
   readonly self: NodeInfo;
@@ -49,6 +57,10 @@ export interface Topology {
   /** Authoritative fleet roster from JetStream's events-agg.sources[].
    *  null when this node has no JetStream context (NoopBus) or isn't a hub. */
   readonly live_sources?: readonly LiveSourceSummary[] | null;
+  /** Phase 5.7 — hosts grouped by sovereign owner. May be absent on older
+   *  server versions; treat missing/empty as "no clustering data, render
+   *  the flat fleet view." */
+  readonly clusters_by_person?: readonly PersonCluster[];
 }
 
 export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
