@@ -8,6 +8,7 @@
 
 pub mod nats_bus;
 pub mod noop_bus;
+pub mod share_policy;
 
 // Re-export the async-nats JetStream context so server-side code
 // (admin module) can hold a typed reference without depending on
@@ -79,6 +80,17 @@ pub trait Bus: Send + Sync + 'static {
     /// gracefully degrades on a NoopBus rather than failing.
     fn jetstream(&self) -> Option<&async_nats::jetstream::Context> {
         None
+    }
+
+    /// Phase 4.10 — inject or update the share-policy lookup used by
+    /// `publish` to enforce Invariant ① on the bus side. Default is a
+    /// no-op; buses that gate publish on policy (NatsBus) override.
+    /// The server's boot path calls this after both the bus and the
+    /// store exist to wire the real store-backed lookup.
+    fn set_share_policy_lookup(
+        &self,
+        _lookup: std::sync::Arc<dyn share_policy::SharePolicyLookup>,
+    ) {
     }
 }
 

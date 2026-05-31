@@ -41,6 +41,32 @@ pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
 pub use state::{AppState, SharedState, create_state, create_state_with_watch_dirs};
 
+/// Phase 4.10 — adapter that fronts the local `EventStore` as a
+/// `SharePolicyLookup` for the bus. The bus crate doesn't depend on the
+/// store crate; the adapter bridges them. Fails CLOSED: a store read
+/// error returns `true` (skip the publish) per the sovereignty-path
+/// default established in Phase 4.4.
+struct EventStoreSharePolicyLookup {
+    event_store: std::sync::Arc<dyn open_story_store::event_store::EventStore>,
+}
+
+#[async_trait::async_trait]
+impl open_story_bus::share_policy::SharePolicyLookup for EventStoreSharePolicyLookup {
+    async fn is_private(&self, session_id: &str) -> bool {
+        use open_story_store::event_store::SharePolicyMode;
+        match self.event_store.get_share_policy(session_id).await {
+            Ok(SharePolicyMode::Private) => true,
+            Ok(SharePolicyMode::Shared) => false,
+            Err(e) => {
+                eprintln!(
+                    "bus: share_policy read error for {session_id} — failing closed (skipping publish): {e}"
+                );
+                true
+            }
+        }
+    }
+}
+
 fn agent_for_watch_dir(path: &Path, claude_watch_dir: &str, codex_watch_dir: &str) -> &'static str {
     let path_text = path.to_string_lossy();
     if !codex_watch_dir.is_empty() && path == Path::new(codex_watch_dir) {
@@ -84,6 +110,18 @@ pub async fn run_server(
         .cloned()
         .unwrap_or_else(|| PathBuf::from(&config.watch_dir));
     let state = create_state_with_watch_dirs(data_dir, watch_dirs, bus.clone(), config).await?;
+
+    // Phase 4.10 — wire the bus's publish-time policy enforcement now that
+    // both the bus and the store exist. Before this call the bus uses the
+    // noop lookup (every session treated as shared); after this call,
+    // private sessions are skipped at publish (event never enters NATS,
+    // never reaches peer subscribers, never lands on the hub aggregate).
+    {
+        let event_store = state.read().await.store.event_store.clone();
+        let lookup: std::sync::Arc<dyn open_story_bus::share_policy::SharePolicyLookup> =
+            std::sync::Arc::new(EventStoreSharePolicyLookup { event_store });
+        bus.set_share_policy_lookup(lookup);
+    }
 
     // ── Banner ──
     {
