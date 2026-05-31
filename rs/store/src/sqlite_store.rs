@@ -825,6 +825,11 @@ impl EventStore for SqliteStore {
             total += conn.execute("DELETE FROM events WHERE session_id = ?1", [sid])? as u64;
             conn.execute("DELETE FROM patterns WHERE session_id = ?1", [sid])?;
             conn.execute("DELETE FROM plans WHERE session_id = ?1", [sid])?;
+            // Phase 4.8: cascade share_policy. A swept session must NOT
+            // leave its policy row behind — a recycled session_id would
+            // otherwise inherit a stale operator decision from a long-
+            // decommissioned session.
+            conn.execute("DELETE FROM share_policy WHERE session_id = ?1", [sid])?;
             conn.execute("DELETE FROM sessions WHERE id = ?1", [sid])?;
         }
         Ok(total)
@@ -1833,6 +1838,97 @@ mod tests {
         let deleted = store.cleanup_old_sessions(7, None).await.unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(store.list_sessions().await.unwrap().len(), 1);
+    }
+
+    /// Phase 4.7 RED — `cleanup_old_sessions` must drop `share_policy` rows
+    /// whose session has been swept. Otherwise a recycled session_id
+    /// could inherit a stale policy from a long-decommissioned session
+    /// (a Phase 4 sovereignty bug surfaced by the PR #58 review).
+    #[tokio::test]
+    async fn cleanup_old_sessions_drops_orphaned_share_policy_rows() {
+        use crate::event_store::SharePolicyMode;
+
+        let store = SqliteStore::in_memory().unwrap();
+
+        // Old session that will be swept, with an explicit policy.
+        let old_ts = "2025-12-01T00:00:00Z";
+        store
+            .insert_event("sess-old", &test_event("evt-old", old_ts))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: Some(old_ts.into()),
+                last_event: Some(old_ts.into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        store
+            .set_share_policy("sess-old", SharePolicyMode::Private, Some("max"))
+            .await
+            .unwrap();
+
+        // A recent session whose policy must SURVIVE the sweep.
+        let now = chrono::Utc::now().to_rfc3339();
+        store
+            .insert_event("sess-keep", &test_event("evt-keep", &now))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-keep".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: Some(now.clone()),
+                last_event: Some(now),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+        store
+            .set_share_policy("sess-keep", SharePolicyMode::Private, Some("max"))
+            .await
+            .unwrap();
+
+        // Sanity: both policies present before the sweep.
+        let before = store.list_share_policies().await.unwrap();
+        assert_eq!(before.len(), 2);
+
+        store.cleanup_old_sessions(30, None).await.unwrap();
+
+        // Only sess-keep's policy should remain.
+        let after = store.list_share_policies().await.unwrap();
+        assert_eq!(
+            after.len(),
+            1,
+            "old session's share_policy row must be cascaded out by cleanup"
+        );
+        assert_eq!(after[0].session_id, "sess-keep");
+
+        // Also: looking up the dropped session by id returns the default
+        // (Shared) — proving the row is GONE, not flipped.
+        let dropped = store.get_share_policy("sess-old").await.unwrap();
+        assert_eq!(
+            dropped,
+            SharePolicyMode::Shared,
+            "swept session reverts to default; the orphan must not haunt a future session reusing the id"
+        );
     }
 
     // ── Encryption key API (SQLCipher when available) ──────────────
