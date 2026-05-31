@@ -538,11 +538,19 @@ pub struct LiveSourceEntry {
 }
 
 /// Pair configured sources (`stream::Source`) with runtime source state
-/// (`stream::SourceInfo`) into a flat fleet view. Pairing is positional —
-/// the standard NATS layout where `config.sources[i]` and
-/// `state.sources[i]` describe the same source. If the lists differ in
-/// length (transient: just-added config not yet started runtime side), we
-/// emit only the prefix that's matched.
+/// (`stream::SourceInfo`) into a flat fleet view.
+///
+/// **Pairing contract.** NATS preserves config-order in the response;
+/// `config.sources[i]` and `state.sources[i]` describe the same source.
+/// `SourceInfo` doesn't carry `external.api_prefix`, so we can't key by
+/// it cross-side. We can, however, sanity-check that `name` matches at
+/// each index — if it doesn't, the list semantics have drifted and we
+/// degrade to config-only (lag=0, active_ms=None) rather than
+/// misattribute runtime stats to the wrong leaf.
+///
+/// Length-mismatch (transient: config grew, runtime hasn't caught up) is
+/// handled by `zip` — the shorter prefix is paired; later config entries
+/// are dropped on the floor for THIS frame. The next pulse re-derives.
 ///
 /// Pure: no I/O. Tested in isolation; the I/O wrapper that fetches both
 /// halves from a live JetStream lives at the admin handler boundary.
@@ -555,15 +563,23 @@ pub fn derive_live_sources(
         .zip(runtime.iter())
         .map(|(c, r)| {
             let api_prefix = c.external.as_ref().map(|e| e.api_prefix.clone());
-            let host = api_prefix
-                .as_deref()
-                .and_then(parse_js_api_prefix);
+            let host = api_prefix.as_deref().and_then(parse_js_api_prefix);
+            // Sanity-check: names must agree at the matching index. If
+            // they don't, degrade — surface the config-side identity
+            // (so the operator still sees which leaf was registered) but
+            // suppress runtime stats to avoid the silently-wrong fleet
+            // view the PR #58 reviewer was worried about.
+            let names_aligned = c.name == r.name;
             LiveSourceEntry {
                 name: c.name.clone(),
                 host,
                 api_prefix,
-                lag: r.lag,
-                active_ms: r.active.map(|d| d.as_millis() as u64),
+                lag: if names_aligned { r.lag } else { 0 },
+                active_ms: if names_aligned {
+                    r.active.map(|d| d.as_millis() as u64)
+                } else {
+                    None
+                },
             }
         })
         .collect()
@@ -995,6 +1011,50 @@ mod federation_config_tests {
         let out = derive_live_sources(&cfg, &rt);
         assert_eq!(out.len(), 1, "min(cfg.len(), rt.len())");
         assert_eq!(out[0].host.as_deref(), Some("node-0"));
+    }
+
+    /// Phase 4.5 RED — when runtime entries don't align with config by
+    /// name at the same index, the function must NOT silently attribute
+    /// the wrong runtime stats. NATS *currently* preserves config order in
+    /// the response, but the reviewer's concern (PR #58 review, 🟠) is the
+    /// kind of silent-wrongness that bites under concurrency or a future
+    /// NATS behavioral change. Our sources all share the same name within
+    /// a topology shape (every leaf source = `"events"`), so name alone
+    /// can't disambiguate — but a positional MISMATCH on name is a clear
+    /// signal that the list semantics drifted, and we should degrade
+    /// gracefully (config-only view) rather than misattribute.
+    #[test]
+    fn derive_live_sources_degrades_when_names_misalign_positionally() {
+        let cfg = vec![
+            cfg_src("events", Some("$JS.node-0.API")),
+            cfg_src("events-agg", Some("$JS.hub-b.API")),
+        ];
+        // Runtime returns them in REVERSED order — names don't align at
+        // matching indexes. Currently we'd silently attribute hub-b's
+        // lag=5 to node-0 and vice versa.
+        let rt = vec![
+            runtime_src("events-agg", 5, Some(Duration::from_millis(100))),
+            runtime_src("events", 0, Some(Duration::from_millis(50))),
+        ];
+        let out = derive_live_sources(&cfg, &rt);
+        assert_eq!(out.len(), 2);
+        // Config-only degraded values — names + hosts preserved, but lag
+        // and active_ms come back as the safe defaults rather than the
+        // misattributed runtime numbers.
+        assert_eq!(out[0].name, "events");
+        assert_eq!(out[0].host.as_deref(), Some("node-0"));
+        assert_eq!(
+            out[0].lag, 0,
+            "lag must be the safe default, NOT the misattributed runtime value (5)"
+        );
+        assert!(
+            out[0].active_ms.is_none(),
+            "active_ms must be None on degraded pair, NOT the misattributed runtime value (100ms)"
+        );
+        assert_eq!(out[1].name, "events-agg");
+        assert_eq!(out[1].host.as_deref(), Some("hub-b"));
+        assert_eq!(out[1].lag, 0);
+        assert!(out[1].active_ms.is_none());
     }
 
     #[test]
