@@ -302,6 +302,7 @@ fn build_account_config(
             // boot-wire scope the password is derived deterministically so
             // local dev can connect; not a security control by itself.
             password: format!("{}-local-dev", person.id),
+            permissions: None,
         }],
         exports: vec![],
         imports: vec![],

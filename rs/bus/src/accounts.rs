@@ -32,11 +32,68 @@ pub struct AccountSpec {
     pub imports: Vec<ImportSpec>,
 }
 
-/// One user credential. Phase 5 = password; Phase 6 will add NKEY.
+/// One user credential. Phase 5 used password-only; Phase 6 adds
+/// per-user permission profiles for role-based NATS access (Observer
+/// can sub but not pub, Contributor pubs to own subjects, Admin
+/// pubs/subs anything).
+///
+/// `permissions == None` means the user inherits the account's default
+/// permissions (no restriction beyond account isolation). `Some(_)`
+/// applies the named publish/subscribe allow-lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserSpec {
     pub user: String,
     pub password: String,
+    pub permissions: Option<PermissionSet>,
+}
+
+impl UserSpec {
+    /// Convenience constructor for users without per-user permissions
+    /// (the default in Phase 5 and earlier).
+    pub fn unrestricted(user: impl Into<String>, password: impl Into<String>) -> Self {
+        Self {
+            user: user.into(),
+            password: password.into(),
+            permissions: None,
+        }
+    }
+}
+
+/// NATS permission allow-lists. Empty `publish` denies all publishes;
+/// empty `subscribe` denies all subscribes. Use wildcards (`events.>`,
+/// `>`) for broad grants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionSet {
+    pub publish: Vec<String>,
+    pub subscribe: Vec<String>,
+}
+
+impl PermissionSet {
+    /// Observer profile: read-only. Can subscribe to `events.>` but
+    /// cannot publish anywhere.
+    pub fn observer() -> Self {
+        Self {
+            publish: vec![],
+            subscribe: vec!["events.>".into()],
+        }
+    }
+
+    /// Contributor profile: can publish AND subscribe under `events.>`
+    /// but cannot touch admin or control subjects.
+    pub fn contributor() -> Self {
+        Self {
+            publish: vec!["events.>".into()],
+            subscribe: vec!["events.>".into()],
+        }
+    }
+
+    /// Admin profile: unrestricted within the account.
+    pub fn admin() -> Self {
+        Self {
+            publish: vec![">".into()],
+            subscribe: vec![">".into()],
+        }
+    }
 }
 
 /// "Account A is willing to let Account B subscribe to subject S."
@@ -74,17 +131,56 @@ pub fn render_accounts_block(accounts: &[AccountSpec]) -> String {
     out
 }
 
+/// Render a list of NATS subjects as quoted comma-separated tokens —
+/// `"events.>", "control.x"`.
+fn quoted_subjects(subjects: &[String]) -> String {
+    subjects
+        .iter()
+        .map(|s| format!("\"{s}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Render a single permission direction (publish or subscribe) using the
+/// explicit allow/deny form NATS expects. The shorthand `publish: [...]`
+/// is treated as "no restrictions" when the list is empty — which is the
+/// OPPOSITE of what we want for an Observer (who shouldn't publish at
+/// all). To make denial explicit, an empty allow-list renders as a deny
+/// over `>` instead.
+fn render_permission_field(subjects: &[String]) -> String {
+    if subjects.is_empty() {
+        // Explicit denial — `>` matches every subject.
+        "{ deny: [\">\"] }".to_string()
+    } else {
+        format!("{{ allow: [{}] }}", quoted_subjects(subjects))
+    }
+}
+
 fn write_account(out: &mut String, acc: &AccountSpec) {
     let _ = writeln!(out, "  {}: {{", acc.name);
 
     if !acc.users.is_empty() {
         out.push_str("    users: [\n");
         for u in &acc.users {
-            let _ = writeln!(
-                out,
-                "      {{ user: \"{}\", password: \"{}\" }}",
-                u.user, u.password
-            );
+            match &u.permissions {
+                None => {
+                    let _ = writeln!(
+                        out,
+                        "      {{ user: \"{}\", password: \"{}\" }}",
+                        u.user, u.password
+                    );
+                }
+                Some(p) => {
+                    let _ = writeln!(
+                        out,
+                        "      {{ user: \"{}\", password: \"{}\", permissions: {{ publish: {}, subscribe: {} }} }}",
+                        u.user,
+                        u.password,
+                        render_permission_field(&p.publish),
+                        render_permission_field(&p.subscribe),
+                    );
+                }
+            }
         }
         out.push_str("    ]\n");
     }
@@ -142,6 +238,7 @@ mod tests {
             users: vec![UserSpec {
                 user: "max".into(),
                 password: "max-secret".into(),
+                permissions: None,
             }],
             exports: vec![],
             imports: vec![],
@@ -154,6 +251,7 @@ mod tests {
             users: vec![UserSpec {
                 user: "katie".into(),
                 password: "katie-secret".into(),
+                permissions: None,
             }],
             exports: vec![],
             imports: vec![],
@@ -242,5 +340,92 @@ mod tests {
         let one = render_accounts_block(&[person_max(), person_katie()]);
         let two = render_accounts_block(&[person_max(), person_katie()]);
         assert_eq!(one, two);
+    }
+
+    // ── Phase 6.7 — Per-user permission profiles ────────────────────────
+
+    #[test]
+    fn user_without_permissions_renders_as_plain_password_entry() {
+        let acc = person_max();
+        let out = render_accounts_block(&[acc]);
+        // No `permissions:` clause when None.
+        assert!(!out.contains("permissions:"));
+        assert!(out.contains("{ user: \"max\", password: \"max-secret\" }"));
+    }
+
+    #[test]
+    fn observer_user_can_subscribe_but_not_publish() {
+        let mut acc = person_max();
+        acc.users[0].permissions = Some(PermissionSet::observer());
+        let out = render_accounts_block(&[acc]);
+        // Empty publish renders as explicit deny — the shorthand
+        // `publish: []` is treated as "no restriction" by NATS, which
+        // is the opposite of what an Observer wants.
+        assert!(
+            out.contains("publish: { deny: [\">\"] }"),
+            "observer publish should be explicit deny; got:\n{out}"
+        );
+        assert!(out.contains("subscribe: { allow: [\"events.>\"] }"));
+    }
+
+    #[test]
+    fn contributor_user_scoped_to_events() {
+        let mut acc = person_max();
+        acc.users[0].permissions = Some(PermissionSet::contributor());
+        let out = render_accounts_block(&[acc]);
+        assert!(out.contains("publish: { allow: [\"events.>\"] }"));
+        assert!(out.contains("subscribe: { allow: [\"events.>\"] }"));
+    }
+
+    #[test]
+    fn admin_user_unrestricted_within_account() {
+        let mut acc = person_max();
+        acc.users[0].permissions = Some(PermissionSet::admin());
+        let out = render_accounts_block(&[acc]);
+        assert!(out.contains("publish: { allow: [\">\"] }"));
+        assert!(out.contains("subscribe: { allow: [\">\"] }"));
+    }
+
+    #[test]
+    fn three_users_with_three_distinct_roles_render_inline() {
+        let acc = AccountSpec {
+            name: "PERSON_MAX".into(),
+            users: vec![
+                UserSpec {
+                    user: "max-admin".into(),
+                    password: "p1".into(),
+                    permissions: Some(PermissionSet::admin()),
+                },
+                UserSpec {
+                    user: "max-bot".into(),
+                    password: "p2".into(),
+                    permissions: Some(PermissionSet::contributor()),
+                },
+                UserSpec {
+                    user: "max-readonly".into(),
+                    password: "p3".into(),
+                    permissions: Some(PermissionSet::observer()),
+                },
+            ],
+            exports: vec![],
+            imports: vec![],
+        };
+        let out = render_accounts_block(&[acc]);
+        assert!(out.contains("user: \"max-admin\""));
+        assert!(out.contains("user: \"max-bot\""));
+        assert!(out.contains("user: \"max-readonly\""));
+        // Observer (last user) has explicit deny on publish.
+        assert!(out.contains(
+            "user: \"max-readonly\", password: \"p3\", permissions: { publish: { deny: [\">\"] }, subscribe: { allow: [\"events.>\"] }"
+        ));
+    }
+
+    #[test]
+    fn quoted_subjects_handles_multiple_entries() {
+        assert_eq!(quoted_subjects(&[]), "");
+        assert_eq!(
+            quoted_subjects(&["a".into(), "b.>".into()]),
+            "\"a\", \"b.>\""
+        );
     }
 }

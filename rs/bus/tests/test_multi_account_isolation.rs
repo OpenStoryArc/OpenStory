@@ -249,6 +249,7 @@ async fn account_export_import_delivers_session_subjects() {
         users: vec![UserSpec {
             user: "max".into(),
             password: "max-secret".into(),
+            permissions: None,
         }],
         exports: vec![ExportSpec {
             subject: "events.session-X.>".into(),
@@ -261,6 +262,7 @@ async fn account_export_import_delivers_session_subjects() {
         users: vec![UserSpec {
             user: "katie".into(),
             password: "katie-secret".into(),
+            permissions: None,
         }],
         exports: vec![],
         imports: vec![ImportSpec {
@@ -315,6 +317,7 @@ async fn account_export_does_not_leak_unrelated_subjects() {
         users: vec![UserSpec {
             user: "max".into(),
             password: "max-secret".into(),
+            permissions: None,
         }],
         // Max consents to share ONLY events.session-X.> — nothing else.
         exports: vec![ExportSpec {
@@ -328,6 +331,7 @@ async fn account_export_does_not_leak_unrelated_subjects() {
         users: vec![UserSpec {
             user: "katie".into(),
             password: "katie-secret".into(),
+            permissions: None,
         }],
         exports: vec![],
         imports: vec![ImportSpec {
@@ -399,6 +403,7 @@ async fn writer_persist_then_reload_enables_cross_person_delivery() {
                 users: vec![UserSpec {
                     user: "max".into(),
                     password: "max-secret".into(),
+                    permissions: None,
                 }],
                 exports: vec![],
                 imports: vec![],
@@ -408,6 +413,7 @@ async fn writer_persist_then_reload_enables_cross_person_delivery() {
                 users: vec![UserSpec {
                     user: "katie".into(),
                     password: "katie-secret".into(),
+                    permissions: None,
                 }],
                 exports: vec![],
                 imports: vec![],
@@ -449,6 +455,7 @@ async fn writer_persist_then_reload_enables_cross_person_delivery() {
                 users: vec![UserSpec {
                     user: "max".into(),
                     password: "max-secret".into(),
+                    permissions: None,
                 }],
                 exports: vec![ExportSpec {
                     subject: "events.*.session-Z.>".into(),
@@ -461,6 +468,7 @@ async fn writer_persist_then_reload_enables_cross_person_delivery() {
                 users: vec![UserSpec {
                     user: "katie".into(),
                     password: "katie-secret".into(),
+                    permissions: None,
                 }],
                 exports: vec![],
                 imports: vec![ImportSpec {
@@ -505,4 +513,119 @@ async fn writer_persist_then_reload_enables_cross_person_delivery() {
         .expect("got a message");
     assert_eq!(received.subject.as_str(), "events.proj.session-Z.after");
     assert_eq!(&received.payload[..], b"delivered");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Phase 6.7 — Per-role permission profiles: observer can sub but can't pub.
+//
+// A single account with two users — admin and observer — each scoped to
+// the role's PermissionSet. Publishing as the observer should surface a
+// permissions violation; the admin's publish succeeds; the observer's
+// subscribe to the admin's published subject delivers normally.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+#[ignore]
+async fn observer_role_cannot_publish_but_can_subscribe() {
+    use open_story_bus::accounts::{
+        render_accounts_block, AccountSpec, PermissionSet, UserSpec,
+    };
+
+    let acc = AccountSpec {
+        name: "PERSON_MAX".into(),
+        users: vec![
+            UserSpec {
+                user: "max-admin".into(),
+                password: "admin-secret".into(),
+                permissions: Some(PermissionSet::admin()),
+            },
+            UserSpec {
+                user: "max-observer".into(),
+                password: "observer-secret".into(),
+                permissions: Some(PermissionSet::observer()),
+            },
+        ],
+        exports: vec![],
+        imports: vec![],
+    };
+    let conf = format!(
+        "listen: 0.0.0.0:4222\n{}",
+        render_accounts_block(&[acc])
+    );
+    let nats = MultiAccountNats::start_with_config(&conf).await;
+
+    // Connect as both users.
+    let admin = async_nats::ConnectOptions::with_user_and_password(
+        "max-admin".into(),
+        "admin-secret".into(),
+    )
+    .connect(format!("nats://127.0.0.1:{}", nats.port))
+    .await
+    .expect("admin connects");
+
+    let observer = async_nats::ConnectOptions::with_user_and_password(
+        "max-observer".into(),
+        "observer-secret".into(),
+    )
+    .connect(format!("nats://127.0.0.1:{}", nats.port))
+    .await
+    .expect("observer connects");
+
+    // Observer CAN subscribe to events.>
+    let mut sub = observer
+        .subscribe("events.>")
+        .await
+        .expect("observer subscribes to events.>");
+    observer.flush().await.expect("observer flush");
+
+    // Admin publishes successfully.
+    admin
+        .publish("events.from-admin", "ok".into())
+        .await
+        .expect("admin publishes");
+    admin.flush().await.expect("admin flush");
+
+    // Observer receives the admin's publish.
+    let received = tokio::time::timeout(Duration::from_secs(2), sub.next())
+        .await
+        .expect("subscription delivered within 2s")
+        .expect("got a message");
+    assert_eq!(received.subject.as_str(), "events.from-admin");
+
+    // Observer's publish must NOT succeed. NATS reports permission
+    // violations asynchronously — the publish() call itself returns Ok
+    // (the message went on the wire) but the server sends an error event
+    // back. The cleanest proxy: subscribe to events.from-observer with
+    // ANOTHER admin connection, attempt the observer publish, and assert
+    // the admin never sees the message within a generous window.
+    let admin_sub_for_observer = async_nats::ConnectOptions::with_user_and_password(
+        "max-admin".into(),
+        "admin-secret".into(),
+    )
+    .connect(format!("nats://127.0.0.1:{}", nats.port))
+    .await
+    .expect("admin reconnects for observer-check");
+    let mut observer_publish_sub = admin_sub_for_observer
+        .subscribe("events.from-observer")
+        .await
+        .expect("admin subs to observer-publish target");
+    admin_sub_for_observer.flush().await.expect("flush sub");
+
+    // Observer attempts the forbidden publish.
+    let _ = observer
+        .publish("events.from-observer", "should be denied".into())
+        .await;
+    let _ = observer.flush().await;
+
+    // The admin watcher should see nothing — the server denied the publish.
+    let outcome = tokio::time::timeout(
+        Duration::from_millis(500),
+        observer_publish_sub.next(),
+    )
+    .await;
+    assert!(
+        outcome.is_err(),
+        "permission violation: observer publish should be dropped at the server, \
+         but admin observed it: {outcome:?}"
+    );
 }

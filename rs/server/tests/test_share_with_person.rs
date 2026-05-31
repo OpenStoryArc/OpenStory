@@ -68,6 +68,7 @@ fn person(name: &str, user: &str) -> AccountSpec {
         users: vec![UserSpec {
             user: user.into(),
             password: format!("{user}-secret"),
+            permissions: None,
         }],
         exports: vec![],
         imports: vec![],
