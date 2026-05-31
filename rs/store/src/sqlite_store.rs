@@ -208,6 +208,20 @@ impl SqliteStore {
             );",
         )?;
 
+        // Migration: add person_id column + index — OpenStory's directory
+        // identity for the session's owner (distinct from `user` which is
+        // the OS-level field). Same additive ALTER TABLE / let-_ pattern.
+        // The "your fleet" sidebar grouping queries on this column, so
+        // the index is worth its weight even at small scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN person_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
+
+        // Migration: add principal_id column + index. The UI groups sessions
+        // by principal in the sidebar, so an index pays for itself even at
+        // single-user scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN principal_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id)");
+
         Ok(())
     }
 
@@ -450,7 +464,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, origin_agent
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, origin_agent, person_id, principal_id
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -467,6 +481,8 @@ impl EventStore for SqliteStore {
                 host: row.get(9)?,
                 user: row.get(10)?,
                 origin_agent: row.get(11)?,
+                person_id: row.get(11)?,
+                principal_id: row.get(12)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -505,8 +521,8 @@ impl EventStore for SqliteStore {
         // RFC 3339 strings sort lexicographically → chronologically, so
         // MIN/MAX on the TEXT columns is correct.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, origin_agent)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, origin_agent, person_id, principal_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = COALESCE(excluded.project_id, sessions.project_id),
                 project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -523,7 +539,9 @@ impl EventStore for SqliteStore {
                 ),
                 host = COALESCE(excluded.host, sessions.host),
                 user = COALESCE(excluded.user, sessions.user),
-                origin_agent = COALESCE(excluded.origin_agent, sessions.origin_agent)",
+                origin_agent = COALESCE(excluded.origin_agent, sessions.origin_agent),
+                person_id = COALESCE(excluded.person_id, sessions.person_id),
+                principal_id = COALESCE(excluded.principal_id, sessions.principal_id)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -536,6 +554,8 @@ impl EventStore for SqliteStore {
                 session.host,
                 session.user,
                 session.origin_agent,
+                session.person_id,
+                session.principal_id,
             ],
         )?;
         Ok(())
@@ -1221,6 +1241,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1249,6 +1271,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1267,6 +1291,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1295,6 +1321,8 @@ mod tests {
                 host: Some("Maxs-Air".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1324,6 +1352,8 @@ mod tests {
                 host: Some("debian-16gb-ash-1".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1343,6 +1373,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1369,6 +1401,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1395,6 +1429,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1412,6 +1448,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1578,6 +1616,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1618,6 +1658,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1635,6 +1677,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1709,6 +1753,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1733,6 +1779,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1770,6 +1818,8 @@ mod tests {
                 host: Some("a1".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1793,6 +1843,8 @@ mod tests {
                 host: Some("katies-mini".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1831,6 +1883,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1870,6 +1924,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1898,6 +1954,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -2101,6 +2159,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -2385,6 +2445,8 @@ mod tests {
             host: Some("kloughra-mac".into()),
             user: None,
             origin_agent: None,
+            person_id: None,
+            principal_id: None,
         };
         store.upsert_session(&row).await.unwrap();
 

@@ -314,6 +314,8 @@ async fn reconcile_session_row_does_not_regress_frontier() {
         host: Some("h".to_string()),
         user: Some("u".to_string()),
         origin_agent: None,
+        person_id: None,
+        principal_id: None,
     };
     store
         .event_store

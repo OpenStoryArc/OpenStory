@@ -346,7 +346,12 @@ async fn main() -> Result<()> {
             }
 
             // Load config: defaults → config.toml → CLI flags
-            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            let config_path = data_dir.join("config.toml");
+            let mut config = Config::from_file(&config_path);
+            // First-boot: auto-create [person] section with detected (host, user)
+            // matchers and persist back to config.toml. Idempotent on later boots.
+            std::fs::create_dir_all(&data_dir).ok();
+            config.ensure_person_bootstrap(&config_path);
             config.data_dir = data_dir.to_string_lossy().to_string();
             config.role = cli_role;
             if let Some(v) = cli_host {
@@ -671,7 +676,10 @@ async fn main() -> Result<()> {
             use open_story_store::state::{BackendChoice, StoreState};
 
             // Load config: defaults → config.toml → CLI flags / env (mirrors `serve`).
-            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            let config_path = data_dir.join("config.toml");
+            let mut config = Config::from_file(&config_path);
+            std::fs::create_dir_all(&data_dir).ok();
+            config.ensure_person_bootstrap(&config_path);
             config.data_dir = data_dir.to_string_lossy().to_string();
             if let Some(v) = data_backend {
                 config.data_backend = v;

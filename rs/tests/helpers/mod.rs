@@ -385,6 +385,8 @@ pub async fn seed_and_ingest(
             host,
             user,
             origin_agent,
+            person_id: None,
+            principal_id: None,
         })
         .await;
 

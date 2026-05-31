@@ -536,8 +536,12 @@ pub async fn run_server(
     }
 
     // ── File watcher (publisher + full roles) ──
-    // Snapshot the backfill window from config before any closures move it.
+    // Snapshot the backfill window and the resolved Person from config before
+    // any closures move them. `person_snapshot` is what the principal_resolver
+    // uses to stamp every batch — the bootstrap step ensures it is Some by the
+    // time we reach here, but we tolerate None defensively.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
+    let person_snapshot: Option<config::Person> = state.read().await.config.person.clone();
     if is_publisher {
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
@@ -551,6 +555,8 @@ pub async fn run_server(
                 continue;
             }
             let watcher_bus = bus.clone();
+            let watcher_dir_str = watcher_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             let diagnostics = {
                 let s = state.read().await;
                 s.watcher_diagnostics.clone()
@@ -574,11 +580,17 @@ pub async fn run_server(
                     &watcher_dir,
                     backfill_window,
                     Some(observer),
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, events| {
+                        let mut events = events.to_vec();
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(watcher_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events: events.clone(),
                         };
                         let first_subtype = events.first().and_then(|event| event.subtype.clone());
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
@@ -615,6 +627,8 @@ pub async fn run_server(
         let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
         if pi_dir.exists() {
             let watcher_bus = bus.clone();
+            let pi_dir_str = pi_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             let diagnostics = {
                 let s = state.read().await;
                 s.watcher_diagnostics.clone()
@@ -633,11 +647,17 @@ pub async fn run_server(
                     &pi_dir,
                     backfill_window,
                     Some(observer),
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, events| {
+                        let mut events = events.to_vec();
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(pi_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events: events.clone(),
                         };
                         let first_subtype = events.first().and_then(|event| event.subtype.clone());
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
@@ -694,15 +714,22 @@ pub async fn run_server(
                 ));
             }
             let watcher_bus = bus.clone();
+            let hermes_dir_str = hermes_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = crate::snapshot_watcher::watch_snapshots(
                     &hermes_dir,
                     backfill_window,
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, mut events| {
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(hermes_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events,
                         };
                         let rt = tokio::runtime::Handle::current();
                         if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {

@@ -290,3 +290,127 @@ describe("deriveSessions", () => {
     expect(sessions[0]!.user).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// groupSessionsByPrincipal — pure grouping for the "your fleet" sidebar.
+// ---------------------------------------------------------------------------
+
+import { groupSessionsByPrincipal } from "@/components/Sidebar";
+import type { Fleet } from "@/lib/story-api";
+
+/** Minimal SessionInfo-shaped fixture (only the fields the grouper reads). */
+function makeSession(
+  id: string,
+  principalId: string | null,
+  latestTimestamp: string,
+) {
+  return {
+    id,
+    eventCount: 1,
+    latestTimestamp,
+    mainAgentCount: 1,
+    subagents: [],
+    label: null,
+    branch: null,
+    depthProfile: [],
+    totalTokens: 0,
+    planCount: 0,
+    host: null,
+    user: null,
+    originAgent: null,
+    personId: null,
+    principalId,
+  };
+}
+
+function makeFleet(principals: Array<{ id: string; display_name: string }>): Fleet {
+  return {
+    person: { id: "p-1", display_name: "Tester", email: "" },
+    principals: principals.map((p) => ({
+      id: p.id,
+      display_name: p.display_name,
+      matchers: {},
+    })),
+  };
+}
+
+describe("groupSessionsByPrincipal", () => {
+  it("buckets multiple principals into separate groups with display names from the fleet", () => {
+    const sessions = [
+      makeSession("s-laptop-1", "k-laptop", "2026-05-07T10:00:00Z"),
+      makeSession("s-bobby-1", "k-bobby", "2026-05-07T09:00:00Z"),
+      makeSession("s-laptop-2", "k-laptop", "2026-05-07T08:00:00Z"),
+    ];
+    const fleet = makeFleet([
+      { id: "k-laptop", display_name: "MacBook" },
+      { id: "k-bobby", display_name: "Hetzner" },
+    ]);
+
+    const groups = groupSessionsByPrincipal(sessions, fleet);
+    expect(groups).toHaveLength(2);
+
+    // Group order: newest session first (DESC). k-laptop's newest is at 10:00.
+    expect(groups[0]!.principalId).toBe("k-laptop");
+    expect(groups[0]!.principalName).toBe("MacBook");
+    expect(groups[0]!.sessions.map((s) => s.id)).toEqual(["s-laptop-1", "s-laptop-2"]);
+
+    expect(groups[1]!.principalId).toBe("k-bobby");
+    expect(groups[1]!.principalName).toBe("Hetzner");
+    expect(groups[1]!.sessions.map((s) => s.id)).toEqual(["s-bobby-1"]);
+  });
+
+  it("renders a single principal group when only one principal is present", () => {
+    const sessions = [
+      makeSession("s-1", "k-only", "2026-05-07T10:00:00Z"),
+      makeSession("s-2", "k-only", "2026-05-07T09:00:00Z"),
+    ];
+    const fleet = makeFleet([{ id: "k-only", display_name: "Only" }]);
+    const groups = groupSessionsByPrincipal(sessions, fleet);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.principalName).toBe("Only");
+    expect(groups[0]!.sessions).toHaveLength(2);
+  });
+
+  it("buckets sessions without principalId under 'Unattributed' and pins it last", () => {
+    const sessions = [
+      makeSession("s-untagged", null, "2026-05-07T11:00:00Z"), // newest, but unattributed
+      makeSession("s-tagged", "k-laptop", "2026-05-07T10:00:00Z"),
+    ];
+    const fleet = makeFleet([{ id: "k-laptop", display_name: "MacBook" }]);
+    const groups = groupSessionsByPrincipal(sessions, fleet);
+
+    // Unattributed must be last even though it has the newest session.
+    expect(groups.map((g) => g.principalName)).toEqual(["MacBook", "Unattributed"]);
+    expect(groups[1]!.principalId).toBeNull();
+    expect(groups[1]!.sessions.map((s) => s.id)).toEqual(["s-untagged"]);
+  });
+
+  it("falls back to the principalId string when the fleet has no entry for it", () => {
+    // Session refers to a principal the fleet doesn't list (e.g. stale data
+    // before the fleet config got updated). Show the raw id rather than
+    // dropping the session.
+    const sessions = [makeSession("s-orphan", "k-unknown", "2026-05-07T10:00:00Z")];
+    const fleet = makeFleet([]);
+    const groups = groupSessionsByPrincipal(sessions, fleet);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.principalName).toBe("k-unknown");
+  });
+
+  it("handles a null fleet (no [person] config) by labeling all groups by their id or 'Unattributed'", () => {
+    const sessions = [
+      makeSession("s-1", "k-laptop", "2026-05-07T10:00:00Z"),
+      makeSession("s-2", null, "2026-05-07T09:00:00Z"),
+    ];
+    const groups = groupSessionsByPrincipal(sessions, null);
+    expect(groups).toHaveLength(2);
+    // First group: principal id used as the label (no fleet to look up names).
+    expect(groups[0]!.principalName).toBe("k-laptop");
+    // Second group: Unattributed.
+    expect(groups[1]!.principalName).toBe("Unattributed");
+  });
+
+  it("returns an empty array when given no sessions", () => {
+    const groups = groupSessionsByPrincipal([], makeFleet([]));
+    expect(groups).toEqual([]);
+  });
+});

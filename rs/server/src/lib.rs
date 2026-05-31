@@ -17,6 +17,7 @@ pub mod fleet;
 pub mod ingest;
 pub mod logging;
 pub mod metrics;
+pub mod principal_resolver;
 pub mod reconcile;
 pub mod reproject;
 pub mod router;

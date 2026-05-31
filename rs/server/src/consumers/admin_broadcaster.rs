@@ -137,6 +137,8 @@ mod tests {
                 host: Some("peer-host".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .expect("upsert");

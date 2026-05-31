@@ -51,6 +51,20 @@ pub struct SessionRow {
     /// in a batch and coalesced like host/user.
     #[serde(default)]
     pub origin_agent: Option<String>,
+    /// OpenStory directory person id — the sovereign owner of this session
+    /// in the identity model. Distinct from the OS-level `user` field.
+    /// Populated from the first CloudEvent's `person_id` in a batch.
+    /// `None` for pre-migration rows and events that arrived without a
+    /// person_id stamp.
+    #[serde(default)]
+    pub person_id: Option<String>,
+    /// Principal id — the device or agent in the person's fleet that
+    /// produced this session. A session is one transcript file from one
+    /// source, so it has exactly one principal. Used by the UI to group
+    /// sessions under the fleet member that produced them.
+    /// `None` for pre-migration rows.
+    #[serde(default)]
+    pub principal_id: Option<String>,
 }
 
 impl SessionRow {
@@ -418,6 +432,8 @@ mod tests {
             host: None,
             user: None,
             origin_agent: None,
+            person_id: None,
+            principal_id: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);
