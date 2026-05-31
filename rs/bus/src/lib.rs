@@ -6,6 +6,7 @@
 //!
 //! Default implementation: `NatsBus` (NATS JetStream).
 
+pub mod accounts;
 pub mod nats_bus;
 pub mod noop_bus;
 pub mod share_policy;
