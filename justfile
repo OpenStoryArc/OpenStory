@@ -149,6 +149,58 @@ up-no-mongo:
     npm run dev &
     wait
 
+# Boot with Layer 2 multi-account NATS — needs data/config.toml with nats_accounts_conf_path + [person]
+up-multi-account:
+    #!/usr/bin/env bash
+    # Ordering of the chicken-and-egg:
+    #   1. write the initial nats accounts conf from data/config.toml
+    #   2. start nats-server pointing at that file (so it's the running
+    #      conf when OpenStory's writer later does a HUP-reload)
+    #   3. start the server + UI as usual
+    # See data/config.toml.example for the required shape.
+    set -e
+    if [ ! -f data/config.toml ]; then
+      echo "ERROR: data/config.toml not found."
+      echo "Set nats_accounts_conf_path and add a [person] block first."
+      exit 1
+    fi
+
+    # Stop anything already on the dev ports.
+    pkill -f 'open-story.*serve' 2>/dev/null || true
+    just kill-port 3002
+    just kill-port 5173
+    pkill nats-server 2>/dev/null || true
+    sleep 0.5
+
+    if ! command -v nats-server &>/dev/null; then
+      echo "ERROR: nats-server not found. Install: brew install nats-server"
+      exit 1
+    fi
+
+    # Step 1: write the initial accounts conf.
+    cargo run --manifest-path rs/cli/Cargo.toml -- \
+      init-accounts-conf --config data/config.toml
+
+    # Step 2: start nats-server pointing at the writer-managed conf.
+    NATS_CONF="$(awk -F'"' '/^nats_accounts_conf_path/{print $2}' data/config.toml)"
+    if [ -z "$NATS_CONF" ]; then
+      echo "ERROR: nats_accounts_conf_path missing from data/config.toml"
+      exit 1
+    fi
+    echo "Starting NATS with multi-account conf at $NATS_CONF…"
+    nats-server -c "$NATS_CONF" &disown 2>/dev/null
+    sleep 1
+
+    # Step 3: server + UI.
+    trap 'kill $(jobs -p) 2>/dev/null; pkill nats-server 2>/dev/null' EXIT
+    cargo build --manifest-path rs/cli/Cargo.toml
+    cargo run --manifest-path rs/cli/Cargo.toml -- serve &
+    sleep 2
+    cd ui
+    [ -d node_modules ] || { echo "Installing UI dependencies..."; npm install; }
+    npm run dev &
+    wait
+
 # Boot in federation/leaf mode — sources .env.federation, then runs `just up`.
 up-federation:
     #!/usr/bin/env bash

@@ -187,6 +187,29 @@ enum Command {
     /// after manually copying JSONL between machines, or after a backend
     /// switch when you don't want to wait for the next server restart.
     /// Boot-time reconciliation runs the same logic automatically.
+    /// Write the initial multi-account NATS conf file from `data/config.toml`.
+    ///
+    /// Solves the chicken-and-egg problem on first boot: nats-server needs
+    /// the conf file to exist before it starts, but the server normally
+    /// writes the file at runtime via `AccountConfigWriter`. Running this
+    /// subcommand first means the operator can start nats-server with the
+    /// writer-managed conf BEFORE starting the OpenStory server.
+    ///
+    /// Reads `nats_accounts_conf_path` + `[person]` from the supplied config,
+    /// builds a single PERSON_<NAME> account with one local-dev password
+    /// user, and persists to the output path. The subsequent
+    /// POST /api/admin/share-with-person calls will mutate the same file
+    /// via the writer's atomic rename + SIGHUP path.
+    InitAccountsConf {
+        /// Path to the OpenStory config file (TOML).
+        #[arg(long, default_value = "data/config.toml")]
+        config: PathBuf,
+        /// Output path for the generated nats-server conf. Defaults to
+        /// the `nats_accounts_conf_path` value in the config.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
     Reconcile {
         /// Directory for persisted session data (JSONL + EventStore)
         #[arg(long, env = "OPEN_STORY_DATA_DIR", default_value = "./data")]
@@ -732,6 +755,83 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+
+        Some(Command::InitAccountsConf { config, output }) => {
+            use open_story::server::account_config::{
+                AccountConfigWriter, DEFAULT_NATS_STATIC_PREFIX,
+            };
+            use open_story_bus::accounts::{AccountSpec, UserSpec};
+
+            let raw = std::fs::read_to_string(&config)
+                .map_err(|e| anyhow::anyhow!("read {}: {e}", config.display()))?;
+            let cfg: open_story::server::config::Config = toml::from_str(&raw)
+                .map_err(|e| anyhow::anyhow!("parse {}: {e}", config.display()))?;
+
+            let output_path = output
+                .or_else(|| {
+                    if cfg.nats_accounts_conf_path.is_empty() {
+                        None
+                    } else {
+                        Some(PathBuf::from(&cfg.nats_accounts_conf_path))
+                    }
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no output: pass --output or set `nats_accounts_conf_path` in {}",
+                        config.display()
+                    )
+                })?;
+
+            let person = cfg.person.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no [person] section in {} — cannot build accounts conf",
+                    config.display()
+                )
+            })?;
+
+            let account_name = format!(
+                "PERSON_{}",
+                person.id.to_uppercase().replace('-', "_")
+            );
+            let local_account = AccountSpec {
+                name: account_name.clone(),
+                users: vec![UserSpec {
+                    user: person.id.clone(),
+                    // Deterministic local-dev password — matches the boot path
+                    // (`build_account_config` in state.rs). NOT a security
+                    // control by itself; swap to NKEY for any deployment that
+                    // crosses an untrusted network.
+                    password: format!("{}-local-dev", person.id),
+                    permissions: None,
+                }],
+                exports: vec![],
+                imports: vec![],
+            };
+
+            let writer = AccountConfigWriter::new(
+                output_path.clone(),
+                DEFAULT_NATS_STATIC_PREFIX,
+                vec![local_account],
+            );
+            writer
+                .persist()
+                .map_err(|e| anyhow::anyhow!("persist to {}: {e}", output_path.display()))?;
+
+            println!(
+                "✓ wrote initial accounts conf to {}",
+                output_path.display()
+            );
+            println!("  account: {account_name}");
+            println!("  user:    {} (password: {}-local-dev)", person.id, person.id);
+            println!();
+            println!("Next:");
+            println!(
+                "  nats-server -c {} &disown",
+                output_path.display()
+            );
+            println!("  just serve");
             Ok(())
         }
 
