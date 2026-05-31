@@ -19,9 +19,13 @@ use tempfile::TempDir;
 use tokio::sync::{broadcast, RwLock};
 use tower::ServiceExt;
 
+use anyhow::Result;
+use async_trait::async_trait;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use open_story_bus::accounts::{AccountSpec, UserSpec};
 use open_story_bus::noop_bus::NoopBus;
-use open_story_server::account_config::AccountConfigWriter;
+use open_story_server::account_config::{AccountConfigWriter, NatsReloader};
 use open_story_server::admin::compute_topology;
 use open_story_server::config::Config;
 use open_story_server::router::build_router;
@@ -78,6 +82,7 @@ async fn test_state_with_writer(
         config,
         watch_dir: tmp.path().join("watch"),
         account_config_writer: Some(writer.clone()),
+        account_config_reloader: None,
     }));
     (state, writer)
 }
@@ -209,6 +214,130 @@ async fn share_with_person_returns_409_when_session_has_no_person_id() {
     assert_eq!(resp.status(), StatusCode::CONFLICT);
 }
 
+/// Counting reloader — increments `count` every time `reload()` is called.
+/// Lets the test assert that the handler actually triggered the reload
+/// path after persisting, not just left the conf on disk.
+struct CountingReloader {
+    count: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl NatsReloader for CountingReloader {
+    async fn reload(&self) -> Result<()> {
+        self.count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn share_with_person_auto_creates_stub_for_unknown_target_person() {
+    // The boot-wire path seeds the writer with only the local person
+    // (PERSON_MAX). The operator should still be able to share with
+    // someone (PERSON_BOBBY) whose credentials haven't been provisioned
+    // yet — the writer's `add_share_with_stubs` creates the target
+    // account as a stub. Real delivery to Bobby still requires his
+    // credentials to land in the conf, but the share gesture doesn't
+    // have to fail just because the directory side hasn't caught up.
+    let tmp = tempfile::tempdir().unwrap();
+    let store = StoreState::new(tmp.path()).unwrap();
+    let (broadcast_tx, _) = broadcast::channel(256);
+    let config = Config::default();
+    let initial_topology = compute_topology(
+        "test-host",
+        config.role,
+        &open_story_server::admin::EnvInputs::default(),
+        &[],
+    );
+    let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
+    // Writer seeded with ONLY max — no bobby.
+    let writer = Arc::new(AccountConfigWriter::new(
+        tmp.path().join("nats-server.conf"),
+        "listen: 0.0.0.0:4222",
+        vec![person("PERSON_MAX", "max")],
+    ));
+    let state = Arc::new(RwLock::new(AppState {
+        store,
+        transcript_states: HashMap::new(),
+        watcher_diagnostics: WatcherDiagnostics::default(),
+        broadcast_tx,
+        bus: Arc::new(NoopBus),
+        admin_topology_tx,
+        config,
+        watch_dir: tmp.path().join("watch"),
+        account_config_writer: Some(writer.clone()),
+        account_config_reloader: None,
+    }));
+    seed_session(&state, "sess-Z", "max").await;
+
+    let resp = post_share(
+        state,
+        json!({"session_id": "sess-Z", "person_id": "bobby"}),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let conf = writer.current_config();
+    assert!(
+        conf.contains("PERSON_BOBBY"),
+        "expected PERSON_BOBBY stub to be created, got:\n{conf}"
+    );
+    assert!(conf.contains("accounts: [PERSON_BOBBY]"));
+}
+
+#[tokio::test]
+async fn share_with_person_invokes_reloader_after_persist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = StoreState::new(tmp.path()).unwrap();
+    let (broadcast_tx, _) = broadcast::channel(256);
+    let config = Config::default();
+    let initial_topology = compute_topology(
+        "test-host",
+        config.role,
+        &open_story_server::admin::EnvInputs::default(),
+        &[],
+    );
+    let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
+    let writer = Arc::new(AccountConfigWriter::new(
+        tmp.path().join("nats-server.conf"),
+        "listen: 0.0.0.0:4222",
+        vec![
+            person("PERSON_MAX", "max"),
+            person("PERSON_KATIE", "katie"),
+        ],
+    ));
+    let reload_count = Arc::new(AtomicUsize::new(0));
+    let reloader: Arc<dyn NatsReloader> = Arc::new(CountingReloader {
+        count: reload_count.clone(),
+    });
+    let state = Arc::new(RwLock::new(AppState {
+        store,
+        transcript_states: HashMap::new(),
+        watcher_diagnostics: WatcherDiagnostics::default(),
+        broadcast_tx,
+        bus: Arc::new(NoopBus),
+        admin_topology_tx,
+        config,
+        watch_dir: tmp.path().join("watch"),
+        account_config_writer: Some(writer.clone()),
+        account_config_reloader: Some(reloader),
+    }));
+    seed_session(&state, "sess-RX", "max").await;
+
+    let resp = post_share(
+        state,
+        json!({"session_id": "sess-RX", "person_id": "katie"}),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        reload_count.load(Ordering::SeqCst),
+        1,
+        "reloader should fire exactly once per successful share"
+    );
+}
+
 #[tokio::test]
 async fn share_with_person_returns_503_when_writer_not_configured() {
     // AppState with NO account_config_writer — simulating a node that's
@@ -235,6 +364,7 @@ async fn share_with_person_returns_503_when_writer_not_configured() {
         config,
         watch_dir: tmp.path().join("watch"),
         account_config_writer: None,
+        account_config_reloader: None,
     }));
 
     let resp = post_share(

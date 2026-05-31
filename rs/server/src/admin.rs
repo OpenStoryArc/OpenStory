@@ -626,6 +626,7 @@ pub async fn share_with_person(
                 .into(),
         ));
     };
+    let reloader = s.account_config_reloader.clone();
 
     let sessions = s
         .store
@@ -650,24 +651,37 @@ pub async fn share_with_person(
         ),
     ))?;
 
-    let from_account = person_account_name(&owner);
-    let to_account = person_account_name(&body.person_id);
+    let from_account = crate::state::person_account_name(&owner);
+    let to_account = crate::state::person_account_name(&body.person_id);
     let subject = format!("events.*.{}.>", body.session_id);
 
+    // `add_share_with_stubs` (not `add_share`): if the operator names a
+    // target person whose account isn't yet in the conf, create it as a
+    // stub. The actual credentials for that person must still be added
+    // by the operator before clients can connect — but the share gesture
+    // doesn't have to fail just because the directory side hasn't caught
+    // up yet.
     writer
-        .add_share(&from_account, &to_account, &subject)
+        .add_share_with_stubs(&from_account, &to_account, &subject)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     writer
         .persist()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(StatusCode::NO_CONTENT)
-}
+    // Phase 5 boot-wire: signal nats-server to reread its conf. Without
+    // this the file is updated but the running server doesn't see the
+    // new exports until it restarts. Failures surface to the operator —
+    // a broken reload command is something they need to know about.
+    if let Some(r) = reloader {
+        r.reload().await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("nats reload failed: {e}"),
+            )
+        })?;
+    }
 
-/// Convention: PersonId `max` → NATS account `PERSON_MAX`. Hyphens in IDs
-/// become underscores; lowercase becomes uppercase.
-fn person_account_name(person_id: &str) -> String {
-    format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// `PUT /api/admin/share-policy/{session_id}` — set this session's mode.

@@ -169,6 +169,26 @@ pub struct Config {
     /// admin routes too, preserving single-token deployments).
     #[serde(default)]
     pub admin_token: String,
+    /// Path to the nats-server conf file managed by `AccountConfigWriter`
+    /// (Phase 5 boot-wire). When set AND `[person]` is configured, the
+    /// server builds the writer at boot and `POST /api/admin/share-with-person`
+    /// becomes functional. The operator is responsible for pointing
+    /// nats-server at this same path (`nats-server -c <path>`).
+    /// **Warning:** the writer owns the file — operator edits are
+    /// overwritten on every share mutation. Use a separate path from any
+    /// hand-managed `nats.conf`. Empty = no multi-account mode; writer
+    /// stays `None` and `share-with-person` returns 503.
+    #[serde(default)]
+    pub nats_accounts_conf_path: String,
+    /// Shell command run after the writer persists conf changes — should
+    /// signal nats-server to reread its conf. Defaults to
+    /// `pkill -HUP nats-server` which works for a single locally-owned
+    /// nats-server. Override for managed deployments (e.g.
+    /// `systemctl reload nats` or a NATS control-subject publish).
+    /// Empty = no reload (the conf updates land on disk but nats-server
+    /// won't see them until restart — useful for tests, dangerous in prod).
+    #[serde(default = "default_nats_reload_command")]
+    pub nats_reload_command: String,
     /// SQLCipher encryption key for the database. Empty = unencrypted.
     pub db_key: String,
     /// Allowed CORS origins. Empty = allow localhost defaults only.
@@ -264,6 +284,10 @@ fn auto_detect_host() -> String {
     "127.0.0.1".to_string()
 }
 
+fn default_nats_reload_command() -> String {
+    "pkill -HUP nats-server".to_string()
+}
+
 fn default_home_subdir(parts: &[&str]) -> String {
     let Some(home) = std::env::var_os(home_env_var()) else {
         return String::new();
@@ -291,6 +315,8 @@ impl Default for Config {
             role: Role::Full,
             api_token: String::new(),
             admin_token: String::new(),
+            nats_accounts_conf_path: String::new(),
+            nats_reload_command: default_nats_reload_command(),
             db_key: String::new(),
             allowed_origins: Vec::new(),
             data_dir: "./data".to_string(),
@@ -598,6 +624,8 @@ mod tests {
             role: Role::Full,
             api_token: "test-token".into(),
             admin_token: "test-admin-token".into(),
+            nats_accounts_conf_path: "/tmp/test-nats.conf".into(),
+            nats_reload_command: "true".into(),
             db_key: "my-secret-key".into(),
             allowed_origins: vec!["http://localhost:5173".into()],
             data_dir: "/tmp/data".into(),

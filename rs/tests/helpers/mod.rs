@@ -55,6 +55,7 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
         config,
         watch_dir,
         account_config_writer: None,
+        account_config_reloader: None,
     }))
 }
 

@@ -244,6 +244,7 @@ mod tests {
             config,
             watch_dir,
             account_config_writer: None,
+            account_config_reloader: None,
         }
     }
 

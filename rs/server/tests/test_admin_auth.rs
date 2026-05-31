@@ -50,6 +50,7 @@ async fn state_with_tokens(
         config: config.clone(),
         watch_dir: tmp.path().join("watch"),
         account_config_writer: None,
+        account_config_reloader: None,
     }))
 }
 

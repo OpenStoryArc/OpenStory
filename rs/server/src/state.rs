@@ -50,6 +50,13 @@ pub struct AppState {
     // with a multi-account nats-server conf and is allowed to mutate it via
     // POST /api/admin/share-with-person.
     pub account_config_writer: Option<Arc<crate::account_config::AccountConfigWriter>>,
+
+    /// Reloader called after the writer persists. Tells the running
+    /// nats-server to reread its conf so new exports/imports take effect
+    /// without a server restart. `None` skips the reload (useful for tests
+    /// that only care about the disk write).
+    pub account_config_reloader:
+        Option<Arc<dyn crate::account_config::NatsReloader>>,
 }
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -197,6 +204,13 @@ pub async fn create_state_with_watch_dirs(
     };
     let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
 
+    // ── Phase 5 boot-wire: build the AccountConfigWriter + reloader
+    // when the operator has opted in via `nats_accounts_conf_path` + a
+    // `[person]` block. Without both, multi-account mode stays off and
+    // POST /api/admin/share-with-person returns 503.
+    let (account_config_writer, account_config_reloader) =
+        build_account_config(&config);
+
     Ok(Arc::new(RwLock::new(AppState {
         store,
         transcript_states: HashMap::new(),
@@ -206,8 +220,93 @@ pub async fn create_state_with_watch_dirs(
         admin_topology_tx,
         config,
         watch_dir,
-        account_config_writer: None,
+        account_config_writer,
+        account_config_reloader,
     })))
+}
+
+/// Build the AccountConfigWriter + matching NatsReloader from config.
+/// Returns `(None, None)` when multi-account mode isn't configured.
+///
+/// Boot semantics:
+/// - `nats_accounts_conf_path` empty → no multi-account mode.
+/// - `nats_accounts_conf_path` set but `[person]` missing → log a warning
+///   and disable (the writer needs at least one local account to seed).
+/// - Both set → build writer seeded with this device's person as the
+///   only account, persist the initial conf to disk (so nats-server has
+///   a file to read on its first boot), and wire the reloader.
+fn build_account_config(
+    config: &Config,
+) -> (
+    Option<Arc<crate::account_config::AccountConfigWriter>>,
+    Option<Arc<dyn crate::account_config::NatsReloader>>,
+) {
+    use crate::account_config::{
+        AccountConfigWriter, NatsReloader, ShellCommandReloader,
+        DEFAULT_NATS_STATIC_PREFIX,
+    };
+    use open_story_bus::accounts::{AccountSpec, UserSpec};
+
+    if config.nats_accounts_conf_path.is_empty() {
+        return (None, None);
+    }
+    let Some(person) = &config.person else {
+        eprintln!(
+            "warning: nats_accounts_conf_path is set but [person] is not — \
+             multi-account mode disabled; share-with-person will return 503"
+        );
+        return (None, None);
+    };
+
+    // Single seed account: this device's owner. The handler's
+    // `add_share_with_stubs` will lazily create stubs for any other persons
+    // the operator names as share targets. Real credentials for those other
+    // persons must be added by the operator (Phase 6 directory work will
+    // generalize this).
+    let local_account = AccountSpec {
+        name: person_account_name(&person.id),
+        users: vec![UserSpec {
+            user: person.id.clone(),
+            // TODO(Phase 6.7+): swap password for NKEY-based auth. For
+            // boot-wire scope the password is derived deterministically so
+            // local dev can connect; not a security control by itself.
+            password: format!("{}-local-dev", person.id),
+        }],
+        exports: vec![],
+        imports: vec![],
+    };
+    let writer = Arc::new(AccountConfigWriter::new(
+        std::path::PathBuf::from(&config.nats_accounts_conf_path),
+        DEFAULT_NATS_STATIC_PREFIX,
+        vec![local_account],
+    ));
+    if let Err(e) = writer.persist() {
+        eprintln!(
+            "warning: could not persist initial nats accounts conf to {}: {e}",
+            config.nats_accounts_conf_path
+        );
+    }
+
+    let reloader: Option<Arc<dyn NatsReloader>> = if config
+        .nats_reload_command
+        .is_empty()
+    {
+        None
+    } else {
+        Some(Arc::new(ShellCommandReloader {
+            command: config.nats_reload_command.clone(),
+        }))
+    };
+
+    (Some(writer), reloader)
+}
+
+/// Convention: PersonId `max` → NATS account `PERSON_MAX`. Hyphens become
+/// underscores; lowercase becomes uppercase. Single source of truth used
+/// by both this boot path and the share-with-person handler so the
+/// account names match across the two paths.
+pub(crate) fn person_account_name(person_id: &str) -> String {
+    format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
 }
 
 /// Boot from SQLite — sessions already in the DB.
@@ -840,5 +939,92 @@ mod tests {
         assert_eq!(events.len(), 5);
         assert_eq!(events[0]["id"], "api-evt-1");
         assert_eq!(events[4]["id"], "api-evt-5");
+    }
+
+    // ── build_account_config — boot-wire for share-with-person ──────────
+
+    use crate::config::{Person, Principal, PrincipalMatchers};
+
+    fn person_max() -> Person {
+        Person {
+            id: "max".to_string(),
+            display_name: "Max".to_string(),
+            email: "max@example.test".to_string(),
+            principals: vec![Principal {
+                id: "laptop".into(),
+                display_name: "Laptop".into(),
+                matchers: PrincipalMatchers {
+                    host: Some("laptop.local".into()),
+                    user: Some("max".into()),
+                    agent: None,
+                    watch_dir_pattern: None,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn empty_conf_path_returns_no_writer_no_reloader() {
+        let cfg = Config::default();
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_none());
+        assert!(reloader.is_none());
+    }
+
+    #[test]
+    fn conf_path_set_without_person_returns_no_writer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path = tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        // No [person] block.
+        cfg.person = None;
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_none());
+        assert!(reloader.is_none());
+    }
+
+    #[test]
+    fn conf_path_set_with_person_builds_writer_and_persists_initial_conf() {
+        let tmp = tempfile::tempdir().unwrap();
+        let conf_path = tmp.path().join("nats.conf");
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path = conf_path.to_string_lossy().into_owned();
+        cfg.person = Some(person_max());
+        // Use `true` as a no-op reload command so the unit test doesn't
+        // try to pkill nats-server in CI.
+        cfg.nats_reload_command = "true".into();
+
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_some());
+        assert!(reloader.is_some());
+
+        // Initial conf is on disk and includes max's account.
+        let on_disk = std::fs::read_to_string(&conf_path).unwrap();
+        assert!(on_disk.contains("PERSON_MAX"));
+        assert!(on_disk.contains("user: \"max\""));
+        // Static prefix landed too.
+        assert!(on_disk.contains("listen:"));
+        assert!(on_disk.contains("jetstream"));
+    }
+
+    #[test]
+    fn empty_reload_command_disables_the_reloader() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path =
+            tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        cfg.person = Some(person_max());
+        cfg.nats_reload_command = String::new();
+
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_some(), "writer should still build");
+        assert!(reloader.is_none(), "reloader should be disabled");
+    }
+
+    #[test]
+    fn person_account_name_normalizes_case_and_hyphens() {
+        assert_eq!(person_account_name("max"), "PERSON_MAX");
+        assert_eq!(person_account_name("Katie"), "PERSON_KATIE");
+        assert_eq!(person_account_name("uuid-with-hyphens"), "PERSON_UUID_WITH_HYPHENS");
     }
 }
