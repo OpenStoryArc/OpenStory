@@ -587,6 +587,13 @@ impl EventStore for SqliteStore {
         // the row. Skipping is correct in that case; the row's existing
         // first/last_event come from the live path and are authoritative.
         // ?1 is reused for every session-id bind point.
+        // The gate counts ALL events (including synthesized) because the
+        // row's `event_count` does too — incrementing on every event the
+        // persist consumer sees, synthesized or not. The MIN/MAX inside
+        // the SET still excludes synthesized subtypes (that's the whole
+        // point — heal pollution from file.snapshot). Counting matched
+        // sets on both sides makes the gate fire when the events table
+        // is at least as complete as the row claims.
         let sql = format!(
             "UPDATE sessions SET
                 first_event = (SELECT MIN(timestamp) FROM events
@@ -595,7 +602,7 @@ impl EventStore for SqliteStore {
                     WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))
              WHERE id = ?1
                AND event_count <= (SELECT COUNT(*) FROM events
-                    WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))"
+                    WHERE session_id = ?1 AND timestamp != '')"
         );
         conn.execute(&sql, rusqlite::params![session_id])?;
 

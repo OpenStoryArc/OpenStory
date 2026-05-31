@@ -116,6 +116,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/admin/share-policy",
             axum::routing::get(crate::admin::list_share_policy),
         )
+        .route(
+            "/api/admin/participants",
+            axum::routing::get(crate::admin::list_participants),
+        )
         // NB: Policy WRITES (PUT/POST below) move to `admin_writes_router`
         // below so they get the `admin_only_middleware` instead of the
         // generic `auth_middleware`. The GET above is read-only and stays
@@ -274,6 +278,18 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .route(
             "/api/admin/share-with-person",
             axum::routing::post(crate::admin::share_with_person),
+        )
+        // Phase 6 polish: participants (role) management. Same auth tier
+        // + role gate as share-policy writes. GET sits on the read tier
+        // below (line ~118) so the UI can populate dropdowns without an
+        // admin token.
+        .route(
+            "/api/admin/participants",
+            axum::routing::put(crate::admin::upsert_participant),
+        )
+        .route(
+            "/api/admin/participants/{principal_id}",
+            axum::routing::delete(crate::admin::delete_participant),
         )
         // Layer order is outermost-first: the require_admin_role check
         // runs BEFORE the token check, but both must pass before the

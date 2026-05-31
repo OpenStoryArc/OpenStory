@@ -13,8 +13,10 @@
 
 import { useEffect, useState } from "react";
 import {
+  fetchParticipants,
   fetchSharePolicies,
   setSharePolicy,
+  type Participant,
   type SharePolicyMode,
 } from "@/lib/admin-api";
 import { shareSessionWithPerson } from "@/lib/share-with-person";
@@ -96,11 +98,30 @@ export function SharePolicyTable({ selfHost }: Props) {
   };
 
   const handleShareWithPerson = async (sessionId: string) => {
-    // MVP gesture: prompt() for a person_id. Phase 5.9 will replace this
-    // with a proper dropdown of known persons from the topology view.
-    const personId = window.prompt(
-      "Share this session with which person? (enter person_id)",
-    );
+    // Build the dropdown from the participants list — the operator's view
+    // of "who exists" in the directory. Falls back to a prompt() if the
+    // participants endpoint is empty/unreachable (e.g. NoopRoleDirectory).
+    let personIds: string[] = [];
+    try {
+      const participants = await fetchParticipants();
+      // Dedup by person_id; each person may have multiple principals here.
+      personIds = Array.from(new Set(participants.map((p: Participant) => p.person_id))).sort();
+    } catch {
+      // Empty list → fall through to prompt() below.
+    }
+
+    let personId: string | null;
+    if (personIds.length === 0) {
+      personId = window.prompt(
+        "Share this session with which person? (no participants directory configured — enter person_id manually)",
+      );
+    } else {
+      // Build a short choice prompt. A proper modal lands in a follow-up.
+      const choice = window.prompt(
+        `Share this session with which person?\n\nKnown persons:\n  ${personIds.join("\n  ")}\n\nEnter one of the above (or a new person_id):`,
+      );
+      personId = choice;
+    }
     if (!personId) return;
     try {
       await shareSessionWithPerson(sessionId, personId.trim());

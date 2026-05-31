@@ -187,6 +187,27 @@ enum Command {
     /// after manually copying JSONL between machines, or after a backend
     /// switch when you don't want to wait for the next server restart.
     /// Boot-time reconciliation runs the same logic automatically.
+    /// Grant a role to a principal in the local role directory.
+    ///
+    /// Bootstrap for Phase 6: the first Admin must be granted at the
+    /// SQLite level because every admin route 403s without an existing
+    /// Admin to authorize it. After running this once, all subsequent
+    /// role grants can go through the PUT /api/admin/participants UI.
+    GrantRole {
+        /// Path to the roles SQLite file. Defaults to data/openstory-roles.db.
+        #[arg(long, default_value = "data/openstory-roles.db")]
+        roles_db: PathBuf,
+        /// Principal id (e.g. "max-laptop").
+        #[arg(long)]
+        principal_id: String,
+        /// Person id (e.g. "max").
+        #[arg(long)]
+        person_id: String,
+        /// Role: observer | contributor | admin.
+        #[arg(long)]
+        role: String,
+    },
+
     /// Write the initial multi-account NATS conf file from `data/config.toml`.
     ///
     /// Solves the chicken-and-egg problem on first boot: nats-server needs
@@ -755,6 +776,36 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+
+        Some(Command::GrantRole {
+            roles_db,
+            principal_id,
+            person_id,
+            role,
+        }) => {
+            use open_story::server::directory::{
+                EmbeddedRoleDirectory, Participant, Role, RoleDirectory,
+            };
+            let role: Role = role
+                .parse()
+                .map_err(|e: String| anyhow::anyhow!(e))?;
+            if let Some(parent) = roles_db.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let dir = EmbeddedRoleDirectory::open(&roles_db)?;
+            dir.upsert_participant(Participant {
+                principal_id: principal_id.clone(),
+                person_id: person_id.clone(),
+                role,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .await?;
+            println!(
+                "✓ granted {role:?} to principal={principal_id} (person={person_id}) in {}",
+                roles_db.display()
+            );
             Ok(())
         }
 

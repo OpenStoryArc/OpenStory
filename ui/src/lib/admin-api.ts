@@ -110,3 +110,53 @@ export async function setSharePolicy(
     throw new Error(`setSharePolicy(${sessionId}, ${mode}): ${res.status} ${res.statusText}`);
   }
 }
+
+// ── Participants (Phase 6 polish) ───────────────────────────────────────
+
+export type Role = "observer" | "contributor" | "admin";
+
+export interface Participant {
+  readonly principal_id: string;
+  readonly person_id: string;
+  readonly role: Role;
+  readonly created_at: string;
+}
+
+export async function fetchParticipants(signal?: AbortSignal): Promise<readonly Participant[]> {
+  const res = await fetch("/api/admin/participants", { signal });
+  if (!res.ok) throw new Error(`fetchParticipants: ${res.status} ${res.statusText}`);
+  const body = await res.json();
+  return body.participants ?? [];
+}
+
+export async function upsertParticipant(
+  principalId: string,
+  personId: string,
+  role: Role,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch("/api/admin/participants", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ principal_id: principalId, person_id: personId, role }),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`upsertParticipant: HTTP ${res.status} ${text}`);
+  }
+}
+
+export async function deleteParticipant(
+  principalId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/admin/participants/${encodeURIComponent(principalId)}`, {
+    method: "DELETE",
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`deleteParticipant: HTTP ${res.status} ${text}`);
+  }
+}

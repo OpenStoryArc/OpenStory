@@ -577,6 +577,89 @@ pub async fn list_share_policy(State(state): State<SharedState>) -> Json<Value> 
     }))
 }
 
+// ── Phase 6 polish — Participants management endpoints ─────────────────
+//
+// Operators need a way to see/grant/revoke roles without dropping into
+// SQL. These three endpoints sit behind the same admin_only +
+// require_admin_role gating as share-policy writes — so the first Admin
+// must be bootstrapped via `open-story grant-role` from the CLI.
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ParticipantBody {
+    pub principal_id: String,
+    pub person_id: String,
+    pub role: crate::directory::Role,
+}
+
+/// `GET /api/admin/participants` — list all participants known to the
+/// role directory. Used by the UI dropdown for "share with…" and the
+/// participants panel.
+pub async fn list_participants(State(state): State<SharedState>) -> Result<Json<Value>, (StatusCode, String)> {
+    log_event("api", "GET /api/admin/participants");
+    let directory = {
+        let s = state.read().await;
+        s.role_directory.clone()
+    };
+    let participants = directory
+        .list_participants()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(json!({ "participants": participants.iter().map(|p| json!({
+        "principal_id": p.principal_id,
+        "person_id": p.person_id,
+        "role": p.role,
+        "created_at": p.created_at,
+    })).collect::<Vec<_>>() })))
+}
+
+/// `PUT /api/admin/participants` — upsert. Body matches `ParticipantBody`.
+pub async fn upsert_participant(
+    State(state): State<SharedState>,
+    Json(body): Json<ParticipantBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    log_event(
+        "api",
+        &format!(
+            "PUT /api/admin/participants principal={} role={:?}",
+            body.principal_id, body.role
+        ),
+    );
+    let directory = {
+        let s = state.read().await;
+        s.role_directory.clone()
+    };
+    directory
+        .upsert_participant(crate::directory::Participant {
+            principal_id: body.principal_id,
+            person_id: body.person_id,
+            role: body.role,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /api/admin/participants/{principal_id}` — remove.
+pub async fn delete_participant(
+    State(state): State<SharedState>,
+    Path(principal_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    log_event(
+        "api",
+        &format!("DELETE /api/admin/participants/{principal_id}"),
+    );
+    let directory = {
+        let s = state.read().await;
+        s.role_directory.clone()
+    };
+    directory
+        .delete_participant(&principal_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// `POST /api/admin/share-with-person` — record consent for one person to
 /// receive another's session events via per-account NATS export/import.
 ///

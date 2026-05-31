@@ -17,6 +17,7 @@ import { useMemo } from "react";
 import type { Topology, TopologyShape } from "@/lib/admin-api";
 import { TopologyMap } from "@/components/admin/TopologyMap";
 import { PersonClustersView } from "@/components/admin/PersonClustersView";
+import { ParticipantsPanel } from "@/components/admin/ParticipantsPanel";
 import { FleetGrid } from "@/components/admin/FleetGrid";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
@@ -119,6 +120,20 @@ export function AdminView() {
               </p>
             </header>
             <TopologyMap topology={topology} />
+          </section>
+
+          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+            <header className="mb-3">
+              <h3 className="text-sm font-medium text-[#c0caf5]">Participants & roles</h3>
+              <p className="text-xs text-[#565f89] mt-0.5">
+                Phase 6 role directory. Granting <code>Admin</code> here lets
+                a principal mutate share policy + share-with-person; lower
+                tiers (<code>Contributor</code>, <code>Observer</code>) are
+                reserved for future routes. Bootstrap the first Admin from
+                the CLI — every admin route 403s until one exists.
+              </p>
+            </header>
+            <ParticipantsPanel />
           </section>
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
