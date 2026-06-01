@@ -16,6 +16,17 @@ fn nats_url() -> String {
     std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string())
 }
 
+/// A subject prefix unique to one test run. Subscribing/replaying on
+/// `{prefix}.>` means a test only ever sees its own publishes — never live
+/// traffic from a co-located OpenStory server (which publishes under
+/// `events.{host}.{project}.{session}.…`) nor a concurrent test. The
+/// `events` stream binds `events.>`, so anything under `events.itest.<id>`
+/// is still captured by JetStream; the `events.itest.*` segment just keeps
+/// each run in its own lane.
+fn unique_prefix() -> String {
+    format!("events.itest.{}", uuid::Uuid::new_v4())
+}
+
 fn test_event(source: &str) -> CloudEvent {
     CloudEvent::new(
         source.to_string(),
@@ -67,6 +78,7 @@ async fn publish_skips_private_session() {
 
     let private_session = format!("private-{}", uuid::Uuid::new_v4());
     let public_session = format!("public-{}", uuid::Uuid::new_v4());
+    let prefix = unique_prefix();
 
     let bus = NatsBus::connect(&nats_url())
         .await
@@ -74,7 +86,7 @@ async fn publish_skips_private_session() {
         .with_policy_lookup(Arc::new(AllPrivateForSession(private_session.clone())));
     bus.ensure_streams().await.expect("ensure streams");
 
-    let mut sub = bus.subscribe("events.>").await.expect("subscribe");
+    let mut sub = bus.subscribe(&format!("{prefix}.>")).await.expect("subscribe");
 
     // First: publish for the PRIVATE session — must be skipped.
     let private_batch = IngestBatch {
@@ -82,7 +94,7 @@ async fn publish_skips_private_session() {
         project_id: "test-project".to_string(),
         events: vec![test_event("private-event")],
     };
-    bus.publish(&format!("events.session.{private_session}"), &private_batch)
+    bus.publish(&format!("{prefix}.session.{private_session}"), &private_batch)
         .await
         .expect("publish (skipped path is still Ok)");
     assert_eq!(
@@ -97,7 +109,7 @@ async fn publish_skips_private_session() {
         project_id: "test-project".to_string(),
         events: vec![test_event("public-event")],
     };
-    bus.publish(&format!("events.session.{public_session}"), &public_batch)
+    bus.publish(&format!("{prefix}.session.{public_session}"), &public_batch)
         .await
         .expect("publish");
     assert_eq!(
@@ -132,6 +144,7 @@ async fn publish_and_replay_round_trip() {
     let bus = NatsBus::connect(&nats_url()).await.expect("connect");
     bus.ensure_streams().await.expect("ensure streams");
 
+    let prefix = unique_prefix();
     let session_id = format!("test-{}", uuid::Uuid::new_v4());
     let batch = IngestBatch {
         session_id: session_id.clone(),
@@ -139,14 +152,14 @@ async fn publish_and_replay_round_trip() {
         events: vec![test_event("replay-test")],
     };
 
-    bus.publish(&format!("events.session.{session_id}"), &batch)
+    bus.publish(&format!("{prefix}.session.{session_id}"), &batch)
         .await
         .expect("publish");
 
     // Small delay for JetStream persistence
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let replayed = bus.replay("events.>").await.expect("replay");
+    let replayed = bus.replay(&format!("{prefix}.>")).await.expect("replay");
 
     // Should contain at least our batch
     let found = replayed.iter().any(|b| b.session_id == session_id);
@@ -159,14 +172,15 @@ async fn publish_and_subscribe_delivery() {
     let bus = NatsBus::connect(&nats_url()).await.expect("connect");
     bus.ensure_streams().await.expect("ensure streams");
 
+    let prefix = unique_prefix();
     let session_id = format!("test-{}", uuid::Uuid::new_v4());
 
     // Subscribe first
-    let mut sub = bus.subscribe("events.>").await.expect("subscribe");
+    let mut sub = bus.subscribe(&format!("{prefix}.>")).await.expect("subscribe");
 
     // Publish
     let batch = test_batch(&session_id);
-    bus.publish(&format!("events.session.{session_id}"), &batch)
+    bus.publish(&format!("{prefix}.session.{session_id}"), &batch)
         .await
         .expect("publish");
 
@@ -187,10 +201,11 @@ async fn multiple_batches_arrive_in_order() {
     let bus = NatsBus::connect(&nats_url()).await.expect("connect");
     bus.ensure_streams().await.expect("ensure streams");
 
+    let prefix = unique_prefix();
     let session_id = format!("test-{}", uuid::Uuid::new_v4());
-    let subject = format!("events.session.{session_id}");
+    let subject = format!("{prefix}.session.{session_id}");
 
-    let mut sub = bus.subscribe("events.>").await.expect("subscribe");
+    let mut sub = bus.subscribe(&format!("{prefix}.>")).await.expect("subscribe");
 
     // Small delay to let push consumer register
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -205,7 +220,8 @@ async fn multiple_batches_arrive_in_order() {
         bus.publish(&subject, &batch).await.expect("publish");
     }
 
-    // Receive batches, filtering for our session_id (other tests may publish concurrently)
+    // Receive batches, filtering for our session_id (belt-and-suspenders —
+    // the unique prefix already isolates this run's traffic)
     let mut sources = Vec::new();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while sources.len() < 3 {
@@ -228,11 +244,16 @@ async fn multiple_batches_arrive_in_order() {
 #[tokio::test]
 #[ignore]
 async fn replay_empty_stream_returns_empty() {
-    // This test works even if the stream has data from other tests,
-    // but we just verify it doesn't panic and returns a vec.
+    // A unique prefix has no traffic of its own, so replay is genuinely
+    // empty — not just "doesn't panic." The prefix is captured by the
+    // `events.>` stream but matches no published subject.
     let bus = NatsBus::connect(&nats_url()).await.expect("connect");
     bus.ensure_streams().await.expect("ensure streams");
 
-    let result = bus.replay("events.>").await;
-    assert!(result.is_ok());
+    let result = bus.replay(&format!("{}.>", unique_prefix())).await;
+    assert!(result.is_ok(), "replay must not error");
+    assert!(
+        result.unwrap().is_empty(),
+        "an unused prefix must replay to an empty backlog"
+    );
 }
