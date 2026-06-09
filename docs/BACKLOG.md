@@ -316,6 +316,36 @@ A new `GET /api/sessions/{id}/training-export?format=structural-jsonl` endpoint 
 
 ---
 
+## Cowork (Claude Desktop) Integration
+
+Adding OpenStory observation for the Cowork code tab in Claude Desktop. The discovery (2026-06-09) is that Cowork is **Claude Code (v2.1.170) running inside an Apple-Virtualization sandbox VM** — Claude Desktop boots the VM, downloads `vm_bundles/claudevm.bundle/rootfs.img`, installs the Claude Code SDK at `…/claude-code-vm`, then runs the session as Claude Code. Cowork sessions write the **same JSONL format** OpenStory already parses (`type/session_id/uuid/parent_uuid/timestamp/content` shape), so the translator delta is effectively zero. Empirical evidence captured in `~/Library/Application Support/Claude/local-agent-mode-sessions/<account-uuid>/<task-uuid>/local_<session-uuid>/.claude/projects/<encoded-path>/<jsonl-uuid>.jsonl`. The model field in init is `claude-fable-5[1m]` — Cowork code-tab routes to Fable.
+
+### Cowork watcher path
+Add `~/Library/Application Support/Claude/local-agent-mode-sessions/**/.claude/projects/` as a second watch dir alongside the existing `~/.claude/projects/`. Config field `cowork_watch_dir` defaulting empty (opt-in), env `OPEN_STORY_COWORK_WATCH_DIR`. The on-disk format is byte-identical to Claude Code, so `reader.rs` and `translate.rs` pass through unchanged. ~30 LOC in `rs/server/src/config.rs` + watcher wiring. Estimate: 1 hour.
+
+### `claude-code-cowork` agent discriminator
+Cowork sessions should be distinguishable from regular Claude Code sessions in the UI (different sandbox, different MCP surface, runs Fable instead of the user's CLI model). The translator can sniff the path (`local-agent-mode-sessions` segment) to set `agent: "claude-code-cowork"` on the CloudEvent. Views layer branches on this for a small UI badge. No new translator — same code path, just a different `agent` value at routing time. ~15 LOC. Estimate: 30 minutes.
+
+### `audit.jsonl` ingestion + HMAC verification
+Cowork writes a parallel `audit.jsonl` alongside the regular JSONL. Every record carries `_audit_timestamp` and `_audit_hmac` fields — Anthropic's tamper-evident integrity log. This is a **sovereignty-relevant** addition: OpenStory's pitch is "observe, don't trust"; the audit log lets us actually *verify* that what the agent wrote matches what Anthropic signed. Phase 1: ingest into a new `audit_records` table (foreign key to the main event by uuid). Phase 2: an `audit_verified: bool` column populated by an HMAC verification worker once the signing key is documented (or by structural comparison if it never is). Surface an audit-integrity indicator per session in the UI. Estimate: half a day for ingestion, blocked on key-publication question for verification.
+
+### Cowork MCP surface snapshot
+The init record on a Cowork session lists ~60 MCP tools across 10 connected servers (`Claude in Chrome`, `cowork`, `cowork-onboarding`, `mcp-registry`, `plugins`, `scheduled-tasks`, `session_info`, `skills`, `visualize`, `workspace`). This is a richer attack surface than a stock Claude Code session and worth surfacing: extract the tool list at session init and store it on `sessions.mcp_servers` (already a column for pi-mono — Cowork sessions populate it too, no schema change). The UI session header already renders this if non-empty. Estimate: covered by the watcher entry above — verify the existing column populates correctly.
+
+### Nested session-ID handling
+A Cowork session has *two* UUIDs: the outer "task" UUID (Cowork-side) and the inner Claude Code `session_id` in the JSONL. They're distinct (e.g., task `4d7a35aa-…`, inner session `65dc744d-…`). The path-encoded project name is also pathological — it contains every parent UUID, producing a `project_id` like `-Users-kloughra-Library-Application-Support-Claude-local-agent-mode-sessions-89bbf81e-…-4d7a35aa-…-local-4c6d830b-…-output-e6evvn`. Decide whether to collapse these into a single virtual "Cowork" project group in the sidebar, or to surface them as-is. Recommend: a sidebar grouping rule that buckets all Cowork-path sessions under one collapsible "Claude Desktop / Cowork" header, with the inner session label as the row title. ~40 LOC in the UI sidebar reducer. Estimate: half a day.
+
+### Schema drift canary
+Cowork's on-disk format is **undocumented and not under a stability contract**. Mirror Hermes's verification pattern: a `scripts/verify_cowork_schema.py` that boots a known prompt, captures the resulting JSONL + `audit.jsonl`, asserts on the field shape, and runs as a CI canary against fresh Claude Desktop releases. Without this, the integration is one Claude Desktop release away from silent breakage. Estimate: 2 hours for the script + a manual run cadence (no automated trigger possible since Claude Desktop auto-updates).
+
+### Cross-platform Cowork path resolution
+The discovery above captured the macOS path only (`~/Library/Application Support/Claude/local-agent-mode-sessions/…`). Claude Desktop also ships on Windows (Electron convention is `%APPDATA%\Claude\` → `C:\Users\<user>\AppData\Roaming\Claude\`) and Linux is theoretical (`~/.config/Claude/` if it follows XDG). Verify the equivalent path on each platform empirically — boot Claude Desktop, find the data dir, confirm the `local-agent-mode-sessions/` subtree exists — and have the watcher resolve the right default at boot via a small `cowork_default_watch_dir()` helper that branches on `cfg!(target_os)`. The config field stays a single `cowork_watch_dir`; only the default differs. Tracked separately because the integration above can ship macOS-only first; this item unblocks Windows users on the team. Estimate: 1 hour per platform (mostly empirical — find the dir, add the branch, smoke test).
+
+### Cowork OTel exporter as second observation channel — RESEARCH
+Cowork went GA on macOS/Windows on 2026-04-09 with OpenTelemetry support for activity tracking ([release notes](https://support.claude.com/en/articles/12138966-release-notes)). The on-disk JSONL path above is the **today** integration; the OTel exporter is the **stable contract**. Investigate whether a local OTel collector can be pointed at `localhost`, what shape Cowork emits, and how it overlaps with / replaces the JSONL signal. Likely outcome: file watcher stays as the primary signal (real-time, full transcript), OTel becomes a structural sidecar (spans + metrics for things the transcript doesn't carry). Lower priority than the file-watcher path.
+
+---
+
 ## Search & Navigation
 
 ### Session Search & Full-Text Query
