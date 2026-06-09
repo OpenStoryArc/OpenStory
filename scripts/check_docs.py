@@ -366,6 +366,41 @@ def check_consumer_count(repo: Path) -> CheckResult:
     )
 
 
+# Retired HTTP /hooks ingestion feature. NATS + the file watcher are the sole
+# ingestion path (the endpoint was deleted in e17ae27). These patterns catch
+# docs that still advertise it. The observed `system.hook` / `progress.hook`
+# event subtypes are NOT matched here — they contain no `/hooks` path, no
+# "Hooks Setup" heading, and no `hooks.rs` — so they remain allowed.
+RETIRED_HOOKS_PATTERNS: list[tuple[str, str]] = [
+    (r"/hooks\b", "HTTP /hooks endpoint reference"),
+    (r"(?i)hooks setup", "'Hooks Setup' heading"),
+    (r"\bhooks\.rs\b", "deleted hooks.rs reference"),
+]
+
+
+def check_no_retired_hooks_endpoint(repo: Path) -> CheckResult:
+    """Assertion 13 — no tracked doc may advertise the retired HTTP /hooks
+    ingestion feature. NATS JetStream + the file watcher are the only path.
+
+    The observed `system.hook` / `progress.hook` event subtypes (agent-run
+    hooks captured via the watcher) are explicitly allowed — they match none
+    of the retired-endpoint patterns.
+    """
+    fails: list[str] = []
+    for key, rel in DOCS.items():
+        text = read_doc(repo, key)
+        if not text:
+            continue
+        for pat, label in RETIRED_HOOKS_PATTERNS:
+            if re.search(pat, text):
+                fails.append(f"{rel}: {label}")
+    return CheckResult(
+        "no_retired_hooks_endpoint",
+        ok=not fails,
+        detail="; ".join(fails) if fails else "no retired /hooks references in docs",
+    )
+
+
 CHECKS: list[Callable[[Path], CheckResult]] = [
     check_no_merge_markers,
     check_pattern_detector_count,
@@ -380,6 +415,7 @@ CHECKS: list[Callable[[Path], CheckResult]] = [
     check_claude_md_mentions_sessionstory,
     check_tour_references_sessionstory,
     check_consumer_count,
+    check_no_retired_hooks_endpoint,
 ]
 
 
@@ -458,7 +494,8 @@ def selftest() -> int:
         # Stale doc claiming 5 detectors, no NATS, with merge marker
         (fake / "docs").mkdir()
         (fake / "docs" / "architecture-tour.md").write_text(
-            "Pipeline with 5 detectors and no event bus.\n>>>>>>> master\n"
+            "Pipeline with 5 detectors and no event bus.\n"
+            "Agents POST events via /hooks (HTTP).\n>>>>>>> master\n"
         )
         (fake / "docs" / "soul").mkdir()
         (fake / "docs" / "soul" / "architecture.md").write_text("8 crates, 5 detectors, no event bus")
@@ -485,6 +522,7 @@ def selftest() -> int:
         expect("readme-sessionstory fails", "readme_mentions_sessionstory" in names_failing)
         expect("claude-md-sessionstory fails", "claude_md_mentions_sessionstory" in names_failing)
         expect("tour-sessionstory fails", "tour_references_sessionstory" in names_failing)
+        expect("retired-hooks check fails", "no_retired_hooks_endpoint" in names_failing)
 
     print()
     print("== synthetic repo: passing fixture ==")
@@ -503,7 +541,8 @@ def selftest() -> int:
         (fake / "scripts" / "real.py").write_text("")
         (fake / "docs").mkdir()
         (fake / "docs" / "architecture-tour.md").write_text(
-            "9 crates, 7 detectors, NATS event bus, 4 consumers, see consumers/persist.rs and scripts/sessionstory.py"
+            "9 crates, 7 detectors, NATS event bus, 4 consumers, renders system.hook "
+            "and progress.hook events, see consumers/persist.rs and scripts/sessionstory.py"
         )
         (fake / "docs" / "soul").mkdir()
         (fake / "docs" / "soul" / "architecture.md").write_text(

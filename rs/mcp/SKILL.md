@@ -52,7 +52,7 @@ OpenStory observes every session you run. You can query that history in real tim
 - **Direct store access.** The Rust MCP reads SQLite (or Mongo, when `OPENSTORY_DATA_BACKEND=mongo`) directly — no REST hop. That makes `session_story`, `search`, and the analytics tools faster and immune to REST-layer truncation.
 - **Before guessing, query.** If the user asks about something you *could* know from history, look it up instead of guessing from memory.
 - **When picking up from a past session**, call `session_story` first to get the full fact sheet, then drill into specific tools (`tool_journey`, `session_transcript`) if you need detail.
-- **For live work**, prefer `subscribe_session` over polling. The stream pushes events as the watcher/hooks see them.
+- **For live work**, prefer `subscribe_session` over polling. The stream pushes events as the watcher sees them.
 
 ## Example flow
 

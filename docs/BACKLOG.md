@@ -475,7 +475,7 @@ CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversation
 Cron job or systemd timer on the server that queries the OpenStory API to detect when OpenClaw is stuck — consecutive zero-token error responses, or no successful completion in N minutes. When detected, automatically `docker restart openclaw`. This is the dogfood approach: OpenStory's own data powers the health check instead of generic Docker healthchecks that can't distinguish "running but spinning on rate limits" from "working normally." Could be a simple Python script in `scripts/` querying `http://open-story:3002/api/sessions`.
 
 ### Starter Configuration
-Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
+Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, data directory, and UI mode.
 
 ### Sentence Identity & Query API
 Two pieces: identity and querying.

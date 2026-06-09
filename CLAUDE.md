@@ -13,7 +13,7 @@ This is a mirror, not a leash. The listener watches but never interferes. It nev
 These principles flow from the soul above. They are the rules that shape every decision in this codebase.
 
 ### 1. Observe, never interfere
-- The listener is read-only. It watches transcript files and receives hook events. It never writes back, never modifies agent behavior, never blocks execution.
+- The listener is read-only. It watches transcript files for all agent activity. It never writes back, never modifies agent behavior, never blocks execution.
 - If a proposed feature would require mutating the source or inserting the listener into the agent's execution path, it does not belong here.
 
 ### 2. Behavior-Driven Development (BDD)
@@ -277,7 +277,7 @@ just observe         # Start full stack + Prometheus + Grafana
 
 **NATS Event Bus** — all events flow through NATS JetStream with hierarchical subjects:
 ```
-Source: watcher/hooks → translate_line() → CloudEvent → publish to NATS
+Source: watcher → translate_line() → CloudEvent → publish to NATS
 
 Subjects (hierarchical — encodes parent-child relationships):
   events.{project}.{session}.main              — main agent events
@@ -319,7 +319,6 @@ The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the sa
 - `router.rs` — `build_router()` (all HTTP/WS routes)
 - `api.rs` — REST endpoints (`/api/sessions`, `/api/search`, `/api/agent/search`, etc.)
 - `ws.rs` — WebSocket broadcast for live updates
-- `hooks.rs` — `POST /hooks` endpoint for coding agent HTTP hooks (currently Claude Code)
 - `config.rs` — Config struct + TOML loading
 - `auth.rs` — Bearer token authentication middleware
 - `metrics.rs` — Prometheus metrics endpoint
@@ -404,20 +403,6 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).
 
 See `rs/server/src/config.rs` for the full Config struct and defaults.
-
-## Hooks Setup
-
-Open Story supports HTTP hooks for near-real-time event delivery (vs. the file watcher which polls). Currently Claude Code is the only agent with hook support. See README.md for setup instructions, or add this to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }]
-  }
-}
-```
 
 ## Development Workflow (TDD)
 
