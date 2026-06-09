@@ -117,6 +117,12 @@ pub struct Config {
     /// The hermes-openstory plugin writes per-session JSONL here; the watcher
     /// auto-detects the format via `envelope.source == "hermes"`.
     pub hermes_watch_dir: String,
+    /// Directory to watch for Cowork (Claude Desktop) session files.
+    /// Empty = disabled. Cowork sessions are Claude Code running inside the
+    /// Claude Desktop sandbox VM, so the on-disk JSONL format is identical
+    /// to Claude Code — the same translator/watcher applies. macOS default
+    /// is `~/Library/Application Support/Claude/local-agent-mode-sessions`.
+    pub cowork_watch_dir: String,
     /// Persistence backend: "sqlite" (default) or "mongo".
     /// `mongo` requires building with `--features open-story-store/mongo`.
     pub data_backend: DataBackend,
@@ -195,6 +201,7 @@ impl Default for Config {
             watch_dir: String::new(), // resolved at runtime
             pi_watch_dir: String::new(), // disabled by default
             hermes_watch_dir: String::new(), // disabled by default
+            cowork_watch_dir: String::new(), // disabled by default
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".to_string(),
             mongo_db: "openstory".to_string(),
@@ -301,6 +308,9 @@ impl Config {
         if let Some(h) = a.hermes_watch_dir {
             self.hermes_watch_dir = h;
         }
+        if let Some(c) = a.cowork_watch_dir {
+            self.cowork_watch_dir = c;
+        }
         self.port = a.port;
         self.data_dir = a.data_dir;
         self
@@ -331,6 +341,8 @@ pub struct WizardAnswers {
     pub pi_watch_dir: Option<String>,
     /// Optional Hermes session directory (None = leave current value).
     pub hermes_watch_dir: Option<String>,
+    /// Optional Cowork (Claude Desktop) session directory (None = leave current value).
+    pub cowork_watch_dir: Option<String>,
     /// Port the server listens on.
     pub port: u16,
     /// Directory where config.toml + data live.
@@ -503,6 +515,7 @@ mod tests {
             watch_dir: "/tmp/watch".into(),
             pi_watch_dir: String::new(),
             hermes_watch_dir: String::new(),
+            cowork_watch_dir: String::new(),
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".into(),
             mongo_db: "openstory".into(),
@@ -592,6 +605,7 @@ mod tests {
             watch_dir: "/home/me/.claude/projects".into(),
             pi_watch_dir: None,
             hermes_watch_dir: None,
+            cowork_watch_dir: None,
             port: 4000,
             data_dir: "/var/openstory".into(),
         };
@@ -603,6 +617,7 @@ mod tests {
         // Untouched optional dirs stay empty (None = leave current).
         assert_eq!(config.pi_watch_dir, "");
         assert_eq!(config.hermes_watch_dir, "");
+        assert_eq!(config.cowork_watch_dir, "");
     }
 
     #[test]
@@ -618,6 +633,7 @@ mod tests {
             watch_dir: "/w".into(),
             pi_watch_dir: None,
             hermes_watch_dir: None,
+            cowork_watch_dir: None,
             port: 3002,
             data_dir: "./data".into(),
         };
@@ -625,6 +641,65 @@ mod tests {
         assert_eq!(config.api_token, "keep-me", "wizard must not clobber api_token");
         assert_eq!(config.nats_url, "nats://custom:4222");
         assert_eq!(config.retention_days, 90);
+    }
+
+    // ── Cowork (Claude Desktop) watch directory ──
+    //
+    // Cowork sessions are Claude Code running inside Claude Desktop's
+    // sandbox VM. The on-disk JSONL format is identical to Claude Code,
+    // so the same translator/watcher applies — only the watch root differs.
+
+    #[test]
+    fn default_config_has_empty_cowork_watch_dir() {
+        let config = Config::default();
+        assert_eq!(
+            config.cowork_watch_dir, "",
+            "cowork_watch_dir must default to empty (opt-in)"
+        );
+    }
+
+    #[test]
+    fn apply_answers_sets_cowork_watch_dir_when_provided() {
+        let answers = WizardAnswers {
+            days_history: 7,
+            watch_dir: "/home/me/.claude/projects".into(),
+            pi_watch_dir: None,
+            hermes_watch_dir: None,
+            cowork_watch_dir: Some(
+                "/home/me/Library/Application Support/Claude/local-agent-mode-sessions".into(),
+            ),
+            port: 3002,
+            data_dir: "./data".into(),
+        };
+        let config = Config::default().apply_answers(answers);
+        assert_eq!(
+            config.cowork_watch_dir,
+            "/home/me/Library/Application Support/Claude/local-agent-mode-sessions",
+            "wizard answer must apply to cowork_watch_dir"
+        );
+    }
+
+    #[test]
+    fn cowork_watch_dir_round_trips_through_toml() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let answers = WizardAnswers {
+            days_history: 1,
+            watch_dir: "/w".into(),
+            pi_watch_dir: None,
+            hermes_watch_dir: None,
+            cowork_watch_dir: Some("/cowork".into()),
+            port: 3002,
+            data_dir: tmp.path().to_string_lossy().to_string(),
+        };
+        let config = Config::default().apply_answers(answers);
+        Config::write_values(&path, &config).unwrap();
+
+        let reloaded = Config::from_file(&path);
+        assert_eq!(
+            reloaded.cowork_watch_dir, "/cowork",
+            "cowork_watch_dir must survive TOML round-trip"
+        );
     }
 
     #[test]
@@ -636,6 +711,7 @@ mod tests {
             watch_dir: "/w".into(),
             pi_watch_dir: Some("/pi".into()),
             hermes_watch_dir: None,
+            cowork_watch_dir: None,
             port: 7777,
             data_dir: tmp.path().to_string_lossy().to_string(),
         };

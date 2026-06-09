@@ -208,6 +208,10 @@ fn run_flow<R: BufRead, W: Write>(
         watch_dir,
         pi_watch_dir,
         hermes_watch_dir,
+        // Cowork (Claude Desktop) dir is opt-in via config.toml or
+        // OPEN_STORY_COWORK_WATCH_DIR env var. The wizard doesn't prompt
+        // for it yet — see BACKLOG: "Cross-platform Cowork path resolution".
+        cowork_watch_dir: None,
         port,
         data_dir: data_dir_str.clone(),
     });

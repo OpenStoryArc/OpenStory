@@ -52,6 +52,7 @@ pub async fn run_server(
     let is_publisher = matches!(role, Role::Publisher | Role::Full);
     let pi_watch_dir = config.pi_watch_dir.clone();
     let hermes_watch_dir = config.hermes_watch_dir.clone();
+    let cowork_watch_dir = config.cowork_watch_dir.clone();
 
     let state = create_state(data_dir, watch_dir, bus.clone(), config).await?;
 
@@ -422,6 +423,35 @@ pub async fn run_server(
                 }
             });
             eprintln!("  \x1b[2mPi watch dir:\x1b[0m   {}", pi_watch_dir);
+        }
+    }
+
+    // ── Cowork (Claude Desktop) watcher (optional additional watch directory) ──
+    //
+    // Cowork is Claude Code running inside the Claude Desktop sandbox VM. The
+    // on-disk JSONL format is byte-identical to Claude Code, so the same
+    // watcher and translator apply — only the watch root differs. macOS
+    // default path: ~/Library/Application Support/Claude/local-agent-mode-sessions
+    if is_publisher && !cowork_watch_dir.is_empty() {
+        let cowork_dir = std::path::PathBuf::from(&cowork_watch_dir);
+        if cowork_dir.exists() {
+            let watcher_bus = bus.clone();
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::watcher::watch_with_callback(&cowork_dir, backfill_window, |session_id, project_id, subject, events| {
+                    let batch = IngestBatch {
+                        session_id: session_id.to_string(),
+                        project_id: project_id.unwrap_or("").to_string(),
+                        events: events.to_vec(),
+                    };
+                    let rt = tokio::runtime::Handle::current();
+                    if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                        eprintln!("Cowork bus publish error: {e}");
+                    }
+                }) {
+                    eprintln!("Cowork watcher error: {}", e);
+                }
+            });
+            eprintln!("  \x1b[2mCowork watch dir:\x1b[0m {}", cowork_watch_dir);
         }
     }
 
