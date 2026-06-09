@@ -79,6 +79,6 @@ class Openstory < Formula
     # `open-story --help` should mention the `serve` subcommand.
     assert_match "serve", shell_output("#{bin}/open-story --help")
     # The MCP server binary should be installed.
-    assert_predicate bin/"open-story-mcp", :exist?
+    assert_path_exists bin/"open-story-mcp"
   end
 end
