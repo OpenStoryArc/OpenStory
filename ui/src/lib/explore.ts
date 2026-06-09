@@ -1,6 +1,7 @@
 /** Pure transforms for the Explore tab — session list grouping, search, sort, filter. */
 
 import type { SessionSummary } from "@/types/session";
+import { APP_TIME_ZONE, easternDayKey } from "./time";
 
 /** A group of sessions under a header (day or project). */
 export interface SessionGroup {
@@ -174,20 +175,34 @@ export function filterSessionsByQuery(
   );
 }
 
-/** Derive a human-readable day label from an ISO timestamp. */
+const weekdayFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: APP_TIME_ZONE,
+  weekday: "long",
+});
+const fullDateFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: APP_TIME_ZONE,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+/**
+ * Derive a human-readable day label from an ISO timestamp, computed against the
+ * Eastern calendar day so grouping matches the displayed (Eastern) times.
+ */
 export function dayLabel(iso: string, now: Date = new Date()): string {
   const date = new Date(iso);
-  const today = startOfDay(now);
-  const target = startOfDay(date);
-
-  const diffDays = Math.floor((today.getTime() - target.getTime()) / 86_400_000);
+  const diffDays = easternDayDiff(easternDayKey(date), easternDayKey(now));
 
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return date.toLocaleDateString("en-US", { weekday: "long" });
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (diffDays > 0 && diffDays < 7) return weekdayFmt.format(date);
+  return fullDateFmt.format(date);
 }
 
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+/** Whole-day difference between two `YYYY-MM-DD` keys (today − target). */
+function easternDayDiff(targetKey: string, todayKey: string): number {
+  const target = Date.parse(`${targetKey}T00:00:00Z`);
+  const today = Date.parse(`${todayKey}T00:00:00Z`);
+  return Math.round((today - target) / 86_400_000);
 }

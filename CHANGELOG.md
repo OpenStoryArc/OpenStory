@@ -3,6 +3,13 @@
 All notable changes to OpenStory are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 
+## [0.2.1] — 2026-06-09
+
+### Added
+- The Homebrew formula now builds and installs the **MCP server**
+  (`open-story-mcp`) alongside the CLI, so agents can be wired up directly:
+  `claude mcp add openstory stdio "$(brew --prefix)/bin/open-story-mcp"`.
+
 ## [0.2.0] — 2026-06-09
 
 The "effortless install" release. `brew install openstory` now brings up the

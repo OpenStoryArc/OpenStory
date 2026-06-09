@@ -17,9 +17,11 @@ class Openstory < Formula
       system "npm", "run", "build"
     end
 
-    # Build and install the Rust CLI (binary lands at #{bin}/open-story).
+    # Build and install the Rust CLI (binary lands at #{bin}/open-story) and
+    # the MCP server (#{bin}/open-story-mcp) for agent integration.
     cd "rs" do
       system "cargo", "install", *std_cargo_args(path: "cli")
+      system "cargo", "install", *std_cargo_args(path: "mcp")
     end
 
     # Ship UI static assets next to the binary; --static-dir points here.
@@ -64,6 +66,9 @@ class Openstory < Formula
       Open the dashboard:
           http://localhost:3002
 
+      Give an agent OpenStory's MCP tools:
+          claude mcp add openstory stdio #{opt_bin}/open-story-mcp
+
       Data dir:       #{var}/openstory
       UI assets:      #{pkgshare}/static
       Watched dir:    ~/.claude/projects/  (Claude Code default)
@@ -73,5 +78,7 @@ class Openstory < Formula
   test do
     # `open-story --help` should mention the `serve` subcommand.
     assert_match "serve", shell_output("#{bin}/open-story --help")
+    # The MCP server binary should be installed.
+    assert_predicate bin/"open-story-mcp", :exist?
   end
 end

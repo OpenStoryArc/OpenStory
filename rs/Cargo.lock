@@ -2878,7 +2878,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "open-story"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2914,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-bus"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -2980,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-patterns"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "open-story-core",
  "open-story-views",
@@ -2991,7 +2991,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-schemas"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "jsonschema",
@@ -3010,7 +3010,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "open-story-views"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "jsonschema",

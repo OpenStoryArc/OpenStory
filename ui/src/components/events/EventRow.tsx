@@ -40,7 +40,7 @@ export const EventRow = memo(
         } ${isNew ? "event-new" : ""}${destructiveBg}`}
         style={gitBorderStyle}
       >
-        <span className="w-16 text-[#565f89] flex-shrink-0">
+        <span className="w-44 text-[#565f89] flex-shrink-0 whitespace-nowrap">
           {compactTime(record.timestamp)}
         </span>
         <span

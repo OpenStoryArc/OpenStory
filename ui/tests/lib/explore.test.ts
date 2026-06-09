@@ -45,6 +45,17 @@ describe("dayLabel — boundary table", () => {
       );
     },
   );
+
+  // 2025-01-16T03:00:00Z is still Jan 15 (22:00 EST) in America/New_York,
+  // even though it is Jan 16 in UTC. Day grouping must use the Eastern day so
+  // it matches the displayed times — not the viewer's local midnight.
+  it("groups by the Eastern calendar day, not UTC/local", () => {
+    scenario(
+      () => "2025-01-16T03:00:00Z",
+      (ts) => dayLabel(ts, NOW),
+      (result) => expect(result).toBe("Yesterday"),
+    );
+  });
 });
 
 // ── groupSessionsByDay ──────────────────────

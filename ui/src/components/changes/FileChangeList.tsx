@@ -1,4 +1,5 @@
 import type { FileChange } from "@/lib/changes";
+import { compactTime } from "@/lib/time";
 
 interface FileChangeListProps {
   files: FileChange[];
@@ -15,7 +16,7 @@ export function FileChangeList({
     <div className="overflow-y-auto h-full">
       {files.map((file) => {
         const isSelected = file.filePath === selectedPath;
-        const time = new Date(file.lastChanged).toLocaleTimeString();
+        const time = compactTime(file.lastChanged);
 
         return (
           <button

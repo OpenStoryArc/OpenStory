@@ -1,11 +1,12 @@
 import type { FileHunk } from "@/lib/changes";
+import { compactTime } from "@/lib/time";
 
 interface DiffHunkProps {
   hunk: FileHunk;
 }
 
 export function DiffHunk({ hunk }: DiffHunkProps) {
-  const timeLabel = new Date(hunk.timestamp).toLocaleTimeString();
+  const timeLabel = compactTime(hunk.timestamp);
 
   return (
     <div className="mb-4 border border-[#2f3348] rounded">

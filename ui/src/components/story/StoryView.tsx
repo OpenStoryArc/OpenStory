@@ -32,6 +32,7 @@ import {
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
+import { relativeTime } from "@/lib/time";
 
 import type { PatternView } from "@/types/wire-record";
 
@@ -86,22 +87,6 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-/** Format an ISO timestamp as a human-readable relative time. */
-function formatRecency(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (isNaN(ms) || ms < 0) return "";
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
 }
 
 export function StoryView({ livePatterns, selectedSession, onSelectSession }: StoryViewProps) {
@@ -377,7 +362,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
             ? (s.label.length > 40 ? s.label.slice(0, 37) + "..." : s.label)
             : s.session_id;
           const cachedCount = sentenceCache.get(s.session_id)?.length;
-          const recency = s.last_event ? formatRecency(s.last_event) : null;
+          const recency = s.last_event ? relativeTime(s.last_event) : null;
           return (
             <button
               key={s.session_id}
