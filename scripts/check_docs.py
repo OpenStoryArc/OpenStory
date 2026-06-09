@@ -82,6 +82,49 @@ def list_crates(repo: Path) -> list[str]:
     return sorted(d.name for d in rs.iterdir() if (d / "Cargo.toml").is_file())
 
 
+def config_struct_fields(repo: Path) -> list[str]:
+    """Field names of the `Config` struct in rs/server/src/config.rs.
+
+    Scopes to the `Config` struct body only (other structs like
+    `WizardAnswers` live in the same file). Returns `pub <name>:` field
+    names. Empty list if the file or struct can't be found.
+    """
+    cfg = repo / "rs" / "server" / "src" / "config.rs"
+    if not cfg.is_file():
+        return []
+    text = cfg.read_text(encoding="utf-8", errors="replace")
+    m = re.search(r"pub struct Config\s*\{(.*?)\n\}", text, re.S)
+    if not m:
+        return []
+    return re.findall(r"pub\s+([a-z_][a-z0-9_]*)\s*:", m.group(1))
+
+
+def claude_md_config_table_fields(text: str) -> list[str]:
+    """Backticked field names from CLAUDE.md's config table.
+
+    Anchors on the `| Field | Default | Description |` header (unique in
+    CLAUDE.md) and reads contiguous table rows until the table ends,
+    pulling the backticked token from the first column. Ignores every
+    other markdown table in the file.
+    """
+    lines = text.splitlines()
+    fields: list[str] = []
+    in_table = False
+    for line in lines:
+        if re.match(r"\|\s*Field\s*\|\s*Default\s*\|\s*Description\s*\|", line):
+            in_table = True
+            continue
+        if in_table:
+            if not line.lstrip().startswith("|"):
+                break  # table ended
+            if re.match(r"\|\s*-+", line):  # separator row
+                continue
+            cell = re.match(r"\|\s*`([^`]+)`", line)
+            if cell:
+                fields.append(cell.group(1))
+    return fields
+
+
 PLACEHOLDER_NAMES = {"foo.py", "bar.py", "baz.py", "yourscript.py"}
 
 
@@ -366,6 +409,31 @@ def check_consumer_count(repo: Path) -> CheckResult:
     )
 
 
+def check_config_table_fields(repo: Path) -> CheckResult:
+    """Assertion 14 — every field in CLAUDE.md's config table must exist in the
+    `Config` struct.
+
+    Catches phantom config fields: rows a user would copy into config.toml
+    that the code silently ignores (e.g., the dropped `semantic_enabled`,
+    `qdrant_url`, `embedding_model_path`, or a renamed `boot_window_hours`).
+    One-way (table ⊆ struct) so real-but-undocumented fields don't fail CI.
+    """
+    struct_fields = set(config_struct_fields(repo))
+    if not struct_fields:
+        return CheckResult("config_table_fields", ok=True, detail="config.rs not found — skipped")
+    table_fields = claude_md_config_table_fields(read_doc(repo, "claude_md"))
+    phantom = [f for f in table_fields if f not in struct_fields]
+    return CheckResult(
+        "config_table_fields",
+        ok=not phantom,
+        detail=(
+            f"phantom config fields (not in Config struct): {phantom}"
+            if phantom
+            else f"all {len(table_fields)} config-table fields exist in Config struct"
+        ),
+    )
+
+
 # Retired HTTP /hooks ingestion feature. NATS + the file watcher are the sole
 # ingestion path (the endpoint was deleted in e17ae27). These patterns catch
 # docs that still advertise it. The observed `system.hook` / `progress.hook`
@@ -415,6 +483,7 @@ CHECKS: list[Callable[[Path], CheckResult]] = [
     check_claude_md_mentions_sessionstory,
     check_tour_references_sessionstory,
     check_consumer_count,
+    check_config_table_fields,
     check_no_retired_hooks_endpoint,
 ]
 
@@ -476,6 +545,21 @@ def selftest() -> int:
     expect("absent", not mentions("plain text", "NATS"))
 
     print()
+    print("== config table extractor ==")
+    table = (
+        "| Field | Default | Description |\n"
+        "|-------|---------|-------------|\n"
+        "| `host` | `127.0.0.1` | bind |\n"
+        "| `port` | `3002` | listen |\n"
+        "\nUnrelated table follows:\n"
+        "| Other | x | y |\n"
+        "| `unrelated` | x | y |\n"
+    )
+    tf = claude_md_config_table_fields(table)
+    expect("config table fields extracted in order", tf == ["host", "port"], f"got {tf}")
+    expect("rows past table end ignored", "unrelated" not in tf)
+
+    print()
     print("== synthetic repo: failing fixture ==")
     import tempfile
 
@@ -504,7 +588,17 @@ def selftest() -> int:
         )
         (fake / "docs" / "design-two-streams.md").write_text("ok")
         (fake / "docs" / "BACKLOG.md").write_text("ok")
-        (fake / "CLAUDE.md").write_text("9 crates")
+        # Config struct has only port + host; CLAUDE.md table names a ghost field
+        (fake / "rs" / "server" / "src" / "config.rs").write_text(
+            "pub struct Config {\n    pub port: u16,\n    pub host: String,\n}\n"
+        )
+        (fake / "CLAUDE.md").write_text(
+            "9 crates\n\n"
+            "| Field | Default | Description |\n"
+            "|-------|---------|-------------|\n"
+            "| `port` | `3002` | listen |\n"
+            "| `ghost_field` | `x` | not in struct |\n"
+        )
         (fake / "README.md").write_text("nothing about story")
 
         results = [c(fake) for c in CHECKS]
@@ -522,6 +616,7 @@ def selftest() -> int:
         expect("readme-sessionstory fails", "readme_mentions_sessionstory" in names_failing)
         expect("claude-md-sessionstory fails", "claude_md_mentions_sessionstory" in names_failing)
         expect("tour-sessionstory fails", "tour_references_sessionstory" in names_failing)
+        expect("config table check fails", "config_table_fields" in names_failing)
         expect("retired-hooks check fails", "no_retired_hooks_endpoint" in names_failing)
 
     print()
@@ -553,7 +648,16 @@ def selftest() -> int:
         )
         (fake / "docs" / "design-two-streams.md").write_text("ok")
         (fake / "docs" / "BACKLOG.md").write_text("ok")
-        (fake / "CLAUDE.md").write_text("9 crates with 4 consumers and sessionstory.py")
+        (fake / "rs" / "server" / "src" / "config.rs").write_text(
+            "pub struct Config {\n    pub port: u16,\n    pub host: String,\n}\n"
+        )
+        (fake / "CLAUDE.md").write_text(
+            "9 crates with 4 consumers and sessionstory.py\n\n"
+            "| Field | Default | Description |\n"
+            "|-------|---------|-------------|\n"
+            "| `port` | `3002` | listen |\n"
+            "| `host` | `127.0.0.1` | bind |\n"
+        )
         (fake / "README.md").write_text("Run sessionstory.py for the story")
         # Need a sessionstory.py reference to satisfy script existence check
         (fake / "scripts" / "sessionstory.py").write_text("")
