@@ -245,6 +245,10 @@ fn run_flow<R: BufRead, W: Write>(
     Ok(())
 }
 
+/// `brew services run` — start for this login session only, WITHOUT
+/// registering to auto-launch at login (that's `start`, an explicit opt-in).
+const BREW_SERVICE_RUN: [&str; 3] = ["services", "run", "openstory"];
+
 /// If Homebrew is present, offer to start NATS + OpenStory and open the
 /// dashboard. Never mutates `~/.claude/settings.json` (no hooks). Failures are
 /// reported, never fatal.
@@ -259,15 +263,20 @@ fn maybe_start_services<R: BufRead, W: Write>(
         writeln!(writer, "    open-story serve     (brings up NATS automatically)")?;
         return Ok(());
     }
-    // The brew service runs `serve --manage-nats`, so starting OpenStory brings
-    // up its JetStream NATS too — one command, whole stack.
-    if confirm(reader, writer, "\n  Start OpenStory now via `brew services`? (it brings up NATS for you)", false)? {
+    // `brew services run` (not `start`) launches it for this login session
+    // WITHOUT registering it to auto-start at login. The brew service runs
+    // `serve --manage-nats`, so this brings up the JetStream NATS + API +
+    // dashboard — one command, whole stack.
+    if confirm(reader, writer, "\n  Start OpenStory now in the background? (brings up NATS; not auto-started at login)", false)? {
         match std::process::Command::new("brew")
-            .args(["services", "start", "openstory"])
+            .args(BREW_SERVICE_RUN)
             .status()
         {
-            Ok(s) if s.success() => writeln!(writer, "  ✓ started openstory (NATS included)")?,
-            Ok(s) => writeln!(writer, "  ! `brew services start openstory` exited with {s}")?,
+            Ok(s) if s.success() => {
+                writeln!(writer, "  ✓ running openstory (NATS + dashboard included)")?;
+                writeln!(writer, "    (to also launch at login: brew services start openstory)")?;
+            }
+            Ok(s) => writeln!(writer, "  ! `brew services run openstory` exited with {s}")?,
             Err(e) => writeln!(writer, "  ! could not run brew: {e}")?,
         }
         if confirm(reader, writer, "  Open the dashboard in your browser?", true)? {
@@ -343,6 +352,37 @@ mod tests {
         assert!(!confirm(&mut reader("\n"), &mut Vec::new(), "ok?", false).unwrap());
         assert!(confirm(&mut reader("Y\n"), &mut Vec::new(), "ok?", false).unwrap());
         assert!(!confirm(&mut reader("no\n"), &mut Vec::new(), "ok?", true).unwrap());
+    }
+
+    #[test]
+    fn wizard_uses_brew_services_run_not_start() {
+        // Regression guard for the "don't auto-start at login" preference:
+        // the wizard must use `brew services run`, never `start`.
+        assert_eq!(BREW_SERVICE_RUN, ["services", "run", "openstory"]);
+        assert_eq!(BREW_SERVICE_RUN[1], "run", "must not register at login");
+    }
+
+    #[test]
+    fn service_prompt_offers_background_session_only() {
+        // brew present, user declines → no brew is run (hermetic), but the
+        // prompt must frame it as background + not-at-login.
+        let mut w = Vec::new();
+        maybe_start_services(&mut reader("n\n"), &mut w, 3002, true).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(out.contains("background"), "prompt should say background: {out}");
+        assert!(
+            out.contains("not auto-started at login"),
+            "prompt should clarify it won't run at login: {out}"
+        );
+    }
+
+    #[test]
+    fn service_without_brew_suggests_manual_serve() {
+        let mut w = Vec::new();
+        maybe_start_services(&mut reader(""), &mut w, 3002, false).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(out.contains("open-story serve"), "no-brew path should show manual start: {out}");
+        assert!(out.contains("NATS"), "should note NATS comes up automatically: {out}");
     }
 
     #[test]
