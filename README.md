@@ -255,6 +255,19 @@ Requires:
 > lose durable replay, distributed deployments, and the clean boundaries
 > that make the system auditable.
 
+### With Homebrew (recommended)
+
+```sh
+brew tap OpenStoryArc/openstory
+brew install openstory
+brew services start nats-server
+brew services start openstory
+```
+
+Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
+
+v0.1.0 is a source-build install (~1–3 min cargo build on first install). Prebuilt bottles are planned for v0.2.0 — see `docs/BACKLOG.md`.
+
 ### With `openstory` command
 
 For a `code .`-style experience, copy the launcher script to your PATH:
@@ -479,7 +492,7 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 
 ```
 open-story/
-├── rs/                          Rust workspace (9 crates)
+├── rs/                          Rust workspace (10 crates)
 │   ├── core/                    open-story-core (CloudEvent types, translators, Subtype enum)
 │   ├── bus/                     open-story-bus (NATS JetStream event bus)
 │   ├── store/                   open-story-store (persistence, projection, FTS5 search)
