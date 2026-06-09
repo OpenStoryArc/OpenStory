@@ -472,7 +472,7 @@ These are the testable units — pure functions with boundary-table tests.
 
 **Run everything:**
 ```bash
-cd rs && cargo test                    # Rust (~100 tests across 9 crates)
+cd rs && cargo test                    # Rust (~100 tests across 10 crates)
 cd ui && npx vitest run                # UI (~500 tests)
 cd e2e && npx playwright test          # E2E (~70 tests)
 ```
