@@ -51,13 +51,16 @@ class Openstory < Formula
 
   def caveats
     <<~EOS
-      OpenStory brings up everything it needs — it launches a JetStream
-      NATS server automatically, so there's no separate step.
+      One process serves the API and dashboard and launches a JetStream NATS
+      automatically — there's no separate step.
 
-      Guided setup (history window, watch dir, port — then starts the service):
+      Guided setup (history window, watch dir, port — then offers to start it):
           open-story init --data-dir #{var}/openstory
 
-      Or just start the service:
+      Run it in the background (this login session only):
+          brew services run openstory
+
+      ...or have it auto-start at login:
           brew services start openstory
 
       Open the dashboard:

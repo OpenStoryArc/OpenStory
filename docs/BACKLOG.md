@@ -650,7 +650,7 @@ The formula at [`Formula/openstory.rb`](../Formula/openstory.rb) and the bottle 
 2. Wait for `release-binaries.yml` to upload `*.bottle.tar.gz` + `*.bottle.json` to the GitHub Release page, and check the workflow's `print-bottle-block` job for the `bottle do` snippet.
 3. Create the `OpenStoryArc/homebrew-openstory` repo on GitHub (empty, public).
 4. Push a single commit with `Formula/openstory.rb` — same content as in this repo, but with the real sha256 substituted and the `bottle do` block pasted in.
-5. Verify on a clean macOS user account: `brew tap OpenStoryArc/openstory && brew install openstory && brew services start nats-server && brew services start openstory && curl -fsS http://localhost:3002/api/sessions`.
+5. Verify on a clean macOS user account: `brew tap OpenStoryArc/openstory && brew install openstory && brew services run openstory && curl -fsS http://localhost:3002/api/sessions` (the service self-manages JetStream NATS; `run` avoids registering it at login).
 6. Update `README.md` with the `brew tap` + `brew install` instructions.
 
 ### Auto-update tap on tag push
