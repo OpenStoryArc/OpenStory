@@ -263,7 +263,7 @@ brew install openstory
 open-story init --data-dir "$(brew --prefix)/var/openstory"
 ```
 
-`open-story init` is a guided setup wizard: it asks how many days of session history to load on boot, which directory holds your Claude Code transcripts, and which port to use — then offers to start NATS + OpenStory via `brew services` and open the dashboard. (Prefer to do it by hand? `brew services start nats-server && brew services start openstory`.)
+`open-story init` is a guided setup wizard: it asks how many days of session history to load on boot, which directory holds your Claude Code transcripts, and which port to use — then offers to start OpenStory and open the dashboard. OpenStory launches its own JetStream NATS automatically, so **one** `brew services start openstory` brings up the whole stack — no separate NATS step. (Prefer to skip the wizard? Just run `brew services start openstory`.)
 
 Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
 

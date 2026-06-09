@@ -256,19 +256,19 @@ fn maybe_start_services<R: BufRead, W: Write>(
 ) -> Result<()> {
     if !brew {
         writeln!(writer, "\n  When you're ready, start it with:")?;
-        writeln!(writer, "    open-story serve     (requires a running nats-server)")?;
+        writeln!(writer, "    open-story serve     (brings up NATS automatically)")?;
         return Ok(());
     }
-    if confirm(reader, writer, "\n  Start NATS + OpenStory now via `brew services`?", false)? {
-        for svc in ["nats-server", "openstory"] {
-            match std::process::Command::new("brew")
-                .args(["services", "start", svc])
-                .status()
-            {
-                Ok(s) if s.success() => writeln!(writer, "  ✓ started {svc}")?,
-                Ok(s) => writeln!(writer, "  ! `brew services start {svc}` exited with {s}")?,
-                Err(e) => writeln!(writer, "  ! could not run brew for {svc}: {e}")?,
-            }
+    // The brew service runs `serve --manage-nats`, so starting OpenStory brings
+    // up its JetStream NATS too — one command, whole stack.
+    if confirm(reader, writer, "\n  Start OpenStory now via `brew services`? (it brings up NATS for you)", false)? {
+        match std::process::Command::new("brew")
+            .args(["services", "start", "openstory"])
+            .status()
+        {
+            Ok(s) if s.success() => writeln!(writer, "  ✓ started openstory (NATS included)")?,
+            Ok(s) => writeln!(writer, "  ! `brew services start openstory` exited with {s}")?,
+            Err(e) => writeln!(writer, "  ! could not run brew: {e}")?,
         }
         if confirm(reader, writer, "  Open the dashboard in your browser?", true)? {
             open_browser(writer, port);
