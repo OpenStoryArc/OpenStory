@@ -370,9 +370,7 @@ This starts NATS on `:4222`/`:8222`, the server on `:3002`, and the UI on `:5173
 
 ### Event ingestion
 
-Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents. No additional configuration needed beyond setting the watch directory.
-
-> **Note:** An HTTP `/hooks` endpoint existed in earlier versions for near-real-time Claude Code event delivery. It was retired — the file watcher provides sufficient coverage. If you have `hooks` configured in `~/.claude/settings.json` pointing at `localhost:3002/hooks`, they will receive 404s and fail silently (non-blocking). Remove them if present.
+Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents, which flow through NATS JetStream to the consumer actors. No additional configuration needed beyond setting the watch directory.
 
 ### Verify it works
 

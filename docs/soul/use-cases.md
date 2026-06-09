@@ -20,9 +20,9 @@ if !line_buf.ends_with('\n') {
 }
 ```
 
-There is no code path from Open Story back to the agent's transcript files. The hooks endpoint (`rs/server/src/hooks.rs`) receives POSTed data but never sends commands. The entire data flow is unidirectional: Source → Translate → Ingest → Persist → Broadcast → Render. No arrow points back.
+There is no code path from Open Story back to the agent's transcript files. The watcher reads transcript JSONL but never writes to it, and the system issues no commands back to the agent. The entire data flow is unidirectional: Source → Translate → Ingest → Persist → Broadcast → Render. No arrow points back.
 
-**What to verify:** Search for any `write`, `truncate`, or `modify` operations on transcript files. There should be zero. Search for any HTTP response from the hooks endpoint that contains commands or instructions. There should be none.
+**What to verify:** Search for any `write`, `truncate`, or `modify` operations on transcript files. There should be zero. The watcher opens transcript files read-only, and the server never sends commands or instructions back to the agent.
 
 **Why it matters:** If the observer affects the observed, the observation is compromised. This is a functional constraint — the pipeline is a pure function of its input.
 
