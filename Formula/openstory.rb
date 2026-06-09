@@ -47,7 +47,11 @@ class Openstory < Formula
     <<~EOS
       OpenStory needs a running NATS JetStream server.
 
-      Start NATS first, then OpenStory:
+      Run the guided setup (asks how much history to load, which directory
+      to watch, and which port to use — then offers to start the services):
+          open-story init --data-dir #{var}/openstory
+
+      Or start manually:
           brew services start nats-server
           brew services start openstory
 

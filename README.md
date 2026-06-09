@@ -260,9 +260,10 @@ Requires:
 ```sh
 brew tap OpenStoryArc/openstory
 brew install openstory
-brew services start nats-server
-brew services start openstory
+open-story init --data-dir "$(brew --prefix)/var/openstory"
 ```
+
+`open-story init` is a guided setup wizard: it asks how many days of session history to load on boot, which directory holds your Claude Code transcripts, and which port to use — then offers to start NATS + OpenStory via `brew services` and open the dashboard. (Prefer to do it by hand? `brew services start nats-server && brew services start openstory`.)
 
 Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
 
@@ -415,6 +416,9 @@ Only the focused panel shows the selection ring. Your position is remembered whe
 ## CLI Reference
 
 ```
+open-story init [OPTIONS]      Interactive first-run setup wizard
+  --data-dir <DIR>               Where config + data live [default: ./data]
+
 open-story serve [OPTIONS]     Start the dashboard server (default)
   --host <HOST>                  Bind address [default: 0.0.0.0]
   --port <PORT>                  Listen port [default: 3002]

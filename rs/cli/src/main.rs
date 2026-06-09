@@ -21,6 +21,8 @@ use open_story_bus::Bus;
 use open_story_bus::nats_bus::NatsBus;
 use open_story_store::sqlite_store::SqliteStore;
 
+mod init;
+
 #[derive(Parser, Debug)]
 #[command(name = "open-story", about = "Watch Claude Code transcripts and emit CloudEvents")]
 struct Cli {
@@ -103,9 +105,16 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_MONGO_DB")]
         mongo_db: Option<String>,
 
-        /// Write a default config.toml to the data directory and exit
+        /// Write a default config.toml to the data directory and exit.
+        /// (Non-interactive template. For a guided setup, use `open-story init`.)
         #[arg(long)]
         init_config: bool,
+    },
+    /// Interactive first-run setup wizard — writes {data_dir}/config.toml
+    Init {
+        /// Where config + data live (Homebrew: $(brew --prefix)/var/openstory)
+        #[arg(long, env = "OPEN_STORY_DATA_DIR")]
+        data_dir: Option<PathBuf>,
     },
     /// Watch transcript files and emit CloudEvents
     Watch {
@@ -337,6 +346,11 @@ async fn main() -> Result<()> {
 
             server::run_server(&host, port, &data_dir, static_dir.as_deref(), &watch_dir, bus, config).await
         }
+        Some(Command::Init { data_dir }) => {
+            let data_dir = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
+            init::run_wizard(data_dir)
+        }
+
         Some(Command::Watch {
             watch_dir,
             output,
