@@ -275,7 +275,7 @@ Want it to launch automatically at login instead, use `brew services start opens
 
 Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
 
-v0.1.0 is a source-build install (~1–3 min cargo build on first install). Prebuilt bottles are planned for v0.2.0 — see `docs/BACKLOG.md`.
+Installing builds from source (~1–3 min on first install); `nats-server`, Rust, and Node come along as dependencies. Prebuilt bottles for seconds-fast installs are planned — see `docs/BACKLOG.md`.
 
 ### With `openstory` command
 
