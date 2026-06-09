@@ -474,8 +474,8 @@ CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversation
 ### OpenClaw Watchdog via OpenStory
 Cron job or systemd timer on the server that queries the OpenStory API to detect when OpenClaw is stuck — consecutive zero-token error responses, or no successful completion in N minutes. When detected, automatically `docker restart openclaw`. This is the dogfood approach: OpenStory's own data powers the health check instead of generic Docker healthchecks that can't distinguish "running but spinning on rate limits" from "working normally." Could be a simple Python script in `scripts/` querying `http://open-story:3002/api/sessions`.
 
-### Starter Configuration
-Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, data directory, and UI mode.
+### One-line installer (`curl | sh`)
+An optional convenience wrapper that does `brew tap` + `brew install openstory` + `open-story init` + start-services in a single command, for users who want the fast path. Must stay an *optional* in-repo, reviewable `scripts/install.sh` documented alongside the auditable two-command flow — never the headline (a blind `curl … | sh` contradicts OpenStory's "observe, understand, decide" soul, and piping into `sh` breaks the wizard's interactive stdin). Defer until there's demand; the `brew install` + `open-story init` path already covers first-run setup.
 
 ### Sentence Identity & Query API
 Two pieces: identity and querying.
