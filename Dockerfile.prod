@@ -34,13 +34,16 @@ COPY rs/store/Cargo.toml store/Cargo.toml
 COPY rs/views/Cargo.toml views/Cargo.toml
 
 # Create dummy sources to cache dependency builds
-RUN mkdir -p src bus/src cli/src core/src mcp/src/bin patterns/src schemas/src/bin server/src store/src views/src && \
+RUN mkdir -p src bus/src cli/src core/src mcp/src/bin mcp/benches patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
     echo "fn main() {}" > cli/src/main.rs && \
     echo "pub fn dummy() {}" > core/src/lib.rs && \
     echo "pub fn dummy() {}" > mcp/src/lib.rs && \
     echo "fn main() {}" > mcp/src/bin/open-story-mcp.rs && \
+    echo "fn main() {}" > mcp/benches/tools.rs && \
+    echo "fn main() {}" > mcp/benches/streaming.rs && \
+    echo "fn main() {}" > mcp/benches/common.rs && \
     echo "pub fn dummy() {}" > patterns/src/lib.rs && \
     echo "pub fn dummy() {}" > schemas/src/lib.rs && \
     echo "fn main() {}" > schemas/src/bin/generate.rs && \
@@ -55,6 +58,7 @@ COPY rs/bus/src/ bus/src/
 COPY rs/cli/src/ cli/src/
 COPY rs/core/src/ core/src/
 COPY rs/mcp/src/ mcp/src/
+COPY rs/mcp/benches/ mcp/benches/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
