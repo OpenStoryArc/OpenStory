@@ -94,7 +94,9 @@ services:
       - openclaw-state:/pi-watch:ro
     environment:
       - OPEN_STORY_PI_WATCH_DIR=/pi-watch
-      - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
+      # OPEN_STORY_API_TOKEN is REQUIRED — no `:-` default. A prod deploy must
+      # not silently boot unauthenticated. `:?` fails compose-up fast if unset.
+      - "OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:?OPEN_STORY_API_TOKEN must be set — generate with openssl rand -hex 32}"
       - OPEN_STORY_ALLOWED_ORIGINS=${OPEN_STORY_ALLOWED_ORIGINS:-}
       - OPEN_STORY_METRICS_ENABLED=true
       - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
