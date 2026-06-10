@@ -136,34 +136,42 @@ curl -s http://localhost:8222/varz | jq '.leafnodes'
 
 ### 3. Configure a leaf node (local machine)
 
-Edit `deploy/nats-leaf.conf`. Replace the placeholders:
+A leaf node is just Open Story's managed NATS pointed at the hub. **Networking is
+off by default** — a fresh install is single-machine and loopback-only. One
+setting turns it on: `nats_leaf_url` (config.toml) or `OPEN_STORY_NATS_LEAF_URL`
+(env). Set it to your hub URL and `--manage-nats` launches NATS as a JetStream
+leaf instead of a standalone server; leave it empty to stay local.
 
-```
-leafnodes {
-    remotes [
-        {
-            url: "nats://<your-token>@<vps-tailscale-hostname>:7422"
-        }
-    ]
-}
-```
+The URL format is `nats://<your-token>@<vps-tailscale-hostname>:7422`. The
+Tailscale hostname is your VPS's MagicDNS name (e.g., `debian-16gb-ash-1`) or its
+Tailscale IP (e.g., `100.64.0.1`).
 
-The Tailscale hostname is your VPS's MagicDNS name (e.g., `debian-16gb-ash-1`) or its Tailscale IP (e.g., `100.64.0.1`).
+#### Option A: Homebrew, single command (recommended for Mac)
 
-#### Option A: Native NATS + native Open Story (recommended for Mac)
+The brew service already runs `serve --manage-nats`. Just give it a hub URL — no
+separate `nats-server` process, no hand-written config; Open Story generates the
+leaf config and supervises the child for you:
 
 ```bash
-# Install NATS
-brew install nats-server
-
-# Start leaf node
-nats-server -c deploy/nats-leaf.conf &
-
-# Start Open Story (it defaults to nats://localhost:4222)
-cd rs && cargo run -p open-story-cli -- serve
+# In $(brew --prefix)/var/openstory/config.toml:
+#   nats_leaf_url = "nats://<your-token>@debian-16gb-ash-1:7422"
+# …or pass it via the environment instead:
+OPEN_STORY_NATS_LEAF_URL="nats://<your-token>@debian-16gb-ash-1:7422" \
+  brew services restart openstory
 ```
 
-#### Option B: Docker Compose
+To go back to single-machine, clear the setting and restart — the managed NATS
+returns to loopback-only.
+
+#### Option B: Standalone NATS + native Open Story (for dev checkouts)
+
+```bash
+brew install nats-server
+nats-server -c deploy/nats-leaf.conf &          # edit the remote URL first
+cd rs && cargo run -p open-story-cli -- serve   # defaults to nats://localhost:4222
+```
+
+#### Option C: Docker Compose
 
 ```bash
 docker compose -f docker-compose.leaf.yml up -d

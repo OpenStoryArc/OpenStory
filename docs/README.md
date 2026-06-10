@@ -6,10 +6,10 @@
 3. **[Architecture Tour](architecture-tour.md)** — guided code walkthrough (14 stops)
 
 ## Reference
-- **[Stories](stories/)** — what we're building and why
-- **[Backlog](backlog/)** — technical implementation plans
+- **[Backlog](BACKLOG.md)** — the single source of truth for future work; completed work lives in git history
+- **[Session reports](research/sessions/)** — narrated working sessions built from OpenStory's own data
 - **[Soul — Patterns](soul/patterns.md)** — what works, what doesn't
 - **[Soul — SICP Lessons](soul/sicp-lessons.md)** — lessons from Structure and Interpretation
 
 ## For agents
-Read the tour first — it walks through every module with questions to explore. Then check stories/ for current priorities and CLAUDE.md for build commands, configuration, and conventions.
+Read the tour first — it walks through every module with questions to explore. Then check [`BACKLOG.md`](BACKLOG.md) for current priorities and CLAUDE.md for build commands, configuration, and conventions.

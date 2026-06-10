@@ -33,7 +33,7 @@ When you change code, the documentation that describes it changes in the same co
 This applies to:
 - **Use cases** (`docs/soul/use-cases.md`): If your change touches code referenced by a use case, update the file path, line numbers, and description to match the new state.
 - **CLAUDE.md**: If you add a config field, add it to the config table. If you add a crate, add it to the project structure. If you add an API endpoint, add it to the architecture section.
-- **Stories and plans**: If you complete work described by a story or plan, update its status to Completed with the date.
+- **Backlog** (`docs/BACKLOG.md`): If you complete work described by a backlog entry, remove the entry — completed work lives in git history.
 
 The principle: docs and code are one atom. You swap them together or not at all. A PR that changes code without updating the docs it invalidates is incomplete.
 
@@ -48,11 +48,12 @@ The principle: docs and code are one atom. You swap them together or not at all.
 
 ### Artifact flow
 
-Every feature follows: **Story → Plan → Implementation**.
+Future work lives in **`docs/BACKLOG.md`** — the single source of truth.
 
-- **Stories** (`docs/stories/`) describe *what* and *why* in user terms
-- **Plans** (`docs/backlog/`) describe *how* in technical terms, with phasing and file references
+- **The backlog entry is the spec**: each entry describes *what* and *why* in a short paragraph, grouped by theme
+- **Branch per item**: when work begins, create a feature branch; the entry guides the implementation
 - **Implementation** is code + BDD specs
+- **On completion**, remove the entry — finished work lives in git history, not in a status field
 
 ### Development workflow (BDD)
 
