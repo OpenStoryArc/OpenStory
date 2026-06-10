@@ -390,6 +390,7 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `mongo_uri` | `mongodb://localhost:27017` | MongoDB connection URI (used only when `data_backend = "mongo"`) |
 | `mongo_db` | `openstory` | MongoDB database name (used only when `data_backend = "mongo"`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
+| `nats_leaf_url` | `""` (loopback-only) | Hub URL for distributed streaming. Set it (e.g. `nats://<token>@hub:7422`) and `--manage-nats` runs the managed NATS as a JetStream leaf — sessions federate to a shared hub and other machines' sessions stream back. Empty = single-machine. Env: `OPEN_STORY_NATS_LEAF_URL`. See `docs/deploy/distributed.md`. |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
 | `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |

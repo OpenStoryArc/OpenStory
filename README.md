@@ -344,6 +344,23 @@ OPEN_STORY_HERMES_WATCH_DIR=/path/to/hermes/sessions just up
 # hermes_watch_dir = "/path/to/hermes/sessions"
 ```
 
+### Distributed streaming across machines (optional)
+
+Out of the box OpenStory is single-machine and loopback-only — no networking. To
+see sessions from several machines (your laptop, a teammate's, a VPS agent) in one
+dashboard, point the managed NATS at a shared hub:
+
+```bash
+OPEN_STORY_NATS_LEAF_URL="nats://<token>@hub-host:7422" just up
+# Or add to data/config.toml:
+# nats_leaf_url = "nats://<token>@hub-host:7422"
+```
+
+With `--manage-nats` (the Homebrew service uses it), this turns the local NATS
+into a JetStream leaf node: your sessions stream up to the hub and everyone else's
+stream back down, so the local dashboard becomes a shared team view. Empty =
+single-machine. Full hub + leaf + Tailscale setup: [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
+
 ### MongoDB backend (optional)
 
 SQLite is the default. For distributed or high-volume deployments, switch to MongoDB:
