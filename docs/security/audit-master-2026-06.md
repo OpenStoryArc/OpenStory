@@ -111,17 +111,25 @@ From the 2026-05-28 baseline, still accepted:
 
 ## Prioritized remediation
 
-| # | Finding | Severity | Fix |
-|---|---|---|---|
-| F1 | `days` overflow → panic → **poisoned-mutex full DoS** | HIGH (CRIT on 0.0.0.0) | Port `cutoff_for_days()` saturating helper; harden `conn.lock()` against poisoning |
-| — | rustls-webpki CVE chain | HIGH | Bump `async-nats 0.38 → 0.49` |
-| — | hickory-proto CVE chain (mongo only) | HIGH | Bump `mongodb 3.6 → ≥3.7` |
-| F2 | WS `?token=` rejected | MED | Wire query-param fallback into `auth_middleware` |
-| F4 | Caddyfile missing CSP/HSTS | MED | Add headers + suppress Server |
-| F5 | prod compose token optional | MED | `:-` → `:?` |
-| — | vitest/tmp/uuid (dev) | LOW (dev) | `npm audit fix`; testcontainers 11→12 |
-| F6 | Dockerfile.prod mcp COPY | LOW | Verify prod build; add COPY |
-| F3 | MCP unbounded stdin line | INFO | `take(limit)` bound |
-| F7 | `NATS_URL` env naming | INFO | Align to `OPEN_STORY_*` |
+| # | Finding | Severity | Fix | Status |
+|---|---|---|---|---|
+| F1 | `days` overflow → panic → **poisoned-mutex full DoS** | HIGH (CRIT on 0.0.0.0) | `cutoff_for_days()` saturating helper + harden all 20 `conn.lock()` against poisoning | ✅ FIXED `658a5b4` |
+| — | rustls-webpki CVE chain | HIGH | Bump `async-nats 0.38 → 0.49` | ✅ FIXED `90ea571` |
+| — | hickory-proto CVE chain (mongo only) | HIGH | Bump `mongodb 3.6 → 3.7` | ✅ FIXED `401e168` |
+| F2 | WS `?token=` rejected | MED | Query-param fallback in `auth_middleware` (header-authoritative precedence) | ✅ FIXED `5b46c26` |
+| F4 | Caddyfile missing CSP/HSTS | MED | Add headers + suppress Server | ✅ FIXED `daabd84` |
+| F5 | prod compose token optional | MED | `:-` → `:?` | ✅ FIXED `daabd84` |
+| F6 | Dockerfile.prod mcp COPY | LOW | Add mcp manifest/src/benches + stubs | ✅ FIXED `191269d` |
+| — | vitest/tmp/uuid (dev) | LOW (dev) | `npm audit fix`; testcontainers 11→12 | ⬜ OPEN (dev-only, not shipped) |
+| F3 | MCP unbounded stdin line | INFO | `take(limit)` bound | ⬜ OPEN (local-trusted threat model) |
+| F7 | `NATS_URL` env naming | INFO | Align to `OPEN_STORY_*` | ⬜ OPEN (cosmetic) |
 
-Each fix is an atomic PR to master. F1 and the two dep bumps are the urgent ones; F1 is the only finding that is a live, pre-auth, persistent DoS.
+### Remediation applied on this branch (`security/audit-master-2026-06`)
+
+Every fix above was implemented TDD-first and verified. After the fixes:
+- `cargo audit` exits **0** — all 6 CVEs cleared (was 6 at audit start; only the 4 documented unmaintained-dep *warnings* remain).
+- `test_security` (20) + `test_security_aggressive` (28, incl. the new poison-recovery regression) + `auth::` (13) — **all green, zero red.**
+- Full `open-story-store` (263) and `open-story-server` (140) suites green.
+- The 19-vector live probe is 19/19 blocked (unauthenticated instance).
+
+Three INFO/dev-only items left open by design — none is a shipped-artifact exposure. The npm dev CVEs are `npm audit fix`-able whenever the UI/e2e toolchains are next touched.
