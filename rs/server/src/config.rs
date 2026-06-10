@@ -129,6 +129,15 @@ pub struct Config {
     // ── bus ──
     /// NATS server URL for event bus.
     pub nats_url: String,
+    /// Hub URL for distributed (leaf-node) streaming. Empty by default — the
+    /// install is single-machine and loopback-only out of the box. Set this to
+    /// a shared hub (e.g. `nats://<token>@hub-host:7422`) and the managed NATS
+    /// (`--manage-nats`) launches as a JetStream leaf instead of a standalone:
+    /// it federates this machine's events up to the hub and replays everyone
+    /// else's down, so the local dashboard becomes a shared multi-machine view.
+    /// Also settable via `OPEN_STORY_NATS_LEAF_URL`. Has no effect without
+    /// `--manage-nats` (when you run your own NATS, configure leafnodes there).
+    pub nats_leaf_url: String,
 
     // ── tuning ──
     /// Maximum records sent in the WebSocket initial_state handshake.
@@ -199,6 +208,7 @@ impl Default for Config {
             mongo_uri: "mongodb://localhost:27017".to_string(),
             mongo_db: "openstory".to_string(),
             nats_url: "nats://localhost:4222".to_string(),
+            nats_leaf_url: String::new(), // no networking by default (loopback-only)
             max_initial_records: 2000,
             watch_backfill_hours: 24,
             truncation_threshold: 100_000,
@@ -252,6 +262,12 @@ impl Config {
 
 # ── Bus ──
 # nats_url = "nats://localhost:4222"
+# Distributed streaming: set a shared hub URL to turn the managed NATS
+# (--manage-nats) into a JetStream leaf node, so this machine's sessions stream
+# to a common dashboard and other machines' sessions stream back. Empty =
+# single-machine, loopback-only (the default). Also via OPEN_STORY_NATS_LEAF_URL.
+# See docs/deploy/distributed.md.
+# nats_leaf_url = "nats://<token>@hub-host:7422"
 
 # ── Tuning ──
 # Max records in the WebSocket initial_state handshake.
@@ -507,6 +523,7 @@ mod tests {
             mongo_uri: "mongodb://localhost:27017".into(),
             mongo_db: "openstory".into(),
             nats_url: "nats://custom:4222".into(),
+            nats_leaf_url: "nats://tok@hub:7422".into(),
             max_initial_records: 100,
             watch_backfill_hours: 48,
             truncation_threshold: 4000,
@@ -521,6 +538,7 @@ mod tests {
         assert_eq!(parsed.max_initial_records, 100);
         assert_eq!(parsed.stale_threshold_secs, 600);
         assert_eq!(parsed.api_token, "test-token");
+        assert_eq!(parsed.nats_leaf_url, "nats://tok@hub:7422");
         assert_eq!(parsed.allowed_origins, vec!["http://localhost:5173"]);
         assert!(parsed.metrics_enabled);
     }
@@ -603,6 +621,13 @@ mod tests {
         // Untouched optional dirs stay empty (None = leave current).
         assert_eq!(config.pi_watch_dir, "");
         assert_eq!(config.hermes_watch_dir, "");
+    }
+
+    #[test]
+    fn networking_is_off_by_default() {
+        // Sovereignty default: a fresh install is single-machine and
+        // loopback-only. Distributed streaming is strictly opt-in via a hub URL.
+        assert_eq!(Config::default().nats_leaf_url, "");
     }
 
     #[test]

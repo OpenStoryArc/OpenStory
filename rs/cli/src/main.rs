@@ -347,6 +347,15 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Distributed leaf hub from env var (config.toml also works). When
+            // set, --manage-nats launches the managed NATS as a leaf node so
+            // sessions federate to a shared hub; empty leaves it loopback-only.
+            if config.nats_leaf_url.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_NATS_LEAF_URL") {
+                    config.nats_leaf_url = v;
+                }
+            }
+
             let host = config.host.clone();
             let port = config.port;
             let nats_url = config.nats_url.clone();
@@ -357,10 +366,12 @@ async fn main() -> Result<()> {
             // supervise one when none is reachable, otherwise reuse it. The
             // guard lives until serve exits and stops any child we started.
             let nats_guard = if cli_manage_nats {
+                let leaf_url = (!config.nats_leaf_url.is_empty()).then_some(config.nats_leaf_url.as_str());
                 Some(managed_nats::ensure_nats(
                     &nats_url,
                     &data_dir.join("nats"),
                     cli_nats_bin.as_deref(),
+                    leaf_url,
                 )?)
             } else {
                 None
