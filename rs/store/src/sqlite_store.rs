@@ -86,7 +86,7 @@ impl SqliteStore {
     }
 
     fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
         conn.execute_batch(
@@ -199,7 +199,7 @@ impl SqliteStore {
     where
         F: FnOnce(&Connection) -> T,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         f(&conn)
     }
 
@@ -211,7 +211,7 @@ impl SqliteStore {
         record_type: &str,
         text: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "INSERT INTO events_fts(event_id, session_id, record_type, content) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![event_id, session_id, record_type, text],
@@ -229,7 +229,7 @@ impl SqliteStore {
         if query.is_empty() {
             return Ok(vec![]);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(sid) = session_filter {
             let mut stmt = conn.prepare(
                 "SELECT event_id, session_id, record_type,
@@ -277,7 +277,7 @@ impl SqliteStore {
 
     /// Count of records in the FTS5 index (used for backfill check).
     fn fts_count_inner(&self) -> Result<u64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM events_fts",
             [],
@@ -289,7 +289,7 @@ impl SqliteStore {
     /// Check if a table exists (for tests).
     #[cfg(test)]
     fn table_exists(&self, name: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
             [name],
@@ -303,7 +303,7 @@ impl SqliteStore {
 #[async_trait]
 impl EventStore for SqliteStore {
     async fn insert_event(&self, session_id: &str, event: &Value) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
         let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or_default();
         let timestamp = event.get("time").and_then(|v| v.as_str()).unwrap_or_default();
@@ -321,7 +321,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn insert_batch(&self, session_id: &str, events: &[Value]) -> Result<usize> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let tx = conn.transaction()?;
         let mut count = 0;
         for event in events {
@@ -346,7 +346,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC",
         )?;
@@ -365,7 +365,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user
              FROM sessions ORDER BY last_event DESC",
@@ -393,7 +393,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn upsert_session(&self, session: &SessionRow) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         // Note: custom_label is NOT included here — it's only set by
         // update_session_label(). Boot replay and live ingestion never
         // overwrite user-set custom labels.
@@ -455,7 +455,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn update_session_label(&self, session_id: &str, label: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "UPDATE sessions SET custom_label = ?1 WHERE id = ?2",
             rusqlite::params![label, session_id],
@@ -464,7 +464,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let metadata = serde_json::to_string(&pattern.metadata)?;
         let event_ids = serde_json::to_string(&pattern.event_ids)?;
         // Generate a deterministic ID from pattern type + start time + session
@@ -491,7 +491,7 @@ impl EventStore for SqliteStore {
         session_id: &str,
         pattern_type: Option<&str>,
     ) -> Result<Vec<PatternEvent>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut patterns = Vec::new();
 
         let query = if pattern_type.is_some() {
@@ -518,7 +518,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn insert_turn(&self, session_id: &str, turn: &StructuralTurn) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let id = format!("turn:{}:{}", session_id, turn.turn_number);
         let data = serde_json::to_string(turn)?;
         conn.execute(
@@ -530,7 +530,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number",
         )?;
@@ -551,7 +551,7 @@ impl EventStore for SqliteStore {
         session_id: &str,
         content: &str,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO plans (id, session_id, content, created_at)
@@ -563,7 +563,7 @@ impl EventStore for SqliteStore {
     }
 
     async fn full_payload(&self, event_id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let result = conn.query_row(
             "SELECT payload FROM events WHERE id = ?1",
             [event_id],
@@ -629,7 +629,7 @@ impl EventStore for SqliteStore {
     // ── Lifecycle methods ───────────────────────────────────────────
 
     async fn delete_session(&self, session_id: &str) -> Result<u64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         // Delete FTS5 entries before events (contentless table has no cascade triggers)
         conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [session_id])?;
         let events_deleted: u64 = conn.execute(
@@ -645,7 +645,7 @@ impl EventStore for SqliteStore {
     async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find sessions older than cutoff
         let mut stmt = conn.prepare(
