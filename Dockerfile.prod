@@ -78,6 +78,12 @@ RUN groupadd --gid 1000 openstory && \
 
 USER openstory
 
+# Force the polling watcher inside containers. Inotify cannot see writes
+# that originate on a macOS host through Docker Desktop's VirtioFS bridge,
+# so we trade a small amount of CPU + a 2s detection latency for reliable
+# event delivery on every host OS. See `WatcherKind` in `rs/src/watcher.rs`.
+ENV OPEN_STORY_WATCHER=poll
+
 EXPOSE 3002
 
 ENTRYPOINT ["open-story"]
