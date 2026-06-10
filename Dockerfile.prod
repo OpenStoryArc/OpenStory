@@ -26,6 +26,7 @@ COPY rs/Cargo.toml rs/Cargo.lock* ./
 COPY rs/bus/Cargo.toml bus/Cargo.toml
 COPY rs/cli/Cargo.toml cli/Cargo.toml
 COPY rs/core/Cargo.toml core/Cargo.toml
+COPY rs/mcp/Cargo.toml mcp/Cargo.toml
 COPY rs/patterns/Cargo.toml patterns/Cargo.toml
 COPY rs/schemas/Cargo.toml schemas/Cargo.toml
 COPY rs/server/Cargo.toml server/Cargo.toml
@@ -33,11 +34,16 @@ COPY rs/store/Cargo.toml store/Cargo.toml
 COPY rs/views/Cargo.toml views/Cargo.toml
 
 # Create dummy sources to cache dependency builds
-RUN mkdir -p src bus/src cli/src core/src patterns/src schemas/src/bin server/src store/src views/src && \
+RUN mkdir -p src bus/src cli/src core/src mcp/src/bin mcp/benches patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
     echo "fn main() {}" > cli/src/main.rs && \
     echo "pub fn dummy() {}" > core/src/lib.rs && \
+    echo "pub fn dummy() {}" > mcp/src/lib.rs && \
+    echo "fn main() {}" > mcp/src/bin/open-story-mcp.rs && \
+    echo "fn main() {}" > mcp/benches/tools.rs && \
+    echo "fn main() {}" > mcp/benches/streaming.rs && \
+    echo "fn main() {}" > mcp/benches/common.rs && \
     echo "pub fn dummy() {}" > patterns/src/lib.rs && \
     echo "pub fn dummy() {}" > schemas/src/lib.rs && \
     echo "fn main() {}" > schemas/src/bin/generate.rs && \
@@ -51,13 +57,15 @@ COPY rs/src/ src/
 COPY rs/bus/src/ bus/src/
 COPY rs/cli/src/ cli/src/
 COPY rs/core/src/ core/src/
+COPY rs/mcp/src/ mcp/src/
+COPY rs/mcp/benches/ mcp/benches/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
 COPY rs/store/src/ store/src/
 COPY rs/views/src/ views/src/
 RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \
-    patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs \
+    mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs \
     store/src/lib.rs views/src/lib.rs && \
     cargo build --release -p open-story-cli
 

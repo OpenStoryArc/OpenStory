@@ -347,6 +347,13 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Cowork (Claude Desktop) watch dir from env var (config.toml also works)
+            if config.cowork_watch_dir.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_COWORK_WATCH_DIR") {
+                    config.cowork_watch_dir = v;
+                }
+            }
+
             let host = config.host.clone();
             let port = config.port;
             let nats_url = config.nats_url.clone();
