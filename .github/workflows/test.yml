@@ -15,6 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free up disk space
+        # The runner intermittently hits "No space left on device" building the
+        # full Rust workspace + restoring the cache (it reddened unrelated PRs,
+        # including docs-only ones). Reclaim ~20GB from preinstalled SDKs we
+        # never use before the build. Dependency-free and best-effort.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
