@@ -1,0 +1,16 @@
+# semgrep should skip generated / vendored / dep trees.
+target/
+node_modules/
+.git/
+data/
+**/dist/
+**/build/
+**/__pycache__/
+# Test fixtures contain intentionally adversarial input.
+rs/tests/fixtures/
+e2e/fixtures/
+# JSONL data files
+*.jsonl
+# Lockfiles
+**/package-lock.json
+rs/Cargo.lock

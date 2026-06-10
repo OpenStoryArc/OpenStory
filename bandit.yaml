@@ -1,0 +1,34 @@
+# OpenStory project-wide bandit config (YAML format — pass via -c).
+#
+# What we skip and why — every entry is a reasoned audit decision:
+#
+#   B104 (hardcoded_bind_all_interfaces)
+#     scripts/ contains internal-only tools that bind 0.0.0.0 by design
+#     when run inside test containers (host net = container net).
+#
+#   B108 (hardcoded_tmp_directory)
+#     /tmp paths in scripts/ are intentional local-only artifacts
+#     (debug dumps, scratch files). Not user input paths.
+#
+#   B310 (urllib_urlopen)
+#     scripts/ uses urllib for localhost API calls against
+#     http://localhost:3002. We never pass user-controlled URLs.
+#
+#   B608 (hardcoded_sql_expressions)
+#     The 6 sites flagged in scripts/cost_*.py and scripts/token_usage.py
+#     interpolate hardcoded SQL fragments (e.g. "AND e.timestamp > ?"),
+#     never user input. All values flow through bound params. Audited
+#     2026-05-30 — see grep B608 scripts/ for the call sites.
+
+skips:
+  - B104
+  - B108
+  - B310
+  - B608
+
+exclude_dirs:
+  - .git
+  - node_modules
+  - target
+  - data
+  - rs/target
