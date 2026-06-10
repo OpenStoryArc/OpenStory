@@ -86,6 +86,8 @@ impl PatternsConsumer {
                 .entry(session_id.to_string())
                 .or_default()
                 .extend(all_patterns.clone());
+            // Metric: PatternsConsumer is the new home for patterns_detected_total.
+            crate::metrics::record_patterns_detected(all_patterns.len() as u64);
         }
 
         PatternsResult {

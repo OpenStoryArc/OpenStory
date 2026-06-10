@@ -1,0 +1,37 @@
+# OpenTelemetry Collector configuration for Claude Code telemetry.
+#
+# Receives OTLP from short-lived `claude` CLI invocations on the host and
+# re-exposes the metrics as a Prometheus scrape endpoint at :8889/metrics.
+# Logs/events are dropped here — enable an exporter below if you want them.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Keep series alive for 5 minutes after a `claude` process exits so short
+    # CLI runs don't disappear from Prometheus between scrapes.
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Uncomment to print OTel data to the collector logs while debugging.
+  # debug:
+  #   verbosity: detailed
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

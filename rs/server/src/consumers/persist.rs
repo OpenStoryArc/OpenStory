@@ -132,7 +132,19 @@ impl PersistConsumer {
                 }
             }
 
+            // Metric: count this event in events_ingested_total{subtype}.
+            // PersistConsumer is the new home for this counter — the legacy
+            // ingest_events callsite still fires for the broadcast path, but
+            // the durable write happens here.
+            let subtype = ce.subtype.as_deref().unwrap_or("unknown");
+            crate::metrics::record_events_ingested(subtype, 1);
+
             persisted += 1;
+        }
+
+        // Metric: events the EventStore PK rejected as duplicates.
+        if skipped > 0 {
+            crate::metrics::record_events_deduped(skipped as u64);
         }
 
         // Upsert the session row AFTER the events are durable. Takes a
