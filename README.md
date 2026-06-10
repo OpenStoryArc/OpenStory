@@ -380,7 +380,7 @@ export OPEN_STORY_MONGO_DB=openstory
 # mongo_db = "openstory"
 ```
 
-Both backends implement the same `EventStore` trait — the conformance suite (94 tests) runs against both.
+Both backends implement the same `EventStore` trait — the conformance suite (56 helpers run against both backends) covers writes, reads, lifecycle, FTS, and all 12 analytics queries.
 
 ### With Docker/Podman
 
@@ -445,7 +445,7 @@ open-story init [OPTIONS]      Interactive first-run setup wizard
   --data-dir <DIR>               Where config + data live [default: ./data]
 
 open-story serve [OPTIONS]     Start the dashboard server (default)
-  --host <HOST>                  Bind address [default: 0.0.0.0]
+  --host <HOST>                  Bind address [default: 127.0.0.1; auto-detects 0.0.0.0 in containers/WSL]
   --port <PORT>                  Listen port [default: 3002]
   --data-dir <DIR>               Session persistence directory [default: ./data]
   --static-dir <DIR>             Built UI static files directory
@@ -469,9 +469,6 @@ open-story pulse [OPTIONS]     Project activity over N days
 open-story context <PROJECT>   Recent sessions for a project
   --data-dir <DIR>               Session data directory [default: ./data]
   --format <FMT>                 Output format: text or json [default: text]
-
-open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic search
-  --data-dir <DIR>               Session data directory [default: ./data]
 ```
 
 ## API Endpoints
@@ -498,8 +495,8 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | GET | `/api/sessions/{id}/turns` | Eval-apply structural turns |
 | GET | `/api/insights/token-usage` | Token usage summary across sessions |
 | GET | `/api/insights/token-usage/daily` | Daily token usage trends |
-| GET | `/api/search?q=` | Semantic search over events |
-| GET | `/api/agent/search?q=` | Session-grouped semantic search (agentic) |
+| GET | `/api/search?q=` | Full-text search (FTS5) over events |
+| GET | `/api/agent/search?q=` | Session-grouped full-text search (agentic) |
 | GET | `/api/agent/tools` | Agent tool definitions (MCP-style) |
 | GET | `/api/agent/project-context?project=` | Recent sessions for a project |
 | GET | `/api/agent/recent-files?project=` | Files modified in recent sessions |
@@ -513,6 +510,9 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | GET | `/api/insights/productivity?days=` | Event density by hour of day |
 | DELETE | `/api/sessions/{id}` | Delete a session |
 | GET | `/api/sessions/{id}/export` | Export session as JSONL |
+| GET | `/api/users` | List known users |
+| GET | `/api/local-info` | Local environment info |
+| GET | `/health` | Health check (no auth) |
 | GET | `/ws` | WebSocket for live event streaming |
 
 ## Project Layout
