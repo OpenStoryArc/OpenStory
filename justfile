@@ -27,6 +27,15 @@ test:
 test-rs:
     cargo test --manifest-path rs/Cargo.toml
 
+# Fast inner-loop tests — all 699 unit tests, no Docker/integration binaries.
+# ~0.9s warm vs ~370s for the full `cargo test` (which is dominated by ~7
+# Docker integration binaries that pull images / time out: hermes_translator,
+# pi_mono_*, convergence_invariants, split_deployment, projection_shared_map,
+# compose_perf). Run this on every edit; run `just test` / the Docker recipes
+# before pushing. See docs/BACKLOG.md "Gate Docker integration tests behind #[ignore]".
+test-fast:
+    cargo test --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli --lib
+
 # Run UI tests only
 test-ui:
     cd ui && npm test -- --run
