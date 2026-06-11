@@ -215,3 +215,30 @@ fn reader_translates_codex_custom_tool_calls_from_apply_patch_shape() {
         .expect("output")
         .contains("Success. Updated files."));
 }
+
+#[test]
+fn task_complete_synthesizes_turn_complete_boundary() {
+    // Codex never emits `system.turn.complete` natively; the translator
+    // synthesizes one from `event_msg.task_complete` so the eval-apply
+    // detector can crystallize StructuralTurns (same approach as pi-mono).
+    let mut file = NamedTempFile::new().expect("create temp file");
+    writeln!(
+        file,
+        r#"{{"timestamp":"2026-05-23T12:12:10.000Z","type":"event_msg","payload":{{"type":"task_complete","turn_id":"019e54bf-d231-7462-86b5-e3b4ca1cb27e","last_agent_message":"Done."}}}}"#
+    )
+    .expect("write task_complete");
+
+    let mut state = TranscriptState::new("codex-turn-test".to_string());
+    let events = read_new_lines(file.path(), &mut state).expect("read lines");
+    assert_eq!(state.format, TranscriptFormat::Codex);
+    assert_eq!(events.len(), 2, "task_complete + synthetic turn boundary");
+
+    assert_eq!(events[0].subtype.as_deref(), Some("system.task.complete"));
+    assert_eq!(events[1].subtype.as_deref(), Some("system.turn.complete"));
+    assert_eq!(events[1].agent.as_deref(), Some("codex"));
+    assert_eq!(
+        codex_payload(&events[1]).text.as_deref(),
+        Some("Done."),
+        "boundary event carries the final assistant text"
+    );
+}
