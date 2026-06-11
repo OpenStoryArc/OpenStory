@@ -53,28 +53,68 @@ pub fn translate_codex_line(line: &Value, state: &mut TranscriptState) -> Vec<Cl
     }
     let session_id = state.session_id.clone();
     let source = format!("codex://session/{session_id}");
+    let timestamp = line
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let is_task_complete = subtype.as_deref() == Some("system.task.complete");
+    let boundary_payload = is_task_complete.then(|| codex.clone());
+
     let data = EventData::with_payload(
         line.clone(),
         state.next_seq(),
-        session_id,
+        session_id.clone(),
         AgentPayload::Codex(codex),
     );
 
-    vec![CloudEvent::new(
-        source,
+    let mut events = vec![CloudEvent::new(
+        source.clone(),
         IO_ARC_EVENT.to_string(),
         data,
         subtype,
         None,
-        line.get("timestamp")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        timestamp.clone(),
         None,
         None,
         Some(AGENT.to_string()),
     )
     .with_host(crate::host::host())
-    .with_user(crate::user::user())]
+    .with_user(crate::user::user())];
+
+    // Synthetic turn boundary.
+    //
+    // Codex never emits `system.turn.complete` natively — its
+    // `event_msg.task_complete` is the matching signal (the turn loop
+    // finished a user task; mirrors when Claude Code's Stop hook fires).
+    // Without this event the eval-apply state machine can't crystallize a
+    // `StructuralTurn`, the sentence detector never fires, and codex
+    // sessions get no narrated story in the UI. Same approach as the
+    // pi-mono translator's synthetic boundary (translate_pi.rs).
+    if let Some(boundary) = boundary_payload {
+        let data = EventData::with_payload(
+            line.clone(),
+            state.next_seq(),
+            session_id,
+            AgentPayload::Codex(boundary),
+        );
+        events.push(
+            CloudEvent::new(
+                source,
+                IO_ARC_EVENT.to_string(),
+                data,
+                Some("system.turn.complete".to_string()),
+                None,
+                timestamp,
+                None,
+                None,
+                Some(AGENT.to_string()),
+            )
+            .with_host(crate::host::host())
+            .with_user(crate::user::user()),
+        );
+    }
+
+    events
 }
 
 fn apply_session_meta(payload: &Value, codex: &mut CodexPayload) -> Option<String> {
