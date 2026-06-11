@@ -807,6 +807,55 @@ mod tests {
         assert!(store.session_events("nonexistent").await.unwrap().is_empty());
     }
 
+    // ── Lock-poison recovery (audit-master-2026-06 F1) ──
+
+    #[tokio::test]
+    async fn poisoned_lock_recovers_across_call_sites() {
+        // F1 regression at the store layer. A panic that unwinds while holding
+        // the connection Mutex poisons it; before the hardening, every
+        // subsequent `self.conn.lock().unwrap()` panicked, so one bad request
+        // bricked the whole store. With `.unwrap_or_else(|e| e.into_inner())`
+        // at all 20 sites, the poison is recovered. This test poisons the lock
+        // ONCE and then exercises a spread of DISTINCT call sites — sync/async,
+        // read/write/FTS — asserting each recovers AND the connection is still
+        // functionally intact, not merely non-panicking.
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-1", "2025-01-14T00:00:01Z"))
+            .await
+            .unwrap();
+
+        // Poison the mutex exactly the way a panicking query closure would:
+        // unwind while holding the guard inside with_connection().
+        let unwound = catch_unwind(AssertUnwindSafe(|| {
+            store.with_connection(|_conn| panic!("simulated panic while holding the lock"))
+        }));
+        assert!(unwound.is_err(), "the panic must have unwound the guard");
+
+        // Each call below hits a different `self.conn.lock()` site:
+        assert!(store.table_exists("events"), "sync read site recovered");
+        let events = store.session_events("sess-1").await.unwrap();
+        assert_eq!(events.len(), 1, "async read site recovered, data intact");
+        store.list_sessions().await.unwrap(); // list site recovered (Ok, no panic)
+        assert!(
+            store
+                .insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z"))
+                .await
+                .unwrap(),
+            "write site recovered"
+        );
+        let _ = store.search_fts("hello", 10, None).await.unwrap();
+
+        // The post-poison write actually persisted — connection is healthy.
+        assert_eq!(
+            store.session_events("sess-1").await.unwrap().len(),
+            2,
+            "write after poison persisted; store fully usable"
+        );
+    }
+
     // ── Phase 1d: insert_batch ──
 
     #[tokio::test]

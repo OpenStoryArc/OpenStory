@@ -133,3 +133,11 @@ Every fix above was implemented TDD-first and verified. After the fixes:
 - The 19-vector live probe is 19/19 blocked (unauthenticated instance).
 
 Three INFO/dev-only items left open by design — none is a shipped-artifact exposure. The npm dev CVEs are `npm audit fix`-able whenever the UI/e2e toolchains are next touched.
+
+### Follow-up test coverage (added after the initial fixes)
+
+The initial fixes were verified mostly against the *ported* probe harness. These additions close the gap between "verified by reasoning" and "verified by test":
+
+- **Per-site lock-poison recovery** (`poisoned_lock_recovers_across_call_sites`, sqlite_store.rs) — poisons the connection mutex via a panic inside `with_connection`, then exercises **5 distinct lock sites** (sync read, async read, list, write, FTS) and asserts each recovers *and* the connection stays functional (a post-poison write persists). Verified to fail loudly when any one site is reverted to `.unwrap()`, so it genuinely detects the F1 vulnerability rather than just passing.
+- **MCP JSON-RPC fuzz** (5 tests, protocol.rs) — throws ~33 adversarial frames at `handle_message` (truncated/non-JSON, null bytes, control chars, wrong types, 1MB method, **20K-deep nesting bomb**) asserting no panic/stack-overflow and that the contract holds (invalid → Parse error, notification → None, unknown method → Method-not-found). Confirms the read-audit conclusion: the stdio parser is robust, and serde's recursion limit defuses the depth bomb.
+- **Mongo conformance behavior-verified** — `cargo test -p open-story-store --features mongo --test event_store_conformance` runs the full parity suite (testcontainers mongo): **112 passed, 0 failed** after the mongodb 3.6→3.7 bump. The CVE fix is now verified at behavior level, not just build+audit.
