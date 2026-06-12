@@ -223,7 +223,7 @@ pub const DEFAULT_NATS_STATIC_PREFIX: &str = "\
 # this file is overwritten on every POST /api/admin/share-with-person.
 listen: 0.0.0.0:4222
 jetstream {
-  store_dir: ./data/nats-jetstream
+  store_dir: \"./data/nats-jetstream\"
 }";
 
 #[cfg(test)]
@@ -251,6 +251,14 @@ mod tests {
             "listen: 0.0.0.0:4222",
             initial,
         )
+    }
+
+    #[test]
+    fn default_prefix_quotes_relative_store_dir() {
+        // nats-server's conf parser reads an unquoted leading `.` as a
+        // malformed float ("Parse error: 'Floats must start with a digit'")
+        // and refuses to boot. Relative paths must be quoted.
+        assert!(DEFAULT_NATS_STATIC_PREFIX.contains("store_dir: \"./data/nats-jetstream\""));
     }
 
     #[test]
