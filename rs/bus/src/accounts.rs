@@ -158,6 +158,9 @@ fn render_permission_field(subjects: &[String]) -> String {
 
 fn write_account(out: &mut String, acc: &AccountSpec) {
     let _ = writeln!(out, "  {}: {{", acc.name);
+    // Explicit accounts default JetStream OFF; each must opt in or stream
+    // creation fails ("jetstream not enabled for account").
+    out.push_str("    jetstream: enabled\n");
 
     if !acc.users.is_empty() {
         out.push_str("    users: [\n");
@@ -256,6 +259,20 @@ mod tests {
             exports: vec![],
             imports: vec![],
         }
+    }
+
+    #[test]
+    fn every_account_enables_jetstream() {
+        // When accounts are explicitly defined, nats-server scopes JetStream
+        // per account and defaults it OFF — without `jetstream: enabled` the
+        // server's stream creation fails with "jetstream not enabled for
+        // account" even though the global jetstream block exists.
+        let out = render_accounts_block(&[person_max(), person_katie()]);
+        assert_eq!(
+            out.matches("jetstream: enabled").count(),
+            2,
+            "each account must opt into JetStream:\n{out}"
+        );
     }
 
     #[test]
