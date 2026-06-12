@@ -85,6 +85,38 @@ pub fn spawn(
     })
 }
 
+/// Pulse forwarder: WS broadcast events → pulse channel. The payload is
+/// irrelevant — only the "something happened" signal matters — so this
+/// must survive both failure modes of a fast producer / slow consumer:
+///
+/// - `RecvError::Lagged`: the broadcast ring lapped us. The missed
+///   messages each *would have been* a pulse; one coalesced pulse is an
+///   equivalent signal. Keep receiving.
+/// - Full pulse channel: a pulse is already queued, so the actor will
+///   recompute anyway — drop this one (`try_send`) instead of blocking,
+///   because blocking here is exactly what causes the lag above.
+///
+/// Exits only when either channel is closed.
+pub fn spawn_pulse_forwarder(
+    mut broadcast_rx: tokio::sync::broadcast::Receiver<crate::broadcast::BroadcastMessage>,
+    pulse_tx: mpsc::Sender<()>,
+) -> JoinHandle<()> {
+    use tokio::sync::broadcast::error::RecvError;
+    use tokio::sync::mpsc::error::TrySendError;
+    tokio::spawn(async move {
+        loop {
+            match broadcast_rx.recv().await {
+                Ok(_) => match pulse_tx.try_send(()) {
+                    Ok(()) | Err(TrySendError::Full(())) => {}
+                    Err(TrySendError::Closed(())) => break,
+                },
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
 /// I/O at the boundary: read host tallies AND (host, person_id) ownership
 /// pairs from the store. NULL host is skipped for both — pre-stamping rows
 /// we can't attribute. NULL person_id is skipped for the ownership pairs
@@ -116,6 +148,52 @@ mod tests {
     use super::*;
     use open_story_store::event_store::SessionRow;
     use std::time::Duration;
+
+    fn msg() -> crate::broadcast::BroadcastMessage {
+        crate::broadcast::BroadcastMessage::ViewRecords {
+            session_id: "s".into(),
+            view_records: vec![],
+            project_id: None,
+            project_name: None,
+        }
+    }
+
+    /// The forwarder must outlive a `Lagged` error. A fast producer laps
+    /// the slow receiver (capacity 2, five sends before the first recv);
+    /// the missed messages coalesce into the signal — the forwarder keeps
+    /// forwarding afterwards instead of silently dying, which is exactly
+    /// the failure that froze the admin topology frame in the field.
+    #[tokio::test]
+    async fn pulse_forwarder_survives_lagged_broadcast() {
+        let (bcast_tx, bcast_rx) = tokio::sync::broadcast::channel(2);
+        let (pulse_tx, mut pulse_rx) = mpsc::channel(8);
+        // Overflow the ring BEFORE the forwarder ever polls: receiver
+        // exists (subscribed above) but recv() hasn't run, so its first
+        // poll observes Lagged.
+        for _ in 0..5 {
+            bcast_tx.send(msg()).unwrap();
+        }
+        let handle = spawn_pulse_forwarder(bcast_rx, pulse_tx);
+
+        // It recovers: messages still in the ring forward as pulses.
+        tokio::time::timeout(Duration::from_secs(1), pulse_rx.recv())
+            .await
+            .expect("forwarder should emit a pulse after Lagged")
+            .expect("pulse channel open");
+
+        // And it's still alive for fresh messages.
+        bcast_tx.send(msg()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), pulse_rx.recv())
+            .await
+            .expect("forwarder should keep forwarding after recovery")
+            .expect("pulse channel open");
+
+        drop(bcast_tx); // closing the broadcast side ends the task
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("forwarder exits on close")
+            .unwrap();
+    }
 
     /// SICP/actor proof: pulse → compute → diff → send_replace.
     /// We seed the store with one session whose host appears nowhere in

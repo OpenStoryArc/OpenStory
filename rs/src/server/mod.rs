@@ -488,15 +488,11 @@ pub async fn run_server(
                 pulse_rx,
             );
             // Pulse forwarder: WS broadcast events → pulse channel.
-            // Drops lagged messages (RecvError::Lagged) silently — we
-            // only need the "something happened" signal, not the payload.
-            tokio::spawn(async move {
-                while let Ok(_msg) = broadcast_rx.recv().await {
-                    if pulse_tx.send(()).await.is_err() {
-                        break; // actor closed; exit forwarder
-                    }
-                }
-            });
+            // Lagged-tolerant and non-blocking — see spawn_pulse_forwarder.
+            let _forwarder = open_story_server::consumers::admin_broadcaster::spawn_pulse_forwarder(
+                broadcast_rx,
+                pulse_tx,
+            );
 
             // Topology push: when the watch channel fires (broadcaster
             // wrote a new frame), translate it to a BroadcastMessage and
