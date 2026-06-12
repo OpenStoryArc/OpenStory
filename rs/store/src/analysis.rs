@@ -377,6 +377,104 @@ fn project_name_from_cwd_path(cwd: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Resolve a Cowork (Claude Desktop) session's project identity from its
+/// cwd by reading the sibling `local_<sess>.json` + `spaces.json` files
+/// in the task directory.
+///
+/// Cowork sessions write transcripts under:
+///   `…/local-agent-mode-sessions/<account>/<task>/local_<sess>/<cwd>`
+///
+/// The path-based resolver can't see the user's intended grouping — the
+/// account UUID isn't a project name. The task dir carries two siblings:
+///
+///   * `spaces.json` — the registry of Claude Desktop Projects (called
+///     "spaces" internally): id, human-readable name, host folder paths.
+///   * `local_<sess>.json` — per-session metadata with `spaceId`, `title`,
+///     `userSelectedFolders`. Standalone sessions omit `spaceId`.
+///
+/// Returns `None` when:
+///   - cwd has no `local-agent-mode-sessions` path component (caller
+///     should fall through to the path-pattern resolver);
+///   - the per-session JSON is missing (no metadata to read from).
+///
+/// Returns `Some({project_id: "cowork:<space_id>", project_name})` when
+/// the session is bound to a space, or `Some({project_id:
+/// "cowork:standalone", project_name: title})` when it's loose.
+pub fn resolve_cowork_project(cwd: &str) -> Option<ResolvedProject> {
+    let path = std::path::Path::new(cwd);
+    let segments: Vec<&str> = path
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+
+    // Exact-component match, not substring — a user dir named like the
+    // marker must not falsely trigger.
+    let anchor = segments.iter().position(|s| *s == "local-agent-mode-sessions")?;
+
+    // After the anchor we expect: <account>/<task>/local_<sess>/<cwd...>
+    let account = segments.get(anchor + 1)?;
+    let task = segments.get(anchor + 2)?;
+    let local_sess = segments.get(anchor + 3)?;
+    let sess_id = local_sess.strip_prefix("local_")?;
+    if account.is_empty() || task.is_empty() || sess_id.is_empty() {
+        return None;
+    }
+
+    // Walk up to the task dir by reconstructing the prefix from the
+    // original path — preserves the leading slash and any spaces in
+    // path components (e.g. "Application Support").
+    let mut task_dir = std::path::PathBuf::new();
+    for comp in path.components().take(anchor + 3) {
+        task_dir.push(comp.as_os_str());
+    }
+
+    let local_json_path = task_dir.join(format!("local_{sess_id}.json"));
+    let local: Value = serde_json::from_slice(&std::fs::read(&local_json_path).ok()?).ok()?;
+
+    let title = local.get("title").and_then(|v| v.as_str()).map(String::from);
+    let space_id = local.get("spaceId").and_then(|v| v.as_str()).map(String::from);
+
+    // No space binding: bucket under the synthetic "standalone" project,
+    // labeled with the title when present.
+    let space_id = match space_id {
+        Some(s) => s,
+        None => {
+            return Some(ResolvedProject {
+                project_id: "cowork:standalone".to_string(),
+                project_name: title.unwrap_or_else(|| "Cowork (standalone)".to_string()),
+            });
+        }
+    };
+
+    // Have a spaceId: try to upgrade with the human name from spaces.json.
+    // If the registry is missing or doesn't list this space, gracefully
+    // degrade to standalone+title rather than blocking ingest.
+    let spaces_json_path = task_dir.join("spaces.json");
+    let space_name = std::fs::read(&spaces_json_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|reg| {
+            reg.get("spaces")?
+                .as_array()?
+                .iter()
+                .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(&space_id))?
+                .get("name")?
+                .as_str()
+                .map(String::from)
+        });
+
+    Some(match space_name {
+        Some(name) => ResolvedProject {
+            project_id: format!("cowork:{space_id}"),
+            project_name: name,
+        },
+        None => ResolvedProject {
+            project_id: "cowork:standalone".to_string(),
+            project_name: title.unwrap_or_else(|| "Cowork (standalone)".to_string()),
+        },
+    })
+}
+
 /// Resolve a session's project identity by matching its cwd against known
 /// `.claude/projects/` directory names.
 ///
@@ -387,6 +485,14 @@ fn project_name_from_cwd_path(cwd: &str) -> Option<String> {
 /// Returns `(project_id, project_name)` where project_id is the canonical
 /// directory name and project_name is the human-readable last segment.
 pub fn resolve_project(cwd: &str, watch_dir_entries: &[String]) -> ResolvedProject {
+    // Cowork (Claude Desktop) sessions need to consult sibling metadata
+    // files for their human-readable space name; the path alone yields
+    // only meaningless UUIDs. Resolver is filesystem-aware and returns
+    // None when the path isn't a Cowork session.
+    if let Some(cowork) = resolve_cowork_project(cwd) {
+        return cowork;
+    }
+
     let normalized = cwd.replace('\\', "/");
     let segments: Vec<&str> = normalized.split('/').filter(|s| !s.is_empty()).collect();
 
@@ -1456,6 +1562,144 @@ mod tests {
                 "project_name mismatch for cwd={cwd}"
             );
         }
+    }
+
+    // ── resolve_cowork_project: tagged grouping by Claude Desktop space ──
+    //
+    // Cowork sessions live under
+    //   ~/Library/Application Support/Claude/local-agent-mode-sessions/
+    //     <account>/<task>/local_<sess>/<cwd>
+    // and the task dir carries two siblings the path alone can't yield:
+    //   * spaces.json          — registry of Projects (id, name, folders)
+    //   * local_<sess>.json    — per-session metadata (spaceId, title, ...)
+    //
+    // resolve_cowork_project reads those siblings so the SessionRow ends
+    // up with a human-readable space name instead of the meaningless
+    // account UUID the path-pattern resolver returns today.
+
+    /// Build a fake Cowork task tree under `root` matching the on-disk
+    /// shape observed on Katie's machine 2026-06-09. Returns the cwd
+    /// (`<root>/<acct>/<task>/local_<sess>/outputs`) ready to pass
+    /// into `resolve_cowork_project`.
+    fn build_cowork_tree(
+        root: &std::path::Path,
+        acct: &str,
+        task: &str,
+        sess: &str,
+        spaces_json: Option<&str>,
+        local_json: Option<&str>,
+    ) -> std::path::PathBuf {
+        let task_dir = root.join(acct).join(task);
+        let outputs = task_dir.join(format!("local_{sess}")).join("outputs");
+        std::fs::create_dir_all(&outputs).unwrap();
+        if let Some(s) = spaces_json {
+            std::fs::write(task_dir.join("spaces.json"), s).unwrap();
+        }
+        if let Some(l) = local_json {
+            std::fs::write(task_dir.join(format!("local_{sess}.json")), l).unwrap();
+        }
+        outputs
+    }
+
+    fn cowork_cwd(td: &tempfile::TempDir) -> std::path::PathBuf {
+        // The path needs the literal "local-agent-mode-sessions" component
+        // for the resolver to recognize it — that's the anchor signal.
+        let root = td.path().join("local-agent-mode-sessions");
+        let spaces = r#"{"spaces":[{"id":"space-abc","name":"test-project",
+            "folders":[{"path":"/Users/me/Claude/Projects/test-project"}]}]}"#;
+        let local = r#"{"sessionId":"local_sess-xyz","cliSessionId":"af9f19a6",
+            "spaceId":"space-abc","title":"OpenStory test project",
+            "userSelectedFolders":["/Users/me/Claude/Projects/test-project"]}"#;
+        build_cowork_tree(&root, "acct-uuid", "task-uuid", "sess-xyz", Some(spaces), Some(local))
+    }
+
+    #[test]
+    fn resolve_cowork_in_space_returns_human_name() {
+        let td = tempfile::tempdir().unwrap();
+        let cwd = cowork_cwd(&td);
+        let result = resolve_cowork_project(cwd.to_str().unwrap())
+            .expect("cwd under local-agent-mode-sessions with spaceId must resolve");
+        assert_eq!(result.project_id, "cowork:space-abc",
+            "project_id must be namespaced + carry the space id");
+        assert_eq!(result.project_name, "test-project",
+            "project_name must come from spaces.json, not the encoded path");
+    }
+
+    #[test]
+    fn resolve_cowork_standalone_falls_back_to_title() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("local-agent-mode-sessions");
+        let local = r#"{"sessionId":"local_sess-loose","cliSessionId":"af9f19a6",
+            "title":"Ad-hoc exploration"}"#;
+        let cwd = build_cowork_tree(&root, "acct", "task", "sess-loose", None, Some(local));
+        let result = resolve_cowork_project(cwd.to_str().unwrap())
+            .expect("cwd under local-agent-mode-sessions must resolve even without spaceId");
+        assert_eq!(result.project_id, "cowork:standalone",
+            "standalone Cowork sessions share one synthetic project group");
+        assert_eq!(result.project_name, "Ad-hoc exploration",
+            "fall back to the session title when no space is linked");
+    }
+
+    #[test]
+    fn resolve_cowork_returns_none_for_non_cowork_cwd() {
+        // Plain Claude Code cwds must fall through to the existing resolver.
+        assert!(resolve_cowork_project("/Users/me/workspace/OpenStory").is_none());
+        assert!(resolve_cowork_project(r"C:\Users\dev\projects\my-project").is_none());
+    }
+
+    #[test]
+    fn resolve_cowork_substring_lookalike_does_not_match() {
+        // A user directory merely *named like* the marker must not trigger —
+        // resolution requires an exact path component.
+        assert!(resolve_cowork_project(
+            "/Users/me/my-local-agent-mode-sessions-notes/session"
+        ).is_none());
+    }
+
+    #[test]
+    fn resolve_cowork_missing_local_json_returns_none() {
+        // Without the per-session sibling there's no spaceId to read.
+        // Better to return None and let the caller fall through than to
+        // invent metadata from the path's UUIDs.
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("local-agent-mode-sessions");
+        let cwd = build_cowork_tree(&root, "acct", "task", "sess-orphan", None, None);
+        assert!(
+            resolve_cowork_project(cwd.to_str().unwrap()).is_none(),
+            "missing local_*.json → caller falls back to path resolver"
+        );
+    }
+
+    #[test]
+    fn resolve_cowork_missing_spaces_json_falls_back_to_title() {
+        // Session has a spaceId but the registry is gone (corrupted, deleted).
+        // Treat as standalone, not crash — sovereignty means graceful degradation.
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("local-agent-mode-sessions");
+        let local = r#"{"sessionId":"local_sess","cliSessionId":"af","spaceId":"orphan",
+            "title":"My session"}"#;
+        let cwd = build_cowork_tree(&root, "acct", "task", "sess", None, Some(local));
+        let result = resolve_cowork_project(cwd.to_str().unwrap())
+            .expect("must resolve even when spaces.json is missing");
+        assert_eq!(result.project_id, "cowork:standalone");
+        assert_eq!(result.project_name, "My session");
+    }
+
+    /// Hits the real on-disk Cowork tree on the developer's machine.
+    /// Ignored by default — run manually with
+    /// `cargo test -p open-story-store live_resolve_cowork -- --ignored --nocapture`
+    /// to confirm the resolver agrees with the synthetic fixtures.
+    #[test]
+    #[ignore]
+    fn live_resolve_cowork_against_real_session() {
+        let cwd = "/Users/kloughra/Library/Application Support/Claude/\
+                   local-agent-mode-sessions/89bbf81e-8cff-4fbc-b186-65cd0d46192f/\
+                   4d7a35aa-1b3b-435e-b4fb-a74232f84945/\
+                   local_66a0bd38-bd5c-47b7-a716-6fa75b8f4dda/outputs";
+        let result = resolve_cowork_project(cwd).expect("live cwd must resolve");
+        println!("LIVE: id={}  name={}", result.project_id, result.project_name);
+        assert_eq!(result.project_id, "cowork:225e2f23-d6ab-4682-ae23-66897bc744ef");
+        assert_eq!(result.project_name, "test-project");
     }
 
     // ── strip_worktree_suffix tests ────────────────────────────────
