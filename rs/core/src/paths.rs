@@ -62,6 +62,23 @@ pub fn nats_subject_from_path(path: &Path, watch_dir: &Path) -> String {
     }
 }
 
+/// Identify the source platform from a transcript file path.
+///
+/// Cowork (Claude Desktop's code tab) runs Claude Code in a sandbox VM and
+/// writes byte-identical JSONL under
+/// `…/Claude/local-agent-mode-sessions/<account>/<task>/local_<sess>/.claude/projects/…`.
+/// The format is claude-code; only the platform label differs. Matching is
+/// on an exact path *component* so a user directory merely named like the
+/// marker can't trigger it.
+///
+/// Returns `Some("claude-code-cowork")` for Cowork paths, `None` otherwise
+/// (callers default to "claude-code").
+pub fn agent_label_from_path(path: &Path) -> Option<&'static str> {
+    path.components()
+        .any(|c| c.as_os_str() == "local-agent-mode-sessions")
+        .then_some("claude-code-cowork")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
