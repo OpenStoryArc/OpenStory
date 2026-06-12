@@ -118,6 +118,17 @@ impl NatsBus {
                 .connect(&clean_url)
                 .await
                 .with_context(|| format!("failed to connect to NATS at {clean_url} (with token)"))?
+        } else if let Some((user, pass)) = Self::extract_user_pass(nats_url) {
+            // async-nats does not parse credentials out of URL userinfo
+            // (same constraint the multi-account isolation tests work
+            // around) — extract them and pass via ConnectOptions.
+            let clean_url = Self::strip_userinfo(nats_url);
+            async_nats::ConnectOptions::with_user_and_password(user, pass)
+                .connect(&clean_url)
+                .await
+                .with_context(|| {
+                    format!("failed to connect to NATS at {clean_url} (with user/password)")
+                })?
         } else {
             async_nats::connect(nats_url)
                 .await
@@ -179,6 +190,18 @@ impl NatsBus {
         } else {
             Some(userinfo.to_string())
         }
+    }
+
+    /// Extract `user:pass` userinfo: `nats://u:p@host:port` → `(u, p)`.
+    fn extract_user_pass(url: &str) -> Option<(String, String)> {
+        let after_scheme = url.strip_prefix("nats://")?;
+        let at_pos = after_scheme.find('@')?;
+        let userinfo = &after_scheme[..at_pos];
+        let colon = userinfo.find(':')?;
+        Some((
+            userinfo[..colon].to_string(),
+            userinfo[colon + 1..].to_string(),
+        ))
     }
 
     /// Strip userinfo from URL: `nats://token@host:port` → `nats://host:port`.
@@ -853,6 +876,32 @@ pub(crate) async fn register_self_with_hub(
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("hub registration failed: unknown")))
         .context("hub events-agg self-registration exhausted retries")
+}
+
+#[cfg(test)]
+mod url_credential_tests {
+    //! URL userinfo → ConnectOptions routing. async-nats ignores userinfo
+    //! in the URL, so connect_inner must extract it: a lone segment is a
+    //! token, `user:pass` is account credentials (multi-account mode).
+    use super::*;
+
+    #[test]
+    fn user_pass_userinfo_is_extracted_for_account_auth() {
+        let (user, pass) =
+            NatsBus::extract_user_pass("nats://person-id:person-id-local-dev@localhost:4222")
+                .expect("user:pass userinfo should be extracted");
+        assert_eq!(user, "person-id");
+        assert_eq!(pass, "person-id-local-dev");
+        // And it must NOT be mistaken for a token.
+        assert!(NatsBus::extract_token("nats://person-id:person-id-local-dev@localhost:4222")
+            .is_none());
+    }
+
+    #[test]
+    fn token_and_bare_urls_yield_no_user_pass() {
+        assert!(NatsBus::extract_user_pass("nats://token@localhost:4222").is_none());
+        assert!(NatsBus::extract_user_pass("nats://localhost:4222").is_none());
+    }
 }
 
 #[cfg(test)]
