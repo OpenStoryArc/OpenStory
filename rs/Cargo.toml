@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "bus", "cli", "core", "mcp", "patterns", "schemas", "server", "store", "views"]
+members = [".", "bus", "cli", "core", "mcp", "patterns", "schemas", "server", "shapes", "store", "views"]
 
 [package]
 name = "open-story"
@@ -41,6 +41,7 @@ mongo = ["open-story-store/mongo"]
 hermes_container = []
 
 [dev-dependencies]
+open-story-shapes = { path = "shapes" }
 filetime = "0.2"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
