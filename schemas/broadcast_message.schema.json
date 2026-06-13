@@ -279,6 +279,104 @@
       },
       "type": "object"
     },
+    "ShapeCounts": {
+      "description": "Running per-session tallies over the shapes seen so far. `BTreeMap`s keep the tallies deterministically ordered for stable wire output and tests.",
+      "properties": {
+        "bash": {
+          "description": "Count of bash-shape / path-shape / change-shape rows.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "change": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lines_added": {
+          "description": "Summed change deltas across change-shape rows.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lines_removed": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "path": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "programs": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "description": "Tally of shell programs (bash-shape `data.program`).",
+          "type": "object"
+        },
+        "top_segments": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "description": "Tally of top path segments (path-shape `data.top_segment`).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "bash",
+        "change",
+        "lines_added",
+        "lines_removed",
+        "path",
+        "programs",
+        "top_segments"
+      ],
+      "type": "object"
+    },
+    "ShapeRow": {
+      "description": "One deterministic shape projection of a single CloudEvent.\n\n`id` is `{event_id}:{shape_type}:{ord}` — stable across replay/backfill because `event.id` is the transcript message uuid and extraction is a pure, ordered function. `ord` is 0 for single-row layers (bash, change) and the match index for multi-row layers (path).",
+      "properties": {
+        "data": {
+          "description": "Layer-specific decomposition (mirrors the prototype's DB columns)."
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "shape_type": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "event_id",
+        "id",
+        "seq",
+        "session_id",
+        "shape_type",
+        "timestamp"
+      ],
+      "type": "object"
+    },
     "SystemEvent": {
       "properties": {
         "duration_ms": {
@@ -2130,6 +2228,42 @@
       "required": [
         "kind",
         "session_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Live shape projection: the new shape rows from this batch plus the session's running `ShapeCounts`. The UI renders these directly (it's a dumb sink — all analysis already happened in the Shapes actor).",
+      "properties": {
+        "counts": {
+          "$ref": "#/definitions/ShapeCounts"
+        },
+        "kind": {
+          "enum": [
+            "shapes"
+          ],
+          "type": "string"
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "shapes": {
+          "items": {
+            "$ref": "#/definitions/ShapeRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "counts",
+        "kind",
+        "session_id",
+        "shapes"
       ],
       "type": "object"
     }

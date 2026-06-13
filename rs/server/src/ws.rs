@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use open_story_patterns::PatternEvent;
+use open_story_shapes::ShapeCounts;
 
 use crate::logging::log_event;
 use crate::state::{AppState, SharedState};
@@ -45,6 +46,9 @@ pub async fn ws_handler(
 pub struct InitialState {
     pub patterns: Vec<PatternEvent>,
     pub session_labels: HashMap<String, SessionLabel>,
+    /// Per-session running shape counts, so a connecting client renders current
+    /// shape totals immediately instead of waiting for the next event.
+    pub shape_counts: HashMap<String, ShapeCounts>,
 }
 
 /// Build initial_state from projection cache, bounded by recency.
@@ -89,6 +93,14 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
         all_patterns.extend(entry.value().iter().cloned());
     }
 
+    let mut shape_counts: HashMap<String, ShapeCounts> = HashMap::new();
+    for entry in state.store.detected_shape_counts.iter() {
+        if !included_sessions.contains(entry.key()) {
+            continue;
+        }
+        shape_counts.insert(entry.key().clone(), entry.value().clone());
+    }
+
     log_event(
         "ws",
         &format!(
@@ -103,6 +115,7 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
     InitialState {
         patterns: all_patterns,
         session_labels,
+        shape_counts,
     }
 }
 
@@ -154,6 +167,7 @@ async fn handle_socket(mut socket: WebSocket, state: SharedState) {
         "kind": "initial_state",
         "patterns": init.patterns,
         "session_labels": init.session_labels,
+        "shape_counts": init.shape_counts,
     });
 
     if socket

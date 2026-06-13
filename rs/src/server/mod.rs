@@ -374,31 +374,57 @@ pub async fn run_server(
             });
         }
 
-        // ── Actor 5: shapes consumer ──
+        // ── Actor 5: shapes consumer (+ live analysis) ──
         // Deterministic per-event shape projections (bash / path / change).
-        // Subscribes to events.>, runs the stateless extractors, and writes
-        // rows straight to the EventStore — no NATS publish (shapes are a pure
-        // function of events, so any node re-derives them by running its own
-        // consumer). Keyed on batch.session_id like every other projection.
+        // Subscribes to events.>, runs the extractors, writes rows to the
+        // EventStore, folds them into per-session running counts (the live
+        // analysis), and broadcasts BroadcastMessage::Shapes so the UI ticks in
+        // real time. No NATS publish — shapes are a pure function of events;
+        // analysis lives here in Rust, the view is a dumb sink. Keyed on
+        // batch.session_id like every other projection.
         {
-            let event_store = state.read().await.store.event_store.clone();
+            let (event_store, shapes_tx, shape_counts_cache) = {
+                let s = state.read().await;
+                (
+                    s.store.event_store.clone(),
+                    s.broadcast_tx.clone(),
+                    s.store.detected_shape_counts.clone(),
+                )
+            };
             let shapes_bus = bus.clone();
             tokio::spawn(async move {
-                let actor = consumers::shapes::ShapesConsumer::new();
+                let mut actor = consumers::shapes::ShapesConsumer::new();
                 match shapes_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
-                            let rows = actor.process_batch(&batch.session_id, &batch.events);
-                            if !rows.is_empty() {
-                                let n = rows.len();
-                                let _ = event_store
-                                    .insert_shapes_batch(&batch.session_id, &rows)
-                                    .await;
-                                log_event("shapes", &format!(
-                                    "\x1b[33m{}\x1b[0m \x1b[36m+{} shapes\x1b[0m",
-                                    short_id(&batch.session_id), n
-                                ));
+                            let result =
+                                actor.process_batch(&batch.session_id, &batch.events);
+                            if result.rows.is_empty() {
+                                continue;
                             }
+                            let n = result.rows.len();
+                            let _ = event_store
+                                .insert_shapes_batch(&batch.session_id, &result.rows)
+                                .await;
+                            // Mirror running counts for the WebSocket handshake.
+                            shape_counts_cache
+                                .insert(batch.session_id.clone(), result.counts.clone());
+                            // Push live to any connected UIs (best-effort).
+                            let project_id = if batch.project_id.is_empty() {
+                                None
+                            } else {
+                                Some(batch.project_id.clone())
+                            };
+                            let _ = shapes_tx.send(BroadcastMessage::Shapes {
+                                session_id: batch.session_id.clone(),
+                                shapes: result.rows,
+                                counts: result.counts,
+                                project_id,
+                            });
+                            log_event("shapes", &format!(
+                                "\x1b[33m{}\x1b[0m \x1b[36m+{} shapes\x1b[0m",
+                                short_id(&batch.session_id), n
+                            ));
                         }
                     }
                     Err(e) => eprintln!("Shapes consumer error: {e}"),

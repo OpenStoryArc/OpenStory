@@ -10,6 +10,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 
 use open_story_patterns::PatternEvent;
+use open_story_shapes::ShapeCounts;
 
 use crate::event_store::EventStore;
 use crate::persistence::{EventLog, SessionStore};
@@ -77,6 +78,11 @@ pub struct StoreState {
     /// consumer; this is just the in-memory mirror it pushes into so the
     /// API/WebSocket layers can read it without a DB roundtrip.
     pub detected_patterns: Arc<DashMap<String, Vec<PatternEvent>>>,
+    /// Per-session running shape counts, mirrored by the shapes consumer
+    /// (Actor 5) and read by `build_initial_state` so a connecting client
+    /// renders current shape totals immediately. The live analysis the UI
+    /// sinks; the durable rows live in the EventStore `shapes` table.
+    pub detected_shape_counts: Arc<DashMap<String, ShapeCounts>>,
     /// Truncation cache: `(session_id, event_id)` → full tool output.
     /// Shared `Arc<DashMap>` so replay + live ingest can populate it
     /// concurrently while the API reads for the lazy-load endpoint.
@@ -219,6 +225,7 @@ impl StoreState {
             plan_store,
             projections: Arc::new(DashMap::new()),
             detected_patterns: Arc::new(DashMap::new()),
+            detected_shape_counts: Arc::new(DashMap::new()),
             full_payloads: Arc::new(DashMap::new()),
             subagent_parents: Arc::new(DashMap::new()),
             session_children: Arc::new(DashMap::new()),

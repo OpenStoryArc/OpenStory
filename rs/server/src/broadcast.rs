@@ -8,6 +8,7 @@ use open_story_views::view_record::ViewRecord;
 use open_story_views::wire_record::WireRecord;
 
 use open_story_patterns::PatternEvent;
+use open_story_shapes::{ShapeCounts, ShapeRow};
 
 /// Messages broadcast to WebSocket subscribers.
 ///
@@ -62,6 +63,17 @@ pub enum BroadcastMessage {
     PlanSaved {
         session_id: String,
     },
+    /// Live shape projection: the new shape rows from this batch plus the
+    /// session's running `ShapeCounts`. The UI renders these directly (it's a
+    /// dumb sink — all analysis already happened in the Shapes actor).
+    #[serde(rename = "shapes")]
+    Shapes {
+        session_id: String,
+        shapes: Vec<ShapeRow>,
+        counts: ShapeCounts,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project_id: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -99,6 +111,21 @@ mod tests {
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["kind"], "view_records");
         assert_eq!(json["project_id"], "proj-a");
+    }
+
+    #[test]
+    fn shapes_serializes_with_kind_tag() {
+        let msg = BroadcastMessage::Shapes {
+            session_id: "sess-sh".to_string(),
+            shapes: vec![],
+            counts: ShapeCounts::default(),
+            project_id: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "shapes");
+        assert_eq!(json["session_id"], "sess-sh");
+        // counts is always present (the live analysis payload)
+        assert_eq!(json["counts"]["bash"], 0);
     }
 
     #[test]
