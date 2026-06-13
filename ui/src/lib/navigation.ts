@@ -1,6 +1,6 @@
 /** Navigation types for Live/Explore tab switching and cross-linking. */
 
-export type ViewMode = "live" | "explore" | "story" | "users";
+export type ViewMode = "live" | "explore" | "story" | "users" | "shapes";
 
 /** Payload carried when cross-linking from Live → Explore. */
 export interface CrossLink {

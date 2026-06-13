@@ -11,7 +11,7 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | ShapesMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -29,6 +29,39 @@ export interface InitialStateMessage {
   readonly kind: "initial_state";
   readonly patterns?: readonly ServerPatternEvent[];
   readonly session_labels?: Readonly<Record<string, SessionLabel>>;
+  /** Per-session running shape counts at connect time. */
+  readonly shape_counts?: Readonly<Record<string, ShapeCounts>>;
+}
+
+/** Running per-session shape tallies (mirrors Rust `ShapeCounts`). */
+export interface ShapeCounts {
+  readonly bash: number;
+  readonly path: number;
+  readonly change: number;
+  readonly lines_added: number;
+  readonly lines_removed: number;
+  readonly programs: Readonly<Record<string, number>>;
+  readonly top_segments: Readonly<Record<string, number>>;
+}
+
+/** Live shape projection for a session: new rows this batch + running counts. */
+export interface ShapesMessage {
+  readonly kind: "shapes";
+  readonly session_id: string;
+  readonly shapes: readonly ShapeRow[];
+  readonly counts: ShapeCounts;
+  readonly project_id?: string;
+}
+
+/** Mirrors Rust `ShapeRow`. */
+export interface ShapeRow {
+  readonly id: string;
+  readonly session_id: string;
+  readonly shape_type: string;
+  readonly seq: number;
+  readonly timestamp: string;
+  readonly event_id: string;
+  readonly data: Record<string, unknown>;
 }
 
 /** Phase 3 enriched broadcast: durable + ephemeral + filter deltas + patterns + labels. */

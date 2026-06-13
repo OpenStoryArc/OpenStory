@@ -6,15 +6,9 @@
  * isolation; the fetch + render lives in `ShapesPanel.tsx`.
  */
 
-export interface ShapeRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly shape_type: string; // "bash-shape" | "path-shape" | "change-shape"
-  readonly seq: number;
-  readonly timestamp: string;
-  readonly event_id: string;
-  readonly data: Record<string, unknown>;
-}
+import type { ShapeRow } from "@/types/websocket";
+
+export type { ShapeRow };
 
 export interface RankedItem {
   readonly value: string;

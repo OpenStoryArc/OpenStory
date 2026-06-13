@@ -10,6 +10,7 @@ import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { UsersView } from "@/components/users/UsersView";
+import { ShapesView } from "@/components/shapes/ShapesView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
@@ -147,6 +148,9 @@ export function App() {
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}
+
+      {/* Shapes tab */}
+      {viewMode === "shapes" && <ShapesView />}
     </div>
   );
 }
