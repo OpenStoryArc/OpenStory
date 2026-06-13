@@ -466,7 +466,10 @@ Claude-powered analysis: running session summaries updated incrementally via pat
 Phased encryption: make SQLCipher functional, encrypt JSONL files, add vault unlock mechanism, then add NATS TLS and HTTPS/WSS for clients. SQLCipher key config already exists but isn't exercised.
 
 ### Kubernetes Deployment
-K8s manifests (NATS StatefulSet + consumer Deployment + agent sidecars), integration tests via K3s testcontainers, and a Helm chart. K3s testcontainer spike exists in the codebase.
+K8s manifests (NATS StatefulSet + consumer Deployment + agent sidecars), integration tests via K3s testcontainers, and a Helm chart. K3s testcontainer spike exists in the codebase (`rs/tests/helpers/k8s.rs::K3sCluster`, `test_k8s.rs`). **Tailnet-federation k8s tests** are planned in `docs/research/tailnet-federation/K8S_TEST_PLAN.md`, building on `K3sCluster` + `kube`: Phase 1 is NetworkPolicy allow/deny enforcement guarded by a false-green meta-control; Phases 2–4 add the Tailscale-sidecar identity and two-cluster federation ablations. Motivated by interoperating with an inference-cluster peer. Run on a Linux box (e.g. a1 over SSH) — K3s needs real cgroups; macOS Docker Desktop is unreliable for it.
+
+### Tailnet Federation — graduate from research to product
+The `docs/research/tailnet-federation/` spike validated (12/12 controlled experiment on Linux + green Rust test `rs/tests/test_tailnet_federation.rs`) that OpenStory federates over a purpose-built Tailscale tailnet with a tag-based ACL as the trust boundary, and hardened a real ACL-bypass — a NATS leaf falling back to a non-tailnet path, fixed with `leafnodes { advertise }` (now noted in `docs/deploy/distributed.md`). Remaining to productize: fold the tailnet-sidecar + tag-ACL setup into `distributed.md` as a first-class "federate with a friend" quickstart; gate `test_tailnet_federation` in CI (needs a Linux runner with `/dev/net/tun` + `NET_ADMIN`); then the k8s tests above. The hermetic harness (`docs/research/tailnet-federation/harness/run.sh`, runnable on a1 over SSH) is the reference oracle.
 
 ### OpenClaw Skill Integration
 CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversational session recall via OpenClaw. Includes SessionSummary reducer, digest format for hourly heartbeat, and portable SKILL.md.
