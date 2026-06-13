@@ -203,6 +203,7 @@ They'll see their own sessions locally at `localhost:3002`, and their events app
 - **Port 7422** is bound to the Tailscale IP in Docker, unreachable from the public internet
 - **ufw** on the VPS blocks all incoming traffic except SSH; Tailscale bypasses ufw at the iptables level
 - Client port 4222 is localhost-only on both hub and leaf
+- **Federation is pinned to the tailnet** — the hub advertises *only* its Tailscale address (`leafnodes { advertise: "<hub-tailnet-addr>:7422" }`). Without this, NATS gossips the hub's other interfaces to the leaf via `connect_urls`, and a severed tailnet lets the leaf reconnect over *any* shared path (LAN, VPC, docker bridge) — bypassing the Tailscale ACL entirely. This was found and fixed by the falsifiable ablation in `docs/research/tailnet-federation/VALIDATION.md`; set it on every hub.
 
 ### Known limitations
 
