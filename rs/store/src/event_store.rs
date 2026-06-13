@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
+use open_story_shapes::ShapeRow;
 
 use crate::queries;
 
@@ -93,6 +94,47 @@ pub trait EventStore: Send + Sync {
 
     /// Query structural turns for a session, ordered by turn_number.
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>>;
+
+    /// Insert a batch of shape rows in one transaction. Returns the count of
+    /// newly-inserted rows (duplicates by `id` are skipped — idempotent).
+    /// Default impl is a no-op for backends that don't persist shapes.
+    async fn insert_shapes_batch(&self, _session_id: &str, _shapes: &[ShapeRow]) -> Result<usize> {
+        Ok(0)
+    }
+
+    /// Query shape rows for a session, optionally filtered by `shape_type`,
+    /// ordered by `seq`. Default impl returns empty.
+    async fn session_shapes(
+        &self,
+        _session_id: &str,
+        _shape_type: Option<&str>,
+    ) -> Result<Vec<ShapeRow>> {
+        Ok(vec![])
+    }
+
+    /// Cross-shape step 1 — the session ids whose `shape_type` rows have
+    /// `json_field` equal to `value` (scalar) or containing it (array fields
+    /// like `naming_tokens`/`flags`). Default impl returns empty.
+    async fn sessions_where_shape(
+        &self,
+        _shape_type: &str,
+        _json_field: &str,
+        _value: &str,
+    ) -> Result<Vec<String>> {
+        Ok(vec![])
+    }
+
+    /// Cross-shape step 2 — over the given sessions, count occurrences of each
+    /// distinct value of `json_field` within `shape_type` rows, ranked
+    /// descending. Array fields are unnested. Default impl returns empty.
+    async fn aggregate_shape_field(
+        &self,
+        _session_ids: &[String],
+        _shape_type: &str,
+        _json_field: &str,
+    ) -> Result<Vec<(String, i64)>> {
+        Ok(vec![])
+    }
 
     /// Store a plan.
     async fn upsert_plan(

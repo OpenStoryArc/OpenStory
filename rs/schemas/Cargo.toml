@@ -10,6 +10,7 @@ anyhow = "1"
 open-story-core = { path = "../core" }
 open-story-views = { path = "../views" }
 open-story-patterns = { path = "../patterns" }
+open-story-shapes = { path = "../shapes" }
 open-story-bus = { path = "../bus" }
 open-story-store = { path = "../store" }
 open-story-server = { path = "../server" }

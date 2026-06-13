@@ -21,6 +21,7 @@ mongo = ["dep:mongodb", "dep:bson", "dep:futures"]
 open-story-core = { path = "../core" }
 open-story-views = { path = "../views" }
 open-story-patterns = { path = "../patterns" }
+open-story-shapes = { path = "../shapes" }
 open-story-bus = { path = "../bus" }
 anyhow = "1"
 schemars = "0.8"

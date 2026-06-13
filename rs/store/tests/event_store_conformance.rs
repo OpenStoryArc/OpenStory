@@ -25,6 +25,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
+use open_story_shapes::ShapeRow;
 use open_story_store::event_store::{EventStore, SessionRow};
 // Analytics output struct imports get added back as new helpers are
 // written. Keeping the import list minimal to silence unused-import
@@ -105,6 +106,24 @@ fn test_pattern(session_id: &str, ptype: &str, started_at: &str) -> PatternEvent
         ended_at: "2025-01-14T00:01:00Z".to_string(),
         summary: format!("{ptype} summary"),
         metadata: json!({"key": "value"}),
+    }
+}
+
+fn test_shape(
+    event_id: &str,
+    session_id: &str,
+    shape_type: &str,
+    seq: u64,
+    data: Value,
+) -> ShapeRow {
+    ShapeRow {
+        id: format!("{event_id}:{shape_type}:0"),
+        session_id: session_id.to_string(),
+        shape_type: shape_type.to_string(),
+        seq,
+        timestamp: "2025-01-14T00:00:00Z".to_string(),
+        event_id: event_id.to_string(),
+        data,
     }
 }
 
@@ -522,6 +541,79 @@ pub async fn it_filters_session_patterns_by_type(store: Arc<dyn EventStore>) {
 
     let all = store.session_patterns("sess-pat-f", None).await.unwrap();
     assert_eq!(all.len(), 3);
+}
+
+pub async fn it_inserts_and_reads_shapes(store: Arc<dyn EventStore>) {
+    let rows = vec![
+        test_shape("evt-1", "sess-sh", "bash-shape", 1, json!({"program": "git"})),
+        test_shape("evt-2", "sess-sh", "path-shape", 2, json!({"top_segment": "rs"})),
+    ];
+    let inserted = store.insert_shapes_batch("sess-sh", &rows).await.unwrap();
+    assert_eq!(inserted, 2);
+
+    let all = store.session_shapes("sess-sh", None).await.unwrap();
+    assert_eq!(all.len(), 2);
+    // ordered by seq
+    assert_eq!(all[0].seq, 1);
+    assert_eq!(all[0].data["program"], "git");
+}
+
+pub async fn it_dedups_shapes_by_id(store: Arc<dyn EventStore>) {
+    let row = test_shape("evt-d", "sess-d", "bash-shape", 1, json!({"program": "cargo"}));
+    let first = store.insert_shapes_batch("sess-d", &[row.clone()]).await.unwrap();
+    assert_eq!(first, 1);
+    // re-inserting the same id is idempotent — zero new rows, still one stored.
+    let second = store.insert_shapes_batch("sess-d", &[row]).await.unwrap();
+    assert_eq!(second, 0);
+    assert_eq!(store.session_shapes("sess-d", None).await.unwrap().len(), 1);
+}
+
+pub async fn it_filters_shapes_by_type(store: Arc<dyn EventStore>) {
+    let rows = vec![
+        test_shape("e1", "sess-f", "bash-shape", 1, json!({"program": "git"})),
+        test_shape("e2", "sess-f", "path-shape", 2, json!({"top_segment": "rs"})),
+        test_shape("e3", "sess-f", "bash-shape", 3, json!({"program": "npm"})),
+    ];
+    store.insert_shapes_batch("sess-f", &rows).await.unwrap();
+    let bash = store.session_shapes("sess-f", Some("bash-shape")).await.unwrap();
+    assert_eq!(bash.len(), 2);
+    assert!(bash.iter().all(|r| r.shape_type == "bash-shape"));
+    assert_eq!(store.session_shapes("sess-f", None).await.unwrap().len(), 3);
+}
+
+pub async fn it_finds_sessions_where_shape(store: Arc<dyn EventStore>) {
+    // scalar field (program)
+    store.insert_shapes_batch("sA", &[test_shape("a1", "sA", "bash-shape", 1, json!({"program": "git"}))]).await.unwrap();
+    store.insert_shapes_batch("sB", &[test_shape("b1", "sB", "bash-shape", 1, json!({"program": "git"}))]).await.unwrap();
+    store.insert_shapes_batch("sC", &[test_shape("c1", "sC", "bash-shape", 1, json!({"program": "cargo"}))]).await.unwrap();
+    let mut got = store.sessions_where_shape("bash-shape", "program", "git").await.unwrap();
+    got.sort();
+    assert_eq!(got, vec!["sA".to_string(), "sB".to_string()]);
+
+    // array field (naming_tokens) — membership match
+    store.insert_shapes_batch("sD", &[test_shape("d1", "sD", "path-shape", 1, json!({"naming_tokens": ["event", "store"]}))]).await.unwrap();
+    let got = store.sessions_where_shape("path-shape", "naming_tokens", "store").await.unwrap();
+    assert_eq!(got, vec!["sD".to_string()]);
+}
+
+pub async fn it_aggregates_a_shape_field(store: Arc<dyn EventStore>) {
+    store.insert_shapes_batch("g1", &[
+        test_shape("x1", "g1", "bash-shape", 1, json!({"program": "git"})),
+        test_shape("x2", "g1", "bash-shape", 2, json!({"program": "git"})),
+        test_shape("x3", "g1", "bash-shape", 3, json!({"program": "cargo"})),
+    ]).await.unwrap();
+    store.insert_shapes_batch("g2", &[
+        test_shape("y1", "g2", "bash-shape", 1, json!({"program": "git"})),
+    ]).await.unwrap();
+    // aggregate program counts over both sessions → git=3, cargo=1 (count desc).
+    let agg = store
+        .aggregate_shape_field(&["g1".to_string(), "g2".to_string()], "bash-shape", "program")
+        .await
+        .unwrap();
+    assert_eq!(agg, vec![("git".to_string(), 3), ("cargo".to_string(), 1)]);
+
+    // empty session set → empty result
+    assert!(store.aggregate_shape_field(&[], "bash-shape", "program").await.unwrap().is_empty());
 }
 
 pub async fn it_persists_and_queries_a_structural_turn(store: Arc<dyn EventStore>) {
@@ -1624,6 +1716,13 @@ macro_rules! for_each_conformance_test {
         $macro!(it_filters_session_patterns_by_type);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
+        // Shapes — per-session writes/reads + cross-shape (C2 parity: count
+        // desc then value asc canonical sort makes both backends agree).
+        $macro!(it_inserts_and_reads_shapes);
+        $macro!(it_dedups_shapes_by_id);
+        $macro!(it_filters_shapes_by_type);
+        $macro!(it_finds_sessions_where_shape);
+        $macro!(it_aggregates_a_shape_field);
         // Reads
         $macro!(it_returns_session_events_ordered_by_timestamp);
         $macro!(it_round_trips_an_event_payload_losslessly);

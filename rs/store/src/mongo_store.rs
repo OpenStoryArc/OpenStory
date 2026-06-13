@@ -36,6 +36,7 @@ use mongodb::{options::ClientOptions, Client, Collection, Database};
 use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
+use open_story_shapes::ShapeRow;
 
 use crate::event_store::{EventStore, SessionRow};
 
@@ -51,6 +52,8 @@ const COLL_TURNS: &str = "turns";
 const COLL_PLANS: &str = "plans";
 #[allow(dead_code)]
 const COLL_FTS: &str = "events_fts";
+
+const COLL_SHAPES: &str = "shapes";
 
 /// Mongo error code for duplicate key violations on `insert*`.
 const MONGO_DUPLICATE_KEY: i32 = 11000;
@@ -152,6 +155,16 @@ impl MongoStore {
         fts.create_index(IndexModel::builder().keys(doc! { "session_id": 1 }).build())
             .await
             .map_err(|e| anyhow!("create events_fts session_id index: {e}"))?;
+
+        let shapes: Collection<Document> = self.db.collection(COLL_SHAPES);
+        shapes
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "session_id": 1, "shape_type": 1 })
+                    .build(),
+            )
+            .await
+            .map_err(|e| anyhow!("create shapes index: {e}"))?;
 
         Ok(())
     }
@@ -588,6 +601,127 @@ impl EventStore for MongoStore {
                     .map_err(|e| anyhow!("turn bson → struct: {e}"))?;
                 out.push(turn);
             }
+        }
+        Ok(out)
+    }
+
+    async fn insert_shapes_batch(&self, _session_id: &str, shapes: &[ShapeRow]) -> Result<usize> {
+        if shapes.is_empty() {
+            return Ok(0);
+        }
+        let coll: Collection<Document> = self.db.collection(COLL_SHAPES);
+        let mut docs = Vec::with_capacity(shapes.len());
+        for s in shapes {
+            let data: Bson = bson::to_bson(&s.data).map_err(|e| anyhow!("shape data → bson: {e}"))?;
+            docs.push(doc! {
+                "_id": &s.id,
+                "session_id": &s.session_id,
+                "shape_type": &s.shape_type,
+                "seq": s.seq as i64,
+                "timestamp": &s.timestamp,
+                "event_id": &s.event_id,
+                "data": data,
+            });
+        }
+        // ordered:false so duplicate `_id`s (idempotent re-runs) don't halt the
+        // batch. Mirror insert_batch: inserted = total - duplicate failures.
+        let total = docs.len();
+        let opts = mongodb::options::InsertManyOptions::builder().ordered(false).build();
+        match coll.insert_many(docs).with_options(opts).await {
+            Ok(result) => Ok(result.inserted_ids.len()),
+            Err(e) => {
+                if let ErrorKind::InsertMany(ref ime) = *e.kind {
+                    let dup_count = count_duplicate_keys(ime);
+                    let total_failures = ime.write_errors.as_ref().map(|w| w.len()).unwrap_or(0);
+                    if total_failures == dup_count {
+                        return Ok(total - total_failures);
+                    }
+                }
+                Err(anyhow!("mongo insert_shapes_batch: {e}"))
+            }
+        }
+    }
+
+    async fn session_shapes(
+        &self,
+        session_id: &str,
+        shape_type: Option<&str>,
+    ) -> Result<Vec<ShapeRow>> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_SHAPES);
+        let mut filter = doc! { "session_id": session_id };
+        if let Some(st) = shape_type {
+            filter.insert("shape_type", st);
+        }
+        let opts = mongodb::options::FindOptions::builder().sort(doc! { "seq": 1 }).build();
+        let mut cursor = coll
+            .find(filter)
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo session_shapes find: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo session_shapes cursor: {e}"))?;
+            out.push(doc_to_shape_row(&doc)?);
+        }
+        Ok(out)
+    }
+
+    async fn sessions_where_shape(
+        &self,
+        shape_type: &str,
+        json_field: &str,
+        value: &str,
+    ) -> Result<Vec<String>> {
+        let coll: Collection<Document> = self.db.collection(COLL_SHAPES);
+        // Equality on a dotted path matches a scalar OR membership of an array
+        // — so this unifies scalar (program) and array (naming_tokens) fields.
+        let filter = doc! { "shape_type": shape_type, format!("data.{json_field}"): value };
+        let ids = coll
+            .distinct("session_id", filter)
+            .await
+            .map_err(|e| anyhow!("mongo sessions_where_shape distinct: {e}"))?;
+        Ok(ids
+            .into_iter()
+            .filter_map(|b| b.as_str().map(|s| s.to_string()))
+            .collect())
+    }
+
+    async fn aggregate_shape_field(
+        &self,
+        session_ids: &[String],
+        shape_type: &str,
+        json_field: &str,
+    ) -> Result<Vec<(String, i64)>> {
+        use futures::StreamExt;
+        if session_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let coll: Collection<Document> = self.db.collection(COLL_SHAPES);
+        let field_path = format!("$data.{json_field}");
+        let ids: Vec<Bson> = session_ids.iter().map(|s| Bson::String(s.clone())).collect();
+        // $unwind treats a scalar as a single-element array, so this handles
+        // both scalar and array fields. Sort matches SQLite: count desc, value asc.
+        let pipeline = vec![
+            doc! { "$match": { "shape_type": shape_type, "session_id": { "$in": ids } } },
+            doc! { "$unwind": &field_path },
+            doc! { "$group": { "_id": &field_path, "c": { "$sum": 1 } } },
+            doc! { "$sort": { "c": -1, "_id": 1 } },
+        ];
+        let mut cursor = coll
+            .aggregate(pipeline)
+            .await
+            .map_err(|e| anyhow!("mongo aggregate_shape_field: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo aggregate cursor: {e}"))?;
+            let value = match doc.get("_id") {
+                Some(Bson::String(s)) => s.clone(),
+                Some(other) => other.to_string(),
+                None => continue,
+            };
+            let count = doc.get_i64("c").or_else(|_| doc.get_i32("c").map(|n| n as i64)).unwrap_or(0);
+            out.push((value, count));
         }
         Ok(out)
     }
@@ -1908,6 +2042,34 @@ fn doc_to_pattern_event(doc: &Document) -> Result<PatternEvent> {
         ended_at,
         summary,
         metadata,
+    })
+}
+
+fn doc_to_shape_row(doc: &Document) -> Result<ShapeRow> {
+    let id = doc.get_str("_id").map_err(|e| anyhow!("shape doc missing _id: {e}"))?.to_string();
+    let session_id = doc
+        .get_str("session_id")
+        .map_err(|e| anyhow!("shape doc missing session_id: {e}"))?
+        .to_string();
+    let shape_type = doc
+        .get_str("shape_type")
+        .map_err(|e| anyhow!("shape doc missing shape_type: {e}"))?
+        .to_string();
+    let seq = doc.get_i64("seq").or_else(|_| doc.get_i32("seq").map(|n| n as i64)).unwrap_or(0) as u64;
+    let timestamp = doc.get_str("timestamp").unwrap_or_default().to_string();
+    let event_id = doc.get_str("event_id").unwrap_or_default().to_string();
+    let data: Value = doc
+        .get("data")
+        .map(|b| bson::from_bson(b.clone()).unwrap_or(Value::Null))
+        .unwrap_or(Value::Null);
+    Ok(ShapeRow {
+        id,
+        session_id,
+        shape_type,
+        seq,
+        timestamp,
+        event_id,
+        data,
     })
 }
 

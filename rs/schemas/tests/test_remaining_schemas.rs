@@ -13,6 +13,7 @@
 use open_story_bus::IngestBatch;
 use open_story_patterns::{PatternEvent, StructuralTurn};
 use open_story_schemas::{canonicalize, generate, load_schema};
+use open_story_shapes::ShapeRow;
 use open_story_server::broadcast::BroadcastMessage;
 use open_story_store::event_store::SessionRow;
 use open_story_store::queries::FtsSearchResult;
@@ -41,6 +42,38 @@ drift_test!(ingest_batch_schema_is_up_to_date, IngestBatch, "ingest_batch.schema
 drift_test!(session_row_schema_is_up_to_date, SessionRow, "session_row.schema.json");
 drift_test!(fts_search_result_schema_is_up_to_date, FtsSearchResult, "fts_search_result.schema.json");
 drift_test!(broadcast_message_schema_is_up_to_date, BroadcastMessage, "broadcast_message.schema.json");
+drift_test!(shape_row_schema_is_up_to_date, ShapeRow, "shape_row.schema.json");
+
+#[test]
+fn shape_row_accepts_real_shape() {
+    let v = validator_for("shape_row.schema.json");
+    let fixture = json!({
+        "id": "evt-1:bash-shape:0",
+        "session_id": "sess-1",
+        "shape_type": "bash-shape",
+        "seq": 7,
+        "timestamp": "2026-04-15T10:00:00Z",
+        "event_id": "evt-1",
+        "data": {"program": "git", "subcommand": "status"}
+    });
+    assert!(v.validate(&fixture).is_ok());
+}
+
+#[test]
+fn shape_row_round_trips() {
+    let row = ShapeRow {
+        id: "evt-9:path-shape:1".into(),
+        session_id: "sess-2".into(),
+        shape_type: "path-shape".into(),
+        seq: 3,
+        timestamp: "2026-04-15T10:00:00Z".into(),
+        event_id: "evt-9".into(),
+        data: json!({"top_segment": "rs", "naming_tokens": ["event", "store"]}),
+    };
+    let serialized = serde_json::to_value(&row).unwrap();
+    let back: ShapeRow = serde_json::from_value(serialized).unwrap();
+    assert_eq!(row, back);
+}
 
 fn validator_for(basename: &str) -> jsonschema::Validator {
     let schema = load_schema(basename).expect("schema");

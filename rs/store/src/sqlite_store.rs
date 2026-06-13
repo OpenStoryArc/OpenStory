@@ -12,6 +12,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
+use open_story_shapes::ShapeRow;
 
 use crate::event_store::{EventStore, SessionRow};
 use crate::queries::FtsSearchResult;
@@ -149,7 +150,19 @@ impl SqliteStore {
                 session_id  TEXT NOT NULL,
                 content     TEXT NOT NULL,
                 created_at  TEXT NOT NULL DEFAULT ''
-            );",
+            );
+
+            CREATE TABLE IF NOT EXISTS shapes (
+                id          TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                shape_type  TEXT NOT NULL,
+                seq         INTEGER NOT NULL DEFAULT 0,
+                timestamp   TEXT NOT NULL DEFAULT '',
+                event_id    TEXT NOT NULL DEFAULT '',
+                data        TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_shapes_session ON shapes(session_id);
+            CREATE INDEX IF NOT EXISTS idx_shapes_type ON shapes(shape_type);",
         )?;
 
         // FTS5 full-text search index.
@@ -543,6 +556,127 @@ impl EventStore for SqliteStore {
             .filter_map(|data| serde_json::from_str::<StructuralTurn>(&data).ok())
             .collect();
         Ok(turns)
+    }
+
+    async fn insert_shapes_batch(&self, _session_id: &str, shapes: &[ShapeRow]) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = conn.transaction()?;
+        let mut inserted = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR IGNORE INTO shapes
+                 (id, session_id, shape_type, seq, timestamp, event_id, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for s in shapes {
+                let data = serde_json::to_string(&s.data)?;
+                let rows = stmt.execute(rusqlite::params![
+                    s.id,
+                    s.session_id,
+                    s.shape_type,
+                    s.seq as i64,
+                    s.timestamp,
+                    s.event_id,
+                    data,
+                ])?;
+                inserted += rows;
+            }
+        }
+        tx.commit()?;
+        Ok(inserted)
+    }
+
+    async fn session_shapes(
+        &self,
+        session_id: &str,
+        shape_type: Option<&str>,
+    ) -> Result<Vec<ShapeRow>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let query = if shape_type.is_some() {
+            "SELECT id, session_id, shape_type, seq, timestamp, event_id, data
+             FROM shapes WHERE session_id = ?1 AND shape_type = ?2 ORDER BY seq"
+        } else {
+            "SELECT id, session_id, shape_type, seq, timestamp, event_id, data
+             FROM shapes WHERE session_id = ?1 ORDER BY seq"
+        };
+        let mut stmt = conn.prepare(query)?;
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ShapeRow> {
+            let data_str: String = row.get(6)?;
+            Ok(ShapeRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                shape_type: row.get(2)?,
+                seq: row.get::<_, i64>(3)? as u64,
+                timestamp: row.get(4)?,
+                event_id: row.get(5)?,
+                data: serde_json::from_str(&data_str).unwrap_or(Value::Null),
+            })
+        };
+        let rows = if let Some(st) = shape_type {
+            stmt.query_map(rusqlite::params![session_id, st], map_row)?
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            stmt.query_map([session_id], map_row)?
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        Ok(rows)
+    }
+
+    async fn sessions_where_shape(
+        &self,
+        shape_type: &str,
+        json_field: &str,
+        value: &str,
+    ) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        // json_each over the field path unifies scalar fields (program,
+        // top_segment) and array fields (naming_tokens, flags): a scalar yields
+        // one row, an array yields one row per element.
+        let path = format!("$.{json_field}");
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT shapes.session_id
+             FROM shapes, json_each(shapes.data, ?1)
+             WHERE shapes.shape_type = ?2 AND CAST(json_each.value AS TEXT) = ?3",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![path, shape_type, value], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    async fn aggregate_shape_field(
+        &self,
+        session_ids: &[String],
+        shape_type: &str,
+        json_field: &str,
+    ) -> Result<Vec<(String, i64)>> {
+        if session_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let path = format!("$.{json_field}");
+        let placeholders = vec!["?"; session_ids.len()].join(",");
+        let sql = format!(
+            "SELECT CAST(json_each.value AS TEXT) AS v, COUNT(*) AS c
+             FROM shapes, json_each(shapes.data, ?)
+             WHERE shapes.shape_type = ? AND shapes.session_id IN ({placeholders})
+             GROUP BY v ORDER BY c DESC, v ASC"
+        );
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&path, &shape_type];
+        for sid in session_ids {
+            params.push(sid);
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
     }
 
     async fn upsert_plan(
