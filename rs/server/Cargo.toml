@@ -9,6 +9,7 @@ description = "HTTP/WS server: API, hooks, ingest, broadcast — the BFF layer"
 open-story-core = { path = "../core" }
 open-story-bus = { path = "../bus" }
 open-story-patterns = { path = "../patterns" }
+open-story-shapes = { path = "../shapes" }
 open-story-store = { path = "../store" }
 open-story-views = { path = "../views" }
 anyhow = "1"

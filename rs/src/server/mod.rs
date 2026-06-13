@@ -373,6 +373,38 @@ pub async fn run_server(
                 }
             });
         }
+
+        // ── Actor 5: shapes consumer ──
+        // Deterministic per-event shape projections (bash / path / change).
+        // Subscribes to events.>, runs the stateless extractors, and writes
+        // rows straight to the EventStore — no NATS publish (shapes are a pure
+        // function of events, so any node re-derives them by running its own
+        // consumer). Keyed on batch.session_id like every other projection.
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let shapes_bus = bus.clone();
+            tokio::spawn(async move {
+                let actor = consumers::shapes::ShapesConsumer::new();
+                match shapes_bus.subscribe("events.>").await {
+                    Ok(mut sub) => {
+                        while let Some(batch) = sub.receiver.recv().await {
+                            let rows = actor.process_batch(&batch.session_id, &batch.events);
+                            if !rows.is_empty() {
+                                let n = rows.len();
+                                let _ = event_store
+                                    .insert_shapes_batch(&batch.session_id, &rows)
+                                    .await;
+                                log_event("shapes", &format!(
+                                    "\x1b[33m{}\x1b[0m \x1b[36m+{} shapes\x1b[0m",
+                                    short_id(&batch.session_id), n
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Shapes consumer error: {e}"),
+                }
+            });
+        }
     }
 
     // ── File watcher (publisher + full roles) ──

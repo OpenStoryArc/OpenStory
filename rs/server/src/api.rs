@@ -755,6 +755,27 @@ pub struct PatternQuery {
     pub pattern_type: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ShapeQuery {
+    #[serde(rename = "type")]
+    pub shape_type: Option<String>,
+}
+
+/// Cross-shape inversion: filter sessions by one layer's field, then aggregate
+/// the other layers over the matching sessions. Exactly one `when-*` is used
+/// (first non-empty wins). `when-verb` (prompt-shape) is intentionally absent
+/// until the prompt-shape layer lands.
+#[derive(Deserialize)]
+pub struct CrossShapeQuery {
+    #[serde(rename = "when-program")]
+    pub when_program: Option<String>,
+    #[serde(rename = "when-segment")]
+    pub when_segment: Option<String>,
+    #[serde(rename = "when-extension")]
+    pub when_extension: Option<String>,
+    pub limit: Option<usize>,
+}
+
 /// GET /api/sessions/{session_id}/patterns
 ///
 /// Returns all detected patterns for a session. Optional `?type=` query
@@ -773,6 +794,83 @@ pub async fn get_patterns(
         .await
         .unwrap_or_default();
     Json(json!({ "patterns": result }))
+}
+
+/// GET /api/sessions/{session_id}/shapes
+///
+/// Returns the deterministic shape rows for a session. Optional `?type=`
+/// filters by shape_type (e.g., `?type=bash-shape`).
+pub async fn get_shapes(
+    State(state): State<SharedState>,
+    AxumPath(session_id): AxumPath<String>,
+    Query(query): Query<ShapeQuery>,
+) -> Json<Value> {
+    log_event("api", &format!("GET /api/sessions/{}/shapes", short_id(&session_id)));
+    let s = state.read().await;
+    let result = s
+        .store
+        .event_store
+        .session_shapes(&session_id, query.shape_type.as_deref())
+        .await
+        .unwrap_or_default();
+    Json(json!({ "shapes": result }))
+}
+
+/// GET /api/shapes/cross?when-program=git (or when-segment / when-extension)
+///
+/// The cross-shape inversion: filter the corpus to the sessions matching one
+/// layer's field, then aggregate the other layers over exactly those sessions —
+/// "sessions that ran `git` → what areas + commands characterized them."
+pub async fn get_cross_shape(
+    State(state): State<SharedState>,
+    Query(query): Query<CrossShapeQuery>,
+) -> Json<Value> {
+    let limit = query.limit.unwrap_or(15);
+    // Pick the active filter (first non-empty): (shape_type, field, value, label).
+    let filter = [
+        ("bash-shape", "program", query.when_program.as_deref(), "program"),
+        ("path-shape", "top_segment", query.when_segment.as_deref(), "segment"),
+        ("path-shape", "extension", query.when_extension.as_deref(), "extension"),
+    ]
+    .into_iter()
+    .find_map(|(st, field, val, label)| val.filter(|v| !v.is_empty()).map(|v| (st, field, v, label)));
+
+    let Some((filter_type, filter_field, value, label)) = filter else {
+        return Json(json!({
+            "error": "provide exactly one of when-program, when-segment, when-extension"
+        }));
+    };
+    log_event("api", &format!("GET /api/shapes/cross when-{label}={value}"));
+
+    let s = state.read().await;
+    let store = &s.store.event_store;
+    let sessions = store
+        .sessions_where_shape(filter_type, filter_field, value)
+        .await
+        .unwrap_or_default();
+
+    // Aggregate the other layers over the matching sessions. Each returns
+    // (value, count) sorted desc; cap to `limit`.
+    let top = |rows: Vec<(String, i64)>| -> Value {
+        json!(rows.into_iter().take(limit).map(|(v, c)| json!({"value": v, "count": c})).collect::<Vec<_>>())
+    };
+    let agg = |field: &'static str, st: &'static str| {
+        let sessions = sessions.clone();
+        async move { store.aggregate_shape_field(&sessions, st, field).await.unwrap_or_default() }
+    };
+
+    Json(json!({
+        "filter": {"by": label, "value": value, "sessions": sessions.len()},
+        "paths": {
+            "top_segments": top(agg("top_segment", "path-shape").await),
+            "extensions": top(agg("extension", "path-shape").await),
+            "naming_tokens": top(agg("naming_tokens", "path-shape").await),
+        },
+        "bash": {
+            "programs": top(agg("program", "bash-shape").await),
+            "subcommands": top(agg("subcommand", "bash-shape").await),
+        },
+    }))
 }
 
 pub async fn get_turns(
