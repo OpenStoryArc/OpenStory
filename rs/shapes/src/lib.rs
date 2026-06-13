@@ -18,11 +18,13 @@
 use open_story_core::cloud_event::CloudEvent;
 use serde::{Deserialize, Serialize};
 
+pub mod analysis;
 pub mod backfill;
 pub mod bash;
 pub mod change;
 pub mod path;
 
+pub use analysis::ShapeCounts;
 pub use backfill::{shapes_for_session, should_skip_shape_detection};
 pub use bash::BashShape;
 pub use change::ChangeShape;
