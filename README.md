@@ -208,14 +208,20 @@ claude mcp add openstory stdio /full/path/to/open-story-mcp
 | Analytics | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
 | Streaming | `subscribe_session`, `subscribe_tokens` — push notifications via `notifications/openstory/{stream,tokens}` |
 
-Manual smoke (against a running NATS + OpenStory server):
+Manual smoke (against a running NATS + OpenStory server). Query tools read
+the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only
+the streaming tools need NATS:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscribe_tokens","arguments":{"session_id":"<your-session-id>"}}}' \
-  | OPENSTORY_NATS_URL=nats://localhost:4222 OPENSTORY_DATA_DIR=./data ./rs/target/release/open-story-mcp
+  | OPENSTORY_API_URL=http://localhost:3002 OPENSTORY_NATS_URL=nats://localhost:4222 ./rs/target/release/open-story-mcp
 ```
+
+Because the MCP reads through the API rather than opening the store on disk,
+it works from any directory — there's no `OPENSTORY_DATA_DIR` to resolve
+relative to your shell's working directory.
 
 Test it with `cargo test -p open-story-mcp`. Design notes for the streaming substrate live in `docs/research/streaming-mcp/`.
 

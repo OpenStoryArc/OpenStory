@@ -23,9 +23,10 @@ class OpenstoryMcp < Formula
       Wire OpenStory's MCP tools into your agent (needs OpenStory running):
           claude mcp add openstory stdio #{opt_bin}/open-story-mcp
 
-      The server shares OpenStory's store + bus. Match these to your
-      openstory config if you changed them:
-          OPENSTORY_DATA_DIR   (default #{HOMEBREW_PREFIX}/var/openstory)
+      Query tools read OpenStory's REST API; streaming tools use its bus.
+      Match these to your openstory config if you changed them:
+          OPENSTORY_API_URL    (default http://localhost:3002)
+          OPENSTORY_API_TOKEN  (only if openstory has api_token set)
           OPENSTORY_NATS_URL   (default nats://localhost:4222)
     EOS
   end
