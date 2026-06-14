@@ -1,7 +1,7 @@
 //! Server configuration — loaded from config.toml, overridable by CLI flags.
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -319,6 +319,12 @@ fn default_nats_reload_command() -> String {
     "pkill -HUP nats-server".to_string()
 }
 
+/// Whether a bind host is loopback-only (no LAN/public exposure).
+fn is_loopback_host(host: &str) -> bool {
+    let h = host.trim();
+    h == "localhost" || h == "::1" || h.starts_with("127.")
+}
+
 fn default_home_subdir(parts: &[&str]) -> String {
     let Some(home) = std::env::var_os(home_env_var()) else {
         return String::new();
@@ -430,46 +436,86 @@ impl Config {
     /// Persists the updated config back to `path` so the user's edits
     /// survive restarts.
     ///
-    /// Idempotent — does nothing if `self.person` is already set.
-    /// Persistence failure is non-fatal: the in-memory bootstrap still
-    /// works for this session, and the next boot will retry.
+    /// Idempotent — re-running is a no-op once `[person]` and
+    /// `local_principal_id` are set. Persistence failure is non-fatal: the
+    /// in-memory bootstrap still works for this session, and the next boot
+    /// will retry.
+    ///
+    /// Also fills `local_principal_id` from the first principal when empty —
+    /// without it the role middleware can't identify the operator and every
+    /// role-gated route 403s. This is half of the frictionless local
+    /// bootstrap (the other half — auto-granting Admin on a trusted-local
+    /// instance — lives in `server::create_state`).
     pub fn ensure_person_bootstrap(&mut self, path: &Path) {
-        if self.person.is_some() {
-            return;
-        }
-        let host = open_story_core::host::host();
-        let user = open_story_core::user::user();
-        let person = Person {
-            id: Uuid::new_v4().to_string(),
-            display_name: "You".to_string(),
-            email: String::new(),
-            principals: vec![Principal {
-                id: Uuid::new_v4().to_string(),
-                display_name: host.to_string(),
-                matchers: PrincipalMatchers {
-                    agent: None,
-                    host: Some(host.to_string()),
-                    user: Some(user.to_string()),
-                    watch_dir_pattern: None,
-                },
-            }],
-        };
-        self.person = Some(person);
+        let mut changed = false;
 
-        match self.write_to(path) {
-            Ok(()) => {
-                eprintln!(
-                    "  \x1b[32mFirst boot: auto-created [person] in {} with detected (host={host}, user={user})\x1b[0m",
-                    path.display()
-                );
+        if self.person.is_none() {
+            let host = open_story_core::host::host();
+            let user = open_story_core::user::user();
+            let person = Person {
+                id: Uuid::new_v4().to_string(),
+                display_name: "You".to_string(),
+                email: String::new(),
+                principals: vec![Principal {
+                    id: Uuid::new_v4().to_string(),
+                    display_name: host.to_string(),
+                    matchers: PrincipalMatchers {
+                        agent: None,
+                        host: Some(host.to_string()),
+                        user: Some(user.to_string()),
+                        watch_dir_pattern: None,
+                    },
+                }],
+            };
+            self.person = Some(person);
+            changed = true;
+            eprintln!(
+                "  \x1b[32mFirst boot: auto-created [person] in {} with detected (host={host}, user={user})\x1b[0m",
+                path.display()
+            );
+        }
+
+        // Identify the local operator so role-gated routes can authorize
+        // them. Defaults to this device's first principal.
+        if self.local_principal_id.is_empty() {
+            if let Some(p) = self.person.as_ref().and_then(|pn| pn.principals.first()) {
+                self.local_principal_id = p.id.clone();
+                changed = true;
             }
-            Err(e) => {
+        }
+
+        if changed {
+            if let Err(e) = self.write_to(path) {
                 eprintln!(
-                    "  \x1b[33mWarning: bootstrapped [person] in memory but failed to persist to {}: {e}\x1b[0m",
+                    "  \x1b[33mWarning: bootstrapped identity in memory but failed to persist to {}: {e}\x1b[0m",
                     path.display()
                 );
             }
         }
+    }
+
+    /// Path to the roles SQLite DB, defaulting to `{data_dir}/openstory-roles.db`
+    /// when unset. A real path (vs. empty) means the role directory is the
+    /// `EmbeddedRoleDirectory` — so a CLI `grant-role` is actually read back,
+    /// instead of being silently ignored by the fail-closed `NoopRoleDirectory`.
+    pub fn effective_roles_db_path(&self, data_dir: &Path) -> PathBuf {
+        if self.roles_db_path.trim().is_empty() {
+            data_dir.join("openstory-roles.db")
+        } else {
+            PathBuf::from(&self.roles_db_path)
+        }
+    }
+
+    /// A loopback-only instance with no API auth and no hub — the local
+    /// operator is implicitly trusted (it's their own machine). Drives the
+    /// frictionless defaults (auto-grant Admin, default-shared). The moment
+    /// any of these change (bind to a LAN/`0.0.0.0`, set an `api_token`,
+    /// configure a leaf URL) the instance is no longer trusted-local and
+    /// falls back to the deliberate CLI bootstrap.
+    pub fn is_trusted_local(&self) -> bool {
+        is_loopback_host(&self.host)
+            && self.api_token.trim().is_empty()
+            && self.nats_leaf_url.trim().is_empty()
     }
 
     /// Serialize the current Config back to disk as TOML. Used by
@@ -925,6 +971,82 @@ agent = "openclaw"
         assert!(principal.matchers.user.is_some(), "user matcher prefilled");
         assert!(principal.matchers.agent.is_none(), "agent left wildcard");
         assert!(principal.matchers.watch_dir_pattern.is_none());
+    }
+
+    #[test]
+    fn ensure_person_bootstrap_sets_local_principal_id() {
+        // Without local_principal_id the role middleware can't identify the
+        // operator → every role-gated route 403s. Bootstrap must fill it from
+        // the device's first principal.
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        assert_eq!(config.local_principal_id, "");
+
+        config.ensure_person_bootstrap(&path);
+
+        let principal_id = config.person.as_ref().unwrap().principals[0].id.clone();
+        assert_eq!(
+            config.local_principal_id, principal_id,
+            "local_principal_id must default to the first principal"
+        );
+        // Persisted, so it survives restarts.
+        let written: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written.local_principal_id, principal_id);
+    }
+
+    #[test]
+    fn ensure_person_bootstrap_preserves_explicit_local_principal_id() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+        let mut config = Config::default();
+        config.local_principal_id = "pinned-by-operator".into();
+        config.ensure_person_bootstrap(&path);
+        assert_eq!(
+            config.local_principal_id, "pinned-by-operator",
+            "an explicit local_principal_id must not be overwritten"
+        );
+    }
+
+    #[test]
+    fn effective_roles_db_path_defaults_under_data_dir() {
+        let config = Config::default();
+        assert_eq!(config.roles_db_path, "", "precondition: unset");
+        assert_eq!(
+            config.effective_roles_db_path(Path::new("/var/openstory")),
+            Path::new("/var/openstory/openstory-roles.db"),
+            "empty roles_db_path defaults under data_dir"
+        );
+        let pinned = Config {
+            roles_db_path: "/custom/roles.db".into(),
+            ..Config::default()
+        };
+        assert_eq!(
+            pinned.effective_roles_db_path(Path::new("/var/openstory")),
+            Path::new("/custom/roles.db"),
+            "explicit roles_db_path wins"
+        );
+    }
+
+    #[test]
+    fn is_trusted_local_only_when_loopback_unauthed_and_no_hub() {
+        // Fresh default: loopback host, no token, no leaf → trusted.
+        assert!(Config::default().is_trusted_local());
+
+        // Any one of these revokes trust.
+        assert!(
+            !Config { host: "0.0.0.0".into(), ..Config::default() }.is_trusted_local(),
+            "LAN/public bind is not trusted-local"
+        );
+        assert!(
+            !Config { api_token: "secret".into(), ..Config::default() }.is_trusted_local(),
+            "an api_token means access is gated → not the trusted single-user case"
+        );
+        assert!(
+            !Config { nats_leaf_url: "nats://hub:7422".into(), ..Config::default() }
+                .is_trusted_local(),
+            "configured hub → networked → not trusted-local"
+        );
     }
 
     #[test]

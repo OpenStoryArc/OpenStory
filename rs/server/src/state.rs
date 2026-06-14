@@ -220,7 +220,22 @@ pub async fn create_state_with_watch_dirs(
         build_account_config(&config);
 
     // ── Phase 6.5 boot-wire: role directory.
-    let role_directory = build_role_directory(&config);
+    // Defaults to {data_dir}/openstory-roles.db so a CLI `grant-role` is
+    // actually read back (an empty path used to fall through to the
+    // fail-closed NoopRoleDirectory, which silently 403s everything).
+    let roles_db = config.effective_roles_db_path(data_dir);
+    let role_directory = build_role_directory(&roles_db);
+
+    // Frictionless local bootstrap: on a trusted-local instance (loopback,
+    // no api_token, no hub), grant the local principal Admin if the
+    // directory has no admin yet — so a fresh single-user box can manage its
+    // own share policy without a manual CLI dance. A networked/exposed
+    // instance is NOT trusted-local, so it keeps the deliberate
+    // `open-story grant-role` bootstrap (no ambient admin reachable over the
+    // network).
+    if config.is_trusted_local() {
+        maybe_auto_grant_local_admin(&role_directory, &config).await;
+    }
 
     Ok(Arc::new(RwLock::new(AppState {
         store,
@@ -237,24 +252,63 @@ pub async fn create_state_with_watch_dirs(
     })))
 }
 
-/// Build the role directory based on config. SQLite-backed when
-/// `roles_db_path` is set; `NoopRoleDirectory` otherwise (fail-closed).
-fn build_role_directory(
-    config: &Config,
-) -> Arc<dyn crate::directory::RoleDirectory> {
+/// Build the role directory backed by the SQLite file at `roles_db`. Falls
+/// back to the fail-closed `NoopRoleDirectory` only if the DB can't be opened.
+fn build_role_directory(roles_db: &Path) -> Arc<dyn crate::directory::RoleDirectory> {
     use crate::directory::{EmbeddedRoleDirectory, NoopRoleDirectory};
-    if config.roles_db_path.is_empty() {
-        return Arc::new(NoopRoleDirectory);
-    }
-    match EmbeddedRoleDirectory::open(Path::new(&config.roles_db_path)) {
+    match EmbeddedRoleDirectory::open(roles_db) {
         Ok(d) => Arc::new(d),
         Err(e) => {
             eprintln!(
-                "warning: could not open roles_db_path {}: {e}; falling back to NoopRoleDirectory (all role-gated routes will 403)",
-                config.roles_db_path
+                "warning: could not open roles db {}: {e}; falling back to NoopRoleDirectory (all role-gated routes will 403)",
+                roles_db.display()
             );
             Arc::new(NoopRoleDirectory)
         }
+    }
+}
+
+/// Grant the local principal Admin when the directory has no admin yet.
+/// Caller gates this on `Config::is_trusted_local()`. No-op if the local
+/// principal id is unknown, an admin already exists, or the write fails.
+async fn maybe_auto_grant_local_admin(
+    dir: &Arc<dyn crate::directory::RoleDirectory>,
+    config: &Config,
+) {
+    use crate::directory::{Participant, Role};
+
+    let principal_id = config.local_principal_id.trim();
+    if principal_id.is_empty() {
+        return;
+    }
+    let participants = match dir.list_participants().await {
+        Ok(ps) => ps,
+        Err(e) => {
+            eprintln!("warning: could not read role directory for auto-grant: {e}");
+            return;
+        }
+    };
+    if participants.iter().any(|p| p.role >= Role::Admin) {
+        return; // an admin already exists — respect the configured directory
+    }
+    let person_id = config
+        .person
+        .as_ref()
+        .map(|p| p.id.clone())
+        .unwrap_or_default();
+    let participant = Participant {
+        principal_id: principal_id.to_string(),
+        person_id,
+        role: Role::Admin,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    match dir.upsert_participant(participant).await {
+        Ok(()) => eprintln!(
+            "  \x1b[32mTrusted-local boot: granted Admin to local principal {principal_id} \
+             (loopback, no auth, no hub). Networked/exposed instances require \
+             `open-story grant-role`.\x1b[0m"
+        ),
+        Err(e) => eprintln!("warning: auto-grant Admin failed: {e}"),
     }
 }
 
