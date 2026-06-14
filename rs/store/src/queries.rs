@@ -63,7 +63,7 @@ pub struct FtsSearchResult {
 
 /// Synopsis of a session: goal, journey, outcome.
 /// "Did I achieve what I set out to do?"
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionSynopsis {
     pub session_id: String,
     pub label: Option<String>,
@@ -79,7 +79,7 @@ pub struct SessionSynopsis {
 }
 
 /// Tool usage count for a session.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolCount {
     pub tool: String,
     pub count: u64,
@@ -193,7 +193,7 @@ fn session_top_tools(conn: &Connection, session_id: &str, limit: usize) -> Vec<T
 
 /// Tool journey: sequence of tools used with file targets.
 /// "What strategy did the agent use?"
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolStep {
     pub tool: String,
     pub file: Option<String>,
@@ -233,7 +233,7 @@ pub fn tool_journey(conn: &Connection, session_id: &str) -> Vec<ToolStep> {
 
 /// File impact: files read vs. written, blast radius.
 /// "What did the agent change?"
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileImpact {
     pub file: String,
     pub reads: u64,
@@ -295,7 +295,7 @@ pub fn file_impact(conn: &Connection, session_id: &str) -> Vec<FileImpact> {
 }
 
 /// Session errors with timestamps.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionError {
     pub timestamp: String,
     pub message: String,
@@ -328,7 +328,7 @@ pub fn session_errors(conn: &Connection, session_id: &str) -> Vec<SessionError> 
 
 /// Project activity pulse: events per project in the last N days.
 /// "Which projects am I actively working on?"
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProjectPulse {
     pub project_id: String,
     pub project_name: Option<String>,
@@ -383,7 +383,7 @@ pub fn project_pulse(conn: &Connection, days: u32) -> Vec<ProjectPulse> {
 /// boundaries instead of a label, both backends compute the same value
 /// regardless of week-numbering convention. See §1.6 Category 3 of
 /// `docs/research/mongo-analytics-parity-plan.md`.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolEvolution {
     /// Monday of the week containing the events, `YYYY-MM-DD`.
     pub bucket_start: String,
@@ -445,7 +445,7 @@ pub fn tool_evolution(conn: &Connection, days: u32) -> Vec<ToolEvolution> {
 }
 
 /// Session efficiency metrics.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionEfficiency {
     pub session_id: String,
     pub label: Option<String>,
@@ -528,7 +528,7 @@ pub fn session_efficiency(conn: &Connection) -> Vec<SessionEfficiency> {
 
 /// Project context: recent sessions for a project.
 /// "Pick up where the last agent left off."
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProjectSession {
     pub session_id: String,
     pub label: Option<String>,
@@ -596,7 +596,7 @@ pub fn recent_files(conn: &Connection, project_id: &str, session_limit: usize) -
 
 /// Productivity by hour: event density by time of day.
 /// "When should I schedule deep agent work?"
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HourlyActivity {
     pub hour: u32,
     pub event_count: u64,
@@ -632,7 +632,7 @@ pub fn productivity_by_hour(conn: &Connection, days: u32) -> Vec<HourlyActivity>
 // ── Token Usage Queries ───────────────────────────────────────────
 
 /// Token usage for a session or aggregate scope.
-#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -643,7 +643,7 @@ pub struct TokenUsage {
 }
 
 /// Token usage for a single session, with metadata.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionTokenUsage {
     pub session_id: String,
     pub label: Option<String>,
@@ -655,7 +655,7 @@ pub struct SessionTokenUsage {
 }
 
 /// Cost estimate in USD.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CostEstimate {
     pub input: f64,
     pub output: f64,
@@ -666,7 +666,7 @@ pub struct CostEstimate {
 }
 
 /// Token usage summary with cost estimate.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TokenUsageSummary {
     pub session_count: u64,
     #[serde(flatten)]
@@ -676,7 +676,7 @@ pub struct TokenUsageSummary {
 }
 
 /// Daily token usage.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DailyTokenUsage {
     pub date: String,
     #[serde(flatten)]
