@@ -379,3 +379,28 @@ fn exactly_one_turn_boundary_per_task_complete_in_a_realistic_turn() {
         "boundary immediately follows its task.complete"
     );
 }
+
+#[test]
+fn compacted_rollout_item_maps_to_system_compact() {
+    // Codex emits a `compacted` RolloutItem (codex CompactedItem shape:
+    // { message, replacement_history?, window_id? }) when it auto-compacts
+    // history. OpenStory lifts it to `system.compact` so the UI can mark the
+    // boundary. NOTE: not exercised by the lab runs — the local responses-API
+    // backend returns no token usage, so codex auto-compaction never arms —
+    // so this branch is covered here from the real codex type shape.
+    let mut file = NamedTempFile::new().expect("create temp file");
+    writeln!(
+        file,
+        r#"{{"timestamp":"2026-05-23T12:30:00.000Z","type":"compacted","payload":{{"message":"Summary of earlier turns: explored the repo and summarized each script.","window_id":3}}}}"#
+    )
+    .expect("write compacted");
+
+    let mut state = TranscriptState::new("codex-compacted".to_string());
+    let events = read_new_lines(file.path(), &mut state).expect("read lines");
+    assert_eq!(state.format, TranscriptFormat::Codex);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].subtype.as_deref(), Some("system.compact"));
+    assert_eq!(events[0].agent.as_deref(), Some("codex"));
+    assert_eq!(events[0].data.raw["type"], "compacted");
+    assert_eq!(events[0].data.raw["payload"]["window_id"], 3);
+}
