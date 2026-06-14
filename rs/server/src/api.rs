@@ -1602,6 +1602,17 @@ pub async fn search_events(
             )
         })?;
 
+    // Invariant ①: FTS reaches every indexed event, including those in
+    // sessions the operator marked private. Drop them before returning —
+    // fail-closed (503) if the share policy can't be read, never leak.
+    let private = private_session_ids(&s)
+        .await
+        .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
+    let results: Vec<_> = results
+        .into_iter()
+        .filter(|r| !private.contains(&r.session_id))
+        .collect();
+
     Ok(Json(serde_json::to_value(results).unwrap_or(json!([]))))
 }
 
@@ -1672,6 +1683,16 @@ pub async fn agent_search(
                 Json(json!({"error": format!("search failed: {e}")})),
             )
         })?;
+
+    // Invariant ①: omit events from sessions marked private before grouping —
+    // fail-closed (503) if the share policy can't be read, never leak.
+    let private = private_session_ids(&s)
+        .await
+        .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
+    let results: Vec<_> = results
+        .into_iter()
+        .filter(|r| !private.contains(&r.session_id))
+        .collect();
 
     // Collect project filter info
     let project_filter = query.project.clone();

@@ -247,6 +247,88 @@ async fn test_get_events_404s_on_private_session_invariant_one() {
     );
 }
 
+// ── Invariant ① — full-text search must not leak private session content ──
+//
+// The per-session read endpoints carry the `RequirePublicSession` gate, but
+// `/api/search` and `/api/agent/search` reach the FTS index directly. Without
+// a filter they return event snippets + session_id for sessions the operator
+// marked private — a back door around the gate. Both share-modes are set
+// explicitly so the test is robust to the default-private posture.
+#[tokio::test]
+async fn test_search_omits_private_session_content_invariant_one() {
+    use open_story_store::event_store::SharePolicyMode;
+
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let shared = vec![make_event("io.arc.event", "sess-search-shared")];
+        seed_and_ingest(&mut s, "sess-search-shared", &shared, None).await;
+        let private = vec![make_event("io.arc.event", "sess-search-private")];
+        seed_and_ingest(&mut s, "sess-search-private", &private, None).await;
+
+        s.store
+            .event_store
+            .set_share_policy("sess-search-shared", SharePolicyMode::Shared, None)
+            .await
+            .expect("set shared");
+        s.store
+            .event_store
+            .set_share_policy("sess-search-private", SharePolicyMode::Private, None)
+            .await
+            .expect("set private");
+
+        // seed_and_ingest persists but does not touch FTS (that happens in
+        // the broadcast consumer on the live bus path); index explicitly.
+        s.store
+            .event_store
+            .index_fts(&shared[0].id, "sess-search-shared", "message.assistant.text", "test content")
+            .await
+            .expect("index shared");
+        s.store
+            .event_store
+            .index_fts(&private[0].id, "sess-search-private", "message.assistant.text", "test content")
+            .await
+            .expect("index private");
+    }
+
+    // Both sessions index the text "test content"; search a common term.
+    let req = Request::get("/api/search?q=content")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(std::sync::Arc::clone(&state), req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    let sessions: Vec<&str> = body
+        .as_array()
+        .expect("/api/search returns an array")
+        .iter()
+        .filter_map(|r| r["session_id"].as_str())
+        .collect();
+    assert!(
+        sessions.contains(&"sess-search-shared"),
+        "shared session content must remain searchable, got {sessions:?}"
+    );
+    assert!(
+        !sessions.contains(&"sess-search-private"),
+        "private session content must NOT leak via /api/search, got {sessions:?}"
+    );
+
+    // Same guarantee for the session-grouped agentic search endpoint.
+    let req = Request::get("/api/agent/search?q=content")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    let blob = body.to_string();
+    assert!(
+        !blob.contains("sess-search-private"),
+        "private session must NOT appear in /api/agent/search results, got {blob}"
+    );
+}
+
 // ── Invariant ③ — revocation is stop-flow, not purge ────────────────────
 //
 // Naming the hard edge the research doc surfaces: marking a session
