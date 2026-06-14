@@ -5,7 +5,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use regex::Regex;
@@ -73,6 +72,21 @@ fn write_frontmatter(session_id: &str, timestamp: &str, title: &str, content: &s
     format!("---\nsession_id: {session_id}\ntimestamp: {timestamp}\ntitle: {title}\n---\n{content}")
 }
 
+/// Deterministic plan id from event identity: `{timestamp}-{session}-{title}`.
+///
+/// Keyed on the event's own identity rather than wall-clock time, so re-ingesting
+/// the same plan resolves to the same filename and overwrites in place. The
+/// timestamp slug leads so ids stay lexically time-sortable (ISO 8601 sorts that
+/// way). `(session, timestamp)` is the dedup key — matching the event-store
+/// `plan:{session}:{timestamp}` scheme — with the title slug appended only for
+/// human-readable filenames.
+fn plan_id(session_id: &str, timestamp: &str, title: &str) -> String {
+    let ts = slugify(timestamp, 24);
+    let sess = slugify(session_id, 48);
+    let title_slug = slugify(title, 40);
+    format!("{ts}-{sess}-{title_slug}")
+}
+
 fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, String) {
     let mut meta = std::collections::HashMap::new();
     if !text.starts_with("---\n") {
@@ -95,6 +109,11 @@ fn parse_frontmatter(text: &str) -> (std::collections::HashMap<String, String>, 
 }
 
 /// Persist plans as markdown files with frontmatter.
+///
+/// Cheap to `Clone` — it holds only the plans directory path; all state lives
+/// on disk. Consumers that need their own handle (e.g. the persist actor) take
+/// a clone rather than sharing a lock.
+#[derive(Clone)]
 pub struct PlanStore {
     dir: PathBuf,
 }
@@ -108,13 +127,14 @@ impl PlanStore {
     }
 
     /// Save a plan and return its ID.
+    ///
+    /// The id is derived deterministically from the plan's event identity
+    /// (timestamp + session + title), not wall-clock time, so re-ingesting the
+    /// same plan overwrites in place rather than appending a duplicate. The
+    /// timestamp slug leads so ids remain lexically time-sortable (ISO 8601).
     pub fn save(&self, session_id: &str, content: &str, timestamp: &str) -> Result<String> {
         let title = extract_title(content);
-        let unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let plan_id = format!("{unix_ms}-{}", slugify(&title, 40));
+        let plan_id = plan_id(session_id, timestamp, &title);
         let file_text = write_frontmatter(session_id, timestamp, &title, content);
         fs::write(self.dir.join(format!("{plan_id}.md")), &file_text)?;
         Ok(plan_id)
@@ -238,6 +258,45 @@ mod tests {
 
         let plans = store.list_for_session("sess-1");
         assert_eq!(plans.len(), 2);
+    }
+
+    #[test]
+    fn test_save_is_idempotent_for_same_plan() {
+        // Re-ingesting the same plan (same session, timestamp, content) must not
+        // pile up duplicate files. Keyed on the event identity, not wall-clock.
+        let tmp = TempDir::new().unwrap();
+        let store = PlanStore::new(tmp.path()).unwrap();
+
+        let content = "# Plan: Idempotent Plan\n\nBody.";
+        let id1 = store.save("sess-1", content, "2026-01-01T00:00:00Z").unwrap();
+        let id2 = store.save("sess-1", content, "2026-01-01T00:00:00Z").unwrap();
+
+        assert_eq!(id1, id2, "same plan must map to the same id");
+        assert_eq!(store.list_plans().len(), 1, "re-saving must overwrite, not append");
+    }
+
+    #[test]
+    fn test_save_distinct_plans_do_not_collide() {
+        // Different events (distinct timestamps) stay distinct, even same session/title.
+        let tmp = TempDir::new().unwrap();
+        let store = PlanStore::new(tmp.path()).unwrap();
+
+        store.save("sess-1", "# Plan: Same Title", "2026-01-01T00:00:00Z").unwrap();
+        store.save("sess-1", "# Plan: Same Title", "2026-01-02T00:00:00Z").unwrap();
+
+        assert_eq!(store.list_plans().len(), 2);
+    }
+
+    #[test]
+    fn test_save_same_timestamp_different_session_no_collision() {
+        // Two sessions emitting a plan at the same instant must not clobber each other.
+        let tmp = TempDir::new().unwrap();
+        let store = PlanStore::new(tmp.path()).unwrap();
+
+        store.save("sess-a", "# Plan: Untitled", "2026-01-01T00:00:00Z").unwrap();
+        store.save("sess-b", "# Plan: Untitled", "2026-01-01T00:00:00Z").unwrap();
+
+        assert_eq!(store.list_plans().len(), 2);
     }
 
     #[test]
