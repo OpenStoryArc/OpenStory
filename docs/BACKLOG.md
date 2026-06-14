@@ -36,6 +36,30 @@ a trusted single-machine deployment — or the test harness — can set to
 `shared`. Thread it into `SqliteStore`'s no-row branch. Keep the *secure*
 default; this is an informed escape hatch, not a silent foot-gun.
 
+### Admin bootstrap UX — the panel's instructions are incomplete
+The Participants panel's empty state tells you to run `open-story grant-role`,
+but that alone still 403s every role-gated route. Two config fields are also
+required and unmentioned: `roles_db_path` (empty → server uses
+`NoopRoleDirectory`, which 403s everything) and `local_principal_id` (empty →
+the role middleware can't identify the caller → 403). A user following the
+panel verbatim grants a role the server never reads. Fix: (a) panel copy
+should list all three steps (set `roles_db_path`, set `local_principal_id`,
+run `grant-role`) — or better, (b) default `roles_db_path` to
+`{data_dir}/openstory-roles.db` and auto-set `local_principal_id` from the
+bootstrapped `[person]` principal so the CLI grant "just works" with no manual
+config. Surfaced live: a fresh local instance 403'd the share-policy toggle
+until all three were set by hand.
+
+### "Networked" should also be detected from the live NATS leaf state
+`effective_default_share_policy()` derives "networked" from
+`config.nats_leaf_url`. But a NATS that's leaf-connected via an external
+`nats.conf` (the dev `just up` path) leaves `nats_leaf_url` empty, so the
+instance derives `Shared` and auto-propagates to the hub — the exact
+"share without meaning to" case, slipping past the safe-network default.
+Homebrew users are unaffected (they set `nats_leaf_url`). Fix: also consult
+the live NATS `/leafz` monitor (the same signal the topology's
+`nats-leafnode-hub` detection already uses) when deriving the default.
+
 ### Container/e2e tests: NATS-at-boot + opt-in fixtures
 `rs/tests/test_container.rs` fails because the `open-story:test` image's
 CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
