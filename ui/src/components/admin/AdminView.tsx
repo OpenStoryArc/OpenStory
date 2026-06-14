@@ -99,6 +99,23 @@ export function AdminView() {
               derivation="host, role & JS/hub domain read straight from config.toml (role is derived from config, not probed)"
               kind="local"
             />
+            <HowItWorks summary="How this node's identity is determined">
+              <p>
+                <code>compute_topology</code> reads <code>EnvInputs</code> +
+                config: host, role, and JS/hub domain. <strong>Role is
+                derived from your configured peer/hub domains</strong> — it is{" "}
+                <em>not</em> probed from the live NATS. That's why a box whose
+                NATS is leaf-connected to a hub can still read{" "}
+                <code>solo</code> here: open-story hasn't been told it's a leaf
+                (the <code>/leafz</code> auto-detection is a backlog item).
+              </p>
+              <p>
+                The snapshot is computed by a background actor and pushed to a{" "}
+                <code>watch</code> channel; <code>GET /api/admin/topology</code>{" "}
+                just serves the latest frame — no compute, NATS calls, or
+                config reads on the request hot path.
+              </p>
+            </HowItWorks>
             <NodeIdentity topology={topology} />
           </section>
 
@@ -114,6 +131,40 @@ export function AdminView() {
                 derivation="self + hosts tallied from your local session store (deterministic); the NATS upstream hub is a live /leafz probe of this node's own NATS"
                 kind="mixed"
               />
+              <HowItWorks summary="How the fleet roster is assembled">
+                <p>
+                  <code>compute_topology</code> merges evidence from four
+                  sources and dedupes by host:
+                </p>
+                <ul className="ml-4 list-disc space-y-1">
+                  <li>
+                    <strong>self</strong> — this device, from config.
+                  </li>
+                  <li>
+                    <strong>seen in sessions</strong> — every distinct origin
+                    host tallied from your local session store
+                    (<code>list_sessions</code>), with its session count.
+                    Durable, not live — "I hold their data," not "they're
+                    online."
+                  </li>
+                  <li>
+                    <strong>NATS upstream hub</strong> —{" "}
+                    <code>discover_leafnode_upstream()</code> does a best-effort
+                    HTTP GET to your local NATS monitor
+                    (<code>:8222/leafz</code>) and reads the leaf connection
+                    your NATS currently holds. The one live bit.
+                  </li>
+                  <li>
+                    <strong>configured peers/hubs</strong> — from{" "}
+                    <code>OPEN_STORY_PEER_DOMAINS</code> / hub env (presence
+                    only).
+                  </li>
+                </ul>
+                <p>
+                  Recomputed on each pulse (a coalesced "session set changed"
+                  signal), served from the cached <code>watch</code> snapshot.
+                </p>
+              </HowItWorks>
             </header>
             <FleetGrid nodes={topology.nodes} />
           </section>
@@ -131,6 +182,26 @@ export function AdminView() {
                 derivation="read live from THIS node's JetStream events-agg aggregate; populated only when this node IS the hub. Null on solo / T1 / leaf — including a leaf that's connected to a hub (like this node), since only the hub holds events-agg"
                 kind="live"
               />
+              <HowItWorks summary="How the live roster is read">
+                <p>
+                  <code>fetch_live_sources()</code> calls{" "}
+                  <code>js.get_stream("events-agg").info()</code> on{" "}
+                  <em>this node's own</em> JetStream, then pairs the stream's{" "}
+                  <code>config.sources</code> against its runtime{" "}
+                  <code>sources[]</code> (lag, active, delivered) via{" "}
+                  <code>derive_live_sources()</code>.
+                </p>
+                <p>
+                  It returns <code>None</code> when{" "}
+                  <code>events-agg</code> doesn't exist locally — i.e. on solo,
+                  T1, and <strong>leaf</strong> nodes — because only a{" "}
+                  <strong>hub</strong> hosts that aggregate. A leaf{" "}
+                  <em>sources</em> from the hub's events-agg into its own{" "}
+                  <code>events-mirror</code>, but doesn't hold events-agg, so
+                  this panel stays empty even while federated. Transient errors
+                  also yield <code>None</code>; the next pulse retries.
+                </p>
+              </HowItWorks>
             </header>
             {topology.live_sources ? (
               <LiveSourcesPanel sources={topology.live_sources} />
@@ -173,6 +244,26 @@ export function AdminView() {
                 derivation="drawn from the Fleet nodes — the solid self→hub edge rides the live /leafz probe; dashed edges are inferred from stored sessions"
                 kind="mixed"
               />
+              <HowItWorks summary="How the shape is drawn">
+                <p>
+                  Pure client-side SVG — no extra endpoint. It switches on{" "}
+                  <code>topology.shape</code> (<code>solo</code>/<code>t1</code>/
+                  <code>t2</code>/<code>t3</code>) for the federation geometry.
+                </p>
+                <p>
+                  When the node reports <code>solo</code> but{" "}
+                  <code>nodes</code> has other hosts (your case),{" "}
+                  <code>FleetShape</code> infers the graph from evidence rather
+                  than drawing a lonely card: the detected hub as the center,
+                  self + device hosts around it. Edge styling encodes
+                  confidence — <strong>self→hub solid</strong> (observed via the
+                  live <code>/leafz</code> probe), <strong>other hosts→hub
+                  dashed</strong> ("seen via the hub", inferred from their
+                  stored sessions). So it's archaeology, not radar — until the{" "}
+                  <code>/leafz</code> self-detection lands and the real T2 shape
+                  is reported.
+                </p>
+              </HowItWorks>
             </header>
             <TopologyMap topology={topology} />
           </section>
@@ -192,6 +283,33 @@ export function AdminView() {
                 derivation="the EmbeddedRoleDirectory SQLite at roles_db_path; grants/edits are role-gated (admin-only)"
                 kind="local"
               />
+              <HowItWorks summary="How roles are stored and enforced">
+                <p>
+                  <strong>Store.</strong> The{" "}
+                  <code>EmbeddedRoleDirectory</code> is a SQLite{" "}
+                  <code>participants</code> table at <code>roles_db_path</code>{" "}
+                  (defaults to <code>{"{data_dir}/openstory-roles.db"}</code>):
+                  one row per principal → person → role
+                  (<code>observer</code> &lt; <code>contributor</code> &lt;{" "}
+                  <code>admin</code>).
+                </p>
+                <p>
+                  <strong>Enforcement.</strong> Every admin route runs through{" "}
+                  <code>require_admin_role_middleware</code>, which looks up{" "}
+                  <code>role_for_principal(local_principal_id)</code> and 403s
+                  unless it's ≥ <code>Admin</code>. GET lists; PUT upserts;
+                  DELETE revokes (all admin-gated).
+                </p>
+                <p>
+                  <strong>Bootstrap.</strong> On a <em>trusted-local</em> first
+                  boot (loopback, no api_token, no hub) the local principal is
+                  auto-granted Admin and <code>local_principal_id</code> is
+                  auto-filled — so it just works. A networked or exposed
+                  instance is not trusted-local, so it keeps the deliberate{" "}
+                  <code>open-story grant-role</code> CLI bootstrap (no ambient
+                  admin reachable over the network).
+                </p>
+              </HowItWorks>
             </header>
             <ParticipantsPanel />
           </section>
@@ -209,6 +327,21 @@ export function AdminView() {
                 derivation="your local session store grouped by each session's stamped person_id"
                 kind="local"
               />
+              <HowItWorks summary="How clusters are grouped">
+                <p>
+                  <code>compute_topology_with_owners</code> takes{" "}
+                  <code>(host, person_id)</code> pairs from your session store
+                  and groups hosts by <code>person_id</code> — the identity
+                  stamped on each event at ingest by the principal resolver
+                  (<code>[person].principals</code> matchers: agent / host /
+                  user / watch-dir).
+                </p>
+                <p>
+                  A host can appear under multiple persons (a shared dev box is
+                  normal), and sessions with no stamped person fall outside any
+                  cluster. Store-derived and deterministic; recomputed on pulse.
+                </p>
+              </HowItWorks>
             </header>
             <PersonClustersView
               clusters={topology.clusters_by_person ?? []}
@@ -302,6 +435,26 @@ export function AdminView() {
                   hub or other devices; your local events also stay on disk
                   (flipping back to <code>shared</code> restores visibility with
                   no rebuild).
+                </p>
+                <p>
+                  <strong className="text-[#c0caf5]">
+                    Cross-person sharing is the part that dynamically rewrites
+                    NATS.
+                  </strong>{" "}
+                  The shared/private toggle above is just a <em>publish gate</em>
+                  — it never touches NATS config. Granting another{" "}
+                  <em>person</em> access (<code>share-with-person</code>) is what
+                  reconfigures the bus at runtime:{" "}
+                  <code>AccountConfigWriter::add_share</code> adds a one-way{" "}
+                  <code>export</code> on your <code>PERSON_*</code> account for{" "}
+                  <code>{"events.*.<session>.>"}</code> to the target person's
+                  account (plus a matching <code>import</code>), rewrites the{" "}
+                  <code>accounts {"{…}"}</code> block <strong>atomically</strong>{" "}
+                  (tmpfile → <code>rename</code>), then <strong>SIGHUPs</strong>{" "}
+                  nats-server to apply it live — no restart. It's idempotent, and
+                  gated by owner-consent (only the session's owner can share it).
+                  That conf-rewrite + reload is the mechanism that actually moves
+                  data between people.
                 </p>
               </HowItWorks>
             </header>
