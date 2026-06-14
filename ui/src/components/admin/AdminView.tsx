@@ -22,6 +22,7 @@ import { FleetGrid } from "@/components/admin/FleetGrid";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 import { BetaBadge } from "@/components/admin/BetaBadge";
+import { DataSourceNote } from "@/components/admin/DataSourceNote";
 import { admin$ } from "@/streams/admin";
 import { useObservable } from "@/hooks/use-observable";
 
@@ -44,8 +45,29 @@ export function AdminView() {
         </h2>
         <p className="text-sm text-[#565f89]">
           This device's view of the federation it's running in — topology,
-          sharing, and roles.
+          sharing, and roles. Everything here is computed by{" "}
+          <em>this node</em> from three REST endpoints
+          (<code className="text-[#7dcfff]">/api/admin/topology</code>,{" "}
+          <code className="text-[#7dcfff]">/api/admin/participants</code>,{" "}
+          <code className="text-[#7dcfff]">/api/admin/share-policy</code>). Each
+          subsection notes its endpoint and how its data is derived, with a dot
+          showing whether it's a deterministic read of local state or a live
+          network probe:
         </p>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#565f89]">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#9ece6a]" />
+            deterministic — local store / config / roles DB
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#7aa2f7]" />
+            mostly local · one live probe
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#e0af68]" />
+            live network — best-effort, varies
+          </span>
+        </div>
         <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           <strong>Beta:</strong> these controls are new and still being
           hardened. They work in our tests but aren't guaranteed end-to-end —
@@ -71,6 +93,11 @@ export function AdminView() {
               </h3>
               <ShapeBadge shape={topology.shape} />
             </div>
+            <DataSourceNote
+              endpoint="GET /api/admin/topology › self"
+              derivation="host, role & JS/hub domain read straight from config.toml (role is derived from config, not probed)"
+              kind="local"
+            />
             <NodeIdentity topology={topology} />
           </section>
 
@@ -81,6 +108,11 @@ export function AdminView() {
                 Every host this device has evidence of — self, hosts seen in
                 stored sessions, and configured peers/hubs.
               </p>
+              <DataSourceNote
+                endpoint="GET /api/admin/topology › nodes"
+                derivation="self + hosts tallied from your local session store (deterministic); the NATS upstream hub is a live /leafz probe of this node's own NATS"
+                kind="mixed"
+              />
             </header>
             <FleetGrid nodes={topology.nodes} />
           </section>
@@ -93,6 +125,11 @@ export function AdminView() {
               <p className="text-xs text-[#565f89] mt-0.5">
                 Authoritative fleet roster — every leaf currently registered with the hub aggregate, with delivery state.
               </p>
+              <DataSourceNote
+                endpoint="GET /api/admin/topology › live_sources"
+                derivation="queried live from the hub's JetStream events-agg stream; null when this node isn't federated (as below)"
+                kind="live"
+              />
             </header>
             {topology.live_sources ? (
               <LiveSourcesPanel sources={topology.live_sources} />
@@ -127,6 +164,11 @@ export function AdminView() {
                 Connectivity from this device's vantage. The Fleet panel above
                 shows <em>presence</em>; this shows how data flows.
               </p>
+              <DataSourceNote
+                endpoint="derived client-side from topology.nodes"
+                derivation="drawn from the Fleet nodes — the solid self→hub edge rides the live /leafz probe; dashed edges are inferred from stored sessions"
+                kind="mixed"
+              />
             </header>
             <TopologyMap topology={topology} />
           </section>
@@ -141,6 +183,11 @@ export function AdminView() {
                 reserved for future routes. Bootstrap the first Admin from
                 the CLI — every admin route 403s until one exists.
               </p>
+              <DataSourceNote
+                endpoint="GET/PUT /api/admin/participants"
+                derivation="the EmbeddedRoleDirectory SQLite at roles_db_path; grants/edits are role-gated (admin-only)"
+                kind="local"
+              />
             </header>
             <ParticipantsPanel />
           </section>
@@ -153,6 +200,11 @@ export function AdminView() {
                 multiple persons — a shared dev box is normal. Cross-person
                 share edges are added in a follow-up.
               </p>
+              <DataSourceNote
+                endpoint="GET /api/admin/topology › clusters_by_person"
+                derivation="your local session store grouped by each session's stamped person_id"
+                kind="local"
+              />
             </header>
             <PersonClustersView
               clusters={topology.clusters_by_person ?? []}
@@ -173,6 +225,11 @@ export function AdminView() {
                 the default flips to <code>private</code> so going to a hub
                 never auto-shares your history.
               </p>
+              <DataSourceNote
+                endpoint="GET /api/admin/share-policy · PUT /…/{session}"
+                derivation="session store + share_policy table; an unset session's value is derived from config (loopback→shared, networked→private). Writes are admin-only"
+                kind="local"
+              />
             </header>
             <SharePolicyTable selfHost={topology.self.host} />
           </section>
