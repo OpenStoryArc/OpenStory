@@ -23,6 +23,7 @@ import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 import { BetaBadge } from "@/components/admin/BetaBadge";
 import { DataSourceNote } from "@/components/admin/DataSourceNote";
+import { HowItWorks } from "@/components/admin/HowItWorks";
 import { admin$ } from "@/streams/admin";
 import { useObservable } from "@/hooks/use-observable";
 
@@ -233,6 +234,76 @@ export function AdminView() {
                 derivation="session store + share_policy table; an unset session's value is derived from config (loopback→shared, networked→private). Writes are admin-only"
                 kind="local"
               />
+              <HowItWorks summary="How share policy works under the hood">
+                <p>
+                  <strong className="text-[#c0caf5]">Source of truth.</strong>{" "}
+                  The <code>share_policy</code> SQLite table holds one row per
+                  session you've explicitly set (<code>mode</code> =
+                  shared/private, plus <code>updated_at</code>/
+                  <code>updated_by</code>). A session with{" "}
+                  <em>no row</em> falls back to the config-derived default
+                  (<code>effective_default_share_policy</code>): loopback-only →{" "}
+                  <code>shared</code>, networked → <code>private</code>. So the
+                  default tracks whether you've gone to a hub, and an explicit
+                  row always wins.
+                </p>
+                <p>
+                  <strong className="text-[#c0caf5]">
+                    What <code>private</code> actually does — three independent
+                    gates:
+                  </strong>
+                </p>
+                <ol className="ml-4 list-decimal space-y-1">
+                  <li>
+                    <strong className="text-[#9ece6a]">
+                      Bus publish-skip
+                    </strong>{" "}
+                    (the federation gate, Invariant ①). At publish time the NATS
+                    bus calls <code>is_private(session)</code> and{" "}
+                    <em>skips</em> private sessions — the event never enters
+                    NATS, never reaches the hub aggregate, never reaches peers
+                    (counted by the <code>bus_publish_skipped_total</code>{" "}
+                    metric). This is what stops sharing <em>at the source</em>.
+                  </li>
+                  <li>
+                    <strong className="text-[#7aa2f7]">
+                      API read gate
+                    </strong>{" "}
+                    (<code>RequirePublicSession</code>). Per-session reads
+                    (<code>/events</code>, <code>/transcript</code>, …) return{" "}
+                    <strong>404</strong> for a private session — denying
+                    existence, so a peer's catch-up stops asking (also why an
+                    unconfigured session 404s).
+                  </li>
+                  <li>
+                    <strong className="text-[#bb9af7]">
+                      Digest + search filters
+                    </strong>
+                    . Cross-session reads include <em>only</em> explicitly-shared
+                    sessions (<code>shared_session_ids()</code>), and{" "}
+                    <em>fail-closed</em> (503) if the policy can't be read — so a
+                    private session never leaks via search.
+                  </li>
+                </ol>
+                <p>
+                  <strong className="text-[#c0caf5]">Writes.</strong>{" "}
+                  <code>PUT</code> upserts the row and is admin-only — it passes
+                  through <code>require_admin_role_middleware</code> (the caller's
+                  principal must be Admin), which is why an unbootstrapped
+                  instance 403s.
+                </p>
+                <p>
+                  <strong className="text-[#e0af68]">
+                    Revocation is stop-flow, not purge
+                  </strong>{" "}
+                  (Invariant ③). Flipping back to <code>private</code> stops{" "}
+                  <em>new</em> propagation immediately, but does{" "}
+                  <strong>not</strong> pull back copies already mirrored to the
+                  hub or other devices; your local events also stay on disk
+                  (flipping back to <code>shared</code> restores visibility with
+                  no rebuild).
+                </p>
+              </HowItWorks>
             </header>
             <SharePolicyTable selfHost={topology.self.host} />
           </section>
