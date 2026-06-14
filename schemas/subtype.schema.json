@@ -17,6 +17,7 @@
         "system.model_change",
         "system.local_command",
         "system.away_summary",
+        "system.task.complete",
         "progress.bash",
         "progress.agent",
         "progress.hook",
@@ -24,6 +25,13 @@
         "queue.enqueue",
         "queue.dequeue",
         "queue.remove"
+      ],
+      "type": "string"
+    },
+    {
+      "description": "Codex surfaces developer-role messages (instructions / system prompts shown as developer turns).",
+      "enum": [
+        "message.developer.text"
       ],
       "type": "string"
     },
@@ -38,6 +46,13 @@
       "description": "Codex emits running token accounting as a `token_count` event_msg.",
       "enum": [
         "system.token_count"
+      ],
+      "type": "string"
+    },
+    {
+      "description": "Codex task lifecycle. `task_complete` is the signal we synthesize `system.turn.complete` from; `task_started` opens the turn loop.",
+      "enum": [
+        "system.task.started"
       ],
       "type": "string"
     },
