@@ -194,6 +194,36 @@ async fn share_with_person_persists_conf_to_disk() {
 }
 
 #[tokio::test]
+async fn share_with_person_refuses_when_caller_is_not_the_owner() {
+    // Owner-consent gate: being Admin authorizes you to manage YOUR sharing,
+    // not to re-share data you don't own. The caller (test-principal) is
+    // person "max"; this session is owned by "alice". Max must not be able
+    // to share alice's session, and the NATS conf must be left untouched.
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, writer) = test_state_with_writer(&tmp).await;
+    seed_session(&state, "sess-alice", "alice").await;
+
+    let before = writer.current_config();
+
+    let resp = post_share(
+        Arc::clone(&state),
+        json!({"session_id": "sess-alice", "person_id": "katie"}),
+    )
+    .await;
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "an admin who is not the owner must not share another person's session"
+    );
+    assert_eq!(
+        writer.current_config(),
+        before,
+        "a refused share must not mutate the account config"
+    );
+}
+
+#[tokio::test]
 async fn share_with_person_returns_404_for_unknown_session() {
     let tmp = tempfile::tempdir().unwrap();
     let (state, _) = test_state_with_writer(&tmp).await;

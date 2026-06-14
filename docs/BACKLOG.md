@@ -4,6 +4,49 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Sharing & consent — follow-ups from the opt-in/owner-consent hardening
+
+### Delegated share authority
+`share-with-person` is now strict: only the session **owner** (caller's
+`person_id` == session's `person_id`) may share it, even for an Admin. That
+closes the "an admin re-shares data they don't own" gap, but it also blocks
+legitimate hub-operator workflows where an owner *wants* a trusted operator
+to manage their sharing. Add an explicit delegation model: an owner grants
+named share-rights to another principal/person, stored alongside the role
+directory, and `share-with-person` accepts owner-OR-delegate. Must be
+explicit, per-owner, revocable, and audit-logged — never an ambient Admin
+power.
+
+### RBAC governance hardening (anti-lockout, anti-escalation)
+`upsert_participant` lets any Admin grant Admin to any principal (including
+new ones), and `delete_participant` can revoke any participant — including
+the last remaining Admin, which would lock the directory. Add guards:
+refuse to delete/demote the final Admin, and consider an approval step (or
+at least a mandatory audit record) for Admin→Admin grants. Today these are
+mitigated by the owner-consent gate (a rogue Admin still can't share data
+they don't own) and the CLI-only bootstrap, but governance is unspecced.
+
+### Default-share-posture config knob (single-user UX + test fixtures)
+Sessions now default to **Private** (opt-in sharing) — the secure default,
+but it means a single-user local operator must explicitly share each of
+their own sessions to revisit historical detail (`/records`, `/patterns`,
+search), and the container/e2e seed fixtures become invisible. Add an
+opt-in per-instance `default_share_policy` config (default `private`) that
+a trusted single-machine deployment — or the test harness — can set to
+`shared`. Thread it into `SqliteStore`'s no-row branch. Keep the *secure*
+default; this is an informed escape hatch, not a silent foot-gun.
+
+### Container/e2e tests: NATS-at-boot + opt-in fixtures
+`rs/tests/test_container.rs` fails because the `open-story:test` image's
+CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
+NATS server — pre-existing, identical on master, surfaced once NATS became
+a hard boot dependency. Fix the test image to manage/bundle NATS, then
+(once it boots) reconcile the seed fixtures with opt-in sharing via the
+`default_share_policy` knob above so the Dockerized data path can be
+verified end-to-end.
+
+---
+
 ## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
 
 ### Boot-replay status on `/api/health`

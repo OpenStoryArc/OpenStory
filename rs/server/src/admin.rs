@@ -710,6 +710,12 @@ pub async fn share_with_person(
         ));
     };
     let reloader = s.account_config_reloader.clone();
+    // Capture the caller's identity before dropping the read guard. The
+    // role gate proved the caller is Admin; here we additionally require
+    // that they OWN the session — Admin authorizes managing your own
+    // sharing, not re-sharing data belonging to someone else.
+    let caller_principal = s.config.local_principal_id.clone();
+    let directory = s.role_directory.clone();
 
     let sessions = s
         .store
@@ -734,6 +740,34 @@ pub async fn share_with_person(
         ),
     ))?;
 
+    // Owner-consent gate. The caller may only share sessions they own. A
+    // future delegation model (BACKLOG) could let an owner grant share
+    // rights to a hub operator; until then the check is strict.
+    let caller_person = directory
+        .lookup_participant(&caller_principal)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(|p| p.person_id);
+    if caller_person.as_deref() != Some(owner.as_str()) {
+        log_event(
+            "api",
+            &format!(
+                "DENY share-with-person session={} owner={} caller_principal={} caller_person={} → 403 (not owner)",
+                body.session_id,
+                owner,
+                caller_principal,
+                caller_person.as_deref().unwrap_or("<none>"),
+            ),
+        );
+        return Err((
+            StatusCode::FORBIDDEN,
+            format!(
+                "only the owner ({owner}) may share session {} — caller is not the owner",
+                body.session_id
+            ),
+        ));
+    }
+
     let from_account = crate::state::person_account_name(&owner);
     let to_account = crate::state::person_account_name(&body.person_id);
     let subject = format!("events.*.{}.>", body.session_id);
@@ -750,6 +784,16 @@ pub async fn share_with_person(
     writer
         .persist()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Audit trail: a granted cross-person share is a consequential, hard-to-
+    // reverse action (Invariant ③ — revocation is stop-flow, not purge).
+    log_event(
+        "api",
+        &format!(
+            "AUDIT share-with-person GRANTED session={} owner={} target_person={} by_principal={}",
+            body.session_id, owner, body.person_id, caller_principal
+        ),
+    );
 
     // Phase 5 boot-wire: signal nats-server to reread its conf. Without
     // this the file is updated but the running server doesn't see the
