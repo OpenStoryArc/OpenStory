@@ -104,9 +104,24 @@ pub fn is_plan_event(event: &Value) -> bool {
     false
 }
 
-/// Extract plan content from a transcript assistant event with ExitPlanMode tool_use.
+/// Extract plan content from an ExitPlanMode tool_use event.
+///
+/// Handles both shapes: the monadic `data.agent_payload.args.plan` field and
+/// the raw `data.raw.message.content[].input.plan` content blocks. This is the
+/// single, complete extractor — callers don't need their own fallback.
 pub fn extract_plan_content(event: &Value) -> Option<String> {
     let data = event.get("data")?;
+    // Monadic agent_payload path: data.agent_payload.args.plan
+    if let Some(plan) = data
+        .get("agent_payload")
+        .and_then(|ap| ap.get("args"))
+        .and_then(|a| a.get("plan"))
+        .and_then(|v| v.as_str())
+    {
+        if !plan.is_empty() {
+            return Some(plan.to_string());
+        }
+    }
     let raw = data.get("raw").unwrap_or(data);
     let message = raw.get("message")?;
     let content = message.get("content")?;
@@ -360,6 +375,24 @@ mod tests {
         assert_eq!(
             extract_plan_content(&event),
             Some("# Plan content here".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_plan_finds_content_in_agent_payload() {
+        // Monadic shape: the plan lives at data.agent_payload.args.plan, with
+        // no raw content blocks. The single extractor must handle it.
+        let event = json!({
+            "data": {
+                "agent_payload": {
+                    "tool": "ExitPlanMode",
+                    "args": { "plan": "# Plan: Monadic\n\nBody." }
+                }
+            }
+        });
+        assert_eq!(
+            extract_plan_content(&event),
+            Some("# Plan: Monadic\n\nBody.".to_string())
         );
     }
 
