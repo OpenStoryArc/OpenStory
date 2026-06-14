@@ -108,7 +108,9 @@ pub async fn create_state_with_watch_dirs(
             db_name: config.mongo_db.clone(),
         },
     };
-    let mut store = StoreState::with_backend(data_dir, db_key, backend).await?;
+    let mut store =
+        StoreState::with_backend(data_dir, db_key, backend, config.effective_default_share_policy())
+            .await?;
 
     // Reconciler — ensure the EventStore contains every event present in
     // JSONL on disk. Idempotent (PK dedup); no-op when data_dir is empty

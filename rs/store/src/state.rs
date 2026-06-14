@@ -155,6 +155,7 @@ impl StoreState {
         data_dir: &Path,
         key: Option<&str>,
         backend: BackendChoice,
+        default_share_policy: crate::event_store::SharePolicyMode,
     ) -> Result<Self> {
         // Plans, JSONL backup, and SessionStore live on disk for all
         // backends — they're the sovereignty escape hatch that survives
@@ -166,7 +167,9 @@ impl StoreState {
         let plan_store = PlanStore::new(&plans_dir)?;
 
         let event_store: Arc<dyn EventStore> = match backend {
-            BackendChoice::Sqlite => match SqliteStore::new_with_key(data_dir, key) {
+            BackendChoice::Sqlite => match SqliteStore::new_with_key(data_dir, key)
+                .map(|s| s.with_default_share_policy(default_share_policy))
+            {
                 Ok(store) => Arc::new(store),
                 Err(e) => {
                     eprintln!("SQLite unavailable ({}), falling back to JSONL store", e);
@@ -276,6 +279,7 @@ mod tests {
                 uri: "mongodb://localhost:27017".to_string(),
                 db_name: "openstory".to_string(),
             },
+            crate::event_store::SharePolicyMode::Private,
         )
         .await;
         // Can't use `expect_err` because StoreState doesn't impl Debug.
@@ -295,9 +299,14 @@ mod tests {
     #[tokio::test]
     async fn with_backend_sqlite_works() {
         let tmp = TempDir::new().unwrap();
-        let state = StoreState::with_backend(tmp.path(), None, BackendChoice::Sqlite)
-            .await
-            .expect("sqlite backend must always boot");
+        let state = StoreState::with_backend(
+            tmp.path(),
+            None,
+            BackendChoice::Sqlite,
+            crate::event_store::SharePolicyMode::Private,
+        )
+        .await
+        .expect("sqlite backend must always boot");
         assert!(state.event_store.list_sessions().await.unwrap().is_empty());
     }
 

@@ -23,6 +23,12 @@ use crate::queries::FtsSearchResult;
 pub struct SqliteStore {
     path: PathBuf,
     conn: Mutex<Connection>,
+    /// What `get_share_policy` returns for a session with no explicit row.
+    /// Defaults to `Private` (opt-in sharing). Boot sets the effective value
+    /// via `with_default_share_policy` — typically `Shared` for a loopback-only
+    /// local instance (dashboard just works) and `Private` once networking is
+    /// configured (so going to a hub never leaks). Explicit rows always win.
+    default_share_policy: crate::event_store::SharePolicyMode,
 }
 
 impl SqliteStore {
@@ -70,6 +76,7 @@ impl SqliteStore {
         let store = Self {
             path,
             conn: Mutex::new(conn),
+            default_share_policy: crate::event_store::SharePolicyMode::Private,
         };
         store.init_schema()?;
         Ok(store)
@@ -82,9 +89,22 @@ impl SqliteStore {
         let store = Self {
             path: PathBuf::from(":memory:"),
             conn: Mutex::new(conn),
+            default_share_policy: crate::event_store::SharePolicyMode::Private,
         };
         store.init_schema()?;
         Ok(store)
+    }
+
+    /// Set the default share policy returned for sessions with no explicit
+    /// row. Consuming builder so it's applied before the store is wrapped in
+    /// `Arc`. Defaults to `Private`; boot derives the effective value from
+    /// whether networking is configured (see `Config::effective_default_share_policy`).
+    pub fn with_default_share_policy(
+        mut self,
+        mode: crate::event_store::SharePolicyMode,
+    ) -> Self {
+        self.default_share_policy = mode;
+        self
     }
 
     fn init_schema(&self) -> Result<()> {
@@ -938,8 +958,9 @@ impl EventStore for SqliteStore {
             )
             .optional()?;
         match row {
-            // No row → Private. Sharing is opt-in (sovereignty default).
-            None => Ok(crate::event_store::SharePolicyMode::Private),
+            // No row → the configured default (Private unless a loopback-only
+            // local instance opted into Shared). Sharing is opt-in by default.
+            None => Ok(self.default_share_policy),
             Some(s) => crate::event_store::SharePolicyMode::from_str(&s)
                 .map_err(|e| anyhow::anyhow!("invalid share_policy row for {session_id}: {e}")),
         }
@@ -1073,6 +1094,30 @@ mod tests {
         let store = SqliteStore::in_memory().unwrap();
         let mode = store.get_share_policy("never-seen").await.unwrap();
         assert_eq!(mode, crate::event_store::SharePolicyMode::Private);
+    }
+
+    #[tokio::test]
+    async fn with_default_share_policy_overrides_no_row_default() {
+        // A loopback-only local instance (or test harness) opts the whole
+        // instance into Shared for unconfigured sessions. Explicit rows still
+        // win; only the no-row default changes.
+        let store = SqliteStore::in_memory()
+            .unwrap()
+            .with_default_share_policy(crate::event_store::SharePolicyMode::Shared);
+        assert_eq!(
+            store.get_share_policy("never-seen").await.unwrap(),
+            crate::event_store::SharePolicyMode::Shared,
+            "no-row default must follow the configured policy"
+        );
+        store
+            .set_share_policy("hidden", crate::event_store::SharePolicyMode::Private, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_share_policy("hidden").await.unwrap(),
+            crate::event_store::SharePolicyMode::Private,
+            "an explicit row wins over the instance default"
+        );
     }
 
     #[tokio::test]
@@ -2012,8 +2057,10 @@ mod tests {
             })
             .await
             .unwrap();
+        // Explicitly Shared so it DIFFERS from the default (Private) — that's
+        // what makes the post-sweep revert-to-default assertion meaningful.
         store
-            .set_share_policy("sess-old", SharePolicyMode::Private, Some("max"))
+            .set_share_policy("sess-old", SharePolicyMode::Shared, Some("max"))
             .await
             .unwrap();
 
@@ -2063,11 +2110,11 @@ mod tests {
         assert_eq!(after[0].session_id, "sess-keep");
 
         // Also: looking up the dropped session by id returns the default
-        // (Shared) — proving the row is GONE, not flipped.
+        // (Private) — proving the explicit Shared row is GONE, not flipped.
         let dropped = store.get_share_policy("sess-old").await.unwrap();
         assert_eq!(
             dropped,
-            SharePolicyMode::Shared,
+            SharePolicyMode::Private,
             "swept session reverts to default; the orphan must not haunt a future session reusing the id"
         );
     }
