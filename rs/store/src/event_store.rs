@@ -111,7 +111,8 @@ impl std::str::FromStr for SharePolicyMode {
 }
 
 /// One row in the share_policy table — sessions that have been **explicitly**
-/// configured. Sessions without a row default to `SharePolicyMode::Shared`.
+/// configured. Sessions without a row default to `SharePolicyMode::Private`
+/// (sharing is opt-in).
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SharePolicyRow {
     pub session_id: String,
@@ -381,13 +382,15 @@ pub trait EventStore: Send + Sync {
     // filter both consult this.
     //
     // Default impls cover backends that don't implement policy storage:
-    // get returns `Shared`, set returns `Err` (so an unsupported backend
-    // surfaces the gap loudly instead of silently dropping a write).
+    // get returns `Private`, set returns `Err` (so an unsupported backend
+    // surfaces the gap loudly instead of silently dropping a write). A
+    // backend that can't record consent must fail safe — never share.
     // `SqliteStore` overrides both.
 
-    /// Get this session's share policy. Returns `Shared` when no row exists.
+    /// Get this session's share policy. Returns `Private` when no row exists —
+    /// sharing is opt-in (sovereignty default).
     async fn get_share_policy(&self, _session_id: &str) -> Result<SharePolicyMode> {
-        Ok(SharePolicyMode::Shared)
+        Ok(SharePolicyMode::Private)
     }
 
     /// Set this session's share policy. Backends without storage error out.

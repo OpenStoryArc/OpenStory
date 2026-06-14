@@ -149,6 +149,14 @@ async fn shared_session_still_returns_data_with_other_private_in_store() {
         let mut s = state.write().await;
         let public_events = vec![make_event("io.arc.event", "sess-public")];
         seed_and_ingest(&mut s, "sess-public", &public_events, None).await;
+        // Sharing is opt-in (default Private) — mark sess-public shared
+        // explicitly; this test is about an unrelated private session not
+        // hiding it.
+        s.store
+            .event_store
+            .set_share_policy("sess-public", SharePolicyMode::Shared, None)
+            .await
+            .expect("set sess-public shared");
         s.store
             .event_store
             .set_share_policy("sess-other", SharePolicyMode::Private, None)

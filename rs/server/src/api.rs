@@ -99,12 +99,12 @@ pub async fn session_digests(
         .list_sessions()
         .await
         .unwrap_or_default();
-    let private = private_session_ids(&s).await?;
+    let shared = shared_session_ids(&s).await?;
 
     let mut digests = Vec::with_capacity(sessions.len());
     for row in &sessions {
-        if private.contains(&row.id) {
-            continue; // invariant ①: don't even disclose existence
+        if !shared.contains(&row.id) {
+            continue; // opt-in: disclose existence only for shared sessions
         }
         let events = s
             .store
@@ -126,14 +126,19 @@ pub async fn session_digests(
     Ok(Json(json!({ "sessions": digests })))
 }
 
-/// Resolve the set of session IDs the operator has marked **private**.
+/// Resolve the set of session IDs the operator has **explicitly shared**.
 ///
-/// Phase 4.4: fails closed. A store read error is propagated as
-/// `Err(StatusCode::SERVICE_UNAVAILABLE)`; the calling endpoint surfaces
-/// it as a 5xx and MUST NOT swallow the failure to an empty set —
-/// silently emitting digests for private sessions would widen exposure
-/// on the sovereignty path. No LKG cache per the approved plan.
-async fn private_session_ids(
+/// Sharing is opt-in: a session is visible to cross-session reads (digests,
+/// full-text search) only if it carries an explicit `Shared` row. A session
+/// with no row defaults to Private and is therefore absent from this set —
+/// callers INCLUDE only members, never "exclude the private ones" (which
+/// would leak every unconfigured session).
+///
+/// Fails closed: a store read error is propagated as
+/// `Err(StatusCode::SERVICE_UNAVAILABLE)`; the calling endpoint surfaces it
+/// as a 5xx and MUST NOT swallow the failure to an empty/permissive set.
+/// No LKG cache per the approved plan.
+async fn shared_session_ids(
     state: &crate::state::AppState,
 ) -> Result<HashSet<String>, StatusCode> {
     use open_story_store::event_store::SharePolicyMode;
@@ -145,13 +150,13 @@ async fn private_session_ids(
         .map_err(|e| {
             log_event(
                 "api",
-                &format!("private_session_ids → 503 (list_share_policies error: {e})"),
+                &format!("shared_session_ids → 503 (list_share_policies error: {e})"),
             );
             StatusCode::SERVICE_UNAVAILABLE
         })?;
     Ok(rows
         .into_iter()
-        .filter(|r| matches!(r.mode, SharePolicyMode::Private))
+        .filter(|r| matches!(r.mode, SharePolicyMode::Shared))
         .map(|r| r.session_id)
         .collect())
 }
@@ -1602,15 +1607,15 @@ pub async fn search_events(
             )
         })?;
 
-    // Invariant ①: FTS reaches every indexed event, including those in
-    // sessions the operator marked private. Drop them before returning —
-    // fail-closed (503) if the share policy can't be read, never leak.
-    let private = private_session_ids(&s)
+    // Invariant ①: FTS reaches every indexed event. Sharing is opt-in, so
+    // return only events from explicitly-shared sessions — fail-closed (503)
+    // if the share policy can't be read, never leak.
+    let shared = shared_session_ids(&s)
         .await
         .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
     let results: Vec<_> = results
         .into_iter()
-        .filter(|r| !private.contains(&r.session_id))
+        .filter(|r| shared.contains(&r.session_id))
         .collect();
 
     Ok(Json(serde_json::to_value(results).unwrap_or(json!([]))))
@@ -1684,14 +1689,14 @@ pub async fn agent_search(
             )
         })?;
 
-    // Invariant ①: omit events from sessions marked private before grouping —
-    // fail-closed (503) if the share policy can't be read, never leak.
-    let private = private_session_ids(&s)
+    // Invariant ①: sharing is opt-in — keep only events from explicitly-shared
+    // sessions before grouping. Fail-closed (503) if policy can't be read.
+    let shared = shared_session_ids(&s)
         .await
         .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
     let results: Vec<_> = results
         .into_iter()
-        .filter(|r| !private.contains(&r.session_id))
+        .filter(|r| shared.contains(&r.session_id))
         .collect();
 
     // Collect project filter info

@@ -393,6 +393,22 @@ pub async fn seed_and_ingest(
         })
         .await;
 
+    // Sharing is opt-in (sessions default to Private). A seeded session
+    // represents one the operator is actively viewing, so mark it Shared
+    // here — most tests assert on visible content and shouldn't each carry
+    // share-policy boilerplate. Tests that exercise the *default* posture
+    // (e.g. the opt-in default specs) insert events directly instead, and
+    // privacy tests override this with an explicit Private row.
+    let _ = state
+        .store
+        .event_store
+        .set_share_policy(
+            session_id,
+            open_story_store::event_store::SharePolicyMode::Shared,
+            None,
+        )
+        .await;
+
     result
 }
 

@@ -160,11 +160,9 @@ async fn test_get_events_unknown_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    let events = body.as_array().unwrap();
-    assert!(events.is_empty());
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 // ── Invariant ① — catch-up respects share policy ─────────────────────────
@@ -244,6 +242,59 @@ async fn test_get_events_404s_on_private_session_invariant_one() {
         resp.status(),
         404,
         "private session must 404 — denying existence so peer catch-up stops asking"
+    );
+}
+
+// ── Default posture — sharing is opt-IN, not opt-out ────────────────────
+//
+// Sovereignty: a session the operator has never touched must be PRIVATE.
+// Nothing federates or becomes API-readable until the user explicitly
+// shares it. (Was the inverse — default Shared — which meant any new
+// session leaked outward the moment a hub existed.)
+#[tokio::test]
+async fn test_unconfigured_session_is_private_by_default_opt_in_share() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        // Insert directly (NOT seed_and_ingest, which marks sessions shared
+        // as a test convenience) so the session has no share_policy row at
+        // all — exercising the genuine default.
+        let event = make_event("io.arc.event", "sess-fresh");
+        let val = serde_json::to_value(&event).unwrap();
+        s.store
+            .event_store
+            .insert_event("sess-fresh", &val)
+            .await
+            .expect("insert event");
+    }
+
+    // Per-session read denies existence (private → 404).
+    let req = Request::get("/api/sessions/sess-fresh/events")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(std::sync::Arc::clone(&state), req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "an unconfigured session must be private by default (opt-in sharing)"
+    );
+
+    // And it is omitted from the digest list.
+    let req = Request::get("/api/digests").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    let ids: Vec<&str> = body["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|d| d["session_id"].as_str())
+        .collect();
+    assert!(
+        !ids.contains(&"sess-fresh"),
+        "unconfigured (private) session must not appear in digests, got {ids:?}"
     );
 }
 
@@ -650,11 +701,9 @@ async fn test_get_activity_empty_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    assert_eq!(body["conversation_turns"], 0);
-    assert_eq!(body["plan_count"], 0);
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 // ── Tools endpoint ─────────────────────────────────────────────────
@@ -702,10 +751,9 @@ async fn test_get_tools_empty_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    assert!(body.is_object());
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 // ── Transcript endpoint ────────────────────────────────────────────
@@ -774,10 +822,9 @@ async fn test_get_session_plans_empty() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    assert_eq!(body, serde_json::json!([]));
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 // ── Subagent plan attribution ────────────────────────────────────────
@@ -1530,11 +1577,9 @@ async fn test_tool_journey_empty_for_unknown() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    let journey = body.as_array().unwrap();
-    assert!(journey.is_empty());
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]
@@ -1572,11 +1617,9 @@ async fn test_file_impact_empty_for_unknown() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    let impact = body.as_array().unwrap();
-    assert!(impact.is_empty());
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]
@@ -1615,11 +1658,9 @@ async fn test_errors_empty_when_none() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    let errors = body.as_array().unwrap();
-    assert!(errors.is_empty());
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 // ── Insights endpoints ──────────────────────────────────────────────
@@ -1802,10 +1843,9 @@ async fn test_patterns_empty() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-
-    let body = body_json(resp).await;
-    assert_eq!(body["patterns"], serde_json::json!([]));
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle.
+    assert_eq!(resp.status(), 404);
 }
 
 #[tokio::test]

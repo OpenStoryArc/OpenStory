@@ -926,7 +926,10 @@ impl EventStore for SqliteStore {
         session_id: &str,
     ) -> Result<crate::event_store::SharePolicyMode> {
         use std::str::FromStr;
-        let conn = self.conn.lock().unwrap();
+        // unwrap_or_else(into_inner): a poisoned lock must not brick the
+        // consent gate (PR #75 F1 poisoned-lock DoS — same posture as every
+        // other lock site).
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let row: Option<String> = conn
             .query_row(
                 "SELECT mode FROM share_policy WHERE session_id = ?1",
@@ -935,7 +938,8 @@ impl EventStore for SqliteStore {
             )
             .optional()?;
         match row {
-            None => Ok(crate::event_store::SharePolicyMode::Shared),
+            // No row → Private. Sharing is opt-in (sovereignty default).
+            None => Ok(crate::event_store::SharePolicyMode::Private),
             Some(s) => crate::event_store::SharePolicyMode::from_str(&s)
                 .map_err(|e| anyhow::anyhow!("invalid share_policy row for {session_id}: {e}")),
         }
@@ -948,7 +952,7 @@ impl EventStore for SqliteStore {
         updated_by: Option<&str>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "INSERT INTO share_policy(session_id, mode, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(session_id) DO UPDATE SET
@@ -962,7 +966,7 @@ impl EventStore for SqliteStore {
 
     async fn list_share_policies(&self) -> Result<Vec<crate::event_store::SharePolicyRow>> {
         use std::str::FromStr;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT session_id, mode, updated_at, updated_by FROM share_policy ORDER BY updated_at DESC",
         )?;
@@ -1063,10 +1067,12 @@ mod tests {
     // ── Share policy ──
 
     #[tokio::test]
-    async fn share_policy_defaults_to_shared_for_unknown_session() {
+    async fn share_policy_defaults_to_private_for_unknown_session() {
+        // Opt-in sharing: a session with no row is Private until explicitly
+        // shared, so nothing federates or is API-readable by default.
         let store = SqliteStore::in_memory().unwrap();
         let mode = store.get_share_policy("never-seen").await.unwrap();
-        assert_eq!(mode, crate::event_store::SharePolicyMode::Shared);
+        assert_eq!(mode, crate::event_store::SharePolicyMode::Private);
     }
 
     #[tokio::test]
