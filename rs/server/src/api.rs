@@ -114,6 +114,18 @@ pub async fn list_sessions(
         page.len(), total, offset, query.limit,
     ));
 
+    // Per-session plan counts from the durable plan store (one pass, reused for
+    // every row). The sidebar plan badge reads this instead of counting
+    // ExitPlanMode events, which the loaded record window can miss for older
+    // sessions — keeping the badge in sync with the Plans tab.
+    let plan_counts: std::collections::HashMap<String, usize> = {
+        let mut m = std::collections::HashMap::new();
+        for p in s.store.plan_store.list_plans() {
+            *m.entry(p.session_id).or_insert(0) += 1;
+        }
+        m
+    };
+
     // Build response from SessionRow + projections (no per-session event loading).
     // Detailed fields (tool_calls, files_edited, model, etc.) are available via
     // GET /api/sessions/{id}/summary when a specific session is selected.
@@ -159,6 +171,7 @@ pub async fn list_sessions(
             "branch": branch,
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
+            "plan_count": plan_counts.get(sid).copied().unwrap_or(0),
             "host": row.host,
             "user": row.user,
         }));
