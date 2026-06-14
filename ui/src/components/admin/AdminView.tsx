@@ -127,7 +127,7 @@ export function AdminView() {
               </p>
               <DataSourceNote
                 endpoint="GET /api/admin/topology › live_sources"
-                derivation="queried live from the hub's JetStream events-agg stream; null when this node isn't federated (as below)"
+                derivation="read live from THIS node's JetStream events-agg aggregate; populated only when this node IS the hub. Null on solo / T1 / leaf — including a leaf that's connected to a hub (like this node), since only the hub holds events-agg"
                 kind="live"
               />
             </header>
@@ -136,11 +136,14 @@ export function AdminView() {
             ) : (
               <div className="rounded border border-dashed border-[#414868] p-3 text-sm text-[#565f89]">
                 <p>
-                  <strong className="text-[#c0caf5]">Not federated.</strong>{" "}
-                  JetStream's <code>events-agg</code> stream isn't reachable
-                  from this node — either there's no NATS context (NoopBus) or
-                  no events-agg has been created yet. The wire is in place;
-                  the panel will populate the moment a hub aggregate appears.
+                  <strong className="text-[#c0caf5]">No hub aggregate here.</strong>{" "}
+                  <code>events-agg</code> lives on the <em>hub</em> — this node
+                  isn't hosting one. It's solo, T1, or a leaf; a leaf can be
+                  connected to a hub (like this node) and still show nothing
+                  here, because only the hub holds <code>events-agg</code>.
+                  Either there's no NATS context (NoopBus), or no events-agg
+                  exists in this node's JetStream. The wire is in place; the
+                  panel populates when this node runs the hub aggregate.
                 </p>
                 <p className="mt-2 text-xs">
                   To light it up locally:{" "}
