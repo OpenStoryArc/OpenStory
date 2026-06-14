@@ -21,6 +21,7 @@ import { ParticipantsPanel } from "@/components/admin/ParticipantsPanel";
 import { FleetGrid } from "@/components/admin/FleetGrid";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
+import { BetaBadge } from "@/components/admin/BetaBadge";
 import { admin$ } from "@/streams/admin";
 import { useObservable } from "@/hooks/use-observable";
 
@@ -124,7 +125,10 @@ export function AdminView() {
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Participants & roles</h3>
+              <h3 className="text-sm font-medium text-[#c0caf5]">
+                Participants & roles
+                <BetaBadge />
+              </h3>
               <p className="text-xs text-[#565f89] mt-0.5">
                 Phase 6 role directory. Granting <code>Admin</code> here lets
                 a principal mutate share policy + share-with-person; lower
@@ -153,11 +157,19 @@ export function AdminView() {
 
           <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Share policy</h3>
+              <h3 className="text-sm font-medium text-[#c0caf5]">
+                Share policy
+                <BetaBadge />
+              </h3>
               <p className="text-xs text-[#565f89] mt-0.5">
                 Sessions originating on this device. <code>shared</code> means
                 they flow into the federation aggregate; <code>private</code>{" "}
-                means they never leave this device. Default is <code>shared</code>.
+                means they never leave this device. The default is{" "}
+                <strong className="text-[#9ece6a]">opt-in</strong>: a
+                loopback-only instance defaults to <code>shared</code> (your
+                local dashboard just works), but once networking is configured
+                the default flips to <code>private</code> so going to a hub
+                never auto-shares your history.
               </p>
             </header>
             <SharePolicyTable selfHost={topology.self.host} />
