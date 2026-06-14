@@ -38,11 +38,19 @@ export function AdminView() {
   return (
     <div className="p-6 max-w-5xl mx-auto" data-testid="admin-view">
       <header className="mb-6">
-        <h2 className="text-xl font-semibold text-[#c0caf5] mb-1">Admin</h2>
+        <h2 className="text-xl font-semibold text-[#c0caf5] mb-1 flex items-center">
+          Admin
+          <BetaBadge note="Beta — the whole admin surface (federation, sharing, roles) is new and not guaranteed to work yet. Keep testing before relying on it." />
+        </h2>
         <p className="text-sm text-[#565f89]">
-          This device's view of the federation it's running in. v0 is read-only —
-          share/store policy toggles ship next.
+          This device's view of the federation it's running in — topology,
+          sharing, and roles.
         </p>
+        <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <strong>Beta:</strong> these controls are new and still being
+          hardened. They work in our tests but aren't guaranteed end-to-end —
+          verify behavior before depending on it, and expect rough edges.
+        </div>
       </header>
 
       {loading && (
@@ -125,10 +133,7 @@ export function AdminView() {
 
           <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">
-                Participants & roles
-                <BetaBadge />
-              </h3>
+              <h3 className="text-sm font-medium text-[#c0caf5]">Participants & roles</h3>
               <p className="text-xs text-[#565f89] mt-0.5">
                 Phase 6 role directory. Granting <code>Admin</code> here lets
                 a principal mutate share policy + share-with-person; lower
@@ -157,10 +162,7 @@ export function AdminView() {
 
           <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">
-                Share policy
-                <BetaBadge />
-              </h3>
+              <h3 className="text-sm font-medium text-[#c0caf5]">Share policy</h3>
               <p className="text-xs text-[#565f89] mt-0.5">
                 Sessions originating on this device. <code>shared</code> means
                 they flow into the federation aggregate; <code>private</code>{" "}

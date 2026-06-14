@@ -15,6 +15,7 @@ import {
   type Participant,
   type Role,
 } from "@/lib/admin-api";
+import { useFleet } from "@/hooks/use-fleet";
 
 const ROLES: readonly Role[] = ["observer", "contributor", "admin"];
 
@@ -23,10 +24,22 @@ export function ParticipantsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
+  // Known identities (this person + their configured principals) so the
+  // grant form suggests real ids instead of demanding hand-typed UUIDs.
+  const { fleet } = useFleet();
+
   // Add-form state
   const [newPrincipalId, setNewPrincipalId] = useState("");
   const [newPersonId, setNewPersonId] = useState("");
   const [newRole, setNewRole] = useState<Role>("observer");
+
+  // Prefill the person id with the configured owner once the fleet loads —
+  // you're usually granting roles to your own principals.
+  useEffect(() => {
+    if (fleet?.person.id) {
+      setNewPersonId((cur) => (cur === "" ? fleet.person.id : cur));
+    }
+  }, [fleet?.person.id]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -178,23 +191,37 @@ export function ParticipantsPanel() {
             <label className="text-xs text-[#565f89] block mb-1">Principal id</label>
             <input
               type="text"
+              list="known-principal-ids"
               value={newPrincipalId}
               onChange={(e) => setNewPrincipalId(e.target.value)}
-              placeholder="max-laptop"
+              placeholder="pick a known principal, or type a new id"
               className="w-full rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-sm px-2 py-1 font-mono"
               data-testid="new-principal-id"
             />
+            <datalist id="known-principal-ids">
+              {(fleet?.principals ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name}
+                </option>
+              ))}
+            </datalist>
           </div>
           <div className="flex-1">
             <label className="text-xs text-[#565f89] block mb-1">Person id</label>
             <input
               type="text"
+              list="known-person-ids"
               value={newPersonId}
               onChange={(e) => setNewPersonId(e.target.value)}
-              placeholder="max"
+              placeholder="pick a person, or type a new id"
               className="w-full rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-sm px-2 py-1 font-mono"
               data-testid="new-person-id"
             />
+            <datalist id="known-person-ids">
+              {fleet?.person && (
+                <option value={fleet.person.id}>{fleet.person.display_name}</option>
+              )}
+            </datalist>
           </div>
           <div>
             <label className="text-xs text-[#565f89] block mb-1">Role</label>
