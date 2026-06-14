@@ -16,7 +16,7 @@
  * configured `peer_domains` and T2/T3 show the hub + this node.
  */
 
-import type { Topology } from "@/lib/admin-api";
+import type { NodeSummary, Topology } from "@/lib/admin-api";
 
 interface Props {
   topology: Topology;
@@ -25,7 +25,18 @@ interface Props {
 export function TopologyMap({ topology }: Props) {
   switch (topology.shape) {
     case "solo":
-      return <SoloMap host={topology.self.host} />;
+    default: {
+      // A `solo` node with evidence of other hosts (a detected leafnode hub,
+      // or hosts seen in stored sessions) isn't really alone — draw the fleet
+      // from that evidence instead of a lone self card. Falls back to SoloMap
+      // only when this is genuinely the only node we know of.
+      const others = topology.nodes.filter((n) => !n.is_self);
+      return others.length > 0 ? (
+        <FleetShape self={topology.self.host} nodes={topology.nodes} />
+      ) : (
+        <SoloMap host={topology.self.host} />
+      );
+    }
     case "t1":
       return (
         <T1Map host={topology.self.host} peers={topology.self.peer_domains} />
@@ -56,6 +67,80 @@ function SoloMap({ host }: { host: string }) {
   return (
     <svg viewBox="0 0 600 200" role="img" className="block mx-auto max-w-full h-auto">
       <NodeRect x={220} y={70} w={160} h={60} label={host} subject="events.>" highlight />
+    </svg>
+  );
+}
+
+// ── Fleet (evidence-inferred) ────────────────────────────────────────
+//
+// Drawn when this node reports `solo` but we have evidence of other hosts:
+// a detected leafnode hub (live NATS leaf) and/or hosts seen in stored
+// sessions. Self → hub is solid (the live leaf we can see); other hosts →
+// hub are dashed ("seen via the hub", inferred from their sessions).
+
+function FleetShape({ self, nodes }: { self: string; nodes: readonly NodeSummary[] }) {
+  const isHub = (n: NodeSummary) =>
+    n.source === "nats-leafnode-hub" || n.source === "hub-config";
+  const hub = nodes.find(isHub);
+  const devices = nodes.filter((n) => !isHub(n));
+
+  const W = 760;
+  const H = 360;
+  const deviceY = 230;
+  const dw = 150;
+  const hubCy = 70;
+  const hubRy = 44;
+  const n = devices.length;
+  const xs = devices.map((_, i) => {
+    if (n <= 1) return W / 2;
+    const span = W - 220;
+    return 110 + (span / (n - 1)) * i;
+  });
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" className="block mx-auto max-w-full h-auto">
+      <defs>
+        <marker id="fleetarrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#9ece6a" />
+        </marker>
+      </defs>
+      {hub && (
+        <HubEllipse cx={W / 2} cy={hubCy} rx={110} ry={hubRy} label={hub.host} />
+      )}
+      {devices.map((d, i) => {
+        const x = xs[i] ?? W / 2;
+        const mine = d.is_self || d.host === self;
+        return (
+          <g key={d.host}>
+            {hub && (
+              <line
+                x1={x}
+                y1={deviceY}
+                x2={W / 2}
+                y2={hubCy + hubRy}
+                stroke={mine ? "#9ece6a" : "#414868"}
+                strokeWidth={1.5}
+                strokeDasharray={mine ? undefined : "4,3"}
+                markerEnd="url(#fleetarrow)"
+              />
+            )}
+            <NodeRect
+              x={x - dw / 2}
+              y={deviceY}
+              w={dw}
+              h={56}
+              label={d.host}
+              subject={`${d.session_count} sessions`}
+              highlight={mine}
+            />
+          </g>
+        );
+      })}
+      <text x={W / 2} y={H - 14} textAnchor="middle" fontSize={11} fill="#565f89">
+        {hub
+          ? "Fleet inferred from evidence — this node reports solo (NATS leaf not yet self-detected); hub + hosts seen in sessions."
+          : "Hosts seen in stored sessions (no hub connection detected)."}
+      </text>
     </svg>
   );
 }
