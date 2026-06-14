@@ -23,7 +23,11 @@ COPY store/Cargo.toml store/Cargo.toml
 COPY views/Cargo.toml views/Cargo.toml
 COPY schemas/Cargo.toml schemas/Cargo.toml
 
-# Create dummy sources to cache dependency builds
+# Create dummy sources to cache dependency builds. The mcp crate declares
+# `[[bench]]` targets (tools, streaming) with default paths under benches/ —
+# cargo validates those paths exist when it *parses* the workspace manifest,
+# even for `cargo build` (which doesn't compile benches). Stub them here (and
+# COPY the real ones below) or the manifest parse fails.
 RUN mkdir -p src bus/src cli/src core/src mcp/src/bin mcp/benches patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \

@@ -25,10 +25,10 @@ Open Story is a **real-time observer** for AI coding agents. It watches what cod
    │ (notify) │    │ translate│                │   ┌─────────────┐
    └──────────┘    │   .rs   │                │──▶│  persist    │──▶ SQLite + JSONL + FTS5
                    │         │                │   └─────────────┘
-   ┌──────────┐    │         │                │
-   │  /hooks  │───▶│         │                │   ┌─────────────┐
-   │ (HTTP)   │    └─────────┘                │──▶│  patterns   │──▶ 2 detectors → PatternEvent
-   └──────────┘                               │   └─────────────┘
+                   │         │                │
+                   │         │                │   ┌─────────────┐
+                   │         │                │──▶│  patterns   │──▶ 2 detectors → PatternEvent
+                   └─────────┘                │   └─────────────┘
                                               │
                                               │   ┌─────────────┐
                                               │──▶│ projections │──▶ SessionProjection state
@@ -39,11 +39,9 @@ Open Story is a **real-time observer** for AI coding agents. It watches what cod
                                               │   └─────────────┘
 ```
 
-Two **sources** feed CloudEvents into NATS:
-1. **File watchers** — monitor configured directories for JSONL transcript changes (one per agent)
-2. **HTTP hooks** — coding agents POST events directly via `/hooks` (currently Claude Code only)
+**File watchers** feed CloudEvents into NATS — one per agent, monitoring configured directories for JSONL transcript changes.
 
-Both convert raw transcript lines into CloudEvents (CloudEvents 1.0 spec, with an `agent` extension attribute) and **publish to NATS JetStream** on a hierarchical subject (`events.{project_id}.{session_id}.main` for the main agent, `events.{project_id}.{session_id}.agent.{agent_id}` for subagents). A subscription to `events.{project}.{session}.>` reads main + all subagents.
+They convert raw transcript lines into CloudEvents (CloudEvents 1.0 spec, with an `agent` extension attribute) and **publish to NATS JetStream** on a hierarchical subject (`events.{project_id}.{session_id}.main` for the main agent, `events.{project_id}.{session_id}.agent.{agent_id}` for subagents). A subscription to `events.{project}.{session}.>` reads main + all subagents.
 
 Four **independent consumer actors** subscribe to NATS:
 - `persist` — SQLite + JSONL + FTS5 indexing (deduplication, durable storage)
@@ -194,7 +192,6 @@ The server crate has two distinct halves:
 - `router.rs` — `build_router()` wires every HTTP and WebSocket route
 - `api.rs` — REST endpoint handlers (`/api/sessions`, `/api/search`, `/api/agent/*`, …)
 - `ws.rs` — WebSocket broadcast handler
-- `hooks.rs` — `POST /hooks` receiver for coding agent HTTP hooks
 - `config.rs` — `Config` struct + TOML loading
 - `auth.rs` — Bearer token authentication middleware
 - `metrics.rs` — Prometheus `/metrics` endpoint
@@ -219,7 +216,7 @@ Each consumer owns its own state. None reach into another's. The contract betwee
 **Questions to explore:**
 - How does `projections` rebuild `SessionProjection` state from a NATS replay? (Hint: NATS JetStream's durable consumer + start sequence)
 - Why does `broadcast` still use `ingest_events()`? (See BACKLOG: "Decompose Broadcast Consumer")
-- How does `persist` deduplicate when both the file watcher and `/hooks` race to publish the same event?
+- How does `persist` deduplicate events that surface more than once (e.g. the watcher re-reading a file)?
 - What happens when one consumer falls behind? (Independent failure domains — the others keep working)
 
 ---
@@ -282,14 +279,9 @@ Each connected dashboard client gets:
 
 The `handle_socket()` function uses `tokio::select!` to multiplex between receiving broadcast messages and handling client disconnects.
 
-**File:** `rs/server/src/hooks.rs`
-
-The `/hooks` endpoint receives HTTP hooks from coding agents. These provide near-real-time events (vs. the file watcher which polls on file changes). Currently Claude Code is the only agent with hook support.
-
 **Questions to explore:**
 - What's in the initial state message?
 - How does the broadcast channel work? What happens if a client is slow?
-- How do hooks differ from file watcher events?
 
 ---
 
@@ -333,7 +325,6 @@ REST endpoints read from in-memory state and SQLite (no heavy computation on req
 | | `GET /api/agent/search` | Agent-optimized search |
 | **Search** | `GET /api/search` | Full-text + semantic event search |
 | **Other** | `GET /api/tool-schemas` | Tool schema definitions |
-| | `POST /hooks` | Coding agent HTTP hook receiver |
 | | `GET /ws` | WebSocket live event stream |
 
 **Questions to explore:**
@@ -472,7 +463,7 @@ These are the testable units — pure functions with boundary-table tests.
 
 **Run everything:**
 ```bash
-cd rs && cargo test                    # Rust (~100 tests across 9 crates)
+cd rs && cargo test                    # Rust (~100 tests across 10 crates)
 cd ui && npx vitest run                # UI (~500 tests)
 cd e2e && npx playwright test          # E2E (~70 tests)
 ```

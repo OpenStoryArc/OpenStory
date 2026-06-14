@@ -89,20 +89,7 @@ else
     npm install -g @anthropic-ai/claude-code
 fi
 
-# --- 7. Configure hooks ---
-step "Configuring Claude Code hooks for Open Story..."
-mkdir -p "$HOME/.claude"
-cat > "$HOME/.claude/settings.json" << 'SETTINGS'
-{
-  "hooks": {
-    "Stop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }]
-  }
-}
-SETTINGS
-
-# --- 8. Create data directory ---
+# --- 7. Create data directory ---
 mkdir -p "$DATA_DIR"
 
 # --- Done ---

@@ -1,0 +1,64 @@
+name: Formula test
+
+# Tests Formula/openstory.rb by building it in a Linuxbrew container.
+# Runs on PRs that touch the formula or this workflow, and on every master
+# push that does the same — so master always reflects a known-installable
+# formula state.
+#
+# Mirrors the manual one-shot test that originally verified the formula:
+# stage as local tap → style → audit → install --HEAD (from master) →
+# brew test → --help smoke. ~5-8 min in CI: ~30s docker pull, ~1m brew
+# dep install (rust/node/nats-server), ~1.5m cargo build, the rest is
+# brew framework overhead.
+#
+# `brew audit --strict` is OFFLINE here. The bottle workflow does the
+# `--online` audit at tag-cut time once the v0.1.0 source tarball
+# exists and the formula's sha256 is real.
+
+on:
+  pull_request:
+    paths:
+      - Formula/**
+      - .github/workflows/test-formula.yml
+  push:
+    branches: [master]
+    paths:
+      - Formula/**
+      - .github/workflows/test-formula.yml
+  workflow_dispatch:
+
+jobs:
+  linuxbrew:
+    name: Build formula in Linuxbrew container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test formula in homebrew/brew
+        run: |
+          docker run --rm \
+            -v "$PWD/Formula/openstory.rb:/tmp/openstory.rb:ro" \
+            homebrew/brew bash -ec '
+              echo "=== [1/5] Stage formula as local tap ==="
+              tap_dir="$(brew --repository)/Library/Taps/openstoryarc/homebrew-openstory/Formula"
+              mkdir -p "$tap_dir"
+              cp /tmp/openstory.rb "$tap_dir/"
+
+              echo
+              echo "=== [2/5] Style check ==="
+              brew style openstoryarc/openstory/openstory
+
+              echo
+              echo "=== [3/5] Offline strict audit ==="
+              brew audit --strict openstoryarc/openstory/openstory
+
+              echo
+              echo "=== [4/5] brew install --HEAD (build from master) ==="
+              brew install --HEAD openstoryarc/openstory/openstory
+
+              echo
+              echo "=== [5/5] brew test + --help smoke ==="
+              brew test openstoryarc/openstory/openstory
+              open-story --help | head -20
+            '

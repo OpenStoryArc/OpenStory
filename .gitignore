@@ -15,6 +15,10 @@ rs/data/
 # Screenshots
 screenshots/
 
+# Local-only content (mirrors public paths, never committed)
+personal/
+captures/
+
 # Claude local settings (ignore everything except project-level skills)
 .claude/*
 !.claude/skills/

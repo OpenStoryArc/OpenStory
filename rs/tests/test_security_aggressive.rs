@@ -524,6 +524,30 @@ async fn huge_days_param_in_pulse_does_not_overflow() {
 }
 
 #[tokio::test]
+async fn store_survives_huge_days_request_no_poisoned_lock() {
+    // Regression for the audit-master-2026-06 F1 escalation: the huge-days
+    // overflow panicked WHILE holding the SQLite connection mutex, poisoning
+    // it, so every subsequent query then panicked on `.lock().unwrap()` — one
+    // request permanently bricked the whole store. Assert a follow-up request
+    // on an UNRELATED endpoint still succeeds after the huge-days request.
+    let tmp = TempDir::new().unwrap();
+    let state = test_state(&tmp);
+
+    let attack = Request::get("/api/insights/pulse?days=4294967295")
+        .body(Body::empty())
+        .unwrap();
+    let _ = send_request(Arc::clone(&state), attack).await;
+
+    let followup = Request::get("/api/sessions").body(Body::empty()).unwrap();
+    let resp = send_request(Arc::clone(&state), followup).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "store must remain usable after a huge-days request (no poisoned lock)"
+    );
+}
+
+#[tokio::test]
 async fn crlf_in_session_id_does_not_smuggle_into_logs() {
     // The api handlers log "GET /api/sessions/{short_id}/..." for
     // observability. If session_id with CRLF made it into log output

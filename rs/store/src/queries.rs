@@ -32,13 +32,15 @@ pub(crate) fn format_ts(dt: chrono::DateTime<chrono::Utc>) -> String {
     dt.format(TS_FORMAT).to_string()
 }
 
-/// `now() - days`, saturating at `MIN_UTC` on overflow.
+/// Compute a "now minus N days" cutoff without panicking on huge `days`.
 ///
-/// `chrono::DateTime - Duration` panics on overflow, so an unauthenticated
-/// `/api/insights/*?days=4294967295` request used to take down the request
-/// task. Saturating at MIN_UTC means a huge `days` is equivalent to "all
-/// time" — the query just returns every row, which is what the caller
-/// effectively asked for.
+/// `chrono::Utc::now() - chrono::Duration::days(days as i64)` panics on
+/// overflow, so an unauthenticated `/api/insights/*?days=4294967295` request
+/// used to take down the request task — and because the panic unwound while
+/// holding the SQLite connection mutex, it poisoned the lock and bricked
+/// every subsequent query. Saturating at MIN_UTC means a huge `days` is
+/// equivalent to "all time": the query returns every row, which is what the
+/// caller effectively asked for.
 fn cutoff_for_days(days: u32) -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now()
         .checked_sub_signed(chrono::Duration::days(days as i64))
@@ -871,10 +873,7 @@ pub fn daily_token_usage(conn: &Connection, days: Option<u32>) -> Vec<DailyToken
     let (where_clause, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match days {
         Some(d) => {
             let cutoff = cutoff_for_days(d);
-            (
-                "AND e.timestamp > ?1".into(),
-                vec![Box::new(format_ts(cutoff))],
-            )
+            ("AND e.timestamp > ?1".into(), vec![Box::new(format_ts(cutoff))])
         }
         None => (String::new(), vec![]),
     };

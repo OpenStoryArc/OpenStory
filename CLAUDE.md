@@ -13,7 +13,7 @@ This is a mirror, not a leash. The listener watches but never interferes. It nev
 These principles flow from the soul above. They are the rules that shape every decision in this codebase.
 
 ### 1. Observe, never interfere
-- The listener is read-only. It watches transcript files and receives hook events. It never writes back, never modifies agent behavior, never blocks execution.
+- The listener is read-only. It watches transcript files for all agent activity. It never writes back, never modifies agent behavior, never blocks execution.
 - If a proposed feature would require mutating the source or inserting the listener into the agent's execution path, it does not belong here.
 
 ### 2. Behavior-Driven Development (BDD)
@@ -191,7 +191,7 @@ just dev      # terminal 3 — Vite UI (HMR)
 ## Project Structure
 
 ```
-rs/           — Rust workspace (9 crates)
+rs/           — Rust workspace (10 crates)
   .           — open-story: orchestration library (watcher + server wiring)
   core/       — open-story-core: CloudEvent types, per-agent translators, reader, paths
   bus/        — open-story-bus: NATS JetStream event bus abstraction
@@ -206,7 +206,7 @@ ui/           — React dashboard (Vite, TailwindCSS v4, RxJS, Recharts)
 e2e/          — Playwright E2E tests
 ```
 
-The Rust codebase is a **workspace with 9 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `patterns`, `schemas`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
+The Rust codebase is a **workspace with 10 crates** (workspace members declared in `rs/Cargo.toml`: `.`, `bus`, `cli`, `core`, `mcp`, `patterns`, `schemas`, `server`, `store`, `views`). Core domain logic lives in `open-story-core`, `open-story-views`, `open-story-patterns`, and `open-story-store`. Infrastructure lives in `open-story-bus` (NATS) and `open-story-server` (HTTP/WS + consumer actors). The `open-story` lib crate (at `rs/`) orchestrates watcher + server + bus wiring. The `open-story-cli` binary is a thin wrapper. This separation means `cargo test` never needs to build or touch the binary, avoiding Windows file-lock conflicts when the dev server is running.
 
 > **Note on `rs/semantic/`:** This directory exists on disk with its own `Cargo.toml` but is **not** a workspace member. It's vestigial Qdrant-based semantic search code from before SQLite FTS5 replaced it. Search now goes through `rs/store/src/sqlite_store.rs` (`events_fts` virtual table, `search_fts()` function). The orphaned `semantic/` directory is slated for removal — see BACKLOG: "Remove orphaned semantic crate."
 
@@ -277,7 +277,7 @@ just observe         # Start full stack + Prometheus + Grafana
 
 **NATS Event Bus** — all events flow through NATS JetStream with hierarchical subjects:
 ```
-Source: watcher/hooks → translate_line() → CloudEvent → publish to NATS
+Source: watcher → translate_line() → CloudEvent → publish to NATS
 
 Subjects (hierarchical — encodes parent-child relationships):
   events.{project}.{session}.main              — main agent events
@@ -304,9 +304,9 @@ Each actor is a tokio task with independent failure domain. No shared RwLock bet
 
 **Pluggable EventStore backends.** The `open-story-store::event_store::EventStore` trait is the persistence seam. Two implementations ship:
 - **`SqliteStore`** — default. In-process, zero deps, single file at `{data_dir}/open-story.db`.
-- **`MongoStore`** — feature-gated behind `open-story-store/mongo`. Mirrors the SQLite schema as five collections (`events`, `sessions`, `patterns`, `turns`, `plans`, `events_fts`) with a text index for `$text`-powered FTS. Selected via `data_backend = "mongo"` in `data/config.toml` or `OPEN_STORY_DATA_BACKEND=mongo`. Boot fails clearly if the feature isn't compiled in — never silently falls back.
+- **`MongoStore`** — feature-gated behind `open-story-store/mongo`. Mirrors the SQLite schema as six collections (`events`, `sessions`, `patterns`, `turns`, `plans`, `events_fts`) with a text index for `$text`-powered FTS. Selected via `data_backend = "mongo"` in `data/config.toml` or `OPEN_STORY_DATA_BACKEND=mongo`. Boot fails clearly if the feature isn't compiled in — never silently falls back.
 
-The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the same 47 BDD-style helpers against both backends, so anything that passes on SQLite must pass on Mongo (and vice versa). The 47 helpers cover writes, reads, lifecycle, FTS, and **all 12 analytics queries** (synopsis, tool journey, file impact, errors, project pulse, tool evolution, efficiency, project context, recent files, productivity, token usage, daily token usage). When adding a third backend, add a `mod {backend}_backend` wrapper that calls the same helpers — the trait contract is the spec.
+The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the same 56 BDD-style helpers against both backends, so anything that passes on SQLite must pass on Mongo (and vice versa). The 56 helpers cover writes, reads, lifecycle, FTS, and **all 12 analytics queries** (synopsis, tool journey, file impact, errors, project pulse, tool evolution, efficiency, project context, recent files, productivity, token usage, daily token usage). When adding a third backend, add a `mod {backend}_backend` wrapper that calls the same helpers — the trait contract is the spec.
 
 **Conformance is semantic per query, not byte-equal.** Each analytics query is tagged with one of three parity categories: **C1** strict equality (`assert_eq!`), **C2** canonical-sort then equality (when tie order is implementation-defined), **C3** API redesign (when a cosmetic field was doing too much work). Each backend implements each query in its native idiom — SQLite uses `json_extract` + `strftime` + `LIKE`, Mongo uses dotted-path access + `$dateFromString` + `$exists` — and the conformance suite enforces the answer, not the implementation. See `docs/research/mongo-analytics-parity-plan.md` §1.6 for the model and §1.7 for the SQLite-vs-Mongo pros/cons table that justifies it.
 
@@ -319,7 +319,6 @@ The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the sa
 - `router.rs` — `build_router()` (all HTTP/WS routes)
 - `api.rs` — REST endpoints (`/api/sessions`, `/api/search`, `/api/agent/search`, etc.)
 - `ws.rs` — WebSocket broadcast for live updates
-- `hooks.rs` — `POST /hooks` endpoint for coding agent HTTP hooks (currently Claude Code)
 - `config.rs` — Config struct + TOML loading
 - `auth.rs` — Bearer token authentication middleware
 - `metrics.rs` — Prometheus metrics endpoint
@@ -339,22 +338,14 @@ The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the sa
 - `queries.rs` — CLI query functions (synopsis, pulse, context)
 - `state.rs` — `StoreState::with_backend(...)` async constructor that branches on `BackendChoice`
 
-**Semantic crate** (`open-story-semantic`):
-- `SemanticStore` trait + `NoopSemanticStore` (same pattern as `Bus`/`NoopBus`)
-- `QdrantStore` — vector search via Qdrant gRPC (feature-gated `qdrant`)
-- `OnnxEmbedder` — local all-MiniLM-L6-v2 embeddings (feature-gated `onnx`)
-- `extract.rs` — pure text extraction from ViewRecords
-- `worker.rs` — background embedding (tokio task, bounded channel, batched upserts)
-- `backfill.rs` — batch-embed existing events from SQLite
-
 **Event type:** All events use `type: "io.arc.event"` with hierarchical `subtype` for classification and an `agent` field identifying the source platform:
 - `message.user.prompt`, `message.user.tool_result`
 - `message.assistant.text`, `message.assistant.tool_use`, `message.assistant.thinking`
 - `system.turn.complete`, `system.error`, `system.compact`, `system.hook`
-- `system.session_start`, `system.model_change` (pi-mono specific)
+- `system.session_start`, `system.model_change` (pi-mono specific), `system.local_command`, `system.away_summary`
 - `progress.bash`, `progress.agent`, `progress.hook`
 - `file.snapshot`
-- `queue.enqueue`, `queue.dequeue`
+- `queue.enqueue`, `queue.dequeue`, `queue.remove`, `queue.popAll`
 
 **Agent field:** CloudEvents carry `agent: "claude-code"` or `agent: "pi-mono"` to identify the source. The views layer branches on this to parse format-specific content (e.g., `toolCall` vs `tool_use` blocks, `input` vs `input_tokens` in token usage). Raw data is never normalized — each agent's native field names are preserved.
 
@@ -379,7 +370,7 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `host` | `127.0.0.1` | Bind address (localhost only by default) |
+| `host` | `127.0.0.1` | Bind address. Auto-detects `0.0.0.0` in containers/WSL (`auto_detect_host()`), else localhost-only |
 | `port` | `3002` | Listen port |
 | `api_token` | `""` (no auth) | Bearer token for API authentication |
 | `db_key` | `""` (unencrypted) | SQLCipher encryption key for the database |
@@ -391,35 +382,19 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `mongo_uri` | `mongodb://localhost:27017` | MongoDB connection URI (used only when `data_backend = "mongo"`) |
 | `mongo_db` | `openstory` | MongoDB database name (used only when `data_backend = "mongo"`) |
 | `nats_url` | `nats://localhost:4222` | NATS server URL |
+| `nats_leaf_url` | `""` (loopback-only) | Hub URL for distributed streaming. Set it (e.g. `nats://<token>@hub:7422`) and `--manage-nats` runs the managed NATS as a JetStream leaf — sessions federate to a shared hub and other machines' sessions stream back. Empty = single-machine. Env: `OPEN_STORY_NATS_LEAF_URL`. See `docs/deploy/distributed.md`. |
 | `max_initial_records` | `2000` | Max records in WebSocket initial_state handshake |
-| `boot_window_hours` | `24` | Hours of history to load from JSONL on first boot |
+| `watch_backfill_hours` | `24` | Hours of history to backfill from JSONL on first boot |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
 | `metrics_enabled` | `false` | Enable Prometheus `/metrics` endpoint |
 | `retention_days` | `0` (no cleanup) | Auto-delete sessions older than N days on boot |
-| `semantic_enabled` | `false` | Enable semantic search (requires Qdrant) |
-| `qdrant_url` | `http://localhost:6334` | Qdrant gRPC endpoint URL |
-| `embedding_model_path` | `""` | Path to ONNX embedding model directory |
 
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).
 
 See `rs/server/src/config.rs` for the full Config struct and defaults.
 
 **`[person]` section** (auto-created on first boot): identity model for OpenStory's "your fleet" sidebar. Defines who *you* are (a stable UUID + display_name) and the principals — devices/agents in your fleet — whose events should be tagged with which principal_id. Each `[[person.principals]]` entry has matchers (agent / host / user / watch_dir_pattern) that decide which events belong to it. Background: `docs/research/personhood-and-principals.md`.
-
-## Hooks Setup
-
-Open Story supports HTTP hooks for near-real-time event delivery (vs. the file watcher which polls). Currently Claude Code is the only agent with hook support. See README.md for setup instructions, or add this to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }],
-    "SubagentStop": [{ "hooks": [{ "type": "http", "url": "http://localhost:3002/hooks", "timeout": 5 }] }]
-  }
-}
-```
 
 ## Development Workflow (TDD)
 

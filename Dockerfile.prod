@@ -38,11 +38,9 @@ COPY rs/server/Cargo.toml server/Cargo.toml
 COPY rs/store/Cargo.toml store/Cargo.toml
 COPY rs/views/Cargo.toml views/Cargo.toml
 
-# Create dummy sources to cache dependency builds. The bench stubs
-# under mcp/benches/ are required because mcp/Cargo.toml declares
-# [[bench]] entries — cargo refuses to parse the manifest without
-# those files, even though `cargo build -p open-story-cli` doesn't
-# build the benches themselves.
+# Create dummy sources to cache dependency builds. The mcp crate declares a
+# [[bin]] and two [[bench]] targets in its manifest, so it needs stub files
+# at those exact paths or cargo's workspace resolution fails the whole build.
 RUN mkdir -p src bus/src cli/src core/src mcp/src/bin mcp/benches patterns/src schemas/src/bin server/src store/src views/src && \
     echo "pub fn dummy() {}" > src/lib.rs && \
     echo "pub fn dummy() {}" > bus/src/lib.rs && \
@@ -66,14 +64,15 @@ COPY rs/bus/src/ bus/src/
 COPY rs/cli/src/ cli/src/
 COPY rs/core/src/ core/src/
 COPY rs/mcp/src/ mcp/src/
+COPY rs/mcp/benches/ mcp/benches/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
 COPY rs/store/src/ store/src/
 COPY rs/views/src/ views/src/
 RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \
-    mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs \
-    server/src/lib.rs store/src/lib.rs views/src/lib.rs && \
+    mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs \
+    store/src/lib.rs views/src/lib.rs && \
     cargo build --release -p open-story-cli
 
 # ── Stage 3: Runtime ──

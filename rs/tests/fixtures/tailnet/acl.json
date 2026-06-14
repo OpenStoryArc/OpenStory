@@ -1,0 +1,10 @@
+// The entire clubhouse trust model: members can reach members ONLY on the
+// NATS leaf port. No other ports, no ICMP, no lateral movement.
+{
+  "tagOwners": {
+    "tag:os-peer": ["club@"]
+  },
+  "acls": [
+    { "action": "accept", "src": ["tag:os-peer"], "dst": ["tag:os-peer:7422"] }
+  ]
+}
