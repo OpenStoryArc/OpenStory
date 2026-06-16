@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenStory — identity &amp; permissions architecture (field report)</title>
+<style>
+  :root {
+    --ink: #1e1e1e;
+    --muted: #6b6b6b;
+    --paper: #fafaf7;
+    --rule: #e6e3dc;
+    --os: #e9f1f5;
+    --os-edge: #2e6b87;
+    --person: #c84a1f;
+    --trait: #fff5e6;
+    --trait-edge: #b35900;
+    --embed: #eaf3ec;
+    --embed-edge: #2e7d32;
+    --ext: #fbeaee;
+    --ext-edge: #ad1457;
+    --science: #f3e5f5;
+    --science-edge: #6a1b9a;
+    --good: #2e7d4f;
+    --warn: #b35900;
+    --bad: #ad1457;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    padding: 56px 24px 96px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  header { margin-bottom: 40px; }
+  h1 { font-weight: 600; font-size: 30px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .subtitle { color: var(--muted); font-size: 15px; margin: 0; }
+  .subtitle code, p code, li code, td code {
+    font-size: 13px; background: #f0ede5; padding: 1px 5px; border-radius: 3px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  h2 { font-weight: 600; font-size: 20px; letter-spacing: -0.01em; margin: 56px 0 4px; }
+  h2 .num { color: var(--muted); font-weight: 400; margin-right: 8px; }
+  .caption { color: var(--muted); font-size: 14px; font-style: italic; margin: 6px 0 18px; }
+  .figure { background: white; border: 1px solid var(--rule); border-radius: 10px; padding: 28px; }
+  svg { display: block; width: 100%; height: auto; }
+  p { margin: 14px 0; max-width: 76ch; }
+  ul, ol { max-width: 76ch; }
+  li { margin: 6px 0; }
+  pre {
+    background: #21222c; color: #e6e6e6; border-radius: 8px; padding: 16px 18px;
+    font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; overflow-x: auto;
+  }
+  pre .c { color: #888; }
+  pre .g { color: #7bc77e; }
+  pre .y { color: #e6c07b; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 16px 0; }
+  th { text-align: left; font-weight: 600; border-bottom: 2px solid var(--rule); padding: 8px 10px; }
+  td { border-bottom: 1px solid var(--rule); padding: 8px 10px; vertical-align: top; }
+  .status { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+  .s-done { background: var(--embed); color: var(--good); }
+  .s-part { background: var(--trait); color: var(--warn); }
+  .s-def  { background: var(--ext); color: var(--bad); }
+  .callout {
+    border-left: 3px solid var(--os-edge); background: var(--os);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; max-width: 76ch; margin: 18px 0;
+  }
+  .callout.warn { border-left-color: var(--trait-edge); background: var(--trait); }
+  .callout p { margin: 6px 0; }
+  footer { margin-top: 72px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--rule); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Identity &amp; permissions — architecture field report</h1>
+  <p class="subtitle">
+    As built on <code>feat/federation-host-in-subject</code> (PR #58, which absorbed PR #54) —
+    verified by booting the full stack live on 2026-06-11. Every claim below was either
+    exercised tonight or cites the file that implements it.
+  </p>
+</header>
+
+<h2><span class="num">1</span>The four-layer model</h2>
+<p class="caption">Each layer maps a sovereignty concern onto one native NATS primitive. Nothing is invented; everything is configuration of the bus.</p>
+<div class="figure">
+<svg viewBox="0 0 980 330" role="img" aria-label="Four layer stack">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b6b6b"/>
+    </marker>
+  </defs>
+  <!-- L4 -->
+  <rect x="20" y="20" width="700" height="60" rx="8" fill="#fbeaee" stroke="#ad1457"/>
+  <text x="40" y="45" font-size="15" font-weight="600" fill="#ad1457">Layer 4 — Edge sovereignty</text>
+  <text x="40" y="66" font-size="13" fill="#1e1e1e">session-granular share policy · stop-flow revocation</text>
+  <text x="745" y="45" font-size="13" fill="#6b6b6b">NATS primitive:</text>
+  <text x="745" y="64" font-size="13" font-family="monospace" fill="#1e1e1e">filter_subject + API gate</text>
+  <!-- L3 -->
+  <rect x="20" y="95" width="700" height="60" rx="8" fill="#f3e5f5" stroke="#6a1b9a"/>
+  <text x="40" y="120" font-size="15" font-weight="600" fill="#6a1b9a">Layer 3 — Permissions &amp; roles</text>
+  <text x="40" y="141" font-size="13" fill="#1e1e1e">principal = user-in-account · publish/subscribe allow-deny · roles catalog</text>
+  <text x="745" y="120" font-size="13" fill="#6b6b6b">NATS primitive:</text>
+  <text x="745" y="139" font-size="13" font-family="monospace" fill="#1e1e1e">user + permissions block</text>
+  <!-- L2 -->
+  <rect x="20" y="170" width="700" height="60" rx="8" fill="#eaf3ec" stroke="#2e7d32"/>
+  <text x="40" y="195" font-size="15" font-weight="600" fill="#2e7d32">Layer 2 — Person isolation</text>
+  <text x="40" y="216" font-size="13" fill="#1e1e1e">person = NATS account · hard namespace wall · consent = export/import pair</text>
+  <text x="745" y="195" font-size="13" fill="#6b6b6b">NATS primitive:</text>
+  <text x="745" y="214" font-size="13" font-family="monospace" fill="#1e1e1e">account</text>
+  <!-- L1 -->
+  <rect x="20" y="245" width="700" height="60" rx="8" fill="#e9f1f5" stroke="#2e6b87"/>
+  <text x="40" y="270" font-size="15" font-weight="600" fill="#2e6b87">Layer 1 — Federation / routing</text>
+  <text x="40" y="291" font-size="13" fill="#1e1e1e">host in subject · JetStream domains · cross-domain sources into events-agg</text>
+  <text x="745" y="270" font-size="13" fill="#6b6b6b">NATS primitive:</text>
+  <text x="745" y="289" font-size="13" font-family="monospace" fill="#1e1e1e">jetstream domain + source</text>
+</svg>
+</div>
+<table>
+  <tr><th>Layer</th><th>Status on this branch</th><th>Where</th></tr>
+  <tr><td>1 — Federation</td><td><span class="status s-done">complete</span> — T1/T2/T3 converge in the lab; T2 verified live tonight</td><td><code>rs/bus/src/nats_bus.rs</code>, <code>rs/tests/test_federation_lab.rs</code></td></tr>
+  <tr><td>2 — Person isolation</td><td><span class="status s-done">shipped</span> — accounts generated from Person records, isolation proven by testcontainers</td><td><code>rs/bus/src/accounts.rs</code>, <code>rs/bus/tests/test_multi_account_isolation.rs</code></td></tr>
+  <tr><td>3 — Permissions / roles</td><td><span class="status s-done">shipped</span> — roles directory, role-gated writes, per-user profiles</td><td><code>rs/server/src/directory.rs</code>, <code>rs/server/src/account_config.rs</code></td></tr>
+  <tr><td>4 — Edge sovereignty</td><td><span class="status s-part">partial</span> — API gate on 2 endpoints + publish-time skip; <code>filter_subject</code> reconciliation deferred</td><td><code>rs/bus/src/share_policy.rs</code>, <code>rs/server/src/admin.rs</code></td></tr>
+</table>
+
+<h2><span class="num">2</span>Identity: Person and Principal</h2>
+<p class="caption">A Person is a human. A Principal is one (host, user) seat in that human's fleet. The split is the whole design.</p>
+<p>
+  Identity is configured, bootstrapped, and then <em>stamped onto every event</em>:
+</p>
+<ol>
+  <li><strong>Config:</strong> a <code>[person]</code> block in <code>config.toml</code> declares the Person (UUID) and one or more Principals, each with matchers (<code>host</code>, <code>user</code>, optional agent / watch-dir pattern). First boot auto-creates it from the detected <code>(host, user)</code>.</li>
+  <li><strong>Stamping:</strong> <code>principal_resolver.rs</code> is a pure function from a source context to <code>(person_id, principal_id)</code>; the watcher stamps every translated batch, so every CloudEvent carries both as extension fields (<code>rs/core/src/cloud_event.rs</code>).</li>
+  <li><strong>Persistence:</strong> sessions store both IDs on SQLite and Mongo with conformance parity; <code>/api/sessions</code> exposes them; <code>/api/fleet</code> serves the configured fleet; the sidebar groups sessions by principal.</li>
+</ol>
+<p>
+  The mapping onto the bus is then mechanical: <strong>Person → NATS account, Principal → user inside that account.</strong>
+  Identity stops being an application-level filter and becomes a property of the wire.
+</p>
+
+<h2><span class="num">3</span>The permissions substrate: one account per person</h2>
+<p class="caption">Generated, never hand-written. The conf below is the one actually running tonight.</p>
+<pre><span class="c"># data/nats-accounts.conf — generated by AccountConfigWriter</span>
+listen: 0.0.0.0:4222
+jetstream {
+  store_dir: <span class="g">"./data/nats-jetstream"</span>   <span class="c"># quoted — field fix #1</span>
+}
+accounts {
+  PERSON_29911D8F_3893_45D3_A22D_E66073C03A6F: {
+    <span class="y">jetstream: enabled</span>                  <span class="c"># per-account opt-in — field fix #3</span>
+    users: [
+      { user: <span class="g">"29911d8f-…"</span>, password: <span class="g">"29911d8f-…-local-dev"</span> }
+    ]
+  }
+}</pre>
+<ul>
+  <li><strong>Generation:</strong> <code>render_accounts_block()</code> (<code>rs/bus/src/accounts.rs</code>) is a pure function from <code>AccountSpec</code>s to conf text. <code>AccountConfigWriter</code> (<code>rs/server/src/account_config.rs</code>) persists it at boot and rewrites it on every share mutation, then reloads NATS via SIGHUP.</li>
+  <li><strong>Isolation is absolute by default:</strong> an account is a namespace wall. Another person's user cannot subscribe to your subjects, query your streams, or even learn they exist. The testcontainer suite (<code>test_multi_account_isolation.rs</code>) proves messages do not leak between two person accounts on a shared server.</li>
+  <li><strong>Credentials:</strong> deterministic <code>{person_id}-local-dev</code> passwords for local dev; the Phase&nbsp;6.7 TODO swaps these for NKEYs. The server itself authenticates as the person's user — its <code>nats_url</code> carries <code>user:pass@</code>, which the bus now extracts into <code>ConnectOptions</code> (field fix #2).</li>
+</ul>
+
+<h2><span class="num">4</span>Consent is a paired export/import</h2>
+<p class="caption">Either side alone delivers nothing. That asymmetry is the security model.</p>
+<div class="figure">
+<svg viewBox="0 0 980 230" role="img" aria-label="Export import consent pairing">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2e7d32"/>
+    </marker>
+  </defs>
+  <rect x="30" y="30" width="400" height="170" rx="10" fill="#eaf3ec" stroke="#2e7d32"/>
+  <text x="50" y="60" font-size="15" font-weight="600" fill="#2e7d32">PERSON_A (account)</text>
+  <rect x="50" y="80" width="360" height="44" rx="6" fill="white" stroke="#2e7d32"/>
+  <text x="64" y="100" font-size="13" font-family="monospace">exports: [{ stream: "events.host-a.proj.sess.>",</text>
+  <text x="64" y="116" font-size="13" font-family="monospace">            accounts: [PERSON_B] }]</text>
+  <text x="50" y="155" font-size="13" fill="#6b6b6b">"Person B may consume this subject —</text>
+  <text x="50" y="173" font-size="13" fill="#6b6b6b">and only Person B, and only this subject."</text>
+
+  <rect x="550" y="30" width="400" height="170" rx="10" fill="#f3e5f5" stroke="#6a1b9a"/>
+  <text x="570" y="60" font-size="15" font-weight="600" fill="#6a1b9a">PERSON_B (account)</text>
+  <rect x="570" y="80" width="360" height="44" rx="6" fill="white" stroke="#6a1b9a"/>
+  <text x="584" y="100" font-size="13" font-family="monospace">imports: [{ stream: { account: PERSON_A,</text>
+  <text x="584" y="116" font-size="13" font-family="monospace">            subject: "events.host-a…" }}]</text>
+  <text x="570" y="155" font-size="13" fill="#6b6b6b">"I accept that stream into my</text>
+  <text x="570" y="173" font-size="13" fill="#6b6b6b">namespace."</text>
+
+  <line x1="430" y1="102" x2="550" y2="102" stroke="#2e7d32" stroke-width="2" marker-end="url(#arr2)"/>
+  <text x="490" y="92" font-size="12" fill="#2e7d32" text-anchor="middle">paired</text>
+</svg>
+</div>
+<p>
+  The operator gesture is <code>POST /api/admin/share-with-person</code>: <code>add_share_with_stubs()</code> writes the matched
+  export/import pair (creating a stub account for the target person if needed), persists the conf, and SIGHUPs NATS.
+  The end-to-end is proven live by the Phase&nbsp;5.10 test: events published in one account arrive in the other
+  <em>only after</em> the reload — and nothing else leaks.
+</p>
+
+<h2><span class="num">5</span>Roles and per-user permission profiles</h2>
+<p class="caption">Layer 3 narrows what a principal may do inside its own account.</p>
+<ul>
+  <li><strong>Roles directory</strong> (<code>rs/server/src/directory.rs</code>): persisted person→role assignments with a grant-role bootstrap; surfaced in the Participants admin panel.</li>
+  <li><strong>Role-gated writes:</strong> share-policy mutations require the operator role; <code>admin_token</code> is a separate tier from <code>api_token</code>, so observation and administration are different credentials.</li>
+  <li><strong>Per-user profiles</strong> (<code>render_permission_field()</code>): each user can carry <code>publish</code>/<code>subscribe</code> allow-lists. The deliberate subtlety: an <em>empty</em> allow-list renders as <code>{ deny: [">"] }</code> — NATS shorthand would have read it as "no restrictions", the exact opposite. An Observer role therefore <em>provably cannot publish</em>, enforced by the bus, not by application politeness.</li>
+</ul>
+
+<h2><span class="num">6</span>Share policy: the sovereignty invariants</h2>
+<p class="caption">Default <code>shared</code>; turning something private is the explicit act. Three invariants, each named and tested.</p>
+<table>
+  <tr><th>Invariant</th><th>Meaning</th><th>Enforced at</th></tr>
+  <tr><td>① Catch-up respects share</td><td>Private sessions vanish from <code>/api/digests</code>; per-session event reads return 404 — existence is denied so peers stop asking. Publish-time enforcement also gates the bus: <code>NatsBus.publish</code> skips private sessions (<code>share_policy.rs</code>).</td><td>API + bus</td></tr>
+  <tr><td>② Retention keeps own</td><td><code>cleanup_old_sessions(days, keep_host)</code> never deletes sessions whose host is this device, regardless of age.</td><td>store</td></tr>
+  <tr><td>③ Revocation = stop-flow, not purge</td><td>Marking private gates new visibility immediately and preserves local events; peer-mirrored copies persist. This is a <em>named hard edge</em>, not an oversight — cooperative purge across consent boundaries is future work.</td><td>API (by design)</td></tr>
+</table>
+<div class="callout warn">
+  <p><strong>Honest gap (from the PR's own review):</strong> only 2 of ~14 per-session read endpoints consult the policy today.
+  Federation propagation of a private session is correctly blocked, but a client with API access can still read
+  "private" session content through e.g. <code>/transcript</code> or <code>/records</code>. Until the shared gate lands,
+  UI copy should claim "hidden from peer catch-up", not "private".</p>
+</div>
+
+<h2><span class="num">7</span>The transport underneath: T2 as verified tonight</h2>
+<p class="caption">Everything above rides this. One machine, two NATS domains, a real leafnode link — and this very report's authoring session flowing through it.</p>
+<div class="figure">
+<svg viewBox="0 0 980 360" role="img" aria-label="T2 topology as run">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2e6b87"/>
+    </marker>
+  </defs>
+  <!-- leaf column -->
+  <rect x="30" y="30" width="280" height="300" rx="10" fill="#e9f1f5" stroke="#2e6b87"/>
+  <text x="50" y="58" font-size="15" font-weight="600" fill="#2e6b87">Leaf — this device</text>
+  <rect x="50" y="75" width="240" height="50" rx="6" fill="white" stroke="#2e6b87"/>
+  <text x="64" y="96" font-size="13">watcher: ~/.claude/projects</text>
+  <text x="64" y="113" font-size="12" fill="#6b6b6b">(this session, live)</text>
+  <rect x="50" y="140" width="240" height="44" rx="6" fill="white" stroke="#2e6b87"/>
+  <text x="64" y="160" font-size="13">leaf serve <tspan font-family="monospace">:3003</tspan> (role full)</text>
+  <text x="64" y="176" font-size="12" fill="#6b6b6b">OPEN_STORY_HUB_DOMAIN=hub</text>
+  <rect x="50" y="199" width="240" height="44" rx="6" fill="white" stroke="#2e6b87"/>
+  <text x="64" y="219" font-size="13">leaf NATS <tspan font-family="monospace">:4232</tspan></text>
+  <text x="64" y="235" font-size="12" font-family="monospace" fill="#6b6b6b">jetstream domain: host-a</text>
+  <line x1="170" y1="125" x2="170" y2="140" stroke="#2e6b87" stroke-width="2" marker-end="url(#arr3)"/>
+  <line x1="170" y1="184" x2="170" y2="199" stroke="#2e6b87" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="50" y="285" font-size="12" fill="#6b6b6b">self-registers its events stream as a</text>
+  <text x="50" y="302" font-size="12" fill="#6b6b6b">source on the hub's aggregate:</text>
+  <text x="50" y="319" font-size="12" font-family="monospace" fill="#1e1e1e">$JS.host-a.API</text>
+
+  <!-- link -->
+  <line x1="310" y1="221" x2="430" y2="221" stroke="#2e6b87" stroke-width="2.5" marker-end="url(#arr3)"/>
+  <text x="370" y="206" font-size="12" fill="#2e6b87" text-anchor="middle">leafnode link :7422</text>
+  <text x="370" y="240" font-size="11" fill="#6b6b6b" text-anchor="middle">authed as the person's user →</text>
+  <text x="370" y="254" font-size="11" fill="#6b6b6b" text-anchor="middle">maps into PERSON_… account</text>
+
+  <!-- hub column -->
+  <rect x="430" y="30" width="290" height="300" rx="10" fill="#eaf3ec" stroke="#2e7d32"/>
+  <text x="450" y="58" font-size="15" font-weight="600" fill="#2e7d32">Hub — same machine tonight</text>
+  <rect x="450" y="75" width="250" height="44" rx="6" fill="white" stroke="#2e7d32"/>
+  <text x="464" y="95" font-size="13">hub NATS <tspan font-family="monospace">:4222</tspan> · multi-account</text>
+  <text x="464" y="111" font-size="12" font-family="monospace" fill="#6b6b6b">jetstream domain: hub</text>
+  <rect x="450" y="134" width="250" height="44" rx="6" fill="white" stroke="#2e7d32"/>
+  <text x="464" y="154" font-size="13" font-family="monospace">events-agg</text>
+  <text x="464" y="170" font-size="12" fill="#6b6b6b">cross-domain source ← host-a</text>
+  <rect x="450" y="193" width="250" height="44" rx="6" fill="white" stroke="#2e7d32"/>
+  <text x="464" y="213" font-size="13">hub serve <tspan font-family="monospace">:3002</tspan> (role consumer)</text>
+  <text x="464" y="229" font-size="12" fill="#6b6b6b">pulse → tally → compute → diff → watch</text>
+  <line x1="575" y1="119" x2="575" y2="134" stroke="#2e7d32" stroke-width="2" marker-end="url(#arr3)"/>
+  <line x1="575" y1="178" x2="575" y2="193" stroke="#2e7d32" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="450" y="285" font-size="12" fill="#6b6b6b">measured tonight:</text>
+  <text x="450" y="303" font-size="12" font-family="monospace" fill="#1e1e1e">live_sources: [{ host: host-a,</text>
+  <text x="450" y="319" font-size="12" font-family="monospace" fill="#1e1e1e">  lag: 0, active_ms: 61 }]</text>
+
+  <!-- UI -->
+  <rect x="790" y="160" width="160" height="120" rx="10" fill="#fff5e6" stroke="#b35900"/>
+  <text x="810" y="190" font-size="15" font-weight="600" fill="#b35900">UI :5173</text>
+  <text x="810" y="214" font-size="13">#/admin</text>
+  <text x="810" y="236" font-size="12" fill="#6b6b6b">Fleet · Participants ·</text>
+  <text x="810" y="252" font-size="12" fill="#6b6b6b">Share policy · Live sources</text>
+  <line x1="720" y1="218" x2="790" y2="218" stroke="#b35900" stroke-width="2" marker-end="url(#arr3)"/>
+</svg>
+</div>
+<p>
+  The admin surface is fully push-driven: bus events pulse the <code>admin_broadcaster</code> actor, which re-tallies,
+  recomputes the topology pure-functionally, diffs against the cached frame, and only publishes changes into a
+  <code>tokio::watch</code> — the server-side twin of an RxJS <code>shareReplay(1)</code>. REST borrows the current frame;
+  WebSocket subscribers await changes. The roster distinguishes provenance honestly: a node can be present from
+  <em>stored session evidence</em> (<code>source: "sessions"</code> — e.g. the <code>a1</code> Linux box, 14 historical sessions,
+  currently dark) without ever appearing in <em>live sources</em>, which only reports what JetStream can prove right now.
+</p>
+
+<h2><span class="num">8</span>Field findings — four bugs between "all tests green" and "it boots"</h2>
+<p class="caption">The branch's permissions logic was well-tested and correct; the production wiring had never been run end-to-end. One evening of dogfooding found what the suites could not.</p>
+<table>
+  <tr><th>#</th><th>Symptom</th><th>Root cause</th><th>Fix</th></tr>
+  <tr>
+    <td>1</td>
+    <td>NATS refuses to boot: <code>Parse error: 'Floats must start with a digit'</code></td>
+    <td>Generated conf wrote <code>store_dir: ./data/…</code> unquoted; the NATS parser lexes a leading <code>.</code> as a float</td>
+    <td><code>de7cd1f</code> — quote the path + pinning test</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>Server can't connect to its own multi-account bus: <code>authentication error</code></td>
+    <td>async-nats ignores URL userinfo; the bus only special-cased token auth, so <code>user:pass@</code> URLs connected anonymously. The isolation tests knew (a comment says so) and worked around it — in the tests only</td>
+    <td><code>99d3a6b</code> — <code>extract_user_pass()</code> → <code>ConnectOptions</code> + tests</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Connect succeeds, then <code>failed to create/get 'events' JetStream stream</code></td>
+    <td>Explicitly-defined NATS accounts default JetStream <em>off</em>; the generator never emitted the per-account opt-in</td>
+    <td><code>82ba304</code> — emit <code>jetstream: enabled</code> per account (red→green)</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Bus provably federating (lag 0) while the Admin panel swears "Not federated"</td>
+    <td>The pulse forwarder's <code>while let Ok(…) = recv()</code> exits on the first <code>Lagged</code> error — the opposite of its own comment. A leaf backfill burst laps the ring once and the topology frame freezes forever</td>
+    <td><code>f1c05db</code> — extracted <code>spawn_pulse_forwarder()</code>: survive Lagged, coalesce via <code>try_send</code>; test overflows the ring deliberately</td>
+  </tr>
+</table>
+<div class="callout">
+  <p><strong>Also observed, not yet fixed:</strong></p>
+  <p>• <code>AccountConfigWriter</code> rewrites the conf at every boot and on every share write, dropping hand-added
+  <code>domain</code>/<code>leafnodes</code> blocks — the static prefix needs to learn federation config.</p>
+  <p>• A fresh data dir bootstraps a fresh Person UUID (the demo leaf minted its own), so one human on two
+  data dirs becomes two "persons". Identity needs to travel with the operator, not the directory.</p>
+  <p>• The Share Policy table renders all ~560 sessions flat; the policy model is sparse (default + exceptions)
+  and the UI should be too.</p>
+</div>
+
+<h2><span class="num">9</span>What is deliberately not here yet</h2>
+<ul>
+  <li><strong>Bus-level share enforcement via <code>filter_subject</code>:</strong> needs the subject scheme to encode shared/private so JetStream can route on it (Phase 4 follow-up). Until then the API gate + publish-time skip are the enforcement.</li>
+  <li><strong>NKEY credentials:</strong> deterministic local-dev passwords are a placeholder by design; the conf shape is already NKEY-compatible.</li>
+  <li><strong>Cooperative purge across consent boundaries:</strong> revocation stops flow; it does not (and currently cannot) reach into a peer's store. Named as the hard edge of invariant ③.</li>
+  <li><strong>Cross-machine T2 with this stack:</strong> tonight's star ran on one machine; the Tailscale-distributed version needs the conf-clobbering fix and a leafnode listener on the tailnet interface.</li>
+</ul>
+
+<footer>
+  OpenStory · docs/research/permissions-architecture-report.html · written from the live system, 2026-06-11.
+  Companion: <code>personhood-and-principals.html</code> (identity model), <code>jetstream-sources-federation.md</code> (transport research).
+</footer>
+
+</div>
+</body>
+</html>
