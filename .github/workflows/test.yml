@@ -44,6 +44,55 @@ jobs:
         working-directory: rs
         run: cargo clippy --workspace --exclude open-story-cli -- -D warnings
 
+  # Integration tests that spin up the real server in Docker via testcontainers.
+  # These need the `open-story:test` image, which the fast `rust` job never
+  # builds — hence its `--skip compose --skip container --skip pi_mono`. This
+  # job builds the image once (buildx + GHA layer cache, ~30s warm vs ~4m cold)
+  # and runs exactly that skipped set with nextest.
+  #
+  # Runner: defaults to free `ubuntu-latest`. To run on a faster GitHub-hosted
+  # larger runner (free for public repos), an org owner creates one under
+  # Settings → Actions → Runners and sets repo/org variable CI_LARGE_RUNNER to
+  # its label (e.g. `ubuntu-latest-4-cores`). No workflow edit needed.
+  container:
+    name: Container tests
+    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free up disk space
+        # Same reclaim as the `rust` job — the image build + Rust compile is
+        # disk-hungry on the stock runner. Harmless no-op on a larger runner.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+      - uses: docker/setup-buildx-action@v3
+      - name: Build open-story:test image (layer-cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: rs
+          tags: open-story:test
+          load: true
+          # Plain docker-format image (no provenance/SBOM manifest list).
+          # testcontainers reads the exposed port via image inspection; an
+          # attestation manifest list breaks that (PortNotExposed).
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rs
+      - uses: taiki-e/install-action@nextest
+      - name: Container + compose + pi_mono tests
+        working-directory: rs
+        # The exact complement of the fast job's skip filters. Capped thread
+        # count keeps the Docker-spinning tests from contending on the daemon
+        # (testcontainers maps random host ports, but compose stacks are
+        # heavier) — reliability matters for a required check.
+        run: cargo nextest run --no-fail-fast --test-threads 2 -E 'test(/compose/) | test(/container/) | test(/pi_mono/)'
+
   ui:
     name: UI tests
     runs-on: ubuntu-latest
