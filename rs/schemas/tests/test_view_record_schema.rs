@@ -49,6 +49,7 @@ fn vr_user_message() -> ViewRecord {
         seq: 1,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:00Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
         body: RecordBody::UserMessage(UserMessage {
@@ -64,6 +65,7 @@ fn vr_assistant_with_blocks() -> ViewRecord {
         seq: 2,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:01Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
         body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
@@ -82,6 +84,7 @@ fn vr_tool_call() -> ViewRecord {
         seq: 3,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:02Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
         body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -128,6 +131,7 @@ fn view_record_accepts_message_content_as_blocks() {
         seq: 4,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:03Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
         body: RecordBody::UserMessage(UserMessage {

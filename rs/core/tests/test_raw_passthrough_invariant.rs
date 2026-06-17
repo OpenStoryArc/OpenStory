@@ -144,7 +144,9 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
         !multi_groups.is_empty(),
         "scenario_07 should produce at least one decomposed group"
     );
-    for (raw, evs) in multi_groups {
+    // Core sovereignty invariant: within every decomposed group, all events
+    // share data.raw byte-for-byte — no per-event slicing or mutation.
+    for (_raw, evs) in &multi_groups {
         let first = serde_json::to_string(&evs[0].data.raw).unwrap();
         for ev in &evs[1..] {
             let other = serde_json::to_string(&ev.data.raw).unwrap();
@@ -153,12 +155,16 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
                 "decomposed events from one bundled line must share data.raw byte-for-byte"
             );
         }
-        // Ensure raw is the bundled (multi-block) original, not a slice.
-        assert!(
-            raw.contains("toolCall"),
-            "decomposed event's raw should preserve the full bundled content array"
-        );
     }
+    // The bundled [toolCall, toolCall] line (5) must be one of those groups,
+    // and its shared raw must preserve the full content array, not a slice.
+    // scenario_07 also decomposes a text+usage line into a second shared-raw
+    // group, so assert the toolCall bundle is present rather than that every
+    // group is it.
+    assert!(
+        multi_groups.iter().any(|(raw, _)| raw.contains("toolCall")),
+        "scenario_07's bundled toolCall line must decompose into a shared-raw group"
+    );
 }
 
 #[test]
