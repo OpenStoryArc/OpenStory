@@ -9,6 +9,7 @@
           "depth": 0,
           "id": "uuid-0",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.session_start"
@@ -34,6 +35,7 @@
           "depth": 0,
           "id": "be79c53e",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.model_change"
@@ -59,6 +61,7 @@
           "depth": 1,
           "id": "775d79e9",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "346ba99a",
           "payload": {
             "content": "Read both /tmp/test-config.toml and /tmp/test-broken.py at the same time.",
@@ -86,6 +89,7 @@
           "depth": 2,
           "id": "uuid-1",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "775d79e9",
           "payload": {
             "call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
@@ -123,6 +127,7 @@
           "depth": 2,
           "id": "uuid-2",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "775d79e9",
           "payload": {
             "call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
@@ -160,6 +165,7 @@
           "depth": 1,
           "id": "952e4970",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "a1f500c7",
           "payload": {
             "call_id": "toolu_01XoH5SUY56c4L4a6XaT1rFM",
@@ -188,6 +194,7 @@
           "depth": 2,
           "id": "080fc073",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "952e4970",
           "payload": {
             "call_id": "toolu_01NXKjHdbvGsx4kABnZ4C3PG",
@@ -216,6 +223,7 @@
           "depth": 3,
           "id": "uuid-3",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "080fc073",
           "payload": {
             "content": [
@@ -238,8 +246,11 @@
           "depth": 0,
           "id": "uuid-3:usage",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
+            "cache_creation_input_tokens": 241,
+            "cache_read_input_tokens": 4675,
             "input_tokens": 1,
             "output_tokens": 201,
             "scope": "turn",
@@ -267,6 +278,7 @@
           "depth": 3,
           "id": "uuid-4",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "080fc073",
           "payload": {
             "reason": "end_turn"
@@ -819,8 +831,8 @@
       "id": "scenario_07_multi_tool",
       "label": "Read both /tmp/test-config.toml and /tmp/test-brok",
       "last_event": "2026-04-13T18:38:42.087Z",
-      "project_id": null,
-      "project_name": null
+      "project_id": "-Users-maxglassie-projects-pi-mono",
+      "project_name": "pi-mono"
     }
   ]
 }
