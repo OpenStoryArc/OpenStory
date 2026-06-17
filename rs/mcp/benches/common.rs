@@ -51,6 +51,7 @@ pub async fn seed_store(session_count: usize, events_per_session: usize) -> Seed
             last_event: Some("2026-05-01T01:00:00Z".into()),
             host: Some("bench-host".into()),
             user: Some("bench-user".into()),
+            origin_agent: None,
         };
         store.upsert_session(&row).await.expect("upsert_session");
 

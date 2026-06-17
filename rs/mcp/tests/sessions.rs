@@ -24,6 +24,7 @@ fn seeded_row(id: &str, project: &str, last: &str, events: u64) -> SessionRow {
         last_event: Some(last.to_string()),
         host: None,
         user: None,
+        origin_agent: None,
     }
 }
 

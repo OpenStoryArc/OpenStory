@@ -428,7 +428,7 @@ pub async fn run_server(
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
         // for local-mode operation was unreachable and has been deleted.
-        for watcher_dir in watch_dirs.iter().cloned() {
+        for watcher_dir in watch_dirs {
             if !watcher_dir.exists() {
                 eprintln!(
                     "Watcher skipped missing directory: {}",
@@ -442,7 +442,7 @@ pub async fn run_server(
                 s.watcher_diagnostics.clone()
             };
             let agent = agent_for_watch_dir(
-                &watcher_dir,
+                watcher_dir,
                 claude_watch_dir.as_str(),
                 codex_watch_dir.as_str(),
             );
@@ -455,6 +455,7 @@ pub async fn run_server(
                 diagnostics: diagnostics.clone(),
                 actor: actor.clone(),
             };
+            let watcher_dir = watcher_dir.clone();
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = crate::watcher::watch_with_callback_observed(
                     &watcher_dir,

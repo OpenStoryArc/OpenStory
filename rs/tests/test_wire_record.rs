@@ -36,6 +36,7 @@ mod wire_record_serialization {
                 seq: 1,
                 session_id: "sess-abc".into(),
                 timestamp: "2025-01-09T10:00:00Z".into(),
+                origin_agent: None,
                 body: RecordBody::SystemEvent(SystemEvent {
                     subtype: "test".into(),
                     message: Some("test event".into()),

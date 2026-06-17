@@ -24,7 +24,9 @@ fn test_backfill_existing_files() {
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
     let count = backfill(dir.path(), &mut states, None, false).unwrap();
     assert_eq!(count, 2);
-    assert!(states.contains_key(&path));
+    // State is keyed by canonical path; the tempdir holds exactly one file
+    // (asserting len avoids macOS `/var` vs `/private/var` key mismatches).
+    assert_eq!(states.len(), 1);
 }
 
 #[test]
@@ -118,6 +120,8 @@ fn test_session_id_from_filename() {
     let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
     backfill(dir.path(), &mut states, None, false).unwrap();
 
-    let state = states.get(&path).unwrap();
+    // Single file in the tempdir; fetch the one state (keyed by canonical
+    // path, so look it up by value to stay macOS-path-spelling agnostic).
+    let state = states.values().next().unwrap();
     assert_eq!(state.session_id, "my-cool-session");
 }

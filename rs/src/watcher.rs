@@ -432,7 +432,9 @@ mod tests {
             .collect();
 
         assert_eq!(events.len(), 1);
-        assert!(states.contains_key(&rollout));
+        // State is keyed by canonical path (macOS reports tempdirs under
+        // `/var/...` which canonicalizes to `/private/var/...`).
+        assert!(states.contains_key(&canonicalize_path(&rollout)));
         assert_eq!(
             events[0].data.session_id,
             "019e5a13-69cf-7b13-baeb-d6891eafd55e"
