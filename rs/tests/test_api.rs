@@ -9,6 +9,7 @@ use tempfile::TempDir;
 
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use helpers::seed_and_ingest;
+use open_story_shapes::ShapeRow;
 
 #[tokio::test]
 async fn test_list_sessions_empty() {
@@ -1783,4 +1784,94 @@ async fn test_list_users_recent_sessions_capped_and_sorted() {
             "recent_sessions should be sorted by last_event DESC"
         );
     }
+}
+
+fn shape_row(event_id: &str, session_id: &str, shape_type: &str, seq: u64, data: serde_json::Value) -> ShapeRow {
+    ShapeRow {
+        id: format!("{event_id}:{shape_type}:0"),
+        session_id: session_id.to_string(),
+        shape_type: shape_type.to_string(),
+        seq,
+        timestamp: "2026-01-01T00:00:00Z".to_string(),
+        event_id: event_id.to_string(),
+        data,
+    }
+}
+
+#[tokio::test]
+async fn test_get_shapes_filters_by_type() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let s = state.read().await;
+        let rows = vec![
+            shape_row("e1", "sess-x", "bash-shape", 1, serde_json::json!({"program": "git"})),
+            shape_row("e2", "sess-x", "path-shape", 2, serde_json::json!({"top_segment": "rs"})),
+        ];
+        s.store.event_store.insert_shapes_batch("sess-x", &rows).await.unwrap();
+    }
+
+    let req = Request::get("/api/sessions/sess-x/shapes?type=bash-shape")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    let shapes = body["shapes"].as_array().unwrap();
+    assert_eq!(shapes.len(), 1);
+    assert_eq!(shapes[0]["shape_type"], "bash-shape");
+    assert_eq!(shapes[0]["data"]["program"], "git");
+}
+
+#[tokio::test]
+async fn test_get_cross_shape_inverts_program_to_paths_and_bash() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    {
+        let s = state.read().await;
+        let es = &s.store.event_store;
+        // session A ran git and touched rs/
+        es.insert_shapes_batch("A", &[
+            shape_row("a1", "A", "bash-shape", 1, serde_json::json!({"program": "git", "subcommand": "status"})),
+            shape_row("a2", "A", "path-shape", 2, serde_json::json!({"top_segment": "rs"})),
+        ]).await.unwrap();
+        // session B also ran git, touched ui/
+        es.insert_shapes_batch("B", &[
+            shape_row("b1", "B", "bash-shape", 1, serde_json::json!({"program": "git", "subcommand": "log"})),
+            shape_row("b2", "B", "path-shape", 2, serde_json::json!({"top_segment": "ui"})),
+        ]).await.unwrap();
+        // session C ran cargo only — must NOT appear under when-program=git
+        es.insert_shapes_batch("C", &[
+            shape_row("c1", "C", "bash-shape", 1, serde_json::json!({"program": "cargo"})),
+            shape_row("c2", "C", "path-shape", 2, serde_json::json!({"top_segment": "rs"})),
+        ]).await.unwrap();
+    }
+
+    let req = Request::get("/api/shapes/cross?when-program=git")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    assert_eq!(body["filter"]["sessions"], 2); // A and B, not C
+    let programs = body["bash"]["programs"].as_array().unwrap();
+    // git appears twice across the matched sessions; cargo never (C excluded)
+    assert_eq!(programs[0]["value"], "git");
+    assert_eq!(programs[0]["count"], 2);
+    assert!(!programs.iter().any(|p| p["value"] == "cargo"));
+    let segs = body["paths"]["top_segments"].as_array().unwrap();
+    let seg_values: Vec<&str> = segs.iter().map(|s| s["value"].as_str().unwrap()).collect();
+    assert!(seg_values.contains(&"rs"));
+    assert!(seg_values.contains(&"ui"));
+}
+
+#[tokio::test]
+async fn test_get_cross_shape_requires_a_filter() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    let req = Request::get("/api/shapes/cross").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+    let body = body_json(resp).await;
+    assert!(body["error"].is_string());
 }

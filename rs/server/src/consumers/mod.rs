@@ -12,4 +12,5 @@ pub mod broadcast;
 pub mod broadcast_proptest;
 pub mod patterns;
 pub mod persist;
+pub mod shapes;
 pub mod projections;

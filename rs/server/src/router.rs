@@ -133,6 +133,14 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::get_patterns),
         )
         .route(
+            "/api/sessions/{session_id}/shapes",
+            axum::routing::get(crate::api::get_shapes),
+        )
+        .route(
+            "/api/shapes/cross",
+            axum::routing::get(crate::api::get_cross_shape),
+        )
+        .route(
             "/api/sessions/{session_id}/turns",
             axum::routing::get(crate::api::get_turns),
         )

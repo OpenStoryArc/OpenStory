@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "One deterministic shape projection of a single CloudEvent.\n\n`id` is `{event_id}:{shape_type}:{ord}` — stable across replay/backfill because `event.id` is the transcript message uuid and extraction is a pure, ordered function. `ord` is 0 for single-row layers (bash, change) and the match index for multi-row layers (path).",
+  "properties": {
+    "data": {
+      "description": "Layer-specific decomposition (mirrors the prototype's DB columns)."
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "seq": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "shape_type": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "data",
+    "event_id",
+    "id",
+    "seq",
+    "session_id",
+    "shape_type",
+    "timestamp"
+  ],
+  "title": "ShapeRow",
+  "type": "object"
+}

@@ -83,7 +83,7 @@ up:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
+    if ! lsof -nP -iTCP:4222 -sTCP:LISTEN &>/dev/null 2>&1; then
       echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
       if [ -f .env ]; then set -a; source .env; set +a; fi
       : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"
@@ -122,7 +122,7 @@ up-no-mongo:
       echo "ERROR: nats-server not found. Install: brew install nats-server"
       exit 1
     fi
-    if ! lsof -i :4222 &>/dev/null 2>&1; then
+    if ! lsof -nP -iTCP:4222 -sTCP:LISTEN &>/dev/null 2>&1; then
       echo "Starting NATS JetStream (leaf node → Hetzner hub)..."
       if [ -f .env ]; then set -a; source .env; set +a; fi
       : "${NATS_LEAF_URL:?NATS_LEAF_URL missing — see deploy/nats-leaf.conf header}"

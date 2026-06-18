@@ -224,6 +224,38 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+
+    /// Backfill deterministic shape rows for stored sessions.
+    ///
+    /// The live shapes consumer uses `DeliverPolicy::New`, so it only shapes
+    /// events published after it starts. This replays already-stored events
+    /// through the shape extractors and writes the rows. Idempotent (stable
+    /// row id), so re-running is a no-op for already-shaped events.
+    BackfillShapes {
+        /// Directory for persisted session data (JSONL + EventStore)
+        #[arg(long, env = "OPEN_STORY_DATA_DIR", default_value = "./data")]
+        data_dir: PathBuf,
+
+        /// Persistence backend: "sqlite" (default) or "mongo".
+        #[arg(long, env = "OPEN_STORY_DATA_BACKEND")]
+        data_backend: Option<DataBackend>,
+
+        /// MongoDB connection URI. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_URI")]
+        mongo_uri: Option<String>,
+
+        /// MongoDB database name. Used only when --data-backend=mongo.
+        #[arg(long, env = "OPEN_STORY_MONGO_DB")]
+        mongo_db: Option<String>,
+
+        /// SQLCipher encryption key for the database (empty = unencrypted)
+        #[arg(long, env = "OPEN_STORY_DB_KEY")]
+        db_key: Option<String>,
+
+        /// Only process the N most-recent sessions (0 = all).
+        #[arg(long, default_value = "0")]
+        limit: usize,
+    },
 }
 
 fn default_watch_dir() -> PathBuf {
@@ -601,6 +633,63 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+            Ok(())
+        }
+
+        Some(Command::BackfillShapes {
+            data_dir,
+            data_backend,
+            mongo_uri,
+            mongo_db,
+            db_key,
+            limit,
+        }) => {
+            use open_story::cloud_event::CloudEvent;
+            use open_story_store::state::{BackendChoice, StoreState};
+
+            // Load config the same way `serve`/`reconcile` do.
+            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            config.data_dir = data_dir.to_string_lossy().to_string();
+            if let Some(v) = data_backend { config.data_backend = v; }
+            if let Some(v) = mongo_uri { config.mongo_uri = v; }
+            if let Some(v) = mongo_db { config.mongo_db = v; }
+            if let Some(v) = db_key { config.db_key = v; }
+
+            let backend = match config.data_backend {
+                DataBackend::Sqlite => BackendChoice::Sqlite,
+                DataBackend::Mongo => BackendChoice::Mongo {
+                    uri: config.mongo_uri.clone(),
+                    db_name: config.mongo_db.clone(),
+                },
+            };
+            let key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
+            let store = StoreState::with_backend(&data_dir, key, backend).await?;
+            let es = &store.event_store;
+            let extractors = open_story_shapes::default_extractors();
+
+            let mut sessions = es.list_sessions().await?;
+            // Honor --limit as "most recent" by sorting on last_event desc.
+            sessions.sort_by(|a, b| b.last_event.cmp(&a.last_event));
+            if limit > 0 {
+                sessions.truncate(limit);
+            }
+
+            let total = sessions.len();
+            let mut total_rows = 0usize;
+            let mut shaped = 0usize;
+            for srow in &sessions {
+                let events_json = es.session_events(&srow.id).await.unwrap_or_default();
+                let events: Vec<CloudEvent> = events_json
+                    .iter()
+                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                    .collect();
+                let rows = open_story_shapes::shapes_for_session(&srow.id, &events, &extractors);
+                if !rows.is_empty() {
+                    total_rows += es.insert_shapes_batch(&srow.id, &rows).await.unwrap_or(0);
+                    shaped += 1;
+                }
+            }
+            println!("Backfilled {total_rows} new shape rows across {shaped}/{total} sessions");
             Ok(())
         }
     }

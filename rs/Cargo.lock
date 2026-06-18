@@ -2967,6 +2967,7 @@ dependencies = [
  "open-story-core",
  "open-story-patterns",
  "open-story-server",
+ "open-story-shapes",
  "open-story-store",
  "open-story-views",
  "regex",
@@ -3008,6 +3009,7 @@ dependencies = [
  "clap",
  "open-story",
  "open-story-bus",
+ "open-story-shapes",
  "open-story-store",
  "serde_json",
  "tempfile",
@@ -3071,6 +3073,7 @@ dependencies = [
  "open-story-core",
  "open-story-patterns",
  "open-story-server",
+ "open-story-shapes",
  "open-story-store",
  "open-story-views",
  "reqwest 0.12.28",
@@ -3095,6 +3098,7 @@ dependencies = [
  "open-story-bus",
  "open-story-core",
  "open-story-patterns",
+ "open-story-shapes",
  "open-story-store",
  "open-story-views",
  "proptest",
@@ -3112,6 +3116,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-story-shapes"
+version = "0.2.0"
+dependencies = [
+ "open-story-core",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "shlex",
+]
+
+[[package]]
 name = "open-story-store"
 version = "0.2.0"
 dependencies = [
@@ -3126,6 +3141,7 @@ dependencies = [
  "open-story-bus",
  "open-story-core",
  "open-story-patterns",
+ "open-story-shapes",
  "open-story-views",
  "regex",
  "rusqlite",

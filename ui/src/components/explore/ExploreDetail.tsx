@@ -7,6 +7,7 @@ import { SynopsisCard } from "@/components/session/SynopsisCard";
 import { FileImpactTable } from "@/components/session/FileImpactTable";
 import { ErrorList } from "@/components/session/ErrorList";
 import { ToolJourney } from "@/components/session/ToolJourney";
+import { ShapesPanel } from "@/components/session/ShapesPanel";
 
 interface ExploreDetailProps {
   sessionId: string;
@@ -59,6 +60,7 @@ export function ExploreDetail({ sessionId }: ExploreDetailProps) {
         <FileImpactTable files={data.files} />
         <ErrorList errors={data.errors} />
       </div>
+      <ShapesPanel sessionId={sessionId} />
     </div>
   );
 }
