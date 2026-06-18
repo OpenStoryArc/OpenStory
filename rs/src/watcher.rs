@@ -18,7 +18,9 @@ const BATCH_CHUNK_SIZE: usize = 100;
 
 use crate::cloud_event::CloudEvent;
 use crate::output::emit_events;
-use crate::paths::{nats_subject_from_path, project_id_from_path, session_id_from_path};
+use crate::paths::{
+    agent_label_from_path, nats_subject_from_path, project_id_from_path, session_id_from_path,
+};
 use crate::reader::read_new_lines;
 use crate::translate::TranscriptState;
 
@@ -32,9 +34,11 @@ fn process_file_raw(
     }
 
     let canonical = path.to_path_buf();
-    let state = states
-        .entry(canonical.clone())
-        .or_insert_with(|| TranscriptState::new(session_id_from_path(path)));
+    let state = states.entry(canonical.clone()).or_insert_with(|| {
+        let mut state = TranscriptState::new(session_id_from_path(path));
+        state.agent_label = agent_label_from_path(path).map(String::from);
+        state
+    });
 
     read_new_lines(path, state)
 }

@@ -60,6 +60,11 @@ pub struct TranscriptState {
     pub line_count: u64,
     pub seen_uuids: HashSet<String>,
     pub format: TranscriptFormat,
+    /// Platform discriminator stamped on each CloudEvent's `agent` field.
+    /// `None` = default ("claude-code"). The watcher sets this from the file
+    /// path (e.g. "claude-code-cowork" for Claude Desktop sandbox sessions);
+    /// the payload's `meta.agent` format tag is unaffected.
+    pub agent_label: Option<String>,
     seq: u64,
     /// tool_use_id → (tool_name, tool_input) for domain event derivation.
     pending_tool_calls: std::collections::HashMap<String, PendingToolCall>,
@@ -73,9 +78,16 @@ impl TranscriptState {
             line_count: 0,
             seen_uuids: HashSet::new(),
             format: TranscriptFormat::Unknown,
+            agent_label: None,
             seq: 0,
             pending_tool_calls: std::collections::HashMap::new(),
         }
+    }
+
+    /// Builder: set the platform discriminator (see `agent_label`).
+    pub fn with_agent_label(mut self, label: impl Into<String>) -> Self {
+        self.agent_label = Some(label.into());
+        self
     }
 
     pub fn next_seq(&mut self) -> u64 {
@@ -482,7 +494,12 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         timestamp,
         None,
         None,
-        Some("claude-code".to_string()),
+        Some(
+            state
+                .agent_label
+                .clone()
+                .unwrap_or_else(|| "claude-code".to_string()),
+        ),
     )
     .with_host(crate::host::host())
     .with_user(crate::user::user())]
