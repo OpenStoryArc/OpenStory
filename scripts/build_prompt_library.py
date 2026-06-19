@@ -553,8 +553,8 @@ _CSS = """
   .vbars { display:flex; flex-direction:column; gap:10px; }
   .vbar { display:grid; grid-template-columns:128px 1fr 46px; gap:14px; align-items:center; }
   .vbar .bl { font-size:12.5px; color:var(--ink2); }
-  .vbar .bt { height:22px; background:color-mix(in srgb, var(--ink) 6%, transparent); border-radius:6px; overflow:hidden; }
-  .vbar .bf { height:100%; background:linear-gradient(90deg, color-mix(in srgb, var(--ac) 82%, transparent), var(--ac)); border-radius:6px; min-width:4px; }
+  .vbar .bt { display:block; height:22px; background:color-mix(in srgb, var(--ink) 6%, transparent); border-radius:6px; overflow:hidden; }
+  .vbar .bf { display:block; height:100%; background:var(--ac); border-radius:6px; min-width:4px; }
   .vbar .bv { font:600 12.5px/1 "JetBrains Mono",monospace; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
   /* table */
   .vtable { width:100%; border-collapse:collapse; font-size:12.5px; }
