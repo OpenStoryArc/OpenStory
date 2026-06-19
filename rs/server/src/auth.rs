@@ -1,8 +1,17 @@
 //! Bearer token authentication middleware.
 //!
-//! When `api_token` is configured, all API requests must include
-//! `Authorization: Bearer <token>`. Empty config = pass-through (no auth).
-//! WebSocket auth uses `?token=` query param (browsers can't set WS headers).
+//! When `api_token` is configured, requests must present the token via one
+//! of two channels:
+//!   1. `Authorization: Bearer <token>` header (preferred — REST API, curl).
+//!   2. `?token=<token>` query parameter (fallback — browser WebSocket
+//!      upgrades, which cannot set custom request headers).
+//!
+//! Empty config = pass-through (no auth).
+//!
+//! **Caveat on `?token=`:** URLs land in proxy access logs and the browser's
+//! `Referer` header. The fallback exists only because the browser WebSocket
+//! API gives no other way to pass a credential on upgrade. Prefer the Bearer
+//! header from any non-browser caller.
 
 use axum::extract::Request;
 use axum::http::{StatusCode, header};
@@ -21,10 +30,19 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     result == 0
 }
 
-/// Axum middleware that validates Bearer token authentication.
+/// Extract `token=...` from a query string. Returns the raw token without
+/// URL-decoding — tokens are opaque bytes and decoding could mask malformed
+/// input. Compared in constant time by the caller.
+fn extract_query_token(query: &str) -> Option<&str> {
+    query.split('&').find_map(|pair| pair.strip_prefix("token="))
+}
+
+/// Axum middleware that validates token authentication via the
+/// `Authorization: Bearer` header or the `?token=` query param.
 ///
 /// If `expected_token` is empty, all requests pass through (no auth configured).
-/// Otherwise, requests must include `Authorization: Bearer <token>` header.
+/// Otherwise, a request is authorized if EITHER channel presents the correct
+/// token. See module docs for why the query-param fallback exists.
 pub async fn auth_middleware(
     request: Request,
     next: Next,
@@ -35,20 +53,20 @@ pub async fn auth_middleware(
         return Ok(next.run(request).await);
     }
 
-    // Check Authorization header
-    let auth_header = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
+    // Channel precedence: if an Authorization header is present it is
+    // authoritative — a present-but-wrong Bearer short-circuits to 401 and
+    // does NOT fall through to the query param. An attacker who can supply
+    // one channel must not get a second guess via the other. The `?token=`
+    // fallback is consulted ONLY when no Authorization header is present
+    // (the browser-WebSocket case).
+    let candidate = match request.headers().get(header::AUTHORIZATION) {
+        Some(value) => value.to_str().ok().and_then(|v| v.strip_prefix("Bearer ")),
+        None => request.uri().query().and_then(extract_query_token),
+    };
 
-    match auth_header {
-        Some(value) if value.starts_with("Bearer ") => {
-            let token = &value[7..];
-            if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) {
-                Ok(next.run(request).await)
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
+    match candidate {
+        Some(token) if constant_time_eq(token.as_bytes(), expected_token.as_bytes()) => {
+            Ok(next.run(request).await)
         }
         _ => Err(StatusCode::UNAUTHORIZED),
     }
@@ -156,6 +174,42 @@ mod tests {
         let req = Request::builder()
             .uri("/test")
             .header("Authorization", "Basic dXNlcjpwYXNz")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // ── ?token= query-param fallback (browser WebSocket upgrades) ────────
+
+    #[test]
+    fn extract_query_token_finds_token_anywhere_in_query() {
+        assert_eq!(extract_query_token("token=abc"), Some("abc"));
+        assert_eq!(extract_query_token("foo=1&token=abc"), Some("abc"));
+        assert_eq!(extract_query_token("token=abc&bar=2"), Some("abc"));
+        assert_eq!(extract_query_token("foo=1&bar=2"), None);
+        // must not match a param that merely ends in `token`
+        assert_eq!(extract_query_token("auth_token=abc"), None);
+    }
+
+    #[tokio::test]
+    async fn valid_query_token_returns_200() {
+        let app = test_app("my-secret");
+        let req = Request::builder()
+            .uri("/test?token=my-secret")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn wrong_query_token_returns_401() {
+        let app = test_app("my-secret");
+        let req = Request::builder()
+            .uri("/test?token=wrong")
             .body(Body::empty())
             .unwrap();
 

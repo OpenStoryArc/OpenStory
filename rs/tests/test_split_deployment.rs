@@ -33,7 +33,7 @@ async fn split_publisher_and_consumer_start() {
     assert_eq!(body["role"], "publisher");
 }
 
-/// Publisher should not serve API endpoints (only hooks + health).
+/// Publisher should not serve API endpoints (only /health).
 #[tokio::test]
 #[ignore]
 async fn split_publisher_has_no_api() {
@@ -84,37 +84,5 @@ async fn split_events_flow_publisher_to_consumer() {
     assert!(
         !sessions.is_empty(),
         "consumer should have sessions from publisher"
-    );
-}
-
-/// POST /hooks to publisher flows through NATS to consumer.
-#[tokio::test]
-#[ignore]
-async fn split_hooks_flow_through_nats() {
-    let stack = start_stack(TestConfig::Split, &fixtures_dir()).await;
-    let publisher_port = stack.publisher_port.expect("publisher port");
-
-    // Wait for initial file watcher events to propagate
-    stack.wait_for_sessions().await;
-
-    // POST a hook to the publisher — it should be accepted
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("http://localhost:{publisher_port}/hooks"))
-        .json(&serde_json::json!({
-            "session_id": "test-hook-session",
-            "hook_event_name": "PostToolUse",
-        }))
-        .send()
-        .await
-        .expect("post hook");
-    assert_eq!(resp.status(), 202, "publisher should accept hooks");
-
-    // The hook itself won't produce events (no transcript file for test-hook-session),
-    // but we verified the endpoint is functional.
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(
-        body["status"] == "ok" || body["status"] == "no_transcript",
-        "hook should return ok or no_transcript, got: {body}"
     );
 }

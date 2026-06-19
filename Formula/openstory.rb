@@ -1,10 +1,8 @@
 class Openstory < Formula
   desc "Real-time visibility into AI coding agent behavior — observe, never interfere"
   homepage "https://github.com/OpenStoryArc/OpenStory"
-  url "https://github.com/OpenStoryArc/OpenStory/archive/refs/tags/v0.1.0.tar.gz"
-  # sha256 is computed once v0.1.0 is tagged on master:
-  #   curl -sL https://github.com/OpenStoryArc/OpenStory/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  url "https://github.com/OpenStoryArc/OpenStory/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "6bf774ac766a2f86c74dbd313df337be32291ded7877453ebd077463923f28f5"
   license "Apache-2.0"
   head "https://github.com/OpenStoryArc/OpenStory.git", branch: "master"
 
@@ -33,10 +31,16 @@ class Openstory < Formula
   end
 
   service do
+    # `--manage-nats` makes serve launch and supervise a JetStream nats-server
+    # itself (Homebrew's nats-server runs without JetStream), so a single
+    # `brew services start openstory` brings up the whole stack. `--nats-bin`
+    # passes the resolved keg path because launchd's PATH is minimal.
     run [
       opt_bin/"open-story", "serve",
       "--static-dir", "#{HOMEBREW_PREFIX}/share/openstory/static",
-      "--data-dir", "#{HOMEBREW_PREFIX}/var/openstory"
+      "--data-dir", "#{HOMEBREW_PREFIX}/var/openstory",
+      "--manage-nats",
+      "--nats-bin", "#{Formula["nats-server"].opt_bin}/nats-server"
     ]
     keep_alive true
     log_path var/"log/openstory.log"
@@ -45,10 +49,16 @@ class Openstory < Formula
 
   def caveats
     <<~EOS
-      OpenStory needs a running NATS JetStream server.
+      One process serves the API and dashboard and launches a JetStream NATS
+      automatically — there's no separate step.
 
-      Start NATS first, then OpenStory:
-          brew services start nats-server
+      Guided setup (history window, watch dir, port — then offers to start it):
+          open-story init --data-dir #{var}/openstory
+
+      Run it in the background (this login session only):
+          brew services run openstory
+
+      ...or have it auto-start at login:
           brew services start openstory
 
       Open the dashboard:

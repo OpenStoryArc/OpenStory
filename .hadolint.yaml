@@ -1,0 +1,23 @@
+# hadolint config — see https://github.com/hadolint/hadolint
+#
+# What we ignore and why:
+#
+# - DL3008  Pin apt package versions. Pinning would break `apt-get upgrade`
+#           (which we run in Dockerfile.prod to pull security patches).
+#           The trade-off: we accept that apt picks the latest patched
+#           version in the Debian feed rather than freezing one version.
+# - DL3016  Pin npm package versions. Same logic — would defeat dep updates.
+# - DL3059  "Multiple consecutive RUN instructions" — cosmetic; we sometimes
+#           keep RUN steps separate for clearer layer caching.
+
+ignored:
+  - DL3008
+  - DL3016
+  - DL3059
+
+# Trust only specific image registries — no random images.
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - ghcr.io
+  - quay.io

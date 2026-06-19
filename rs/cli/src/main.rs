@@ -21,6 +21,9 @@ use open_story_bus::Bus;
 use open_story_bus::nats_bus::NatsBus;
 use open_story_store::sqlite_store::SqliteStore;
 
+mod init;
+mod managed_nats;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "open-story",
@@ -114,9 +117,28 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_MONGO_DB")]
         mongo_db: Option<String>,
 
-        /// Write a default config.toml to the data directory and exit
+        /// Write a default config.toml to the data directory and exit.
+        /// (Non-interactive template. For a guided setup, use `open-story init`.)
         #[arg(long)]
         init_config: bool,
+
+        /// Start and supervise a JetStream `nats-server` if none is reachable
+        /// (otherwise reuse the running one). Lets a single `open-story serve`
+        /// bring up the whole stack — used by the Homebrew service.
+        #[arg(long, env = "OPEN_STORY_MANAGE_NATS")]
+        manage_nats: bool,
+
+        /// Path to the `nats-server` binary for --manage-nats. Defaults to a
+        /// PATH / Homebrew lookup. The brew service passes the resolved keg
+        /// path because launchd's PATH is minimal.
+        #[arg(long, env = "OPEN_STORY_NATS_BIN")]
+        nats_bin: Option<String>,
+    },
+    /// Interactive first-run setup wizard — writes {data_dir}/config.toml
+    Init {
+        /// Where config + data live (Homebrew: $(brew --prefix)/var/openstory)
+        #[arg(long, env = "OPEN_STORY_DATA_DIR")]
+        data_dir: Option<PathBuf>,
     },
     /// Watch transcript files and emit CloudEvents
     Watch {
@@ -219,6 +241,32 @@ fn default_watch_dir() -> PathBuf {
     dirs_path().unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Resolve when the process receives SIGTERM (launchd / `brew services stop`)
+/// or SIGINT (Ctrl-C). Lets `serve` shut down gracefully so managed resources
+/// — notably a spawned `nats-server` — are cleaned up on the way out.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let mut intr = match signal(SignalKind::interrupt()) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = intr.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
 fn dirs_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -262,6 +310,8 @@ async fn main() -> Result<()> {
                     mongo_uri,
                     mongo_db,
                     init_config,
+                    manage_nats,
+                    nats_bin,
                 }) => (
                     (
                         role,
@@ -283,6 +333,8 @@ async fn main() -> Result<()> {
                         mongo_uri,
                         mongo_db,
                         init_config,
+                        manage_nats,
+                        nats_bin,
                     ),
                     static_dir,
                 ),
@@ -307,6 +359,8 @@ async fn main() -> Result<()> {
                         None,
                         None,
                         false,
+                        false,
+                        None,
                     ),
                     None,
                 ),
@@ -331,6 +385,8 @@ async fn main() -> Result<()> {
                 cli_mongo_uri,
                 cli_mongo_db,
                 init_config,
+                cli_manage_nats,
+                cli_nats_bin,
             ) = cli_overrides;
 
             // Resolve data_dir first (needed to find config.toml)
@@ -434,10 +490,35 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Distributed leaf hub from env var (config.toml also works). When
+            // set, --manage-nats launches the managed NATS as a leaf node so
+            // sessions federate to a shared hub; empty leaves it loopback-only.
+            if config.nats_leaf_url.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_NATS_LEAF_URL") {
+                    config.nats_leaf_url = v;
+                }
+            }
+
             let host = config.host.clone();
             let port = config.port;
             let nats_url = config.nats_url.clone();
             let watch_dirs: Vec<PathBuf> = config.watch_dirs.iter().map(PathBuf::from).collect();
+
+            // Single-command stack: when requested (the Homebrew service sets
+            // --manage-nats), ensure a JetStream NATS is up — spawn and
+            // supervise one when none is reachable, otherwise reuse it. The
+            // guard lives until serve exits and stops any child we started.
+            let nats_guard = if cli_manage_nats {
+                let leaf_url = (!config.nats_leaf_url.is_empty()).then_some(config.nats_leaf_url.as_str());
+                Some(managed_nats::ensure_nats(
+                    &nats_url,
+                    &data_dir.join("nats"),
+                    cli_nats_bin.as_deref(),
+                    leaf_url,
+                )?)
+            } else {
+                None
+            };
 
             // NATS JetStream is a hard requirement. The reactive actor
             // decomposition (persist / patterns / projections / broadcast)
@@ -472,17 +553,39 @@ async fn main() -> Result<()> {
                 }
             };
 
-            server::run_server(
-                &host,
-                port,
-                &data_dir,
-                static_dir.as_deref(),
-                &watch_dirs,
-                bus,
-                config,
-            )
-            .await
+            // Serve until a shutdown signal. We catch SIGTERM (launchd /
+            // `brew services stop`) and SIGINT (Ctrl-C) explicitly so that on
+            // exit `nats_guard` drops and stops any nats-server we spawned —
+            // Rust runs no destructors on a bare signal kill.
+            let serving = server::run_server(
+                &host, port, &data_dir, static_dir.as_deref(), &watch_dirs, bus, config,
+            );
+            let outcome = tokio::select! {
+                res = serving => Some(res),    // server returned on its own (error path)
+                _ = shutdown_signal() => None, // SIGTERM/SIGINT
+            };
+            match outcome {
+                Some(res) => {
+                    drop(nats_guard); // stop the managed nats-server (if any)
+                    res
+                }
+                None => {
+                    eprintln!("\n  \x1b[2mShutting down…\x1b[0m");
+                    drop(nats_guard); // stop the managed nats-server BEFORE exiting
+                    // Force exit: serve's background watcher/consumer tasks would
+                    // otherwise stall the tokio runtime drop on a clean return.
+                    // Our data is durable (append-only JSONL + SQLite per write),
+                    // and the only external resource we own (nats-server) is
+                    // already stopped above.
+                    std::process::exit(0);
+                }
+            }
         }
+        Some(Command::Init { data_dir }) => {
+            let data_dir = data_dir.unwrap_or_else(|| PathBuf::from("./data"));
+            init::run_wizard(data_dir)
+        }
+
         Some(Command::Watch {
             watch_dir,
             output,

@@ -1,0 +1,13 @@
+// ABLATION POLICY: identical to the clubhouse ACL EXCEPT the allowed port is
+// 9999 instead of 7422. So the NATS leaf (which dials :7422) is denied. Used by
+// `run.sh prove` as the negative control: swap this in, and federation MUST stop.
+// If federation still worked with this policy, the ACL would be proven NOT to be
+// the boundary. It stopping is what makes the boundary real.
+{
+  "tagOwners": {
+    "tag:os-peer": ["club@"]
+  },
+  "acls": [
+    { "action": "accept", "src": ["tag:os-peer"], "dst": ["tag:os-peer:9999"] }
+  ]
+}

@@ -255,6 +255,28 @@ Requires:
 > lose durable replay, distributed deployments, and the clean boundaries
 > that make the system auditable.
 
+### With Homebrew (recommended)
+
+```sh
+brew tap OpenStoryArc/openstory
+brew install openstory
+open-story init --data-dir "$(brew --prefix)/var/openstory"
+```
+
+`open-story init` is a guided setup wizard: it asks how many days of session history to load on boot, which directory holds your Claude Code transcripts, and which port to use — then offers to start OpenStory and open the dashboard. OpenStory launches its own JetStream NATS automatically and serves the API **and** dashboard from one process, so a single command brings up the whole stack — no separate NATS step.
+
+Run it in the background for this login session (prefer to skip the wizard? this is all you need):
+
+```sh
+brew services run openstory      # background now; does NOT auto-start at login
+```
+
+Want it to launch automatically at login instead, use `brew services start openstory`.
+
+Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
+
+Installing builds from source (~1–3 min on first install); `nats-server`, Rust, and Node come along as dependencies. Prebuilt bottles for seconds-fast installs are planned — see `docs/BACKLOG.md`.
+
 ### With `openstory` command
 
 For a `code .`-style experience, copy the launcher script to your PATH:
@@ -322,6 +344,23 @@ OPEN_STORY_HERMES_WATCH_DIR=/path/to/hermes/sessions just up
 # hermes_watch_dir = "/path/to/hermes/sessions"
 ```
 
+### Distributed streaming across machines (optional)
+
+Out of the box OpenStory is single-machine and loopback-only — no networking. To
+see sessions from several machines (your laptop, a teammate's, a VPS agent) in one
+dashboard, point the managed NATS at a shared hub:
+
+```bash
+OPEN_STORY_NATS_LEAF_URL="nats://<token>@hub-host:7422" just up
+# Or add to data/config.toml:
+# nats_leaf_url = "nats://<token>@hub-host:7422"
+```
+
+With `--manage-nats` (the Homebrew service uses it), this turns the local NATS
+into a JetStream leaf node: your sessions stream up to the hub and everyone else's
+stream back down, so the local dashboard becomes a shared team view. Empty =
+single-machine. Full hub + leaf + Tailscale setup: [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
+
 ### MongoDB backend (optional)
 
 SQLite is the default. For distributed or high-volume deployments, switch to MongoDB:
@@ -341,7 +380,7 @@ export OPEN_STORY_MONGO_DB=openstory
 # mongo_db = "openstory"
 ```
 
-Both backends implement the same `EventStore` trait — the conformance suite (94 tests) runs against both.
+Both backends implement the same `EventStore` trait — the conformance suite (56 helpers run against both backends) covers writes, reads, lifecycle, FTS, and all 12 analytics queries.
 
 ### With Docker/Podman
 
@@ -357,9 +396,7 @@ This starts NATS on `:4222`/`:8222`, the server on `:3002`, and the UI on `:5173
 
 ### Event ingestion
 
-Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents. No additional configuration needed beyond setting the watch directory.
-
-> **Note:** An HTTP `/hooks` endpoint existed in earlier versions for near-real-time Claude Code event delivery. It was retired — the file watcher provides sufficient coverage. If you have `hooks` configured in `~/.claude/settings.json` pointing at `localhost:3002/hooks`, they will receive 404s and fail silently (non-blocking). Remove them if present.
+Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents, which flow through NATS JetStream to the consumer actors. No additional configuration needed beyond setting the watch directory.
 
 ### Verify it works
 
@@ -404,8 +441,11 @@ Only the focused panel shows the selection ring. Your position is remembered whe
 ## CLI Reference
 
 ```
+open-story init [OPTIONS]      Interactive first-run setup wizard
+  --data-dir <DIR>               Where config + data live [default: ./data]
+
 open-story serve [OPTIONS]     Start the dashboard server (default)
-  --host <HOST>                  Bind address [default: 0.0.0.0]
+  --host <HOST>                  Bind address [default: 127.0.0.1; auto-detects 0.0.0.0 in containers/WSL]
   --port <PORT>                  Listen port [default: 3002]
   --data-dir <DIR>               Session persistence directory [default: ./data]
   --static-dir <DIR>             Built UI static files directory
@@ -429,9 +469,6 @@ open-story pulse [OPTIONS]     Project activity over N days
 open-story context <PROJECT>   Recent sessions for a project
   --data-dir <DIR>               Session data directory [default: ./data]
   --format <FMT>                 Output format: text or json [default: text]
-
-open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic search
-  --data-dir <DIR>               Session data directory [default: ./data]
 ```
 
 ## API Endpoints
@@ -458,8 +495,8 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | GET | `/api/sessions/{id}/turns` | Eval-apply structural turns |
 | GET | `/api/insights/token-usage` | Token usage summary across sessions |
 | GET | `/api/insights/token-usage/daily` | Daily token usage trends |
-| GET | `/api/search?q=` | Semantic search over events |
-| GET | `/api/agent/search?q=` | Session-grouped semantic search (agentic) |
+| GET | `/api/search?q=` | Full-text search (FTS5) over events |
+| GET | `/api/agent/search?q=` | Session-grouped full-text search (agentic) |
 | GET | `/api/agent/tools` | Agent tool definitions (MCP-style) |
 | GET | `/api/agent/project-context?project=` | Recent sessions for a project |
 | GET | `/api/agent/recent-files?project=` | Files modified in recent sessions |
@@ -473,13 +510,16 @@ open-story backfill [OPTIONS]  Embed existing events into Qdrant for semantic se
 | GET | `/api/insights/productivity?days=` | Event density by hour of day |
 | DELETE | `/api/sessions/{id}` | Delete a session |
 | GET | `/api/sessions/{id}/export` | Export session as JSONL |
+| GET | `/api/users` | List known users |
+| GET | `/api/local-info` | Local environment info |
+| GET | `/health` | Health check (no auth) |
 | GET | `/ws` | WebSocket for live event streaming |
 
 ## Project Layout
 
 ```
 open-story/
-├── rs/                          Rust workspace (9 crates)
+├── rs/                          Rust workspace (10 crates)
 │   ├── core/                    open-story-core (CloudEvent types, translators, Subtype enum)
 │   ├── bus/                     open-story-bus (NATS JetStream event bus)
 │   ├── store/                   open-story-store (persistence, projection, FTS5 search)

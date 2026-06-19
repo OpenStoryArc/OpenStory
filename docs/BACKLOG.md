@@ -480,7 +480,10 @@ Claude-powered analysis: running session summaries updated incrementally via pat
 Phased encryption: make SQLCipher functional, encrypt JSONL files, add vault unlock mechanism, then add NATS TLS and HTTPS/WSS for clients. SQLCipher key config already exists but isn't exercised.
 
 ### Kubernetes Deployment
-K8s manifests (NATS StatefulSet + consumer Deployment + agent sidecars), integration tests via K3s testcontainers, and a Helm chart. K3s testcontainer spike exists in the codebase.
+K8s manifests (NATS StatefulSet + consumer Deployment + agent sidecars), integration tests via K3s testcontainers, and a Helm chart. K3s testcontainer spike exists in the codebase (`rs/tests/helpers/k8s.rs::K3sCluster`, `test_k8s.rs`). **Tailnet-federation k8s tests** are planned in `docs/research/tailnet-federation/K8S_TEST_PLAN.md`, building on `K3sCluster` + `kube`: Phase 1 is NetworkPolicy allow/deny enforcement guarded by a false-green meta-control; Phases 2–4 add the Tailscale-sidecar identity and two-cluster federation ablations. Motivated by interoperating with an inference-cluster peer. Run on a Linux box (e.g. a1 over SSH) — K3s needs real cgroups; macOS Docker Desktop is unreliable for it.
+
+### Tailnet Federation — graduate from research to product
+The `docs/research/tailnet-federation/` spike validated (12/12 controlled experiment on Linux + green Rust test `rs/tests/test_tailnet_federation.rs`) that OpenStory federates over a purpose-built Tailscale tailnet with a tag-based ACL as the trust boundary, and hardened a real ACL-bypass — a NATS leaf falling back to a non-tailnet path, fixed with `leafnodes { advertise }` (now noted in `docs/deploy/distributed.md`). Remaining to productize: fold the tailnet-sidecar + tag-ACL setup into `distributed.md` as a first-class "federate with a friend" quickstart; gate `test_tailnet_federation` in CI (needs a Linux runner with `/dev/net/tun` + `NET_ADMIN`); then the k8s tests above. The hermetic harness (`docs/research/tailnet-federation/harness/run.sh`, runnable on a1 over SSH) is the reference oracle.
 
 ### OpenClaw Skill Integration
 CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversational session recall via OpenClaw. Includes SessionSummary reducer, digest format for hourly heartbeat, and portable SKILL.md.
@@ -488,8 +491,8 @@ CLI commands (`sessions`, `summary`, `events`, `install-skill`) for conversation
 ### OpenClaw Watchdog via OpenStory
 Cron job or systemd timer on the server that queries the OpenStory API to detect when OpenClaw is stuck — consecutive zero-token error responses, or no successful completion in N minutes. When detected, automatically `docker restart openclaw`. This is the dogfood approach: OpenStory's own data powers the health check instead of generic Docker healthchecks that can't distinguish "running but spinning on rate limits" from "working normally." Could be a simple Python script in `scripts/` querying `http://open-story:3002/api/sessions`.
 
-### Starter Configuration
-Onboarding UX with `open-story init` for first-time users: choose Claude project folder, storage backend, hooks setup, data directory, and UI mode.
+### One-line installer (`curl | sh`)
+An optional convenience wrapper that does `brew tap` + `brew install openstory` + `open-story init` + start-services in a single command, for users who want the fast path. Must stay an *optional* in-repo, reviewable `scripts/install.sh` documented alongside the auditable two-command flow — never the headline (a blind `curl … | sh` contradicts OpenStory's "observe, understand, decide" soul, and piping into `sh` breaks the wizard's interactive stdin). Defer until there's demand; the `brew install` + `open-story init` path already covers first-run setup.
 
 ### Sentence Identity & Query API
 Two pieces: identity and querying.
@@ -532,6 +535,9 @@ The broadcast consumer is the last one still using `ingest_events()` with shared
 ---
 
 ## Quality
+
+### `test_container` / `test_security_container` need a NATS sidecar to run locally
+Surfaced 2026-06-11 during the master security audit (PR #75). `cargo test --test test_container` fails 7/15 (and `test_security_container` similarly) in a plain local run, but **not because of any code regression** — the `start_open_story` helper (`rs/tests/helpers/container.rs:93`) boots the `open-story:test` image with the Dockerfile default `CMD` (`serve … --data-dir /data --watch-dir /watch`), which has no `--manage-nats` and no bundled `nats-server`. Master makes NATS a hard boot dependency, so the container logs `NATS unavailable`, exits, and the HTTP health-wait at `container.rs:103` times out. Verified independent of code: the failing path uses a *prebuilt image* (not freshly-compiled code), `git diff` of `test_container.rs` / `container.rs` / `rs/Dockerfile` is empty across the audit branch, and a hand-wired `docker run` of the same fresh image **with** a NATS sidecar serves every endpoint correctly. Fix options: (a) teach `start_open_story` to start a `nats:2 -js` sidecar container on a shared docker network and pass `--nats-url` (mirrors what `red_team_live.py`'s manual boot does), or (b) have the test image boot with `--manage-nats` + a bundled `nats-server` binary so it's self-contained. Either makes the container suites runnable via plain `cargo test` instead of only through the compose/CI harness. Low urgency (the suites' vectors are covered by in-process + live-probe tests), but the silent "looks like a regression" failure mode costs every future auditor time — so it's worth closing. See `docs/security/audit-master-2026-06.md` for the full diagnosis.
 
 ### Eval-Apply Data Quality Hardening (recurring)
 Regular exercise: run `scripts/analyze_turn_shapes.py --all` against live sessions to map the problem space, update probability-class test fixtures (`rs/tests/fixtures/turn_probability_classes.json`), and add assertions for any new edge cases discovered. The distribution of real event sequences is the ground truth — the detector must handle what agents actually produce, not what we imagine they produce. Key metrics to track: turns/sentences ratio (should be 1.0), is_error capture rate (should match raw data), turn number continuity (no gaps), env_delta accuracy. Current known gaps: 7 session mismatches between turns and sentences, subagent sessions produce flushed turns that may lack enough content for meaningful sentences.
@@ -664,7 +670,7 @@ The formula at [`Formula/openstory.rb`](../Formula/openstory.rb) and the bottle 
 2. Wait for `release-binaries.yml` to upload `*.bottle.tar.gz` + `*.bottle.json` to the GitHub Release page, and check the workflow's `print-bottle-block` job for the `bottle do` snippet.
 3. Create the `OpenStoryArc/homebrew-openstory` repo on GitHub (empty, public).
 4. Push a single commit with `Formula/openstory.rb` — same content as in this repo, but with the real sha256 substituted and the `bottle do` block pasted in.
-5. Verify on a clean macOS user account: `brew tap OpenStoryArc/openstory && brew install openstory && brew services start nats-server && brew services start openstory && curl -fsS http://localhost:3002/api/sessions`.
+5. Verify on a clean macOS user account: `brew tap OpenStoryArc/openstory && brew install openstory && brew services run openstory && curl -fsS http://localhost:3002/api/sessions` (the service self-manages JetStream NATS; `run` avoids registering it at login).
 6. Update `README.md` with the `brew tap` + `brew install` instructions.
 
 ### Auto-update tap on tag push

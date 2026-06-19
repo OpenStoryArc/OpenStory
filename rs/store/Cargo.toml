@@ -1,6 +1,6 @@
 [package]
 name = "open-story-store"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Event store: bus consumer → dedup → persist → project → detect patterns"
@@ -35,7 +35,7 @@ rusqlite = { version = "0.35", features = ["bundled"] }
 walkdir = "2"
 dashmap = "6"
 # MongoDB backend (feature `mongo`).
-mongodb = { version = "3.2", optional = true }
+mongodb = { version = "3.7", optional = true }
 bson = { version = "2.13", features = ["chrono-0_4"], optional = true }
 futures = { version = "0.3", optional = true }
 
