@@ -519,6 +519,9 @@ _CSS = """
   .sechead .ix { font:700 14px/1 "JetBrains Mono",monospace; color:var(--ac); }
   .sechead h2 { font-size:22px; font-weight:700; letter-spacing:-.01em; margin:0; }
   .why { color:var(--dim); font-size:14px; margin:0 0 18px; max-width:70ch; }
+  /* per-section accent — every chart derives its colour from this */
+  .blue{--ac:var(--blue)} .cyan{--ac:var(--cyan)} .purple{--ac:var(--purple)}
+  .green{--ac:var(--green)} .orange{--ac:var(--orange)} .red{--ac:var(--red)}
   .prompts { display:grid; gap:12px; }
   .prompt { position:relative; background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--ac); border-radius:var(--r); padding:16px 56px 16px 18px; box-shadow:var(--shadow); }
   .prompt > p { margin:0; font-size:15px; line-height:1.5; color:var(--ink); }
@@ -548,17 +551,18 @@ _CSS = """
   .vstats .st .l { margin-top:6px; color:var(--dim); font:500 11px/1.3 "JetBrains Mono",monospace; }
   /* bars */
   .vbars { display:flex; flex-direction:column; gap:10px; }
-  .vbar { display:grid; grid-template-columns:132px 1fr 46px; gap:13px; align-items:center; }
+  .vbar { display:grid; grid-template-columns:128px 1fr 46px; gap:14px; align-items:center; }
   .vbar .bl { font-size:12.5px; color:var(--ink2); }
-  .vbar .bt { height:18px; background:color-mix(in srgb, var(--ink) 9%, transparent); border-radius:4px; overflow:hidden; }
-  .vbar .bf { height:100%; background:var(--ac); border-radius:4px; min-width:3px; }
-  .vbar .bv { font:600 12px/1 "JetBrains Mono",monospace; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
+  .vbar .bt { height:22px; background:color-mix(in srgb, var(--ink) 6%, transparent); border-radius:6px; overflow:hidden; }
+  .vbar .bf { height:100%; background:linear-gradient(90deg, color-mix(in srgb, var(--ac) 82%, transparent), var(--ac)); border-radius:6px; min-width:4px; }
+  .vbar .bv { font:600 12.5px/1 "JetBrains Mono",monospace; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
   /* table */
   .vtable { width:100%; border-collapse:collapse; font-size:12.5px; }
-  .vtable th { text-align:left; font:600 9.5px/1 "JetBrains Mono",monospace; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); padding:0 12px 9px 0; border-bottom:1px solid var(--line); }
-  .vtable td { padding:9px 12px 9px 0; border-bottom:1px solid var(--line); color:var(--ink2); vertical-align:middle; }
+  .vtable th { text-align:left; font:600 9.5px/1 "JetBrains Mono",monospace; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); padding:0 0 10px 0; border-bottom:1px solid var(--line); }
+  .vtable td { padding:10px 0; border-bottom:1px solid var(--line); color:var(--ink2); vertical-align:middle; }
+  .vtable th + th, .vtable td + td { padding-left:20px; }   /* guarantees columns never collide */
   .vtable tr:last-child td { border-bottom:none; }
-  .vtable td.r, .vtable th.r { text-align:right; font-variant-numeric:tabular-nums; padding-right:0; }
+  .vtable td.r, .vtable th.r { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .chip-sev { font:600 10px/1 "JetBrains Mono",monospace; padding:3px 8px; border-radius:5px; border:1px solid; }
   .chip-sev.hi { color:var(--red); border-color:color-mix(in srgb, var(--red) 45%, var(--line)); background:color-mix(in srgb, var(--red) 12%, transparent); }
   .chip-sev.med { color:var(--orange); border-color:color-mix(in srgb, var(--orange) 45%, var(--line)); background:color-mix(in srgb, var(--orange) 10%, transparent); }
