@@ -425,14 +425,65 @@ def _prompt_html(p: dict) -> str:
             f'<div class="viz">{viz}<div class="src">{_e(p["source"])}</div></div></details></div>')
 
 
-def render_html() -> str:
+# Each theme sets the design tokens; the rest of the CSS derives from them
+# (semantic chip/track colors use color-mix, so light + dark both work).
+_SANS = "Inter,ui-sans-serif,system-ui,sans-serif"
+_SERIF = '"Source Serif 4",Georgia,Cambria,"Times New Roman",serif'
+_GF = "https://fonts.googleapis.com/css2?family="  # google fonts base
+_LINK_INTER = _GF + "Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+_LINK_AISTACK = _GF + "Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap"
+_LINK_GTOWN = _GF + "Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Castoro:ital@0;1&display=swap"
+THEMES = {
+ "aistack": {  # editorial light, warm-white + vivid purple + serif heads (Substack "AI Stack")
+   "bg": "#ffffff", "bg2": "#f7f6f3", "panel": "#ffffff", "panel2": "#f7f6f3", "line": "#e6e3de",
+   "ink": "#1a1a1a", "ink2": "#3a3a3c", "dim": "#8a8a8e",
+   "blue": "#2f6bff", "cyan": "#0e9aa7", "green": "#1f8f4e", "purple": "#ab40ff", "orange": "#c2680a", "red": "#e23b30",
+   "grad1": "#ab40ff", "grad2": "#6a5bff", "glow": "#ab40ff14",
+   "shadow": "0 1px 2px rgba(0,0,0,.04), 0 10px 30px rgba(30,15,50,.06)", "r": "14px", "fsans": _SANS, "fdisplay": _SERIF, "link": _LINK_AISTACK},
+ "georgetown": {  # institutional report: navy + gold brand, vivid categorical charts, Castoro serif
+   "bg": "#ffffff", "bg2": "#f2f5f8", "panel": "#ffffff", "panel2": "#f2f5f8", "line": "#d8e0ea",
+   "ink": "#13233d", "ink2": "#3c4a5e", "dim": "#79869a",
+   "blue": "#0074cc", "cyan": "#1f7a8c", "green": "#266150", "purple": "#6b3fa0", "orange": "#e08a00", "red": "#de354c",
+   "grad1": "#144175", "grad2": "#f9a21c", "glow": "#14417510",
+   "shadow": "0 1px 2px rgba(16,32,60,.05), 0 10px 30px rgba(16,32,60,.06)", "r": "10px",
+   "fsans": '"Public Sans",Inter,system-ui,sans-serif', "fdisplay": '"Castoro",Georgia,serif', "link": _LINK_GTOWN},
+ "midnight": {  # vivid, high-contrast dark — "more color" than Tokyo Night
+   "bg": "#090a11", "bg2": "#10121f", "panel": "#141627", "panel2": "#1b1e34", "line": "#272b46",
+   "ink": "#eef2ff", "ink2": "#b3bce0", "dim": "#7b86ac",
+   "blue": "#6ea8fe", "cyan": "#34d8ee", "green": "#3ddc97", "purple": "#c08cff", "orange": "#ffc24b", "red": "#ff7a93",
+   "grad1": "#6ea8fe", "grad2": "#34d8ee", "glow": "#2a44b855", "shadow": "none", "r": "14px", "fsans": _SANS, "fdisplay": _SANS, "link": _LINK_INTER},
+ "apple": {  # crisp light, Apple-blue, generous whitespace + soft depth
+   "bg": "#ffffff", "bg2": "#f5f5f7", "panel": "#ffffff", "panel2": "#f5f5f7", "line": "#e5e5ea",
+   "ink": "#1d1d1f", "ink2": "#424245", "dim": "#86868b",
+   "blue": "#0071e3", "cyan": "#0098a6", "green": "#1a9c3e", "purple": "#5e5ce6", "orange": "#c25e00", "red": "#e0322a",
+   "grad1": "#0071e3", "grad2": "#9f5cff", "glow": "#0071e312",
+   "shadow": "0 1px 2px rgba(0,0,0,.05), 0 10px 30px rgba(0,0,0,.05)", "r": "18px", "fsans": _SANS, "fdisplay": _SANS, "link": _LINK_INTER},
+ "airbnb": {  # warm light, Rausch coral, friendly + rounded
+   "bg": "#ffffff", "bg2": "#f7f7f7", "panel": "#ffffff", "panel2": "#fbfbfb", "line": "#ebebeb",
+   "ink": "#222222", "ink2": "#484848", "dim": "#767676",
+   "blue": "#3b7dd8", "cyan": "#008489", "green": "#1a7a2e", "purple": "#a61d55", "orange": "#b8730a", "red": "#ff385c",
+   "grad1": "#ff385c", "grad2": "#ff9156", "glow": "#ff385c12",
+   "shadow": "0 6px 16px rgba(0,0,0,.08)", "r": "20px", "fsans": _SANS, "fdisplay": _SANS, "link": _LINK_INTER},
+}
+
+
+def root_css(theme: str) -> str:
+    t = THEMES[theme]
+    decls = "".join(f"--{k}:{v};" for k, v in t.items() if k != "link")
+    return f":root{{{decls}}}"
+
+
+def render_html(theme: str = "aistack") -> str:
+    if theme not in THEMES:
+        raise ValueError(f"unknown theme {theme!r}; choose from {list(THEMES)}")
     secs = []
     for s in SECTIONS:
         cards = "\n".join(_prompt_html(p) for p in s["prompts"])
         secs.append(f'<section class="{s["color"]}"><div class="sechead"><span class="ix">{s["ix"]}</span>'
                     f'<h2>{_e(s["title"])}</h2></div><p class="why">{_e(s["why"])}</p>'
                     f'<div class="prompts">{cards}</div></section>')
-    return _PAGE.format(css=_CSS, intro=_e(INTRO), body="\n".join(secs), js=_COPY_JS)
+    return _PAGE.format(css=root_css(theme) + _CSS, intro=_e(INTRO), body="\n".join(secs),
+                        js=_COPY_JS, fontlink=THEMES[theme]["link"])
 
 
 def render_md() -> str:
@@ -452,17 +503,14 @@ def render_md() -> str:
 # -- CSS / shell ------------------------------------------------------
 
 _CSS = """
-  :root { --bg:#0c0d14; --bg2:#10111a; --panel:#14151f; --panel2:#1a1b26; --line:#232539;
-    --ink:#c0caf5; --ink2:#a9b1d6; --dim:#7882a8;
-    --blue:#7aa2f7; --cyan:#2ac3de; --green:#9ece6a; --purple:#bb9af7; --orange:#e0af68; --red:#f7768e; --radius:16px; }
   * { box-sizing:border-box; }
-  body { margin:0; background:radial-gradient(1100px 520px at 78% -8%, #1a1b2655, transparent), var(--bg);
-    color:var(--ink); font-family:Inter,ui-sans-serif,system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  body { margin:0; background:radial-gradient(1100px 520px at 78% -8%, var(--glow), transparent), var(--bg);
+    color:var(--ink); font-family:var(--fsans); -webkit-font-smoothing:antialiased; }
   .wrap { max-width:920px; margin:0 auto; padding:56px 24px 90px; }
   code, .mono { font-family:"JetBrains Mono",ui-monospace,Menlo,monospace; }
   .eyebrow { font:600 12px/1 "JetBrains Mono",monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--blue); margin:0 0 14px; }
-  header h1 { font-size:40px; line-height:1.08; letter-spacing:-.025em; margin:0 0 12px; font-weight:700; }
-  header h1 .grad { background:linear-gradient(90deg,var(--blue),var(--cyan)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  header h1 { font-family:var(--fdisplay); font-size:43px; line-height:1.06; letter-spacing:-.02em; margin:0 0 12px; font-weight:700; }
+  header h1 .grad { background:linear-gradient(90deg,var(--grad1),var(--grad2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
   header .sub { color:var(--ink2); font-size:17px; line-height:1.5; max-width:66ch; margin:0; }
   .howto { margin:22px 0 0; padding:14px 18px; border:1px solid var(--line); border-left:3px solid var(--cyan); border-radius:12px; background:var(--bg2); color:var(--dim); font-size:13.5px; line-height:1.55; }
   .howto code { color:var(--ink2); }
@@ -472,7 +520,7 @@ _CSS = """
   .sechead h2 { font-size:22px; font-weight:700; letter-spacing:-.01em; margin:0; }
   .why { color:var(--dim); font-size:14px; margin:0 0 18px; max-width:70ch; }
   .prompts { display:grid; gap:12px; }
-  .prompt { position:relative; background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--ac); border-radius:12px; padding:16px 56px 16px 18px; }
+  .prompt { position:relative; background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--ac); border-radius:var(--r); padding:16px 56px 16px 18px; box-shadow:var(--shadow); }
   .prompt > p { margin:0; font-size:15px; line-height:1.5; color:var(--ink); }
   .prompt .hint { display:block; margin-top:7px; color:var(--dim); font:500 12px/1.4 "JetBrains Mono",monospace; }
   .copy { position:absolute; top:12px; right:12px; width:34px; height:34px; border-radius:8px; cursor:pointer;
@@ -486,15 +534,15 @@ _CSS = """
   details.ex > summary::before { content:"\\25B8"; transition:transform .15s ease; }
   details.ex[open] > summary::before { transform:rotate(90deg); }
   .extag { font:600 9.5px/1 "JetBrains Mono",monospace; text-transform:uppercase; letter-spacing:.1em; padding:3px 7px; border-radius:5px; border:1px solid var(--line); color:var(--dim); }
-  .extag.real { color:var(--green); border-color:#2f4a36; }
-  .extag.illus { color:var(--orange); border-color:#4a3f2a; }
+  .extag.real { color:var(--green); border-color:color-mix(in srgb, var(--green) 45%, var(--line)); }
+  .extag.illus { color:var(--orange); border-color:color-mix(in srgb, var(--orange) 45%, var(--line)); }
   /* report canvas */
-  .viz { margin-top:14px; padding:20px; background:var(--bg2); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; gap:20px; }
+  .viz { margin-top:14px; padding:20px; background:var(--bg2); border:1px solid var(--line); border-radius:var(--r); display:flex; flex-direction:column; gap:20px; }
   .viz .src { color:var(--dim); font:500 11px/1.4 "JetBrains Mono",monospace; border-top:1px solid var(--line); padding-top:11px; }
   .vtitle { font:600 10.5px/1 "JetBrains Mono",monospace; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-bottom:12px; }
   /* stats */
   .vstats { display:flex; flex-wrap:wrap; gap:10px; }
-  .vstats .st { flex:1; min-width:96px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 15px; }
+  .vstats .st { flex:1; min-width:96px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 15px; box-shadow:var(--shadow); }
   .vstats .st .n { font:700 25px/1 Inter,sans-serif; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
   .vstats .st.ac .n { color:var(--ac); }
   .vstats .st .l { margin-top:6px; color:var(--dim); font:500 11px/1.3 "JetBrains Mono",monospace; }
@@ -502,7 +550,7 @@ _CSS = """
   .vbars { display:flex; flex-direction:column; gap:10px; }
   .vbar { display:grid; grid-template-columns:132px 1fr 46px; gap:13px; align-items:center; }
   .vbar .bl { font-size:12.5px; color:var(--ink2); }
-  .vbar .bt { height:18px; background:var(--panel); border-radius:4px; overflow:hidden; }
+  .vbar .bt { height:18px; background:color-mix(in srgb, var(--ink) 9%, transparent); border-radius:4px; overflow:hidden; }
   .vbar .bf { height:100%; background:var(--ac); border-radius:4px; min-width:3px; }
   .vbar .bv { font:600 12px/1 "JetBrains Mono",monospace; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; }
   /* table */
@@ -512,11 +560,11 @@ _CSS = """
   .vtable tr:last-child td { border-bottom:none; }
   .vtable td.r, .vtable th.r { text-align:right; font-variant-numeric:tabular-nums; padding-right:0; }
   .chip-sev { font:600 10px/1 "JetBrains Mono",monospace; padding:3px 8px; border-radius:5px; border:1px solid; }
-  .chip-sev.hi { color:var(--red); border-color:#4a2b30; background:#1c1418; }
-  .chip-sev.med { color:var(--orange); border-color:#4a3f2a; }
+  .chip-sev.hi { color:var(--red); border-color:color-mix(in srgb, var(--red) 45%, var(--line)); background:color-mix(in srgb, var(--red) 12%, transparent); }
+  .chip-sev.med { color:var(--orange); border-color:color-mix(in srgb, var(--orange) 45%, var(--line)); background:color-mix(in srgb, var(--orange) 10%, transparent); }
   .chip-sev.lo { color:var(--dim); border-color:var(--line); }
   .dot { margin-right:8px; font-size:11px; } .dot.on { color:var(--green); } .dot.off { color:var(--dim); }
-  .cellbar { display:inline-block; width:64px; height:8px; background:var(--panel); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:9px; }
+  .cellbar { display:inline-block; width:64px; height:8px; background:color-mix(in srgb, var(--ink) 9%, transparent); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:9px; }
   .cellbar > span { display:block; height:100%; background:var(--ac); }
   /* timeline */
   .vtl { position:relative; padding-left:24px; }
@@ -530,7 +578,7 @@ _CSS = """
   .tlarc { margin-top:6px; padding-left:13px; border-left:2px solid var(--ac); color:var(--ink2); font-size:13px; font-style:italic; line-height:1.5; }
   /* cards */
   .vcards { display:flex; flex-direction:column; gap:10px; }
-  .vcard { background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--ac); border-radius:0 10px 10px 0; padding:13px 16px; }
+  .vcard { background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--ac); border-radius:0 10px 10px 0; padding:13px 16px; box-shadow:var(--shadow); }
   .vcard .ch { font-weight:600; font-size:13.5px; color:var(--ink); }
   .vcard .cs { font:500 11px/1 "JetBrains Mono",monospace; color:var(--dim); margin-left:8px; }
   .vcard .ct { margin-top:6px; color:var(--dim); font-size:12.5px; line-height:1.5; }
@@ -597,7 +645,7 @@ _PAGE = """<!doctype html>
 <title>Empower yourself — an OpenStory prompt library</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="{fontlink}" rel="stylesheet">
 <style>{css}</style></head>
 <body><div class="wrap">
   <header>
@@ -646,6 +694,13 @@ def run_tests() -> None:
     assert not leaks, f"LEAKAGE: {leaks}"
     kinds = [p["kind"] for s in SECTIONS for p in s["prompts"]]
     print(f"  OK: no leakage · {kinds.count('real')} real · {kinds.count('illustrative')} illustrative")
+
+    for th in THEMES:
+        hh = render_html(th)
+        assert hh.count('class="prompt"') == 20
+        assert f"--bg:{THEMES[th]['bg']};" in hh, f"theme tokens missing for {th}"
+        assert not leakage(hh)
+    print(f"  OK: {len(THEMES)} themes render cleanly ({', '.join(THEMES)})")
     print("\nAll tests passed.")
 
 
@@ -653,6 +708,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--html", metavar="PATH")
     ap.add_argument("--md", metavar="PATH")
+    ap.add_argument("--theme", default="aistack", choices=list(THEMES), help="palette for --html (default: midnight)")
     ap.add_argument("--test", action="store_true")
     args = ap.parse_args()
     if args.test:
@@ -660,6 +716,6 @@ if __name__ == "__main__":
     if not args.html and not args.md:
         ap.error("pass --html PATH and/or --md PATH (or --test)")
     if args.html:
-        Path(args.html).write_text(render_html(), encoding="utf-8"); print(f"Wrote {args.html}")
+        Path(args.html).write_text(render_html(args.theme), encoding="utf-8"); print(f"Wrote {args.html} [{args.theme}]")
     if args.md:
         Path(args.md).write_text(render_md(), encoding="utf-8"); print(f"Wrote {args.md}")
