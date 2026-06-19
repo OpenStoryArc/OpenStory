@@ -81,9 +81,9 @@ SECTIONS = [
      "source": "SQL: group message.assistant.tool_use by tool name + bash first-word",
      "viz": [
        {"type": "bars", "title": "Where time goes", "items": [
-          {"label": "Run / shell", "bar": 100, "val": "53%"}, {"label": "Read code", "bar": 40, "val": "21%"},
-          {"label": "Write code", "bar": 34, "val": "18%"}, {"label": "Plan / track", "bar": 6, "val": "3%"},
-          {"label": "Research", "bar": 2, "val": "1%"}]},
+          {"label": "Run / shell", "bar": 53, "val": "53%"}, {"label": "Read code", "bar": 21, "val": "21%"},
+          {"label": "Write code", "bar": 18, "val": "18%"}, {"label": "Plan / track", "bar": 3, "val": "3%"},
+          {"label": "Research", "bar": 1, "val": "1%"}]},
        {"type": "chips", "label": "Top commands", "items": ["grep · 127", "git · 46", "ssh · 31", "python3 · 27", "curl · 24"]},
        {"type": "note", "text": "**Read:Write 1.2:1** · most-used tool: Bash (53% of all calls)."}]},
   ]},
@@ -218,9 +218,9 @@ SECTIONS = [
      "source": "keyword-bucketing of prompt text + tool histogram",
      "viz": [
        {"type": "bars", "title": "Themes · last 30 days", "items": [
-          {"label": "Docs / research", "bar": 100, "val": "40%"}, {"label": "Deploy / infra", "bar": 60, "val": "24%"},
-          {"label": "Security / audit", "bar": 30, "val": "12%"}, {"label": "Data pipeline", "bar": 23, "val": "9%"},
-          {"label": "Testing / E2E", "bar": 18, "val": "7%"}, {"label": "UI / frontend", "bar": 15, "val": "6%"}]},
+          {"label": "Docs / research", "bar": 40, "val": "40%"}, {"label": "Deploy / infra", "bar": 24, "val": "24%"},
+          {"label": "Security / audit", "bar": 12, "val": "12%"}, {"label": "Data pipeline", "bar": 9, "val": "9%"},
+          {"label": "Testing / E2E", "bar": 7, "val": "7%"}, {"label": "UI / frontend", "bar": 6, "val": "6%"}]},
        {"type": "note", "text": "**Through-line:** shifted from building features to shipping & explaining — 64% of effort is docs + deploy/infra."}]},
   ]},
 
