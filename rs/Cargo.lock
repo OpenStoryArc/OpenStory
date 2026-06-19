@@ -2890,6 +2890,7 @@ dependencies = [
  "http-body-util",
  "k8s-openapi",
  "kube",
+ "libc",
  "notify",
  "open-story-bus",
  "open-story-core",

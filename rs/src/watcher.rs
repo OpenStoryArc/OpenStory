@@ -40,6 +40,46 @@ fn process_file_raw(
     process_file_raw_observed(path, states, None)
 }
 
+/// Cap on retained per-file watcher state. Each file the watcher has processed
+/// keeps one `TranscriptState` (byte offset, line count, session id) so reads
+/// stay incremental. Finished sessions never drop out on their own, so a
+/// long-lived process would grow unboundedly. When the cap is crossed we evict
+/// the states of the least-recently-*modified* files — finished sessions, which
+/// won't be written again. If an evicted file is somehow appended to later, it
+/// simply re-reads from offset 0 and the ingest-layer event-id dedup absorbs the
+/// replay. ~200 bytes/entry → the cap bounds this map to well under 1 MB.
+const MAX_WATCH_STATES: usize = 4096;
+/// Evict down to this low-water mark so eviction amortizes instead of firing on
+/// every new file once at the cap.
+const WATCH_STATES_LOW_WATER: usize = 3584;
+
+/// Drop the oldest-by-mtime entries when `states` exceeds `cap`, down to
+/// `low_water`. mtime is only stat'd when actually over the cap, so steady
+/// state is free.
+fn evict_stale_states(
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    cap: usize,
+    low_water: usize,
+) {
+    if states.len() <= cap {
+        return;
+    }
+    let mut by_mtime: Vec<(PathBuf, SystemTime)> = states
+        .keys()
+        .map(|p| {
+            let mtime = std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            (p.clone(), mtime)
+        })
+        .collect();
+    by_mtime.sort_by_key(|(_, t)| *t); // oldest first
+    let evict = states.len().saturating_sub(low_water);
+    for (p, _) in by_mtime.into_iter().take(evict) {
+        states.remove(&p);
+    }
+}
+
 fn process_file_raw_observed(
     path: &Path,
     states: &mut HashMap<PathBuf, TranscriptState>,
@@ -50,6 +90,7 @@ fn process_file_raw_observed(
     }
 
     let canonical = canonicalize_path(path);
+    let grew = !states.contains_key(&canonical);
     let state = states
         .entry(canonical.clone())
         .or_insert_with(|| TranscriptState::new(session_id_from_path(path)));
@@ -84,6 +125,11 @@ fn process_file_raw_observed(
             events.len() as u64,
             byte_offset_after == byte_offset_before,
         );
+    }
+
+    // Only when a brand-new file was added — steady-state reads are free.
+    if grew {
+        evict_stale_states(states, MAX_WATCH_STATES, WATCH_STATES_LOW_WATER);
     }
 
     Ok(events)
@@ -290,6 +336,40 @@ where
         }
     }
 
+    // macOS: prefer kqueue (precise per-write vnode events). FSEvents coalesces
+    // and silently drops held-open buffered appends — e.g. Codex rollout files,
+    // for which FSEvents fired ~2 events across a 47-minute session. See
+    // kqueue_watcher.rs. Escape hatch: OPEN_STORY_WATCHER=fsevents.
+    #[cfg(target_os = "macos")]
+    if std::env::var("OPEN_STORY_WATCHER").as_deref() != Ok("fsevents") {
+        let process = |path: &Path| {
+            if let Some(obs) = observer.as_ref() {
+                let p = vec![path.to_path_buf()];
+                obs.diagnostics
+                    .record_notify(&obs.actor, "kqueue:vnode", &p, true, None);
+            }
+            match process_watch_path_raw_observed(path, &mut states, observer.as_ref()) {
+                Ok(batches) => {
+                    for (source_path, events) in batches {
+                        let sid = session_id_from_path(&source_path);
+                        let pid = project_id_from_path(&source_path, watch_dir);
+                        let subject = nats_subject_from_path(&source_path, watch_dir);
+                        for chunk in events.chunks(BATCH_CHUNK_SIZE) {
+                            on_events(&sid, pid.as_deref(), &subject, chunk.to_vec());
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
+            }
+        };
+        return crate::kqueue_watcher::run_event_loop(
+            watch_dir,
+            crate::kqueue_watcher::DEFAULT_FILE_BUDGET,
+            process,
+        )
+        .map_err(anyhow::Error::from);
+    }
+
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
@@ -408,6 +488,38 @@ mod tests {
         process_file_raw(&alias, &mut states).unwrap();
 
         assert_eq!(states.len(), 1, "equivalent paths must share state");
+    }
+
+    #[test]
+    fn evict_stale_states_drops_oldest_keeps_newest() {
+        use filetime::{set_file_mtime, FileTime};
+        let dir = tempfile::tempdir().unwrap();
+        let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
+        let mut paths = Vec::new();
+        for (i, name) in ["old.jsonl", "mid.jsonl", "new.jsonl"].iter().enumerate() {
+            let p = dir.path().join(name);
+            std::fs::write(&p, b"").unwrap();
+            // Strictly increasing mtime so eviction order is deterministic.
+            set_file_mtime(&p, FileTime::from_unix_time(1000 + i as i64 * 100, 0)).unwrap();
+            states.insert(p.clone(), TranscriptState::new("s".to_string()));
+            paths.push(p);
+        }
+        // cap 2, low_water 1: 3 > 2 → evict down to 1, keeping the newest.
+        evict_stale_states(&mut states, 2, 1);
+        assert_eq!(states.len(), 1, "must evict down to the low-water mark");
+        assert!(states.contains_key(&paths[2]), "newest mtime must survive");
+        assert!(!states.contains_key(&paths[0]), "oldest mtime must be evicted");
+    }
+
+    #[test]
+    fn evict_stale_states_is_a_noop_under_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut states: HashMap<PathBuf, TranscriptState> = HashMap::new();
+        let p = dir.path().join("a.jsonl");
+        std::fs::write(&p, b"").unwrap();
+        states.insert(p, TranscriptState::new("s".to_string()));
+        evict_stale_states(&mut states, 10, 5);
+        assert_eq!(states.len(), 1, "under the cap nothing is evicted");
     }
 
     #[test]
