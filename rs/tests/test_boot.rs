@@ -15,8 +15,8 @@ mod helpers;
 use open_story_bus::nats_bus::NatsBus;
 use open_story_bus::Bus;
 use serde_json::json;
-use testcontainers::{GenericImage, ImageExt};
 use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 
 /// Start a NATS container and return a connected NatsBus.
 async fn start_nats() -> (NatsBus, testcontainers::ContainerAsync<GenericImage>) {
@@ -32,7 +32,10 @@ async fn start_nats() -> (NatsBus, testcontainers::ContainerAsync<GenericImage>)
     let mut bus = None;
     for _ in 0..10 {
         match NatsBus::connect(&nats_url).await {
-            Ok(b) => { bus = Some(b); break; }
+            Ok(b) => {
+                bus = Some(b);
+                break;
+            }
             Err(_) => tokio::time::sleep(std::time::Duration::from_millis(500)).await,
         }
     }
@@ -141,10 +144,12 @@ async fn watcher_backfill_translates_agent_id() {
     let watcher_bus = bus;
     let wd = watch_dir.clone();
     let handle = tokio::task::spawn_blocking(move || {
+        use open_story_bus::IngestBatch;
+        use open_story_core::paths::{
+            nats_subject_from_path, project_id_from_path, session_id_from_path,
+        };
         use open_story_core::reader::read_new_lines;
         use open_story_core::translate::TranscriptState;
-        use open_story_core::paths::{session_id_from_path, project_id_from_path, nats_subject_from_path};
-        use open_story_bus::IngestBatch;
         use walkdir::WalkDir;
 
         let mut states = std::collections::HashMap::new();
@@ -167,17 +172,18 @@ async fn watcher_backfill_translates_agent_id() {
                     events,
                 };
                 let rt = tokio::runtime::Handle::current();
-                rt.block_on(watcher_bus.publish(&subject, &batch)).expect("publish");
+                rt.block_on(watcher_bus.publish(&subject, &batch))
+                    .expect("publish");
             }
         }
     });
     handle.await.expect("watcher backfill");
 
     // Receive the batch from NATS
-    let batch = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        sub.receiver.recv(),
-    ).await.expect("timeout").expect("receive batch");
+    let batch = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("timeout")
+        .expect("receive batch");
 
     assert_eq!(batch.session_id, "boot-test-sess");
 
@@ -186,14 +192,23 @@ async fn watcher_backfill_translates_agent_id() {
     for event in &batch.events {
         if let Some(ap) = &event.data.agent_payload {
             if let Some(outcome) = ap.tool_outcome() {
-                if let open_story_core::event_data::ToolOutcome::SubAgentSpawned { agent_id, description } = outcome {
-                    assert_eq!(agent_id, "atest123def456",
-                        "agent_id must be populated from toolUseResult.agentId");
+                if let open_story_core::event_data::ToolOutcome::SubAgentSpawned {
+                    agent_id,
+                    description,
+                } = outcome
+                {
+                    assert_eq!(
+                        agent_id, "atest123def456",
+                        "agent_id must be populated from toolUseResult.agentId"
+                    );
                     assert_eq!(description, "Test agent exploration");
                     found_agent_id = true;
                 }
             }
         }
     }
-    assert!(found_agent_id, "should find SubAgentSpawned with agent_id in translated events");
+    assert!(
+        found_agent_id,
+        "should find SubAgentSpawned with agent_id in translated events"
+    );
 }

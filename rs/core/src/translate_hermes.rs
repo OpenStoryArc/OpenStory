@@ -86,7 +86,10 @@ pub fn is_hermes_format(line: &Value) -> bool {
     if !source_ok {
         return false;
     }
-    let event_type = line.get("event_type").and_then(|v| v.as_str()).unwrap_or("");
+    let event_type = line
+        .get("event_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     matches!(event_type, "session_start" | "message" | "session_end")
 }
 
@@ -116,7 +119,10 @@ pub fn translate_hermes_line(line: &Value, state: &mut TranscriptState) -> Vec<C
         .get("timestamp")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let env_seq = envelope.get("event_seq").and_then(|v| v.as_u64()).unwrap_or(0);
+    let env_seq = envelope
+        .get("event_seq")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
     // Source URI mirrors `hermes://session/<id>` to parallel pi-mono.
     let source = format!("hermes://session/{}", session_id);
@@ -167,7 +173,12 @@ fn translate_assistant_message(
         if !reasoning.is_empty() {
             let mut payload = HermesPayload::new();
             payload.reasoning = Some(reasoning.to_string());
-            out.push(build_event(ctx, "message.assistant.thinking", payload, state));
+            out.push(build_event(
+                ctx,
+                "message.assistant.thinking",
+                payload,
+                state,
+            ));
         }
     }
 
@@ -192,7 +203,11 @@ fn translate_assistant_message(
     // ── Tool calls — fan out one event per call ──
     // Each tool call gets a unique index to avoid ID collisions (B2).
     if let Some(tcs) = tool_calls {
-        let preceding = if text.is_empty() { None } else { Some(text.clone()) };
+        let preceding = if text.is_empty() {
+            None
+        } else {
+            Some(text.clone())
+        };
         for (i, tc) in tcs.iter().enumerate() {
             out.push(build_tool_use(ctx, tc, &preceding, i, state));
         }
@@ -234,11 +249,7 @@ fn build_session_start(
     build_event(ctx, "system.session.start", payload, state)
 }
 
-fn build_turn_complete(
-    ctx: &LineCtx<'_>,
-    data: &Value,
-    state: &mut TranscriptState,
-) -> CloudEvent {
+fn build_turn_complete(ctx: &LineCtx<'_>, data: &Value, state: &mut TranscriptState) -> CloudEvent {
     let mut payload = HermesPayload::new();
     payload.reason = data
         .get("reason")
@@ -250,21 +261,13 @@ fn build_turn_complete(
     build_event(ctx, "system.turn.complete", payload, state)
 }
 
-fn build_user_prompt(
-    ctx: &LineCtx<'_>,
-    msg: &Value,
-    state: &mut TranscriptState,
-) -> CloudEvent {
+fn build_user_prompt(ctx: &LineCtx<'_>, msg: &Value, state: &mut TranscriptState) -> CloudEvent {
     let mut payload = HermesPayload::new();
     payload.text = Some(extract_text(msg));
     build_event(ctx, "message.user.prompt", payload, state)
 }
 
-fn build_tool_result(
-    ctx: &LineCtx<'_>,
-    msg: &Value,
-    state: &mut TranscriptState,
-) -> CloudEvent {
+fn build_tool_result(ctx: &LineCtx<'_>, msg: &Value, state: &mut TranscriptState) -> CloudEvent {
     // Verified canonical keys: `tool_call_id` (required), `tool_name` (optional).
     // No `id`/`name` aliases — see SOURCE_VERIFICATION.md §4.1.
     let mut payload = HermesPayload::new();
@@ -329,7 +332,12 @@ fn build_tool_use(
 
     // Use indexed ID derivation to avoid collisions when a single message
     // fans out to multiple tool_use CloudEvents. (Review blocker B2.)
-    let event_id = derive_event_id_indexed(ctx.session_id, ctx.env_seq, "message.assistant.tool_use", tool_index);
+    let event_id = derive_event_id_indexed(
+        ctx.session_id,
+        ctx.env_seq,
+        "message.assistant.tool_use",
+        tool_index,
+    );
     payload.seq = Some(ctx.env_seq);
     payload.timestamp = ctx.timestamp.clone();
 
@@ -473,7 +481,12 @@ mod tests {
     }
 
     fn payload(event: &CloudEvent) -> HermesPayload {
-        match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+        match event
+            .data
+            .agent_payload
+            .as_ref()
+            .expect("agent_payload should be Some")
+        {
             AgentPayload::Hermes(p) => p.clone(),
             _ => panic!("expected Hermes payload"),
         }
@@ -596,10 +609,7 @@ mod tests {
 
         assert_eq!(events.len(), 7, "expected 7 CloudEvents from 6 input lines");
 
-        let subtypes: Vec<&str> = events
-            .iter()
-            .filter_map(|e| e.subtype.as_deref())
-            .collect();
+        let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
         assert_eq!(
             subtypes,
             vec![
@@ -662,7 +672,10 @@ mod tests {
         );
         let events = translate_hermes_line(&line, &mut s);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].subtype.as_deref(), Some("message.user.tool_result"));
+        assert_eq!(
+            events[0].subtype.as_deref(),
+            Some("message.user.tool_result")
+        );
         let p = payload(&events[0]);
         assert_eq!(p.tool_call_id.as_deref(), Some("tc_1"));
         assert_eq!(p.text.as_deref(), Some("search results"));
@@ -797,7 +810,11 @@ mod tests {
             vec!["message.assistant.thinking", "message.assistant.tool_use"]
         );
         let thinking = payload(&events[0]);
-        assert!(thinking.reasoning.as_deref().unwrap().contains("information"));
+        assert!(thinking
+            .reasoning
+            .as_deref()
+            .unwrap()
+            .contains("information"));
         let tool = payload(&events[1]);
         assert_eq!(tool.preceding_text.as_deref(), Some("I'll search."));
     }

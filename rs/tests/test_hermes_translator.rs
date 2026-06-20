@@ -40,8 +40,8 @@ fn load_and_translate_fixture() -> (Vec<CloudEvent>, Vec<Value>) {
         if line.is_empty() {
             continue;
         }
-        let parsed: Value = serde_json::from_str(line)
-            .unwrap_or_else(|e| panic!("bad JSON in fixture: {}", e));
+        let parsed: Value =
+            serde_json::from_str(line).unwrap_or_else(|e| panic!("bad JSON in fixture: {}", e));
         raw_lines.push(parsed.clone());
         events.extend(translate_hermes_line(&parsed, &mut state));
     }
@@ -51,7 +51,12 @@ fn load_and_translate_fixture() -> (Vec<CloudEvent>, Vec<Value>) {
 
 /// Helper: extract HermesPayload from a CloudEvent.
 fn hermes_payload(event: &CloudEvent) -> &open_story_core::event_data::HermesPayload {
-    match event.data.agent_payload.as_ref().expect("missing agent_payload") {
+    match event
+        .data
+        .agent_payload
+        .as_ref()
+        .expect("missing agent_payload")
+    {
         AgentPayload::Hermes(p) => p,
         other => panic!("expected Hermes payload, got {:?}", other),
     }
@@ -89,10 +94,7 @@ fn fixture_produces_correct_event_count() {
 #[test]
 fn fixture_subtypes_are_in_expected_order() {
     let (events, _) = load_and_translate_fixture();
-    let subtypes: Vec<&str> = events
-        .iter()
-        .filter_map(|e| e.subtype.as_deref())
-        .collect();
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
     assert_eq!(
         subtypes,
         vec![
@@ -151,7 +153,11 @@ fn fixture_thinking_contains_reasoning() {
         Some("message.assistant.thinking")
     );
     let p = hermes_payload(thinking);
-    assert!(p.reasoning.as_deref().unwrap().contains("directory listing"));
+    assert!(p
+        .reasoning
+        .as_deref()
+        .unwrap()
+        .contains("directory listing"));
 }
 
 #[test]
@@ -222,7 +228,10 @@ fn fixture_event_ids_are_deterministic() {
     let (events2, _) = load_and_translate_fixture();
     let ids1: Vec<&str> = events1.iter().map(|e| e.id.as_str()).collect();
     let ids2: Vec<&str> = events2.iter().map(|e| e.id.as_str()).collect();
-    assert_eq!(ids1, ids2, "event IDs must be stable across translation passes");
+    assert_eq!(
+        ids1, ids2,
+        "event IDs must be stable across translation passes"
+    );
 }
 
 #[test]
@@ -311,10 +320,14 @@ fn snapshot_has_expected_top_level_fields() {
 
 /// Load the REAL session fixture and translate.
 fn load_and_translate_real_session() -> (Vec<CloudEvent>, Vec<Value>) {
-    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/hermes/real_session.jsonl");
-    let content = std::fs::read_to_string(&fixture_path)
-        .unwrap_or_else(|e| panic!("real session fixture not found at {:?}: {}", fixture_path, e));
+    let fixture_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hermes/real_session.jsonl");
+    let content = std::fs::read_to_string(&fixture_path).unwrap_or_else(|e| {
+        panic!(
+            "real session fixture not found at {:?}: {}",
+            fixture_path, e
+        )
+    });
 
     let mut state = TranscriptState::new("real-session".to_string());
     let mut events: Vec<CloudEvent> = Vec::new();
@@ -337,7 +350,10 @@ fn load_and_translate_real_session() -> (Vec<CloudEvent>, Vec<Value>) {
 #[test]
 fn real_session_is_detected_as_hermes_format() {
     let (_, raw_lines) = load_and_translate_real_session();
-    assert!(!raw_lines.is_empty(), "real session fixture should have lines");
+    assert!(
+        !raw_lines.is_empty(),
+        "real session fixture should have lines"
+    );
     for (i, line) in raw_lines.iter().enumerate() {
         assert!(
             is_hermes_format(line),
@@ -365,10 +381,7 @@ fn real_session_produces_correct_event_count() {
 #[test]
 fn real_session_subtypes_match_expected_order() {
     let (events, _) = load_and_translate_real_session();
-    let subtypes: Vec<&str> = events
-        .iter()
-        .filter_map(|e| e.subtype.as_deref())
-        .collect();
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
     // No thinking event — Sonnet 4 didn't produce reasoning for this query.
     assert_eq!(
         subtypes,
@@ -394,16 +407,16 @@ fn real_session_tool_call_has_anthropic_style_id() {
     assert_eq!(tool_use.len(), 1);
     let p = hermes_payload(tool_use[0]);
     assert!(
-        p.tool_use_id
-            .as_deref()
-            .unwrap_or("")
-            .starts_with("toolu_"),
+        p.tool_use_id.as_deref().unwrap_or("").starts_with("toolu_"),
         "Anthropic tool IDs start with toolu_"
     );
     assert_eq!(p.tool.as_deref(), Some("read_file"));
     // Arguments must be parsed from JSON string
     let args = p.args.as_ref().unwrap();
-    assert!(args.get("path").is_some(), "read_file should have a path arg");
+    assert!(
+        args.get("path").is_some(),
+        "read_file should have a path arg"
+    );
 }
 
 #[test]
@@ -490,8 +503,8 @@ fn real_session_timestamp_is_naive_iso8601() {
 
 /// Generic helper: load any fixture JSONL and translate.
 fn translate_fixture(name: &str) -> Vec<CloudEvent> {
-    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("tests/fixtures/hermes/{}", name));
+    let fixture_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/hermes/{}", name));
     let content = std::fs::read_to_string(&fixture_path)
         .unwrap_or_else(|e| panic!("fixture {:?} not found: {}", fixture_path, e));
 
@@ -515,14 +528,17 @@ fn real_tool_error_session_translates_cleanly() {
     // start + user + tool_use + tool_result + text + end = 6
     assert_eq!(events.len(), 6);
     let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
-    assert_eq!(subtypes, vec![
-        "system.session.start",
-        "message.user.prompt",
-        "message.assistant.tool_use",
-        "message.user.tool_result",
-        "message.assistant.text",
-        "system.turn.complete",
-    ]);
+    assert_eq!(
+        subtypes,
+        vec![
+            "system.session.start",
+            "message.user.prompt",
+            "message.assistant.tool_use",
+            "message.user.tool_result",
+            "message.assistant.text",
+            "system.turn.complete",
+        ]
+    );
 }
 
 #[test]
@@ -530,7 +546,8 @@ fn real_tool_error_result_contains_error_in_content_json() {
     // Hermes encodes errors INSIDE the tool result content JSON string.
     // The `error` key is present in the JSON, NOT as a separate message field.
     let events = translate_fixture("real_tool_error.jsonl");
-    let tool_result = events.iter()
+    let tool_result = events
+        .iter()
         .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .expect("should have tool_result");
     let p = hermes_payload(tool_result);
@@ -553,12 +570,14 @@ fn real_tool_error_result_contains_error_in_content_json() {
 #[test]
 fn real_write_read_chain_has_two_tool_use_events() {
     let events = translate_fixture("real_write_read_chain.jsonl");
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 2, "write + read = 2 tool_use events");
 
-    let tool_names: Vec<&str> = tool_uses.iter()
+    let tool_names: Vec<&str> = tool_uses
+        .iter()
         .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
         .collect();
     assert_eq!(tool_names, vec!["write_file", "read_file"]);
@@ -567,7 +586,8 @@ fn real_write_read_chain_has_two_tool_use_events() {
 #[test]
 fn real_write_result_is_structured_json() {
     let events = translate_fixture("real_write_read_chain.jsonl");
-    let tool_results: Vec<&CloudEvent> = events.iter()
+    let tool_results: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .collect();
     // First tool result is from write_file
@@ -588,16 +608,19 @@ fn real_write_read_chain_subtypes() {
     //   tool_use(read) + tool_result(read) + text + end = 8
     assert_eq!(events.len(), 8);
     let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
-    assert_eq!(subtypes, vec![
-        "system.session.start",
-        "message.user.prompt",
-        "message.assistant.tool_use",
-        "message.user.tool_result",
-        "message.assistant.tool_use",
-        "message.user.tool_result",
-        "message.assistant.text",
-        "system.turn.complete",
-    ]);
+    assert_eq!(
+        subtypes,
+        vec![
+            "system.session.start",
+            "message.user.prompt",
+            "message.assistant.tool_use",
+            "message.user.tool_result",
+            "message.assistant.tool_use",
+            "message.user.tool_result",
+            "message.assistant.text",
+            "system.turn.complete",
+        ]
+    );
 }
 
 // ── Search + bash session ───────────────────────────────────────
@@ -605,12 +628,14 @@ fn real_write_read_chain_subtypes() {
 #[test]
 fn real_search_bash_exercises_two_tool_types() {
     let events = translate_fixture("real_search_bash.jsonl");
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 2);
 
-    let tool_names: Vec<&str> = tool_uses.iter()
+    let tool_names: Vec<&str> = tool_uses
+        .iter()
         .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
         .collect();
     assert_eq!(tool_names, vec!["search_files", "terminal"]);
@@ -619,7 +644,8 @@ fn real_search_bash_exercises_two_tool_types() {
 #[test]
 fn real_terminal_result_has_exit_code() {
     let events = translate_fixture("real_search_bash.jsonl");
-    let tool_results: Vec<&CloudEvent> = events.iter()
+    let tool_results: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .collect();
     // Second tool result is from terminal
@@ -642,7 +668,8 @@ fn real_terminal_result_has_exit_code() {
 #[test]
 fn real_delegate_exercises_subagent() {
     let events = translate_fixture("real_delegate.jsonl");
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 1);
@@ -661,7 +688,8 @@ fn real_delegate_exercises_subagent() {
 #[test]
 fn real_delegate_result_is_structured_json() {
     let events = translate_fixture("real_delegate.jsonl");
-    let tool_result = events.iter()
+    let tool_result = events
+        .iter()
         .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .unwrap();
     let p = hermes_payload(tool_result);
@@ -678,12 +706,14 @@ fn real_delegate_result_is_structured_json() {
 #[test]
 fn real_code_review_exercises_patch_tool() {
     let events = translate_fixture("real_code_review_patch.jsonl");
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 2, "read + patch = 2 tool_use events");
 
-    let tool_names: Vec<&str> = tool_uses.iter()
+    let tool_names: Vec<&str> = tool_uses
+        .iter()
         .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
         .collect();
     assert_eq!(tool_names, vec!["read_file", "patch"]);
@@ -692,7 +722,8 @@ fn real_code_review_exercises_patch_tool() {
 #[test]
 fn real_patch_result_has_success_and_diff() {
     let events = translate_fixture("real_code_review_patch.jsonl");
-    let tool_results: Vec<&CloudEvent> = events.iter()
+    let tool_results: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .collect();
     // Second tool result is from patch
@@ -713,15 +744,22 @@ fn real_patch_result_has_success_and_diff() {
 #[test]
 fn real_patch_args_contain_old_and_new_string() {
     let events = translate_fixture("real_code_review_patch.jsonl");
-    let patch_use = events.iter()
+    let patch_use = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .find(|e| hermes_payload(e).tool.as_deref() == Some("patch"))
         .expect("should have a patch tool_use");
     let p = hermes_payload(patch_use);
     let args = p.args.as_ref().unwrap();
     assert!(args.get("path").is_some(), "patch should have path arg");
-    assert!(args.get("old_string").is_some(), "patch should have old_string arg");
-    assert!(args.get("new_string").is_some(), "patch should have new_string arg");
+    assert!(
+        args.get("old_string").is_some(),
+        "patch should have old_string arg"
+    );
+    assert!(
+        args.get("new_string").is_some(),
+        "patch should have new_string arg"
+    );
 }
 
 // ── Execute code session ────────────────────────────────────────
@@ -729,7 +767,8 @@ fn real_patch_args_contain_old_and_new_string() {
 #[test]
 fn real_execute_code_uses_terminal_tool() {
     let events = translate_fixture("real_execute_code.jsonl");
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 1);
@@ -745,7 +784,8 @@ fn real_execute_code_uses_terminal_tool() {
 #[test]
 fn real_execute_code_result_has_output_and_exit_code() {
     let events = translate_fixture("real_execute_code.jsonl");
-    let tool_result = events.iter()
+    let tool_result = events
+        .iter()
         .find(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
         .unwrap();
     let p = hermes_payload(tool_result);
@@ -767,16 +807,22 @@ fn real_execute_code_result_has_output_and_exit_code() {
 fn real_complex_refactor_translates_full_session() {
     let events = translate_fixture("real_complex_refactor.jsonl");
     // 18 input lines → events: start + user + 7*(tool_use + tool_result) + text + end = 18
-    assert!(events.len() >= 16, "complex session should produce many events, got {}", events.len());
+    assert!(
+        events.len() >= 16,
+        "complex session should produce many events, got {}",
+        events.len()
+    );
 
     // Should have 7 tool_use events
-    let tool_uses: Vec<&CloudEvent> = events.iter()
+    let tool_uses: Vec<&CloudEvent> = events
+        .iter()
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
     assert_eq!(tool_uses.len(), 7, "7 tool calls in the complex refactor");
 
     // Check tool diversity
-    let mut tool_names: Vec<&str> = tool_uses.iter()
+    let mut tool_names: Vec<&str> = tool_uses
+        .iter()
         .map(|e| hermes_payload(e).tool.as_deref().unwrap_or("?"))
         .collect();
     tool_names.sort();
@@ -793,7 +839,8 @@ fn real_complex_refactor_has_alternating_tool_pattern() {
     // Multi-turn sessions should have strict alternation:
     // assistant(tool_use) → tool(result) → assistant(tool_use) → ...
     let events = translate_fixture("real_complex_refactor.jsonl");
-    let relevant: Vec<(&str, &str)> = events.iter()
+    let relevant: Vec<(&str, &str)> = events
+        .iter()
         .filter_map(|e| {
             let st = e.subtype.as_deref()?;
             if st == "message.assistant.tool_use" || st == "message.user.tool_result" {
@@ -878,7 +925,11 @@ fn all_real_sessions_start_and_end_correctly() {
         "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
-        assert!(events.len() >= 4, "{} should have at least 4 events", fixture);
+        assert!(
+            events.len() >= 4,
+            "{} should have at least 4 events",
+            fixture
+        );
         assert_eq!(
             events.first().unwrap().subtype.as_deref(),
             Some("system.session.start"),
@@ -909,7 +960,10 @@ fn no_real_session_has_tool_name_on_tool_results() {
         "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
-        for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
+        for ev in events
+            .iter()
+            .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        {
             let p = hermes_payload(ev);
             assert!(
                 p.tool_name.is_none(),
@@ -936,7 +990,8 @@ fn no_real_session_has_non_null_reasoning() {
         "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
-        let thinking: Vec<&CloudEvent> = events.iter()
+        let thinking: Vec<&CloudEvent> = events
+            .iter()
             .filter(|e| e.subtype.as_deref() == Some("message.assistant.thinking"))
             .collect();
         assert!(
@@ -962,7 +1017,10 @@ fn all_tool_results_content_is_valid_json() {
         "real_complex_refactor.jsonl",
     ] {
         let events = translate_fixture(fixture);
-        for ev in events.iter().filter(|e| e.subtype.as_deref() == Some("message.user.tool_result")) {
+        for ev in events
+            .iter()
+            .filter(|e| e.subtype.as_deref() == Some("message.user.tool_result"))
+        {
             let p = hermes_payload(ev);
             let content = p.text.as_deref().unwrap_or("");
             if !content.is_empty() {
@@ -1010,10 +1068,7 @@ mod container_tests {
     async fn run_fixture_container() -> (String, String) {
         let image = GenericImage::new("hermes-fixture", "test");
         let tmp = tempfile::tempdir().unwrap();
-        let output_mount = Mount::bind_mount(
-            tmp.path().to_str().unwrap(),
-            "/output",
-        );
+        let output_mount = Mount::bind_mount(tmp.path().to_str().unwrap(), "/output");
 
         let container = image
             .with_mount(output_mount)
@@ -1044,7 +1099,9 @@ mod container_tests {
         let mut events: Vec<CloudEvent> = Vec::new();
 
         for line in jsonl.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let parsed: Value = serde_json::from_str(line).unwrap();
             assert!(is_hermes_format(&parsed));
             events.extend(translate_hermes_line(&parsed, &mut state));
@@ -1052,15 +1109,18 @@ mod container_tests {
 
         assert_eq!(events.len(), 7);
         let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
-        assert_eq!(subtypes, vec![
-            "system.session.start",
-            "message.user.prompt",
-            "message.assistant.thinking",
-            "message.assistant.tool_use",
-            "message.user.tool_result",
-            "message.assistant.text",
-            "system.turn.complete",
-        ]);
+        assert_eq!(
+            subtypes,
+            vec![
+                "system.session.start",
+                "message.user.prompt",
+                "message.assistant.thinking",
+                "message.assistant.tool_use",
+                "message.user.tool_result",
+                "message.assistant.text",
+                "system.turn.complete",
+            ]
+        );
     }
 
     #[tokio::test]
@@ -1068,12 +1128,18 @@ mod container_tests {
         let (jsonl, _) = run_fixture_container().await;
         let mut state = TranscriptState::new("container-tag".to_string());
         for line in jsonl.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let parsed: Value = serde_json::from_str(line).unwrap();
             for ev in translate_hermes_line(&parsed, &mut state) {
-                assert_eq!(ev.agent.as_deref(), Some("hermes"), "all events must carry hermes agent tag");
+                assert_eq!(
+                    ev.agent.as_deref(),
+                    Some("hermes"),
+                    "all events must carry hermes agent tag"
+                );
                 match ev.data.agent_payload.as_ref() {
-                    Some(AgentPayload::Hermes(_)) => {},
+                    Some(AgentPayload::Hermes(_)) => {}
                     other => panic!("expected Hermes payload, got {:?}", other),
                 }
             }
@@ -1086,14 +1152,20 @@ mod container_tests {
         let mut state = TranscriptState::new("container-ids".to_string());
         let mut ids: Vec<String> = Vec::new();
         for line in jsonl.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let parsed: Value = serde_json::from_str(line).unwrap();
             for ev in translate_hermes_line(&parsed, &mut state) {
                 ids.push(ev.id.clone());
             }
         }
         let unique: std::collections::HashSet<&str> = ids.iter().map(|s| s.as_str()).collect();
-        assert_eq!(unique.len(), ids.len(), "container event IDs must be unique");
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "container event IDs must be unique"
+        );
     }
 
     #[tokio::test]
@@ -1104,7 +1176,9 @@ mod container_tests {
             let mut state = TranscriptState::new(seed.to_string());
             let mut ids = Vec::new();
             for line in jsonl.lines() {
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 let parsed: Value = serde_json::from_str(line).unwrap();
                 for ev in translate_hermes_line(&parsed, &mut state) {
                     ids.push(ev.id.clone());
@@ -1137,7 +1211,10 @@ mod container_tests {
         assert!(snap["messages"].is_array());
 
         let messages = snap["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), snap["message_count"].as_u64().unwrap() as usize);
+        assert_eq!(
+            messages.len(),
+            snap["message_count"].as_u64().unwrap() as usize
+        );
     }
 
     #[tokio::test]
@@ -1174,7 +1251,9 @@ mod container_tests {
         let mut state = TranscriptState::new("container-link".to_string());
         let mut events: Vec<CloudEvent> = Vec::new();
         for line in jsonl.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let parsed: Value = serde_json::from_str(line).unwrap();
             events.extend(translate_hermes_line(&parsed, &mut state));
         }
@@ -1212,7 +1291,9 @@ mod container_tests {
         let (jsonl, _) = run_fixture_container().await;
         let mut state = TranscriptState::new("container-raw".to_string());
         for line in jsonl.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let parsed: Value = serde_json::from_str(line).unwrap();
             for ev in translate_hermes_line(&parsed, &mut state) {
                 // raw should be the original input line

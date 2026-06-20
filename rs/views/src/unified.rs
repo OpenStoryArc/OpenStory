@@ -106,9 +106,16 @@ pub enum MessageContent {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    CodeBlock { text: String, language: Option<String> },
-    Image { source: Value },
+    Text {
+        text: String,
+    },
+    CodeBlock {
+        text: String,
+        language: Option<String>,
+    },
+    Image {
+        source: Value,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +154,10 @@ pub struct ToolCall {
 impl ToolCall {
     /// Parse raw_input into a typed ToolInput variant.
     pub fn resolve_typed_input(&mut self) {
-        self.typed_input = Some(tool_input::parse_tool_input(&self.name, self.raw_input.clone()));
+        self.typed_input = Some(tool_input::parse_tool_input(
+            &self.name,
+            self.raw_input.clone(),
+        ));
     }
 }
 
@@ -244,8 +254,8 @@ pub struct ErrorRecord {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use crate::unified::*;
+    use serde_json::json;
 
     // describe("RecordBody deserialization")
     mod record_body {
@@ -261,12 +271,10 @@ mod tests {
             });
             let body: RecordBody = serde_json::from_value(json).unwrap();
             match body {
-                RecordBody::UserMessage(u) => {
-                    match u.content {
-                        MessageContent::Text(t) => assert_eq!(t, "Hello, world!"),
-                        other => panic!("expected Text, got {:?}", other),
-                    }
-                }
+                RecordBody::UserMessage(u) => match u.content {
+                    MessageContent::Text(t) => assert_eq!(t, "Hello, world!"),
+                    other => panic!("expected Text, got {:?}", other),
+                },
                 other => panic!("expected UserMessage, got {:?}", other),
             }
         }

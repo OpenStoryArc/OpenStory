@@ -50,8 +50,14 @@ fn known_claude_code_event_passes_both_schemas() {
             }
         }
     });
-    assert!(full_validator().is_valid(&event), "known event must pass full schema");
-    assert!(envelope_validator().is_valid(&event), "known event must also pass envelope");
+    assert!(
+        full_validator().is_valid(&event),
+        "known event must pass full schema"
+    );
+    assert!(
+        envelope_validator().is_valid(&event),
+        "known event must also pass envelope"
+    );
 }
 
 // ── Tier B: unknown events fail full, pass envelope ────────────────────
@@ -110,7 +116,10 @@ fn missing_id_fails_both_schemas() {
         "data": {"raw": {}}
     });
     assert!(!full_validator().is_valid(&event));
-    assert!(!envelope_validator().is_valid(&event), "no id = not even an envelope");
+    assert!(
+        !envelope_validator().is_valid(&event),
+        "no id = not even an envelope"
+    );
 }
 
 #[test]
@@ -160,14 +169,23 @@ async fn every_live_event_passes_the_envelope_schema() {
 
     let sessions: serde_json::Value = client
         .get("http://localhost:3002/api/sessions")
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let session_ids: Vec<String> = sessions
-        .get("sessions").and_then(|v| v.as_array())
+        .get("sessions")
+        .and_then(|v| v.as_array())
         .unwrap_or(&Vec::new())
         .iter()
         .take(20)
-        .filter_map(|s| s.get("session_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|s| {
+            s.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     let mut total = 0usize;
@@ -175,8 +193,12 @@ async fn every_live_event_passes_the_envelope_schema() {
     for sid in &session_ids {
         let events: Vec<serde_json::Value> = client
             .get(format!("http://localhost:3002/api/sessions/{sid}/events"))
-            .send().await.unwrap_or_else(|_| panic!("fetch"))
-            .json().await.unwrap_or_default();
+            .send()
+            .await
+            .unwrap_or_else(|_| panic!("fetch"))
+            .json()
+            .await
+            .unwrap_or_default();
         for ev in &events {
             total += 1;
             if !envelope.is_valid(ev) {

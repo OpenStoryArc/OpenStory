@@ -17,6 +17,7 @@ import { PersonRow } from "@/components/PersonRow";
 import { TimeFilter } from "@/components/TimeFilter";
 import { timeFilterMatches, TIME_FILTER_LABELS, type TimeFilterKey } from "@/lib/time-filter";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,6 +45,8 @@ interface SessionInfo {
   host: string | null;
   /** Origin user (human identity), `null` for legacy / unstamped sessions. */
   user: string | null;
+  /** Agent platform that produced the session. */
+  originAgent: string | null;
 }
 
 interface SubagentInfo {
@@ -108,6 +111,7 @@ export function deriveSessions(
     mainCount: number;
     planCount: number;
     latest: string;
+    originAgent: string | null;
     subagents: Map<string, { count: number; first: string; repId: string }>;
     depths: number[];
     /** True when this session was seeded from REST (events may still be empty). */
@@ -121,6 +125,7 @@ export function deriveSessions(
         mainCount: 0,
         planCount: 0,
         latest: r.last_event ?? r.start_time ?? "",
+        originAgent: r.origin_agent ?? null,
         subagents: new Map(),
         depths: [],
         fromRest: true,
@@ -143,6 +148,7 @@ export function deriveSessions(
         mainCount: 0,
         planCount: 0,
         latest: baseline?.latest ?? "",
+        originAgent: baseline?.originAgent ?? null,
         subagents: new Map(),
         depths: [],
         fromRest: baseline?.fromRest ?? false,
@@ -160,6 +166,9 @@ export function deriveSessions(
       session.planCount++;
     }
     if (ev.timestamp > session.latest) session.latest = ev.timestamp;
+    if (!session.originAgent && ev.origin_agent) {
+      session.originAgent = ev.origin_agent;
+    }
     if ("depth" in ev && typeof ev.depth === "number") {
       session.depths.push(ev.depth);
     }
@@ -222,6 +231,7 @@ export function deriveSessions(
       planCount: data.planCount,
       host: restRow?.host ?? null,
       user: restRow?.user ?? null,
+      originAgent: data.originAgent ?? restRow?.origin_agent ?? null,
     });
   }
 
@@ -563,6 +573,22 @@ export const Sidebar = memo(function Sidebar({
               )}
               {s.label ? (
                 <>
+                  {(() => {
+                    const agentLabel = originAgentLabel(s.originAgent);
+                    const agentColor = originAgentColor(s.originAgent);
+                    return agentLabel ? (
+                      <div className="flex items-center mb-0.5">
+                        <span
+                          className="text-[9px] px-1 py-0.5 rounded"
+                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          title={`Agent: ${agentLabel}`}
+                          data-testid="session-agent-badge"
+                        >
+                          {agentLabel}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4">
                     {s.label}
                   </div>
@@ -633,6 +659,20 @@ export const Sidebar = memo(function Sidebar({
               ) : (
                 <>
                   <div className="flex items-center gap-2">
+                    {(() => {
+                      const agentLabel = originAgentLabel(s.originAgent);
+                      const agentColor = originAgentColor(s.originAgent);
+                      return agentLabel ? (
+                        <span
+                          className="text-[9px] px-1 py-0.5 rounded shrink-0"
+                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          title={`Agent: ${agentLabel}`}
+                          data-testid="session-agent-badge"
+                        >
+                          {agentLabel}
+                        </span>
+                      ) : null;
+                    })()}
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
                       style={{ color, backgroundColor: `${color}20` }}

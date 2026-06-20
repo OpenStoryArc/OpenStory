@@ -24,11 +24,11 @@ pub struct Server<S: Subscribe> {
 }
 
 impl<S: Subscribe> Server<S> {
-    pub fn new(
-        subscriber: S,
-        store: Arc<dyn EventStore>,
-        plan_store: Arc<PlanStore>,
-    ) -> Self {
-        Self { subscriber, store, plan_store }
+    pub fn new(subscriber: S, store: Arc<dyn EventStore>, plan_store: Arc<PlanStore>) -> Self {
+        Self {
+            subscriber,
+            store,
+            plan_store,
+        }
     }
 }

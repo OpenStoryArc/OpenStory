@@ -98,9 +98,7 @@ async fn run_stream(seeded: Arc<SeededStore>, batch_count: usize) {
                     received += 1;
                 }
             }
-            _ => panic!(
-                "streaming bench timed out at {received}/{batch_count} notifications"
-            ),
+            _ => panic!("streaming bench timed out at {received}/{batch_count} notifications"),
         }
     }
 
@@ -119,18 +117,12 @@ fn bench_subscribe_session(c: &mut Criterion) {
 
     for &count in BATCH_COUNTS {
         group.throughput(Throughput::Elements(count as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(count),
-            &count,
-            |b, &count| {
-                b.to_async(&rt).iter(|| {
-                    let seeded = seeded.clone();
-                    async move {
-                        run_stream(seeded, count).await
-                    }
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
+            b.to_async(&rt).iter(|| {
+                let seeded = seeded.clone();
+                async move { run_stream(seeded, count).await }
+            });
+        });
     }
     group.finish();
 }

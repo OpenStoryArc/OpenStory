@@ -18,13 +18,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tempfile::TempDir;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 
 use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story::server::{build_router, AppState, Config, SharedState};
+use open_story::server::{AppState, Config, SharedState, build_router};
 use open_story_bus::noop_bus::NoopBus;
 use open_story_store::state::StoreState;
 
@@ -39,6 +39,7 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
     Arc::new(RwLock::new(AppState {
         store,
         transcript_states: HashMap::new(),
+        watcher_diagnostics: open_story::server::watcher_diagnostics::WatcherDiagnostics::default(),
         broadcast_tx,
         bus: Arc::new(NoopBus),
         config: Config::default(),
@@ -336,7 +337,10 @@ pub async fn seed_and_ingest(
 
     // Record project association (same as ingest_events does for live data)
     if let Some(pid) = project_id {
-        state.store.session_projects.insert(session_id.to_string(), pid.to_string());
+        state
+            .store
+            .session_projects
+            .insert(session_id.to_string(), pid.to_string());
     }
 
     // Actor 4's job: project + broadcast
@@ -346,23 +350,33 @@ pub async fn seed_and_ingest(
     // via upsert_session at the end of ingest_events when count > 0, but
     // test events without subtypes can't produce ViewRecords and count
     // stays 0. For tests that query /api/sessions, we need the row.
-    // Mirror PersistConsumer: pull host/user off the first event if stamped.
+    // Mirror PersistConsumer: pull host/user/origin off the first event if stamped.
     let host = events.first().and_then(|ce| ce.host.clone());
     let user = events.first().and_then(|ce| ce.user.clone());
+    let origin_agent = events.first().and_then(|ce| ce.agent.clone());
 
-    let _ = state.store.event_store.upsert_session(&SessionRow {
-        id: session_id.to_string(),
-        project_id: project_id.map(|s| s.to_string()),
-        project_name: None,
-        label: state.store.projections.get(session_id).and_then(|p| p.label().map(|s| s.to_string())),
-        custom_label: None,
-        branch: None,
-        event_count: events.len() as u64,
-        first_event: events.first().map(|e| e.time.clone()),
-        last_event: events.last().map(|e| e.time.clone()),
-        host,
-        user,
-    }).await;
+    let _ = state
+        .store
+        .event_store
+        .upsert_session(&SessionRow {
+            id: session_id.to_string(),
+            project_id: project_id.map(|s| s.to_string()),
+            project_name: None,
+            label: state
+                .store
+                .projections
+                .get(session_id)
+                .and_then(|p| p.label().map(|s| s.to_string())),
+            custom_label: None,
+            branch: None,
+            event_count: events.len() as u64,
+            first_event: events.first().map(|e| e.time.clone()),
+            last_event: events.last().map(|e| e.time.clone()),
+            host,
+            user,
+            origin_agent,
+        })
+        .await;
 
     result
 }

@@ -23,7 +23,9 @@ use tempfile::TempDir;
 
 use open_story::reader::read_new_lines;
 use open_story::server::ingest_events;
-use open_story::server::projection::{filter_matches, is_ephemeral, SessionProjection, FILTER_NAMES};
+use open_story::server::projection::{
+    filter_matches, is_ephemeral, SessionProjection, FILTER_NAMES,
+};
 use open_story::translate::TranscriptState;
 
 fn fixtures_dir() -> PathBuf {
@@ -84,10 +86,7 @@ mod incremental_consistency {
             let proj = s.store.projections.get(&session_id).unwrap();
             let rows = proj.timeline_rows();
 
-            assert!(
-                count > 0,
-                "{fixture}: expected events to be ingested"
-            );
+            assert!(count > 0, "{fixture}: expected events to be ingested");
 
             for name in FILTER_NAMES {
                 let cached = proj.filter_counts().get(*name).copied().unwrap_or(0);
@@ -154,7 +153,8 @@ mod tree_consistency {
             } else {
                 // Root: depth should be 0
                 assert_eq!(
-                    depth, 0,
+                    depth,
+                    0,
                     "root record {} should have depth 0, got {}",
                     &vr.id[..8.min(vr.id.len())],
                     depth
@@ -188,7 +188,11 @@ mod tree_consistency {
         let proj = entry.value();
         let rows = proj.timeline_rows();
 
-        let max_depth = rows.iter().map(|r| proj.node_depth(&r.id)).max().unwrap_or(0);
+        let max_depth = rows
+            .iter()
+            .map(|r| proj.node_depth(&r.id))
+            .max()
+            .unwrap_or(0);
         eprintln!("max depth in synth_global: {}", max_depth);
         assert!(
             max_depth >= 2,
@@ -271,12 +275,16 @@ mod dedup {
 
         let count_first = {
             let mut s = state.write().await;
-            ingest_events(&mut s, "synthetic", &events, None).await.count
+            ingest_events(&mut s, "synthetic", &events, None)
+                .await
+                .count
         };
 
         let count_second = {
             let mut s = state.write().await;
-            ingest_events(&mut s, "synthetic", &events, None).await.count
+            ingest_events(&mut s, "synthetic", &events, None)
+                .await
+                .count
         };
 
         assert!(count_first > 0, "first ingest should produce events");
@@ -343,7 +351,10 @@ mod multi_session {
         let all_a = proj_a.filter_counts().get("all").copied().unwrap_or(0);
         let all_b = proj_b.filter_counts().get("all").copied().unwrap_or(0);
         assert!(all_a > 0 && all_b > 0);
-        assert_ne!(all_a, all_b, "different sessions should have different counts");
+        assert_ne!(
+            all_a, all_b,
+            "different sessions should have different counts"
+        );
 
         eprintln!(
             "multi-session: A={}events/{}all, B={}events/{}all",
@@ -412,13 +423,9 @@ mod ephemeral_in_real_data {
         let timeline_count = proj.timeline_rows().len();
         eprintln!(
             "projection timeline: {} rows from {} durable events",
-            timeline_count,
-            durable_count
+            timeline_count, durable_count
         );
-        assert!(
-            timeline_count > 0,
-            "projection should have timeline rows"
-        );
+        assert!(timeline_count > 0, "projection should have timeline rows");
     }
 
     /// Filter counts from real data should have sensible values:

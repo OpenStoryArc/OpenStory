@@ -14,7 +14,7 @@
 //! header from any non-browser caller.
 
 use axum::extract::Request;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::Response;
 
@@ -105,10 +105,10 @@ mod tests {
 
     // ── Integration tests using axum test helpers ────────────────────────
 
+    use axum::Router;
     use axum::body::Body;
     use axum::middleware;
     use axum::routing::get;
-    use axum::Router;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -125,10 +125,7 @@ mod tests {
     #[tokio::test]
     async fn no_token_configured_passes_through() {
         let app = test_app("");
-        let req = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -152,10 +149,7 @@ mod tests {
     #[tokio::test]
     async fn missing_auth_header_returns_401() {
         let app = test_app("my-secret");
-        let req = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);

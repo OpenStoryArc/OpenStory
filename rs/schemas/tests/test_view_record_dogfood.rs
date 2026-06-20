@@ -27,7 +27,11 @@ async fn session_ids(client: &reqwest::Client) -> Vec<String> {
         .unwrap_or(&Vec::new())
         .iter()
         .take(SESSION_SAMPLE)
-        .filter_map(|s| s.get("session_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|s| {
+            s.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect()
 }
 
@@ -111,7 +115,13 @@ async fn every_live_view_record_validates() {
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap();
-    dogfood_schema(client, "view_record.schema.json", "view_record", "view-records").await;
+    dogfood_schema(
+        client,
+        "view_record.schema.json",
+        "view_record",
+        "view-records",
+    )
+    .await;
 }
 
 #[tokio::test]

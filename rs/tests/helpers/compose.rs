@@ -90,7 +90,6 @@ impl TestStack {
             .map(|r| r.status() == 200)
             .unwrap_or(false)
     }
-
 }
 
 impl Drop for TestStack {
@@ -160,7 +159,14 @@ fn get_host_port(project_name: &str, service: &str, container_port: u16) -> Opti
         ("docker", "compose")
     };
     let output = Command::new(program)
-        .args([first_arg, "-p", project_name, "port", service, &container_port.to_string()])
+        .args([
+            first_arg,
+            "-p",
+            project_name,
+            "port",
+            service,
+            &container_port.to_string(),
+        ])
         .env("MSYS_NO_PATHCONV", "1")
         .output()
         .ok()?;
@@ -225,22 +231,21 @@ pub async fn start_stack(config: TestConfig, fixture_dir: &Path) -> TestStack {
         _ => "server",
     };
 
-    let server_port = get_host_port(&project_name, api_service, 3002)
-        .expect("failed to get server port");
+    let server_port =
+        get_host_port(&project_name, api_service, 3002).expect("failed to get server port");
 
     let publisher_port = match config {
-        TestConfig::Split => {
-            Some(get_host_port(&project_name, "publisher", 3002)
-                .expect("failed to get publisher port"))
-        }
+        TestConfig::Split => Some(
+            get_host_port(&project_name, "publisher", 3002).expect("failed to get publisher port"),
+        ),
         _ => None,
     };
 
     let hub_server_port = match config {
-        TestConfig::LeafCluster => {
-            Some(get_host_port(&project_name, "hub-server", 3002)
-                .expect("failed to get hub-server port"))
-        }
+        TestConfig::LeafCluster => Some(
+            get_host_port(&project_name, "hub-server", 3002)
+                .expect("failed to get hub-server port"),
+        ),
         _ => None,
     };
 

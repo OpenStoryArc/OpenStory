@@ -423,9 +423,18 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
     <div>
       {detail}
 
-      {/* Metadata bar: depth badge + truncation indicator + subtree focus */}
-      {(onFocusSubtree || depth > 0 || truncated) && (
+      {/* Metadata bar: origin badge + depth badge + truncation indicator + subtree focus */}
+      {(record.origin_agent || onFocusSubtree || depth > 0 || truncated) && (
         <div className="mt-2 pt-2 border-t border-[#2f3348] flex items-center gap-2 flex-wrap">
+          {record.origin_agent && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f720] text-[#7aa2f7]"
+              data-testid="detail-origin-agent"
+              title="Origin agent"
+            >
+              {record.origin_agent}
+            </span>
+          )}
           {depth > 0 && (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded bg-[#2ac3de20] text-[#2ac3de]"

@@ -10,8 +10,8 @@ pub mod nats_bus;
 pub mod noop_bus;
 
 use anyhow::Result;
-use open_story_core::cloud_event::CloudEvent;
 use async_trait::async_trait;
+use open_story_core::cloud_event::CloudEvent;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -119,7 +119,10 @@ mod tests {
     #[tokio::test]
     async fn noop_bus_subscribe_returns_never_receiving_channel() {
         let bus = noop_bus::NoopBus;
-        let mut sub = bus.subscribe("events.>").await.expect("noop subscribe always Ok");
+        let mut sub = bus
+            .subscribe("events.>")
+            .await
+            .expect("noop subscribe always Ok");
         // The channel sender side is dropped immediately, so try_recv
         // returns Disconnected — never any events.
         assert!(sub.receiver.try_recv().is_err());

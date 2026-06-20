@@ -136,16 +136,14 @@ pub fn session_synopsis(conn: &Connection, session_id: &str) -> Option<SessionSy
                         .ok()
                         .map(|n| n.and_utc().fixed_offset())
                 });
-            let l = chrono::DateTime::parse_from_rfc3339(last)
-                .ok()
-                .or_else(|| {
-                    chrono::NaiveDateTime::parse_from_str(last, "%Y-%m-%dT%H:%M:%S%.f")
-                        .ok()
-                        .map(|n| n.and_utc().fixed_offset())
-                });
+            let l = chrono::DateTime::parse_from_rfc3339(last).ok().or_else(|| {
+                chrono::NaiveDateTime::parse_from_str(last, "%Y-%m-%dT%H:%M:%S%.f")
+                    .ok()
+                    .map(|n| n.and_utc().fixed_offset())
+            });
             match (f, l) {
                 (Some(first_dt), Some(last_dt)) => Some((last_dt - first_dt).num_seconds()),
-                _ => None,  // graceful — synopsis still returns, just without duration
+                _ => None, // graceful — synopsis still returns, just without duration
             }
         }
         _ => None,
@@ -264,7 +262,8 @@ pub fn file_impact(conn: &Connection, session_id: &str) -> Vec<FileImpact> {
         )
         .unwrap();
 
-    let mut impacts: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    let mut impacts: std::collections::HashMap<String, (u64, u64)> =
+        std::collections::HashMap::new();
 
     stmt.query_map([session_id], |row| {
         let target: String = row.get(0)?;
@@ -718,13 +717,24 @@ fn extract_usage_from_payload(payload: &str) -> Option<(u64, u64, u64, u64)> {
     let usage = d.get("data")?.get("raw")?.get("message")?.get("usage")?;
     let input = usage.get("input_tokens")?.as_u64()?;
     let output = usage.get("output_tokens")?.as_u64().unwrap_or(0);
-    let cache_read = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let cache_creation = usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cache_read = usage
+        .get("cache_read_input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cache_creation = usage
+        .get("cache_creation_input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     Some((input, output, cache_read, cache_creation))
 }
 
 /// Query token usage across all sessions, optionally filtered by days or session_id.
-pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str>, model: &str) -> TokenUsageSummary {
+pub fn token_usage(
+    conn: &Connection,
+    days: Option<u32>,
+    session_id: Option<&str>,
+    model: &str,
+) -> TokenUsageSummary {
     // Fetch sessions
     let (session_sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match (days, session_id) {
         (_, Some(sid)) => (
@@ -747,7 +757,13 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
     let mut stmt = conn.prepare(&session_sql).unwrap();
     let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     #[allow(clippy::type_complexity)]
-    let sessions: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+    let sessions: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = stmt
         .query_map(param_refs.as_slice(), |row| {
             Ok((
                 row.get(0)?,
@@ -772,14 +788,22 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
 
     // Query usage events for these sessions
     let session_ids: Vec<&str> = sessions.iter().map(|s| s.0.as_str()).collect();
-    let placeholders: String = session_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect::<Vec<_>>().join(",");
+    let placeholders: String = session_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
         "SELECT session_id, payload FROM events WHERE session_id IN ({}) AND subtype IN ('message.assistant.text', 'message.assistant.tool_use', 'message.assistant.thinking') AND payload LIKE '%input_tokens%'",
         placeholders
     );
 
     let mut stmt = conn.prepare(&sql).unwrap();
-    let id_params: Vec<&dyn rusqlite::types::ToSql> = session_ids.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let id_params: Vec<&dyn rusqlite::types::ToSql> = session_ids
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows: Vec<(String, String)> = stmt
         .query_map(id_params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
@@ -787,9 +811,12 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
         .collect();
 
     // Aggregate per session
-    let mut session_usages: std::collections::HashMap<String, TokenUsage> = std::collections::HashMap::new();
+    let mut session_usages: std::collections::HashMap<String, TokenUsage> =
+        std::collections::HashMap::new();
     for (sid, payload) in &rows {
-        if let Some((input, output, cache_read, cache_creation)) = extract_usage_from_payload(payload) {
+        if let Some((input, output, cache_read, cache_creation)) =
+            extract_usage_from_payload(payload)
+        {
             let u = session_usages.entry(sid.clone()).or_default();
             u.input_tokens += input;
             u.output_tokens += output;
@@ -800,7 +827,8 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
     }
     // Compute total_tokens for each session
     for u in session_usages.values_mut() {
-        u.total_tokens = u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens;
+        u.total_tokens =
+            u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_creation_tokens;
     }
 
     // Build result
@@ -824,7 +852,10 @@ pub fn token_usage(conn: &Connection, days: Option<u32>, session_id: Option<&str
             });
         }
     }
-    total.total_tokens = total.input_tokens + total.output_tokens + total.cache_read_tokens + total.cache_creation_tokens;
+    total.total_tokens = total.input_tokens
+        + total.output_tokens
+        + total.cache_read_tokens
+        + total.cache_creation_tokens;
 
     // Sort sessions by output tokens descending
     session_results.sort_by_key(|r| Reverse(r.usage.output_tokens));
@@ -860,9 +891,12 @@ pub fn daily_token_usage(conn: &Connection, days: Option<u32>) -> Vec<DailyToken
         .filter_map(|r| r.ok())
         .collect();
 
-    let mut by_day: std::collections::BTreeMap<String, TokenUsage> = std::collections::BTreeMap::new();
+    let mut by_day: std::collections::BTreeMap<String, TokenUsage> =
+        std::collections::BTreeMap::new();
     for (timestamp, payload) in &rows {
-        if let Some((input, output, cache_read, cache_creation)) = extract_usage_from_payload(payload) {
+        if let Some((input, output, cache_read, cache_creation)) =
+            extract_usage_from_payload(payload)
+        {
             let day = &timestamp[..10.min(timestamp.len())];
             let u = by_day.entry(day.to_string()).or_default();
             u.input_tokens += input;
@@ -876,7 +910,10 @@ pub fn daily_token_usage(conn: &Connection, days: Option<u32>) -> Vec<DailyToken
     by_day
         .into_iter()
         .map(|(date, mut usage)| {
-            usage.total_tokens = usage.input_tokens + usage.output_tokens + usage.cache_read_tokens + usage.cache_creation_tokens;
+            usage.total_tokens = usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_read_tokens
+                + usage.cache_creation_tokens;
             DailyTokenUsage { date, usage }
         })
         .collect()
@@ -928,7 +965,13 @@ mod tests {
         conn
     }
 
-    fn insert_session(conn: &Connection, id: &str, project_id: &str, label: &str, event_count: u64) {
+    fn insert_session(
+        conn: &Connection,
+        id: &str,
+        project_id: &str,
+        label: &str,
+        event_count: u64,
+    ) {
         conn.execute(
             "INSERT INTO sessions (id, project_id, project_name, label, event_count, first_event, last_event)
              VALUES (?1, ?2, ?3, ?4, ?5, '2025-01-15T10:00:00Z', '2025-01-15T11:00:00Z')",
@@ -937,7 +980,14 @@ mod tests {
         .unwrap();
     }
 
-    fn insert_tool_event(conn: &Connection, id: &str, session_id: &str, tool: &str, file: Option<&str>, ts: &str) {
+    fn insert_tool_event(
+        conn: &Connection,
+        id: &str,
+        session_id: &str,
+        tool: &str,
+        file: Option<&str>,
+        ts: &str,
+    ) {
         let args = match file {
             Some(f) => format!(r#"{{"file_path": "{}"}}"#, f),
             None => r#"{"command": "cargo test"}"#.to_string(),
@@ -984,8 +1034,22 @@ mod tests {
     fn synopsis_returns_session_metadata() {
         let conn = setup_test_db();
         insert_session(&conn, "sess-1", "my-project", "Fix the bug", 42);
-        insert_tool_event(&conn, "t1", "sess-1", "Read", Some("src/main.rs"), "2025-01-15T10:00:00Z");
-        insert_tool_event(&conn, "t2", "sess-1", "Edit", Some("src/main.rs"), "2025-01-15T10:01:00Z");
+        insert_tool_event(
+            &conn,
+            "t1",
+            "sess-1",
+            "Read",
+            Some("src/main.rs"),
+            "2025-01-15T10:00:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "t2",
+            "sess-1",
+            "Edit",
+            Some("src/main.rs"),
+            "2025-01-15T10:01:00Z",
+        );
         insert_tool_event(&conn, "t3", "sess-1", "Bash", None, "2025-01-15T10:02:00Z");
 
         let s = session_synopsis(&conn, "sess-1").unwrap();
@@ -1005,7 +1069,13 @@ mod tests {
     fn synopsis_counts_errors() {
         let conn = setup_test_db();
         insert_session(&conn, "sess-err", "proj", "errors", 5);
-        insert_error_event(&conn, "e1", "sess-err", "connection refused", "2025-01-15T10:00:00Z");
+        insert_error_event(
+            &conn,
+            "e1",
+            "sess-err",
+            "connection refused",
+            "2025-01-15T10:00:00Z",
+        );
         insert_error_event(&conn, "e2", "sess-err", "timeout", "2025-01-15T10:01:00Z");
 
         let s = session_synopsis(&conn, "sess-err").unwrap();
@@ -1017,8 +1087,22 @@ mod tests {
     #[test]
     fn tool_journey_returns_sequence() {
         let conn = setup_test_db();
-        insert_tool_event(&conn, "j1", "sess-j", "Read", Some("lib.rs"), "2025-01-15T10:00:00Z");
-        insert_tool_event(&conn, "j2", "sess-j", "Edit", Some("lib.rs"), "2025-01-15T10:01:00Z");
+        insert_tool_event(
+            &conn,
+            "j1",
+            "sess-j",
+            "Read",
+            Some("lib.rs"),
+            "2025-01-15T10:00:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "j2",
+            "sess-j",
+            "Edit",
+            Some("lib.rs"),
+            "2025-01-15T10:01:00Z",
+        );
         insert_tool_event(&conn, "j3", "sess-j", "Bash", None, "2025-01-15T10:02:00Z");
 
         let journey = tool_journey(&conn, "sess-j");
@@ -1041,10 +1125,38 @@ mod tests {
     #[test]
     fn file_impact_separates_reads_and_writes() {
         let conn = setup_test_db();
-        insert_tool_event(&conn, "fi1", "sess-fi", "Read", Some("src/main.rs"), "2025-01-15T10:00:00Z");
-        insert_tool_event(&conn, "fi2", "sess-fi", "Read", Some("src/main.rs"), "2025-01-15T10:01:00Z");
-        insert_tool_event(&conn, "fi3", "sess-fi", "Edit", Some("src/main.rs"), "2025-01-15T10:02:00Z");
-        insert_tool_event(&conn, "fi4", "sess-fi", "Write", Some("src/new.rs"), "2025-01-15T10:03:00Z");
+        insert_tool_event(
+            &conn,
+            "fi1",
+            "sess-fi",
+            "Read",
+            Some("src/main.rs"),
+            "2025-01-15T10:00:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "fi2",
+            "sess-fi",
+            "Read",
+            Some("src/main.rs"),
+            "2025-01-15T10:01:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "fi3",
+            "sess-fi",
+            "Edit",
+            Some("src/main.rs"),
+            "2025-01-15T10:02:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "fi4",
+            "sess-fi",
+            "Write",
+            Some("src/new.rs"),
+            "2025-01-15T10:03:00Z",
+        );
 
         let impact = file_impact(&conn, "sess-fi");
         assert_eq!(impact.len(), 2);
@@ -1127,7 +1239,8 @@ mod tests {
                 "INSERT INTO sessions (id, project_id, label, event_count, first_event, last_event)
                  VALUES (?1, 'proj-lim', 'sess', 10, '2025-01-15T10:00:00Z', ?2)",
                 rusqlite::params![format!("lim-{i}"), format!("2025-01-15T1{}:00:00Z", i)],
-            ).unwrap();
+            )
+            .unwrap();
         }
         let ctx = project_context(&conn, "proj-lim", 3);
         assert_eq!(ctx.len(), 3);
@@ -1139,9 +1252,30 @@ mod tests {
     fn recent_files_returns_modified_files() {
         let conn = setup_test_db();
         insert_session(&conn, "rf-s1", "proj-rf", "edit files", 10);
-        insert_tool_event(&conn, "rf1", "rf-s1", "Edit", Some("src/lib.rs"), "2025-01-15T10:00:00Z");
-        insert_tool_event(&conn, "rf2", "rf-s1", "Write", Some("src/new.rs"), "2025-01-15T10:01:00Z");
-        insert_tool_event(&conn, "rf3", "rf-s1", "Read", Some("src/other.rs"), "2025-01-15T10:02:00Z");
+        insert_tool_event(
+            &conn,
+            "rf1",
+            "rf-s1",
+            "Edit",
+            Some("src/lib.rs"),
+            "2025-01-15T10:00:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "rf2",
+            "rf-s1",
+            "Write",
+            Some("src/new.rs"),
+            "2025-01-15T10:01:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "rf3",
+            "rf-s1",
+            "Read",
+            Some("src/other.rs"),
+            "2025-01-15T10:02:00Z",
+        );
 
         let files = recent_files(&conn, "proj-rf", 5);
         assert!(files.contains(&"src/lib.rs".to_string()));
@@ -1156,8 +1290,22 @@ mod tests {
     fn session_efficiency_returns_metrics() {
         let conn = setup_test_db();
         insert_session(&conn, "eff-1", "proj-e", "test session", 25);
-        insert_tool_event(&conn, "eff-t1", "eff-1", "Read", Some("x.rs"), "2025-01-15T10:00:00Z");
-        insert_tool_event(&conn, "eff-t2", "eff-1", "Edit", Some("x.rs"), "2025-01-15T10:01:00Z");
+        insert_tool_event(
+            &conn,
+            "eff-t1",
+            "eff-1",
+            "Read",
+            Some("x.rs"),
+            "2025-01-15T10:00:00Z",
+        );
+        insert_tool_event(
+            &conn,
+            "eff-t2",
+            "eff-1",
+            "Edit",
+            Some("x.rs"),
+            "2025-01-15T10:01:00Z",
+        );
         insert_error_event(&conn, "eff-e1", "eff-1", "oops", "2025-01-15T10:02:00Z");
 
         let eff = session_efficiency(&conn);
@@ -1252,7 +1400,8 @@ mod tests {
             "INSERT INTO events (id, session_id, subtype, timestamp, payload)
              VALUES (?1, ?2, 'message.assistant.text', ?3, ?4)",
             rusqlite::params![id, session_id, ts, payload],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1270,9 +1419,36 @@ mod tests {
         insert_session(&conn, "s1", "proj-a", "session 1", 10);
         insert_session(&conn, "s2", "proj-a", "session 2", 5);
 
-        insert_assistant_event_with_usage(&conn, "u1", "s1", "2025-01-15T10:00:00Z", 100, 200, 1000, 50);
-        insert_assistant_event_with_usage(&conn, "u2", "s1", "2025-01-15T10:01:00Z", 100, 300, 2000, 50);
-        insert_assistant_event_with_usage(&conn, "u3", "s2", "2025-01-15T10:00:00Z", 50, 100, 500, 25);
+        insert_assistant_event_with_usage(
+            &conn,
+            "u1",
+            "s1",
+            "2025-01-15T10:00:00Z",
+            100,
+            200,
+            1000,
+            50,
+        );
+        insert_assistant_event_with_usage(
+            &conn,
+            "u2",
+            "s1",
+            "2025-01-15T10:01:00Z",
+            100,
+            300,
+            2000,
+            50,
+        );
+        insert_assistant_event_with_usage(
+            &conn,
+            "u3",
+            "s2",
+            "2025-01-15T10:00:00Z",
+            50,
+            100,
+            500,
+            25,
+        );
 
         let result = token_usage(&conn, None, None, "sonnet");
         assert_eq!(result.session_count, 2);
@@ -1291,7 +1467,16 @@ mod tests {
         insert_session(&conn, "s1", "proj", "first", 10);
         insert_session(&conn, "s2", "proj", "second", 5);
 
-        insert_assistant_event_with_usage(&conn, "u1", "s1", "2025-01-15T10:00:00Z", 100, 200, 0, 0);
+        insert_assistant_event_with_usage(
+            &conn,
+            "u1",
+            "s1",
+            "2025-01-15T10:00:00Z",
+            100,
+            200,
+            0,
+            0,
+        );
         insert_assistant_event_with_usage(&conn, "u2", "s2", "2025-01-15T10:00:00Z", 50, 100, 0, 0);
 
         let result = token_usage(&conn, None, Some("s1"), "sonnet");
@@ -1304,7 +1489,16 @@ mod tests {
     fn token_usage_cost_estimate_sonnet() {
         let conn = setup_test_db();
         insert_session(&conn, "s1", "proj", "test", 1);
-        insert_assistant_event_with_usage(&conn, "u1", "s1", "2025-01-15T10:00:00Z", 1_000_000, 1_000_000, 0, 0);
+        insert_assistant_event_with_usage(
+            &conn,
+            "u1",
+            "s1",
+            "2025-01-15T10:00:00Z",
+            1_000_000,
+            1_000_000,
+            0,
+            0,
+        );
 
         let result = token_usage(&conn, None, None, "sonnet");
         assert!((result.cost.input - 3.0).abs() < 0.01);
@@ -1329,7 +1523,8 @@ mod tests {
     #[test]
     fn extract_usage_from_payload_valid() {
         let payload = r#"{"data":{"raw":{"message":{"usage":{"input_tokens":42,"output_tokens":99,"cache_read_input_tokens":100,"cache_creation_input_tokens":50}}}}}"#;
-        let (input, output, cache_read, cache_creation) = extract_usage_from_payload(payload).unwrap();
+        let (input, output, cache_read, cache_creation) =
+            extract_usage_from_payload(payload).unwrap();
         assert_eq!(input, 42);
         assert_eq!(output, 99);
         assert_eq!(cache_read, 100);
@@ -1346,7 +1541,16 @@ mod tests {
     #[test]
     fn daily_token_usage_groups_by_day() {
         let conn = setup_test_db();
-        insert_assistant_event_with_usage(&conn, "d1", "s1", "2025-01-15T10:00:00Z", 100, 200, 0, 0);
+        insert_assistant_event_with_usage(
+            &conn,
+            "d1",
+            "s1",
+            "2025-01-15T10:00:00Z",
+            100,
+            200,
+            0,
+            0,
+        );
         insert_assistant_event_with_usage(&conn, "d2", "s1", "2025-01-15T14:00:00Z", 50, 100, 0, 0);
         insert_assistant_event_with_usage(&conn, "d3", "s1", "2025-01-16T10:00:00Z", 75, 150, 0, 0);
 

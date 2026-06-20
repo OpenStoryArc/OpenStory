@@ -37,7 +37,10 @@ fn tier_a_known_event_produces_rich_view_record() {
         }
     });
     let records = from_cloud_event_value(&event_json);
-    assert!(!records.is_empty(), "Tier A: known event must produce records");
+    assert!(
+        !records.is_empty(),
+        "Tier A: known event must produce records"
+    );
     assert!(
         matches!(&records[0].body, RecordBody::UserMessage(_)),
         "Tier A: known user prompt should produce UserMessage, got {:?}",
@@ -65,7 +68,8 @@ fn tier_b_envelope_valid_but_missing_specversion_still_produces_record() {
 
     // Sanity: this CANNOT deserialize as a typed CloudEvent
     assert!(
-        serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event_json.clone()).is_err(),
+        serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(event_json.clone())
+            .is_err(),
         "this event must fail CloudEvent deserialization (missing specversion)"
     );
 

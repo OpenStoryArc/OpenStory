@@ -51,7 +51,9 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
     #[tokio::test]
     async fn it_arrives_at_the_subscriber_with_matching_session_id() {
         let Some(url) = nats_url() else { return };
-        let Some((publisher, subscriber)) = connect_or_skip(&url).await else { return };
+        let Some((publisher, subscriber)) = connect_or_skip(&url).await else {
+            return;
+        };
 
         let session_id = format!("smoke-{}", uuid::Uuid::new_v4());
         let mut sub = subscriber.subscribe(&session_id).await.expect("subscribe");
@@ -79,7 +81,9 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
     #[tokio::test]
     async fn the_session_wildcard_matches_subagent_subjects_too() {
         let Some(url) = nats_url() else { return };
-        let Some((publisher, subscriber)) = connect_or_skip(&url).await else { return };
+        let Some((publisher, subscriber)) = connect_or_skip(&url).await else {
+            return;
+        };
 
         let session_id = format!("smoke-{}", uuid::Uuid::new_v4());
         let mut sub = subscriber.subscribe(&session_id).await.unwrap();

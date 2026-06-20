@@ -72,7 +72,13 @@ pub(crate) fn normalize(raw: &str) -> String {
     let trimmed = raw.strip_suffix(".local").unwrap_or(raw);
     let replaced: String = trimmed
         .chars()
-        .map(|c| if c == '.' || c == ' ' || c == '/' { '-' } else { c })
+        .map(|c| {
+            if c == '.' || c == ' ' || c == '/' {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect();
     if replaced.len() <= 64 {
         replaced

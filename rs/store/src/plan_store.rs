@@ -205,7 +205,9 @@ mod tests {
         let store = PlanStore::new(tmp.path()).unwrap();
 
         let content = "# Plan: Test Plan\n\nSome content here.";
-        let plan_id = store.save("sess-1", content, "2026-01-01T00:00:00Z").unwrap();
+        let plan_id = store
+            .save("sess-1", content, "2026-01-01T00:00:00Z")
+            .unwrap();
 
         let plan = store.load(&plan_id).unwrap();
         assert_eq!(plan.session_id, "sess-1");
@@ -218,8 +220,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = PlanStore::new(tmp.path()).unwrap();
 
-        store.save("sess-1", "# Plan A", "2026-01-01T00:00:00Z").unwrap();
-        store.save("sess-2", "# Plan B", "2026-01-02T00:00:00Z").unwrap();
+        store
+            .save("sess-1", "# Plan A", "2026-01-01T00:00:00Z")
+            .unwrap();
+        store
+            .save("sess-2", "# Plan B", "2026-01-02T00:00:00Z")
+            .unwrap();
 
         let plans = store.list_plans();
         assert_eq!(plans.len(), 2);
@@ -232,9 +238,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let store = PlanStore::new(tmp.path()).unwrap();
 
-        store.save("sess-1", "# Plan A", "2026-01-01T00:00:00Z").unwrap();
-        store.save("sess-2", "# Plan B", "2026-01-02T00:00:00Z").unwrap();
-        store.save("sess-1", "# Plan C", "2026-01-03T00:00:00Z").unwrap();
+        store
+            .save("sess-1", "# Plan A", "2026-01-01T00:00:00Z")
+            .unwrap();
+        store
+            .save("sess-2", "# Plan B", "2026-01-02T00:00:00Z")
+            .unwrap();
+        store
+            .save("sess-1", "# Plan C", "2026-01-03T00:00:00Z")
+            .unwrap();
 
         let plans = store.list_for_session("sess-1");
         assert_eq!(plans.len(), 2);

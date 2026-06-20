@@ -8,7 +8,9 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
-use crate::event_data::{derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData, ToolOutcome};
+use crate::event_data::{
+    derive_tool_outcome, AgentPayload, ClaudeCodePayload, EventData, ToolOutcome,
+};
 
 /// Unified CloudEvent type constant — all events use this single type.
 pub const IO_ARC_EVENT: &str = "io.arc.event";
@@ -43,6 +45,7 @@ pub enum TranscriptFormat {
     ClaudeCode,
     PiMono,
     Hermes,
+    Codex,
 }
 
 /// A pending tool call: name + input, keyed by tool_use_id.
@@ -164,12 +167,20 @@ fn determine_assistant_subtype(content: &Value) -> &'static str {
 
 /// Apply assistant-specific fields to the payload. Returns subtype.
 fn apply_assistant_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
-    let message = line.get("message").cloned().unwrap_or(Value::Object(Default::default()));
-    let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
+    let message = line
+        .get("message")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
+    let content = message
+        .get("content")
+        .cloned()
+        .unwrap_or(Value::Array(vec![]));
 
     // Normalize string content to array
     let content_normalized = if content.is_string() {
-        Value::Array(vec![serde_json::json!({"type": "text", "text": content.as_str().unwrap_or("")})])
+        Value::Array(vec![
+            serde_json::json!({"type": "text", "text": content.as_str().unwrap_or("")}),
+        ])
     } else {
         content.clone()
     };
@@ -180,7 +191,11 @@ fn apply_assistant_fields(payload: &mut ClaudeCodePayload, line: &Value) -> Stri
     if let Value::Array(ref blocks) = content_normalized {
         let types: Vec<String> = blocks
             .iter()
-            .filter_map(|b| b.get("type").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|b| {
+                b.get("type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         if !types.is_empty() {
             payload.content_types = Some(types);
@@ -218,8 +233,14 @@ fn apply_assistant_fields(payload: &mut ClaudeCodePayload, line: &Value) -> Stri
 
 /// Apply user-specific fields to the payload. Returns subtype.
 fn apply_user_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
-    let message = line.get("message").cloned().unwrap_or(Value::Object(Default::default()));
-    let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
+    let message = line
+        .get("message")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
+    let content = message
+        .get("content")
+        .cloned()
+        .unwrap_or(Value::Array(vec![]));
 
     let mut subtype = "message.user.prompt".to_string();
     if let Value::Array(ref blocks) = content {
@@ -247,7 +268,10 @@ fn apply_user_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
 
 /// Apply progress-specific fields to the payload. Returns subtype.
 fn apply_progress_fields(payload: &mut ClaudeCodePayload, line: &Value) -> String {
-    let data = line.get("data").cloned().unwrap_or(Value::Object(Default::default()));
+    let data = line
+        .get("data")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
     let progress_type = data
         .get("type")
         .and_then(|v| v.as_str())
@@ -331,8 +355,15 @@ fn extract_first_tool_from_content(content: &Value) -> Option<(String, Value)> {
     if let Value::Array(blocks) = content {
         for block in blocks {
             if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                let name = block
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let input = block
+                    .get("input")
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
                 return Some((name, input));
             }
         }
@@ -346,9 +377,20 @@ fn extract_all_tool_uses(content: &Value) -> Vec<(String, String, Value)> {
     if let Value::Array(blocks) = content {
         for block in blocks {
             if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                let id = block
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let input = block
+                    .get("input")
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
                 if !id.is_empty() {
                     result.push((id, name, input));
                 }
@@ -373,7 +415,10 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
     }
 
     // Deduplication by UUID
-    let uuid = line.get("uuid").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let uuid = line
+        .get("uuid")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     if let Some(ref u) = uuid {
         if state.seen_uuids.contains(u) {
             return vec![];
@@ -403,10 +448,9 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         let message = line.get("message").unwrap_or(&Value::Null);
         let content = message.get("content").unwrap_or(&Value::Null);
         for (tool_use_id, name, input) in extract_all_tool_uses(content) {
-            state.pending_tool_calls.insert(
-                tool_use_id,
-                PendingToolCall { name, input },
-            );
+            state
+                .pending_tool_calls
+                .insert(tool_use_id, PendingToolCall { name, input });
         }
     }
 
@@ -417,12 +461,13 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         if let Value::Array(blocks) = content {
             for block in blocks {
                 if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
-                    let tool_use_id = block.get("tool_use_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let tool_use_id = block
+                        .get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     if let Some(pending) = state.pending_tool_calls.remove(tool_use_id) {
-                        let result_output = block
-                            .get("content")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let result_output =
+                            block.get("content").and_then(|v| v.as_str()).unwrap_or("");
                         let is_error = block
                             .get("is_error")
                             .and_then(|v| v.as_bool())
@@ -471,7 +516,10 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         AgentPayload::ClaudeCode(payload),
     );
 
-    let timestamp = line.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let timestamp = line
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     vec![CloudEvent::new(
         source,

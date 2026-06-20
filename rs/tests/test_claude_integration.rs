@@ -72,8 +72,8 @@ async fn run_integration_compose() -> (String, u16) {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     // Get the server port before we check success (for diagnostics)
-    let server_port = get_host_port(program, first_arg, &project_name, "open-story", 3002)
-        .unwrap_or(0);
+    let server_port =
+        get_host_port(program, first_arg, &project_name, "open-story", 3002).unwrap_or(0);
 
     if !output.status.success() {
         // Tear down on failure
@@ -95,7 +95,13 @@ async fn run_integration_compose() -> (String, u16) {
 }
 
 /// Get host port for a service.
-fn get_host_port(program: &str, first_arg: &str, project: &str, service: &str, port: u16) -> Option<u16> {
+fn get_host_port(
+    program: &str,
+    first_arg: &str,
+    project: &str,
+    service: &str,
+    port: u16,
+) -> Option<u16> {
     let output = Command::new(program)
         .args([first_arg, "-p", project, "port", service, &port.to_string()])
         .env("MSYS_NO_PATHCONV", "1")
@@ -161,9 +167,8 @@ async fn claude_session_captured_by_open_story() {
                     .as_str()
                     .expect("session_id should be a string");
 
-                let events_url = format!(
-                    "http://localhost:{server_port}/api/sessions/{session_id}/events"
-                );
+                let events_url =
+                    format!("http://localhost:{server_port}/api/sessions/{session_id}/events");
                 let events: Vec<Value> = reqwest::get(&events_url)
                     .await
                     .expect("events request failed")
@@ -182,7 +187,11 @@ async fn claude_session_captured_by_open_story() {
                     .filter_map(|e| e["subtype"].as_str())
                     .collect();
 
-                println!("Captured {} events with subtypes: {:?}", events.len(), subtypes);
+                println!(
+                    "Captured {} events with subtypes: {:?}",
+                    events.len(),
+                    subtypes
+                );
 
                 // Should have at least some tool use (Read/Write/etc.)
                 let has_tool_use = subtypes

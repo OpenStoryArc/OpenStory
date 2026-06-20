@@ -12,9 +12,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 /// Tools used in generated cycles — matches real Claude Code usage patterns.
-const TOOLS: &[&str] = &[
-    "Bash", "Read", "Edit", "Write", "Grep", "Glob", "Agent",
-];
+const TOOLS: &[&str] = &["Bash", "Read", "Edit", "Write", "Grep", "Glob", "Agent"];
 
 /// Generate a single JSONL transcript line.
 ///
@@ -28,7 +26,12 @@ pub fn transcript_line(
     seq: u64,
     payload_size: usize,
 ) -> String {
-    let ts = format!("2025-01-10T14:{:02}:{:02}.{:03}Z", seq / 3600, (seq / 60) % 60, seq % 1000);
+    let ts = format!(
+        "2025-01-10T14:{:02}:{:02}.{:03}Z",
+        seq / 3600,
+        (seq / 60) % 60,
+        seq % 1000
+    );
     let parent = parent_uuid
         .map(|p| format!(r#","parentUuid":"{}""#, p))
         .unwrap_or_default();
@@ -56,7 +59,10 @@ pub fn transcript_line(
             )
         }
         "assistant_text" => {
-            let text = pad_payload("Here is the implementation. I ran the tests and they pass.", payload_size);
+            let text = pad_payload(
+                "Here is the implementation. I ran the tests and they pass.",
+                payload_size,
+            );
             format!(
                 r#"{{"type":"assistant","uuid":"{uuid}","sessionId":"{session_id}"{parent},"cwd":"/home/dev/project","version":"2.3.0","gitBranch":"main","timestamp":"{ts}","message":{{"role":"assistant","model":"claude-sonnet-4-6","id":"msg_{uuid}","content":[{{"type":"text","text":"{text}"}}],"usage":{{"input_tokens":2000,"output_tokens":500}},"stop_reason":"end_turn"}}}}"#
             )
@@ -132,8 +138,19 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
 
         // ── User prompt ──
         let prompt_uuid = Uuid::new_v4().to_string();
-        let parent = if last_uuid.is_empty() { None } else { Some(last_uuid.as_str()) };
-        lines.push(transcript_line("user_prompt", &prompt_uuid, parent, session_id, seq, payload_size));
+        let parent = if last_uuid.is_empty() {
+            None
+        } else {
+            Some(last_uuid.as_str())
+        };
+        lines.push(transcript_line(
+            "user_prompt",
+            &prompt_uuid,
+            parent,
+            session_id,
+            seq,
+            payload_size,
+        ));
         seq += 1;
 
         // ── Tool cycles ──
@@ -146,7 +163,12 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
             // Assistant tool_use
             let tu_uuid = Uuid::new_v4().to_string();
             lines.push(transcript_line(
-                "assistant_tool_use", &tu_uuid, Some(&prev_uuid), session_id, seq, payload_size,
+                "assistant_tool_use",
+                &tu_uuid,
+                Some(&prev_uuid),
+                session_id,
+                seq,
+                payload_size,
             ));
             seq += 1;
 
@@ -157,7 +179,12 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
             // User tool_result
             let tr_uuid = Uuid::new_v4().to_string();
             lines.push(transcript_line(
-                "user_tool_result", &tr_uuid, Some(&tu_uuid), session_id, seq, payload_size,
+                "user_tool_result",
+                &tr_uuid,
+                Some(&tu_uuid),
+                session_id,
+                seq,
+                payload_size,
             ));
             seq += 1;
             prev_uuid = tr_uuid;
@@ -165,7 +192,14 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
             // Sprinkle progress events (every other tool)
             if tool_idx % 2 == 0 && lines.len() < event_count {
                 let prog_uuid = Uuid::new_v4().to_string();
-                lines.push(transcript_line("progress_bash", &prog_uuid, None, session_id, seq, payload_size));
+                lines.push(transcript_line(
+                    "progress_bash",
+                    &prog_uuid,
+                    None,
+                    session_id,
+                    seq,
+                    payload_size,
+                ));
                 seq += 1;
             }
         }
@@ -176,14 +210,24 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
             // Use seq that selects "Agent" from TOOLS (index 6)
             let agent_seq = 6; // TOOLS[6] == "Agent"
             lines.push(transcript_line(
-                "assistant_tool_use", &agent_tu, Some(&prev_uuid), session_id, agent_seq, payload_size,
+                "assistant_tool_use",
+                &agent_tu,
+                Some(&prev_uuid),
+                session_id,
+                agent_seq,
+                payload_size,
             ));
             seq += 1;
 
             if lines.len() < event_count {
                 let agent_result = Uuid::new_v4().to_string();
                 lines.push(transcript_line(
-                    "user_tool_result", &agent_result, Some(&agent_tu), session_id, seq, payload_size,
+                    "user_tool_result",
+                    &agent_result,
+                    Some(&agent_tu),
+                    session_id,
+                    seq,
+                    payload_size,
                 ));
                 seq += 1;
                 prev_uuid = agent_result;
@@ -192,7 +236,14 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
             // Progress: agent
             if lines.len() < event_count {
                 let prog_uuid = Uuid::new_v4().to_string();
-                lines.push(transcript_line("progress_agent", &prog_uuid, None, session_id, seq, payload_size));
+                lines.push(transcript_line(
+                    "progress_agent",
+                    &prog_uuid,
+                    None,
+                    session_id,
+                    seq,
+                    payload_size,
+                ));
                 seq += 1;
             }
         }
@@ -200,14 +251,28 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
         // ── Error recovery (every 7th turn) — exercises ErrorRecovery detector ──
         if turn % 7 == 3 && lines.len() < event_count {
             let err_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("system_error", &err_uuid, None, session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "system_error",
+                &err_uuid,
+                None,
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
         }
 
         // ── Assistant text (end of turn) ──
         if lines.len() < event_count {
             let text_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("assistant_text", &text_uuid, Some(&prev_uuid), session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "assistant_text",
+                &text_uuid,
+                Some(&prev_uuid),
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
             last_uuid = text_uuid;
         }
@@ -215,28 +280,56 @@ pub fn generate_session(session_id: &str, event_count: usize, payload_size: usiz
         // ── System turn_duration ──
         if lines.len() < event_count {
             let sys_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("system_turn", &sys_uuid, None, session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "system_turn",
+                &sys_uuid,
+                None,
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
         }
 
         // ── System hook summary (every 3rd turn) ──
         if turn % 3 == 0 && lines.len() < event_count {
             let hook_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("system_hook", &hook_uuid, None, session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "system_hook",
+                &hook_uuid,
+                None,
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
         }
 
         // ── Compact boundary (every 10th turn) ──
         if turn % 10 == 9 && lines.len() < event_count {
             let compact_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("system_compact", &compact_uuid, None, session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "system_compact",
+                &compact_uuid,
+                None,
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
         }
 
         // ── Thinking (every 4th turn) ──
         if turn % 4 == 1 && lines.len() < event_count {
             let think_uuid = Uuid::new_v4().to_string();
-            lines.push(transcript_line("assistant_thinking", &think_uuid, Some(&last_uuid), session_id, seq, payload_size));
+            lines.push(transcript_line(
+                "assistant_thinking",
+                &think_uuid,
+                Some(&last_uuid),
+                session_id,
+                seq,
+                payload_size,
+            ));
             seq += 1;
         }
     }
@@ -283,10 +376,17 @@ mod tests {
     fn generated_lines_are_valid_json() {
         let uuid = Uuid::new_v4().to_string();
         let line_types = [
-            "user_prompt", "user_tool_result", "assistant_tool_use",
-            "assistant_text", "assistant_thinking", "progress_bash",
-            "progress_agent", "system_turn", "system_hook",
-            "system_error", "system_compact",
+            "user_prompt",
+            "user_tool_result",
+            "assistant_tool_use",
+            "assistant_text",
+            "assistant_thinking",
+            "progress_bash",
+            "progress_agent",
+            "system_turn",
+            "system_hook",
+            "system_error",
+            "system_compact",
         ];
         for lt in line_types {
             let line = transcript_line(lt, &uuid, None, "test-sess", 0, 0);
@@ -325,10 +425,13 @@ mod tests {
 
         // Every line should be valid JSON
         for (i, line) in content.lines().enumerate() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             assert!(
                 serde_json::from_str::<serde_json::Value>(line).is_ok(),
-                "line {i} is not valid JSON: {}", &line[..line.len().min(100)]
+                "line {i} is not valid JSON: {}",
+                &line[..line.len().min(100)]
             );
         }
     }
@@ -337,7 +440,9 @@ mod tests {
     fn payload_sizes_within_tolerance() {
         let content = generate_session("payload-test", 20, 2000);
         for (i, line) in content.lines().enumerate() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let len = line.len();
             // Each line should be at least payload_size bytes (the payload is embedded in JSON)
             // System events don't have payloads, so skip the minimum check for those
@@ -345,7 +450,8 @@ mod tests {
             if v["type"] == "user" || v["type"] == "assistant" {
                 assert!(
                     len >= 1800, // 2000 - 10% tolerance for JSON overhead
-                    "line {i} too small: {len} bytes (type={})", v["type"]
+                    "line {i} too small: {len} bytes (type={})",
+                    v["type"]
                 );
             }
         }
@@ -376,7 +482,9 @@ mod tests {
         let content = generate_session("uuid-test", 100, 0);
         let mut uuids = std::collections::HashSet::new();
         for line in content.lines() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let v: serde_json::Value = serde_json::from_str(line).unwrap();
             if let Some(uuid) = v["uuid"].as_str() {
                 assert!(uuids.insert(uuid.to_string()), "duplicate uuid: {uuid}");
@@ -391,7 +499,9 @@ mod tests {
         let mut subtypes = std::collections::HashSet::new();
 
         for line in content.lines() {
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let v: serde_json::Value = serde_json::from_str(line).unwrap();
             types.insert(v["type"].as_str().unwrap_or("unknown").to_string());
             if let Some(st) = v["subtype"].as_str() {
@@ -408,7 +518,13 @@ mod tests {
         assert!(types.contains("assistant"), "should have assistant events");
         assert!(types.contains("progress"), "should have progress events");
         assert!(types.contains("system"), "should have system events");
-        assert!(subtypes.contains("turn_duration"), "should have turn_duration");
-        assert!(subtypes.contains("bash_progress"), "should have bash_progress");
+        assert!(
+            subtypes.contains("turn_duration"),
+            "should have turn_duration"
+        );
+        assert!(
+            subtypes.contains("bash_progress"),
+            "should have bash_progress"
+        );
     }
 }

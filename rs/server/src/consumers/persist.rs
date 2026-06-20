@@ -30,10 +30,24 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use open_story_core::cloud_event::CloudEvent;
+use open_story_store::analysis;
 use open_story_store::event_store::{EventStore, SessionRow};
 use open_story_store::persistence::SessionStore;
 use open_story_store::projection::SessionProjection;
 use open_story_views::from_cloud_event::from_cloud_event;
+
+/// True if the event's `time` is synthesized at translation (e.g.
+/// `file.snapshot`, whose source line has no timestamp) rather than carried
+/// by the source. Such events must not define session recency. Unknown or
+/// missing subtypes are treated as real activity. See
+/// [`open_story_core::subtype::Subtype::time_is_synthesized`].
+fn time_is_synthesized(ce: &CloudEvent) -> bool {
+    ce.subtype
+        .as_deref()
+        .and_then(|s| s.parse::<open_story_core::subtype::Subtype>().ok())
+        .map(|st| st.time_is_synthesized())
+        .unwrap_or(false)
+}
 
 /// State owned by the persist consumer actor.
 pub struct PersistConsumer {
@@ -100,6 +114,17 @@ impl PersistConsumer {
                 self.session_projects
                     .insert(session_id.to_string(), pid.to_string());
             }
+        } else if !self.session_projects.contains_key(session_id) {
+            if let Some(cwd) = events.iter().find_map(|event| {
+                let value = serde_json::to_value(event).ok()?;
+                analysis::extract_cwd(&value)
+            }) {
+                let resolved = analysis::resolve_project(&cwd, &[]);
+                self.session_projects
+                    .insert(session_id.to_string(), resolved.project_id);
+                self.session_project_names
+                    .insert(session_id.to_string(), resolved.project_name);
+            }
         }
 
         for ce in events {
@@ -128,7 +153,9 @@ impl PersistConsumer {
             for vr in &view_records {
                 if let Some(text) = open_story_store::extract::extract_text(vr) {
                     let record_type = open_story_store::extract::record_type_str(&vr.body);
-                    let _ = event_store.index_fts(&vr.id, session_id, record_type, &text).await;
+                    let _ = event_store
+                        .index_fts(&vr.id, session_id, record_type, &text)
+                        .await;
                 }
             }
 
@@ -159,24 +186,38 @@ impl PersistConsumer {
                 .get(session_id)
                 .map(|r| r.value().clone());
 
-            let first_event_ts = events
-                .first()
-                .and_then(|ce| serde_json::to_value(ce).ok())
-                .and_then(|v| v.get("time").and_then(|t| t.as_str().map(|s| s.to_string())));
-            let last_event_ts = events
-                .last()
-                .and_then(|ce| serde_json::to_value(ce).ok())
-                .and_then(|v| v.get("time").and_then(|t| t.as_str().map(|s| s.to_string())));
+            // first_event / last_event define session recency (sort order
+            // and the UI time filter). Scan MIN/MAX over the batch — don't
+            // assume arrival order — and exclude events whose `time` is
+            // synthesized at translation (file.snapshot: no source timestamp,
+            // stamped Utc::now()). Including them re-stamps a dead session to
+            // boot time on every restart. See `Subtype::time_is_synthesized`.
+            let mut first_event_ts: Option<String> = None;
+            let mut last_event_ts: Option<String> = None;
+            for ce in events {
+                if ce.time.is_empty() || time_is_synthesized(ce) {
+                    continue;
+                }
+                let t = ce.time.as_str();
+                if first_event_ts.as_deref().is_none_or(|c| t < c) {
+                    first_event_ts = Some(ce.time.clone());
+                }
+                if last_event_ts.as_deref().is_none_or(|c| t > c) {
+                    last_event_ts = Some(ce.time.clone());
+                }
+            }
 
             // Host and user are stamped at translation time onto every
-            // CloudEvent. We lift them off the first event in the batch —
-            // every event in a given session should agree on both, so the
-            // first is canonical. Events without these stamps (pre-migration)
-            // leave the row's value at None; the EventStore upserts use a
-            // COALESCE-style write so a None batch never blanks out an
-            // already-stamped row.
+            // CloudEvent; agent platform is the CloudEvent extension
+            // attribute that identifies the translator. We lift them off the
+            // first event in the batch — every event in a given session should
+            // agree on these, so the first is canonical. Events without these
+            // stamps (pre-migration) leave the row's value at None; the
+            // EventStore upserts use a COALESCE-style write so a None batch
+            // never blanks out an already-stamped row.
             let host = events.first().and_then(|ce| ce.host.clone());
             let user = events.first().and_then(|ce| ce.user.clone());
+            let origin_agent = events.first().and_then(|ce| ce.agent.clone());
 
             let row = SessionRow {
                 id: session_id.to_string(),
@@ -190,6 +231,7 @@ impl PersistConsumer {
                 last_event: last_event_ts,
                 host,
                 user,
+                origin_agent,
             };
             let _ = event_store.upsert_session(&row).await;
         }
@@ -208,7 +250,9 @@ mod tests {
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("test content".to_string());
         let data = EventData::with_payload(
-            json!({}), 0, "sess-1".to_string(),
+            json!({}),
+            0,
+            "sess-1".to_string(),
             AgentPayload::ClaudeCode(payload),
         );
         CloudEvent::new(
@@ -217,7 +261,33 @@ mod tests {
             data,
             Some("message.user.prompt".into()),
             Some(id.to_string()),
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn test_event_with_cwd(id: &str, cwd: &str) -> CloudEvent {
+        let mut payload = ClaudeCodePayload::new();
+        payload.cwd = Some(cwd.to_string());
+        payload.text = Some("test content".to_string());
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "sess-1".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test/sess-1".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some(id.to_string()),
+            None,
+            None,
+            None,
+            None,
         )
     }
 
@@ -240,6 +310,74 @@ mod tests {
         )
     }
 
+    /// Helper: build a test event with an explicit subtype and time.
+    fn event_st(id: &str, subtype: &str, time: &str) -> CloudEvent {
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("x".to_string());
+        let data = EventData::with_payload(
+            json!({}),
+            0,
+            "sess-1".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test/sess-1".into(),
+            "io.arc.event".into(),
+            data,
+            Some(subtype.into()),
+            Some(id.to_string()),
+            Some(time.to_string()),
+            None,
+            None,
+            Some("claude-code".into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn file_snapshot_time_does_not_advance_last_event() {
+        // The "Last Hour" bug at the live-ingest layer: a batch carrying a
+        // real message (10:00) plus a boot-stamped file.snapshot (3 weeks
+        // later) must set last_event to the real message time, not the
+        // snapshot's synthesized Utc::now().
+        let (mut consumer, _tmp) = make_consumer();
+        let real = event_st("real-1", "message.user.prompt", "2026-05-02T10:00:00Z");
+        let snap = event_st("snap-1", "file.snapshot", "2026-05-25T00:42:35Z");
+
+        consumer
+            .process_batch("sess-snap", &[real, snap], None)
+            .await;
+
+        let sessions = consumer.event_store.list_sessions().await.unwrap();
+        let row = sessions
+            .iter()
+            .find(|r| r.id == "sess-snap")
+            .expect("session row exists");
+        assert_eq!(row.first_event.as_deref(), Some("2026-05-02T10:00:00Z"));
+        assert_eq!(row.last_event.as_deref(), Some("2026-05-02T10:00:00Z"));
+    }
+
+    #[tokio::test]
+    async fn snapshot_only_batch_leaves_bounds_none() {
+        // A batch of only file.snapshot events carries no real activity
+        // time — bounds stay None so the COALESCE upsert never blanks or
+        // inflates an existing row.
+        let (mut consumer, _tmp) = make_consumer();
+        let snap = event_st("snap-only", "file.snapshot", "2026-05-25T00:42:35Z");
+
+        consumer.process_batch("sess-snaponly", &[snap], None).await;
+
+        let sessions = consumer.event_store.list_sessions().await.unwrap();
+        let row = sessions
+            .iter()
+            .find(|r| r.id == "sess-snaponly")
+            .expect("session row exists");
+        assert!(
+            row.first_event.is_none(),
+            "no real activity → no first_event"
+        );
+        assert!(row.last_event.is_none(), "no real activity → no last_event");
+    }
+
     /// Helper: build a test event stamped with a given host (or none).
     fn test_event_with_host(id: &str, host: Option<&str>) -> CloudEvent {
         let ce = test_event(id);
@@ -259,7 +397,9 @@ mod tests {
         let e1 = test_event_with_host("evt-host-1", Some("Maxs-Air"));
         let e2 = test_event_with_host("evt-host-2", Some("Maxs-Air"));
 
-        consumer.process_batch("sess-host-stamp", &[e1, e2], None).await;
+        consumer
+            .process_batch("sess-host-stamp", &[e1, e2], None)
+            .await;
 
         let sessions = consumer.event_store.list_sessions().await.unwrap();
         let row = sessions
@@ -283,7 +423,34 @@ mod tests {
             .iter()
             .find(|r| r.id == "sess-legacy")
             .expect("session row exists");
-        assert!(row.host.is_none(), "legacy events must not fabricate a host");
+        assert!(
+            row.host.is_none(),
+            "legacy events must not fabricate a host"
+        );
+    }
+
+    #[tokio::test]
+    async fn derives_project_from_cwd_when_batch_has_no_path_project() {
+        let (mut consumer, _tmp) = make_consumer();
+        let event = test_event_with_cwd("evt-cwd", "/Users/maxglassie/projects/OpenStory/rs");
+
+        let result = consumer.process_batch("sess-cwd", &[event], None).await;
+
+        assert_eq!(result.persisted, 1);
+        assert_eq!(
+            consumer
+                .session_projects
+                .get("sess-cwd")
+                .map(|entry| entry.value().clone()),
+            Some("-Users-maxglassie-projects-OpenStory-rs".to_string())
+        );
+        assert_eq!(
+            consumer
+                .session_project_names
+                .get("sess-cwd")
+                .map(|entry| entry.value().clone()),
+            Some("OpenStory".to_string())
+        );
     }
 
     #[tokio::test]
@@ -295,7 +462,10 @@ mod tests {
 
         let result = consumer.process_batch("sess-1", &[e1, e2, e3], None).await;
         assert_eq!(result.persisted, 2, "should persist 2 unique events");
-        assert_eq!(result.skipped, 1, "should skip 1 duplicate via PK collision");
+        assert_eq!(
+            result.skipped, 1,
+            "should skip 1 duplicate via PK collision"
+        );
     }
 
     #[tokio::test]

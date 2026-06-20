@@ -46,7 +46,11 @@ async fn every_live_subtype_parses_into_the_enum() {
     let session_ids: Vec<String> = sessions
         .iter()
         .take(SESSION_SAMPLE)
-        .filter_map(|s| s.get("session_id").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|s| {
+            s.get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     assert!(!session_ids.is_empty(), "no sessions found");
@@ -76,8 +80,7 @@ async fn every_live_subtype_parses_into_the_enum() {
     }
 
     // Show per-agent breakdown so pi-mono / hermes coverage is visible.
-    let mut agents: std::collections::BTreeSet<&String> =
-        by_agent.keys().map(|(a, _)| a).collect();
+    let mut agents: std::collections::BTreeSet<&String> = by_agent.keys().map(|(a, _)| a).collect();
     for agent in &agents {
         eprintln!("\n── agent: {agent} ──");
         for ((a, st), n) in &by_agent {
@@ -178,7 +181,10 @@ fn every_subtype_in_pi_mono_fixtures_parses_into_the_enum() {
     if !unknown.is_empty() {
         eprintln!("\n❌ pi-mono subtypes the enum doesn't know:");
         for (st, path) in &unknown {
-            eprintln!("  {st}  (in {})", path.file_name().unwrap().to_string_lossy());
+            eprintln!(
+                "  {st}  (in {})",
+                path.file_name().unwrap().to_string_lossy()
+            );
         }
         panic!("{} unknown pi-mono subtype(s)", unknown.len());
     }

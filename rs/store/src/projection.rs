@@ -19,15 +19,31 @@ use open_story_views::wire_record::TRUNCATION_THRESHOLD;
 /// All 21 filter names.
 pub const FILTER_NAMES: &[&str] = &[
     // View
-    "all", "patterns", "narrative", "user",
+    "all",
+    "patterns",
+    "narrative",
+    "user",
     // Activity
-    "tools", "reading", "editing", "thinking", "deep",
+    "tools",
+    "reading",
+    "editing",
+    "thinking",
+    "deep",
     // Bash
-    "bash.git", "bash.test", "bash.build", "bash.docker",
+    "bash.git",
+    "bash.test",
+    "bash.build",
+    "bash.docker",
     // Results
-    "compile_error", "test_pass", "test_fail", "file_create",
+    "compile_error",
+    "test_pass",
+    "test_fail",
+    "file_create",
     // Patterns (populated when pattern detection exists)
-    "tests", "errors", "agents", "git",
+    "tests",
+    "errors",
+    "agents",
+    "git",
 ];
 
 /// Check whether a ViewRecord matches a named filter.
@@ -58,23 +74,18 @@ pub fn filter_matches(name: &str, record: &ViewRecord) -> bool {
             record,
             &["cargo test", "npm test", "npx vitest", "npx jest", "pytest"],
         ),
-        "bash.build" => bash_command_contains(
-            record,
-            &["cargo build", "npm run build", "make ", "make\n"],
-        ),
+        "bash.build" => {
+            bash_command_contains(record, &["cargo build", "npm run build", "make ", "make\n"])
+        }
         "bash.docker" => bash_command_contains(record, &["docker "]),
-        "compile_error" => result_output_contains(
-            record,
-            &["error[E", "error[", "TS2", "TS1", "SyntaxError"],
-        ),
-        "test_pass" => result_output_contains(
-            record,
-            &["test result: ok", "Tests  ", " passed"],
-        ),
-        "test_fail" => result_output_contains(
-            record,
-            &["FAILED", "failed", "Tests  "],
-        ) && is_test_failure(record),
+        "compile_error" => {
+            result_output_contains(record, &["error[E", "error[", "TS2", "TS1", "SyntaxError"])
+        }
+        "test_pass" => result_output_contains(record, &["test result: ok", "Tests  ", " passed"]),
+        "test_fail" => {
+            result_output_contains(record, &["FAILED", "failed", "Tests  "])
+                && is_test_failure(record)
+        }
         // Pattern-based filters — always false until pattern detection exists
         "patterns" | "tests" | "agents" | "git" => false,
         _ => false,
@@ -274,15 +285,18 @@ impl SessionProjection {
                 if let RecordBody::UserMessage(um) = &vr.body {
                     let text = match &um.content {
                         MessageContent::Text(t) => t.clone(),
-                        MessageContent::Blocks(blocks) => {
-                            blocks.iter()
-                                .find_map(|b| match b {
-                                    open_story_views::unified::ContentBlock::Text { text } => Some(text.clone()),
-                                    open_story_views::unified::ContentBlock::CodeBlock { text, .. } => Some(text.clone()),
-                                    _ => None,
-                                })
-                                .unwrap_or_default()
-                        }
+                        MessageContent::Blocks(blocks) => blocks
+                            .iter()
+                            .find_map(|b| match b {
+                                open_story_views::unified::ContentBlock::Text { text } => {
+                                    Some(text.clone())
+                                }
+                                open_story_views::unified::ContentBlock::CodeBlock {
+                                    text, ..
+                                } => Some(text.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_default(),
                     };
                     if !text.is_empty() {
                         self.label = Some(text.chars().take(50).collect());
@@ -364,9 +378,7 @@ impl SessionProjection {
 
     /// Parent UUID for a given event ID.
     pub fn node_parent(&self, event_id: &str) -> Option<&str> {
-        self.parents
-            .get(event_id)
-            .and_then(|opt| opt.as_deref())
+        self.parents.get(event_id).and_then(|opt| opt.as_deref())
     }
 
     pub fn session_id(&self) -> &str {
@@ -406,8 +418,8 @@ impl SessionProjection {
 mod tests {
     use super::*;
     use open_story_views::unified::{
-        AssistantMessage, ContentBlock, ErrorRecord, MessageContent, RecordBody,
-        Reasoning, ToolCall, ToolResult, UserMessage,
+        AssistantMessage, ContentBlock, ErrorRecord, MessageContent, Reasoning, RecordBody,
+        ToolCall, ToolResult, UserMessage,
     };
     use serde_json::json;
 
@@ -419,6 +431,7 @@ mod tests {
             timestamp: "2026-04-15T00:00:00Z".to_string(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body,
         }
     }
@@ -433,7 +446,9 @@ mod tests {
     fn asst_msg(text: &str) -> ViewRecord {
         vr_with(RecordBody::AssistantMessage(Box::new(AssistantMessage {
             model: "x".to_string(),
-            content: vec![ContentBlock::Text { text: text.to_string() }],
+            content: vec![ContentBlock::Text {
+                text: text.to_string(),
+            }],
             stop_reason: None,
             end_turn: None,
             phase: None,
@@ -526,9 +541,15 @@ mod tests {
     #[test]
     fn filter_reading_matches_read_glob_grep() {
         for name in ["Read", "Glob", "Grep"] {
-            assert!(filter_matches("reading", &tool_call(name, json!({}))), "tool {name}");
+            assert!(
+                filter_matches("reading", &tool_call(name, json!({}))),
+                "tool {name}"
+            );
         }
-        assert!(!filter_matches("reading", &tool_call("Bash", json!({"command": "ls"}))));
+        assert!(!filter_matches(
+            "reading",
+            &tool_call("Bash", json!({"command": "ls"}))
+        ));
         assert!(!filter_matches("reading", &tool_call("Edit", json!({}))));
     }
 
@@ -578,17 +599,38 @@ mod tests {
 
     #[test]
     fn filter_compile_error_matches_known_signatures() {
-        assert!(filter_matches("compile_error", &tool_result("error[E0277]: trait not satisfied", true)));
-        assert!(filter_matches("compile_error", &tool_result("TS2345 incompatible types", true)));
-        assert!(filter_matches("compile_error", &tool_result("SyntaxError: unexpected token", true)));
-        assert!(!filter_matches("compile_error", &tool_result("compiled successfully", false)));
+        assert!(filter_matches(
+            "compile_error",
+            &tool_result("error[E0277]: trait not satisfied", true)
+        ));
+        assert!(filter_matches(
+            "compile_error",
+            &tool_result("TS2345 incompatible types", true)
+        ));
+        assert!(filter_matches(
+            "compile_error",
+            &tool_result("SyntaxError: unexpected token", true)
+        ));
+        assert!(!filter_matches(
+            "compile_error",
+            &tool_result("compiled successfully", false)
+        ));
     }
 
     #[test]
     fn filter_test_pass_matches_pass_signatures() {
-        assert!(filter_matches("test_pass", &tool_result("test result: ok. 5 passed; 0 failed", false)));
-        assert!(filter_matches("test_pass", &tool_result("Tests  3 passed", false)));
-        assert!(!filter_matches("test_pass", &tool_result("compiling", false)));
+        assert!(filter_matches(
+            "test_pass",
+            &tool_result("test result: ok. 5 passed; 0 failed", false)
+        ));
+        assert!(filter_matches(
+            "test_pass",
+            &tool_result("Tests  3 passed", false)
+        ));
+        assert!(!filter_matches(
+            "test_pass",
+            &tool_result("compiling", false)
+        ));
     }
 
     #[test]
@@ -618,7 +660,10 @@ mod tests {
         // If this ever changes, the change is visible here.
         for name in ["patterns", "tests", "agents", "git"] {
             assert!(!filter_matches(name, &user_msg("anything")));
-            assert!(!filter_matches(name, &tool_call("Bash", json!({"command": "git status"}))));
+            assert!(!filter_matches(
+                name,
+                &tool_call("Bash", json!({"command": "git status"}))
+            ));
         }
     }
 
@@ -664,7 +709,5 @@ mod tests {
 /// Classify whether an event subtype is ephemeral (progress) or durable.
 /// Ephemeral events are shown transiently in the UI but not accumulated in state.
 pub fn is_ephemeral(subtype: Option<&str>) -> bool {
-    subtype
-        .map(|s| s.starts_with("progress."))
-        .unwrap_or(false)
+    subtype.map(|s| s.starts_with("progress.")).unwrap_or(false)
 }

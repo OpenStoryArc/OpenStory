@@ -134,11 +134,16 @@ fn extract_model(event: &Value) -> Option<String> {
         return Some(m.to_string());
     }
     // Monadic format: data.agent_payload.model
-    if let Some(m) = data.get("agent_payload").and_then(|ap| ap.get("model")).and_then(|v| v.as_str()) {
+    if let Some(m) = data
+        .get("agent_payload")
+        .and_then(|ap| ap.get("model"))
+        .and_then(|v| v.as_str())
+    {
         return Some(m.to_string());
     }
     // Transcript format: data.raw.message.model
-    if let Some(m) = data.get("raw")
+    if let Some(m) = data
+        .get("raw")
         .and_then(|r| r.get("message"))
         .and_then(|m| m.get("model"))
         .and_then(|v| v.as_str())
@@ -222,18 +227,30 @@ fn extract_tool_names(event: &Value) -> Vec<String> {
 pub fn extract_cwd(event: &Value) -> Option<String> {
     let data = event.get("data")?;
     // Hook format: data.meta.cwd or data.cwd
-    if let Some(cwd) = data.get("meta").and_then(|m| m.get("cwd")).and_then(|v| v.as_str()) {
+    if let Some(cwd) = data
+        .get("meta")
+        .and_then(|m| m.get("cwd"))
+        .and_then(|v| v.as_str())
+    {
         return Some(cwd.to_string());
     }
     if let Some(cwd) = data.get("cwd").and_then(|v| v.as_str()) {
         return Some(cwd.to_string());
     }
     // Monadic format: data.agent_payload.cwd
-    if let Some(cwd) = data.get("agent_payload").and_then(|ap| ap.get("cwd")).and_then(|v| v.as_str()) {
+    if let Some(cwd) = data
+        .get("agent_payload")
+        .and_then(|ap| ap.get("cwd"))
+        .and_then(|v| v.as_str())
+    {
         return Some(cwd.to_string());
     }
     // Transcript format: data.raw.cwd
-    if let Some(cwd) = data.get("raw").and_then(|r| r.get("cwd")).and_then(|v| v.as_str()) {
+    if let Some(cwd) = data
+        .get("raw")
+        .and_then(|r| r.get("cwd"))
+        .and_then(|v| v.as_str())
+    {
         return Some(cwd.to_string());
     }
     None
@@ -318,7 +335,15 @@ pub fn display_name_from_entry_and_cwd(entry: &str, cwd: Option<&str>) -> String
 
     // Strategy 2: Pattern-match the encoded directory name
     // Look for known parent directory patterns in the encoded name
-    for parent in &["-projects-", "-repos-", "-src-", "-code-", "-work-", "-dev-", "-git-"] {
+    for parent in &[
+        "-projects-",
+        "-repos-",
+        "-src-",
+        "-code-",
+        "-work-",
+        "-dev-",
+        "-git-",
+    ] {
         if let Some(pos) = base.rfind(parent) {
             let after_pos = pos + parent.len();
             if after_pos < base.len() {
@@ -335,10 +360,7 @@ pub fn display_name_from_entry_and_cwd(entry: &str, cwd: Option<&str>) -> String
     }
 
     // Strategy 4: Fallback — last segment split on "-"
-    base.rsplit('-')
-        .next()
-        .unwrap_or(base)
-        .to_string()
+    base.rsplit('-').next().unwrap_or(base).to_string()
 }
 
 /// Extract the project name from a real filesystem path using path parsing.
@@ -373,8 +395,7 @@ fn project_name_from_cwd_path(cwd: &str) -> Option<String> {
     }
 
     // Return the deepest match, or fall back to last segment
-    best.or(segments.last().copied())
-        .map(|s| s.to_string())
+    best.or(segments.last().copied()).map(|s| s.to_string())
 }
 
 /// Resolve a session's project identity by matching its cwd against known
@@ -407,9 +428,9 @@ pub fn resolve_project(cwd: &str, watch_dir_entries: &[String]) -> ResolvedProje
 
         // Track the longest matching watch directory entry
         // Also check entries after stripping worktree suffixes
-        let has_match = watch_dir_entries.iter().any(|e| {
-            *e == encoded || strip_worktree_suffix(e) == encoded
-        });
+        let has_match = watch_dir_entries
+            .iter()
+            .any(|e| *e == encoded || strip_worktree_suffix(e) == encoded);
         if has_match {
             best_match = Some(ResolvedProject {
                 project_id: encoded.clone(),
@@ -438,7 +459,11 @@ const STALE_THRESHOLD_SECS: i64 = 300;
 
 /// Compute a summary from a list of CloudEvent dicts (serialized Value).
 /// `now` is used for staleness detection; pass None to skip staleness checks.
-pub fn session_summary(session_id_hint: &str, events: &[Value], now: Option<DateTime<Utc>>) -> SessionSummary {
+pub fn session_summary(
+    session_id_hint: &str,
+    events: &[Value],
+    now: Option<DateTime<Utc>>,
+) -> SessionSummary {
     let mut session_id = String::new();
     let mut start_time: Option<String> = None;
     let mut duration_ms: Option<f64> = None;
@@ -456,7 +481,10 @@ pub fn session_summary(session_id_hint: &str, events: &[Value], now: Option<Date
 
     for e in events {
         let etype = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let data = e.get("data").cloned().unwrap_or(Value::Object(Default::default()));
+        let data = e
+            .get("data")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
 
         match classify_event(etype, e) {
             EventKind::SessionStart => {
@@ -468,7 +496,10 @@ pub fn session_summary(session_id_hint: &str, events: &[Value], now: Option<Date
                     .next()
                     .unwrap_or("")
                     .to_string();
-                start_time = e.get("time").and_then(|v| v.as_str()).map(|s| s.to_string());
+                start_time = e
+                    .get("time")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 if let Some(m) = extract_model(e) {
                     model = Some(m);
                 }
@@ -529,7 +560,10 @@ pub fn session_summary(session_id_hint: &str, events: &[Value], now: Option<Date
                 }
                 // Pick up start_time from first user event if no session.start
                 if start_time.is_none() {
-                    start_time = e.get("time").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    start_time = e
+                        .get("time")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                 }
                 if cwd.is_none() {
                     cwd = extract_cwd(e);
@@ -548,7 +582,9 @@ pub fn session_summary(session_id_hint: &str, events: &[Value], now: Option<Date
                 // Extract duration from turn.complete / turn_duration (they don't end the session)
                 let subtype = e.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
                 if subtype == "system.turn.complete" || subtype == "turn_duration" {
-                    if let Some(d) = data.get("duration_ms").and_then(|v| v.as_f64())
+                    if let Some(d) = data
+                        .get("duration_ms")
+                        .and_then(|v| v.as_f64())
                         .or_else(|| data.get("durationMs").and_then(|v| v.as_f64()))
                     {
                         duration_ms = Some(d);
@@ -670,11 +706,17 @@ pub fn activity_summary(events: &[Value]) -> ActivitySummary {
 
     for e in events {
         let etype = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let data = e.get("data").cloned().unwrap_or(Value::Object(Default::default()));
+        let data = e
+            .get("data")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
 
         match classify_event(etype, e) {
             EventKind::SessionStart => {
-                start_time = e.get("time").and_then(|v| v.as_str()).map(|s| s.to_string());
+                start_time = e
+                    .get("time")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
             EventKind::SessionEnd => {
                 duration_ms = data
@@ -685,7 +727,10 @@ pub fn activity_summary(events: &[Value]) -> ActivitySummary {
             EventKind::PromptSubmit => {
                 prompt_count += 1;
                 if start_time.is_none() {
-                    start_time = e.get("time").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    start_time = e
+                        .get("time")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                 }
                 if first_prompt.is_none() {
                     if let Some(text) = extract_prompt_text(e) {
@@ -728,7 +773,11 @@ pub fn activity_summary(events: &[Value]) -> ActivitySummary {
 
                 // Check for file edit tools in transcript format
                 let file_tool_names = if names.is_empty() {
-                    vec![data.get("tool").and_then(|v| v.as_str()).unwrap_or("").to_string()]
+                    vec![data
+                        .get("tool")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()]
                 } else {
                     names
                 };
@@ -736,32 +785,44 @@ pub fn activity_summary(events: &[Value]) -> ActivitySummary {
                     if matches!(tool_name.as_str(), "Edit" | "Write" | "NotebookEdit") {
                         // Extract file path from tool_use input in transcript
                         if let Some(raw) = data.get("raw") {
-                            if let Some(Value::Array(blocks)) = raw.get("message").and_then(|m| m.get("content")) {
-                                    for block in blocks {
-                                        if block.get("type").and_then(|v| v.as_str()) == Some("tool_use")
-                                            && block.get("name").and_then(|v| v.as_str()) == Some(tool_name.as_str())
-                                        {
-                                            let input = block.get("input").unwrap_or(&Value::Null);
-                                            let path = input
-                                                .get("file_path")
-                                                .or_else(|| input.get("path"))
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("")
-                                                .to_string();
-                                            let operation = if tool_name == "Edit" { "modify" } else { "create" };
-                                            files_touched.push(FileTouched {
-                                                path,
-                                                operation: operation.to_string(),
-                                            });
-                                        }
+                            if let Some(Value::Array(blocks)) =
+                                raw.get("message").and_then(|m| m.get("content"))
+                            {
+                                for block in blocks {
+                                    if block.get("type").and_then(|v| v.as_str())
+                                        == Some("tool_use")
+                                        && block.get("name").and_then(|v| v.as_str())
+                                            == Some(tool_name.as_str())
+                                    {
+                                        let input = block.get("input").unwrap_or(&Value::Null);
+                                        let path = input
+                                            .get("file_path")
+                                            .or_else(|| input.get("path"))
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        let operation = if tool_name == "Edit" {
+                                            "modify"
+                                        } else {
+                                            "create"
+                                        };
+                                        files_touched.push(FileTouched {
+                                            path,
+                                            operation: operation.to_string(),
+                                        });
                                     }
+                                }
                             }
                         }
                     }
                 }
             }
             EventKind::FileEdit => {
-                let path = data.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let path = data
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let op = data
                     .get("operation")
                     .and_then(|v| v.as_str())
@@ -773,7 +834,11 @@ pub fn activity_summary(events: &[Value]) -> ActivitySummary {
                 });
             }
             EventKind::Error => {
-                let msg = data.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let msg = data
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if !msg.is_empty() {
                     error_messages.push(msg);
                 }
@@ -1161,50 +1226,67 @@ mod tests {
     fn test_classify_event_boundary_table() {
         let cases: Vec<(&str, Option<&str>, &str)> = vec![
             // ── Unified io.arc.event subtypes ──
-            ("io.arc.event", Some("message.user.prompt"),        "PromptSubmit"),
-            ("io.arc.event", Some("message.user.tool_result"),   "Other"),
-            ("io.arc.event", Some("message.assistant.text"),      "ResponseComplete"),
-            ("io.arc.event", Some("message.assistant.tool_use"), "ToolCall"),
-            ("io.arc.event", Some("message.assistant.thinking"), "ResponseComplete"),
-            ("io.arc.event", Some("system.error"),                "Error"),
-            ("io.arc.event", Some("system.turn.complete"),        "Other"),
-            ("io.arc.event", Some("system.session.start"),        "SessionStart"),
-            ("io.arc.event", Some("system.session.end"),          "SessionEnd"),
-            ("io.arc.event", Some("system.compact"),              "Other"),
-            ("io.arc.event", Some("system.hook"),                 "Other"),
-            ("io.arc.event", Some("file.edit"),                   "FileEdit"),
-            ("io.arc.event", Some("file.snapshot"),               "Other"),
-            ("io.arc.event", Some("progress.bash"),               "Other"),
-            ("io.arc.event", Some("queue.enqueue"),               "Other"),
-            ("io.arc.event", None,                                "Other"),
-
+            ("io.arc.event", Some("message.user.prompt"), "PromptSubmit"),
+            ("io.arc.event", Some("message.user.tool_result"), "Other"),
+            (
+                "io.arc.event",
+                Some("message.assistant.text"),
+                "ResponseComplete",
+            ),
+            (
+                "io.arc.event",
+                Some("message.assistant.tool_use"),
+                "ToolCall",
+            ),
+            (
+                "io.arc.event",
+                Some("message.assistant.thinking"),
+                "ResponseComplete",
+            ),
+            ("io.arc.event", Some("system.error"), "Error"),
+            ("io.arc.event", Some("system.turn.complete"), "Other"),
+            ("io.arc.event", Some("system.session.start"), "SessionStart"),
+            ("io.arc.event", Some("system.session.end"), "SessionEnd"),
+            ("io.arc.event", Some("system.compact"), "Other"),
+            ("io.arc.event", Some("system.hook"), "Other"),
+            ("io.arc.event", Some("file.edit"), "FileEdit"),
+            ("io.arc.event", Some("file.snapshot"), "Other"),
+            ("io.arc.event", Some("progress.bash"), "Other"),
+            ("io.arc.event", Some("queue.enqueue"), "Other"),
+            ("io.arc.event", None, "Other"),
             // ── Legacy hook types ──
-            ("io.arc.session.start",     None, "SessionStart"),
-            ("io.arc.session.end",       None, "SessionEnd"),
-            ("io.arc.error",             None, "Error"),
-            ("io.arc.tool.call",         None, "ToolCall"),
-            ("io.arc.file.edit",         None, "FileEdit"),
-            ("io.arc.prompt.submit",     None, "PromptSubmit"),
+            ("io.arc.session.start", None, "SessionStart"),
+            ("io.arc.session.end", None, "SessionEnd"),
+            ("io.arc.error", None, "Error"),
+            ("io.arc.tool.call", None, "ToolCall"),
+            ("io.arc.file.edit", None, "FileEdit"),
+            ("io.arc.prompt.submit", None, "PromptSubmit"),
             ("io.arc.response.complete", None, "ResponseComplete"),
-
             // ── Legacy transcript types ──
-            ("io.arc.transcript.user",      Some("text"),         "PromptSubmit"),
-            ("io.arc.transcript.user",      Some("tool_result"),  "Other"),
-            ("io.arc.transcript.user",      None,                 "PromptSubmit"),
-            ("io.arc.transcript.assistant", Some("text"),         "ResponseComplete"),
-            ("io.arc.transcript.assistant", Some("tool_use"),     "ToolCall"),
-            ("io.arc.transcript.assistant", Some("thinking"),     "ResponseComplete"),
-            ("io.arc.transcript.system",    Some("turn_duration"), "Other"),
-            ("io.arc.transcript.system",    Some("api_error"),    "Error"),
-            ("io.arc.transcript.system",    Some("compact"),      "Other"),
-            ("io.arc.transcript.system",    None,                 "Other"),
-            ("io.arc.transcript.progress",  None,                 "Other"),
-            ("io.arc.transcript.snapshot",  None,                 "Other"),
-            ("io.arc.transcript.queue",     None,                 "Other"),
-
+            ("io.arc.transcript.user", Some("text"), "PromptSubmit"),
+            ("io.arc.transcript.user", Some("tool_result"), "Other"),
+            ("io.arc.transcript.user", None, "PromptSubmit"),
+            (
+                "io.arc.transcript.assistant",
+                Some("text"),
+                "ResponseComplete",
+            ),
+            ("io.arc.transcript.assistant", Some("tool_use"), "ToolCall"),
+            (
+                "io.arc.transcript.assistant",
+                Some("thinking"),
+                "ResponseComplete",
+            ),
+            ("io.arc.transcript.system", Some("turn_duration"), "Other"),
+            ("io.arc.transcript.system", Some("api_error"), "Error"),
+            ("io.arc.transcript.system", Some("compact"), "Other"),
+            ("io.arc.transcript.system", None, "Other"),
+            ("io.arc.transcript.progress", None, "Other"),
+            ("io.arc.transcript.snapshot", None, "Other"),
+            ("io.arc.transcript.queue", None, "Other"),
             // ── Unknown types ──
-            ("io.arc.unknown.thing",  None, "Other"),
-            ("completely.different",  None, "Other"),
+            ("io.arc.unknown.thing", None, "Other"),
+            ("completely.different", None, "Other"),
         ];
 
         for (etype, subtype, expected) in &cases {
@@ -1214,7 +1296,8 @@ mod tests {
             };
             let result = classify_event(etype, &event);
             assert_eq!(
-                kind_name(&result), *expected,
+                kind_name(&result),
+                *expected,
                 "classify_event({etype}, {subtype:?}) should be {expected}"
             );
         }
@@ -1226,9 +1309,15 @@ mod tests {
     fn test_extract_model_boundary_table() {
         let cases: Vec<(Value, Option<&str>)> = vec![
             // Hook format: data.model
-            (json!({"data": {"model": "claude-opus-4"}}), Some("claude-opus-4")),
+            (
+                json!({"data": {"model": "claude-opus-4"}}),
+                Some("claude-opus-4"),
+            ),
             // Transcript format: data.raw.message.model
-            (json!({"data": {"raw": {"message": {"model": "claude-sonnet-4-6"}}}}), Some("claude-sonnet-4-6")),
+            (
+                json!({"data": {"raw": {"message": {"model": "claude-sonnet-4-6"}}}}),
+                Some("claude-sonnet-4-6"),
+            ),
             // No model
             (json!({"data": {}}), None),
             // No data
@@ -1236,7 +1325,8 @@ mod tests {
         ];
         for (event, expected) in &cases {
             assert_eq!(
-                extract_model(event).as_deref(), *expected,
+                extract_model(event).as_deref(),
+                *expected,
                 "extract_model({event})"
             );
         }
@@ -1248,11 +1338,20 @@ mod tests {
             // Hook format: data.text
             (json!({"data": {"text": "Hello"}}), Some("Hello")),
             // Transcript: string content
-            (json!({"data": {"raw": {"message": {"content": "Direct text"}}}}), Some("Direct text")),
+            (
+                json!({"data": {"raw": {"message": {"content": "Direct text"}}}}),
+                Some("Direct text"),
+            ),
             // Transcript: array content with text block
-            (json!({"data": {"raw": {"message": {"content": [{"type": "text", "text": "From block"}]}}}}), Some("From block")),
+            (
+                json!({"data": {"raw": {"message": {"content": [{"type": "text", "text": "From block"}]}}}}),
+                Some("From block"),
+            ),
             // Transcript: array content without text block
-            (json!({"data": {"raw": {"message": {"content": [{"type": "tool_use", "name": "Read"}]}}}}), None),
+            (
+                json!({"data": {"raw": {"message": {"content": [{"type": "tool_use", "name": "Read"}]}}}}),
+                None,
+            ),
             // Empty text
             (json!({"data": {"text": ""}}), None),
             // No data
@@ -1260,7 +1359,8 @@ mod tests {
         ];
         for (event, expected) in &cases {
             assert_eq!(
-                extract_prompt_text(event).as_deref(), *expected,
+                extract_prompt_text(event).as_deref(),
+                *expected,
                 "extract_prompt_text({event})"
             );
         }
@@ -1272,10 +1372,13 @@ mod tests {
             // Hook format: data.tool
             (json!({"data": {"tool": "Read"}}), vec!["Read"]),
             // Transcript: content blocks with tool_use
-            (json!({"data": {"raw": {"message": {"content": [
-                {"type": "tool_use", "name": "Read"},
-                {"type": "tool_use", "name": "Edit"},
-            ]}}}}), vec!["Read", "Edit"]),
+            (
+                json!({"data": {"raw": {"message": {"content": [
+                    {"type": "tool_use", "name": "Read"},
+                    {"type": "tool_use", "name": "Edit"},
+                ]}}}}),
+                vec!["Read", "Edit"],
+            ),
             // No tools
             (json!({"data": {}}), vec![]),
             // No data
@@ -1292,9 +1395,15 @@ mod tests {
     fn test_extract_cwd_boundary_table() {
         let cases: Vec<(Value, Option<&str>)> = vec![
             // Hook format: data.meta.cwd
-            (json!({"data": {"meta": {"cwd": "/home/user"}}}), Some("/home/user")),
+            (
+                json!({"data": {"meta": {"cwd": "/home/user"}}}),
+                Some("/home/user"),
+            ),
             // Hook format: data.cwd
-            (json!({"data": {"cwd": "/projects/foo"}}), Some("/projects/foo")),
+            (
+                json!({"data": {"cwd": "/projects/foo"}}),
+                Some("/projects/foo"),
+            ),
             // Transcript format: data.raw.cwd
             (json!({"data": {"raw": {"cwd": "/other"}}}), Some("/other")),
             // No cwd
@@ -1304,7 +1413,8 @@ mod tests {
         ];
         for (event, expected) in &cases {
             assert_eq!(
-                extract_cwd(event).as_deref(), *expected,
+                extract_cwd(event).as_deref(),
+                *expected,
                 "extract_cwd({event})"
             );
         }
@@ -1348,7 +1458,10 @@ mod tests {
             json!({"data": {"cwd": "/projects/foo"}}),
             json!({"data": {"cwd": "/projects/bar"}}),
         ];
-        assert_eq!(extract_cwd_from_events(&events).as_deref(), Some("/projects/foo"));
+        assert_eq!(
+            extract_cwd_from_events(&events).as_deref(),
+            Some("/projects/foo")
+        );
     }
 
     #[test]
@@ -1404,7 +1517,8 @@ mod tests {
         vec![
             "C--Users-dev-projects".to_string(), // parent dir also exists
             "C--Users-dev-projects-my-project".to_string(),
-            "C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger".to_string(),
+            "C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger"
+                .to_string(),
             "C--Users-dev-projects-webapp".to_string(),
             "C--Users-dev-projects-side-project".to_string(),
             "-workspace".to_string(),
@@ -1420,29 +1534,75 @@ mod tests {
             // (cwd, expected_project_id, expected_project_name)
             //
             // Exact match: project root
-            (r"C:\Users\dev\projects\my-project", "C--Users-dev-projects-my-project", "my-project"),
+            (
+                r"C:\Users\dev\projects\my-project",
+                "C--Users-dev-projects-my-project",
+                "my-project",
+            ),
             // Subdirectory: should resolve to parent project
-            (r"C:\Users\dev\projects\my-project\ui", "C--Users-dev-projects-my-project", "my-project"),
-            (r"C:\Users\dev\projects\my-project\e2e", "C--Users-dev-projects-my-project", "my-project"),
-            (r"C:\Users\dev\projects\my-project\rs", "C--Users-dev-projects-my-project", "my-project"),
+            (
+                r"C:\Users\dev\projects\my-project\ui",
+                "C--Users-dev-projects-my-project",
+                "my-project",
+            ),
+            (
+                r"C:\Users\dev\projects\my-project\e2e",
+                "C--Users-dev-projects-my-project",
+                "my-project",
+            ),
+            (
+                r"C:\Users\dev\projects\my-project\rs",
+                "C--Users-dev-projects-my-project",
+                "my-project",
+            ),
             // Different project
-            (r"C:\Users\dev\projects\webapp", "C--Users-dev-projects-webapp", "webapp"),
-            (r"C:\Users\dev\projects\webapp\ui", "C--Users-dev-projects-webapp", "webapp"),
-            (r"C:\Users\dev\projects\webapp\components", "C--Users-dev-projects-webapp", "webapp"),
+            (
+                r"C:\Users\dev\projects\webapp",
+                "C--Users-dev-projects-webapp",
+                "webapp",
+            ),
+            (
+                r"C:\Users\dev\projects\webapp\ui",
+                "C--Users-dev-projects-webapp",
+                "webapp",
+            ),
+            (
+                r"C:\Users\dev\projects\webapp\components",
+                "C--Users-dev-projects-webapp",
+                "webapp",
+            ),
             // Hyphenated project name
-            (r"C:\Users\dev\projects\side-project", "C--Users-dev-projects-side-project", "side-project"),
+            (
+                r"C:\Users\dev\projects\side-project",
+                "C--Users-dev-projects-side-project",
+                "side-project",
+            ),
             // Parent dir exists but child is more specific — prefer child
-            (r"C:\Users\dev\projects", "C--Users-dev-projects", "projects"),
+            (
+                r"C:\Users\dev\projects",
+                "C--Users-dev-projects",
+                "projects",
+            ),
             // Sandbox: matches the -workspace entry
             ("/workspace", "-workspace", "workspace"),
             // Worktree cwd: should resolve to parent project via worktree entry match
-            (r"C:\Users\dev\projects\my-project\.claude\worktrees\purrfect-noodling-badger",
-             "C--Users-dev-projects-my-project", "my-project"),
+            (
+                r"C:\Users\dev\projects\my-project\.claude\worktrees\purrfect-noodling-badger",
+                "C--Users-dev-projects-my-project",
+                "my-project",
+            ),
             // Sandbox worktree: cwd is /workspace/.claude/worktrees/<name>
-            ("/workspace/.claude/worktrees/abundant-splashing-fiddle",
-             "-workspace", "workspace"),
+            (
+                "/workspace/.claude/worktrees/abundant-splashing-fiddle",
+                "-workspace",
+                "workspace",
+            ),
             // Unix paths
-            ("/home/user/projects/my-app", "-home-user-projects-my-app", "my-app"),
+            (
+                "/home/user/projects/my-app",
+                "-home-user-projects-my-app",
+                "my-app",
+            ),
         ];
 
         for (cwd, expected_id, expected_name) in cases {
@@ -1463,7 +1623,9 @@ mod tests {
     #[test]
     fn test_strip_worktree_suffix() {
         assert_eq!(
-            strip_worktree_suffix("C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger"),
+            strip_worktree_suffix(
+                "C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger"
+            ),
             "C--Users-dev-projects-my-project"
         );
         assert_eq!(
@@ -1490,8 +1652,14 @@ mod tests {
             ("C--Users-dev-projects", "projects"),
             ("-workspace", "workspace"),
             // Worktree entries: should strip suffix then decode
-            ("C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger", "my-project"),
-            ("-workspace--claude-worktrees-abundant-splashing-fiddle", "workspace"),
+            (
+                "C--Users-dev-projects-my-project--claude-worktrees-purrfect-noodling-badger",
+                "my-project",
+            ),
+            (
+                "-workspace--claude-worktrees-abundant-splashing-fiddle",
+                "workspace",
+            ),
             // Unix-style project
             ("-home-user-projects-my-app", "my-app"),
         ];
@@ -1563,14 +1731,12 @@ mod tests {
         use chrono::TimeZone;
         // 10 minutes after last event
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 10, 0).unwrap();
-        let events = vec![
-            json!({
-                "type": "io.arc.event",
-                "subtype": "message.user.prompt",
-                "time": "2026-01-01T00:00:00Z",
-                "data": {"text": "hello"}
-            }),
-        ];
+        let events = vec![json!({
+            "type": "io.arc.event",
+            "subtype": "message.user.prompt",
+            "time": "2026-01-01T00:00:00Z",
+            "data": {"text": "hello"}
+        })];
         let s = session_summary("test", &events, Some(now));
         assert_eq!(s.status, "stale");
     }
@@ -1621,14 +1787,12 @@ mod tests {
 
     #[test]
     fn test_status_error_when_session_end_nonzero_exit() {
-        let events = vec![
-            json!({
-                "type": "io.arc.event",
-                "subtype": "system.session.end",
-                "time": "2026-01-01T00:01:00Z",
-                "data": {"exit_code": 1}
-            }),
-        ];
+        let events = vec![json!({
+            "type": "io.arc.event",
+            "subtype": "system.session.end",
+            "time": "2026-01-01T00:01:00Z",
+            "data": {"exit_code": 1}
+        })];
         let s = session_summary("test", &events, None);
         assert_eq!(s.status, "error");
     }

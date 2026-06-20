@@ -151,7 +151,10 @@ fn build_conversation(n: usize) -> Vec<Value> {
             break;
         }
         // Assistant tool call
-        msgs.push(assistant_tool_call("read_file", &format!("{{\"path\": \"file_{}.rs\"}}", i)));
+        msgs.push(assistant_tool_call(
+            "read_file",
+            &format!("{{\"path\": \"file_{}.rs\"}}", i),
+        ));
         if msgs.len() >= n {
             break;
         }
@@ -164,7 +167,10 @@ fn build_conversation(n: usize) -> Vec<Value> {
             break;
         }
         // Assistant text
-        msgs.push(assistant_text(&format!("Here is the content of file_{}.rs", i)));
+        msgs.push(assistant_text(&format!(
+            "Here is the content of file_{}.rs",
+            i
+        )));
         i += 1;
     }
     msgs.truncate(n);
@@ -229,9 +235,11 @@ fn test_atomic_replace_detection() {
     let target_events: Vec<&Event> = collected
         .iter()
         .filter(|e| {
-            e.paths
-                .iter()
-                .any(|p| p.file_name().map(|n| n == "session_test.json").unwrap_or(false))
+            e.paths.iter().any(|p| {
+                p.file_name()
+                    .map(|n| n == "session_test.json")
+                    .unwrap_or(false)
+            })
         })
         .collect();
 
@@ -445,8 +453,7 @@ fn test_coalesced_event_correctness() {
 
     let new_session_id = "compressed-session-new";
     let compressed_messages = build_conversation(3);
-    let snapshot_compressed =
-        generate_hermes_snapshot(new_session_id, &compressed_messages, 1000);
+    let snapshot_compressed = generate_hermes_snapshot(new_session_id, &compressed_messages, 1000);
     let parsed_compressed: Value = serde_json::from_str(&snapshot_compressed).unwrap();
 
     let new_msgs_compressed = diff_snapshot(&prev, &parsed_compressed);
@@ -503,12 +510,7 @@ fn test_large_file_scaling() {
 
     eprintln!("\nSnapshot parse times:");
     for (label, size, avg) in &results {
-        eprintln!(
-            "  {}: {}KB actual, avg parse {:?}",
-            label,
-            size / 1024,
-            avg
-        );
+        eprintln!("  {}: {}KB actual, avg parse {:?}", label, size / 1024, avg);
     }
 
     // Assert: 10MB should parse in under 100ms.
@@ -684,9 +686,11 @@ fn test_concurrent_sessions() {
     for i in 0..session_count {
         let filename = format!("session_{}.json", i);
         let has_events = collected.iter().any(|e| {
-            e.paths
-                .iter()
-                .any(|p| p.file_name().map(|n| n.to_string_lossy() == filename).unwrap_or(false))
+            e.paths.iter().any(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy() == filename)
+                    .unwrap_or(false)
+            })
         });
         assert!(
             has_events,
@@ -756,13 +760,11 @@ fn test_write_rate_sweep() {
         let target_events = collected
             .iter()
             .filter(|e| {
-                e.paths
-                    .iter()
-                    .any(|p| {
-                        p.file_name()
-                            .map(|n| n == "session_sweep.json")
-                            .unwrap_or(false)
-                    })
+                e.paths.iter().any(|p| {
+                    p.file_name()
+                        .map(|n| n == "session_sweep.json")
+                        .unwrap_or(false)
+                })
             })
             .count();
 
@@ -839,7 +841,10 @@ fn test_sustained_load_5_minutes() {
     let mut last_report = Instant::now();
     let mut max_file_size: usize = 0;
 
-    eprintln!("\nSustained load: {} writes at 2/sec (5 minutes)...", total_writes);
+    eprintln!(
+        "\nSustained load: {} writes at 2/sec (5 minutes)...",
+        total_writes
+    );
 
     for i in 0..total_writes {
         let messages = build_conversation(2 + i);
@@ -1021,7 +1026,10 @@ fn test_burst_pattern() {
     let total_writes = bursts * writes_per_burst;
     let mut msg_count = 1; // initial message
 
-    eprintln!("\nBurst pattern: {} bursts of {} writes...", bursts, writes_per_burst);
+    eprintln!(
+        "\nBurst pattern: {} bursts of {} writes...",
+        bursts, writes_per_burst
+    );
 
     for burst in 0..bursts {
         // Burst: 5 writes at 50ms spacing.
@@ -1033,7 +1041,11 @@ fn test_burst_pattern() {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        eprintln!("  Burst {} complete, {} messages total", burst + 1, msg_count);
+        eprintln!(
+            "  Burst {} complete, {} messages total",
+            burst + 1,
+            msg_count
+        );
 
         // Pause: simulate LLM thinking.
         std::thread::sleep(Duration::from_secs(3));
@@ -1092,13 +1104,11 @@ fn test_burst_pattern() {
     let target_events = collected
         .iter()
         .filter(|e| {
-            e.paths
-                .iter()
-                .any(|p| {
-                    p.file_name()
-                        .map(|n| n == "session_burst.json")
-                        .unwrap_or(false)
-                })
+            e.paths.iter().any(|p| {
+                p.file_name()
+                    .map(|n| n == "session_burst.json")
+                    .unwrap_or(false)
+            })
         })
         .count();
 
@@ -1154,10 +1164,8 @@ fn test_fast_model_simulation() {
                     // On event: read + parse + diff to simulate the real pipeline.
                     if let Ok(raw) = std::fs::read_to_string(&session_path_for_watcher) {
                         if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
-                            let msg_count = parsed["messages"]
-                                .as_array()
-                                .map(|a| a.len())
-                                .unwrap_or(0);
+                            let msg_count =
+                                parsed["messages"].as_array().map(|a| a.len()).unwrap_or(0);
                             event_times_clone
                                 .lock()
                                 .unwrap()
@@ -1191,7 +1199,10 @@ fn test_fast_model_simulation() {
         // Assistant tool call.
         messages.push(assistant_tool_call(
             "write_file",
-            &format!("{{\"path\": \"src/module_{}.rs\", \"content\": \"fn f{}() {{}}\"}}", i, i),
+            &format!(
+                "{{\"path\": \"src/module_{}.rs\", \"content\": \"fn f{}() {{}}\"}}",
+                i, i
+            ),
         ));
         let content = generate_hermes_snapshot(session_id, &messages, 55_000);
         atomic_replace(&session_path, &content);
@@ -1262,7 +1273,9 @@ fn test_fast_model_simulation() {
 
     let p50_latency = latencies.get(latencies.len() / 2).copied();
     let p99_idx = (latencies.len() as f64 * 0.99).ceil() as usize;
-    let p99_latency = latencies.get(p99_idx.min(latencies.len().saturating_sub(1))).copied();
+    let p99_latency = latencies
+        .get(p99_idx.min(latencies.len().saturating_sub(1)))
+        .copied();
 
     eprintln!("\nFast model simulation results:");
     eprintln!("  Turns:           {}", turns);

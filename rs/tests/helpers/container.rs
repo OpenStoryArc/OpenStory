@@ -83,9 +83,7 @@ pub async fn start_open_story(fixture_dir: &Path) -> OpenStoryContainer {
         let _ = filetime::set_file_mtime(&path, now);
     }
 
-    let fixture_path = fixture_dir
-        .canonicalize()
-        .expect("fixture dir must exist");
+    let fixture_path = fixture_dir.canonicalize().expect("fixture dir must exist");
 
     // Docker on Windows needs forward-slash paths without the \\?\ UNC prefix
     let mount_source = to_docker_path(&fixture_path);
@@ -143,9 +141,7 @@ pub async fn start_open_story_with_seeded_data(data_dir: &Path) -> OpenStoryCont
         }
     }
 
-    let data_path = data_dir
-        .canonicalize()
-        .expect("data dir must exist");
+    let data_path = data_dir.canonicalize().expect("data dir must exist");
     let mount_source = to_docker_path(&data_path);
 
     let container = GenericImage::new(IMAGE_NAME, IMAGE_TAG)

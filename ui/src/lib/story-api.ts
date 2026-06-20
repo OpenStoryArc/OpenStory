@@ -25,6 +25,8 @@ export interface StorySession {
   host?: string | null;
   /** Origin user (human identity) — `null` for legacy sessions ingested before user stamping. */
   user?: string | null;
+  /** Agent platform that produced the session (`claude-code`, `codex`, `pi-mono`, `hermes`). */
+  origin_agent?: string | null;
 }
 
 /** Response shape from GET /api/sessions */

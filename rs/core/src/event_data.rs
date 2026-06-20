@@ -41,7 +41,11 @@ pub enum ToolOutcome {
     /// Bash tool
     CommandExecuted { command: String, succeeded: bool },
     /// Agent tool — agent_id links to the subagent session ("agent-{agent_id}")
-    SubAgentSpawned { description: String, #[serde(default)] agent_id: String },
+    SubAgentSpawned {
+        description: String,
+        #[serde(default)]
+        agent_id: String,
+    },
 }
 
 /// Derive the domain event from a tool call + result pair.
@@ -143,7 +147,10 @@ pub fn derive_tool_outcome(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(ToolOutcome::SubAgentSpawned { description, agent_id: String::new() })
+            Some(ToolOutcome::SubAgentSpawned {
+                description,
+                agent_id: String::new(),
+            })
         }
         _ => None, // Unknown tool — no domain event
     }
@@ -214,6 +221,8 @@ pub enum AgentPayload {
     PiMono(PiMonoPayload),
     #[serde(rename = "hermes")]
     Hermes(HermesPayload),
+    #[serde(rename = "codex")]
+    Codex(CodexPayload),
 }
 
 // ── Claude Code Payload ────────────────────────────────────────────
@@ -590,6 +599,87 @@ impl HermesPayload {
     }
 }
 
+// ── Codex Payload ─────────────────────────────────────────────────
+
+/// Typed extraction for Codex rollout JSONL events.
+///
+/// Codex persists session streams as JSONL lines with a stable outer
+/// `{ timestamp, type, payload }` envelope. The payload shapes vary by line
+/// type, so this adapter lifts the common story fields while preserving the
+/// untouched raw line in `EventData::raw`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CodexPayload {
+    /// The tag.
+    pub meta: PayloadMeta,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub originator: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<Value>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+impl Default for CodexPayload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodexPayload {
+    pub fn new() -> Self {
+        Self {
+            meta: PayloadMeta {
+                agent: "codex".to_string(),
+            },
+            thread_id: None,
+            turn_id: None,
+            call_id: None,
+            cwd: None,
+            timestamp: None,
+            cli_version: None,
+            originator: None,
+            item_type: None,
+            phase: None,
+            text: None,
+            model: None,
+            tool: None,
+            args: None,
+            output: None,
+            token_usage: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+}
+
 // ── Convenience accessors ──────────────────────────────────────────
 
 impl AgentPayload {
@@ -599,6 +689,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => &p.meta.agent,
             AgentPayload::PiMono(p) => &p.meta.agent,
             AgentPayload::Hermes(p) => &p.meta.agent,
+            AgentPayload::Codex(p) => &p.meta.agent,
         }
     }
 
@@ -608,6 +699,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.text.as_deref(),
             AgentPayload::PiMono(p) => p.text.as_deref(),
             AgentPayload::Hermes(p) => p.text.as_deref(),
+            AgentPayload::Codex(p) => p.text.as_deref(),
         }
     }
 
@@ -617,6 +709,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.model.as_deref(),
             AgentPayload::PiMono(p) => p.model.as_deref(),
             AgentPayload::Hermes(p) => p.model.as_deref(),
+            AgentPayload::Codex(p) => p.model.as_deref(),
         }
     }
 
@@ -626,6 +719,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.tool.as_deref(),
             AgentPayload::PiMono(p) => p.tool.as_deref(),
             AgentPayload::Hermes(p) => p.tool.as_deref(),
+            AgentPayload::Codex(p) => p.tool.as_deref(),
         }
     }
 
@@ -635,6 +729,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.args.as_ref(),
             AgentPayload::PiMono(p) => p.args.as_ref(),
             AgentPayload::Hermes(p) => p.args.as_ref(),
+            AgentPayload::Codex(p) => p.args.as_ref(),
         }
     }
 
@@ -649,6 +744,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.token_usage.as_ref(),
             AgentPayload::PiMono(p) => p.token_usage.as_ref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(p) => p.token_usage.as_ref(),
         }
     }
 
@@ -662,6 +758,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.uuid.as_deref(),
             AgentPayload::PiMono(p) => p.uuid.as_deref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(_) => None,
         }
     }
 
@@ -674,6 +771,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.parent_uuid.as_deref(),
             AgentPayload::PiMono(p) => p.parent_uuid.as_deref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(_) => None,
         }
     }
 
@@ -686,6 +784,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.cwd.as_deref(),
             AgentPayload::PiMono(p) => p.cwd.as_deref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(p) => p.cwd.as_deref(),
         }
     }
 
@@ -695,6 +794,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.stop_reason.as_ref().and_then(|v| v.as_str()),
             AgentPayload::PiMono(p) => p.stop_reason.as_deref(),
             AgentPayload::Hermes(p) => p.stop_reason.as_deref(),
+            AgentPayload::Codex(_) => None,
         }
     }
 
@@ -707,6 +807,7 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.content_types.as_deref(),
             AgentPayload::PiMono(p) => p.content_types.as_deref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(_) => None,
         }
     }
 
@@ -720,9 +821,9 @@ impl AgentPayload {
             AgentPayload::ClaudeCode(p) => p.tool_outcome.as_ref(),
             AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
             AgentPayload::Hermes(_) => None,
+            AgentPayload::Codex(_) => None,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -815,7 +916,10 @@ mod tests {
         let deserialized: EventData = serde_json::from_value(serialized.clone()).unwrap();
 
         let reserialized = serde_json::to_value(&deserialized).unwrap();
-        assert_eq!(serialized, reserialized, "Round-trip must preserve JSON shape");
+        assert_eq!(
+            serialized, reserialized,
+            "Round-trip must preserve JSON shape"
+        );
     }
 
     #[test]
@@ -825,18 +929,17 @@ mod tests {
         payload.provider = Some("openai".to_string());
         payload.thinking_level = Some("high".to_string());
 
-        let data = EventData::with_payload(
-            json!({}),
-            0,
-            "s".to_string(),
-            AgentPayload::PiMono(payload),
-        );
+        let data =
+            EventData::with_payload(json!({}), 0, "s".to_string(), AgentPayload::PiMono(payload));
 
         let serialized = serde_json::to_value(&data).unwrap();
         let deserialized: EventData = serde_json::from_value(serialized.clone()).unwrap();
 
         let reserialized = serde_json::to_value(&deserialized).unwrap();
-        assert_eq!(serialized, reserialized, "Round-trip must preserve JSON shape");
+        assert_eq!(
+            serialized, reserialized,
+            "Round-trip must preserve JSON shape"
+        );
     }
 
     #[test]
@@ -1145,10 +1248,20 @@ mod tests {
         #[test]
         fn tool_outcome_round_trips() {
             let outcomes = vec![
-                ToolOutcome::FileCreated { path: "/a.rs".to_string() },
-                ToolOutcome::FileModified { path: "/b.rs".to_string() },
-                ToolOutcome::CommandExecuted { command: "ls".to_string(), succeeded: true },
-                ToolOutcome::SearchPerformed { pattern: "TODO".to_string(), source: "filesystem".to_string() },
+                ToolOutcome::FileCreated {
+                    path: "/a.rs".to_string(),
+                },
+                ToolOutcome::FileModified {
+                    path: "/b.rs".to_string(),
+                },
+                ToolOutcome::CommandExecuted {
+                    command: "ls".to_string(),
+                    succeeded: true,
+                },
+                ToolOutcome::SearchPerformed {
+                    pattern: "TODO".to_string(),
+                    source: "filesystem".to_string(),
+                },
             ];
             for outcome in outcomes {
                 let json = serde_json::to_value(&outcome).unwrap();
@@ -1161,7 +1274,9 @@ mod tests {
     #[test]
     fn test_extra_fields_serialize_flat() {
         let mut payload = ClaudeCodePayload::new();
-        payload.extra.insert("future_field".to_string(), json!("surprise"));
+        payload
+            .extra
+            .insert("future_field".to_string(), json!("surprise"));
         payload.extra.insert("another".to_string(), json!(99));
 
         let data = EventData::with_payload(

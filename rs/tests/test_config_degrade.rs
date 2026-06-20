@@ -33,11 +33,7 @@ async fn degrade_search_works_without_external_deps() {
         .await
         .unwrap();
 
-    assert_eq!(
-        resp.status(),
-        200,
-        "FTS5 search should always be available"
-    );
+    assert_eq!(resp.status(), 200, "FTS5 search should always be available");
 }
 
 /// Agent search works in minimal config.
@@ -46,12 +42,9 @@ async fn degrade_search_works_without_external_deps() {
 async fn degrade_agent_search_works_without_external_deps() {
     let container = start_open_story(&fixtures_dir()).await;
 
-    let resp = reqwest::get(format!(
-        "{}/api/agent/search?q=test",
-        container.base_url()
-    ))
-    .await
-    .unwrap();
+    let resp = reqwest::get(format!("{}/api/agent/search?q=test", container.base_url()))
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
 }
@@ -141,7 +134,9 @@ async fn degrade_all_non_search_apis_work() {
     assert_eq!(resp.status(), 200, "plans should work");
 
     // Agent tools
-    let resp = reqwest::get(format!("{base}/api/agent/tools")).await.unwrap();
+    let resp = reqwest::get(format!("{base}/api/agent/tools"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "agent tools should work");
 
     // Insights

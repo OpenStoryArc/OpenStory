@@ -46,6 +46,11 @@ pub struct SessionRow {
     /// user stamp.
     #[serde(default)]
     pub user: Option<String>,
+    /// Agent platform that produced this session (for example `claude-code`,
+    /// `codex`, `pi-mono`, or `hermes`). Populated from the first CloudEvent
+    /// in a batch and coalesced like host/user.
+    #[serde(default)]
+    pub origin_agent: Option<String>,
 }
 
 impl SessionRow {
@@ -78,6 +83,26 @@ pub trait EventStore: Send + Sync {
     /// Update session projection metadata.
     async fn upsert_session(&self, session: &SessionRow) -> Result<()>;
 
+    /// Recompute and **authoritatively set** `first_event`/`last_event` for a
+    /// session from its durably-stored events, excluding subtypes whose `time`
+    /// is synthesized at translation (`file.snapshot` — the source line has no
+    /// timestamp, so it is stamped `Utc::now()` and would otherwise re-stamp a
+    /// dead session's recency to boot time on every restart). See
+    /// `open_story_core::subtype::SYNTHESIZED_TIME_SUBTYPES`.
+    ///
+    /// Unlike [`upsert_session`](Self::upsert_session), which MIN/MAX-merges
+    /// (and therefore can only *raise* `last_event`), this overwrites — so it
+    /// can lower a value already polluted by boot-stamped snapshots. Returns
+    /// the new `(first_event, last_event)` bounds.
+    ///
+    /// Default impl is a no-op for backends that don't track session bounds.
+    async fn recompute_session_bounds(
+        &self,
+        _session_id: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        Ok((None, None))
+    }
+
     /// Insert a detected pattern.
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()>;
 
@@ -95,12 +120,7 @@ pub trait EventStore: Send + Sync {
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>>;
 
     /// Store a plan.
-    async fn upsert_plan(
-        &self,
-        plan_id: &str,
-        session_id: &str,
-        content: &str,
-    ) -> Result<()>;
+    async fn upsert_plan(&self, plan_id: &str, session_id: &str, content: &str) -> Result<()>;
 
     /// Get full payload for an event (un-truncated).
     async fn full_payload(&self, event_id: &str) -> Result<Option<String>>;
@@ -170,7 +190,11 @@ pub trait EventStore: Send + Sync {
     }
 
     /// Project context: recent sessions.
-    async fn query_project_context(&self, _project_id: &str, _limit: usize) -> Vec<queries::ProjectSession> {
+    async fn query_project_context(
+        &self,
+        _project_id: &str,
+        _limit: usize,
+    ) -> Vec<queries::ProjectSession> {
         Vec::new()
     }
 
@@ -185,11 +209,23 @@ pub trait EventStore: Send + Sync {
     }
 
     /// Token usage summary (optionally filtered by days or session).
-    async fn query_token_usage(&self, _days: Option<u32>, _session_id: Option<&str>, _model: &str) -> queries::TokenUsageSummary {
+    async fn query_token_usage(
+        &self,
+        _days: Option<u32>,
+        _session_id: Option<&str>,
+        _model: &str,
+    ) -> queries::TokenUsageSummary {
         queries::TokenUsageSummary {
             session_count: 0,
             usage: queries::TokenUsage::default(),
-            cost: queries::CostEstimate { input: 0.0, output: 0.0, cache_read: 0.0, cache_creation: 0.0, total: 0.0, model: "sonnet".into() },
+            cost: queries::CostEstimate {
+                input: 0.0,
+                output: 0.0,
+                cache_read: 0.0,
+                cache_creation: 0.0,
+                total: 0.0,
+                model: "sonnet".into(),
+            },
             sessions: Vec::new(),
         }
     }
@@ -202,12 +238,23 @@ pub trait EventStore: Send + Sync {
     // ── Full-text search (default: not supported on JSONL fallback) ──
 
     /// Index a record in the full-text index.
-    async fn index_fts(&self, _event_id: &str, _session_id: &str, _record_type: &str, _text: &str) -> anyhow::Result<()> {
+    async fn index_fts(
+        &self,
+        _event_id: &str,
+        _session_id: &str,
+        _record_type: &str,
+        _text: &str,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
     /// Full-text search across indexed events.
-    async fn search_fts(&self, _query: &str, _limit: usize, _session_filter: Option<&str>) -> anyhow::Result<Vec<queries::FtsSearchResult>> {
+    async fn search_fts(
+        &self,
+        _query: &str,
+        _limit: usize,
+        _session_filter: Option<&str>,
+    ) -> anyhow::Result<Vec<queries::FtsSearchResult>> {
         Ok(vec![])
     }
 
@@ -241,6 +288,7 @@ mod tests {
             last_event: None,
             host: None,
             user: None,
+            origin_agent: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

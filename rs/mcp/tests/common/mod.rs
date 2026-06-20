@@ -31,7 +31,11 @@ use tempfile::TempDir;
 pub fn make_test_server() -> (Server<LoopbackSubscriber>, LoopbackSubscriber, TempDir) {
     let (store, plan_store, dir) = make_test_store();
     let subscriber = LoopbackSubscriber::new();
-    (Server::new(subscriber.clone(), store, plan_store), subscriber, dir)
+    (
+        Server::new(subscriber.clone(), store, plan_store),
+        subscriber,
+        dir,
+    )
 }
 
 /// Drive a single `tools/call` through stdio against the given server
@@ -173,7 +177,9 @@ impl Subscribe for LoopbackSubscriber {
             });
         });
 
-        Ok(Subscription::from_parts(route_id, session_id, sink_rx, cancel))
+        Ok(Subscription::from_parts(
+            route_id, session_id, sink_rx, cancel,
+        ))
     }
 }
 

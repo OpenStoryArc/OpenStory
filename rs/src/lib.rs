@@ -10,3 +10,5 @@ pub mod server;
 pub mod snapshot_watcher;
 pub mod translate;
 pub mod watcher;
+#[cfg(target_os = "macos")]
+pub mod kqueue_watcher;

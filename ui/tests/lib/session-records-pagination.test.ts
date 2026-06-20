@@ -40,6 +40,7 @@ function makeRecords(sessionId: string, count: number): WireRecord[] {
     seq: i + 1,
     session_id: sessionId,
     timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+    origin_agent: "claude-code",
     record_type: "tool_call",
     payload: { call_id: `c${i}`, name: "Read", input: {}, raw_input: {}, typed_input: { tool: "read", file_path: "/x" } },
     agent_id: null,

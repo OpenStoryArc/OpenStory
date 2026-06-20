@@ -94,7 +94,11 @@ impl OpenClawStack {
 
     /// Get events for a session from Open Story.
     pub async fn get_openstory_events(&self, session_id: &str) -> Vec<Value> {
-        let url = format!("{}/api/sessions/{}/events", self.openstory_url(), session_id);
+        let url = format!(
+            "{}/api/sessions/{}/events",
+            self.openstory_url(),
+            session_id
+        );
         reqwest::get(&url)
             .await
             .expect("failed to get events")

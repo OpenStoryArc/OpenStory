@@ -11,6 +11,14 @@ pub mod names {
     pub const EVENTS_DEDUPED: &str = "events_deduped_total";
     pub const PATTERNS_DETECTED: &str = "patterns_detected_total";
     pub const WS_MESSAGES_SENT: &str = "ws_messages_sent_total";
+    pub const WATCHER_RAW_EVENTS: &str = "watcher_raw_events_total";
+    pub const WATCHER_IGNORED_EVENTS: &str = "watcher_ignored_events_total";
+    pub const WATCHER_FILES_PROCESSED: &str = "watcher_files_processed_total";
+    pub const WATCHER_ZERO_NEW_BYTE_READS: &str = "watcher_zero_new_byte_reads_total";
+    pub const WATCHER_CLOUD_EVENTS_EMITTED: &str = "watcher_cloud_events_emitted_total";
+    pub const WATCHER_PUBLISH_FAILURES: &str = "watcher_publish_failures_total";
+    pub const WATCHER_LAST_EVENT_TIMESTAMP: &str = "watcher_last_event_timestamp_seconds";
+    pub const WATCHER_LAST_SUCCESS_TIMESTAMP: &str = "watcher_last_success_timestamp_seconds";
 
     pub const SESSIONS_ACTIVE: &str = "sessions_active";
     pub const SESSIONS_TOTAL: &str = "sessions_total";
@@ -51,6 +59,46 @@ pub fn record_ws_message_sent() {
     metrics::counter!(names::WS_MESSAGES_SENT).increment(1);
 }
 
+pub fn record_watcher_raw_event(actor: &str, kind: &str) {
+    metrics::counter!(
+        names::WATCHER_RAW_EVENTS,
+        "actor" => actor.to_string(),
+        "kind" => kind.to_string()
+    )
+    .increment(1);
+    set_watcher_last_event_now(actor);
+}
+
+pub fn record_watcher_ignored_event(actor: &str, reason: &str) {
+    metrics::counter!(
+        names::WATCHER_IGNORED_EVENTS,
+        "actor" => actor.to_string(),
+        "reason" => reason.to_string()
+    )
+    .increment(1);
+}
+
+pub fn record_watcher_file_processed(actor: &str, emitted: u64, zero_new_bytes: bool) {
+    metrics::counter!(names::WATCHER_FILES_PROCESSED, "actor" => actor.to_string()).increment(1);
+    if zero_new_bytes {
+        metrics::counter!(names::WATCHER_ZERO_NEW_BYTE_READS, "actor" => actor.to_string())
+            .increment(1);
+    }
+    if emitted > 0 {
+        metrics::counter!(names::WATCHER_CLOUD_EVENTS_EMITTED, "actor" => actor.to_string())
+            .increment(emitted);
+    }
+}
+
+pub fn record_watcher_publish(actor: &str, success: bool) {
+    if success {
+        set_watcher_last_success_now(actor);
+    } else {
+        metrics::counter!(names::WATCHER_PUBLISH_FAILURES, "actor" => actor.to_string())
+            .increment(1);
+    }
+}
+
 /// Update active session count gauge.
 pub fn set_sessions_active(count: u64) {
     metrics::gauge!(names::SESSIONS_ACTIVE).set(count as f64);
@@ -64,6 +112,16 @@ pub fn set_sessions_total(count: u64) {
 /// Update connected WebSocket client count.
 pub fn set_ws_clients(count: u64) {
     metrics::gauge!(names::WS_CLIENTS_CONNECTED).set(count as f64);
+}
+
+fn set_watcher_last_event_now(actor: &str) {
+    metrics::gauge!(names::WATCHER_LAST_EVENT_TIMESTAMP, "actor" => actor.to_string())
+        .set(chrono::Utc::now().timestamp() as f64);
+}
+
+fn set_watcher_last_success_now(actor: &str) {
+    metrics::gauge!(names::WATCHER_LAST_SUCCESS_TIMESTAMP, "actor" => actor.to_string())
+        .set(chrono::Utc::now().timestamp() as f64);
 }
 
 /// Build a Router with a single GET /metrics route, capturing the handle.
@@ -88,6 +146,14 @@ mod tests {
             names::EVENTS_DEDUPED,
             names::PATTERNS_DETECTED,
             names::WS_MESSAGES_SENT,
+            names::WATCHER_RAW_EVENTS,
+            names::WATCHER_IGNORED_EVENTS,
+            names::WATCHER_FILES_PROCESSED,
+            names::WATCHER_ZERO_NEW_BYTE_READS,
+            names::WATCHER_CLOUD_EVENTS_EMITTED,
+            names::WATCHER_PUBLISH_FAILURES,
+            names::WATCHER_LAST_EVENT_TIMESTAMP,
+            names::WATCHER_LAST_SUCCESS_TIMESTAMP,
             names::SESSIONS_ACTIVE,
             names::SESSIONS_TOTAL,
             names::WS_CLIENTS_CONNECTED,
@@ -97,10 +163,7 @@ mod tests {
                 name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
                 "metric name {name} contains invalid characters"
             );
-            assert!(
-                !name.is_empty(),
-                "metric name should not be empty"
-            );
+            assert!(!name.is_empty(), "metric name should not be empty");
         }
     }
 
@@ -112,6 +175,11 @@ mod tests {
         record_events_deduped(2);
         record_patterns_detected(3);
         record_ws_message_sent();
+        record_watcher_raw_event("codex", "Modify(Data)");
+        record_watcher_ignored_event("codex", "non_jsonl");
+        record_watcher_file_processed("codex", 2, false);
+        record_watcher_publish("codex", true);
+        record_watcher_publish("codex", false);
         set_sessions_active(10);
         set_sessions_total(42);
         set_ws_clients(3);

@@ -9,6 +9,7 @@ function makeRecord(overrides: Partial<ViewRecord> = {}): ViewRecord {
     seq: 1,
     session_id: "s1",
     timestamp: "2025-01-01T12:00:00Z",
+    origin_agent: "claude-code",
     record_type: "tool_call",
     payload: {
       call_id: "c1",
@@ -31,6 +32,18 @@ describe("EventRow", () => {
     );
     expect(screen.getByText("Tool Use")).toBeTruthy();
     expect(screen.getByText("Read")).toBeTruthy();
+  });
+
+  it("renders the origin agent badge", () => {
+    const onClick = vi.fn();
+    render(
+      <EventRow
+        record={makeRecord({ origin_agent: "pi-mono" })}
+        selected={false}
+        onClick={onClick}
+      />,
+    );
+    expect(screen.getByTestId("event-agent-badge").textContent).toBe("pi-mono");
   });
 
   it("calls onClick with record id when clicked", () => {

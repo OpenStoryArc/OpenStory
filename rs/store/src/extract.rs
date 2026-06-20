@@ -25,7 +25,11 @@ pub fn extract_text(vr: &ViewRecord) -> Option<String> {
                     .collect::<Vec<_>>()
                     .join("\n"),
             };
-            if text.is_empty() { None } else { Some(text) }
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
         }
 
         RecordBody::AssistantMessage(msg) => {
@@ -39,7 +43,11 @@ pub fn extract_text(vr: &ViewRecord) -> Option<String> {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            if text.is_empty() { None } else { Some(text) }
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
         }
 
         RecordBody::ToolCall(tc) => {
@@ -79,14 +87,16 @@ pub fn extract_text(vr: &ViewRecord) -> Option<String> {
                 }
             }
             let summary = r.summary.join(" ");
-            if summary.is_empty() { None } else { Some(summary) }
+            if summary.is_empty() {
+                None
+            } else {
+                Some(summary)
+            }
         }
 
         RecordBody::Error(e) => Some(format!("Error: {}", e.message)),
 
-        RecordBody::SystemEvent(se) => {
-            se.message.as_ref().map(|m| format!("System: {}", m))
-        }
+        RecordBody::SystemEvent(se) => se.message.as_ref().map(|m| format!("System: {}", m)),
 
         // Non-indexable types
         RecordBody::SessionMeta(_)
@@ -131,6 +141,7 @@ mod tests {
             timestamp: "2025-01-17T00:00:00Z".into(),
             agent_id: None,
             is_sidechain: false,
+            origin_agent: None,
             body,
         }
     }
@@ -160,8 +171,12 @@ mod tests {
         fn user_message_with_blocks() {
             let vr = make_vr(RecordBody::UserMessage(UserMessage {
                 content: MessageContent::Blocks(vec![
-                    ContentBlock::Text { text: "hello".into() },
-                    ContentBlock::Text { text: "world".into() },
+                    ContentBlock::Text {
+                        text: "hello".into(),
+                    },
+                    ContentBlock::Text {
+                        text: "world".into(),
+                    },
                 ]),
                 images: vec![],
             }));
@@ -232,10 +247,7 @@ mod tests {
                 is_error: false,
                 tool_outcome: None,
             }));
-            assert_eq!(
-                extract_text(&vr),
-                Some("test result: ok. 5 passed".into())
-            );
+            assert_eq!(extract_text(&vr), Some("test result: ok. 5 passed".into()));
         }
 
         #[test]
@@ -246,10 +258,7 @@ mod tests {
                 is_error: true,
                 tool_outcome: None,
             }));
-            assert_eq!(
-                extract_text(&vr),
-                Some("[ERROR] compilation failed".into())
-            );
+            assert_eq!(extract_text(&vr), Some("[ERROR] compilation failed".into()));
         }
 
         #[test]
@@ -304,10 +313,7 @@ mod tests {
                 content: None,
                 encrypted: false,
             }));
-            assert_eq!(
-                extract_text(&vr),
-                Some("Thinking about the problem".into())
-            );
+            assert_eq!(extract_text(&vr), Some("Thinking about the problem".into()));
         }
 
         #[test]
@@ -327,10 +333,7 @@ mod tests {
                 message: "Too many requests".into(),
                 details: None,
             }));
-            assert_eq!(
-                extract_text(&vr),
-                Some("Error: Too many requests".into())
-            );
+            assert_eq!(extract_text(&vr), Some("Error: Too many requests".into()));
         }
 
         #[test]

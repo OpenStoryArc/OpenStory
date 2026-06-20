@@ -40,14 +40,38 @@ const ACTOR_MODULES: &[&str] = &[
 /// Forbidden import patterns in an actor module.
 /// Each pair: (pattern, reason).
 const FORBIDDEN_IMPORTS: &[(&str, &str)] = &[
-    ("use crate::consumers::", "actor modules must not import other actor modules"),
-    ("use super::persist", "actor modules must not import each other"),
-    ("use super::patterns", "actor modules must not import each other"),
-    ("use super::projections", "actor modules must not import each other"),
-    ("use super::broadcast", "actor modules must not import each other"),
-    ("use crate::state::", "actors must not depend on shared AppState directly"),
-    ("use crate::AppState", "actors must not depend on shared AppState directly"),
-    ("use crate::SharedState", "actors must not depend on shared AppState directly"),
+    (
+        "use crate::consumers::",
+        "actor modules must not import other actor modules",
+    ),
+    (
+        "use super::persist",
+        "actor modules must not import each other",
+    ),
+    (
+        "use super::patterns",
+        "actor modules must not import each other",
+    ),
+    (
+        "use super::projections",
+        "actor modules must not import each other",
+    ),
+    (
+        "use super::broadcast",
+        "actor modules must not import each other",
+    ),
+    (
+        "use crate::state::",
+        "actors must not depend on shared AppState directly",
+    ),
+    (
+        "use crate::AppState",
+        "actors must not depend on shared AppState directly",
+    ),
+    (
+        "use crate::SharedState",
+        "actors must not depend on shared AppState directly",
+    ),
 ];
 
 fn workspace_root() -> PathBuf {

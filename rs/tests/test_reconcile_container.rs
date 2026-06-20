@@ -107,7 +107,10 @@ async fn container_with_empty_data_dir_boots_clean() {
     assert_eq!(resp.status(), 200);
 
     let sessions = get_sessions(&server.base_url()).await;
-    assert!(sessions.is_empty(), "fresh data dir must yield zero sessions");
+    assert!(
+        sessions.is_empty(),
+        "fresh data dir must yield zero sessions"
+    );
 }
 
 /// Pre-populate `data_dir` with three sessions on different hosts, boot
@@ -197,7 +200,11 @@ async fn container_reconciles_seeded_jsonl_on_boot() {
     // the federated host was missing. Verify the filter actually works
     // and finds exactly Katie's session.
     let filtered = get_sessions_by_host(&server.base_url(), "Katies-Mac-mini").await;
-    assert_eq!(filtered.len(), 1, "?host=Katies-Mac-mini should narrow to 1");
+    assert_eq!(
+        filtered.len(),
+        1,
+        "?host=Katies-Mac-mini should narrow to 1"
+    );
     assert_eq!(filtered[0]["session_id"].as_str(), Some("sess-katie"));
 }
 

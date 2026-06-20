@@ -77,7 +77,10 @@ impl PipelineResult {
         eprintln!("  ║ Events generated:   {}", self.events_generated);
         eprintln!("  ║ Events ingested:    {}", self.events_ingested);
         eprintln!("  ║ Elapsed:            {:.1}s", self.elapsed.as_secs_f64());
-        eprintln!("  ║ Throughput:         {:.0} events/s", self.throughput_eps);
+        eprintln!(
+            "  ║ Throughput:         {:.0} events/s",
+            self.throughput_eps
+        );
         eprintln!("  ║ Data loss:          {:.1}%", self.data_loss_pct);
         eprintln!("  ║ Healthy:            {}", self.healthy);
         eprintln!("  ╚════════════════════════════╝");
@@ -164,7 +167,10 @@ fn to_docker_path(path: &std::path::Path) -> String {
     s.replace('\\', "/")
 }
 
-async fn start_perf_stack(tier: &SizingTier, fixture_dir: &std::path::Path) -> (DockerCompose, u16) {
+async fn start_perf_stack(
+    tier: &SizingTier,
+    fixture_dir: &std::path::Path,
+) -> (DockerCompose, u16) {
     // Touch fixture files for fresh mtimes (watcher skips old files)
     let now = filetime::FileTime::now();
     if let Ok(entries) = std::fs::read_dir(fixture_dir) {
@@ -227,7 +233,10 @@ async fn wait_for_n_sessions(port: u16, expected: usize, timeout: Duration) -> V
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    eprintln!("  TIMEOUT: expected {expected} sessions, got {last_count} after {:.0}s", timeout.as_secs_f64());
+    eprintln!(
+        "  TIMEOUT: expected {expected} sessions, got {last_count} after {:.0}s",
+        timeout.as_secs_f64()
+    );
     // Return what we have
     if let Ok(resp) = reqwest::get(&url).await {
         resp.json::<Vec<Value>>().await.unwrap_or_default()
@@ -237,7 +246,12 @@ async fn wait_for_n_sessions(port: u16, expected: usize, timeout: Duration) -> V
 }
 
 /// Poll until a session has at least `expected` view-records, or timeout.
-async fn wait_for_n_records(port: u16, session_id: &str, expected: usize, timeout: Duration) -> usize {
+async fn wait_for_n_records(
+    port: u16,
+    session_id: &str,
+    expected: usize,
+    timeout: Duration,
+) -> usize {
     let url = format!("http://localhost:{port}/api/sessions/{session_id}/view-records");
     let start = Instant::now();
     let mut last_count = 0;
@@ -426,8 +440,14 @@ struct BreakRound {
 async fn run_break_finder(tier: &SizingTier) -> Vec<BreakRound> {
     eprintln!("\n  ╔══════════════════════════════════════╗");
     eprintln!("  ║  BREAK FINDER: {} tier", tier.name);
-    eprintln!("  ║  CPU: {} server / {} NATS", tier.server_cpu, tier.nats_cpu);
-    eprintln!("  ║  RAM: {} server / {} NATS", tier.server_memory, tier.nats_memory);
+    eprintln!(
+        "  ║  CPU: {} server / {} NATS",
+        tier.server_cpu, tier.nats_cpu
+    );
+    eprintln!(
+        "  ║  RAM: {} server / {} NATS",
+        tier.server_memory, tier.nats_memory
+    );
     eprintln!("  ╚══════════════════════════════════════╝");
 
     let mut rounds = Vec::new();
@@ -499,13 +519,23 @@ async fn run_break_finder(tier: &SizingTier) -> Vec<BreakRound> {
 
     // Print summary table
     eprintln!("\n  ══ Break Finder Summary: {} ══", tier.name);
-    eprintln!("  {:>5} {:>8} {:>8} {:>8} {:>10} {:>8} {:>8} {:>7} {:>5}",
-        "Round", "Sessions", "Evts/S", "Total", "Ingested", "Time(s)", "E/s", "Loss%", "OK?");
+    eprintln!(
+        "  {:>5} {:>8} {:>8} {:>8} {:>10} {:>8} {:>8} {:>7} {:>5}",
+        "Round", "Sessions", "Evts/S", "Total", "Ingested", "Time(s)", "E/s", "Loss%", "OK?"
+    );
     for r in &rounds {
-        eprintln!("  {:>5} {:>8} {:>8} {:>8} {:>10} {:>8.1} {:>8.0} {:>7.1} {:>5}",
-            r.round, r.sessions, r.events_per_session, r.total_events,
-            r.events_ingested, r.elapsed.as_secs_f64(), r.throughput_eps,
-            r.data_loss_pct, if r.healthy { "yes" } else { "NO" });
+        eprintln!(
+            "  {:>5} {:>8} {:>8} {:>8} {:>10} {:>8.1} {:>8.0} {:>7.1} {:>5}",
+            r.round,
+            r.sessions,
+            r.events_per_session,
+            r.total_events,
+            r.events_ingested,
+            r.elapsed.as_secs_f64(),
+            r.throughput_eps,
+            r.data_loss_pct,
+            if r.healthy { "yes" } else { "NO" }
+        );
     }
 
     rounds
@@ -579,8 +609,10 @@ async fn perf_payload_ramp() {
         } else {
             format!("{}B", size)
         };
-        eprintln!("  Payload {size_label}: {:.0} e/s, {:.1}% loss, healthy={}",
-            result.throughput_eps, result.data_loss_pct, result.healthy);
+        eprintln!(
+            "  Payload {size_label}: {:.0} e/s, {:.1}% loss, healthy={}",
+            result.throughput_eps, result.data_loss_pct, result.healthy
+        );
     }
 }
 
@@ -628,26 +660,56 @@ async fn perf_nfr_report() {
     };
 
     // Print consolidated table
-    eprintln!("\n  ═══════════════════════════════════════════════════════════════════════════════");
+    eprintln!(
+        "\n  ═══════════════════════════════════════════════════════════════════════════════"
+    );
     eprintln!("  NON-FUNCTIONAL REQUIREMENTS — Container Sizing Recommendations");
     eprintln!("  ═══════════════════════════════════════════════════════════════════════════════");
     eprintln!();
-    eprintln!("  {:>8} {:>6} {:>6} {:>10} {:>10} {:>12} {:>30}",
-        "Tier", "CPU", "RAM", "Backfill", "Throughput", "Data Loss", "Breaking Point");
-    eprintln!("  {:>8} {:>6} {:>6} {:>10} {:>10} {:>12} {:>30}",
-        "────────", "──────", "──────", "──────────", "──────────", "────────────", "──────────────────────────────");
-    eprintln!("  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
-        "Small", "0.5", "256M", format!("{:.0}s", small.elapsed.as_secs_f64()),
-        max_throughput(&small_break), small.data_loss_pct,
-        break_point(&small_break));
-    eprintln!("  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
-        "Medium", "1.0", "512M", format!("{:.0}s", medium.elapsed.as_secs_f64()),
-        max_throughput(&medium_break), medium.data_loss_pct,
-        break_point(&medium_break));
-    eprintln!("  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
-        "Large", "2.0", "1G", format!("{:.0}s", large.elapsed.as_secs_f64()),
-        max_throughput(&large_break), large.data_loss_pct,
-        break_point(&large_break));
+    eprintln!(
+        "  {:>8} {:>6} {:>6} {:>10} {:>10} {:>12} {:>30}",
+        "Tier", "CPU", "RAM", "Backfill", "Throughput", "Data Loss", "Breaking Point"
+    );
+    eprintln!(
+        "  {:>8} {:>6} {:>6} {:>10} {:>10} {:>12} {:>30}",
+        "────────",
+        "──────",
+        "──────",
+        "──────────",
+        "──────────",
+        "────────────",
+        "──────────────────────────────"
+    );
+    eprintln!(
+        "  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
+        "Small",
+        "0.5",
+        "256M",
+        format!("{:.0}s", small.elapsed.as_secs_f64()),
+        max_throughput(&small_break),
+        small.data_loss_pct,
+        break_point(&small_break)
+    );
+    eprintln!(
+        "  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
+        "Medium",
+        "1.0",
+        "512M",
+        format!("{:.0}s", medium.elapsed.as_secs_f64()),
+        max_throughput(&medium_break),
+        medium.data_loss_pct,
+        break_point(&medium_break)
+    );
+    eprintln!(
+        "  {:>8} {:>6} {:>6} {:>10} {:>10.0} {:>11.1}% {:>30}",
+        "Large",
+        "2.0",
+        "1G",
+        format!("{:.0}s", large.elapsed.as_secs_f64()),
+        max_throughput(&large_break),
+        large.data_loss_pct,
+        break_point(&large_break)
+    );
     eprintln!();
     eprintln!("  Recommendations:");
     eprintln!("    Small  (0.5 CPU, 256M): Dev / single-agent — up to ~500 events");

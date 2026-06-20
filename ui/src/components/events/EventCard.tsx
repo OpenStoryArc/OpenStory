@@ -14,6 +14,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 // ---------------------------------------------------------------------------
 // Color palette (Tokyonight)
@@ -432,6 +433,9 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
   }
 
   const catColor = CATEGORY_COLORS[row.category] ?? "#565f89";
+  const agent = (row.record as ViewRecord).origin_agent;
+  const agentLabel = originAgentLabel(agent);
+  const agentColor = originAgentColor(agent);
 
   return (
     <div
@@ -441,6 +445,16 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
       <div className={compact ? "px-3 py-1.5" : "px-3 py-2"}>
         {/* Header */}
         <div className="flex items-center gap-1.5">
+          {agentLabel && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+              style={{ color: agentColor, backgroundColor: `${agentColor}18` }}
+              title={`Agent: ${agentLabel}`}
+              data-testid="event-card-agent-badge"
+            >
+              {agentLabel}
+            </span>
+          )}
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-medium"
             style={{ color: catColor, backgroundColor: `${catColor}18` }}

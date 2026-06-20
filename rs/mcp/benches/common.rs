@@ -30,9 +30,8 @@ pub struct SeededStore {
 
 pub async fn seed_store(session_count: usize, events_per_session: usize) -> SeededStore {
     let dir = tempfile::tempdir().expect("tempdir");
-    let store: Arc<dyn EventStore> = Arc::new(
-        SqliteStore::new(dir.path()).expect("open SqliteStore"),
-    );
+    let store: Arc<dyn EventStore> =
+        Arc::new(SqliteStore::new(dir.path()).expect("open SqliteStore"));
     let plans_dir = dir.path().join("plans");
     std::fs::create_dir_all(&plans_dir).expect("mkdir plans");
     let plan_store = Arc::new(PlanStore::new(&plans_dir).expect("open PlanStore"));
@@ -52,6 +51,7 @@ pub async fn seed_store(session_count: usize, events_per_session: usize) -> Seed
             last_event: Some("2026-05-01T01:00:00Z".into()),
             host: Some("bench-host".into()),
             user: Some("bench-user".into()),
+            origin_agent: None,
         };
         store.upsert_session(&row).await.expect("upsert_session");
 
@@ -111,16 +111,16 @@ pub async fn seed_store(session_count: usize, events_per_session: usize) -> Seed
             .expect("insert_batch");
     }
 
-    SeededStore { store, plan_store, dir }
+    SeededStore {
+        store,
+        plan_store,
+        dir,
+    }
 }
 
 // ── Tool-call driver over an in-memory duplex pipe ──────────────────
 
-pub async fn call_tool<S>(
-    server: Server<S>,
-    name: &str,
-    args: Value,
-) -> Value
+pub async fn call_tool<S>(server: Server<S>, name: &str, args: Value) -> Value
 where
     S: Subscribe,
 {
@@ -212,7 +212,9 @@ impl Subscribe for LoopbackSubscriber {
             });
         });
 
-        Ok(Subscription::from_parts(route_id, session_id, sink_rx, cancel))
+        Ok(Subscription::from_parts(
+            route_id, session_id, sink_rx, cancel,
+        ))
     }
 }
 

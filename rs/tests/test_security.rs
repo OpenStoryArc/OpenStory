@@ -47,7 +47,11 @@ async fn transcript_api_rejects_dotdot_in_path() {
                 "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hello"}]}}
             }
         });
-        let _ = s.store.event_store.insert_event("sess-traversal", &event).await;
+        let _ = s
+            .store
+            .event_store
+            .insert_event("sess-traversal", &event)
+            .await;
     }
 
     let req = Request::get("/api/sessions/sess-traversal/transcript")
@@ -133,18 +137,34 @@ async fn session_id_with_sql_injection_is_harmless() {
     {
         let mut s = state.write().await;
         let result = ingest_events(&mut s, malicious_sid, &events, None).await;
-        assert_eq!(result.count, 1, "event should be ingested normally despite SQL in session_id");
+        assert_eq!(
+            result.count, 1,
+            "event should be ingested normally despite SQL in session_id"
+        );
     }
 
     // Verify the events table still exists and original data is intact
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events(malicious_sid).await.unwrap();
-        assert_eq!(stored.len(), 1, "events table should still exist with our event");
+        let stored = s
+            .store
+            .event_store
+            .session_events(malicious_sid)
+            .await
+            .unwrap();
+        assert_eq!(
+            stored.len(),
+            1,
+            "events table should still exist with our event"
+        );
     }
 
     // Also verify via API — use a percent-encoded form of the malicious session_id
-    let encoded_sid = malicious_sid.replace("'", "%27").replace(";", "%3B").replace(" ", "%20").replace("-", "%2D");
+    let encoded_sid = malicious_sid
+        .replace("'", "%27")
+        .replace(";", "%3B")
+        .replace(" ", "%20")
+        .replace("-", "%2D");
     let req = Request::get(&format!("/api/sessions/{}/events", encoded_sid))
         .body(Body::empty())
         .unwrap();
@@ -187,7 +207,11 @@ async fn sqlite_injection_via_event_id() {
     let state = test_state(&tmp);
 
     let malicious_id = "evt'; DROP TABLE events; --";
-    let events = vec![make_event_with_id("io.arc.event", "sess-sqli", malicious_id)];
+    let events = vec![make_event_with_id(
+        "io.arc.event",
+        "sess-sqli",
+        malicious_id,
+    )];
 
     {
         let mut s = state.write().await;
@@ -197,8 +221,17 @@ async fn sqlite_injection_via_event_id() {
     // Table should still exist, event should be stored with literal SQL as ID
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-sqli").await.unwrap();
-        assert_eq!(stored.len(), 1, "events table survives SQL injection attempt in event_id");
+        let stored = s
+            .store
+            .event_store
+            .session_events("sess-sqli")
+            .await
+            .unwrap();
+        assert_eq!(
+            stored.len(),
+            1,
+            "events table survives SQL injection attempt in event_id"
+        );
         assert_eq!(
             stored[0].get("id").and_then(|v| v.as_str()),
             Some(malicious_id),
@@ -227,8 +260,16 @@ async fn sqlite_injection_via_subtype() {
 
     {
         let s = state.read().await;
-        let inserted = s.store.event_store.insert_event("sess-sqli-sub", &event).await.unwrap();
-        assert!(inserted, "event with SQL in subtype should be inserted normally");
+        let inserted = s
+            .store
+            .event_store
+            .insert_event("sess-sqli-sub", &event)
+            .await
+            .unwrap();
+        assert!(
+            inserted,
+            "event with SQL in subtype should be inserted normally"
+        );
     }
 
     // Insert another event to verify DELETE didn't run
@@ -242,9 +283,22 @@ async fn sqlite_injection_via_subtype() {
             "time": "2025-01-15T00:00:01Z",
             "data": {"text": "still here"}
         });
-        let _ = s.store.event_store.insert_event("sess-sqli-sub", &event2).await;
-        let all = s.store.event_store.session_events("sess-sqli-sub").await.unwrap();
-        assert_eq!(all.len(), 2, "both events should survive — SQL injection in subtype had no effect");
+        let _ = s
+            .store
+            .event_store
+            .insert_event("sess-sqli-sub", &event2)
+            .await;
+        let all = s
+            .store
+            .event_store
+            .session_events("sess-sqli-sub")
+            .await
+            .unwrap();
+        assert_eq!(
+            all.len(),
+            2,
+            "both events should survive — SQL injection in subtype had no effect"
+        );
     }
 }
 
@@ -269,10 +323,18 @@ async fn duplicate_event_id_does_not_overwrite_data() {
         // Second event with SAME id but potentially different data
         let event_b = make_event_with_id("io.arc.event", "sess-collision", "evt-collision");
         let result_b = ingest_events(&mut s, "sess-collision", &[event_b], None).await;
-        assert_eq!(result_b.count, 0, "duplicate event_id should be deduplicated");
+        assert_eq!(
+            result_b.count, 0,
+            "duplicate event_id should be deduplicated"
+        );
 
         // Only one event should be stored
-        let stored = s.store.event_store.session_events("sess-collision").await.unwrap();
+        let stored = s
+            .store
+            .event_store
+            .session_events("sess-collision")
+            .await
+            .unwrap();
         assert_eq!(stored.len(), 1, "only original event should exist");
     }
 }
@@ -308,17 +370,29 @@ async fn ingest_large_event_payload_no_crash() {
     let state = test_state(&tmp);
 
     // 1MB payload in a single event
-    let events = vec![helpers::make_event_with_large_payload("sess-large", "evt-1mb", 1_000_000)];
+    let events = vec![helpers::make_event_with_large_payload(
+        "sess-large",
+        "evt-1mb",
+        1_000_000,
+    )];
 
     {
         let mut s = state.write().await;
         let result = ingest_events(&mut s, "sess-large", &events, None).await;
-        assert_eq!(result.count, 1, "large event should be ingested successfully");
+        assert_eq!(
+            result.count, 1,
+            "large event should be ingested successfully"
+        );
     }
 
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("sess-large").await.unwrap();
+        let stored = s
+            .store
+            .event_store
+            .session_events("sess-large")
+            .await
+            .unwrap();
         assert_eq!(stored.len(), 1);
     }
 }

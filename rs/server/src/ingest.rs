@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
-use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
+use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord};
 
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::analysis;
@@ -45,7 +45,10 @@ pub async fn ingest_events(
     project_id: Option<&str>,
 ) -> IngestResult {
     if events.is_empty() {
-        return IngestResult { count: 0, changes: Vec::new() };
+        return IngestResult {
+            count: 0,
+            changes: Vec::new(),
+        };
     }
 
     if let Some(pid) = project_id {
@@ -132,7 +135,10 @@ pub async fn ingest_events(
                 // Log for observability so silent drops are visible.
                 let eid = val.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                 let st = val.get("subtype").and_then(|v| v.as_str()).unwrap_or("?");
-                log_event("ingest", &format!("⚠ event {eid} ({st}) dedup'd or empty — skipped broadcast"));
+                log_event(
+                    "ingest",
+                    &format!("⚠ event {eid} ({st}) dedup'd or empty — skipped broadcast"),
+                );
                 continue;
             }
 
@@ -143,11 +149,7 @@ pub async fn ingest_events(
             // work. Under NATS, PersistConsumer owns these writes and
             // this block is skipped to keep the actor decomposition clean.
             if !state.bus.is_active() {
-                let _ = state
-                    .store
-                    .event_store
-                    .insert_event(session_id, &val)
-                    .await;
+                let _ = state.store.event_store.insert_event(session_id, &val).await;
                 let _ = state.store.session_store.append(session_id, &val);
                 for vr in from_cloud_event(ce).iter() {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
@@ -176,7 +178,11 @@ pub async fn ingest_events(
                     let _ = state.store.plan_store.save(session_id, &content, timestamp);
                     // Dual-write plan to EventStore
                     let plan_id = format!("plan:{}:{}", session_id, timestamp);
-                    let _ = state.store.event_store.upsert_plan(&plan_id, session_id, &content).await;
+                    let _ = state
+                        .store
+                        .event_store
+                        .upsert_plan(&plan_id, session_id, &content)
+                        .await;
                 }
             }
 
@@ -189,10 +195,10 @@ pub async fn ingest_events(
                 if let RecordBody::ToolResult(tr) = &vr.body {
                     if let Some(output) = &tr.output {
                         if output.len() > TRUNCATION_THRESHOLD {
-                            state.store.full_payloads.insert(
-                                (session_id.to_string(), vr.id.clone()),
-                                output.clone(),
-                            );
+                            state
+                                .store
+                                .full_payloads
+                                .insert((session_id.to_string(), vr.id.clone()), output.clone());
                         }
                     }
                 }
@@ -260,8 +266,16 @@ pub async fn ingest_events(
                         ephemeral: view_records,
                         filter_deltas: append_result.filter_deltas,
                         patterns: Vec::new(),
-                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
-                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
+                        project_id: state
+                            .store
+                            .session_projects
+                            .get(session_id)
+                            .map(|r| r.value().clone()),
+                        project_name: state
+                            .store
+                            .session_project_names
+                            .get(session_id)
+                            .map(|r| r.value().clone()),
                         session_label: None,
                         session_branch: None,
                         total_input_tokens: None,
@@ -278,8 +292,16 @@ pub async fn ingest_events(
                         ephemeral: Vec::new(),
                         filter_deltas: append_result.filter_deltas,
                         patterns: detected_patterns,
-                        project_id: state.store.session_projects.get(session_id).map(|r| r.value().clone()),
-                        project_name: state.store.session_project_names.get(session_id).map(|r| r.value().clone()),
+                        project_id: state
+                            .store
+                            .session_projects
+                            .get(session_id)
+                            .map(|r| r.value().clone()),
+                        project_name: state
+                            .store
+                            .session_project_names
+                            .get(session_id)
+                            .map(|r| r.value().clone()),
                         session_label,
                         session_branch,
                         total_input_tokens: token_fields.0,
@@ -295,7 +317,10 @@ pub async fn ingest_events(
         // Count ingested events by subtype
         for ce in events {
             if let Ok(val) = serde_json::to_value(ce) {
-                let subtype = val.get("subtype").and_then(|v| v.as_str()).unwrap_or("unknown");
+                let subtype = val
+                    .get("subtype")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
                 crate::metrics::record_events_ingested(subtype, 1);
             }
         }
@@ -303,10 +328,13 @@ pub async fn ingest_events(
         if deduped > 0 {
             crate::metrics::record_events_deduped(deduped as u64);
         }
-        let pattern_count: usize = changes.iter().map(|c| match c {
-            BroadcastMessage::Enriched { patterns, .. } => patterns.len(),
-            _ => 0,
-        }).sum();
+        let pattern_count: usize = changes
+            .iter()
+            .map(|c| match c {
+                BroadcastMessage::Enriched { patterns, .. } => patterns.len(),
+                _ => 0,
+            })
+            .sum();
         if pattern_count > 0 {
             crate::metrics::record_patterns_detected(pattern_count as u64);
         }
@@ -357,7 +385,11 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
     let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
-        let events = ctx.event_store.session_events(sid).await.unwrap_or_default();
+        let events = ctx
+            .event_store
+            .session_events(sid)
+            .await
+            .unwrap_or_default();
         if events.is_empty() {
             continue;
         }
@@ -378,7 +410,10 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 proj.append(val);
             }
 
-            let view_records = match serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(val.clone()) {
+            let view_records = match serde_json::from_value::<
+                open_story_core::cloud_event::CloudEvent,
+            >(val.clone())
+            {
                 Ok(ce) => from_cloud_event(&ce),
                 Err(_) => vec![],
             };
@@ -401,7 +436,10 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 for vr in &view_records {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let record_type = open_story_store::extract::record_type_str(&vr.body);
-                        let _ = ctx.event_store.index_fts(&vr.id, sid, record_type, &text).await;
+                        let _ = ctx
+                            .event_store
+                            .index_fts(&vr.id, sid, record_type, &text)
+                            .await;
                     }
                 }
             }
@@ -421,7 +459,10 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             let row = SessionRow {
                 id: sid.clone(),
                 project_id: ctx.session_projects.get(sid).map(|r| r.value().clone()),
-                project_name: ctx.session_project_names.get(sid).map(|r| r.value().clone()),
+                project_name: ctx
+                    .session_project_names
+                    .get(sid)
+                    .map(|r| r.value().clone()),
                 label: p.label().map(|s| s.to_string()),
                 custom_label: None,
                 branch: p.branch().map(|s| s.to_string()),
@@ -430,8 +471,18 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 last_event,
                 host: None,
                 user: None,
+                origin_agent: None,
             };
             let _ = ctx.event_store.upsert_session(&row).await;
+
+            // first_event/last_event above come from the full timeline,
+            // which includes `file.snapshot` events whose `time` is
+            // synthesized at translation (Utc::now). Left as-is they re-stamp
+            // a dead session's recency to boot time on every restart — the
+            // "Last Hour" bug. Recompute authoritatively from the stored
+            // events, excluding synthesized-time subtypes. Mirrors the
+            // reconciler. See `Subtype::time_is_synthesized`.
+            let _ = ctx.event_store.recompute_session_bounds(sid).await;
         }
     }
 
@@ -479,6 +530,7 @@ mod tests {
         AppState {
             store,
             transcript_states: HashMap::new(),
+            watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
             config: crate::config::Config::default(),
@@ -518,7 +570,15 @@ mod tests {
         let mut state = test_app_state(&tmp);
         let result = ingest_events(&mut state, "sess-1", &[], None).await;
         assert_eq!(result.count, 0);
-        assert!(state.store.event_store.list_sessions().await.unwrap().is_empty());
+        assert!(
+            state
+                .store
+                .event_store
+                .list_sessions()
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -535,7 +595,10 @@ mod tests {
         assert_eq!(result1.count, 1);
 
         let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;
-        assert_eq!(result2.count, 0, "duplicate event should be skipped via projection seen_ids");
+        assert_eq!(
+            result2.count, 0,
+            "duplicate event should be skipped via projection seen_ids"
+        );
     }
 
     #[tokio::test]
@@ -552,13 +615,23 @@ mod tests {
 
         // EventStore: NOT written by ingest_events anymore.
         assert!(
-            state.store.event_store.session_events("sess-persist").await.unwrap().is_empty(),
+            state
+                .store
+                .event_store
+                .session_events("sess-persist")
+                .await
+                .unwrap()
+                .is_empty(),
             "ingest_events must NOT write to EventStore — Actor 1 owns persistence"
         );
 
         // SessionStore: NOT written (confirmed earlier in the JSONL fix).
         assert!(
-            state.store.session_store.load_session("sess-persist").is_empty(),
+            state
+                .store
+                .session_store
+                .load_session("sess-persist")
+                .is_empty(),
             "ingest_events must NOT write to SessionStore — Actor 1 owns JSONL"
         );
 
@@ -579,7 +652,11 @@ mod tests {
         ingest_events(&mut state, "sess-proj", &[event], Some("my-project")).await;
 
         assert_eq!(
-            state.store.session_projects.get("sess-proj").map(|r| r.value().clone()),
+            state
+                .store
+                .session_projects
+                .get("sess-proj")
+                .map(|r| r.value().clone()),
             Some("my-project".to_string())
         );
         assert!(state.store.session_project_names.contains_key("sess-proj"));
@@ -629,7 +706,10 @@ mod tests {
         let event = make_user_prompt_event("evt-bc-1", "broadcast me");
         let result = ingest_events(&mut state, "sess-bc", &[event], None).await;
 
-        assert!(!result.changes.is_empty(), "should return changes for durable event");
+        assert!(
+            !result.changes.is_empty(),
+            "should return changes for durable event"
+        );
         match &result.changes[0] {
             BroadcastMessage::Enriched {
                 session_id,
@@ -638,8 +718,14 @@ mod tests {
                 ..
             } => {
                 assert_eq!(session_id, "sess-bc");
-                assert!(!records.is_empty(), "durable events should produce WireRecords");
-                assert!(ephemeral.is_empty(), "durable events should have empty ephemeral");
+                assert!(
+                    !records.is_empty(),
+                    "durable events should produce WireRecords"
+                );
+                assert!(
+                    ephemeral.is_empty(),
+                    "durable events should have empty ephemeral"
+                );
             }
             other => panic!("expected Enriched, got {:?}", other),
         }
@@ -674,7 +760,10 @@ mod tests {
 
         let result = ingest_events(&mut state, "sess-eph", &[event], None).await;
 
-        assert!(!result.changes.is_empty(), "should return changes for progress event");
+        assert!(
+            !result.changes.is_empty(),
+            "should return changes for progress event"
+        );
         match &result.changes[0] {
             BroadcastMessage::Enriched {
                 session_id,
@@ -683,8 +772,14 @@ mod tests {
                 ..
             } => {
                 assert_eq!(session_id, "sess-eph");
-                assert!(records.is_empty(), "progress events should have empty durable records");
-                assert!(!ephemeral.is_empty(), "progress events should produce ephemeral ViewRecords");
+                assert!(
+                    records.is_empty(),
+                    "progress events should have empty durable records"
+                );
+                assert!(
+                    !ephemeral.is_empty(),
+                    "progress events should produce ephemeral ViewRecords"
+                );
             }
             other => panic!("expected Enriched, got {:?}", other),
         }
@@ -736,12 +831,19 @@ mod tests {
         ingest_events(&mut state, "agent-456", &[event], None).await;
 
         assert_eq!(
-            state.store.subagent_parents.get("agent-456").map(|r| r.value().clone()),
+            state
+                .store
+                .subagent_parents
+                .get("agent-456")
+                .map(|r| r.value().clone()),
             Some("parent-123".to_string()),
             "subagent_parents should map agent-456 -> parent-123"
         );
         assert!(
-            state.store.session_children.get("parent-123")
+            state
+                .store
+                .session_children
+                .get("parent-123")
                 .map(|r| r.value().contains(&"agent-456".to_string()))
                 .unwrap_or(false),
             "session_children should map parent-123 -> [agent-456]"
@@ -903,7 +1005,9 @@ mod tests {
             Some("progress.bash".into()),
             Some("evt-eph-1".to_string()),
             Some("2025-01-13T00:00:00Z".into()),
-            None, None, None,
+            None,
+            None,
+            None,
         );
 
         ingest_events(&mut state, "sess-eph", &[event], None).await;
@@ -961,7 +1065,12 @@ mod tests {
     // BACKLOG entry "Decompose Actor 4 (Broadcast Consumer) from Shared
     // AppState" for the context.
 
-    fn make_assistant_event_with_tokens(id: &str, text: &str, input_toks: u64, output_toks: u64) -> CloudEvent {
+    fn make_assistant_event_with_tokens(
+        id: &str,
+        text: &str,
+        input_toks: u64,
+        output_toks: u64,
+    ) -> CloudEvent {
         use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some(text.to_string());
@@ -987,7 +1096,8 @@ mod tests {
             Some("message.assistant.text".into()),
             Some(id.to_string()),
             Some("2025-01-13T00:00:00Z".into()),
-            None, None,
+            None,
+            None,
             Some("claude-code".into()),
         )
     }
@@ -1016,7 +1126,9 @@ mod tests {
             Some("message.user.prompt".into()),
             Some("evt-label-1".to_string()),
             Some("2025-01-13T00:00:00Z".into()),
-            None, None, None,
+            None,
+            None,
+            None,
         );
 
         let result = ingest_events(&mut state, "sess-label", &[event], None).await;
@@ -1164,12 +1276,14 @@ mod tests {
         );
 
         let events: Vec<CloudEvent> = (0..3)
-            .map(|i| make_assistant_event_with_tokens(
-                &format!("evt-comp-{i}"),
-                &format!("assistant msg {i}"),
-                100,
-                50,
-            ))
+            .map(|i| {
+                make_assistant_event_with_tokens(
+                    &format!("evt-comp-{i}"),
+                    &format!("assistant msg {i}"),
+                    100,
+                    50,
+                )
+            })
             .collect();
 
         // Both subscribers see the same batch independently.
@@ -1177,17 +1291,16 @@ mod tests {
         let _ = projections.process_batch("sess-comp", &events);
 
         // EventStore side (Actor 1's side of the stream).
-        let stored = event_store
-            .session_events("sess-comp")
-            .await
-            .unwrap();
+        let stored = event_store.session_events("sess-comp").await.unwrap();
         let stored_ids: Vec<String> = stored
             .iter()
             .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
             .collect();
 
         // ProjectionsConsumer side (Actor 3's projection).
-        let proj = projections.projection("sess-comp").expect("projection created");
+        let proj = projections
+            .projection("sess-comp")
+            .expect("projection created");
 
         assert_eq!(persist_result.persisted, 3);
         assert_eq!(stored_ids.len(), 3);
@@ -1201,7 +1314,10 @@ mod tests {
         // here — sequence ordering is the previous test's job.
         use std::collections::HashSet;
         let stored_set: HashSet<&str> = stored_ids.iter().map(|s| s.as_str()).collect();
-        let expected: HashSet<&str> = ["evt-comp-0", "evt-comp-1", "evt-comp-2"].iter().copied().collect();
+        let expected: HashSet<&str> = ["evt-comp-0", "evt-comp-1", "evt-comp-2"]
+            .iter()
+            .copied()
+            .collect();
         assert_eq!(stored_set, expected);
     }
 
@@ -1219,7 +1335,10 @@ mod tests {
         );
         let proj = state.store.projections.get("sess-proj-pop").unwrap();
         let filter_total: usize = proj.filter_counts().values().sum();
-        assert!(filter_total > 0, "filter counts should be populated after ingest");
+        assert!(
+            filter_total > 0,
+            "filter counts should be populated after ingest"
+        );
     }
 
     // ── replay_boot_sessions tests ──────────────────────────────────────
@@ -1288,6 +1407,7 @@ mod tests {
                 last_event: None,
                 host: None,
                 user: None,
+                origin_agent: None,
             })
             .await
             .unwrap();
@@ -1331,4 +1451,77 @@ mod tests {
     // verified empirically by `scripts/inspect_sentence_dedup.py`
     // (which proves the dedup ratio holds at 1.0× from a fresh boot)
     // and by the patterns crate's own internal tests over StructuralTurns.
+
+    #[tokio::test]
+    async fn replay_boot_sessions_excludes_snapshot_time_from_last_event() {
+        // Regression for the "Last Hour" bug. file.snapshot events carry a
+        // synthesized (Utc::now-at-translation) timestamp; left in the
+        // timeline, boot replay stamped a dead session's last_event with
+        // boot time on every restart. Replay must recompute bounds from the
+        // stored events, excluding synthesized-time subtypes — and must be
+        // able to *lower* a value a prior boot left polluted.
+        use open_story_store::event_store::SessionRow;
+        use serde_json::json;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_app_state(&tmp);
+        let sid = "sess-snap-replay";
+
+        // Pre-seed a polluted row, as a prior boot would have left it:
+        // last_event stamped far in the future.
+        state
+            .store
+            .event_store
+            .upsert_session(&SessionRow {
+                id: sid.into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                custom_label: None,
+                branch: None,
+                event_count: 0,
+                first_event: Some("2026-04-01T00:00:00Z".into()),
+                last_event: Some("2026-12-31T00:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
+
+        let ev = |id: &str, subtype: &str, time: &str| {
+            json!({
+                "id": id, "type": "io.arc.event", "subtype": subtype,
+                "source": format!("arc://transcript/{sid}"), "time": time,
+                "data": { "raw": {}, "seq": 1, "session_id": sid }
+            })
+        };
+        // Real activity ends 2026-05-01; a boot-stamped snapshot sits far later.
+        state
+            .store
+            .event_store
+            .insert_event(
+                sid,
+                &ev("m1", "message.user.prompt", "2026-05-01T10:00:00Z"),
+            )
+            .await
+            .unwrap();
+        state
+            .store
+            .event_store
+            .insert_event(sid, &ev("s1", "file.snapshot", "2026-12-31T00:00:00Z"))
+            .await
+            .unwrap();
+
+        let ctx = make_replay_ctx(&state);
+        replay_boot_sessions(&ctx).await;
+
+        let sessions = state.store.event_store.list_sessions().await.unwrap();
+        let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
+        assert_eq!(
+            row.last_event.as_deref(),
+            Some("2026-05-01T10:00:00Z"),
+            "replay must recompute last_event excluding file.snapshot, lowering the polluted value"
+        );
+    }
 }

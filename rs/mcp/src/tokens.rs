@@ -66,7 +66,10 @@ impl TokenAggregator {
         };
 
         let mut counts = TokenCounts {
-            input: usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            input: usage
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
             cache_read: usage
                 .get("cache_read_input_tokens")
                 .and_then(|v| v.as_u64())
@@ -80,10 +83,16 @@ impl TokenAggregator {
 
         if let Some(iters) = usage.get("iterations").and_then(|v| v.as_array()) {
             for it in iters {
-                counts.output += it.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                counts.output += it
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
             }
         } else {
-            counts.output = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            counts.output = usage
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
         }
 
         counts

@@ -68,18 +68,11 @@ fn cli_fails_fast_when_nats_unreachable() {
     std::fs::create_dir_all(&watch_dir).expect("create watch dir");
 
     let mut cmd = Command::new(bin);
-    cmd.args([
-        "serve",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "0",
-        "--data-dir",
-    ])
-    .arg(tmp.path())
-    .args(["--watch-dir"])
-    .arg(&watch_dir)
-    .args(["--nats-url", "nats://127.0.0.1:59999"]);
+    cmd.args(["serve", "--host", "127.0.0.1", "--port", "0", "--data-dir"])
+        .arg(tmp.path())
+        .args(["--watch-dir"])
+        .arg(&watch_dir)
+        .args(["--nats-url", "nats://127.0.0.1:59999"]);
 
     // 8s is generous — a fast NATS connect refusal returns in <100ms.
     // If this times out, the CLI is still using the NoopBus fallback

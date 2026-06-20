@@ -14,8 +14,8 @@ mod when_an_mcp_client_sends_a_malformed_json_rpc_request {
     #[test]
     fn it_returns_a_parse_error_response_with_id_null() {
         let raw = "{not valid json";
-        let response = protocol::handle_message(raw)
-            .expect("malformed input should still produce a response");
+        let response =
+            protocol::handle_message(raw).expect("malformed input should still produce a response");
 
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], json!(null));
@@ -35,8 +35,7 @@ mod when_an_mcp_client_sends_a_request_with_an_unknown_method {
             "method": "this_method_does_not_exist",
         })
         .to_string();
-        let response = protocol::handle_message(&raw)
-            .expect("requests always produce a response");
+        let response = protocol::handle_message(&raw).expect("requests always produce a response");
 
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 42);
@@ -62,14 +61,17 @@ mod when_an_mcp_client_sends_initialize {
             }
         })
         .to_string();
-        let response = protocol::handle_message(&raw)
-            .expect("initialize is a request — must respond");
+        let response =
+            protocol::handle_message(&raw).expect("initialize is a request — must respond");
 
         assert_eq!(response["jsonrpc"], "2.0");
         assert_eq!(response["id"], 1);
 
         let result = &response["result"];
-        assert!(result.is_object(), "initialize result must be an object, got: {result}");
+        assert!(
+            result.is_object(),
+            "initialize result must be an object, got: {result}"
+        );
         assert_eq!(result["serverInfo"]["name"], "open-story-mcp");
         assert!(
             result["serverInfo"]["version"].is_string(),
@@ -95,7 +97,10 @@ mod when_an_mcp_client_sends_notifications_initialized {
         })
         .to_string();
         let response = protocol::handle_message(&raw);
-        assert!(response.is_none(), "notifications never get a response, got: {response:?}");
+        assert!(
+            response.is_none(),
+            "notifications never get a response, got: {response:?}"
+        );
     }
 }
 
@@ -145,7 +150,10 @@ mod when_an_mcp_client_calls_tools_list {
             let name = tool["name"].as_str().expect("tool.name must be a string");
             assert!(!name.is_empty(), "tool name must not be empty");
             assert!(
-                tool["description"].as_str().map(|s| !s.is_empty()).unwrap_or(false),
+                tool["description"]
+                    .as_str()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false),
                 "tool {name} must have a non-empty description"
             );
             // MCP requires inputSchema to be a JSON Schema object.

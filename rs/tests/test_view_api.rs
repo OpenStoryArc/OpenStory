@@ -13,7 +13,12 @@ use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::ingest_events;
 
-fn make_tool_use_event(session_id: &str, tool: &str, args: serde_json::Value, call_id: &str) -> CloudEvent {
+fn make_tool_use_event(
+    session_id: &str,
+    tool: &str,
+    args: serde_json::Value,
+    call_id: &str,
+) -> CloudEvent {
     let mut payload = ClaudeCodePayload::new();
     payload.tool = Some(tool.to_string());
     payload.args = Some(args.clone());
@@ -108,7 +113,12 @@ mod view_records_endpoint {
             let mut s = state.write().await;
             let events = vec![
                 make_user_prompt_event("sess-1", "Fix the bug"),
-                make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_1"),
+                make_tool_use_event(
+                    "sess-1",
+                    "Bash",
+                    json!({"command": "cargo test"}),
+                    "toolu_1",
+                ),
                 make_tool_result_event("sess-1", "toolu_1", "test result: ok"),
             ];
             ingest_events(&mut s, "sess-1", &events, None).await;
@@ -122,13 +132,20 @@ mod view_records_endpoint {
 
         let body = body_json(resp).await;
         let records = body.as_array().unwrap();
-        assert!(records.len() >= 3, "should have at least 3 records, got {}", records.len());
+        assert!(
+            records.len() >= 3,
+            "should have at least 3 records, got {}",
+            records.len()
+        );
 
         // Check that records have expected structure
         for record in records {
             assert!(record.get("id").is_some(), "record should have id");
             assert!(record.get("seq").is_some(), "record should have seq");
-            assert!(record.get("record_type").is_some(), "record should have record_type");
+            assert!(
+                record.get("record_type").is_some(),
+                "record should have record_type"
+            );
         }
     }
 
@@ -138,13 +155,16 @@ mod view_records_endpoint {
         let state = test_state(&tmp);
         {
             let mut s = state.write().await;
-            let events = vec![
-                make_tool_use_event("sess-1", "Edit", json!({
+            let events = vec![make_tool_use_event(
+                "sess-1",
+                "Edit",
+                json!({
                     "file_path": "/src/main.rs",
                     "old_string": "fn old()",
                     "new_string": "fn new()"
-                }), "toolu_edit"),
-            ];
+                }),
+                "toolu_edit",
+            )];
             ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
@@ -155,7 +175,8 @@ mod view_records_endpoint {
         let body = body_json(resp).await;
         let records = body.as_array().unwrap();
 
-        let tool_calls: Vec<_> = records.iter()
+        let tool_calls: Vec<_> = records
+            .iter()
             .filter(|r| r.get("record_type").and_then(|v| v.as_str()) == Some("tool_call"))
             .collect();
         assert!(!tool_calls.is_empty(), "should have tool_call records");
@@ -195,7 +216,12 @@ mod conversation_endpoint {
             let mut s = state.write().await;
             let events = vec![
                 make_user_prompt_event("sess-1", "Run the tests"),
-                make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_1"),
+                make_tool_use_event(
+                    "sess-1",
+                    "Bash",
+                    json!({"command": "cargo test"}),
+                    "toolu_1",
+                ),
                 make_tool_result_event("sess-1", "toolu_1", "all tests passed"),
             ];
             ingest_events(&mut s, "sess-1", &events, None).await;
@@ -209,13 +235,18 @@ mod conversation_endpoint {
 
         let body = body_json(resp).await;
         let entries = body["entries"].as_array().unwrap();
-        assert!(entries.len() >= 2, "should have at least 2 entries (user + tool roundtrip), got {}", entries.len());
+        assert!(
+            entries.len() >= 2,
+            "should have at least 2 entries (user + tool roundtrip), got {}",
+            entries.len()
+        );
 
         // First entry should be user message
         assert_eq!(entries[0]["entry_type"], "user_message");
 
         // Find the tool roundtrip
-        let roundtrips: Vec<_> = entries.iter()
+        let roundtrips: Vec<_> = entries
+            .iter()
             .filter(|e| e.get("entry_type").and_then(|v| v.as_str()) == Some("tool_roundtrip"))
             .collect();
         assert!(!roundtrips.is_empty(), "should have tool_roundtrip entry");
@@ -231,9 +262,12 @@ mod conversation_endpoint {
         let state = test_state(&tmp);
         {
             let mut s = state.write().await;
-            let events = vec![
-                make_tool_use_event("sess-1", "Bash", json!({"command": "long running"}), "toolu_pending"),
-            ];
+            let events = vec![make_tool_use_event(
+                "sess-1",
+                "Bash",
+                json!({"command": "long running"}),
+                "toolu_pending",
+            )];
             ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
@@ -244,11 +278,15 @@ mod conversation_endpoint {
         let body = body_json(resp).await;
         let entries = body["entries"].as_array().unwrap();
 
-        let roundtrips: Vec<_> = entries.iter()
+        let roundtrips: Vec<_> = entries
+            .iter()
             .filter(|e| e.get("entry_type").and_then(|v| v.as_str()) == Some("tool_roundtrip"))
             .collect();
         assert!(!roundtrips.is_empty());
-        assert!(roundtrips[0]["result"].is_null(), "unpaired call should have null result");
+        assert!(
+            roundtrips[0]["result"].is_null(),
+            "unpaired call should have null result"
+        );
     }
 }
 
@@ -263,17 +301,37 @@ mod file_changes_endpoint {
         {
             let mut s = state.write().await;
             let events = vec![
-                make_tool_use_event("sess-1", "Edit", json!({
-                    "file_path": "/src/main.rs",
-                    "old_string": "old",
-                    "new_string": "new"
-                }), "toolu_edit"),
-                make_tool_use_event("sess-1", "Write", json!({
-                    "file_path": "/src/new.rs",
-                    "content": "fn main() {}"
-                }), "toolu_write"),
-                make_tool_use_event("sess-1", "Bash", json!({"command": "cargo test"}), "toolu_bash"),
-                make_tool_use_event("sess-1", "Read", json!({"file_path": "/src/lib.rs"}), "toolu_read"),
+                make_tool_use_event(
+                    "sess-1",
+                    "Edit",
+                    json!({
+                        "file_path": "/src/main.rs",
+                        "old_string": "old",
+                        "new_string": "new"
+                    }),
+                    "toolu_edit",
+                ),
+                make_tool_use_event(
+                    "sess-1",
+                    "Write",
+                    json!({
+                        "file_path": "/src/new.rs",
+                        "content": "fn main() {}"
+                    }),
+                    "toolu_write",
+                ),
+                make_tool_use_event(
+                    "sess-1",
+                    "Bash",
+                    json!({"command": "cargo test"}),
+                    "toolu_bash",
+                ),
+                make_tool_use_event(
+                    "sess-1",
+                    "Read",
+                    json!({"file_path": "/src/lib.rs"}),
+                    "toolu_read",
+                ),
             ];
             ingest_events(&mut s, "sess-1", &events, None).await;
         }
@@ -286,9 +344,15 @@ mod file_changes_endpoint {
 
         let body = body_json(resp).await;
         let changes = body.as_array().unwrap();
-        assert_eq!(changes.len(), 2, "should have only Edit and Write, got {}", changes.len());
+        assert_eq!(
+            changes.len(),
+            2,
+            "should have only Edit and Write, got {}",
+            changes.len()
+        );
 
-        let names: Vec<&str> = changes.iter()
+        let names: Vec<&str> = changes
+            .iter()
             .filter_map(|r| r["payload"]["name"].as_str())
             .collect();
         assert!(names.contains(&"Edit"));

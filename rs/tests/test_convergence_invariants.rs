@@ -171,8 +171,7 @@ async fn sessions_event_count_converges_with_events_table() {
                 .as_str()
                 .map_or(false, |id| id.contains("pi_mono"))
         })
-        .expect("pi-mono session not found")
-        ["session_id"]
+        .expect("pi-mono session not found")["session_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -205,8 +204,7 @@ async fn fts_references_valid_events() {
                 .as_str()
                 .map_or(false, |id| id.contains("pi_mono"))
         })
-        .expect("pi-mono session not found")
-        ["session_id"]
+        .expect("pi-mono session not found")["session_id"]
         .as_str()
         .unwrap()
         .to_string();

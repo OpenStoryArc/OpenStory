@@ -78,8 +78,8 @@ impl MongoStore {
             .map_err(|e| anyhow!("parse mongo uri: {e}"))?;
         // Tag the connection so it shows up identifiably in `db.currentOp()`.
         options.app_name = Some("open-story".to_string());
-        let client = Client::with_options(options)
-            .map_err(|e| anyhow!("build mongo client: {e}"))?;
+        let client =
+            Client::with_options(options).map_err(|e| anyhow!("build mongo client: {e}"))?;
         let db = client.database(db_name);
 
         let store = Self { client, db };
@@ -216,11 +216,7 @@ impl EventStore for MongoStore {
                 // surfaced.
                 if let ErrorKind::InsertMany(ref ime) = *e.kind {
                     let dup_count = count_duplicate_keys(ime);
-                    let total_failures = ime
-                        .write_errors
-                        .as_ref()
-                        .map(|w| w.len())
-                        .unwrap_or(0);
+                    let total_failures = ime.write_errors.as_ref().map(|w| w.len()).unwrap_or(0);
                     if total_failures == dup_count {
                         // All failures were duplicates — the remainder of
                         // the input must have succeeded (`ordered: false`).
@@ -256,10 +252,11 @@ impl EventStore for MongoStore {
         // stale-snapshot reconciler running concurrently with live ingest.
         // See `docs/research/CONSTELLATION.md` (R1, P1).
         //
-        // - **COALESCE-style** (`host`, `user`, `project_id`, `project_name`,
-        //   `label`, `branch`): omit the key from `$set` when the incoming
-        //   value is `None` — Mongo leaves whatever was already on the row.
-        //   Equivalent to SQLite's `COALESCE(excluded.x, sessions.x)`.
+        // - **COALESCE-style** (`host`, `user`, `origin_agent`,
+        //   `project_id`, `project_name`, `label`, `branch`): omit the key
+        //   from `$set` when the incoming value is `None` — Mongo leaves
+        //   whatever was already on the row. Equivalent to SQLite's
+        //   `COALESCE(excluded.x, sessions.x)`.
         // - **`$max`** (`event_count`, `last_event`): counts grow only; the
         //   latest timestamp wins. Stale snapshots cannot regress the
         //   frontier. RFC 3339 strings sort lexicographically →
@@ -274,6 +271,9 @@ impl EventStore for MongoStore {
         }
         if let Some(user) = session.user.as_deref() {
             set_doc.insert("user", user);
+        }
+        if let Some(origin_agent) = session.origin_agent.as_deref() {
+            set_doc.insert("origin_agent", origin_agent);
         }
         if let Some(pid) = session.project_id.as_deref() {
             set_doc.insert("project_id", pid);
@@ -312,12 +312,101 @@ impl EventStore for MongoStore {
         // custom_label is set to null only on first insert; subsequent
         // upserts leave whatever the user set (or null) untouched.
         update.insert("$setOnInsert", doc! { "custom_label": Bson::Null });
-        let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
+        let opts = mongodb::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
         coll.update_one(filter, update)
             .with_options(opts)
             .await
             .map_err(|e| anyhow!("mongo upsert_session: {e}"))?;
         Ok(())
+    }
+
+    /// Recompute and authoritatively SET first_event/last_event from the
+    /// stored events, excluding synthesized-time subtypes (file.snapshot).
+    /// Mirrors `SqliteStore::recompute_session_bounds`. Unlike the
+    /// `$min`/`$max`-merge in `upsert_session`, this `$set`s the computed
+    /// bounds, so it can lower a `last_event` polluted by boot-stamped
+    /// snapshots. RFC 3339 strings sort lexicographically → chronologically,
+    /// so `$min`/`$max` on the TEXT timestamp gives the right answer.
+    async fn recompute_session_bounds(
+        &self,
+        session_id: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        use futures::StreamExt;
+
+        let synth: Vec<&str> = open_story_core::subtype::SYNTHESIZED_TIME_SUBTYPES.to_vec();
+        let events: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let pipeline = vec![
+            doc! { "$match": {
+                "session_id": session_id,
+                "timestamp": { "$ne": "" },
+                "subtype": { "$nin": synth },
+            } },
+            doc! { "$group": {
+                "_id": Bson::Null,
+                "first": { "$min": "$timestamp" },
+                "last": { "$max": "$timestamp" },
+            } },
+        ];
+
+        let (first, last) = match events.aggregate(pipeline).await {
+            Ok(mut cursor) => match cursor.next().await {
+                Some(Ok(doc)) => (
+                    doc.get_str("first").ok().map(|s| s.to_string()),
+                    doc.get_str("last").ok().map(|s| s.to_string()),
+                ),
+                _ => (None, None),
+            },
+            Err(e) => return Err(anyhow!("mongo recompute_session_bounds aggregate: {e}")),
+        };
+
+        // Ceiling = MAX timestamp over ALL events on disk (snapshots included).
+        // A last_event strictly above this is a live frontier a persist
+        // consumer set from a NATS event not yet written to the store; a
+        // polluted value instead equals its snapshot's own (on-disk)
+        // timestamp, so it does not exceed the ceiling and still heals.
+        // Mirrors the SQLite CASE in recompute_session_bounds — backend parity.
+        let ceiling_pipeline = vec![
+            doc! { "$match": { "session_id": session_id, "timestamp": { "$ne": "" } } },
+            doc! { "$group": { "_id": Bson::Null, "ceil": { "$max": "$timestamp" } } },
+        ];
+        let ceiling: Option<String> = match events.aggregate(ceiling_pipeline).await {
+            Ok(mut cursor) => match cursor.next().await {
+                Some(Ok(doc)) => doc.get_str("ceil").ok().map(|s| s.to_string()),
+                _ => None,
+            },
+            Err(e) => return Err(anyhow!("mongo recompute_session_bounds ceiling: {e}")),
+        };
+
+        // Authoritative $set (not $min/$max-merge) so we can lower a polluted
+        // bound. Bson::Null when there is no real-activity timestamp.
+        let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let existing_last: Option<String> = match sessions.find_one(doc! { "_id": session_id }).await
+        {
+            Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
+            _ => None,
+        };
+
+        // Preserve a strictly-ahead live frontier; otherwise heal. Both operands
+        // must be present so the no-events case falls through to the recomputed
+        // value exactly like SQLite's `x > NULL` (false), keeping the two
+        // backends in lockstep.
+        let effective_last = match (existing_last.as_deref(), ceiling.as_deref()) {
+            (Some(e), Some(c)) if e > c => existing_last.clone(),
+            _ => last.clone(),
+        };
+
+        let set = doc! {
+            "first_event": first.as_deref().map_or(Bson::Null, Bson::from),
+            "last_event": effective_last.as_deref().map_or(Bson::Null, Bson::from),
+        };
+        sessions
+            .update_one(doc! { "_id": session_id }, doc! { "$set": set })
+            .await
+            .map_err(|e| anyhow!("mongo recompute_session_bounds update: {e}"))?;
+
+        Ok((first, effective_last))
     }
 
     /// Set the user's custom label for a session. This is the *only*
@@ -332,7 +421,9 @@ impl EventStore for MongoStore {
         // just the custom_label set. Mirrors how SQLite's UPDATE on a
         // missing row would silently no-op — except here it's actively
         // useful for the API endpoint.
-        let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
+        let opts = mongodb::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
         coll.update_one(filter, update)
             .with_options(opts)
             .await
@@ -345,7 +436,10 @@ impl EventStore for MongoStore {
     /// dedupes — matches `SqliteStore`'s `INSERT OR IGNORE`.
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()> {
         let coll: Collection<Document> = self.db.collection(COLL_PATTERNS);
-        let id = format!("{}:{}:{}", pattern.pattern_type, pattern.started_at, session_id);
+        let id = format!(
+            "{}:{}:{}",
+            pattern.pattern_type, pattern.started_at, session_id
+        );
         let metadata: Bson = bson::to_bson(&pattern.metadata)
             .map_err(|e| anyhow!("pattern metadata → bson: {e}"))?;
         let event_ids: Bson = bson::to_bson(&pattern.event_ids)
@@ -381,11 +475,16 @@ impl EventStore for MongoStore {
             "timestamp": &turn.timestamp,
             "data": payload,
         };
-        let opts = mongodb::options::ReplaceOptions::builder().upsert(true).build();
-        coll.replace_one(doc! { "_id": format!("turn:{}:{}", session_id, turn.turn_number) }, doc)
-            .with_options(opts)
-            .await
-            .map_err(|e| anyhow!("mongo insert_turn: {e}"))?;
+        let opts = mongodb::options::ReplaceOptions::builder()
+            .upsert(true)
+            .build();
+        coll.replace_one(
+            doc! { "_id": format!("turn:{}:{}", session_id, turn.turn_number) },
+            doc,
+        )
+        .with_options(opts)
+        .await
+        .map_err(|e| anyhow!("mongo insert_turn: {e}"))?;
         Ok(())
     }
 
@@ -402,7 +501,9 @@ impl EventStore for MongoStore {
             },
             "$setOnInsert": { "created_at": &now },
         };
-        let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
+        let opts = mongodb::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
         coll.update_one(filter, update)
             .with_options(opts)
             .await
@@ -600,8 +701,8 @@ impl EventStore for MongoStore {
             .map_err(|e| anyhow!("mongo full_payload: {e}"))?;
         match doc.and_then(|d| d.get("payload").cloned()) {
             Some(payload) => {
-                let value: Value = bson::from_bson(payload)
-                    .map_err(|e| anyhow!("payload bson → value: {e}"))?;
+                let value: Value =
+                    bson::from_bson(payload).map_err(|e| anyhow!("payload bson → value: {e}"))?;
                 Ok(Some(serde_json::to_string(&value)?))
             }
             None => Ok(None),
@@ -755,12 +856,24 @@ impl EventStore for MongoStore {
             .ok()
             .flatten()?;
 
-        let project_id = session_doc.get_str("project_id").ok().map(|s| s.to_string());
-        let project_name = session_doc.get_str("project_name").ok().map(|s| s.to_string());
+        let project_id = session_doc
+            .get_str("project_id")
+            .ok()
+            .map(|s| s.to_string());
+        let project_name = session_doc
+            .get_str("project_name")
+            .ok()
+            .map(|s| s.to_string());
         let label = session_doc.get_str("label").ok().map(|s| s.to_string());
         let event_count = get_count(&session_doc, "event_count");
-        let first_event = session_doc.get_str("first_event").ok().map(|s| s.to_string());
-        let last_event = session_doc.get_str("last_event").ok().map(|s| s.to_string());
+        let first_event = session_doc
+            .get_str("first_event")
+            .ok()
+            .map(|s| s.to_string());
+        let last_event = session_doc
+            .get_str("last_event")
+            .ok()
+            .map(|s| s.to_string());
 
         // 2. Tool count + error count via $match + count_documents
         let events: Collection<Document> = self.db.collection(COLL_EVENTS);
@@ -846,10 +959,7 @@ impl EventStore for MongoStore {
     /// Sequence of tool calls in timestamp order. Mirrors
     /// `queries::tool_journey`. C1 strict equality (timestamps are
     /// distinct in the fixture).
-    async fn query_tool_journey(
-        &self,
-        session_id: &str,
-    ) -> Vec<crate::queries::ToolStep> {
+    async fn query_tool_journey(&self, session_id: &str) -> Vec<crate::queries::ToolStep> {
         use crate::queries::ToolStep;
         use futures::StreamExt;
 
@@ -900,7 +1010,11 @@ impl EventStore for MongoStore {
                     .or_else(|| args.get_str("command").ok())
                     .map(|s| s.to_string())
             });
-            out.push(ToolStep { tool, file, timestamp });
+            out.push(ToolStep {
+                tool,
+                file,
+                timestamp,
+            });
         }
         out
     }
@@ -908,10 +1022,7 @@ impl EventStore for MongoStore {
     /// File impact: per-file read/write counts. Mirrors
     /// `queries::file_impact`. The Rust-side post-sort by
     /// `(reads + writes) DESC` makes the order deterministic → C1.
-    async fn query_file_impact(
-        &self,
-        session_id: &str,
-    ) -> Vec<crate::queries::FileImpact> {
+    async fn query_file_impact(&self, session_id: &str) -> Vec<crate::queries::FileImpact> {
         use crate::queries::FileImpact;
         use futures::StreamExt;
 
@@ -971,7 +1082,11 @@ impl EventStore for MongoStore {
 
         let mut result: Vec<FileImpact> = impacts
             .into_iter()
-            .map(|(file, (reads, writes))| FileImpact { file, reads, writes })
+            .map(|(file, (reads, writes))| FileImpact {
+                file,
+                reads,
+                writes,
+            })
             .collect();
         result.sort_by(|a, b| (b.reads + b.writes).cmp(&(a.reads + a.writes)));
         result
@@ -984,9 +1099,7 @@ impl EventStore for MongoStore {
     /// at the API surface is opaque; the conformance test sorts both
     /// backends' outputs canonically before asserting on set
     /// membership and counts.
-    async fn query_session_efficiency(
-        &self,
-    ) -> Vec<crate::queries::SessionEfficiency> {
+    async fn query_session_efficiency(&self) -> Vec<crate::queries::SessionEfficiency> {
         use crate::queries::SessionEfficiency;
         use futures::StreamExt;
 
@@ -1070,19 +1183,12 @@ impl EventStore for MongoStore {
     /// Two-step approach (find sessions then find events filtered by
     /// session_id $in) is simpler than a $lookup pipeline and just as
     /// fast for our typical N (≤100 sessions per project).
-    async fn query_recent_files(
-        &self,
-        project_id: &str,
-        session_limit: usize,
-    ) -> Vec<String> {
+    async fn query_recent_files(&self, project_id: &str, session_limit: usize) -> Vec<String> {
         use futures::StreamExt;
 
         // 1. Find session ids in the project.
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
-        let mut sess_cursor = match sessions
-            .find(doc! { "project_id": project_id })
-            .await
-        {
+        let mut sess_cursor = match sessions.find(doc! { "project_id": project_id }).await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("mongo query_recent_files (sessions): {e}");
@@ -1166,10 +1272,7 @@ impl EventStore for MongoStore {
     /// Monday-of-week from the same input timestamp regardless of
     /// week-numbering convention — that's the §1.6 Category 3 fix.
     /// C1 strict equality after the API redesign.
-    async fn query_tool_evolution(
-        &self,
-        days: u32,
-    ) -> Vec<crate::queries::ToolEvolution> {
+    async fn query_tool_evolution(&self, days: u32) -> Vec<crate::queries::ToolEvolution> {
         use crate::queries::ToolEvolution;
         use futures::StreamExt;
 
@@ -1281,10 +1384,7 @@ impl EventStore for MongoStore {
     /// `queries::productivity_by_hour`. Both backends interpret the
     /// same `Z`-suffixed UTC timestamps and produce the same hour
     /// buckets — see §1.5 / §6.2 of the parity plan.
-    async fn query_productivity_by_hour(
-        &self,
-        days: u32,
-    ) -> Vec<crate::queries::HourlyActivity> {
+    async fn query_productivity_by_hour(&self, days: u32) -> Vec<crate::queries::HourlyActivity> {
         use crate::queries::HourlyActivity;
         use futures::StreamExt;
 
@@ -1381,7 +1481,13 @@ impl EventStore for MongoStore {
         };
 
         // (id, label, project_name, first_event, last_event)
-        let mut session_rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = Vec::new();
+        let mut session_rows: Vec<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = Vec::new();
         while let Some(next) = sess_cursor.next().await {
             if let Ok(d) = next {
                 session_rows.push((
@@ -1589,10 +1695,7 @@ impl EventStore for MongoStore {
 
     /// Errors for a session, ordered by timestamp ASC. Mirrors
     /// `queries::session_errors`. C1 strict equality.
-    async fn query_session_errors(
-        &self,
-        session_id: &str,
-    ) -> Vec<crate::queries::SessionError> {
+    async fn query_session_errors(&self, session_id: &str) -> Vec<crate::queries::SessionError> {
         use crate::queries::SessionError;
         use futures::StreamExt;
 
@@ -1671,7 +1774,9 @@ impl EventStore for MongoStore {
                 "searchable_text": text,
             }
         };
-        let opts = mongodb::options::UpdateOptions::builder().upsert(true).build();
+        let opts = mongodb::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
         coll.update_one(filter, update)
             .with_options(opts)
             .await
@@ -1728,7 +1833,10 @@ impl EventStore for MongoStore {
             let event_id = doc.get_str("_id").unwrap_or_default().to_string();
             let session_id = doc.get_str("session_id").unwrap_or_default().to_string();
             let record_type = doc.get_str("record_type").unwrap_or_default().to_string();
-            let text = doc.get_str("searchable_text").unwrap_or_default().to_string();
+            let text = doc
+                .get_str("searchable_text")
+                .unwrap_or_default()
+                .to_string();
             // Mongo doesn't return a snippet primitive — fall back to a
             // truncated copy of the matched text. The API consumes
             // FtsSearchResult.snippet for highlighting; truncating is
@@ -1794,8 +1902,16 @@ fn event_to_doc(session_id: &str, event: &Value) -> Result<Document> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("event missing required `id` field for Mongo _id"))?
         .to_string();
-    let timestamp = event.get("time").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-    let subtype = event.get("subtype").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let timestamp = event
+        .get("time")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let subtype = event
+        .get("subtype")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let agent_id = event
         .get("data")
         .and_then(|d| d.get("agent_id"))
@@ -1864,6 +1980,7 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
     let last_event = doc.get_str("last_event").ok().map(|s| s.to_string());
     let host = doc.get_str("host").ok().map(|s| s.to_string());
     let user = doc.get_str("user").ok().map(|s| s.to_string());
+    let origin_agent = doc.get_str("origin_agent").ok().map(|s| s.to_string());
     Ok(SessionRow {
         id,
         project_id,
@@ -1876,6 +1993,7 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
         last_event,
         host,
         user,
+        origin_agent,
     })
 }
 

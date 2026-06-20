@@ -104,6 +104,32 @@ fn hermes_delegated_event() -> Value {
     })
 }
 
+fn codex_tool_use_event() -> Value {
+    json!({
+        "specversion": "1.0",
+        "id": "evt-cx-1",
+        "source": "codex://session/test",
+        "type": "io.arc.event",
+        "time": "2026-04-15T10:00:04Z",
+        "datacontenttype": "application/json",
+        "subtype": "message.assistant.tool_use",
+        "agent": "codex",
+        "data": {
+            "seq": 1,
+            "session_id": "sess-cx",
+            "raw": {"type": "response_item", "payload": {"type": "function_call"}},
+            "agent_payload": {
+                "_variant": "codex",
+                "meta": {"agent": "codex"},
+                "item_type": "function_call",
+                "tool": "exec_command",
+                "call_id": "call_1",
+                "args": {"cmd": "pwd"}
+            }
+        }
+    })
+}
+
 fn event_without_agent_payload() -> Value {
     // Legitimate state: translator couldn't type the line.
     // agent_payload is absent; raw alone carries the info.
@@ -143,6 +169,13 @@ fn accepts_hermes_delegated_event() {
     let v = validator();
     let ev = hermes_delegated_event();
     assert!(v.is_valid(&ev), "hermes event must validate");
+}
+
+#[test]
+fn accepts_codex_tool_use_event() {
+    let v = validator();
+    let ev = codex_tool_use_event();
+    assert!(v.is_valid(&ev), "codex tool_use event must validate");
 }
 
 #[test]
@@ -202,10 +235,11 @@ fn round_trips_each_agent_variant() {
         claude_code_text_event(),
         pi_mono_tool_use_event(),
         hermes_delegated_event(),
+        codex_tool_use_event(),
     ] {
         assert!(v.is_valid(&fixture), "fixture validates");
-        let ce: CloudEvent = serde_json::from_value(fixture.clone())
-            .expect("deserialize as CloudEvent");
+        let ce: CloudEvent =
+            serde_json::from_value(fixture.clone()).expect("deserialize as CloudEvent");
         let reserialized = serde_json::to_value(&ce).unwrap();
         assert!(
             v.is_valid(&reserialized),

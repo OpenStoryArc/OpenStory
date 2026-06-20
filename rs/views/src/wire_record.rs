@@ -4,8 +4,8 @@
 // Extends ViewRecord with depth, parent_uuid, truncation flag,
 // and original payload byte count.
 
-use serde::{Deserialize, Serialize};
 use crate::view_record::ViewRecord;
+use serde::{Deserialize, Serialize};
 
 /// Truncation threshold in bytes. Payloads larger than this are truncated
 /// on the wire; full content available via REST lazy-load.
@@ -68,13 +68,19 @@ mod tests {
     use super::*;
     use crate::unified::{RecordBody, SystemEvent};
 
-    fn make_wire_record(depth: u16, parent_uuid: Option<&str>, truncated: bool, payload_bytes: u64) -> WireRecord {
+    fn make_wire_record(
+        depth: u16,
+        parent_uuid: Option<&str>,
+        truncated: bool,
+        payload_bytes: u64,
+    ) -> WireRecord {
         WireRecord {
             record: ViewRecord {
                 id: "evt-001".into(),
                 seq: 1,
                 session_id: "sess-abc".into(),
                 timestamp: "2025-01-09T10:00:00Z".into(),
+                origin_agent: None,
                 body: RecordBody::SystemEvent(SystemEvent {
                     subtype: "test".into(),
                     message: Some("test event".into()),
@@ -146,22 +152,29 @@ mod tests {
         fn boundary_table_truncation_threshold() {
             let cases: Vec<(usize, bool, usize)> = vec![
                 // (content_size, expected_truncated, expected_output_len)
-                (0,     false, 0),
-                (100,   false, 100),
-                (2000,  false, 2000),
-                (2001,  true,  2000),
-                (50000, true,  2000),
+                (0, false, 0),
+                (100, false, 100),
+                (2000, false, 2000),
+                (2001, true, 2000),
+                (50000, true, 2000),
             ];
 
             for (content_size, expected_truncated, expected_output_len) in cases {
                 let content = "x".repeat(content_size);
                 let result = truncate_payload(&content, TRUNCATION_THRESHOLD);
-                assert_eq!(result.truncated, expected_truncated,
-                    "content_size={content_size}: truncated");
-                assert_eq!(result.output.len(), expected_output_len,
-                    "content_size={content_size}: output length");
-                assert_eq!(result.original_bytes, content_size,
-                    "content_size={content_size}: original bytes preserved");
+                assert_eq!(
+                    result.truncated, expected_truncated,
+                    "content_size={content_size}: truncated"
+                );
+                assert_eq!(
+                    result.output.len(),
+                    expected_output_len,
+                    "content_size={content_size}: output length"
+                );
+                assert_eq!(
+                    result.original_bytes, content_size,
+                    "content_size={content_size}: original bytes preserved"
+                );
             }
         }
 

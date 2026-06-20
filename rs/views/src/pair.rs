@@ -1,7 +1,7 @@
 // Tool pairing: match ToolCall + ToolResult by call_id into ToolRoundtrip.
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::unified::RecordBody;
 use crate::view_record::ViewRecord;
@@ -72,10 +72,10 @@ pub fn pair_records(records: &[ViewRecord]) -> PairedConversation {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use crate::pair::*;
-    use crate::view_record::ViewRecord;
     use crate::unified::*;
+    use crate::view_record::ViewRecord;
+    use serde_json::json;
 
     fn make_tool_call(id: &str, call_id: &str, seq: u64, name: &str) -> ViewRecord {
         ViewRecord {
@@ -83,6 +83,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: format!("2025-01-09T10:00:{:02}Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -102,6 +103,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: format!("2025-01-09T10:00:{:02}Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::ToolResult(ToolResult {
@@ -119,6 +121,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: format!("2025-01-09T10:00:{:02}Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::UserMessage(UserMessage {
@@ -134,6 +137,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: format!("2025-01-09T10:00:{:02}Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
@@ -170,9 +174,7 @@ mod tests {
 
         #[test]
         fn it_should_leave_unpaired_calls_with_result_none() {
-            let records = vec![
-                make_tool_call("e1", "call_1", 1, "Bash"),
-            ];
+            let records = vec![make_tool_call("e1", "call_1", 1, "Bash")];
             let paired = pair_records(&records);
             assert_eq!(paired.entries.len(), 1);
             match &paired.entries[0] {
@@ -221,9 +223,18 @@ mod tests {
             ];
             let paired = pair_records(&records);
             assert_eq!(paired.entries.len(), 3);
-            assert!(matches!(&paired.entries[0], ConversationEntry::UserMessage(_)));
-            assert!(matches!(&paired.entries[1], ConversationEntry::AssistantMessage(_)));
-            assert!(matches!(&paired.entries[2], ConversationEntry::ToolRoundtrip { .. }));
+            assert!(matches!(
+                &paired.entries[0],
+                ConversationEntry::UserMessage(_)
+            ));
+            assert!(matches!(
+                &paired.entries[1],
+                ConversationEntry::AssistantMessage(_)
+            ));
+            assert!(matches!(
+                &paired.entries[2],
+                ConversationEntry::ToolRoundtrip { .. }
+            ));
         }
 
         #[test]

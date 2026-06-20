@@ -186,11 +186,26 @@ async fn pi_mono_decomposition_survives_nats() {
         .filter_map(|e| e.get("subtype").and_then(|v| v.as_str()))
         .collect();
 
-    assert!(subtypes.contains(&"message.assistant.thinking"), "thinking block decomposed");
-    assert!(subtypes.contains(&"message.assistant.tool_use"), "tool_use block decomposed");
-    let text_count = subtypes.iter().filter(|s| **s == "message.assistant.text").count();
-    assert!(text_count >= 2, "expected >=2 decomposed text events, got {text_count}");
-    assert!(subtypes.contains(&"system.turn.complete"), "synthetic turn.complete present");
+    assert!(
+        subtypes.contains(&"message.assistant.thinking"),
+        "thinking block decomposed"
+    );
+    assert!(
+        subtypes.contains(&"message.assistant.tool_use"),
+        "tool_use block decomposed"
+    );
+    let text_count = subtypes
+        .iter()
+        .filter(|s| **s == "message.assistant.text")
+        .count();
+    assert!(
+        text_count >= 2,
+        "expected >=2 decomposed text events, got {text_count}"
+    );
+    assert!(
+        subtypes.contains(&"system.turn.complete"),
+        "synthetic turn.complete present"
+    );
 }
 
 /// Raw data is unmutated through translate → NATS → PersistConsumer → SQLite.
@@ -215,7 +230,10 @@ async fn pi_mono_raw_unmutated_through_nats() {
     let has_toolcall = raw_content
         .as_array()
         .map_or(false, |arr| arr.iter().any(|b| b["type"] == "toolCall"));
-    assert!(has_toolcall, "raw should preserve pi-mono's 'toolCall' type through NATS");
+    assert!(
+        has_toolcall,
+        "raw should preserve pi-mono's 'toolCall' type through NATS"
+    );
 
     // toolResult role and toolCallId must also survive.
     let tool_result = events
@@ -249,7 +267,10 @@ async fn pi_mono_view_records_via_nats() {
     .await
     .unwrap();
 
-    assert!(!records.is_empty(), "view records missing after NATS ingest");
+    assert!(
+        !records.is_empty(),
+        "view records missing after NATS ingest"
+    );
     for record in &records {
         assert!(record.get("record_type").is_some(), "record_type missing");
         assert!(record.get("payload").is_some(), "payload missing");
@@ -269,14 +290,12 @@ async fn pi_mono_fts_indexed_via_nats() {
     let _ = wait_for_session_events(port, &session_id).await;
 
     // The fixture's user prompt is "Read the config file and explain it".
-    let results: Vec<Value> = reqwest::get(format!(
-        "http://localhost:{port}/api/search?q=config"
-    ))
-    .await
-    .unwrap()
-    .json()
-    .await
-    .unwrap();
+    let results: Vec<Value> = reqwest::get(format!("http://localhost:{port}/api/search?q=config"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
 
     assert!(
         !results.is_empty(),

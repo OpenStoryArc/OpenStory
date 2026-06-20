@@ -22,6 +22,7 @@ function wire(overrides: Partial<WireRecord> = {}): WireRecord {
     seq: 1,
     session_id: "s1",
     timestamp: "2025-01-01T00:00:00Z",
+    origin_agent: "claude-code",
     record_type: "tool_use",
     payload: { tool: "Bash", input: "ls" },
     agent_id: null,

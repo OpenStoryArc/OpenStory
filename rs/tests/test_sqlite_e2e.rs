@@ -14,9 +14,11 @@ use axum::body::Body;
 use axum::http::Request;
 use serde_json::Value;
 
-use open_story::server::{create_state, ingest_events, replay_boot_sessions, Config, ReplayContext};
-use open_story_bus::noop_bus::NoopBus;
 use helpers::{body_json, send_request, synth};
+use open_story::server::{
+    create_state, ingest_events, replay_boot_sessions, Config, ReplayContext,
+};
+use open_story_bus::noop_bus::NoopBus;
 
 use std::sync::Arc;
 
@@ -58,7 +60,9 @@ async fn patterns_survive_restart() {
     // Generate enough events to trigger pattern detection (200 per session)
     synth::generate_fixture_dir(&data_dir, 1, 200, 0);
 
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+        .await
+        .unwrap();
     {
         let ctx = {
             let s = state.read().await;
@@ -78,7 +82,8 @@ async fn patterns_survive_restart() {
     // Check patterns were detected
     let pattern_count = {
         let s = state.read().await;
-        s.store.event_store
+        s.store
+            .event_store
             .session_patterns("perf-sess-000", None)
             .await
             .unwrap()
@@ -87,26 +92,38 @@ async fn patterns_survive_restart() {
 
     // Patterns API should work
     let req = Request::get("/api/sessions/perf-sess-000/patterns")
-        .body(Body::empty()).unwrap();
+        .body(Body::empty())
+        .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
     assert_eq!(resp.status(), 200);
     let patterns: Value = body_json(resp).await;
     let api_pattern_count = patterns["patterns"].as_array().unwrap().len();
-    assert_eq!(api_pattern_count, pattern_count, "API should serve all patterns from SQLite");
+    assert_eq!(
+        api_pattern_count, pattern_count,
+        "API should serve all patterns from SQLite"
+    );
 
     // Restart
     drop(state);
     for path in std::fs::read_dir(&data_dir).unwrap().flatten() {
-        if path.path().extension().map(|e| e == "jsonl").unwrap_or(false) {
+        if path
+            .path()
+            .extension()
+            .map(|e| e == "jsonl")
+            .unwrap_or(false)
+        {
             std::fs::remove_file(path.path()).unwrap();
         }
     }
 
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+        .await
+        .unwrap();
 
     // Patterns should still be in SQLite after restart
     let req = Request::get("/api/sessions/perf-sess-000/patterns")
-        .body(Body::empty()).unwrap();
+        .body(Body::empty())
+        .unwrap();
     let resp = send_request(Arc::clone(&state2), req).await;
     assert_eq!(resp.status(), 200);
     let patterns2: Value = body_json(resp).await;
@@ -126,41 +143,57 @@ async fn live_ingest_persists_to_sqlite() {
     std::fs::create_dir_all(&data_dir).unwrap();
     std::fs::create_dir_all(&watch_dir).unwrap();
 
-    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+    let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+        .await
+        .unwrap();
 
     // Ingest events programmatically (simulating watcher/hooks)
     {
         let mut s = state.write().await;
-        let events: Vec<_> = (0..10).map(|i| {
-            helpers::make_user_prompt("live-session", &format!("live-evt-{}", i))
-        }).collect();
+        let events: Vec<_> = (0..10)
+            .map(|i| helpers::make_user_prompt("live-session", &format!("live-evt-{}", i)))
+            .collect();
         ingest_events(&mut s, "live-session", &events, Some("test-project")).await;
     }
 
     // Verify SQLite has the events
     {
         let s = state.read().await;
-        let stored = s.store.event_store.session_events("live-session").await.unwrap();
-        assert_eq!(stored.len(), 10, "SQLite should have all 10 ingested events");
+        let stored = s
+            .store
+            .event_store
+            .session_events("live-session")
+            .await
+            .unwrap();
+        assert_eq!(
+            stored.len(),
+            10,
+            "SQLite should have all 10 ingested events"
+        );
     }
 
     // Verify API serves them
     let req = Request::get("/api/sessions/live-session/events")
-        .body(Body::empty()).unwrap();
+        .body(Body::empty())
+        .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
     let events: Value = body_json(resp).await;
     assert_eq!(events.as_array().unwrap().len(), 10);
 
     // Restart — should find events in SQLite
     drop(state);
-    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+    let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+        .await
+        .unwrap();
 
     let req = Request::get("/api/sessions/live-session/events")
-        .body(Body::empty()).unwrap();
+        .body(Body::empty())
+        .unwrap();
     let resp = send_request(Arc::clone(&state2), req).await;
     let events2: Value = body_json(resp).await;
     assert_eq!(
-        events2.as_array().unwrap().len(), 10,
+        events2.as_array().unwrap().len(),
+        10,
         "live-ingested events should survive restart via SQLite"
     );
 }

@@ -39,7 +39,11 @@ mod when_a_client_pipes_an_initialize_request_over_stdio {
 
         use tokio::io::AsyncBufReadExt;
         let mut reader = tokio::io::BufReader::new(&mut client_read).lines();
-        let response_line = reader.next_line().await.unwrap().expect("expected one response line");
+        let response_line = reader
+            .next_line()
+            .await
+            .unwrap()
+            .expect("expected one response line");
 
         let response: serde_json::Value = serde_json::from_str(&response_line).unwrap();
         assert_eq!(response["id"], 1);
@@ -118,7 +122,11 @@ mod when_a_client_sends_a_notification_then_a_request {
                 got_ids.push(id);
             }
         }
-        assert_eq!(got_ids, vec![42], "notification must not produce a response line");
+        assert_eq!(
+            got_ids,
+            vec![42],
+            "notification must not produce a response line"
+        );
 
         server.await.unwrap();
     }

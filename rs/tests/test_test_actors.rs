@@ -77,8 +77,14 @@ async fn drive_batch_dedup_is_reported_via_persist_result() {
     assert_eq!(first.skipped, 0, "first call should skip 0 events");
 
     let second = actors.drive_batch("sess-dup", &events, None).await;
-    assert_eq!(second.persisted, 0, "second call should persist 0 new events");
-    assert_eq!(second.skipped, 1, "second call should skip 1 event via PK dedup");
+    assert_eq!(
+        second.persisted, 0,
+        "second call should persist 0 new events"
+    );
+    assert_eq!(
+        second.skipped, 1,
+        "second call should skip 1 event via PK dedup"
+    );
 }
 
 #[tokio::test]

@@ -50,8 +50,7 @@ fn envelope_schema() -> &'static jsonschema::Validator {
                 }
             }
         });
-        jsonschema::validator_for(&schema)
-            .expect("compile envelope schema")
+        jsonschema::validator_for(&schema).expect("compile envelope schema")
     })
 }
 
@@ -69,23 +68,28 @@ pub fn from_cloud_event_value(event_json: &Value) -> Vec<ViewRecord> {
             if envelope_schema().is_valid(event_json) {
                 // Tier B: valid envelope but can't fully type.
                 // Produce a passthrough record carrying the subtype + raw.
-                let id = event_json.get("id")
+                let id = event_json
+                    .get("id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let time = event_json.get("time")
+                let time = event_json
+                    .get("time")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let subtype = event_json.get("subtype")
+                let subtype = event_json
+                    .get("subtype")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let session_id = event_json.pointer("/data/session_id")
+                let session_id = event_json
+                    .pointer("/data/session_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let seq = event_json.pointer("/data/seq")
+                let seq = event_json
+                    .pointer("/data/seq")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
 
@@ -94,11 +98,15 @@ pub fn from_cloud_event_value(event_json: &Value) -> Vec<ViewRecord> {
                     seq,
                     session_id,
                     timestamp: time,
+                    origin_agent: None,
                     agent_id: None,
                     is_sidechain: false,
                     body: RecordBody::SystemEvent(SystemEvent {
                         subtype,
-                        message: Some("event passed envelope validation but could not be fully typed".to_string()),
+                        message: Some(
+                            "event passed envelope validation but could not be fully typed"
+                                .to_string(),
+                        ),
                         duration_ms: None,
                     }),
                 }]
@@ -117,7 +125,12 @@ pub fn from_cloud_event_value(event_json: &Value) -> Vec<ViewRecord> {
 /// Unified: io.arc.event with subtype like message.user.prompt, message.assistant.text.
 fn normalize_subtype(event_type: &str, raw_subtype: &str) -> String {
     // Already unified format — return as-is
-    if event_type == "io.arc.event" || raw_subtype.starts_with("message.") || raw_subtype.starts_with("system.") || raw_subtype.starts_with("progress.") || raw_subtype.starts_with("file.") {
+    if event_type == "io.arc.event"
+        || raw_subtype.starts_with("message.")
+        || raw_subtype.starts_with("system.")
+        || raw_subtype.starts_with("progress.")
+        || raw_subtype.starts_with("file.")
+    {
         return raw_subtype.to_string();
     }
 
@@ -131,8 +144,22 @@ fn normalize_subtype(event_type: &str, raw_subtype: &str) -> String {
             "thinking" => "message.assistant.thinking".to_string(),
             _ => "message.assistant.text".to_string(),
         },
-        "io.arc.transcript.progress" => format!("progress.{}", if raw_subtype.is_empty() { "unknown" } else { raw_subtype }),
-        "io.arc.transcript.system" => format!("system.{}", if raw_subtype.is_empty() { "unknown" } else { raw_subtype }),
+        "io.arc.transcript.progress" => format!(
+            "progress.{}",
+            if raw_subtype.is_empty() {
+                "unknown"
+            } else {
+                raw_subtype
+            }
+        ),
+        "io.arc.transcript.system" => format!(
+            "system.{}",
+            if raw_subtype.is_empty() {
+                "unknown"
+            } else {
+                raw_subtype
+            }
+        ),
         "io.arc.transcript.snapshot" => "file.snapshot".to_string(),
         "io.arc.prompt.submit" => "message.user.prompt".to_string(),
         "io.arc.tool.call" => "message.assistant.tool_use".to_string(),
@@ -152,10 +179,8 @@ fn normalize_subtype(event_type: &str, raw_subtype: &str) -> String {
 pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
     let id = event.id.clone();
     let time = event.time.clone();
-    let subtype_owned = normalize_subtype(
-        &event.event_type,
-        event.subtype.as_deref().unwrap_or(""),
-    );
+    let subtype_owned =
+        normalize_subtype(&event.event_type, event.subtype.as_deref().unwrap_or(""));
     let subtype = subtype_owned.as_str();
 
     // Foundation fields — typed access
@@ -192,7 +217,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         _ => None,
     };
 
-    // Build records, then stamp agent identity onto each one
+    // Build records, then stamp origin/subagent identity onto each one.
     let mut records = match subtype {
         s if s.starts_with("message.user.prompt") => {
             vec![ViewRecord {
@@ -200,6 +225,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::UserMessage(UserMessage {
@@ -210,15 +236,21 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            if agent == "hermes" {
-                // Hermes tool results: call_id and content on the typed payload.
-                // Tool result content is always a JSON string wrapping structured
-                // output (read_file → {content, error, ...}, terminal → {output,
-                // exit_code, ...}, etc.). We store it as-is.
+            if agent == "hermes" || agent == "codex" {
+                // Hermes and Codex tool results carry call_id and content on
+                // the typed payload; there are no Claude-style raw content
+                // blocks to parse.
                 let (call_id, content_text) = match ap {
                     Some(AgentPayload::Hermes(h)) => (
                         h.tool_call_id.clone().unwrap_or_default(),
                         h.text.clone().unwrap_or_default(),
+                    ),
+                    Some(AgentPayload::Codex(c)) => (
+                        c.call_id.clone().unwrap_or_default(),
+                        c.output
+                            .clone()
+                            .or_else(|| c.text.clone())
+                            .unwrap_or_default(),
                     ),
                     _ => (String::new(), text.to_string()),
                 };
@@ -227,6 +259,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                     seq,
                     session_id,
                     timestamp: time,
+                    origin_agent: None,
                     agent_id: None,
                     is_sidechain: false,
                     body: RecordBody::ToolResult(ToolResult {
@@ -242,7 +275,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                     .map(|p| serde_json::to_value(p).unwrap_or(Value::Null))
                     .unwrap_or(Value::Null);
                 let tool_outcome = ap.and_then(|p| p.tool_outcome()).cloned();
-                extract_tool_results(raw, &payload_value, agent, &id, seq, &session_id, &time, tool_outcome)
+                extract_tool_results(
+                    raw,
+                    &payload_value,
+                    agent,
+                    &id,
+                    seq,
+                    &session_id,
+                    &time,
+                    tool_outcome,
+                )
             }
         }
 
@@ -255,9 +297,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 // tool blocks in one event" like Claude Code has.
                 if agent == "hermes" {
                     let call_id = match ap {
-                        Some(AgentPayload::Hermes(h)) => {
-                            h.tool_use_id.clone().unwrap_or_default()
-                        }
+                        Some(AgentPayload::Hermes(h)) => h.tool_use_id.clone().unwrap_or_default(),
                         _ => String::new(),
                     };
                     let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
@@ -266,6 +306,30 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                         seq,
                         session_id,
                         timestamp: time,
+                        origin_agent: None,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolCall(Box::new(ToolCall {
+                            call_id,
+                            name: tool_name.to_string(),
+                            input: tool_args.clone(),
+                            raw_input: tool_args.clone(),
+                            typed_input: Some(typed),
+                            status: None,
+                        })),
+                    }]
+                } else if agent == "codex" {
+                    let call_id = match ap {
+                        Some(AgentPayload::Codex(c)) => c.call_id.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    vec![ViewRecord {
+                        id,
+                        seq,
+                        session_id,
+                        timestamp: time,
+                        origin_agent: None,
                         agent_id: None,
                         is_sidechain: false,
                         body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -291,6 +355,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                         seq,
                         session_id,
                         timestamp: time,
+                        origin_agent: None,
                         agent_id: None,
                         is_sidechain: false,
                         body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -304,13 +369,15 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                     }]
                 } else {
                     // Claude Code: check raw for multiple tool_use blocks
-                    let content = raw
-                        .get("message")
-                        .and_then(|m| m.get("content"));
+                    let content = raw.get("message").and_then(|m| m.get("content"));
                     let has_multiple = content
                         .and_then(|c| c.as_array())
                         .map(|arr| {
-                            arr.iter().filter(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_use")).count()
+                            arr.iter()
+                                .filter(|b| {
+                                    b.get("type").and_then(|v| v.as_str()) == Some("tool_use")
+                                })
+                                .count()
                         })
                         .unwrap_or(0);
 
@@ -341,6 +408,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             seq,
                             session_id,
                             timestamp: time,
+                            origin_agent: None,
                             agent_id: None,
                             is_sidechain: false,
                             body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -364,20 +432,38 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant.thinking") => {
-            extract_reasoning(raw, &id, seq, &session_id, &time)
+            if agent == "codex" && !text.is_empty() {
+                vec![ViewRecord {
+                    id,
+                    seq,
+                    session_id,
+                    timestamp: time,
+                    origin_agent: None,
+                    agent_id: None,
+                    is_sidechain: false,
+                    body: RecordBody::Reasoning(Reasoning {
+                        summary: vec![],
+                        content: Some(text.to_string()),
+                        encrypted: false,
+                    }),
+                }]
+            } else {
+                extract_reasoning(raw, &id, seq, &session_id, &time)
+            }
         }
 
         s if s.starts_with("message.assistant") => {
-            // Hermes: content is on the typed payload (text accessor), not
+            // Hermes/Codex: content is on the typed payload (text accessor), not
             // in raw content blocks. Claude Code and pi-mono use raw content
             // blocks that extract_content_blocks parses.
-            let content = if agent == "hermes" {
-                // Hermes stores content as a flat string on the typed payload.
+            let content = if agent == "hermes" || agent == "codex" {
                 // Wrap it as a single Text content block for the views layer.
                 if text.is_empty() {
                     vec![]
                 } else {
-                    vec![ContentBlock::Text { text: text.to_string() }]
+                    vec![ContentBlock::Text {
+                        text: text.to_string(),
+                    }]
                 }
             } else {
                 extract_content_blocks(raw)
@@ -387,6 +473,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id: session_id.clone(),
                 timestamp: time.clone(),
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
@@ -416,8 +503,12 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             usage.get("input_tokens").and_then(|v| v.as_u64()),
                             usage.get("output_tokens").and_then(|v| v.as_u64()),
                             usage.get("total_tokens").and_then(|v| v.as_u64()),
-                            usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()),
-                            usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
+                            usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64()),
+                            usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64()),
                         ),
                     };
                 if input_tokens.is_some() || output_tokens.is_some() {
@@ -426,6 +517,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                         seq: seq + 1,
                         session_id,
                         timestamp: time,
+                        origin_agent: None,
                         agent_id: None,
                         is_sidechain: false,
                         body: RecordBody::TokenUsage(TokenUsage {
@@ -449,6 +541,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::TurnEnd(TurnEnd {
@@ -465,11 +558,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::SystemEvent(SystemEvent {
                     subtype: subtype.to_string(),
-                    message: if text.is_empty() { None } else { Some(text.to_string()) },
+                    message: if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.to_string())
+                    },
                     duration_ms,
                 }),
             }]
@@ -481,6 +579,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::SystemEvent(SystemEvent {
@@ -497,6 +596,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::FileSnapshot(FileSnapshot {
@@ -522,6 +622,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                 seq,
                 session_id,
                 timestamp: time,
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::SystemEvent(SystemEvent {
@@ -535,12 +636,12 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
 
     // Stamp subagent identity onto every produced record
     for record in &mut records {
+        record.origin_agent = Some(agent.to_string());
         record.agent_id = agent_id.clone();
         record.is_sidechain = is_sidechain;
     }
     records
 }
-
 
 /// Extract tool_use content blocks into individual ToolCall ViewRecords.
 ///
@@ -566,13 +667,17 @@ fn extract_tool_calls(
         None => {
             // Fall back to top-level tool/args from data
             if let Some(tool_name) = data.get("tool").and_then(|v| v.as_str()) {
-                let args = data.get("args").cloned().unwrap_or(Value::Object(Default::default()));
+                let args = data
+                    .get("args")
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
                 let typed = tool_input::parse_tool_input(tool_name, args.clone());
                 return vec![ViewRecord {
                     id: id.to_string(),
                     seq,
                     session_id: session_id.to_string(),
                     timestamp: time.to_string(),
+                    origin_agent: None,
                     agent_id: None,
                     is_sidechain: false,
                     body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -601,16 +706,32 @@ fn extract_tool_calls(
         let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
         match block_type {
             t if t == tool_type => {
-                let call_id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                let input = block.get(input_key).cloned().unwrap_or(Value::Object(Default::default()));
+                let call_id = block
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let input = block
+                    .get(input_key)
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
                 let typed = tool_input::parse_tool_input(&name, input.clone());
-                let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                let record_id = if idx == 0 {
+                    id.to_string()
+                } else {
+                    format!("{id}:{idx}")
+                };
                 records.push(ViewRecord {
                     id: record_id,
                     seq: seq + idx as u64,
                     session_id: session_id.to_string(),
                     timestamp: time.to_string(),
+                    origin_agent: None,
                     agent_id: None,
                     is_sidechain: false,
                     body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -625,13 +746,21 @@ fn extract_tool_calls(
                 idx += 1;
             }
             "thinking" => {
-                let content_text = block.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                let content_text = block
+                    .get("thinking")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let record_id = if idx == 0 {
+                    id.to_string()
+                } else {
+                    format!("{id}:{idx}")
+                };
                 records.push(ViewRecord {
                     id: record_id,
                     seq: seq + idx as u64,
                     session_id: session_id.to_string(),
                     timestamp: time.to_string(),
+                    origin_agent: None,
                     agent_id: None,
                     is_sidechain: false,
                     body: RecordBody::Reasoning(Reasoning {
@@ -702,6 +831,7 @@ fn extract_tool_results(
                 seq,
                 session_id: session_id.to_string(),
                 timestamp: time.to_string(),
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::ToolResult(ToolResult {
@@ -733,20 +863,22 @@ fn extract_tool_results(
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let output = block
-                        .get("content")
-                        .and_then(|v| {
-                            if v.is_string() {
-                                v.as_str().map(|s| s.to_string())
-                            } else {
-                                Some(v.to_string())
-                            }
-                        });
+                    let output = block.get("content").and_then(|v| {
+                        if v.is_string() {
+                            v.as_str().map(|s| s.to_string())
+                        } else {
+                            Some(v.to_string())
+                        }
+                    });
                     let is_error = block
                         .get("is_error")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+                    let record_id = if idx == 0 {
+                        id.to_string()
+                    } else {
+                        format!("{id}:{idx}")
+                    };
                     // tool_outcome applies to the first result (payload-level field)
                     let outcome = if idx == 0 { tool_outcome.clone() } else { None };
                     records.push(ViewRecord {
@@ -754,6 +886,7 @@ fn extract_tool_results(
                         seq: seq + idx as u64,
                         session_id: session_id.to_string(),
                         timestamp: time.to_string(),
+                        origin_agent: None,
                         agent_id: None,
                         is_sidechain: false,
                         body: RecordBody::ToolResult(ToolResult {
@@ -793,13 +926,21 @@ fn extract_reasoning(
     let mut idx = 0;
     for block in blocks {
         if block.get("type").and_then(|v| v.as_str()) == Some("thinking") {
-            let content_text = block.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let record_id = if idx == 0 { id.to_string() } else { format!("{id}:{idx}") };
+            let content_text = block
+                .get("thinking")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let record_id = if idx == 0 {
+                id.to_string()
+            } else {
+                format!("{id}:{idx}")
+            };
             records.push(ViewRecord {
                 id: record_id,
                 seq: seq + idx as u64,
                 session_id: session_id.to_string(),
                 timestamp: time.to_string(),
+                origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::Reasoning(Reasoning {
@@ -823,32 +964,30 @@ fn extract_content_blocks(raw: &Value) -> Vec<ContentBlock> {
 
     match content {
         Value::String(s) => vec![ContentBlock::Text { text: s.clone() }],
-        Value::Array(blocks) => {
-            blocks
-                .iter()
-                .filter_map(|b| {
-                    let bt = b.get("type").and_then(|v| v.as_str())?;
-                    match bt {
-                        "text" => {
-                            let text = b.get("text").and_then(|v| v.as_str())?.to_string();
-                            Some(ContentBlock::Text { text })
-                        }
-                        _ => None,
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|b| {
+                let bt = b.get("type").and_then(|v| v.as_str())?;
+                match bt {
+                    "text" => {
+                        let text = b.get("text").and_then(|v| v.as_str())?.to_string();
+                        Some(ContentBlock::Text { text })
                     }
-                })
-                .collect()
-        }
+                    _ => None,
+                }
+            })
+            .collect(),
         _ => vec![],
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-    use open_story_core::cloud_event::CloudEvent;
     use crate::from_cloud_event::from_cloud_event;
-    use crate::unified::*;
     use crate::tool_input::ToolInput;
+    use crate::unified::*;
+    use open_story_core::cloud_event::CloudEvent;
+    use serde_json::json;
 
     /// Wrap a "logical" test fixture into the EventData shape the production
     /// code expects. The logical shape has flat fields (seq, session_id, text,
@@ -896,11 +1035,12 @@ mod tests {
             "subtype": subtype,
             "data": make_event_data(data),
         }))
-        .expect("test fixture should deserialize as CloudEvent — \
+        .expect(
+            "test fixture should deserialize as CloudEvent — \
                  ensure the data block contains required EventData fields \
-                 (raw, seq, session_id)")
+                 (raw, seq, session_id)",
+        )
     }
-
 
     // describe("from_cloud_event")
     // describe("when event is io.arc.event with subtype message.user.prompt")
@@ -909,15 +1049,18 @@ mod tests {
 
         #[test]
         fn it_should_produce_user_message_with_text() {
-            let event = make_cloud_event("message.user.prompt", json!({
-                "seq": 1,
-                "session_id": "sess-abc",
-                "text": "Fix the login bug",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "Fix the login bug"}]}
-                }
-            }));
+            let event = make_cloud_event(
+                "message.user.prompt",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "Fix the login bug",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "Fix the login bug"}]}
+                    }
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].seq, 1);
@@ -930,6 +1073,26 @@ mod tests {
                 other => panic!("expected UserMessage, got {:?}", other),
             }
         }
+
+        #[test]
+        fn it_should_preserve_origin_agent_on_view_record() {
+            let event = make_cloud_event(
+                "message.user.prompt",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "Fix the login bug",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "Fix the login bug"}]}
+                    }
+                }),
+            );
+
+            let records = from_cloud_event(&event);
+
+            assert_eq!(records[0].origin_agent.as_deref(), Some("claude-code"));
+        }
     }
 
     // describe("when event is io.arc.event with subtype message.assistant.text")
@@ -938,20 +1101,23 @@ mod tests {
 
         #[test]
         fn it_should_produce_assistant_message() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "text": "I'll fix it now.",
-                "model": "claude-sonnet-4-20250514",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "I'll fix it now."}],
-                        "stop_reason": "end_turn"
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "text": "I'll fix it now.",
+                    "model": "claude-sonnet-4-20250514",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "I'll fix it now."}],
+                            "stop_reason": "end_turn"
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             match &records[0].body {
@@ -970,24 +1136,30 @@ mod tests {
 
         #[test]
         fn it_should_produce_tool_call_with_typed_input() {
-            let event = make_cloud_event("message.assistant.tool_use", json!({
-                "seq": 3,
-                "session_id": "sess-abc",
-                "tool": "Bash",
-                "args": {"command": "cargo test"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_123", "name": "Bash", "input": {"command": "cargo test"}}
-                        ]
+            let event = make_cloud_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-abc",
+                    "tool": "Bash",
+                    "args": {"command": "cargo test"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_123", "name": "Bash", "input": {"command": "cargo test"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             // Should have at least one ToolCall record
-            let tool_calls: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
+            let tool_calls: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+                .collect();
             assert!(!tool_calls.is_empty(), "should have at least one ToolCall");
             match &tool_calls[0].body {
                 RecordBody::ToolCall(tc) => {
@@ -1004,27 +1176,36 @@ mod tests {
 
         #[test]
         fn it_should_produce_unknown_for_mcp_tools() {
-            let event = make_cloud_event("message.assistant.tool_use", json!({
-                "seq": 4,
-                "session_id": "sess-abc",
-                "tool": "mcp__slack__post",
-                "args": {"channel": "#dev"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_456", "name": "mcp__slack__post", "input": {"channel": "#dev"}}
-                        ]
+            let event = make_cloud_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-abc",
+                    "tool": "mcp__slack__post",
+                    "args": {"channel": "#dev"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_456", "name": "mcp__slack__post", "input": {"channel": "#dev"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool_calls: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
+            let tool_calls: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+                .collect();
             assert!(!tool_calls.is_empty());
             match &tool_calls[0].body {
                 RecordBody::ToolCall(tc) => {
-                    assert!(matches!(tc.typed_input.as_ref().unwrap(), ToolInput::Unknown { .. }));
+                    assert!(matches!(
+                        tc.typed_input.as_ref().unwrap(),
+                        ToolInput::Unknown { .. }
+                    ));
                 }
                 _ => unreachable!(),
             }
@@ -1032,23 +1213,29 @@ mod tests {
 
         #[test]
         fn it_should_preserve_raw_input_alongside_typed() {
-            let event = make_cloud_event("message.assistant.tool_use", json!({
-                "seq": 5,
-                "session_id": "sess-abc",
-                "tool": "Edit",
-                "args": {"file_path": "/f.rs", "old_string": "a", "new_string": "b"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_789", "name": "Edit", "input": {"file_path": "/f.rs", "old_string": "a", "new_string": "b"}}
-                        ]
+            let event = make_cloud_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 5,
+                    "session_id": "sess-abc",
+                    "tool": "Edit",
+                    "args": {"file_path": "/f.rs", "old_string": "a", "new_string": "b"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_789", "name": "Edit", "input": {"file_path": "/f.rs", "old_string": "a", "new_string": "b"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool_calls: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
+            let tool_calls: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+                .collect();
             match &tool_calls[0].body {
                 RecordBody::ToolCall(tc) => {
                     assert_eq!(tc.raw_input["file_path"], "/f.rs");
@@ -1065,20 +1252,26 @@ mod tests {
 
         #[test]
         fn it_should_produce_tool_result() {
-            let event = make_cloud_event("message.user.tool_result", json!({
-                "seq": 6,
-                "session_id": "sess-abc",
-                "raw": {
-                    "type": "user",
-                    "message": {
-                        "content": [
-                            {"type": "tool_result", "tool_use_id": "toolu_123", "content": "test result: ok. 5 passed"}
-                        ]
+            let event = make_cloud_event(
+                "message.user.tool_result",
+                json!({
+                    "seq": 6,
+                    "session_id": "sess-abc",
+                    "raw": {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {"type": "tool_result", "tool_use_id": "toolu_123", "content": "test result: ok. 5 passed"}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let results: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolResult(_))).collect();
+            let results: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolResult(_)))
+                .collect();
             assert!(!results.is_empty(), "should have at least one ToolResult");
             match &results[0].body {
                 RecordBody::ToolResult(tr) => {
@@ -1096,17 +1289,20 @@ mod tests {
 
         #[test]
         fn it_should_produce_turn_end_with_duration() {
-            let event = make_cloud_event("system.turn.complete", json!({
-                "seq": 10,
-                "session_id": "sess-abc",
-                "duration_ms": 4500,
-                "durationMs": 4500,
-                "raw": {
-                    "type": "system",
-                    "subtype": "turn_duration",
-                    "durationMs": 4500
-                }
-            }));
+            let event = make_cloud_event(
+                "system.turn.complete",
+                json!({
+                    "seq": 10,
+                    "session_id": "sess-abc",
+                    "duration_ms": 4500,
+                    "durationMs": 4500,
+                    "raw": {
+                        "type": "system",
+                        "subtype": "turn_duration",
+                        "durationMs": 4500
+                    }
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             match &records[0].body {
@@ -1122,21 +1318,27 @@ mod tests {
 
         #[test]
         fn it_should_produce_reasoning_record() {
-            let event = make_cloud_event("message.assistant.thinking", json!({
-                "seq": 7,
-                "session_id": "sess-abc",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [
-                            {"type": "thinking", "thinking": "Let me analyze this..."}
-                        ]
+            let event = make_cloud_event(
+                "message.assistant.thinking",
+                json!({
+                    "seq": 7,
+                    "session_id": "sess-abc",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [
+                                {"type": "thinking", "thinking": "Let me analyze this..."}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let reasoning: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::Reasoning(_))).collect();
+            let reasoning: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::Reasoning(_)))
+                .collect();
             assert!(!reasoning.is_empty(), "should have Reasoning record");
             match &reasoning[0].body {
                 RecordBody::Reasoning(r) => {
@@ -1153,7 +1355,11 @@ mod tests {
     mod legacy_format {
         use super::*;
 
-        fn make_legacy_event(event_type: &str, subtype: &str, data: serde_json::Value) -> CloudEvent {
+        fn make_legacy_event(
+            event_type: &str,
+            subtype: &str,
+            data: serde_json::Value,
+        ) -> CloudEvent {
             serde_json::from_value(json!({
                 "specversion": "1.0",
                 "id": "evt-legacy-001",
@@ -1169,17 +1375,24 @@ mod tests {
 
         #[test]
         fn it_should_produce_user_message_from_transcript_user_text() {
-            let event = make_legacy_event("io.arc.transcript.user", "text", json!({
-                "seq": 1,
-                "session_id": "sess-abc",
-                "text": "Hello Claude",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "Hello Claude"}]}
-                }
-            }));
+            let event = make_legacy_event(
+                "io.arc.transcript.user",
+                "text",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "Hello Claude",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "Hello Claude"}]}
+                    }
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert!(!records.is_empty(), "legacy transcript.user with subtype text should produce UserMessage");
+            assert!(
+                !records.is_empty(),
+                "legacy transcript.user with subtype text should produce UserMessage"
+            );
             match &records[0].body {
                 RecordBody::UserMessage(u) => match &u.content {
                     MessageContent::Text(t) => assert_eq!(t, "Hello Claude"),
@@ -1191,20 +1404,27 @@ mod tests {
 
         #[test]
         fn it_should_produce_tool_result_from_transcript_user_tool_result() {
-            let event = make_legacy_event("io.arc.transcript.user", "tool_result", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "raw": {
-                    "type": "user",
-                    "message": {
-                        "content": [
-                            {"type": "tool_result", "tool_use_id": "toolu_abc", "content": "file contents here"}
-                        ]
+            let event = make_legacy_event(
+                "io.arc.transcript.user",
+                "tool_result",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "raw": {
+                        "type": "user",
+                        "message": {
+                            "content": [
+                                {"type": "tool_result", "tool_use_id": "toolu_abc", "content": "file contents here"}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert!(!records.is_empty(), "legacy transcript.user with subtype tool_result should produce ToolResult");
+            assert!(
+                !records.is_empty(),
+                "legacy transcript.user with subtype tool_result should produce ToolResult"
+            );
             match &records[0].body {
                 RecordBody::ToolResult(tr) => {
                     assert_eq!(tr.call_id, "toolu_abc");
@@ -1215,20 +1435,27 @@ mod tests {
 
         #[test]
         fn it_should_produce_assistant_message_from_transcript_assistant_text() {
-            let event = make_legacy_event("io.arc.transcript.assistant", "text", json!({
-                "seq": 3,
-                "session_id": "sess-abc",
-                "model": "claude-opus-4-6",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-opus-4-6",
-                        "content": [{"type": "text", "text": "I'll help you with that."}]
+            let event = make_legacy_event(
+                "io.arc.transcript.assistant",
+                "text",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-abc",
+                    "model": "claude-opus-4-6",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-opus-4-6",
+                            "content": [{"type": "text", "text": "I'll help you with that."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert!(!records.is_empty(), "legacy transcript.assistant with subtype text should produce AssistantMessage");
+            assert!(
+                !records.is_empty(),
+                "legacy transcript.assistant with subtype text should produce AssistantMessage"
+            );
             match &records[0].body {
                 RecordBody::AssistantMessage(a) => {
                     assert!(!a.content.is_empty());
@@ -1239,24 +1466,34 @@ mod tests {
 
         #[test]
         fn it_should_produce_tool_call_from_transcript_assistant_tool_use() {
-            let event = make_legacy_event("io.arc.transcript.assistant", "tool_use", json!({
-                "seq": 4,
-                "session_id": "sess-abc",
-                "tool": "Read",
-                "args": {"file_path": "/foo.rs"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-opus-4-6",
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_read", "name": "Read", "input": {"file_path": "/foo.rs"}}
-                        ]
+            let event = make_legacy_event(
+                "io.arc.transcript.assistant",
+                "tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-abc",
+                    "tool": "Read",
+                    "args": {"file_path": "/foo.rs"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-opus-4-6",
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_read", "name": "Read", "input": {"file_path": "/foo.rs"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool_calls: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
-            assert!(!tool_calls.is_empty(), "legacy transcript.assistant with subtype tool_use should produce ToolCall");
+            let tool_calls: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+                .collect();
+            assert!(
+                !tool_calls.is_empty(),
+                "legacy transcript.assistant with subtype tool_use should produce ToolCall"
+            );
             match &tool_calls[0].body {
                 RecordBody::ToolCall(tc) => assert_eq!(tc.name, "Read"),
                 _ => unreachable!(),
@@ -1265,28 +1502,42 @@ mod tests {
 
         #[test]
         fn it_should_produce_system_event_from_transcript_progress() {
-            let event = make_legacy_event("io.arc.transcript.progress", "bash", json!({
-                "seq": 5,
-                "session_id": "sess-abc",
-                "raw": {"type": "progress", "subtype": "bash"}
-            }));
+            let event = make_legacy_event(
+                "io.arc.transcript.progress",
+                "bash",
+                json!({
+                    "seq": 5,
+                    "session_id": "sess-abc",
+                    "raw": {"type": "progress", "subtype": "bash"}
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert!(!records.is_empty(), "legacy transcript.progress should produce SystemEvent");
+            assert!(
+                !records.is_empty(),
+                "legacy transcript.progress should produce SystemEvent"
+            );
         }
 
         #[test]
         fn it_should_produce_user_message_from_prompt_submit() {
-            let event = make_legacy_event("io.arc.prompt.submit", "", json!({
-                "seq": 6,
-                "session_id": "sess-abc",
-                "text": "Fix the bug",
-                "raw": {
-                    "type": "user",
-                    "message": {"content": [{"type": "text", "text": "Fix the bug"}]}
-                }
-            }));
+            let event = make_legacy_event(
+                "io.arc.prompt.submit",
+                "",
+                json!({
+                    "seq": 6,
+                    "session_id": "sess-abc",
+                    "text": "Fix the bug",
+                    "raw": {
+                        "type": "user",
+                        "message": {"content": [{"type": "text", "text": "Fix the bug"}]}
+                    }
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert!(!records.is_empty(), "legacy prompt.submit should produce UserMessage");
+            assert!(
+                !records.is_empty(),
+                "legacy prompt.submit should produce UserMessage"
+            );
             match &records[0].body {
                 RecordBody::UserMessage(u) => match &u.content {
                     MessageContent::Text(t) => assert_eq!(t, "Fix the bug"),
@@ -1298,23 +1549,33 @@ mod tests {
 
         #[test]
         fn it_should_produce_tool_call_from_tool_call_type() {
-            let event = make_legacy_event("io.arc.tool.call", "Read", json!({
-                "seq": 7,
-                "session_id": "sess-abc",
-                "tool": "Read",
-                "args": {"file_path": "/bar.rs"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_tc", "name": "Read", "input": {"file_path": "/bar.rs"}}
-                        ]
+            let event = make_legacy_event(
+                "io.arc.tool.call",
+                "Read",
+                json!({
+                    "seq": 7,
+                    "session_id": "sess-abc",
+                    "tool": "Read",
+                    "args": {"file_path": "/bar.rs"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_tc", "name": "Read", "input": {"file_path": "/bar.rs"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool_calls: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
-            assert!(!tool_calls.is_empty(), "legacy tool.call should produce ToolCall");
+            let tool_calls: Vec<_> = records
+                .iter()
+                .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+                .collect();
+            assert!(
+                !tool_calls.is_empty(),
+                "legacy tool.call should produce ToolCall"
+            );
         }
     }
 
@@ -1334,7 +1595,10 @@ mod tests {
         fn malformed_json_fails_to_deserialize_as_cloud_event() {
             let event_json = json!({"garbage": true});
             let result: Result<CloudEvent, _> = serde_json::from_value(event_json);
-            assert!(result.is_err(), "garbage JSON must not deserialize as CloudEvent");
+            assert!(
+                result.is_err(),
+                "garbage JSON must not deserialize as CloudEvent"
+            );
         }
 
         #[test]
@@ -1345,7 +1609,10 @@ mod tests {
                 "subtype": "message.user.prompt"
             });
             let result: Result<CloudEvent, _> = serde_json::from_value(event_json);
-            assert!(result.is_err(), "CloudEvent without data field must not deserialize");
+            assert!(
+                result.is_err(),
+                "CloudEvent without data field must not deserialize"
+            );
         }
     }
 
@@ -1355,25 +1622,32 @@ mod tests {
 
         #[test]
         fn it_should_emit_token_usage_alongside_assistant_message() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "model": "claude-sonnet-4-20250514",
-                "token_usage": {
-                    "input_tokens": 1500,
-                    "output_tokens": 350,
-                    "total_tokens": 1850
-                },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "Done."}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "model": "claude-sonnet-4-20250514",
+                    "token_usage": {
+                        "input_tokens": 1500,
+                        "output_tokens": 350,
+                        "total_tokens": 1850
+                    },
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "Done."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            assert_eq!(records.len(), 2, "should produce AssistantMessage + TokenUsage");
+            assert_eq!(
+                records.len(),
+                2,
+                "should produce AssistantMessage + TokenUsage"
+            );
             assert!(matches!(&records[0].body, RecordBody::AssistantMessage(_)));
             match &records[1].body {
                 RecordBody::TokenUsage(tu) => {
@@ -1389,18 +1663,21 @@ mod tests {
 
         #[test]
         fn it_should_skip_token_usage_when_absent() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "model": "claude-sonnet-4-20250514",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "No usage data."}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "model": "claude-sonnet-4-20250514",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "No usage data."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1, "should produce only AssistantMessage");
             assert!(matches!(&records[0].body, RecordBody::AssistantMessage(_)));
@@ -1409,36 +1686,45 @@ mod tests {
         // describe("when a Claude Code event carries prompt-cache accounting")
         #[test]
         fn it_should_preserve_claude_code_cache_creation_and_cache_read_tokens() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-cache",
-                "model": "claude-sonnet-4-20250514",
-                "token_usage": {
-                    "input_tokens": 6,
-                    "output_tokens": 1,
-                    "cache_creation_input_tokens": 23686,
-                    "cache_read_input_tokens": 26875
-                },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "Reading."}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-cache",
+                    "model": "claude-sonnet-4-20250514",
+                    "token_usage": {
+                        "input_tokens": 6,
+                        "output_tokens": 1,
+                        "cache_creation_input_tokens": 23686,
+                        "cache_read_input_tokens": 26875
+                    },
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "Reading."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 2);
             match &records[1].body {
                 RecordBody::TokenUsage(tu) => {
                     assert_eq!(tu.input_tokens, Some(6));
                     assert_eq!(tu.output_tokens, Some(1));
-                    assert_eq!(tu.cache_creation_input_tokens, Some(23686),
+                    assert_eq!(
+                        tu.cache_creation_input_tokens,
+                        Some(23686),
                         "cache_creation_input_tokens must be preserved — \
-                         it's the bulk of what a turn actually costs");
-                    assert_eq!(tu.cache_read_input_tokens, Some(26875),
+                         it's the bulk of what a turn actually costs"
+                    );
+                    assert_eq!(
+                        tu.cache_read_input_tokens,
+                        Some(26875),
                         "cache_read_input_tokens must be preserved — \
-                         high cache_read = an efficient prompt design signal");
+                         high cache_read = an efficient prompt design signal"
+                    );
                 }
                 other => panic!("expected TokenUsage, got {:?}", other),
             }
@@ -1453,22 +1739,25 @@ mod tests {
         // describe("when cache fields are absent (older events)")
         #[test]
         fn it_should_leave_cache_fields_none_when_not_supplied() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-old",
-                "model": "claude-sonnet-4-20250514",
-                "token_usage": {
-                    "input_tokens": 100,
-                    "output_tokens": 50
-                },
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "Hi."}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-old",
+                    "model": "claude-sonnet-4-20250514",
+                    "token_usage": {
+                        "input_tokens": 100,
+                        "output_tokens": 50
+                    },
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "Hi."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             match &records[1].body {
                 RecordBody::TokenUsage(tu) => {
@@ -1486,12 +1775,15 @@ mod tests {
 
         #[test]
         fn it_should_default_agent_id_to_none_and_is_sidechain_to_false() {
-            let event = make_cloud_event("message.user.prompt", json!({
-                "seq": 1,
-                "session_id": "sess-abc",
-                "text": "hi",
-                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
-            }));
+            let event = make_cloud_event(
+                "message.user.prompt",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "hi",
+                    "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, None);
@@ -1500,13 +1792,16 @@ mod tests {
 
         #[test]
         fn it_should_set_is_sidechain_false_when_present() {
-            let event = make_cloud_event("message.user.prompt", json!({
-                "seq": 1,
-                "session_id": "sess-abc",
-                "text": "hi",
-                "is_sidechain": false,
-                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
-            }));
+            let event = make_cloud_event(
+                "message.user.prompt",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "hi",
+                    "is_sidechain": false,
+                    "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records[0].is_sidechain, false);
             assert_eq!(records[0].agent_id, None);
@@ -1514,20 +1809,23 @@ mod tests {
 
         #[test]
         fn it_should_set_agent_id_and_is_sidechain_for_subagent_event() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "is_sidechain": true,
-                "agent_id": "agent-abc-123",
-                "model": "claude-sonnet-4-20250514",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "searching..."}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "is_sidechain": true,
+                    "agent_id": "agent-abc-123",
+                    "model": "claude-sonnet-4-20250514",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "searching..."}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, Some("agent-abc-123".to_string()));
@@ -1536,15 +1834,18 @@ mod tests {
 
         #[test]
         fn it_should_set_agent_id_from_progress_event_data() {
-            let event = make_cloud_event("progress.agent", json!({
-                "seq": 3,
-                "session_id": "sess-abc",
-                "is_sidechain": false,
-                "agent_id": "agent-abc-123",
-                "parent_tool_use_id": "toolu_xyz_789",
-                "progress_type": "agent_progress",
-                "raw": {"type": "progress", "data": {"type": "agent_progress"}}
-            }));
+            let event = make_cloud_event(
+                "progress.agent",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-abc",
+                    "is_sidechain": false,
+                    "agent_id": "agent-abc-123",
+                    "parent_tool_use_id": "toolu_xyz_789",
+                    "progress_type": "agent_progress",
+                    "raw": {"type": "progress", "data": {"type": "agent_progress"}}
+                }),
+            );
             let records = from_cloud_event(&event);
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].agent_id, Some("agent-abc-123".to_string()));
@@ -1553,61 +1854,77 @@ mod tests {
 
         #[test]
         fn it_should_stamp_agent_identity_on_all_records_from_tool_use() {
-            let event = make_cloud_event("message.assistant.tool_use", json!({
-                "seq": 4,
-                "session_id": "sess-abc",
-                "is_sidechain": true,
-                "agent_id": "agent-sub-1",
-                "tool": "Read",
-                "args": {"file_path": "/foo.rs"},
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [
-                            {"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/foo.rs"}}
-                        ]
+            let event = make_cloud_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-abc",
+                    "is_sidechain": true,
+                    "agent_id": "agent-sub-1",
+                    "tool": "Read",
+                    "args": {"file_path": "/foo.rs"},
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [
+                                {"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/foo.rs"}}
+                            ]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             for r in &records {
-                assert_eq!(r.agent_id, Some("agent-sub-1".to_string()), "all records should have agent_id");
+                assert_eq!(
+                    r.agent_id,
+                    Some("agent-sub-1".to_string()),
+                    "all records should have agent_id"
+                );
                 assert_eq!(r.is_sidechain, true, "all records should be sidechain");
             }
         }
 
         #[test]
         fn it_should_skip_serializing_agent_id_when_none() {
-            let event = make_cloud_event("message.user.prompt", json!({
-                "seq": 1,
-                "session_id": "sess-abc",
-                "text": "hi",
-                "is_sidechain": false,
-                "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
-            }));
+            let event = make_cloud_event(
+                "message.user.prompt",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-abc",
+                    "text": "hi",
+                    "is_sidechain": false,
+                    "raw": {"type": "user", "message": {"content": [{"type": "text", "text": "hi"}]}}
+                }),
+            );
             let records = from_cloud_event(&event);
             let json = serde_json::to_value(&records[0]).unwrap();
-            assert!(json.get("agent_id").is_none(), "agent_id should not appear in JSON when None");
+            assert!(
+                json.get("agent_id").is_none(),
+                "agent_id should not appear in JSON when None"
+            );
             assert_eq!(json["is_sidechain"], false);
         }
 
         #[test]
         fn it_should_serialize_agent_id_when_present() {
-            let event = make_cloud_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-abc",
-                "is_sidechain": true,
-                "agent_id": "agent-xyz",
-                "model": "claude-sonnet-4-20250514",
-                "raw": {
-                    "type": "assistant",
-                    "message": {
-                        "model": "claude-sonnet-4-20250514",
-                        "content": [{"type": "text", "text": "done"}]
+            let event = make_cloud_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-abc",
+                    "is_sidechain": true,
+                    "agent_id": "agent-xyz",
+                    "model": "claude-sonnet-4-20250514",
+                    "raw": {
+                        "type": "assistant",
+                        "message": {
+                            "model": "claude-sonnet-4-20250514",
+                            "content": [{"type": "text", "text": "done"}]
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             let json = serde_json::to_value(&records[0]).unwrap();
             assert_eq!(json["agent_id"], "agent-xyz");
@@ -1660,31 +1977,39 @@ mod tests {
         #[test]
         fn it_should_produce_reasoning_with_content() {
             // Decomposed thinking event from [thinking, toolCall, toolCall] line
-            let event = make_pi_mono_event("message.assistant.thinking", json!({
-                "seq": 1,
-                "session_id": "sess-pi",
-                "text": "Let me read both files.",
-                "raw": {
-                    "type": "message", "id": "890b923d",
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "thinking", "thinking": "Let me read both files."},
-                            {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/a.txt"}},
-                            {"type": "toolCall", "id": "tc-2", "name": "read", "arguments": {"path": "/b.txt"}}
-                        ],
-                        "stopReason": "toolUse"
+            let event = make_pi_mono_event(
+                "message.assistant.thinking",
+                json!({
+                    "seq": 1,
+                    "session_id": "sess-pi",
+                    "text": "Let me read both files.",
+                    "raw": {
+                        "type": "message", "id": "890b923d",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "thinking", "thinking": "Let me read both files."},
+                                {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/a.txt"}},
+                                {"type": "toolCall", "id": "tc-2", "name": "read", "arguments": {"path": "/b.txt"}}
+                            ],
+                            "stopReason": "toolUse"
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
             assert!(!records.is_empty(), "should produce at least one record");
-            let reasoning = records.iter().find(|r| matches!(&r.body, RecordBody::Reasoning(_)));
+            let reasoning = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::Reasoning(_)));
             assert!(reasoning.is_some(), "should have a Reasoning record");
             match &reasoning.unwrap().body {
                 RecordBody::Reasoning(r) => {
-                    assert_eq!(r.content.as_deref(), Some("Let me read both files."),
-                        "reasoning content should be the thinking text");
+                    assert_eq!(
+                        r.content.as_deref(),
+                        Some("Let me read both files."),
+                        "reasoning content should be the thinking text"
+                    );
                 }
                 _ => panic!("expected Reasoning"),
             }
@@ -1697,34 +2022,46 @@ mod tests {
         #[test]
         fn it_should_produce_assistant_message_with_text() {
             // Decomposed text event from [thinking, text, toolCall] line
-            let event = make_pi_mono_event("message.assistant.text", json!({
-                "seq": 2,
-                "session_id": "sess-pi",
-                "text": "Let me read the file first.",
-                "model": "claude-opus-4-6",
-                "raw": {
-                    "type": "message", "id": "5e6b8ad0",
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "thinking", "thinking": "reasoning here"},
-                            {"type": "text", "text": "Let me read the file first."},
-                            {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/x"}}
-                        ],
-                        "model": "claude-opus-4-6",
-                        "stopReason": "toolUse"
+            let event = make_pi_mono_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-pi",
+                    "text": "Let me read the file first.",
+                    "model": "claude-opus-4-6",
+                    "raw": {
+                        "type": "message", "id": "5e6b8ad0",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "thinking", "thinking": "reasoning here"},
+                                {"type": "text", "text": "Let me read the file first."},
+                                {"type": "toolCall", "id": "tc-1", "name": "read", "arguments": {"path": "/x"}}
+                            ],
+                            "model": "claude-opus-4-6",
+                            "stopReason": "toolUse"
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let asst = records.iter().find(|r| matches!(&r.body, RecordBody::AssistantMessage(_)));
+            let asst = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::AssistantMessage(_)));
             assert!(asst.is_some(), "should have an AssistantMessage record");
             match &asst.unwrap().body {
                 RecordBody::AssistantMessage(a) => {
                     assert!(!a.content.is_empty(), "content should not be empty");
                     // The text should be the decomposed text, not empty
-                    let has_text = a.content.iter().any(|b| matches!(b, ContentBlock::Text { text } if !text.is_empty()));
-                    assert!(has_text, "AssistantMessage should have non-empty text content, got: {:?}", a.content);
+                    let has_text = a
+                        .content
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::Text { text } if !text.is_empty()));
+                    assert!(
+                        has_text,
+                        "AssistantMessage should have non-empty text content, got: {:?}",
+                        a.content
+                    );
                 }
                 _ => panic!("expected AssistantMessage"),
             }
@@ -1737,37 +2074,49 @@ mod tests {
         #[test]
         fn it_should_produce_tool_call_with_name_and_args() {
             // Decomposed tool_use event from [thinking, text, toolCall] line
-            let event = make_pi_mono_event("message.assistant.tool_use", json!({
-                "seq": 3,
-                "session_id": "sess-pi",
-                "tool": "read",
-                "tool_call_id": "toolu_01BKoC",
-                "args": {"path": "/tmp/config.toml"},
-                "model": "claude-opus-4-6",
-                "raw": {
-                    "type": "message", "id": "890b923d",
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "thinking", "thinking": "hmm"},
-                            {"type": "text", "text": "reading"},
-                            {"type": "toolCall", "id": "toolu_01BKoC", "name": "read",
-                             "arguments": {"path": "/tmp/config.toml"}}
-                        ],
-                        "model": "claude-opus-4-6",
-                        "stopReason": "toolUse"
+            let event = make_pi_mono_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-pi",
+                    "tool": "read",
+                    "tool_call_id": "toolu_01BKoC",
+                    "args": {"path": "/tmp/config.toml"},
+                    "model": "claude-opus-4-6",
+                    "raw": {
+                        "type": "message", "id": "890b923d",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "thinking", "thinking": "hmm"},
+                                {"type": "text", "text": "reading"},
+                                {"type": "toolCall", "id": "toolu_01BKoC", "name": "read",
+                                 "arguments": {"path": "/tmp/config.toml"}}
+                            ],
+                            "model": "claude-opus-4-6",
+                            "stopReason": "toolUse"
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool = records.iter().find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
+            let tool = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
             assert!(tool.is_some(), "should have a ToolCall record");
             match &tool.unwrap().body {
                 RecordBody::ToolCall(tc) => {
-                    assert_eq!(tc.name, "read", "tool name should be 'read', got '{}'", tc.name);
+                    assert_eq!(
+                        tc.name, "read",
+                        "tool name should be 'read', got '{}'",
+                        tc.name
+                    );
                     assert!(!tc.input.is_null(), "tool input should not be null");
                     assert_eq!(tc.input["path"], "/tmp/config.toml");
-                    assert_eq!(tc.call_id, "toolu_01BKoC", "call_id should come from payload, not raw parsing");
+                    assert_eq!(
+                        tc.call_id, "toolu_01BKoC",
+                        "call_id should come from payload, not raw parsing"
+                    );
                 }
                 _ => panic!("expected ToolCall"),
             }
@@ -1777,30 +2126,37 @@ mod tests {
         fn it_should_use_payload_call_id_not_raw_parsing() {
             // The call_id should come from agent_payload.tool_call_id,
             // not from scanning raw.message.content for toolUseId/id
-            let event = make_pi_mono_event("message.assistant.tool_use", json!({
-                "seq": 4,
-                "session_id": "sess-pi",
-                "tool": "read",
-                "tool_call_id": "the-correct-id",
-                "args": {"path": "/foo"},
-                "raw": {
-                    "type": "message",
-                    "message": {
-                        "role": "assistant",
-                        "content": [
-                            {"type": "toolCall", "id": "raw-id-wrong", "name": "read",
-                             "arguments": {"path": "/foo"}}
-                        ],
-                        "stopReason": "toolUse"
+            let event = make_pi_mono_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-pi",
+                    "tool": "read",
+                    "tool_call_id": "the-correct-id",
+                    "args": {"path": "/foo"},
+                    "raw": {
+                        "type": "message",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "toolCall", "id": "raw-id-wrong", "name": "read",
+                                 "arguments": {"path": "/foo"}}
+                            ],
+                            "stopReason": "toolUse"
+                        }
                     }
-                }
-            }));
+                }),
+            );
             let records = from_cloud_event(&event);
-            let tool = records.iter().find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
+            let tool = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
             match &tool.unwrap().body {
                 RecordBody::ToolCall(tc) => {
-                    assert_eq!(tc.call_id, "the-correct-id",
-                        "should use payload.tool_call_id, not raw content id");
+                    assert_eq!(
+                        tc.call_id, "the-correct-id",
+                        "should use payload.tool_call_id, not raw content id"
+                    );
                 }
                 _ => panic!("expected ToolCall"),
             }

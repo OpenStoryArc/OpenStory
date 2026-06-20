@@ -13,6 +13,7 @@ function makeViewRecord(overrides: Partial<ViewRecord> = {}): ViewRecord {
     seq: overrides.seq ?? seqCounter,
     session_id: overrides.session_id ?? "s1",
     timestamp: overrides.timestamp ?? "2026-01-01T00:00:00Z",
+    origin_agent: "claude-code",
     record_type: overrides.record_type ?? "user_message",
     agent_id: overrides.agent_id ?? null,
     is_sidechain: overrides.is_sidechain ?? false,

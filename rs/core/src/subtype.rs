@@ -178,7 +178,32 @@ impl Subtype {
     pub fn is_ephemeral(&self) -> bool {
         self.is_progress()
     }
+
+    /// True for event kinds whose `time` is *not* carried by the source
+    /// JSONL and is therefore synthesized as `Utc::now()` at translation
+    /// time (see `CloudEvent::new`).
+    ///
+    /// Today: `file.snapshot` only. Claude Code writes `file-history-snapshot`
+    /// transcript lines with no `timestamp` field, so every translation —
+    /// including each boot re-read — stamps them with wall-clock-at-parse.
+    /// Such events must not define session recency (`first_event`/`last_event`),
+    /// or a long-dead session looks freshly active after any restart.
+    ///
+    /// This is a distinct axis from [`is_ephemeral`](Self::is_ephemeral)
+    /// ("not stored durably" — progress.* only) and from the persist
+    /// consumer's `should_skip_pattern_detection` ("no structural turn
+    /// shape"). The axes overlap but diverge; keep them as separate named
+    /// predicates. See `docs/research/architecture-audit/IS_EPHEMERAL_DIVERGENCE.md`.
+    pub fn time_is_synthesized(&self) -> bool {
+        matches!(self, Subtype::FileSnapshot)
+    }
 }
+
+/// Wire strings of every subtype where [`Subtype::time_is_synthesized`] is
+/// true. SQL/aggregation recency filters in the store crate reference this
+/// so the exclusion list has a single source of truth. A consistency test
+/// keeps it in lockstep with the predicate.
+pub const SYNTHESIZED_TIME_SUBTYPES: &[&str] = &["file.snapshot"];
 
 impl fmt::Display for Subtype {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -373,6 +398,46 @@ mod tests {
                 variant
             );
         }
+    }
+
+    // ── Shape: time_is_synthesized ─────────────────────────────────────
+    //
+    // file.snapshot lines carry no source timestamp, so CloudEvent::new
+    // stamps them with Utc::now() at translation. These must not define
+    // session recency. Distinct axis from is_ephemeral (progress.*).
+
+    #[test]
+    fn time_is_synthesized_is_true_exactly_for_file_snapshot() {
+        for (variant, _) in all_variants_with_strings() {
+            assert_eq!(
+                variant.time_is_synthesized(),
+                matches!(variant, Subtype::FileSnapshot),
+                "time_is_synthesized ⇔ file.snapshot today — {:?}",
+                variant
+            );
+        }
+    }
+
+    #[test]
+    fn synthesized_time_subtypes_const_matches_predicate() {
+        // The const list (used by SQL recency filters) must name exactly
+        // the variants for which time_is_synthesized() is true.
+        let from_predicate: Vec<&str> = all_variants_with_strings()
+            .into_iter()
+            .filter(|(v, _)| v.time_is_synthesized())
+            .map(|(_, s)| s)
+            .collect();
+        assert_eq!(from_predicate, SYNTHESIZED_TIME_SUBTYPES.to_vec());
+    }
+
+    #[test]
+    fn time_is_synthesized_axis_differs_from_is_ephemeral() {
+        // The two axes must not be silently merged: file.snapshot is
+        // synthesized-time but not ephemeral; progress.* is the reverse.
+        assert!(Subtype::FileSnapshot.time_is_synthesized());
+        assert!(!Subtype::FileSnapshot.is_ephemeral());
+        assert!(Subtype::ProgressBash.is_ephemeral());
+        assert!(!Subtype::ProgressBash.time_is_synthesized());
     }
 
     // ── Shape: exhaustive family membership ────────────────────────────

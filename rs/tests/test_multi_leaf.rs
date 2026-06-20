@@ -38,7 +38,13 @@ impl Drop for MultiLeafStack {
         let _ = Command::new("docker")
             .args(["compose", "-f"])
             .arg(&self.compose_file)
-            .args(["-p", &self.project_name, "down", "--volumes", "--remove-orphans"])
+            .args([
+                "-p",
+                &self.project_name,
+                "down",
+                "--volumes",
+                "--remove-orphans",
+            ])
             .env("MSYS_NO_PATHCONV", "1")
             .output();
     }
@@ -65,7 +71,11 @@ fn generate_machine_fixtures(dir: &Path, machine_name: &str, session_count: usiz
 fn get_host_port(project_name: &str, service: &str, container_port: u16) -> u16 {
     let output = Command::new("docker")
         .args([
-            "compose", "-p", project_name, "port", service,
+            "compose",
+            "-p",
+            project_name,
+            "port",
+            service,
             &container_port.to_string(),
         ])
         .env("MSYS_NO_PATHCONV", "1")
@@ -292,11 +302,19 @@ async fn hub_has_view_records_from_both_machines() {
     // Pick one session from each machine
     let alice_session = sessions
         .iter()
-        .find(|s| s["session_id"].as_str().map_or(false, |id| id.contains("alice")))
+        .find(|s| {
+            s["session_id"]
+                .as_str()
+                .map_or(false, |id| id.contains("alice"))
+        })
         .expect("should have an alice session on hub");
     let bob_session = sessions
         .iter()
-        .find(|s| s["session_id"].as_str().map_or(false, |id| id.contains("bob")))
+        .find(|s| {
+            s["session_id"]
+                .as_str()
+                .map_or(false, |id| id.contains("bob"))
+        })
         .expect("should have a bob session on hub");
 
     for (session, machine) in [(alice_session, "alice"), (bob_session, "bob")] {

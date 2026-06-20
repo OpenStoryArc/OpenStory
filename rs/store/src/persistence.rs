@@ -38,10 +38,7 @@ impl SessionStore {
     /// Append a single CloudEvent to the session's JSONL file.
     pub fn append(&self, session_id: &str, event: &Value) -> Result<()> {
         let path = self.path(session_id);
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         let line = serde_json::to_string(event)?;
         writeln!(file, "{line}")?;
         Ok(())
@@ -82,11 +79,7 @@ impl SessionStore {
                     .metadata()
                     .ok()
                     .and_then(|m| m.modified().ok())
-                    .map(|mtime| {
-                        now.duration_since(mtime)
-                            .unwrap_or(Duration::ZERO)
-                            <= cutoff
-                    })
+                    .map(|mtime| now.duration_since(mtime).unwrap_or(Duration::ZERO) <= cutoff)
                     .unwrap_or(false);
                 if !dominated {
                     continue;
@@ -171,7 +164,9 @@ mod tests {
 
         let event = json!({"type": "io.arc.session.start", "data": {}});
         store.append("sess-1", &event).unwrap();
-        store.append("sess-1", &json!({"type": "io.arc.prompt.submit"})).unwrap();
+        store
+            .append("sess-1", &json!({"type": "io.arc.prompt.submit"}))
+            .unwrap();
 
         let loaded = store.load_session("sess-1");
         assert_eq!(loaded.len(), 2);
@@ -201,9 +196,16 @@ mod tests {
     fn test_sanitizes_session_id() {
         let tmp = TempDir::new().unwrap();
         let store = SessionStore::new(tmp.path()).unwrap();
-        store.append("bad/id:here", &json!({"type": "test"})).unwrap();
+        store
+            .append("bad/id:here", &json!({"type": "test"}))
+            .unwrap();
         let path = store.path("bad/id:here");
-        assert!(path.file_name().unwrap().to_str().unwrap().contains("bad_id_here"));
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("bad_id_here"));
     }
 
     #[test]
@@ -221,7 +223,9 @@ mod tests {
     fn test_list_recent_sessions_excludes_old_files() {
         let tmp = TempDir::new().unwrap();
         let store = SessionStore::new(tmp.path()).unwrap();
-        store.append("old-session", &json!({"type": "test"})).unwrap();
+        store
+            .append("old-session", &json!({"type": "test"}))
+            .unwrap();
 
         // Set mtime to 3 days ago
         let old_path = store.path("old-session");
@@ -230,7 +234,9 @@ mod tests {
         );
         filetime::set_file_mtime(&old_path, three_days_ago).unwrap();
 
-        store.append("new-session", &json!({"type": "test"})).unwrap();
+        store
+            .append("new-session", &json!({"type": "test"}))
+            .unwrap();
 
         // 24-hour window should only include new-session
         let recent = store.list_recent_sessions(Duration::from_secs(24 * 3600));
@@ -252,8 +258,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let log = EventLog::new(tmp.path()).unwrap();
 
-        log.append(&json!({"id": "e1", "type": "io.arc.event", "subtype": "message.user.prompt"})).unwrap();
-        log.append(&json!({"id": "e2", "type": "io.arc.event", "subtype": "message.assistant.text"})).unwrap();
+        log.append(&json!({"id": "e1", "type": "io.arc.event", "subtype": "message.user.prompt"}))
+            .unwrap();
+        log.append(
+            &json!({"id": "e2", "type": "io.arc.event", "subtype": "message.assistant.text"}),
+        )
+        .unwrap();
 
         let content = fs::read_to_string(log.path()).unwrap();
         let lines: Vec<&str> = content.trim().split('\n').collect();
@@ -279,6 +289,9 @@ mod tests {
     fn test_event_log_path_is_events_jsonl() {
         let tmp = TempDir::new().unwrap();
         let log = EventLog::new(tmp.path()).unwrap();
-        assert_eq!(log.path().file_name().unwrap().to_str().unwrap(), "events.jsonl");
+        assert_eq!(
+            log.path().file_name().unwrap().to_str().unwrap(),
+            "events.jsonl"
+        );
     }
 }

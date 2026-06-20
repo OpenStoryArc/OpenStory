@@ -51,7 +51,10 @@ fn count_by_type(records: &[ViewRecord]) -> std::collections::HashMap<String, us
 #[test]
 fn snake_game_assistant_text_visible() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
-    let asst: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::AssistantMessage(_))).collect();
+    let asst: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::AssistantMessage(_)))
+        .collect();
     assert!(
         !asst.is_empty(),
         "should have at least one AssistantMessage from the final text response"
@@ -67,19 +70,32 @@ fn snake_game_assistant_text_visible() {
             false
         }
     });
-    assert!(has_content, "AssistantMessage should have non-empty text content");
+    assert!(
+        has_content,
+        "AssistantMessage should have non-empty text content"
+    );
 }
 
 /// The write tool call produces a ToolCall ViewRecord with name and input.
 #[test]
 fn snake_game_write_tool_call_visible() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
-    let tools: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
+    let tools: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+        .collect();
 
     // Should have both write and bash tool calls
-    let tool_names: Vec<String> = tools.iter().filter_map(|r| {
-        if let RecordBody::ToolCall(tc) = &r.body { Some(tc.name.clone()) } else { None }
-    }).collect();
+    let tool_names: Vec<String> = tools
+        .iter()
+        .filter_map(|r| {
+            if let RecordBody::ToolCall(tc) = &r.body {
+                Some(tc.name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
 
     assert!(
         tool_names.contains(&"write".to_string()),
@@ -98,7 +114,11 @@ fn snake_game_write_tool_call_visible() {
 fn snake_game_write_tool_has_code_content() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
     let write_call = records.iter().find(|r| {
-        if let RecordBody::ToolCall(tc) = &r.body { tc.name == "write" } else { false }
+        if let RecordBody::ToolCall(tc) = &r.body {
+            tc.name == "write"
+        } else {
+            false
+        }
     });
     assert!(write_call.is_some(), "should have a write tool call");
 
@@ -119,7 +139,11 @@ fn snake_game_write_tool_has_code_content() {
 fn snake_game_write_tool_has_call_id() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
     let write_call = records.iter().find(|r| {
-        if let RecordBody::ToolCall(tc) = &r.body { tc.name == "write" } else { false }
+        if let RecordBody::ToolCall(tc) = &r.body {
+            tc.name == "write"
+        } else {
+            false
+        }
     });
     assert!(write_call.is_some(), "should have a write tool call");
 
@@ -135,7 +159,10 @@ fn snake_game_write_tool_has_call_id() {
 #[test]
 fn snake_game_reasoning_has_content() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
-    let reasoning: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::Reasoning(_))).collect();
+    let reasoning: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::Reasoning(_)))
+        .collect();
     assert!(!reasoning.is_empty(), "should have reasoning records");
 
     let has_content = reasoning.iter().any(|r| {
@@ -152,7 +179,10 @@ fn snake_game_reasoning_has_content() {
 #[test]
 fn snake_game_tool_results_visible() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
-    let results: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolResult(_))).collect();
+    let results: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::ToolResult(_)))
+        .collect();
     assert!(
         results.len() >= 2,
         "should have at least 2 tool results (write + bash), got {}",
@@ -164,7 +194,10 @@ fn snake_game_tool_results_visible() {
 #[test]
 fn snake_game_user_prompt_visible() {
     let records = fixture_to_records("scenario_snake_game.jsonl");
-    let user: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::UserMessage(_))).collect();
+    let user: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::UserMessage(_)))
+        .collect();
     assert!(!user.is_empty(), "should have user message");
 
     if let RecordBody::UserMessage(u) = &user[0].body {
@@ -218,11 +251,13 @@ fn scenario_04_both_records_present() {
 
     assert!(
         counts.get("reasoning").copied().unwrap_or(0) >= 1,
-        "should have reasoning records, counts: {:?}", counts
+        "should have reasoning records, counts: {:?}",
+        counts
     );
     assert!(
         counts.get("assistant_message").copied().unwrap_or(0) >= 1,
-        "should have assistant_message records — THIS WAS THE CORE BUG, counts: {:?}", counts
+        "should have assistant_message records — THIS WAS THE CORE BUG, counts: {:?}",
+        counts
     );
 }
 
@@ -236,19 +271,23 @@ fn scenario_06_all_three_record_types() {
 
     assert!(
         counts.get("reasoning").copied().unwrap_or(0) >= 1,
-        "should have reasoning, counts: {:?}", counts
+        "should have reasoning, counts: {:?}",
+        counts
     );
     assert!(
         counts.get("assistant_message").copied().unwrap_or(0) >= 1,
-        "should have assistant_message, counts: {:?}", counts
+        "should have assistant_message, counts: {:?}",
+        counts
     );
     assert!(
         counts.get("tool_call").copied().unwrap_or(0) >= 1,
-        "should have tool_call, counts: {:?}", counts
+        "should have tool_call, counts: {:?}",
+        counts
     );
     assert!(
         counts.get("tool_result").copied().unwrap_or(0) >= 1,
-        "should have tool_result, counts: {:?}", counts
+        "should have tool_result, counts: {:?}",
+        counts
     );
 }
 
@@ -256,7 +295,9 @@ fn scenario_06_all_three_record_types() {
 #[test]
 fn scenario_06_tool_call_has_detail() {
     let records = fixture_to_records("scenario_06_thinking_text_tool.jsonl");
-    let tool = records.iter().find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
+    let tool = records
+        .iter()
+        .find(|r| matches!(&r.body, RecordBody::ToolCall(_)));
     assert!(tool.is_some(), "should have tool call");
 
     if let RecordBody::ToolCall(tc) = &tool.unwrap().body {
@@ -272,7 +313,10 @@ fn scenario_06_tool_call_has_detail() {
 #[test]
 fn scenario_07_both_tools_have_records() {
     let records = fixture_to_records("scenario_07_multi_tool.jsonl");
-    let tools: Vec<_> = records.iter().filter(|r| matches!(&r.body, RecordBody::ToolCall(_))).collect();
+    let tools: Vec<_> = records
+        .iter()
+        .filter(|r| matches!(&r.body, RecordBody::ToolCall(_)))
+        .collect();
 
     assert!(
         tools.len() >= 2,
@@ -281,9 +325,21 @@ fn scenario_07_both_tools_have_records() {
     );
 
     // Each should have a unique call_id
-    let ids: Vec<String> = tools.iter().filter_map(|r| {
-        if let RecordBody::ToolCall(tc) = &r.body { Some(tc.call_id.clone()) } else { None }
-    }).collect();
+    let ids: Vec<String> = tools
+        .iter()
+        .filter_map(|r| {
+            if let RecordBody::ToolCall(tc) = &r.body {
+                Some(tc.call_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
     let unique: std::collections::HashSet<_> = ids.iter().collect();
-    assert_eq!(ids.len(), unique.len(), "call_ids should be unique: {:?}", ids);
+    assert_eq!(
+        ids.len(),
+        unique.len(),
+        "call_ids should be unique: {:?}",
+        ids
+    );
 }

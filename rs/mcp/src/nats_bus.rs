@@ -27,7 +27,9 @@ impl NatsBus {
     pub async fn connect(url: &str) -> Result<Self> {
         let inner = InnerNatsBus::connect(url).await?;
         inner.ensure_streams().await?;
-        Ok(Self { inner: Arc::new(inner) })
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
     }
 }
 

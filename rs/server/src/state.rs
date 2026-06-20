@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::{broadcast as tokio_broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast as tokio_broadcast};
 
 use open_story_bus::Bus;
 use open_story_store::state::{BackendChoice, StoreState};
@@ -14,6 +14,7 @@ use open_story_store::analysis::{self, extract_cwd_from_events};
 
 use crate::broadcast::BroadcastMessage;
 use crate::config::{Config, DataBackend};
+use crate::watcher_diagnostics::WatcherDiagnostics;
 
 /// Shared application state, wrapped in Arc<RwLock<_>>.
 ///
@@ -25,6 +26,7 @@ pub struct AppState {
 
     // ── listener ── file watcher state
     pub transcript_states: HashMap<PathBuf, open_story_core::translate::TranscriptState>,
+    pub watcher_diagnostics: WatcherDiagnostics,
 
     // ── server ── broadcast to WebSocket subscribers
     pub broadcast_tx: tokio_broadcast::Sender<BroadcastMessage>,
@@ -49,8 +51,30 @@ pub type SharedState = Arc<RwLock<AppState>>;
 /// raw Claude Code JSON in SQLite as if they were CloudEvents. This caused
 /// agent_payload, tool_outcome, and agent_id to be missing on boot-loaded data.
 /// Now all events go through one path: JSONL → translate → NATS → consumers.
-pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, config: Config) -> Result<SharedState> {
-    let db_key = if config.db_key.is_empty() { None } else { Some(config.db_key.as_str()) };
+pub async fn create_state(
+    data_dir: &Path,
+    watch_dir: &Path,
+    bus: Arc<dyn Bus>,
+    config: Config,
+) -> Result<SharedState> {
+    create_state_with_watch_dirs(data_dir, &[watch_dir.to_path_buf()], bus, config).await
+}
+
+pub async fn create_state_with_watch_dirs(
+    data_dir: &Path,
+    watch_dirs: &[PathBuf],
+    bus: Arc<dyn Bus>,
+    config: Config,
+) -> Result<SharedState> {
+    let watch_dir = watch_dirs
+        .first()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from(&config.watch_dir));
+    let db_key = if config.db_key.is_empty() {
+        None
+    } else {
+        Some(config.db_key.as_str())
+    };
     let backend = match config.data_backend {
         DataBackend::Sqlite => BackendChoice::Sqlite,
         DataBackend::Mongo => BackendChoice::Mongo {
@@ -89,21 +113,22 @@ pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, 
 
     let (broadcast_tx, _) = tokio_broadcast::channel(config.broadcast_channel_size);
 
-    // List watch_dir subdirectories for project resolution
-    store.watch_dir_entries = if watch_dir.exists() {
-        std::fs::read_dir(watch_dir)
-            .ok()
-            .map(|entries| {
-                entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
-                    .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    // List watch root subdirectories for project resolution. Multiple JSONL
+    // watcher roots feed the same store; combine the immediate entries so cwd
+    // resolution keeps working for Claude-style encoded project directories.
+    store.watch_dir_entries = watch_dirs
+        .iter()
+        .filter(|watch_dir| watch_dir.exists())
+        .filter_map(|watch_dir| std::fs::read_dir(watch_dir).ok())
+        .flat_map(|entries| entries.filter_map(|entry| entry.ok()))
+        .filter(|entry| {
+            entry
+                .file_type()
+                .map(|file_type| file_type.is_dir())
+                .unwrap_or(false)
+        })
+        .filter_map(|entry| entry.file_name().to_str().map(|name| name.to_string()))
+        .collect();
 
     // Boot from SQLite if it has data (restart case — data already translated)
     let sqlite_sessions = store.event_store.list_sessions().await.unwrap_or_default();
@@ -114,7 +139,8 @@ pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, 
     // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
 
     // Derive project_id and project_name from cwd for all loaded sessions
-    let boot_session_ids: Vec<String> = store.event_store
+    let boot_session_ids: Vec<String> = store
+        .event_store
         .list_sessions()
         .await
         .unwrap_or_default()
@@ -122,7 +148,11 @@ pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, 
         .map(|r| r.id.clone())
         .collect();
     for sid in &boot_session_ids {
-        let events = store.event_store.session_events(sid).await.unwrap_or_default();
+        let events = store
+            .event_store
+            .session_events(sid)
+            .await
+            .unwrap_or_default();
         if let Some(cwd) = extract_cwd_from_events(&events) {
             let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
             store
@@ -137,10 +167,11 @@ pub async fn create_state(data_dir: &Path, watch_dir: &Path, bus: Arc<dyn Bus>, 
     Ok(Arc::new(RwLock::new(AppState {
         store,
         transcript_states: HashMap::new(),
+        watcher_diagnostics: WatcherDiagnostics::default(),
         broadcast_tx,
         bus,
         config,
-        watch_dir: watch_dir.to_path_buf(),
+        watch_dir,
     })))
 }
 
@@ -154,7 +185,11 @@ async fn boot_from_sqlite(
         sqlite_sessions.len()
     );
     for row in sqlite_sessions {
-        let events = store.event_store.session_events(&row.id).await.unwrap_or_default();
+        let events = store
+            .event_store
+            .session_events(&row.id)
+            .await
+            .unwrap_or_default();
         // Detect subagent → parent relationships from the boot-loaded events
         // (shared helper). Dedup is the EventStore PK's job.
         for event in &events {
@@ -185,9 +220,18 @@ mod tests {
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::create_dir_all(&watch_dir).unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
-        assert!(s.store.event_store.list_sessions().await.unwrap().is_empty());
+        assert!(
+            s.store
+                .event_store
+                .list_sessions()
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(s.store.projections.is_empty());
     }
 
@@ -211,11 +255,49 @@ mod tests {
         std::fs::create_dir_all(watch_dir.join("my-project")).unwrap();
         std::fs::create_dir_all(watch_dir.join("other-project")).unwrap();
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
         assert_eq!(s.store.watch_dir_entries.len(), 2);
-        assert!(s.store.watch_dir_entries.contains(&"my-project".to_string()));
-        assert!(s.store.watch_dir_entries.contains(&"other-project".to_string()));
+        assert!(
+            s.store
+                .watch_dir_entries
+                .contains(&"my-project".to_string())
+        );
+        assert!(
+            s.store
+                .watch_dir_entries
+                .contains(&"other-project".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn create_state_scans_all_watch_dir_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().join("data");
+        let claude_dir = tmp.path().join("claude");
+        let codex_dir = tmp.path().join("codex");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::create_dir_all(claude_dir.join("-Users-maxglassie-projects-OpenStory")).unwrap();
+        std::fs::create_dir_all(codex_dir.join("2026")).unwrap();
+
+        let state = create_state_with_watch_dirs(
+            &data_dir,
+            &[claude_dir, codex_dir],
+            Arc::new(NoopBus),
+            Config::default(),
+        )
+        .await
+        .unwrap();
+
+        let s = state.read().await;
+        assert!(
+            s.store
+                .watch_dir_entries
+                .contains(&"-Users-maxglassie-projects-OpenStory".to_string())
+        );
+        assert!(s.store.watch_dir_entries.contains(&"2026".to_string()));
     }
 
     // `create_state_backfills_plans_from_persisted_sessions` retired —
@@ -266,18 +348,36 @@ mod tests {
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
         }
         // No JSONL files exist — boot must come from SQLite
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
 
         assert!(
-            !s.store.event_store.session_events("sqlite-session").await.unwrap().is_empty(),
+            !s.store
+                .event_store
+                .session_events("sqlite-session")
+                .await
+                .unwrap()
+                .is_empty(),
             "should boot session from SQLite"
         );
-        assert_eq!(s.store.event_store.session_events("sqlite-session").await.unwrap().len(), 1);
+        assert_eq!(
+            s.store
+                .event_store
+                .session_events("sqlite-session")
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     /// SQLite boot should pick up ALL sessions, not just recent ones.
@@ -296,48 +396,84 @@ mod tests {
             let db = SqliteStore::new(&data_dir).unwrap();
 
             // Old session (would be skipped by JSONL 24h window)
-            db.insert_event("old-session", &serde_json::json!({
-                "id": "old-evt", "type": "io.arc.event", "subtype": "message.user.prompt",
-                "time": "2025-01-01T00:00:00Z", "source": "arc://test",
-                "data": {"text": "ancient history"}
-            })).await.unwrap();
+            db.insert_event(
+                "old-session",
+                &serde_json::json!({
+                    "id": "old-evt", "type": "io.arc.event", "subtype": "message.user.prompt",
+                    "time": "2025-01-01T00:00:00Z", "source": "arc://test",
+                    "data": {"text": "ancient history"}
+                }),
+            )
+            .await
+            .unwrap();
             db.upsert_session(&SessionRow {
                 id: "old-session".into(),
-                project_id: None, project_name: None,
-                label: None, branch: None, event_count: 1,
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
                 first_event: Some("2025-01-01T00:00:00Z".into()),
                 last_event: Some("2025-01-01T00:00:00Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
 
             // New session
-            db.insert_event("new-session", &serde_json::json!({
-                "id": "new-evt", "type": "io.arc.event", "subtype": "message.user.prompt",
-                "time": "2025-01-14T10:00:00Z", "source": "arc://test",
-                "data": {"text": "just now"}
-            })).await.unwrap();
+            db.insert_event(
+                "new-session",
+                &serde_json::json!({
+                    "id": "new-evt", "type": "io.arc.event", "subtype": "message.user.prompt",
+                    "time": "2025-01-14T10:00:00Z", "source": "arc://test",
+                    "data": {"text": "just now"}
+                }),
+            )
+            .await
+            .unwrap();
             db.upsert_session(&SessionRow {
                 id: "new-session".into(),
-                project_id: None, project_name: None,
-                label: None, branch: None, event_count: 1,
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
                 first_event: Some("2025-01-14T10:00:00Z".into()),
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
 
         assert!(
-            !s.store.event_store.session_events("old-session").await.unwrap().is_empty(),
+            !s.store
+                .event_store
+                .session_events("old-session")
+                .await
+                .unwrap()
+                .is_empty(),
             "SQLite boot should load all sessions, including old ones"
         );
-        assert!(!s.store.event_store.session_events("new-session").await.unwrap().is_empty());
+        assert!(
+            !s.store
+                .event_store
+                .session_events("new-session")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     /// Simulate a restart: first boot pre-populates SQLite directly (via
@@ -380,15 +516,25 @@ mod tests {
                 last_event: Some("2025-01-14T00:00:00Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
         }
 
         // Second leg: boot finds SQLite populated, loads from DB.
-        let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state2 = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state2.read().await;
 
         assert!(
-            !s.store.event_store.session_events("restart-session").await.unwrap().is_empty(),
+            !s.store
+                .event_store
+                .session_events("restart-session")
+                .await
+                .unwrap()
+                .is_empty(),
             "should boot from pre-populated SQLite without any JSONL on disk"
         );
     }
@@ -420,46 +566,72 @@ mod tests {
                 "source": "arc://test",
                 "time": "2025-01-14T00:00:00Z",
                 "data": {"text": "from jsonl only"}
-            })).unwrap() + "\n",
-        ).unwrap();
+            }))
+            .unwrap()
+                + "\n",
+        )
+        .unwrap();
 
         // Pre-populate SQLite with a different session — `sqlite-only-session`.
         {
             use open_story_store::event_store::{EventStore, SessionRow};
             use open_story_store::sqlite_store::SqliteStore;
             let db = SqliteStore::new(&data_dir).unwrap();
-            db.insert_event("sqlite-only-session", &serde_json::json!({
-                "id": "sqlite-only-evt",
-                "type": "io.arc.event",
-                "subtype": "message.user.prompt",
-                "time": "2025-01-14T10:00:00Z",
-                "source": "arc://test",
-                "data": {"text": "from sqlite only"}
-            })).await.unwrap();
+            db.insert_event(
+                "sqlite-only-session",
+                &serde_json::json!({
+                    "id": "sqlite-only-evt",
+                    "type": "io.arc.event",
+                    "subtype": "message.user.prompt",
+                    "time": "2025-01-14T10:00:00Z",
+                    "source": "arc://test",
+                    "data": {"text": "from sqlite only"}
+                }),
+            )
+            .await
+            .unwrap();
             db.upsert_session(&SessionRow {
                 id: "sqlite-only-session".into(),
-                project_id: None, project_name: None,
-                label: None, branch: None, event_count: 1,
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
                 custom_label: None,
                 first_event: Some("2025-01-14T10:00:00Z".into()),
                 last_event: Some("2025-01-14T10:00:00Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
 
         // SQLite-seeded session is preserved.
         assert!(
-            !s.store.event_store.session_events("sqlite-only-session").await.unwrap().is_empty(),
+            !s.store
+                .event_store
+                .session_events("sqlite-only-session")
+                .await
+                .unwrap()
+                .is_empty(),
             "SQLite-seeded session must remain after reconciliation"
         );
         // JSONL-only session is now reconciled into the EventStore. This is
         // the *new* contract: JSONL is canonical, the EventStore agrees.
         assert!(
-            !s.store.event_store.session_events("mixed-session").await.unwrap().is_empty(),
+            !s.store
+                .event_store
+                .session_events("mixed-session")
+                .await
+                .unwrap()
+                .is_empty(),
             "JSONL-only session must be reconciled into the EventStore on boot"
         );
     }
@@ -478,32 +650,50 @@ mod tests {
             use open_story_store::sqlite_store::SqliteStore;
             let db = SqliteStore::new(&data_dir).unwrap();
             for i in 1..=5 {
-                db.insert_event("api-session", &serde_json::json!({
-                    "id": format!("api-evt-{}", i),
-                    "type": "io.arc.event",
-                    "subtype": "message.user.prompt",
-                    "time": format!("2025-01-14T00:00:0{}Z", i),
-                    "source": "arc://test",
-                    "data": {"text": format!("event {}", i)}
-                })).await.unwrap();
+                db.insert_event(
+                    "api-session",
+                    &serde_json::json!({
+                        "id": format!("api-evt-{}", i),
+                        "type": "io.arc.event",
+                        "subtype": "message.user.prompt",
+                        "time": format!("2025-01-14T00:00:0{}Z", i),
+                        "source": "arc://test",
+                        "data": {"text": format!("event {}", i)}
+                    }),
+                )
+                .await
+                .unwrap();
             }
             db.upsert_session(&SessionRow {
                 id: "api-session".into(),
-                project_id: None, project_name: None,
-                label: None, branch: None, event_count: 5,
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 5,
                 custom_label: None,
                 first_event: Some("2025-01-14T00:00:01Z".into()),
                 last_event: Some("2025-01-14T00:00:05Z".into()),
                 host: None,
                 user: None,
-            }).await.unwrap();
+                origin_agent: None,
+            })
+            .await
+            .unwrap();
         }
 
-        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default()).await.unwrap();
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
         let s = state.read().await;
 
         // EventStore should serve all 5 events
-        let events = s.store.event_store.session_events("api-session").await.unwrap();
+        let events = s
+            .store
+            .event_store
+            .session_events("api-session")
+            .await
+            .unwrap();
         assert_eq!(events.len(), 5);
         assert_eq!(events[0]["id"], "api-evt-1");
         assert_eq!(events[4]["id"], "api-evt-5");

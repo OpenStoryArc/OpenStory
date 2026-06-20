@@ -18,12 +18,18 @@ use crate::unified::{ContentBlock, MessageContent, RecordBody};
 pub fn conversation_to_markdown(conversation: &PairedConversation, session_id: &str) -> String {
     let mut out = String::new();
 
-    out.push_str(&format!("# Session {}\n\n", &session_id[..12.min(session_id.len())]));
+    out.push_str(&format!(
+        "# Session {}\n\n",
+        &session_id[..12.min(session_id.len())]
+    ));
 
     for entry in &conversation.entries {
         match entry {
             ConversationEntry::UserMessage(r) => {
-                out.push_str(&format!("---\n\n**User** _{}_\n\n", format_time(&r.timestamp)));
+                out.push_str(&format!(
+                    "---\n\n**User** _{}_\n\n",
+                    format_time(&r.timestamp)
+                ));
                 if let RecordBody::UserMessage(msg) = &r.body {
                     let text = extract_message_content(&msg.content);
                     for line in text.lines() {
@@ -34,7 +40,10 @@ pub fn conversation_to_markdown(conversation: &PairedConversation, session_id: &
             }
 
             ConversationEntry::AssistantMessage(r) => {
-                out.push_str(&format!("**Assistant** _{}_\n\n", format_time(&r.timestamp)));
+                out.push_str(&format!(
+                    "**Assistant** _{}_\n\n",
+                    format_time(&r.timestamp)
+                ));
                 if let RecordBody::AssistantMessage(msg) = &r.body {
                     for block in &msg.content {
                         match block {
@@ -56,7 +65,11 @@ pub fn conversation_to_markdown(conversation: &PairedConversation, session_id: &
 
             ConversationEntry::ToolRoundtrip { call, result } => {
                 if let RecordBody::ToolCall(tc) = &call.body {
-                    out.push_str(&format!("**{}** _{}_\n\n", tc.name, format_time(&call.timestamp)));
+                    out.push_str(&format!(
+                        "**{}** _{}_\n\n",
+                        tc.name,
+                        format_time(&call.timestamp)
+                    ));
 
                     // Show relevant input based on tool type
                     let input_summary = summarize_tool_input(&tc.name, &tc.input);
@@ -70,7 +83,10 @@ pub fn conversation_to_markdown(conversation: &PairedConversation, session_id: &
                             if let Some(output) = &tr.output {
                                 let truncated = truncate(output, 500);
                                 if tr.is_error {
-                                    out.push_str(&format!("**Error:**\n```\n{}\n```\n\n", truncated));
+                                    out.push_str(&format!(
+                                        "**Error:**\n```\n{}\n```\n\n",
+                                        truncated
+                                    ));
                                 } else {
                                     out.push_str("<details><summary>Output</summary>\n\n");
                                     out.push_str(&format!("```\n{}\n```\n\n", truncated));
@@ -114,41 +130,72 @@ pub fn conversation_to_markdown(conversation: &PairedConversation, session_id: &
 fn extract_message_content(content: &MessageContent) -> String {
     match content {
         MessageContent::Text(t) => t.clone(),
-        MessageContent::Blocks(blocks) => {
-            blocks
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        MessageContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
     }
 }
 
 /// Summarize tool input for display (not the full JSON blob).
 fn summarize_tool_input(tool: &str, input: &serde_json::Value) -> String {
     match tool {
-        "Read" => input.get("file_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        "Read" => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         "Edit" => {
-            let file = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("?");
-            let old = input.get("old_string").and_then(|v| v.as_str()).map(|s| truncate(s, 80));
-            let new = input.get("new_string").and_then(|v| v.as_str()).map(|s| truncate(s, 80));
+            let file = input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let old = input
+                .get("old_string")
+                .and_then(|v| v.as_str())
+                .map(|s| truncate(s, 80));
+            let new = input
+                .get("new_string")
+                .and_then(|v| v.as_str())
+                .map(|s| truncate(s, 80));
             match (old, new) {
                 (Some(o), Some(n)) => format!("{file}\n- {o}\n+ {n}"),
                 _ => file.to_string(),
             }
         }
-        "Write" => input.get("file_path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        "Bash" => input.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        "Glob" => input.get("pattern").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        "Write" => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Bash" => input
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Glob" => input
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         "Grep" => {
             let pattern = input.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
             let path = input.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            if path.is_empty() { pattern.to_string() } else { format!("{pattern} in {path}") }
+            if path.is_empty() {
+                pattern.to_string()
+            } else {
+                format!("{pattern} in {path}")
+            }
         }
-        "Agent" => input.get("prompt").and_then(|v| v.as_str()).map(|s| truncate(s, 120)).unwrap_or_default(),
+        "Agent" => input
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .map(|s| truncate(s, 120))
+            .unwrap_or_default(),
         _ => {
             let s = serde_json::to_string_pretty(input).unwrap_or_default();
             truncate(&s, 200)
@@ -162,7 +209,8 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.chars().count() <= max_len {
         s.to_string()
     } else {
-        let end = s.char_indices()
+        let end = s
+            .char_indices()
             .nth(max_len)
             .map(|(i, _)| i)
             .unwrap_or(s.len());
@@ -194,6 +242,7 @@ mod tests {
             seq,
             session_id: "test-session-123".into(),
             timestamp: format!("2025-01-19T10:{:02}:00Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::UserMessage(UserMessage {
@@ -209,6 +258,7 @@ mod tests {
             seq,
             session_id: "test-session-123".into(),
             timestamp: format!("2025-01-19T10:{:02}:00Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
@@ -227,6 +277,7 @@ mod tests {
             seq,
             session_id: "test-session-123".into(),
             timestamp: format!("2025-01-19T10:{:02}:00Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -246,6 +297,7 @@ mod tests {
             seq,
             session_id: "test-session-123".into(),
             timestamp: format!("2025-01-19T10:{:02}:00Z", seq),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::ToolResult(ToolResult {
@@ -269,7 +321,10 @@ mod tests {
     #[test]
     fn user_message_rendered_as_blockquote() {
         let conv = PairedConversation {
-            entries: vec![ConversationEntry::UserMessage(user_record(1, "Fix the bug"))],
+            entries: vec![ConversationEntry::UserMessage(user_record(
+                1,
+                "Fix the bug",
+            ))],
         };
         let md = conversation_to_markdown(&conv, "test-session");
         assert!(md.contains("> Fix the bug"));
@@ -279,7 +334,10 @@ mod tests {
     #[test]
     fn assistant_message_rendered_as_text() {
         let conv = PairedConversation {
-            entries: vec![ConversationEntry::AssistantMessage(assistant_record(2, "I'll fix it now."))],
+            entries: vec![ConversationEntry::AssistantMessage(assistant_record(
+                2,
+                "I'll fix it now.",
+            ))],
         };
         let md = conversation_to_markdown(&conv, "test-session");
         assert!(md.contains("I'll fix it now."));
@@ -344,10 +402,17 @@ mod tests {
                 ConversationEntry::UserMessage(user_record(1, "Fix the bug")),
                 ConversationEntry::AssistantMessage(assistant_record(2, "Looking at the code")),
                 ConversationEntry::ToolRoundtrip {
-                    call: Box::new(tool_call_record(3, "Read", json!({"file_path": "src/lib.rs"}))),
+                    call: Box::new(tool_call_record(
+                        3,
+                        "Read",
+                        json!({"file_path": "src/lib.rs"}),
+                    )),
                     result: Some(Box::new(tool_result_record(4, "call_3", "fn main() {}"))),
                 },
-                ConversationEntry::AssistantMessage(assistant_record(5, "Found and fixed the issue.")),
+                ConversationEntry::AssistantMessage(assistant_record(
+                    5,
+                    "Found and fixed the issue.",
+                )),
             ],
         };
         let md = conversation_to_markdown(&conv, "test-session-123");

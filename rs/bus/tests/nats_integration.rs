@@ -6,10 +6,10 @@
 //! Tests are marked #[ignore] so they don't run in CI without NATS.
 //! Run explicitly with: cargo test -p open-story-bus --test nats_integration -- --ignored
 
-use open_story_core::cloud_event::CloudEvent;
-use open_story_core::event_data::EventData;
 use open_story_bus::nats_bus::NatsBus;
 use open_story_bus::{Bus, IngestBatch};
+use open_story_core::cloud_event::CloudEvent;
+use open_story_core::event_data::EventData;
 use std::time::Duration;
 
 fn nats_url() -> String {
@@ -20,7 +20,11 @@ fn test_event(source: &str) -> CloudEvent {
     CloudEvent::new(
         source.to_string(),
         "io.arc.event".to_string(),
-        EventData::new(serde_json::json!({"test": true}), 1, "sess-test".to_string()),
+        EventData::new(
+            serde_json::json!({"test": true}),
+            1,
+            "sess-test".to_string(),
+        ),
         Some("message.user.prompt".to_string()),
         None,
         None,
@@ -61,9 +65,7 @@ async fn publish_and_replay_round_trip() {
     let replayed = bus.replay("events.>").await.expect("replay");
 
     // Should contain at least our batch
-    let found = replayed
-        .iter()
-        .any(|b| b.session_id == session_id);
+    let found = replayed.iter().any(|b| b.session_id == session_id);
     assert!(found, "expected to find session {session_id} in replay");
 }
 

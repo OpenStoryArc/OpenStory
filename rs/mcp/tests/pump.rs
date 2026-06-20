@@ -24,11 +24,7 @@ mod when_a_pump_receives_three_ingest_batches_in_sequence {
     async fn it_emits_three_stream_events_with_seq_one_two_three() {
         let (src_tx, src_rx) = mpsc::channel::<IngestBatch>(16);
         let (sink_tx, mut sink_rx) = mpsc::channel::<StreamEvent>(16);
-        let handle = tokio::spawn(pump_subscription(
-            src_rx,
-            sink_tx,
-            "sid-pump".to_string(),
-        ));
+        let handle = tokio::spawn(pump_subscription(src_rx, sink_tx, "sid-pump".to_string()));
 
         for _ in 0..3 {
             src_tx.send(mk_batch("sid-pump")).await.unwrap();
@@ -52,11 +48,7 @@ mod when_the_source_channel_closes {
     async fn the_pump_task_terminates_cleanly() {
         let (src_tx, src_rx) = mpsc::channel::<IngestBatch>(4);
         let (sink_tx, _sink_rx) = mpsc::channel::<StreamEvent>(4);
-        let handle = tokio::spawn(pump_subscription(
-            src_rx,
-            sink_tx,
-            "sid-close".to_string(),
-        ));
+        let handle = tokio::spawn(pump_subscription(src_rx, sink_tx, "sid-close".to_string()));
 
         // No publishes — just close the source.
         drop(src_tx);
@@ -76,11 +68,7 @@ mod when_the_sink_is_dropped_mid_stream {
     async fn the_pump_task_terminates_without_blocking() {
         let (src_tx, src_rx) = mpsc::channel::<IngestBatch>(16);
         let (sink_tx, sink_rx) = mpsc::channel::<StreamEvent>(16);
-        let handle = tokio::spawn(pump_subscription(
-            src_rx,
-            sink_tx,
-            "sid-orphan".to_string(),
-        ));
+        let handle = tokio::spawn(pump_subscription(src_rx, sink_tx, "sid-orphan".to_string()));
 
         // Drop the sink first — any send by the pump should fail and
         // it should exit.

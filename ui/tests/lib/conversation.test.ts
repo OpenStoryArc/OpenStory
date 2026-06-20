@@ -10,6 +10,7 @@ function userMsg(text: string, ts: string = "2026-01-01T00:00:00Z"): Conversatio
     seq: 1,
     session_id: "s1",
     timestamp: ts,
+    origin_agent: "claude-code",
     record_type: "user_message",
     payload: { content: text },
   } as ConversationEntry;
@@ -22,6 +23,7 @@ function assistantMsg(text: string, ts: string = "2026-01-01T00:00:01Z"): Conver
     seq: 2,
     session_id: "s1",
     timestamp: ts,
+    origin_agent: "claude-code",
     record_type: "assistant_message",
     payload: { model: "test", content: [{ type: "text" as const, text }] },
   } as ConversationEntry;
@@ -34,6 +36,7 @@ function thinking(text: string): ConversationEntry {
     seq: 3,
     session_id: "s1",
     timestamp: "2026-01-01T00:00:00Z",
+    origin_agent: "claude-code",
     record_type: "reasoning",
     payload: { summary: [], content: text, encrypted: false },
   } as ConversationEntry;

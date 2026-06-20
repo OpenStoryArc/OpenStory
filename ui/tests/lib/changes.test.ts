@@ -19,6 +19,7 @@ function makeRecord(overrides: Partial<ViewRecord> = {}): ViewRecord {
     seq: overrides.seq ?? seqCounter,
     session_id: overrides.session_id ?? "test-session",
     timestamp: overrides.timestamp ?? "2025-01-08T10:00:00Z",
+    origin_agent: "claude-code",
     record_type: overrides.record_type ?? "tool_call",
     payload: overrides.payload ?? { call_id: "c1", name: "Unknown", input: {}, raw_input: {} },
     agent_id: overrides.agent_id ?? null,

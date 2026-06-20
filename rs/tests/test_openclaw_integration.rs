@@ -124,7 +124,10 @@ async fn openclaw_session_observed_by_openstory() {
     // Verify agent field
     for event in &events {
         if let Some(agent) = event.get("agent").and_then(|v| v.as_str()) {
-            assert_eq!(agent, "pi-mono", "OpenClaw events should have agent=pi-mono");
+            assert_eq!(
+                agent, "pi-mono",
+                "OpenClaw events should have agent=pi-mono"
+            );
         }
     }
     ok("All events have agent=\"pi-mono\"");
@@ -141,7 +144,10 @@ async fn openclaw_session_observed_by_openstory() {
     for (i, event) in events.iter().enumerate() {
         let ctx = format!("event[{i}]");
         assert!(
-            event.get("id").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty()),
+            event
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map_or(false, |s| !s.is_empty()),
             "{ctx}: id missing or empty"
         );
         assert!(
@@ -149,7 +155,10 @@ async fn openclaw_session_observed_by_openstory() {
             "{ctx}: subtype missing"
         );
         assert!(
-            event.get("time").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty()),
+            event
+                .get("time")
+                .and_then(|v| v.as_str())
+                .map_or(false, |s| !s.is_empty()),
             "{ctx}: time missing or empty"
         );
         let data = event.get("data").expect(&format!("{ctx}: data missing"));
@@ -158,7 +167,10 @@ async fn openclaw_session_observed_by_openstory() {
             "{ctx}: data.session_id missing"
         );
         assert!(
-            !data.get("raw").unwrap_or(&serde_json::Value::Null).is_null(),
+            !data
+                .get("raw")
+                .unwrap_or(&serde_json::Value::Null)
+                .is_null(),
             "{ctx}: data.raw missing"
         );
     }
@@ -180,7 +192,10 @@ async fn openclaw_session_observed_by_openstory() {
     if let Some(prompt) = user_prompt {
         let raw = &prompt["data"]["raw"];
         assert_eq!(raw["type"], "message", "raw.type should be 'message'");
-        assert_eq!(raw["message"]["role"], "user", "raw.message.role should be 'user'");
+        assert_eq!(
+            raw["message"]["role"], "user",
+            "raw.message.role should be 'user'"
+        );
         ok("User prompt raw data preserved in pi-mono native format");
     }
 
@@ -224,7 +239,10 @@ async fn openclaw_view_records_render() {
     // Print each record
     header("View records");
     for (i, record) in records.iter().enumerate() {
-        let record_type = record.get("record_type").and_then(|v| v.as_str()).unwrap_or("?");
+        let record_type = record
+            .get("record_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let payload = record.get("payload").unwrap_or(&serde_json::Value::Null);
 
         let summary = match record_type {
@@ -241,12 +259,21 @@ async fn openclaw_view_records_render() {
                 format!("tool={name}")
             }
             "tool_result" => {
-                let error = payload.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
+                let error = payload
+                    .get("is_error")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 format!("error={error}")
             }
             "token_usage" => {
-                let input = payload.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output = payload.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                let input = payload
+                    .get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let output = payload
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 format!("in={input} out={output}")
             }
             _ => String::new(),

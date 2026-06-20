@@ -1,8 +1,8 @@
 // ViewRecord: the wrapper that the server emits and the UI consumes.
 // CloudEvent metadata (id, seq) + typed UnifiedRecord body.
 
-use serde::{Deserialize, Serialize};
 use crate::unified::RecordBody;
+use serde::{Deserialize, Serialize};
 
 /// Open-story metadata + typed record body.
 /// This is what the server emits and the UI consumes.
@@ -16,6 +16,9 @@ pub struct ViewRecord {
     pub session_id: String,
     /// When this record was created.
     pub timestamp: String,
+    /// Origin platform that produced the event (for example `claude-code` or `codex`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_agent: Option<String>,
     /// Subagent identity: which agent produced this event (None = main agent).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
@@ -29,9 +32,9 @@ pub struct ViewRecord {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-    use crate::view_record::ViewRecord;
     use crate::unified::RecordBody;
+    use crate::view_record::ViewRecord;
+    use serde_json::json;
 
     // describe("ViewRecord")
     mod view_record {
@@ -44,6 +47,7 @@ mod tests {
                 seq: 1,
                 session_id: "sess-abc".into(),
                 timestamp: "2025-01-09T10:00:00Z".into(),
+                origin_agent: Some("codex".into()),
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::TurnEnd(crate::unified::TurnEnd {
@@ -56,6 +60,7 @@ mod tests {
             assert_eq!(json["id"], "evt-001");
             assert_eq!(json["seq"], 1);
             assert_eq!(json["session_id"], "sess-abc");
+            assert_eq!(json["origin_agent"], "codex");
             assert_eq!(json["record_type"], "turn_end");
             assert_eq!(json["payload"]["duration_ms"], 3000);
         }
@@ -76,12 +81,10 @@ mod tests {
             assert_eq!(vr.id, "evt-002");
             assert_eq!(vr.seq, 5);
             match vr.body {
-                RecordBody::UserMessage(u) => {
-                    match u.content {
-                        crate::unified::MessageContent::Text(t) => assert_eq!(t, "Fix the bug"),
-                        other => panic!("expected Text, got {:?}", other),
-                    }
-                }
+                RecordBody::UserMessage(u) => match u.content {
+                    crate::unified::MessageContent::Text(t) => assert_eq!(t, "Fix the bug"),
+                    other => panic!("expected Text, got {:?}", other),
+                },
                 other => panic!("expected UserMessage, got {:?}", other),
             }
         }

@@ -168,10 +168,7 @@ mod tests {
 
     #[test]
     fn resolve_trims_env_value() {
-        assert_eq!(
-            resolve_from(Some("  katie  ".into()), None, None),
-            "katie"
-        );
+        assert_eq!(resolve_from(Some("  katie  ".into()), None, None), "katie");
     }
 
     #[test]

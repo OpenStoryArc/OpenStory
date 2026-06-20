@@ -58,8 +58,14 @@ pub fn read_transcript(path: &Path) -> Vec<TranscriptEntry> {
             continue;
         }
 
-        let timestamp = obj.get("timestamp").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let message = obj.get("message").cloned().unwrap_or(Value::Object(Default::default()));
+        let timestamp = obj
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let message = obj
+            .get("message")
+            .cloned()
+            .unwrap_or(Value::Object(Default::default()));
         let role = message
             .get("role")
             .and_then(|v| v.as_str())
@@ -67,12 +73,18 @@ pub fn read_transcript(path: &Path) -> Vec<TranscriptEntry> {
             .to_string();
 
         let model = if obj_type == "assistant" {
-            message.get("model").and_then(|v| v.as_str()).map(|s| s.to_string())
+            message
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         } else {
             None
         };
 
-        let content = message.get("content").cloned().unwrap_or(Value::Array(vec![]));
+        let content = message
+            .get("content")
+            .cloned()
+            .unwrap_or(Value::Array(vec![]));
 
         // Content can be a plain string
         if let Some(text) = content.as_str() {
@@ -102,7 +114,11 @@ pub fn read_transcript(path: &Path) -> Vec<TranscriptEntry> {
                         timestamp: timestamp.clone(),
                         role: role.clone(),
                         kind: "text".to_string(),
-                        text: block.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        text: block
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         tool_name: None,
                         tool_use_id: None,
                         model: model.clone(),
@@ -124,19 +140,31 @@ pub fn read_transcript(path: &Path) -> Vec<TranscriptEntry> {
                     });
                 }
                 "tool_use" => {
-                    let input = block.get("input").cloned().unwrap_or(Value::Object(Default::default()));
+                    let input = block
+                        .get("input")
+                        .cloned()
+                        .unwrap_or(Value::Object(Default::default()));
                     entries.push(TranscriptEntry {
                         timestamp: timestamp.clone(),
                         role: role.clone(),
                         kind: "tool_use".to_string(),
                         text: serde_json::to_string(&input).unwrap_or_default(),
-                        tool_name: block.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                        tool_use_id: block.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        tool_name: block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        tool_use_id: block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         model: model.clone(),
                     });
                 }
                 "tool_result" => {
-                    let result_content = block.get("content").cloned().unwrap_or(Value::String(String::new()));
+                    let result_content = block
+                        .get("content")
+                        .cloned()
+                        .unwrap_or(Value::String(String::new()));
                     let text = if let Some(arr) = result_content.as_array() {
                         let parts: Vec<String> = arr
                             .iter()
@@ -145,7 +173,9 @@ pub fn read_transcript(path: &Path) -> Vec<TranscriptEntry> {
                                     obj.get("text")
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.to_string())
-                                        .unwrap_or_else(|| serde_json::to_string(rc).unwrap_or_default())
+                                        .unwrap_or_else(|| {
+                                            serde_json::to_string(rc).unwrap_or_default()
+                                        })
                                 } else {
                                     rc.to_string()
                                 }
@@ -301,7 +331,10 @@ mod tests {
         assert_eq!(entries[0].text, "Hello");
         assert_eq!(entries[1].role, "assistant");
         assert_eq!(entries[1].text, "Hi there!");
-        assert_eq!(entries[1].model.as_deref(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(
+            entries[1].model.as_deref(),
+            Some("claude-sonnet-4-20250514")
+        );
     }
 
     #[test]
@@ -364,7 +397,8 @@ mod tests {
                 "type": "user",
                 "message": {"role": "user", "content": "plain string content"}
             })
-        ).unwrap();
+        )
+        .unwrap();
         let entries = read_transcript(f.path());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].kind, "text");
@@ -386,7 +420,8 @@ mod tests {
                     ]
                 }
             })
-        ).unwrap();
+        )
+        .unwrap();
         let entries = read_transcript(f.path());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].kind, "thinking");
@@ -413,7 +448,8 @@ mod tests {
                     }]
                 }
             })
-        ).unwrap();
+        )
+        .unwrap();
         let entries = read_transcript(f.path());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].kind, "tool_result");
@@ -438,7 +474,8 @@ mod tests {
                     }]
                 }
             })
-        ).unwrap();
+        )
+        .unwrap();
         let entries = read_transcript(f.path());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].text, "single string result");
@@ -452,7 +489,8 @@ mod tests {
             f,
             "{}",
             json!({"type": "user", "message": {"role": "user", "content": "ok"}})
-        ).unwrap();
+        )
+        .unwrap();
         let entries = read_transcript(f.path());
         // Invalid line silently skipped; valid line processed.
         // Same drop-and-continue contract as reader.rs.
@@ -484,7 +522,10 @@ mod tests {
             Some("sess-3".to_string())
         );
         // Non-arc:// schemes return None
-        assert_eq!(extract_session_id_from_source("https://example.com/x"), None);
+        assert_eq!(
+            extract_session_id_from_source("https://example.com/x"),
+            None
+        );
         assert_eq!(extract_session_id_from_source(""), None);
     }
 

@@ -138,7 +138,10 @@ async fn wait_for_events_stable(port: u16, session_id: &str) -> Vec<Value> {
 /// Collect all UUIDs appearing as `"id"` in JSONL files under `data_dir`.
 fn read_jsonl_uuids(data_dir: &Path) -> HashMap<String, usize> {
     let mut counts: HashMap<String, usize> = HashMap::new();
-    for entry in walkdir::WalkDir::new(data_dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(data_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file()
             && entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl")
         {
@@ -201,7 +204,10 @@ async fn jsonl_escape_hatch_matches_sqlite_event_ids() {
     let jsonl_counts = read_jsonl_uuids(data_tmp.path());
 
     // Every SQLite UUID must appear at least once in the JSONL.
-    let missing: Vec<&String> = sqlite_ids.iter().filter(|id| !jsonl_counts.contains_key(*id)).collect();
+    let missing: Vec<&String> = sqlite_ids
+        .iter()
+        .filter(|id| !jsonl_counts.contains_key(*id))
+        .collect();
     assert!(
         missing.is_empty(),
         "sovereignty escape hatch broken — {} event(s) in SQLite not present in JSONL: {:?}",

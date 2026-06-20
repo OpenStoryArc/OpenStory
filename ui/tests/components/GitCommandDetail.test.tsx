@@ -9,6 +9,7 @@ function makeGitRecord(command: string, overrides: Partial<ViewRecord> = {}): Vi
     seq: 1,
     session_id: "s1",
     timestamp: "2026-01-15T14:30:00Z",
+    origin_agent: "claude-code",
     record_type: "tool_call",
     agent_id: null,
     is_sidechain: false,

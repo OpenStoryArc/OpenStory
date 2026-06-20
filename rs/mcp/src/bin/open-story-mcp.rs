@@ -28,13 +28,12 @@ use std::sync::Arc;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let nats_url = std::env::var("OPENSTORY_NATS_URL")
-        .unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let nats_url =
+        std::env::var("OPENSTORY_NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
     let backend = std::env::var("OPENSTORY_DATA_BACKEND")
         .unwrap_or_else(|_| "sqlite".to_string())
         .to_lowercase();
-    let data_dir = std::env::var("OPENSTORY_DATA_DIR")
-        .unwrap_or_else(|_| "./data".to_string());
+    let data_dir = std::env::var("OPENSTORY_DATA_DIR").unwrap_or_else(|_| "./data".to_string());
     let data_path = PathBuf::from(&data_dir);
 
     let subscriber = NatsBus::connect(&nats_url).await.with_context(|| {

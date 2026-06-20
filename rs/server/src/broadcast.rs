@@ -59,9 +59,7 @@ pub enum BroadcastMessage {
         total_output_tokens: Option<u64>,
     },
     #[serde(rename = "plan_saved")]
-    PlanSaved {
-        session_id: String,
-    },
+    PlanSaved { session_id: String },
 }
 
 #[cfg(test)]

@@ -68,11 +68,11 @@ fn is_git_command(command: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
     use crate::filter::*;
-    use crate::view_record::ViewRecord;
-    use crate::unified::*;
     use crate::tool_input::{self, ToolInput};
+    use crate::unified::*;
+    use crate::view_record::ViewRecord;
+    use serde_json::json;
 
     fn make_tool_call_record(seq: u64, name: &str, input: serde_json::Value) -> ViewRecord {
         let typed = tool_input::parse_tool_input(name, input.clone());
@@ -81,6 +81,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: "2025-01-09T10:00:00Z".into(),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::ToolCall(Box::new(ToolCall {
@@ -100,6 +101,7 @@ mod tests {
             seq,
             session_id: "sess-1".into(),
             timestamp: "2025-01-09T10:00:00Z".into(),
+            origin_agent: None,
             agent_id: None,
             is_sidechain: false,
             body: RecordBody::UserMessage(UserMessage {
@@ -116,8 +118,16 @@ mod tests {
         #[test]
         fn it_should_return_only_edit_and_write_tool_calls() {
             let records = vec![
-                make_tool_call_record(1, "Edit", json!({"file_path": "/a.rs", "old_string": "x", "new_string": "y"})),
-                make_tool_call_record(2, "Write", json!({"file_path": "/b.rs", "content": "new file"})),
+                make_tool_call_record(
+                    1,
+                    "Edit",
+                    json!({"file_path": "/a.rs", "old_string": "x", "new_string": "y"}),
+                ),
+                make_tool_call_record(
+                    2,
+                    "Write",
+                    json!({"file_path": "/b.rs", "content": "new file"}),
+                ),
                 make_tool_call_record(3, "Read", json!({"file_path": "/c.rs"})),
                 make_tool_call_record(4, "Bash", json!({"command": "ls"})),
                 make_user_record(5),
@@ -130,13 +140,15 @@ mod tests {
 
         #[test]
         fn it_should_allow_access_to_edit_input_fields_without_casting() {
-            let records = vec![
-                make_tool_call_record(1, "Edit", json!({
+            let records = vec![make_tool_call_record(
+                1,
+                "Edit",
+                json!({
                     "file_path": "/src/main.rs",
                     "old_string": "println!(\"old\")",
                     "new_string": "println!(\"new\")"
-                })),
-            ];
+                }),
+            )];
             let edits = file_edits(&records);
             let tc = match &edits[0].body {
                 RecordBody::ToolCall(tc) => tc,
@@ -173,9 +185,11 @@ mod tests {
 
         #[test]
         fn it_should_allow_access_to_bash_command_without_casting() {
-            let records = vec![
-                make_tool_call_record(1, "Bash", json!({"command": "git push origin main"})),
-            ];
+            let records = vec![make_tool_call_record(
+                1,
+                "Bash",
+                json!({"command": "git push origin main"}),
+            )];
             let gits = git_commands(&records);
             let tc = match &gits[0].body {
                 RecordBody::ToolCall(tc) => tc,
@@ -196,8 +210,16 @@ mod tests {
         fn it_should_extract_unique_file_paths_from_file_operations() {
             let records = vec![
                 make_tool_call_record(1, "Read", json!({"file_path": "/src/main.rs"})),
-                make_tool_call_record(2, "Edit", json!({"file_path": "/src/lib.rs", "old_string": "a", "new_string": "b"})),
-                make_tool_call_record(3, "Write", json!({"file_path": "/src/new.rs", "content": "// new"})),
+                make_tool_call_record(
+                    2,
+                    "Edit",
+                    json!({"file_path": "/src/lib.rs", "old_string": "a", "new_string": "b"}),
+                ),
+                make_tool_call_record(
+                    3,
+                    "Write",
+                    json!({"file_path": "/src/new.rs", "content": "// new"}),
+                ),
                 make_tool_call_record(4, "Read", json!({"file_path": "/src/main.rs"})), // duplicate
                 make_tool_call_record(5, "Bash", json!({"command": "ls"})),
             ];

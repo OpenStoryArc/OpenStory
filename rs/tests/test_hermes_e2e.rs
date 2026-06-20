@@ -71,9 +71,7 @@ fn load_and_translate(name: &str) -> (Vec<CloudEvent>, Vec<Value>) {
 }
 
 /// Extract HermesPayload from a CloudEvent, panicking if not Hermes.
-fn hermes_payload(
-    event: &CloudEvent,
-) -> &open_story_core::event_data::HermesPayload {
+fn hermes_payload(event: &CloudEvent) -> &open_story_core::event_data::HermesPayload {
     match event
         .data
         .agent_payload
@@ -253,15 +251,8 @@ fn assert_subtypes_bookend_correctly(
     events: &[CloudEvent],
     _raw_lines: &[Value],
 ) {
-    let subtypes: Vec<&str> = events
-        .iter()
-        .filter_map(|e| e.subtype.as_deref())
-        .collect();
-    assert!(
-        !subtypes.is_empty(),
-        "[{}] no subtypes found",
-        filename
-    );
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
+    assert!(!subtypes.is_empty(), "[{}] no subtypes found", filename);
     assert_eq!(
         subtypes[0], "system.session.start",
         "[{}] first subtype should be system.session.start, got {}",
@@ -419,17 +410,44 @@ fn assert_expected_tool_count(
 }
 
 // Generate one #[test] per assertion, each parameterized over all fixtures.
-parameterized_fixture_test!(all_fixtures_detected_as_hermes_format, assert_all_lines_detected_as_hermes);
-parameterized_fixture_test!(all_fixtures_carry_hermes_agent_tag, assert_all_events_carry_hermes_agent);
-parameterized_fixture_test!(all_fixtures_have_hermes_variant, assert_all_events_have_hermes_variant);
+parameterized_fixture_test!(
+    all_fixtures_detected_as_hermes_format,
+    assert_all_lines_detected_as_hermes
+);
+parameterized_fixture_test!(
+    all_fixtures_carry_hermes_agent_tag,
+    assert_all_events_carry_hermes_agent
+);
+parameterized_fixture_test!(
+    all_fixtures_have_hermes_variant,
+    assert_all_events_have_hermes_variant
+);
 parameterized_fixture_test!(all_fixtures_event_ids_unique, assert_event_ids_are_unique);
-parameterized_fixture_test!(all_fixtures_event_ids_deterministic, assert_event_ids_are_deterministic);
-parameterized_fixture_test!(all_fixtures_subtypes_bookend, assert_subtypes_bookend_correctly);
-parameterized_fixture_test!(all_fixtures_tool_use_has_name, assert_tool_use_events_have_tool_name);
-parameterized_fixture_test!(all_fixtures_tool_result_has_call_id, assert_tool_result_events_have_call_id);
-parameterized_fixture_test!(all_fixtures_tool_use_result_linked, assert_tool_use_result_linkage);
+parameterized_fixture_test!(
+    all_fixtures_event_ids_deterministic,
+    assert_event_ids_are_deterministic
+);
+parameterized_fixture_test!(
+    all_fixtures_subtypes_bookend,
+    assert_subtypes_bookend_correctly
+);
+parameterized_fixture_test!(
+    all_fixtures_tool_use_has_name,
+    assert_tool_use_events_have_tool_name
+);
+parameterized_fixture_test!(
+    all_fixtures_tool_result_has_call_id,
+    assert_tool_result_events_have_call_id
+);
+parameterized_fixture_test!(
+    all_fixtures_tool_use_result_linked,
+    assert_tool_use_result_linkage
+);
 parameterized_fixture_test!(all_fixtures_raw_preserved, assert_raw_field_preserved);
-parameterized_fixture_test!(all_fixtures_expected_event_count, assert_expected_event_count);
+parameterized_fixture_test!(
+    all_fixtures_expected_event_count,
+    assert_expected_event_count
+);
 parameterized_fixture_test!(all_fixtures_expected_tool_count, assert_expected_tool_count);
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -505,11 +523,11 @@ const TOOL_TYPES: &[(&str, &str)] = &[
     ("write_file", r#"{"path":"test.txt","content":"hello"}"#),
     ("terminal", r#"{"command":"ls -la"}"#),
     ("search_files", r#"{"pattern":"*.py","target":"files"}"#),
-    ("patch", r#"{"path":"main.py","old_string":"a","new_string":"b"}"#),
     (
-        "delegate_task",
-        r#"{"tasks":[{"goal":"search"}]}"#,
+        "patch",
+        r#"{"path":"main.py","old_string":"a","new_string":"b"}"#,
     ),
+    ("delegate_task", r#"{"tasks":[{"goal":"search"}]}"#),
 ];
 
 #[test]
@@ -614,10 +632,7 @@ fn snapshot_pipeline_produces_correct_view_records() {
     assert!(!events.is_empty(), "should produce CloudEvents");
 
     // Feed CloudEvents through the views layer
-    let view_records: Vec<_> = events
-        .iter()
-        .flat_map(|ev| from_cloud_event(ev))
-        .collect();
+    let view_records: Vec<_> = events.iter().flat_map(|ev| from_cloud_event(ev)).collect();
 
     assert!(
         !view_records.is_empty(),
@@ -640,10 +655,7 @@ fn snapshot_pipeline_produces_correct_view_records() {
                     !tc.call_id.is_empty(),
                     "ToolCall should have non-empty call_id"
                 );
-                assert!(
-                    !tc.name.is_empty(),
-                    "ToolCall should have non-empty name"
-                );
+                assert!(!tc.name.is_empty(), "ToolCall should have non-empty name");
                 assert_eq!(tc.name, "read_file", "tool name should be read_file");
             }
             RecordBody::ToolResult(tr) => {
@@ -666,7 +678,10 @@ fn snapshot_pipeline_produces_correct_view_records() {
     assert!(has_user_message, "should have UserMessage ViewRecord");
     assert!(has_tool_call, "should have ToolCall ViewRecord");
     assert!(has_tool_result, "should have ToolResult ViewRecord");
-    assert!(has_assistant_message, "should have AssistantMessage ViewRecord");
+    assert!(
+        has_assistant_message,
+        "should have AssistantMessage ViewRecord"
+    );
 }
 
 #[test]
@@ -697,10 +712,7 @@ fn snapshot_pipeline_tool_call_result_linkage() {
     let mut states = HashMap::new();
     let events = process_snapshot(&path, &mut states).unwrap();
 
-    let view_records: Vec<_> = events
-        .iter()
-        .flat_map(|ev| from_cloud_event(ev))
-        .collect();
+    let view_records: Vec<_> = events.iter().flat_map(|ev| from_cloud_event(ev)).collect();
 
     // Collect call_ids from ToolCall records
     let tool_call_ids: HashSet<String> = view_records
@@ -938,10 +950,7 @@ fn real_fixtures_produce_valid_view_records() {
     for (filename, desc, _expected_events, _expected_tools) in FIXTURES {
         let (events, _) = load_and_translate(filename);
 
-        let view_records: Vec<_> = events
-            .iter()
-            .flat_map(|ev| from_cloud_event(ev))
-            .collect();
+        let view_records: Vec<_> = events.iter().flat_map(|ev| from_cloud_event(ev)).collect();
 
         assert!(
             !view_records.is_empty(),
@@ -1081,10 +1090,7 @@ fn assistant_with_reasoning_produces_thinking_event() {
     let events = translate_hermes_line(&wrapped, &mut state);
 
     // Should produce: thinking + tool_use
-    let subtypes: Vec<&str> = events
-        .iter()
-        .filter_map(|e| e.subtype.as_deref())
-        .collect();
+    let subtypes: Vec<&str> = events.iter().filter_map(|e| e.subtype.as_deref()).collect();
     assert!(
         subtypes.contains(&"message.assistant.thinking"),
         "should produce thinking event when reasoning is present"

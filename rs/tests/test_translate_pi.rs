@@ -11,8 +11,15 @@ use open_story::translate::{TranscriptFormat, TranscriptState};
 use tempfile::NamedTempFile;
 
 /// Helper: extract PiMonoPayload from event, panicking if not present.
-fn pi_payload(event: &open_story::cloud_event::CloudEvent) -> &open_story::event_data::PiMonoPayload {
-    match event.data.agent_payload.as_ref().expect("agent_payload should be Some") {
+fn pi_payload(
+    event: &open_story::cloud_event::CloudEvent,
+) -> &open_story::event_data::PiMonoPayload {
+    match event
+        .data
+        .agent_payload
+        .as_ref()
+        .expect("agent_payload should be Some")
+    {
         AgentPayload::PiMono(pm) => pm,
         _ => panic!("expected PiMono payload"),
     }
@@ -35,7 +42,11 @@ fn reader_detects_pi_mono_and_translates() {
     //   - 2 assistant messages have stopReason="stop" → +2 synthetic system.turn.complete
     //     (lines 5 and 10) so eval-apply gets a turn boundary
     // See translate_pi.rs::decompose_assistant for the synthesis rule.
-    assert_eq!(events.len(), 14, "expected 14 events (12 decomposed + 2 synthetic turn.complete)");
+    assert_eq!(
+        events.len(),
+        14,
+        "expected 14 events (12 decomposed + 2 synthetic turn.complete)"
+    );
 
     // Verify subtypes in order
     let subtypes: Vec<&str> = events
@@ -45,20 +56,20 @@ fn reader_detects_pi_mono_and_translates() {
     assert_eq!(
         subtypes,
         vec![
-            "system.session_start",        // line 1: session
-            "message.user.prompt",         // line 2: user
-            "message.assistant.text",      // line 3: [text, toolCall] → decomposed
-            "message.assistant.tool_use",  //   (toolUse → no synthetic)
-            "message.user.tool_result",    // line 4: toolResult
-            "message.assistant.thinking",  // line 5: [thinking, text] → decomposed
-            "message.assistant.text",      //
-            "system.turn.complete",        //   (line 5 synthetic — stopReason="stop")
-            "system.model_change",         // line 6
-            "message.user.prompt",         // line 7
+            "system.session_start",       // line 1: session
+            "message.user.prompt",        // line 2: user
+            "message.assistant.text",     // line 3: [text, toolCall] → decomposed
+            "message.assistant.tool_use", //   (toolUse → no synthetic)
+            "message.user.tool_result",   // line 4: toolResult
+            "message.assistant.thinking", // line 5: [thinking, text] → decomposed
+            "message.assistant.text",     //
+            "system.turn.complete",       //   (line 5 synthetic — stopReason="stop")
+            "system.model_change",        // line 6
+            "message.user.prompt",        // line 7
             "progress.bash",              // line 8
             "system.compact",             // line 9
-            "message.assistant.text",      // line 10: [text] → 1 decomposed
-            "system.turn.complete",        //   (line 10 synthetic — stopReason="stop")
+            "message.assistant.text",     // line 10: [text] → 1 decomposed
+            "system.turn.complete",       //   (line 10 synthetic — stopReason="stop")
         ]
     );
 
@@ -124,10 +135,7 @@ fn reader_incremental_read_pi_mono() {
 
     let events2 = read_new_lines(file.path(), &mut state).expect("second read");
     assert_eq!(events2.len(), 1);
-    assert_eq!(
-        events2[0].subtype.as_deref(),
-        Some("message.user.prompt")
-    );
+    assert_eq!(events2[0].subtype.as_deref(), Some("message.user.prompt"));
 
     // Format stays locked
     assert_eq!(state.format, TranscriptFormat::PiMono);
@@ -150,17 +158,29 @@ fn reader_pi_mono_field_extraction() {
 
     // User message text (index 1)
     let p1 = pi_payload(&events[1]);
-    assert_eq!(p1.text.as_deref(), Some("Read the config file and explain it"));
+    assert_eq!(
+        p1.text.as_deref(),
+        Some("Read the config file and explain it")
+    );
 
     // Decomposed: line 3 [text, toolCall] → index 2 is text, index 3 is tool_use
     let p2 = pi_payload(&events[2]);
-    assert_eq!(p2.text.as_deref(), Some("I'll read the config file for you."));
+    assert_eq!(
+        p2.text.as_deref(),
+        Some("I'll read the config file for you.")
+    );
     let p3 = pi_payload(&events[3]);
     assert_eq!(p3.tool.as_deref(), Some("read"));
     assert_eq!(p3.args.as_ref().unwrap()["path"], "/work/config.toml");
     // Raw is untouched — both decomposed events share the original bundled line
-    assert_eq!(events[2].data.raw["message"]["content"][1]["type"], "toolCall");
-    assert_eq!(events[3].data.raw["message"]["content"][1]["type"], "toolCall");
+    assert_eq!(
+        events[2].data.raw["message"]["content"][1]["type"],
+        "toolCall"
+    );
+    assert_eq!(
+        events[3].data.raw["message"]["content"][1]["type"],
+        "toolCall"
+    );
     // Agent field identifies the source
     assert_eq!(events[3].agent.as_deref(), Some("pi-mono"));
 
@@ -171,7 +191,10 @@ fn reader_pi_mono_field_extraction() {
 
     // Decomposed: line 5 [thinking, text] → index 5 is thinking, index 6 is text
     let p5 = pi_payload(&events[5]);
-    assert_eq!(p5.text.as_deref(), Some("The config file is a TOML file with a server section containing host and port."));
+    assert_eq!(
+        p5.text.as_deref(),
+        Some("The config file is a TOML file with a server section containing host and port.")
+    );
     let p6 = pi_payload(&events[6]);
     assert_eq!(p6.text.as_deref(), Some("This is a TOML configuration file with a server section. It binds to localhost on port 3002."));
 
@@ -191,7 +214,10 @@ fn reader_pi_mono_field_extraction() {
 
     // Compaction (index 11 — was 10)
     let p11 = pi_payload(&events[11]);
-    assert_eq!(p11.summary.as_deref(), Some("Read config file and explained TOML structure"));
+    assert_eq!(
+        p11.summary.as_deref(),
+        Some("Read config file and explained TOML structure")
+    );
 }
 
 // ── Real captured scenario tests ─────────────────────────────────
@@ -210,8 +236,14 @@ fn scenario_04_thinking_text_both_visible() {
         .map(|e| e.subtype.as_deref().unwrap_or("none"))
         .collect();
 
-    assert!(subtypes.contains(&"message.assistant.thinking"), "thinking should be visible");
-    assert!(subtypes.contains(&"message.assistant.text"), "text should be visible — THIS WAS THE BUG");
+    assert!(
+        subtypes.contains(&"message.assistant.thinking"),
+        "thinking should be visible"
+    );
+    assert!(
+        subtypes.contains(&"message.assistant.text"),
+        "text should be visible — THIS WAS THE BUG"
+    );
 
     // The text event should contain the actual answer
     let text_events: Vec<_> = events
@@ -220,7 +252,10 @@ fn scenario_04_thinking_text_both_visible() {
         .collect();
     assert!(!text_events.is_empty(), "should have text events");
     let p = pi_payload(text_events[0]);
-    assert!(p.text.as_ref().unwrap().len() > 10, "text should have substantial content");
+    assert!(
+        p.text.as_ref().unwrap().len() > 10,
+        "text should have substantial content"
+    );
 }
 
 /// Scenario 06: [thinking, text, toolCall] — worst case, all three visible.
@@ -237,14 +272,29 @@ fn scenario_06_full_decomposition() {
         .map(|e| e.subtype.as_deref().unwrap_or("none"))
         .collect();
 
-    assert!(subtypes.contains(&"message.assistant.thinking"), "thinking visible");
+    assert!(
+        subtypes.contains(&"message.assistant.thinking"),
+        "thinking visible"
+    );
     assert!(subtypes.contains(&"message.assistant.text"), "text visible");
-    assert!(subtypes.contains(&"message.assistant.tool_use"), "tool_use visible");
-    assert!(subtypes.contains(&"message.user.tool_result"), "tool_result visible");
+    assert!(
+        subtypes.contains(&"message.assistant.tool_use"),
+        "tool_use visible"
+    );
+    assert!(
+        subtypes.contains(&"message.user.tool_result"),
+        "tool_result visible"
+    );
 
     // Should have at least 2 text events (one from bundled line, one from final response)
-    let text_count = subtypes.iter().filter(|s| **s == "message.assistant.text").count();
-    assert!(text_count >= 2, "expected >=2 text events, got {text_count}");
+    let text_count = subtypes
+        .iter()
+        .filter(|s| **s == "message.assistant.text")
+        .count();
+    assert!(
+        text_count >= 2,
+        "expected >=2 text events, got {text_count}"
+    );
 }
 
 /// Scenario 07: [toolCall, toolCall] — both tools visible.
@@ -261,12 +311,21 @@ fn scenario_07_multi_tool_both_visible() {
         .filter(|e| e.subtype.as_deref() == Some("message.assistant.tool_use"))
         .collect();
 
-    assert!(tool_events.len() >= 2, "expected >=2 tool_use events, got {}", tool_events.len());
+    assert!(
+        tool_events.len() >= 2,
+        "expected >=2 tool_use events, got {}",
+        tool_events.len()
+    );
 
     // Each tool has a unique tool_call_id
-    let tool_ids: Vec<_> = tool_events.iter().map(|e| {
-        pi_payload(e).tool_call_id.as_deref().unwrap_or("")
-    }).collect();
+    let tool_ids: Vec<_> = tool_events
+        .iter()
+        .map(|e| pi_payload(e).tool_call_id.as_deref().unwrap_or(""))
+        .collect();
     let unique: std::collections::HashSet<_> = tool_ids.iter().collect();
-    assert_eq!(tool_ids.len(), unique.len(), "tool_call_ids should be unique");
+    assert_eq!(
+        tool_ids.len(),
+        unique.len(),
+        "tool_call_ids should be unique"
+    );
 }

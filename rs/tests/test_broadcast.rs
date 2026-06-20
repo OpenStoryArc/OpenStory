@@ -56,18 +56,18 @@ mod ephemeral_classification {
     fn boundary_table_ephemeral_vs_durable() {
         let cases: Vec<(Option<&str>, &str, bool)> = vec![
             // (subtype, description, expected_ephemeral)
-            (Some("message.user.prompt"),        "user prompt",       false),
-            (Some("message.user.tool_result"),   "tool result",       false),
-            (Some("message.assistant.text"),     "assistant text",    false),
-            (Some("message.assistant.tool_use"), "tool use",          false),
-            (Some("message.assistant.thinking"), "thinking",          false),
-            (Some("progress.bash"),              "bash progress",     true),
-            (Some("progress.agent"),             "agent progress",    true),
-            (Some("progress.hook"),              "hook progress",     true),
-            (Some("system.turn.complete"),       "turn complete",     false),
-            (Some("system.error"),               "error",             false),
-            (Some("system.compact"),             "compaction",        false),
-            (None,                               "no subtype",        false),
+            (Some("message.user.prompt"), "user prompt", false),
+            (Some("message.user.tool_result"), "tool result", false),
+            (Some("message.assistant.text"), "assistant text", false),
+            (Some("message.assistant.tool_use"), "tool use", false),
+            (Some("message.assistant.thinking"), "thinking", false),
+            (Some("progress.bash"), "bash progress", true),
+            (Some("progress.agent"), "agent progress", true),
+            (Some("progress.hook"), "hook progress", true),
+            (Some("system.turn.complete"), "turn complete", false),
+            (Some("system.error"), "error", false),
+            (Some("system.compact"), "compaction", false),
+            (None, "no subtype", false),
         ];
 
         for (subtype, desc, expected) in cases {

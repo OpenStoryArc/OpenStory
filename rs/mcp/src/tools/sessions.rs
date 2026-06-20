@@ -40,17 +40,17 @@ pub fn list_sessions_schema() -> Value {
     })
 }
 
-pub async fn list_sessions(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn list_sessions(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let days = args.get("days").and_then(|v| v.as_u64());
-    let project = args.get("project").and_then(|v| v.as_str()).map(str::to_lowercase);
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100) as usize;
-    let after = args.get("after").and_then(|v| v.as_str()).map(str::to_string);
+    let project = args
+        .get("project")
+        .and_then(|v| v.as_str())
+        .map(str::to_lowercase);
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+    let after = args
+        .get("after")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     // Compute the lower bound on last_event from `days` or `after`,
     // whichever is more restrictive.
@@ -138,18 +138,16 @@ pub fn session_synopsis_schema() -> Value {
     })
 }
 
-pub async fn session_synopsis(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn session_synopsis(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let session_id = args
         .get("session_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "session_synopsis requires `session_id`".to_string())?;
 
     match store.query_session_synopsis(session_id).await {
-        Some(synopsis) => serde_json::to_value(synopsis)
-            .map_err(|e| format!("serialize synopsis: {e}")),
+        Some(synopsis) => {
+            serde_json::to_value(synopsis).map_err(|e| format!("serialize synopsis: {e}"))
+        }
         None => Err(format!("session {session_id} not found")),
     }
 }
@@ -167,14 +165,8 @@ pub fn project_pulse_schema() -> Value {
     })
 }
 
-pub async fn project_pulse(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
-    let days = args
-        .get("days")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(7) as u32;
+pub async fn project_pulse(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let days = args.get("days").and_then(|v| v.as_u64()).unwrap_or(7) as u32;
     let pulse = store.query_project_pulse(days).await;
     serde_json::to_value(pulse).map_err(|e| format!("serialize pulse: {e}"))
 }

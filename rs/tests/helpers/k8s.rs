@@ -39,34 +39,49 @@ impl K3sCluster {
             .with_env_var("K3S_KUBECONFIG_OUTPUT", "/output/kubeconfig.yaml");
 
         eprintln!("  Starting K3s cluster...");
-        let container = image.start().await
+        let container = image
+            .start()
+            .await
             .context("Failed to start K3s container")?;
 
-        let api_port = container.get_host_port_ipv4(6443).await
+        let api_port = container
+            .get_host_port_ipv4(6443)
+            .await
             .context("Failed to get K3s API port")?;
 
         eprintln!("  K3s API on localhost:{api_port}");
 
         // Wait for K3s to write kubeconfig and extract it
-        let kubeconfig = Self::wait_for_kubeconfig(&container, api_port).await
+        let kubeconfig = Self::wait_for_kubeconfig(&container, api_port)
+            .await
             .context("Failed to get kubeconfig from K3s")?;
 
         // Create kube client from the kubeconfig
-        let client = Self::create_client(&kubeconfig).await
+        let client = Self::create_client(&kubeconfig)
+            .await
             .context("Failed to create kube client")?;
 
         // Wait for the cluster to be actually ready
-        Self::wait_for_ready(&client).await
+        Self::wait_for_ready(&client)
+            .await
             .context("K3s cluster did not become ready")?;
 
         eprintln!("  K3s cluster ready");
 
-        Ok(Self { container, kubeconfig, client, api_port })
+        Ok(Self {
+            container,
+            kubeconfig,
+            client,
+            api_port,
+        })
     }
 
     /// Wait for K3s to produce a kubeconfig, then rewrite the server URL
     /// to point at the mapped host port.
-    async fn wait_for_kubeconfig(container: &ContainerAsync<GenericImage>, host_port: u16) -> Result<String> {
+    async fn wait_for_kubeconfig(
+        container: &ContainerAsync<GenericImage>,
+        host_port: u16,
+    ) -> Result<String> {
         for attempt in 0..60 {
             let mut exec = container
                 .exec(testcontainers::core::ExecCommand::new(vec![
@@ -109,8 +124,7 @@ impl K3sCluster {
 
         // K3s uses a self-signed CA — the kubeconfig includes the CA cert,
         // so kube::Client trusts it automatically via the kubeconfig.
-        kube::Client::try_from(config)
-            .context("Failed to create kube client")
+        kube::Client::try_from(config).context("Failed to create kube client")
     }
 
     /// Wait for at least one node to be Ready.
@@ -123,10 +137,13 @@ impl K3sCluster {
         for attempt in 0..60 {
             if let Ok(node_list) = nodes.list(&Default::default()).await {
                 let ready = node_list.items.iter().any(|node| {
-                    node.status.as_ref()
+                    node.status
+                        .as_ref()
                         .and_then(|s| s.conditions.as_ref())
                         .map(|conditions| {
-                            conditions.iter().any(|c| c.type_ == "Ready" && c.status == "True")
+                            conditions
+                                .iter()
+                                .any(|c| c.type_ == "Ready" && c.status == "True")
                         })
                         .unwrap_or(false)
                 });
@@ -153,7 +170,10 @@ impl K3sCluster {
             format!("echo '{}' | base64 -d | kubectl apply -f -", b64),
         ]);
 
-        let mut result = self.container.exec(cmd).await
+        let mut result = self
+            .container
+            .exec(cmd)
+            .await
             .context("Failed to exec kubectl apply")?;
 
         let stdout_bytes = result.stdout_to_vec().await.unwrap_or_default();
@@ -208,16 +228,24 @@ const B64_CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 
 impl<'a> Base64Encoder<'a> {
     fn new(out: &'a mut Vec<u8>) -> Self {
-        Self { out, buf: [0; 3], len: 0 }
+        Self {
+            out,
+            buf: [0; 3],
+            len: 0,
+        }
     }
 
     fn flush_buf(&mut self) {
-        if self.len == 0 { return; }
+        if self.len == 0 {
+            return;
+        }
         let b = &self.buf;
         self.out.push(B64_CHARS[(b[0] >> 2) as usize]);
-        self.out.push(B64_CHARS[((b[0] & 0x03) << 4 | b[1] >> 4) as usize]);
+        self.out
+            .push(B64_CHARS[((b[0] & 0x03) << 4 | b[1] >> 4) as usize]);
         if self.len > 1 {
-            self.out.push(B64_CHARS[((b[1] & 0x0f) << 2 | b[2] >> 6) as usize]);
+            self.out
+                .push(B64_CHARS[((b[1] & 0x0f) << 2 | b[2] >> 6) as usize]);
         } else {
             self.out.push(b'=');
         }

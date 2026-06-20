@@ -19,10 +19,7 @@ pub fn search_schema() -> Value {
     })
 }
 
-pub async fn search(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn search(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -30,10 +27,7 @@ pub async fn search(
     if query.trim().is_empty() {
         return Err("query must not be empty".to_string());
     }
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
     let session_filter = args.get("session_id").and_then(|v| v.as_str());
 
     let hits = store
@@ -59,10 +53,7 @@ pub fn agent_search_schema() -> Value {
     })
 }
 
-pub async fn agent_search(
-    store: &Arc<dyn EventStore>,
-    args: Value,
-) -> Result<Value, String> {
+pub async fn agent_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -70,11 +61,11 @@ pub async fn agent_search(
     if query.trim().is_empty() {
         return Err("query must not be empty".to_string());
     }
-    let project_filter = args.get("project").and_then(|v| v.as_str()).map(str::to_lowercase);
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5) as usize;
+    let project_filter = args
+        .get("project")
+        .and_then(|v| v.as_str())
+        .map(str::to_lowercase);
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
 
     // Search with a higher event limit, then group by session.
     let event_limit = limit * 10;
@@ -102,7 +93,10 @@ pub async fn agent_search(
     let mut by_session: HashMap<String, Vec<&open_story_store::queries::FtsSearchResult>> =
         HashMap::new();
     for hit in &hits {
-        by_session.entry(hit.session_id.clone()).or_default().push(hit);
+        by_session
+            .entry(hit.session_id.clone())
+            .or_default()
+            .push(hit);
     }
 
     let mut groups: Vec<Value> = by_session

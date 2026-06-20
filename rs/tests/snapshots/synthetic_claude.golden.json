@@ -9,6 +9,7 @@
           "depth": 1,
           "id": "u-001",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": "p-001",
           "payload": {
             "content": "Hello Claude",
@@ -37,6 +38,7 @@
           "depth": 2,
           "id": "u-002",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": "u-001",
           "payload": {
             "content": [
@@ -59,6 +61,7 @@
           "depth": 0,
           "id": "u-002:usage",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "input_tokens": 10,
@@ -88,6 +91,7 @@
           "depth": 2,
           "id": "u-003",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": "u-001",
           "payload": {
             "call_id": "tu_1",
@@ -126,6 +130,7 @@
           "depth": 3,
           "id": "u-004",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": "u-003",
           "payload": {
             "call_id": "tu_1",
@@ -155,6 +160,7 @@
         {
           "id": "u-005",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "payload": {
             "subtype": "progress.bash"
           },
@@ -174,6 +180,7 @@
         {
           "id": "u-006",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "payload": {
             "subtype": "progress.agent"
           },
@@ -193,6 +200,7 @@
         {
           "id": "u-007",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "payload": {
             "subtype": "progress.hook"
           },
@@ -216,6 +224,7 @@
           "depth": 0,
           "id": "u-008",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "duration_ms": 5000,
@@ -244,6 +253,7 @@
           "depth": 0,
           "id": "u-009",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.hook"
@@ -271,6 +281,7 @@
           "depth": 0,
           "id": "u-010",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.error"
@@ -298,6 +309,7 @@
           "depth": 0,
           "id": "u-011",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.compact"
@@ -325,6 +337,7 @@
           "depth": 0,
           "id": "u-012",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "tracked_files": {
@@ -355,6 +368,7 @@
           "depth": 0,
           "id": "u-013",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "subtype": "queue.enqueue"
@@ -382,6 +396,7 @@
           "depth": 0,
           "id": "u-014",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "subtype": "queue.dequeue"
@@ -409,6 +424,7 @@
           "depth": 0,
           "id": "u-015",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "content": "external user msg",
@@ -437,6 +453,7 @@
           "depth": 0,
           "id": "u-016",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "content": [
@@ -470,6 +487,7 @@
           "depth": 0,
           "id": "u-017",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "content": "deep thought only",
@@ -495,6 +513,7 @@
         {
           "id": "u-018",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "payload": {
             "subtype": "progress.new_future_type"
           },
@@ -518,6 +537,7 @@
           "depth": 0,
           "id": "uuid-0",
           "is_sidechain": false,
+          "origin_agent": "claude-code",
           "parent_uuid": null,
           "payload": {
             "content": "no uuid entry",
@@ -1289,8 +1309,8 @@
       "id": "synthetic",
       "label": "Hello Claude",
       "last_event": "2025-01-05T17:00:19.000Z",
-      "project_id": null,
-      "project_name": null
+      "project_id": "-home-user-project",
+      "project_name": "project"
     }
   ]
 }

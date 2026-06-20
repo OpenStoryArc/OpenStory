@@ -65,3 +65,7 @@ deploy/*.local.conf
 
 # Local security audit reports
 .gstack/
+
+# Local-only content (never pushed)
+personal/
+captures/

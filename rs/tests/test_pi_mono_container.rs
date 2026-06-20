@@ -98,10 +98,7 @@ async fn pi_mono_session_metadata_persisted() {
 
     // Project ID present
     let project_id = session.get("project_id").and_then(|v| v.as_str());
-    assert!(
-        project_id.is_some(),
-        "project_id should be present"
-    );
+    assert!(project_id.is_some(), "project_id should be present");
 }
 
 /// Exact event count matches fixture (10 lines → 10 events in SQLite).
@@ -171,18 +168,42 @@ async fn pi_mono_subtype_distribution_matches_fixture() {
 
     // With decomposition: [text,toolCall]→2, [thinking,text]→2
     // The key assertion: decomposed subtypes ARE present
-    assert!(subtypes.contains(&"message.assistant.thinking"), "should have thinking (decomposed)");
-    assert!(subtypes.contains(&"message.assistant.tool_use"), "should have tool_use (decomposed)");
+    assert!(
+        subtypes.contains(&"message.assistant.thinking"),
+        "should have thinking (decomposed)"
+    );
+    assert!(
+        subtypes.contains(&"message.assistant.tool_use"),
+        "should have tool_use (decomposed)"
+    );
 
     // Multiple text events: at least 2 from decomposition
-    let text_count = subtypes.iter().filter(|s| **s == "message.assistant.text").count();
-    assert!(text_count >= 2, "should have >=2 text events from decomposition, got {text_count}");
+    let text_count = subtypes
+        .iter()
+        .filter(|s| **s == "message.assistant.text")
+        .count();
+    assert!(
+        text_count >= 2,
+        "should have >=2 text events from decomposition, got {text_count}"
+    );
 
     // Core event types present
-    assert!(subtypes.contains(&"message.user.prompt"), "should have user prompt");
-    assert!(subtypes.contains(&"message.user.tool_result"), "should have tool result");
-    assert!(subtypes.contains(&"system.session_start"), "should have session start");
-    assert!(subtypes.contains(&"system.model_change"), "should have model change");
+    assert!(
+        subtypes.contains(&"message.user.prompt"),
+        "should have user prompt"
+    );
+    assert!(
+        subtypes.contains(&"message.user.tool_result"),
+        "should have tool result"
+    );
+    assert!(
+        subtypes.contains(&"system.session_start"),
+        "should have session start"
+    );
+    assert!(
+        subtypes.contains(&"system.model_change"),
+        "should have model change"
+    );
     // Synthetic turn boundaries from the recursion-principle fix:
     // assistant messages with stopReason="stop" emit a synthetic
     // system.turn.complete so eval-apply can crystallize a turn.
@@ -220,7 +241,10 @@ async fn pi_mono_event_fields_persisted() {
 
         // CloudEvent ID
         let id = event.get("id").and_then(|v| v.as_str());
-        assert!(id.is_some() && !id.unwrap().is_empty(), "{ctx}: id missing or empty");
+        assert!(
+            id.is_some() && !id.unwrap().is_empty(),
+            "{ctx}: id missing or empty"
+        );
 
         // Subtype
         let subtype = event.get("subtype").and_then(|v| v.as_str());
@@ -232,7 +256,10 @@ async fn pi_mono_event_fields_persisted() {
 
         // Timestamp
         let time = event.get("time").and_then(|v| v.as_str());
-        assert!(time.is_some() && !time.unwrap().is_empty(), "{ctx}: time missing or empty");
+        assert!(
+            time.is_some() && !time.unwrap().is_empty(),
+            "{ctx}: time missing or empty"
+        );
 
         // Data envelope
         let data = event.get("data");
@@ -248,7 +275,10 @@ async fn pi_mono_event_fields_persisted() {
 
         // Raw is present (untouched original line)
         let raw = data.unwrap().get("raw");
-        assert!(raw.is_some() && !raw.unwrap().is_null(), "{ctx}: data.raw missing");
+        assert!(
+            raw.is_some() && !raw.unwrap().is_null(),
+            "{ctx}: data.raw missing"
+        );
     }
 }
 
@@ -284,15 +314,20 @@ async fn pi_mono_raw_data_integrity() {
     let raw = &user_prompt["data"]["raw"];
 
     // Raw preserves pi-mono's native structure
-    assert_eq!(raw["type"], "message", "raw.type should be 'message' (pi-mono format)");
-    assert_eq!(raw["message"]["role"], "user", "raw.message.role should be 'user'");
+    assert_eq!(
+        raw["type"], "message",
+        "raw.type should be 'message' (pi-mono format)"
+    );
+    assert_eq!(
+        raw["message"]["role"], "user",
+        "raw.message.role should be 'user'"
+    );
     assert_eq!(
         raw["message"]["content"][0]["type"], "text",
         "raw.message.content[0].type should be 'text'"
     );
     assert_eq!(
-        raw["message"]["content"][0]["text"],
-        "Read the config file and explain it",
+        raw["message"]["content"][0]["text"], "Read the config file and explain it",
         "raw.message.content[0].text should match fixture"
     );
 
@@ -374,7 +409,10 @@ async fn pi_mono_view_records_from_sqlite() {
         .filter_map(|r| r.get("record_type").and_then(|v| v.as_str()))
         .collect();
 
-    assert!(record_types.contains(&"user_message"), "should have user_message");
+    assert!(
+        record_types.contains(&"user_message"),
+        "should have user_message"
+    );
     assert!(
         record_types.contains(&"tool_call") || record_types.contains(&"assistant_message"),
         "should have tool_call or assistant_message, got: {:?}",
@@ -620,14 +658,26 @@ async fn pi_mono_parallel_tool_calls_preserved_end_to_end() {
     // WireRecord serializes ViewRecord.body as "payload"
     let call_ids_from_calls: std::collections::HashSet<&str> = tool_calls
         .iter()
-        .filter_map(|r| r.get("payload").and_then(|b| b.get("call_id")).and_then(|v| v.as_str()))
+        .filter_map(|r| {
+            r.get("payload")
+                .and_then(|b| b.get("call_id"))
+                .and_then(|v| v.as_str())
+        })
         .collect();
     let call_ids_from_results: std::collections::HashSet<&str> = tool_results
         .iter()
-        .filter_map(|r| r.get("payload").and_then(|b| b.get("call_id")).and_then(|v| v.as_str()))
+        .filter_map(|r| {
+            r.get("payload")
+                .and_then(|b| b.get("call_id"))
+                .and_then(|v| v.as_str())
+        })
         .collect();
 
-    assert_eq!(call_ids_from_calls.len(), 2, "call_ids from ToolCall side must be unique");
+    assert_eq!(
+        call_ids_from_calls.len(),
+        2,
+        "call_ids from ToolCall side must be unique"
+    );
     assert_eq!(
         call_ids_from_calls, call_ids_from_results,
         "every ToolCall must have a matching ToolResult by call_id"

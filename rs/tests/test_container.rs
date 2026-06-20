@@ -156,9 +156,18 @@ async fn container_fts5_search_returns_results() {
 
     // Results should have the expected structure
     let first = &results[0];
-    assert!(first.get("event_id").is_some(), "result should have event_id");
-    assert!(first.get("session_id").is_some(), "result should have session_id");
-    assert!(first.get("record_type").is_some(), "result should have record_type");
+    assert!(
+        first.get("event_id").is_some(),
+        "result should have event_id"
+    );
+    assert!(
+        first.get("session_id").is_some(),
+        "result should have session_id"
+    );
+    assert!(
+        first.get("record_type").is_some(),
+        "result should have record_type"
+    );
     assert!(first.get("snippet").is_some(), "result should have snippet");
     assert!(first.get("rank").is_some(), "result should have rank");
 }
@@ -181,8 +190,14 @@ async fn container_agent_search_returns_grouped_results() {
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body.get("query").is_some(), "response should have 'query' field");
-    assert!(body.get("results").is_some(), "response should have 'results' field");
+    assert!(
+        body.get("query").is_some(),
+        "response should have 'query' field"
+    );
+    assert!(
+        body.get("results").is_some(),
+        "response should have 'results' field"
+    );
     assert!(
         body.get("total_events_searched").is_some(),
         "response should have 'total_events_searched' field"
@@ -191,9 +206,18 @@ async fn container_agent_search_returns_grouped_results() {
     let results = body["results"].as_array().unwrap();
     if !results.is_empty() {
         let first = &results[0];
-        assert!(first.get("session_id").is_some(), "session result should have session_id");
-        assert!(first.get("matching_events").is_some(), "session result should have matching_events");
-        assert!(first.get("synopsis_url").is_some(), "session result should have synopsis_url");
+        assert!(
+            first.get("session_id").is_some(),
+            "session result should have session_id"
+        );
+        assert!(
+            first.get("matching_events").is_some(),
+            "session result should have matching_events"
+        );
+        assert!(
+            first.get("synopsis_url").is_some(),
+            "session result should have synopsis_url"
+        );
     }
 }
 

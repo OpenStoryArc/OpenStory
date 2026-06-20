@@ -501,7 +501,11 @@ impl EvalApplyDetector {
                 self.acc = acc;
                 patterns
             }
-            StepResult::TurnComplete { acc, turn, patterns } => {
+            StepResult::TurnComplete {
+                acc,
+                turn,
+                patterns,
+            } => {
                 self.acc = acc;
                 self.completed_turns.push(turn);
                 patterns
@@ -545,12 +549,11 @@ impl EvalApplyDetector {
 /// Extract a short summary from tool input JSON for display.
 fn summarize_tool_input(tool_name: &str, args: &serde_json::Value) -> String {
     match tool_name {
-        "Read" | "Write" | "Edit" => {
-            args.get("file_path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
+        "Read" | "Write" | "Edit" => args
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         "Bash" => {
             let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             if cmd.chars().count() > 80 {
@@ -560,30 +563,26 @@ fn summarize_tool_input(tool_name: &str, args: &serde_json::Value) -> String {
                 cmd.to_string()
             }
         }
-        "Grep" | "Glob" => {
-            args.get("pattern")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
-        "Agent" => {
-            args.get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
-        "WebSearch" => {
-            args.get("query")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
-        "WebFetch" => {
-            args.get("url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        }
+        "Grep" | "Glob" => args
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "Agent" => args
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "WebSearch" => args
+            .get("query")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "WebFetch" => args
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         _ => {
             let s = args.to_string();
             if s.chars().count() > 80 {
@@ -615,11 +614,12 @@ mod tests {
     // ═══════════════════════════════════════════════════════════════
 
     use open_story_core::cloud_event::CloudEvent;
-    use open_story_core::event_data::{
-        AgentPayload, ClaudeCodePayload, EventData,
-    };
+    use open_story_core::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 
-    fn make_cloud_event(subtype: &str, overrides: impl FnOnce(&mut ClaudeCodePayload)) -> CloudEvent {
+    fn make_cloud_event(
+        subtype: &str,
+        overrides: impl FnOnce(&mut ClaudeCodePayload),
+    ) -> CloudEvent {
         let mut payload = ClaudeCodePayload::new();
         overrides(&mut payload);
         let data = EventData::with_payload(
@@ -663,7 +663,10 @@ mod tests {
         })
     }
 
-    fn tool_result_ce(text: &str, outcome: Option<open_story_core::event_data::ToolOutcome>) -> CloudEvent {
+    fn tool_result_ce(
+        text: &str,
+        outcome: Option<open_story_core::event_data::ToolOutcome>,
+    ) -> CloudEvent {
         make_cloud_event("message.user.tool_result", |p| {
             p.text = Some(text.to_string());
             p.tool_outcome = outcome;
@@ -728,7 +731,10 @@ mod tests {
         det.feed_cloud_event(&turn_complete_ce());
 
         let turns = det.take_completed_turns();
-        assert_eq!(turns[0].human.as_ref().unwrap().content, "Tell me about SICP");
+        assert_eq!(
+            turns[0].human.as_ref().unwrap().content,
+            "Tell me about SICP"
+        );
     }
 
     #[test]
@@ -739,7 +745,10 @@ mod tests {
         det.feed_cloud_event(&turn_complete_ce());
 
         let turns = det.take_completed_turns();
-        assert_eq!(turns[0].eval.as_ref().unwrap().content, "Hello! How can I help?");
+        assert_eq!(
+            turns[0].eval.as_ref().unwrap().content,
+            "Hello! How can I help?"
+        );
     }
 
     #[test]
@@ -780,11 +789,15 @@ mod tests {
         // Results in CALL order
         det.feed_cloud_event(&tool_result_ce(
             "foo content",
-            Some(ToolOutcome::FileRead { path: "/foo.rs".to_string() }),
+            Some(ToolOutcome::FileRead {
+                path: "/foo.rs".to_string(),
+            }),
         ));
         det.feed_cloud_event(&tool_result_ce(
             "bar content",
-            Some(ToolOutcome::FileRead { path: "/bar.rs".to_string() }),
+            Some(ToolOutcome::FileRead {
+                path: "/bar.rs".to_string(),
+            }),
         ));
         det.feed_cloud_event(&turn_complete_ce());
 
@@ -831,11 +844,15 @@ mod tests {
         // Results in REVERSE order — bar finishes first
         det.feed_cloud_event(&tool_result_ce(
             "bar content",
-            Some(ToolOutcome::FileRead { path: "/bar.rs".to_string() }),
+            Some(ToolOutcome::FileRead {
+                path: "/bar.rs".to_string(),
+            }),
         ));
         det.feed_cloud_event(&tool_result_ce(
             "foo content",
-            Some(ToolOutcome::FileRead { path: "/foo.rs".to_string() }),
+            Some(ToolOutcome::FileRead {
+                path: "/foo.rs".to_string(),
+            }),
         ));
         det.feed_cloud_event(&turn_complete_ce());
 
@@ -846,7 +863,10 @@ mod tests {
         // CURRENT (broken) BEHAVIOR: foo's input is paired with bar's outcome
         // because pending_applies[0] = foo and the first arriving result
         // (which was bar's) gets popped off the front.
-        assert_eq!(t.applies[0].input_summary, "/foo.rs", "call order preserved");
+        assert_eq!(
+            t.applies[0].input_summary, "/foo.rs",
+            "call order preserved"
+        );
         if let Some(ToolOutcome::FileRead { path }) = &t.applies[0].tool_outcome {
             assert_eq!(
                 path, "/bar.rs",
@@ -953,7 +973,11 @@ mod tests {
         let long_cmd = "echo ".to_string() + &"x".repeat(200);
         let s = summarize_tool_input("Bash", &serde_json::json!({"command": long_cmd}));
         assert!(s.ends_with("..."), "long bash should end in ellipsis");
-        assert_eq!(s.chars().count(), 80, "truncated to 80 chars including ellipsis");
+        assert_eq!(
+            s.chars().count(),
+            80,
+            "truncated to 80 chars including ellipsis"
+        );
     }
 
     #[test]
@@ -968,7 +992,10 @@ mod tests {
     fn summarize_tool_input_extracts_query_for_websearch_and_url_for_webfetch() {
         let s = summarize_tool_input("WebSearch", &serde_json::json!({"query": "rust async"}));
         assert_eq!(s, "rust async");
-        let s = summarize_tool_input("WebFetch", &serde_json::json!({"url": "https://example.com"}));
+        let s = summarize_tool_input(
+            "WebFetch",
+            &serde_json::json!({"url": "https://example.com"}),
+        );
         assert_eq!(s, "https://example.com");
     }
 
