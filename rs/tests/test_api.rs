@@ -62,6 +62,40 @@ async fn test_list_sessions_with_data() {
 }
 
 #[tokio::test]
+async fn test_list_sessions_includes_plan_count() {
+    // The sidebar plan badge reads plan_count from /api/sessions. It must
+    // reflect the durable plan store, not whatever ExitPlanMode events happen
+    // to be loaded — so a session with stored plans but no plan events still
+    // reports its count.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![make_event("io.arc.event", "sess-plans")];
+        seed_and_ingest(&mut s, "sess-plans", &events, None).await;
+        // Two distinct plans (different timestamps) for this session.
+        s.store.plan_store.save("sess-plans", "# Plan: First", "2026-01-01T00:00:00Z").unwrap();
+        s.store.plan_store.save("sess-plans", "# Plan: Second", "2026-01-01T00:05:00Z").unwrap();
+        // A plan for a different session must not bleed into this count.
+        let other = vec![make_event("io.arc.event", "sess-other")];
+        seed_and_ingest(&mut s, "sess-other", &other, None).await;
+        s.store.plan_store.save("sess-other", "# Plan: Other", "2026-01-01T00:00:00Z").unwrap();
+    }
+
+    let req = Request::get("/api/sessions").body(Body::empty()).unwrap();
+    let resp = send_request(state, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = body_json(resp).await;
+    let sessions = body["sessions"].as_array().unwrap();
+    let with_plans = sessions.iter().find(|s| s["session_id"] == "sess-plans").unwrap();
+    assert_eq!(with_plans["plan_count"].as_u64(), Some(2));
+    let other = sessions.iter().find(|s| s["session_id"] == "sess-other").unwrap();
+    assert_eq!(other["plan_count"].as_u64(), Some(1));
+}
+
+#[tokio::test]
 async fn test_get_events_existing_session() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);

@@ -71,6 +71,7 @@ impl TestActors {
             shared_children,
             shared_projects,
             shared_names,
+            plan_store,
         ) = {
             let s = state.read().await;
             let ss =
@@ -83,6 +84,7 @@ impl TestActors {
                 s.store.session_children.clone(),
                 s.store.session_projects.clone(),
                 s.store.session_project_names.clone(),
+                s.store.plan_store.clone(),
             )
         };
         Self {
@@ -92,6 +94,7 @@ impl TestActors {
                 shared_projections.clone(),
                 shared_projects,
                 shared_names,
+                plan_store,
             ),
             patterns: PatternsConsumer::new(),
             projections: ProjectionsConsumer::new(

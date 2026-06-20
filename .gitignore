@@ -9,6 +9,7 @@ ui/dist/
 # Data
 data/
 data-mongo/
+data-test/
 data.old/
 rs/data/
 

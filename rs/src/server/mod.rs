@@ -174,7 +174,7 @@ pub async fn run_server(
         // SessionRow. It upserts after the batch's events are durable;
         // ingest_events no longer touches the `sessions` table.
         {
-            let (event_store, data_dir, shared_projections, shared_projects, shared_names) = {
+            let (event_store, data_dir, shared_projections, shared_projects, shared_names, plan_store) = {
                 let s = state.read().await;
                 (
                     s.store.event_store.clone(),
@@ -182,6 +182,7 @@ pub async fn run_server(
                     s.store.projections.clone(),
                     s.store.session_projects.clone(),
                     s.store.session_project_names.clone(),
+                    s.store.plan_store.clone(),
                 )
             };
             let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
@@ -194,6 +195,7 @@ pub async fn run_server(
                     shared_projections,
                     shared_projects,
                     shared_names,
+                    plan_store,
                 );
                 match persist_bus.subscribe("events.>").await {
                     Ok(mut sub) => {

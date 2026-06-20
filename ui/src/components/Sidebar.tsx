@@ -228,7 +228,10 @@ export function deriveSessions(
       branch,
       depthProfile: sampleDepthProfile(data.depths),
       totalTokens,
-      planCount: data.planCount,
+      // Durable plan_count (plan store) is authoritative; max with the
+      // event-derived count so a live ExitPlanMode still bumps the badge
+      // before the REST list refreshes.
+      planCount: Math.max(restRow?.plan_count ?? 0, data.planCount),
       host: restRow?.host ?? null,
       user: restRow?.user ?? null,
       originAgent: data.originAgent ?? restRow?.origin_agent ?? null,
