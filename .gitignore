@@ -74,3 +74,6 @@ captures/
 .bandit-report.json
 .semgrep-report.json
 /tmp/gitleaks-rt.json
+
+# Generated leaf-remote configs (contain hub tokens — never commit)
+deploy/*.generated.conf
