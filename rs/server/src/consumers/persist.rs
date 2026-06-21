@@ -32,7 +32,9 @@ use dashmap::DashMap;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::analysis;
 use open_story_store::event_store::{EventStore, SessionRow};
+use open_story_store::ingest::{extract_plan_content, is_plan_event};
 use open_story_store::persistence::SessionStore;
+use open_story_store::plan_store::PlanStore;
 use open_story_store::projection::SessionProjection;
 use open_story_views::from_cloud_event::from_cloud_event;
 
@@ -63,6 +65,11 @@ pub struct PersistConsumer {
     /// Shared project-display-name map (read-only here — ingest_events
     /// still owns derivation until 1.6).
     session_project_names: Arc<DashMap<String, String>>,
+    /// Plan store (owned clone — cheap path handle). Plans are extracted on
+    /// the same durable path that persists events, so the plan store and event
+    /// store can never diverge. Idempotent `save` absorbs cross-path or
+    /// re-delivery double-writes in place.
+    plan_store: PlanStore,
 }
 
 /// Result of processing one batch of events.
@@ -81,6 +88,7 @@ impl PersistConsumer {
         projections: Arc<DashMap<String, SessionProjection>>,
         session_projects: Arc<DashMap<String, String>>,
         session_project_names: Arc<DashMap<String, String>>,
+        plan_store: PlanStore,
     ) -> Self {
         Self {
             event_store,
@@ -88,6 +96,7 @@ impl PersistConsumer {
             projections,
             session_projects,
             session_project_names,
+            plan_store,
         }
     }
 
@@ -171,6 +180,19 @@ impl PersistConsumer {
                     ));
                 }
             }
+
+            // Extract plans on the same durable path that stores events, so the
+            // plan store and event store stay in lock-step. Idempotent save +
+            // upsert mean a plan also seen by the legacy ingest path is a no-op.
+            if is_plan_event(&vals[i]) {
+                if let Some(content) = extract_plan_content(&vals[i]) {
+                    let timestamp = vals[i].get("time").and_then(|v| v.as_str()).unwrap_or("");
+                    let _ = self.plan_store.save(session_id, &content, timestamp);
+                    let plan_id = format!("plan:{session_id}:{timestamp}");
+                    let _ = event_store.upsert_plan(&plan_id, session_id, &content).await;
+                }
+            }
+
             persisted += 1;
         }
 
@@ -317,6 +339,7 @@ mod tests {
             open_story_store::sqlite_store::SqliteStore::new(tmp.path())
                 .expect("create sqlite store"),
         );
+        let plan_store = PlanStore::new(&tmp.path().join("plans")).expect("create plan store");
         (
             PersistConsumer::new(
                 event_store,
@@ -324,6 +347,7 @@ mod tests {
                 Arc::new(DashMap::new()),
                 Arc::new(DashMap::new()),
                 Arc::new(DashMap::new()),
+                plan_store,
             ),
             tmp,
         )
@@ -550,6 +574,94 @@ mod tests {
         assert!(
             results.iter().any(|r| r.event_id == "evt-fts-1"),
             "PersistConsumer must index durable events into FTS5"
+        );
+    }
+
+    /// Plan parity: the durable-storage owner must extract plans on the same
+    /// path that persists events, so the plan store and event store can never
+    /// diverge. A batch carrying an ExitPlanMode tool_use yields a plan.
+    #[tokio::test]
+    async fn persist_consumer_extracts_plan_from_exitplanmode_event() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_store = SessionStore::new(tmp.path()).unwrap();
+        let event_store: Arc<dyn EventStore> = Arc::new(
+            open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap(),
+        );
+        let plans_dir = tmp.path().join("plans");
+        let plan_store = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
+        let mut consumer = PersistConsumer::new(
+            event_store.clone(),
+            session_store,
+            Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
+            plan_store,
+        );
+
+        let mut payload = ClaudeCodePayload::new();
+        payload.tool = Some("ExitPlanMode".to_string());
+        payload.args = Some(json!({ "plan": "# Plan: Persist Extraction\n\nDo the thing." }));
+        let data = EventData::with_payload(
+            json!({}), 0, "sess-plan".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        let ce = CloudEvent::new(
+            "arc://test/sess-plan".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.assistant.tool_use".into()),
+            Some("evt-plan-1".to_string()),
+            None, None, None, Some("claude-code".into()),
+        );
+
+        consumer.process_batch("sess-plan", &[ce], None).await;
+
+        let reader = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
+        let plans = reader.list_for_session("sess-plan");
+        assert_eq!(plans.len(), 1, "persist consumer must extract the plan");
+        assert_eq!(plans[0].title, "Persist Extraction");
+    }
+
+    /// Re-delivery (NATS at-least-once) must not duplicate the plan: the
+    /// idempotent PlanStore key absorbs the second insert in place.
+    #[tokio::test]
+    async fn persist_consumer_plan_extraction_is_idempotent_on_redelivery() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_store = SessionStore::new(tmp.path()).unwrap();
+        let event_store: Arc<dyn EventStore> = Arc::new(
+            open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap(),
+        );
+        let plans_dir = tmp.path().join("plans");
+        let plan_store = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
+        let mut consumer = PersistConsumer::new(
+            event_store, session_store,
+            Arc::new(DashMap::new()), Arc::new(DashMap::new()), Arc::new(DashMap::new()),
+            plan_store,
+        );
+
+        let build = || {
+            let mut payload = ClaudeCodePayload::new();
+            payload.tool = Some("ExitPlanMode".to_string());
+            payload.args = Some(json!({ "plan": "# Plan: Once\n\nBody." }));
+            let data = EventData::with_payload(
+                json!({}), 0, "sess-dup-plan".to_string(),
+                AgentPayload::ClaudeCode(payload),
+            );
+            CloudEvent::new(
+                "arc://test/sess-dup-plan".into(), "io.arc.event".into(), data,
+                Some("message.assistant.tool_use".into()), Some("evt-dup-plan".to_string()),
+                None, None, None, Some("claude-code".into()),
+            )
+        };
+
+        consumer.process_batch("sess-dup-plan", &[build()], None).await;
+        consumer.process_batch("sess-dup-plan", &[build()], None).await;
+
+        let reader = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
+        assert_eq!(
+            reader.list_for_session("sess-dup-plan").len(),
+            1,
+            "re-delivered plan must overwrite, not duplicate"
         );
     }
 

@@ -32,6 +32,11 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 
+# macOS-only: kqueue/kevent syscalls for the precise vnode watcher
+# (rs/src/kqueue_watcher.rs). Already a transitive dep; promoted to direct.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [features]
 default = []
 # Pass-through features so building from the workspace root picks up

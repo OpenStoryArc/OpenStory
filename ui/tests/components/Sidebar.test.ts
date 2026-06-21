@@ -221,6 +221,64 @@ describe("deriveSessions", () => {
     expect(sessions[0]!.planCount).toBe(1);
   });
 
+  // --- Plan count from the durable plan store (REST) ---
+  // The event-stream count misses plans whose ExitPlanMode event isn't in the
+  // loaded records (older sessions, or sessions not yet expanded). The durable
+  // plan_count from /api/sessions is the source of truth for the badge.
+
+  it("should use REST plan_count when a session has no loaded events", () => {
+    // Old session: plans exist in the store, but no events are loaded, so the
+    // event stream reveals zero ExitPlanMode. The badge must still show them.
+    const sessions = deriveSessions(
+      [],
+      undefined,
+      [
+        {
+          session_id: "s-old",
+          last_event: "2026-01-01T00:00:00Z",
+          start_time: "2026-01-01T00:00:00Z",
+          plan_count: 3,
+        },
+      ],
+    );
+    expect(sessions.find((s) => s.id === "s-old")!.planCount).toBe(3);
+  });
+
+  it("should prefer the larger of REST plan_count and event-derived count", () => {
+    // Live session: a new ExitPlanMode has streamed in as an event before the
+    // REST list refreshed. Event count (2) leads the lagging REST count (1).
+    const events = [
+      makeEvent({
+        session_id: "s-live",
+        timestamp: "2026-01-01T00:00:01Z",
+        record_type: "tool_call",
+        payload: { name: "ExitPlanMode", call_id: "c1", input: {}, raw_input: {}, is_error: false },
+      }),
+      makeEvent({
+        session_id: "s-live",
+        timestamp: "2026-01-01T00:00:02Z",
+        record_type: "tool_call",
+        payload: { name: "ExitPlanMode", call_id: "c2", input: {}, raw_input: {}, is_error: false },
+      }),
+    ];
+    const sessions = deriveSessions(events, undefined, [
+      { session_id: "s-live", last_event: "2026-01-01T00:00:02Z", plan_count: 1 },
+    ]);
+    expect(sessions.find((s) => s.id === "s-live")!.planCount).toBe(2);
+  });
+
+  it("should keep REST plan_count when loaded events reveal no ExitPlanMode", () => {
+    // Old session whose events ARE loaded but predate plan-event persistence:
+    // event-derived count is 0, REST plan_count is authoritative.
+    const events = [
+      makeEvent({ session_id: "s-mixed", timestamp: "2026-01-01T00:00:01Z" }),
+    ];
+    const sessions = deriveSessions(events, undefined, [
+      { session_id: "s-mixed", last_event: "2026-01-01T00:00:01Z", plan_count: 5 },
+    ]);
+    expect(sessions.find((s) => s.id === "s-mixed")!.planCount).toBe(5);
+  });
+
   it("should populate host and user from REST sessions", () => {
     const sessions = deriveSessions(
       [],

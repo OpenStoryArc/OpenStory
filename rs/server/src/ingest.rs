@@ -1276,12 +1276,15 @@ mod tests {
         let projections_map = std::sync::Arc::new(dashmap::DashMap::new());
         let session_projects = std::sync::Arc::new(dashmap::DashMap::new());
         let session_project_names = std::sync::Arc::new(dashmap::DashMap::new());
+        let plan_store =
+            open_story_store::plan_store::PlanStore::new(&tmp.path().join("plans")).unwrap();
         let mut persist = PersistConsumer::new(
             event_store.clone(),
             session_store,
             projections_map.clone(),
             session_projects.clone(),
             session_project_names.clone(),
+            plan_store,
         );
         let mut projections = ProjectionsConsumer::new(
             projections_map,

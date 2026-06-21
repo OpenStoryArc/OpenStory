@@ -49,9 +49,9 @@ fn vr_user_message() -> ViewRecord {
         seq: 1,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:00Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
-        origin_agent: None,
         body: RecordBody::UserMessage(UserMessage {
             content: MessageContent::Text("hello".into()),
             images: vec![],
@@ -65,9 +65,9 @@ fn vr_assistant_with_blocks() -> ViewRecord {
         seq: 2,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:01Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
-        origin_agent: None,
         body: RecordBody::AssistantMessage(Box::new(AssistantMessage {
             model: "claude-opus-4-6".into(),
             content: vec![ContentBlock::Text { text: "hi".into() }],
@@ -84,9 +84,9 @@ fn vr_tool_call() -> ViewRecord {
         seq: 3,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:02Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
-        origin_agent: None,
         body: RecordBody::ToolCall(Box::new(ToolCall {
             call_id: "toolu_x".into(),
             name: "Read".into(),
@@ -131,9 +131,9 @@ fn view_record_accepts_message_content_as_blocks() {
         seq: 4,
         session_id: "sess".into(),
         timestamp: "2026-04-15T10:00:03Z".into(),
+        origin_agent: None,
         agent_id: None,
         is_sidechain: false,
-        origin_agent: None,
         body: RecordBody::UserMessage(UserMessage {
             content: MessageContent::Blocks(vec![ContentBlock::Text { text: "hi".into() }]),
             images: vec![],

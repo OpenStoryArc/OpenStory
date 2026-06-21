@@ -9,6 +9,7 @@
           "depth": 0,
           "id": "pi-test-session",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.session_start"
@@ -34,6 +35,7 @@
           "depth": 0,
           "id": "uuid-0",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": "Read the config file and explain it",
@@ -61,6 +63,7 @@
           "depth": 0,
           "id": "uuid-1",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": [
@@ -93,6 +96,7 @@
           "depth": 0,
           "id": "uuid-2",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "call_id": "tc-001",
@@ -130,6 +134,7 @@
           "depth": 0,
           "id": "uuid-3",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "call_id": "tc-001",
@@ -158,6 +163,7 @@
           "depth": 0,
           "id": "uuid-4",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": "The config file is a TOML file with a server section containing host and port.",
@@ -186,6 +192,7 @@
           "depth": 0,
           "id": "uuid-5",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": [
@@ -208,8 +215,11 @@
           "depth": 0,
           "id": "uuid-5:usage",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
             "input_tokens": 200,
             "output_tokens": 100,
             "scope": "turn",
@@ -237,6 +247,7 @@
           "depth": 0,
           "id": "uuid-6",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -263,6 +274,7 @@
           "depth": 0,
           "id": "uuid-7",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "subtype": "system.model_change"
@@ -289,6 +301,7 @@
           "depth": 0,
           "id": "uuid-8",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": "Run the tests",
@@ -312,6 +325,7 @@
         {
           "id": "uuid-9",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "payload": {
             "subtype": "progress.bash"
           },
@@ -335,6 +349,7 @@
           "depth": 1,
           "id": "comp-001",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": "msg-prev",
           "payload": {
             "subtype": "system.compact"
@@ -361,6 +376,7 @@
           "depth": 0,
           "id": "uuid-1",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "content": [
@@ -383,6 +399,7 @@
           "depth": 0,
           "id": "uuid-1:usage",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "input_tokens": 50,
@@ -412,6 +429,7 @@
           "depth": 0,
           "id": "uuid-10",
           "is_sidechain": false,
+          "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -1098,8 +1116,8 @@
       "id": "pi_mono_session",
       "label": "Read the config file and explain it",
       "last_event": "2025-12-09T00:00:09.000Z",
-      "project_id": null,
-      "project_name": null
+      "project_id": "-work-my-project",
+      "project_name": "my-project"
     }
   ]
 }

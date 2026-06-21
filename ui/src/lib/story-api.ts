@@ -21,6 +21,10 @@ export interface StorySession {
   total_output_tokens?: number;
   first_prompt?: string | null;
   project_name?: string | null;
+  /** Plans extracted for this session, from the durable plan store. Source of
+   *  truth for the sidebar plan badge — the event stream can miss plans whose
+   *  ExitPlanMode event isn't in the loaded records. */
+  plan_count?: number;
   /** Origin host (machine identity) — `null` for legacy sessions ingested before host stamping. */
   host?: string | null;
   /** Origin user (human identity) — `null` for legacy sessions ingested before user stamping. */

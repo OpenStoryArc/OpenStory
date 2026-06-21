@@ -367,19 +367,52 @@ impl EventStore for MongoStore {
             Err(e) => return Err(anyhow!("mongo recompute_session_bounds aggregate: {e}")),
         };
 
+        // Ceiling = MAX timestamp over ALL events on disk (snapshots included).
+        // A last_event strictly above this is a live frontier a persist
+        // consumer set from a NATS event not yet written to the store; a
+        // polluted value instead equals its snapshot's own (on-disk)
+        // timestamp, so it does not exceed the ceiling and still heals.
+        // Mirrors the SQLite CASE in recompute_session_bounds — backend parity.
+        let ceiling_pipeline = vec![
+            doc! { "$match": { "session_id": session_id, "timestamp": { "$ne": "" } } },
+            doc! { "$group": { "_id": Bson::Null, "ceil": { "$max": "$timestamp" } } },
+        ];
+        let ceiling: Option<String> = match events.aggregate(ceiling_pipeline).await {
+            Ok(mut cursor) => match cursor.next().await {
+                Some(Ok(doc)) => doc.get_str("ceil").ok().map(|s| s.to_string()),
+                _ => None,
+            },
+            Err(e) => return Err(anyhow!("mongo recompute_session_bounds ceiling: {e}")),
+        };
+
         // Authoritative $set (not $min/$max-merge) so we can lower a polluted
         // bound. Bson::Null when there is no real-activity timestamp.
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
+        let existing_last: Option<String> = match sessions.find_one(doc! { "_id": session_id }).await
+        {
+            Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
+            _ => None,
+        };
+
+        // Preserve a strictly-ahead live frontier; otherwise heal. Both operands
+        // must be present so the no-events case falls through to the recomputed
+        // value exactly like SQLite's `x > NULL` (false), keeping the two
+        // backends in lockstep.
+        let effective_last = match (existing_last.as_deref(), ceiling.as_deref()) {
+            (Some(e), Some(c)) if e > c => existing_last.clone(),
+            _ => last.clone(),
+        };
+
         let set = doc! {
             "first_event": first.as_deref().map_or(Bson::Null, Bson::from),
-            "last_event": last.as_deref().map_or(Bson::Null, Bson::from),
+            "last_event": effective_last.as_deref().map_or(Bson::Null, Bson::from),
         };
         sessions
             .update_one(doc! { "_id": session_id }, doc! { "$set": set })
             .await
             .map_err(|e| anyhow!("mongo recompute_session_bounds update: {e}"))?;
 
-        Ok((first, last))
+        Ok((first, effective_last))
     }
 
     /// Set the user's custom label for a session. This is the *only*

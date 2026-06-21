@@ -602,32 +602,27 @@ impl EventStore for SqliteStore {
             .join(", ");
 
         // Authoritative SET (not MIN/MAX-merge): can lower a last_event that
-        // was polluted by boot-stamped snapshots. Gated on event-count
-        // consistency: only fire when the events table is at least as
-        // complete as the session row claims. If the row's event_count
-        // is *ahead* of COUNT(events) — typically because a live persist
-        // consumer has already incremented the row from a NATS event the
-        // reconciler hasn't yet seen — the events table doesn't carry
-        // ground truth for that frontier, and recomputing would regress
-        // the row. Skipping is correct in that case; the row's existing
-        // first/last_event come from the live path and are authoritative.
-        // ?1 is reused for every session-id bind point.
-        // The gate counts ALL events (including synthesized) because the
-        // row's `event_count` does too — incrementing on every event the
-        // persist consumer sees, synthesized or not. The MIN/MAX inside
-        // the SET still excludes synthesized subtypes (that's the whole
-        // point — heal pollution from file.snapshot). Counting matched
-        // sets on both sides makes the gate fire when the events table
-        // is at least as complete as the row claims.
+        // was polluted by boot-stamped snapshots — something upsert_session's
+        // MIN/MAX-merge cannot do. Exception: a last_event sitting strictly
+        // ABOVE every event on disk (real OR snapshot) is a live frontier a
+        // persist consumer set from a NATS event not yet written to the store;
+        // preserve it rather than regress the session into the past. A polluted
+        // value, by contrast, equals the snapshot event's own timestamp (which
+        // IS on disk), so it is not strictly above the ceiling and still heals.
+        // ?1 is reused for all four session-id bind points.
         let sql = format!(
             "UPDATE sessions SET
                 first_event = (SELECT MIN(timestamp) FROM events
                     WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion})),
-                last_event = (SELECT MAX(timestamp) FROM events
-                    WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))
-             WHERE id = ?1
-               AND event_count <= (SELECT COUNT(*) FROM events
-                    WHERE session_id = ?1 AND timestamp != '')"
+                last_event = CASE
+                    WHEN last_event IS NOT NULL
+                         AND last_event > (SELECT MAX(timestamp) FROM events
+                             WHERE session_id = ?1 AND timestamp != '')
+                    THEN last_event
+                    ELSE (SELECT MAX(timestamp) FROM events
+                        WHERE session_id = ?1 AND timestamp != '' AND subtype NOT IN ({exclusion}))
+                END
+             WHERE id = ?1"
         );
         conn.execute(&sql, rusqlite::params![session_id])?;
 

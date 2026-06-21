@@ -444,6 +444,39 @@ pub async fn it_recompute_session_bounds_lowers_a_polluted_value(store: Arc<dyn 
     );
 }
 
+/// The flip side of healing: `recompute_session_bounds` must NOT regress a
+/// *live frontier*. A `last_event` set by the persist consumer from a NATS
+/// event not yet written to the store sits strictly ABOVE every on-disk event
+/// (real or snapshot) — recompute must preserve it. Contrast with a polluted
+/// value, which equals its snapshot's on-disk timestamp (not strictly above)
+/// and therefore still heals. Mirrors
+/// `server::test_reconcile::reconcile_session_row_does_not_regress_frontier`
+/// at the store layer, enforced across both backends.
+pub async fn it_recompute_session_bounds_preserves_live_frontier(store: Arc<dyn EventStore>) {
+    let sid = "sess-live-frontier";
+    let mut ahead = test_session_row(sid, Some("ahead"));
+    ahead.first_event = Some("2026-05-01T10:00:00Z".to_string());
+    ahead.last_event = Some("2026-05-01T20:00:00Z".to_string()); // live frontier
+    store.upsert_session(&ahead).await.unwrap();
+
+    // On disk: only earlier real events. The 20:00 event is still in flight
+    // (NATS-bumped the row but hasn't been persisted) — nothing on disk reaches
+    // the frontier.
+    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z")).await.unwrap();
+    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z")).await.unwrap();
+
+    let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
+    assert_eq!(
+        last.as_deref(),
+        Some("2026-05-01T20:00:00Z"),
+        "a frontier strictly above every on-disk event is a live bump — recompute must not regress it"
+    );
+
+    let sessions = store.list_sessions().await.unwrap();
+    let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
+    assert_eq!(row.last_event.as_deref(), Some("2026-05-01T20:00:00Z"));
+}
+
 /// Critical contract: `event_count` is monotone — `upsert_session` with a
 /// stale (lower) count must NOT regress the persisted value. The persist
 /// consumer's snapshot can race with a parallel reconciler running off
@@ -1989,6 +2022,7 @@ macro_rules! for_each_conformance_test {
         // last_event. The "Last Hour" regression fix.
         $macro!(it_recompute_session_bounds_excludes_synthesized_subtypes);
         $macro!(it_recompute_session_bounds_lowers_a_polluted_value);
+        $macro!(it_recompute_session_bounds_preserves_live_frontier);
         // Upsert hardening — monotone frontier + COALESCE-style protection.
         // See `docs/research/CONSTELLATION.md` R1 + the upsert hardening
         // commit. These guarantee the upsert primitive is safe to call from

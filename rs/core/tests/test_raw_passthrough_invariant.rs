@@ -152,8 +152,9 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
         !multi_groups.is_empty(),
         "scenario_07 should produce at least one decomposed group"
     );
-
-    for (_, evs) in &multi_groups {
+    // Core sovereignty invariant: within every decomposed group, all events
+    // share data.raw byte-for-byte — no per-event slicing or mutation.
+    for (_raw, evs) in &multi_groups {
         let first = serde_json::to_string(&evs[0].data.raw).unwrap();
         for ev in &evs[1..] {
             let other = serde_json::to_string(&ev.data.raw).unwrap();
@@ -163,19 +164,14 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
             );
         }
     }
-
-    // The original-content-array invariant: at least one multi-group's
-    // raw is the bundled `[toolCall, toolCall]` line (not per-block
-    // slices). Without this, a future "optimizer" that stripped per-event
-    // raw down to just the matching block would slip through.
-    let toolcall_group_present = multi_groups
-        .iter()
-        .any(|(raw, _)| raw.contains("toolCall"));
+    // The bundled [toolCall, toolCall] line (5) must be one of those groups,
+    // and its shared raw must preserve the full content array, not a slice.
+    // scenario_07 also decomposes a text+usage line into a second shared-raw
+    // group, so assert the toolCall bundle is present rather than that every
+    // group is it.
     assert!(
-        toolcall_group_present,
-        "scenario_07 should contain at least one decomposed group whose raw \
-         carries the full toolCall content array — the per-event raw must \
-         be the bundled original line, not a per-block slice"
+        multi_groups.iter().any(|(raw, _)| raw.contains("toolCall")),
+        "scenario_07's bundled toolCall line must decompose into a shared-raw group"
     );
 }
 

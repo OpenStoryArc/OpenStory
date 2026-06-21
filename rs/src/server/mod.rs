@@ -215,7 +215,7 @@ pub async fn run_server(
         // SessionRow. It upserts after the batch's events are durable;
         // ingest_events no longer touches the `sessions` table.
         {
-            let (event_store, data_dir, shared_projections, shared_projects, shared_names) = {
+            let (event_store, data_dir, shared_projections, shared_projects, shared_names, plan_store) = {
                 let s = state.read().await;
                 (
                     s.store.event_store.clone(),
@@ -223,6 +223,7 @@ pub async fn run_server(
                     s.store.projections.clone(),
                     s.store.session_projects.clone(),
                     s.store.session_project_names.clone(),
+                    s.store.plan_store.clone(),
                 )
             };
             let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
@@ -235,6 +236,7 @@ pub async fn run_server(
                     shared_projections,
                     shared_projects,
                     shared_names,
+                    plan_store,
                 );
                 match persist_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
@@ -544,7 +546,7 @@ pub async fn run_server(
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
         // for local-mode operation was unreachable and has been deleted.
-        for watcher_dir in watch_dirs.iter().cloned() {
+        for watcher_dir in watch_dirs {
             if !watcher_dir.exists() {
                 eprintln!(
                     "Watcher skipped missing directory: {}",
@@ -560,7 +562,7 @@ pub async fn run_server(
                 s.watcher_diagnostics.clone()
             };
             let agent = agent_for_watch_dir(
-                &watcher_dir,
+                watcher_dir,
                 claude_watch_dir.as_str(),
                 codex_watch_dir.as_str(),
             );
@@ -573,6 +575,7 @@ pub async fn run_server(
                 diagnostics: diagnostics.clone(),
                 actor: actor.clone(),
             };
+            let watcher_dir = watcher_dir.clone();
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = crate::watcher::watch_with_callback_observed(
                     &watcher_dir,
