@@ -20,7 +20,6 @@ import { PersonClustersView } from "@/components/admin/PersonClustersView";
 import { ParticipantsPanel } from "@/components/admin/ParticipantsPanel";
 import { FleetGrid } from "@/components/admin/FleetGrid";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
-import { SharePolicyTable } from "@/components/admin/SharePolicyTable";
 import { BetaBadge } from "@/components/admin/BetaBadge";
 import { DataSourceNote } from "@/components/admin/DataSourceNote";
 import { HowItWorks } from "@/components/admin/HowItWorks";
@@ -42,18 +41,18 @@ export function AdminView() {
       <header className="mb-6">
         <h2 className="text-xl font-semibold text-[#c0caf5] mb-1 flex items-center">
           Admin
-          <BetaBadge note="Beta — the whole admin surface (federation, sharing, roles) is new and not guaranteed to work yet. Keep testing before relying on it." />
+          <BetaBadge note="Beta — this is a read-only view of the federation and identity model. It reflects state; it does not change it. The write surface (sharing, role grants) is intentionally not wired into the UI yet." />
         </h2>
         <p className="text-sm text-[#565f89]">
-          This device's view of the federation it's running in — topology,
-          sharing, and roles. Everything here is computed by{" "}
-          <em>this node</em> from three REST endpoints
+          This device's <strong>read-only</strong> view of the federation it's
+          running in — topology, fleet, and identity. Everything here is
+          computed by <em>this node</em> from two REST endpoints
           (<code className="text-[#7dcfff]">/api/admin/topology</code>,{" "}
-          <code className="text-[#7dcfff]">/api/admin/participants</code>,{" "}
-          <code className="text-[#7dcfff]">/api/admin/share-policy</code>). Each
-          subsection notes its endpoint and how its data is derived, with a dot
-          showing whether it's a deterministic read of local state or a live
-          network probe:
+          <code className="text-[#7dcfff]">/api/admin/participants</code>). It{" "}
+          <em>observes</em> state — nothing on this page mutates sharing, roles,
+          or any session. Each subsection notes its endpoint and how its data is
+          derived, with a dot showing whether it's a deterministic read of local
+          state or a live network probe:
         </p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#565f89]">
           <span className="flex items-center gap-1.5">
@@ -70,9 +69,11 @@ export function AdminView() {
           </span>
         </div>
         <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          <strong>Beta:</strong> these controls are new and still being
-          hardened. They work in our tests but aren't guaranteed end-to-end —
-          verify behavior before depending on it, and expect rough edges.
+          <strong>Beta · read-only:</strong> the sharing &amp; consent and
+          role-grant machinery exists in the backend but is{" "}
+          <strong>not driven from this UI yet</strong>. This page shows you what
+          the system currently believes — it makes no claim to change it.
+          Mutations stay on the CLI until the model is hardened end-to-end.
         </div>
       </header>
 
@@ -272,15 +273,17 @@ export function AdminView() {
             <header className="mb-3">
               <h3 className="text-sm font-medium text-[#c0caf5]">Participants & roles</h3>
               <p className="text-xs text-[#565f89] mt-0.5">
-                Phase 6 role directory. Granting <code>Admin</code> here lets
-                a principal mutate share policy + share-with-person; lower
-                tiers (<code>Contributor</code>, <code>Observer</code>) are
-                reserved for future routes. Bootstrap the first Admin from
-                the CLI — every admin route 403s until one exists.
+                Phase 6 role directory, shown <strong>read-only</strong>. Each
+                principal's role (<code>Observer</code> &lt;{" "}
+                <code>Contributor</code> &lt; <code>Admin</code>) is listed as
+                stored; grants and revocations are done from the CLI
+                (<code>open-story grant-role</code>), not here. The first Admin
+                must be bootstrapped from the CLI — every admin <em>write</em>{" "}
+                route 403s until one exists.
               </p>
               <DataSourceNote
-                endpoint="GET/PUT /api/admin/participants"
-                derivation="the EmbeddedRoleDirectory SQLite at roles_db_path; grants/edits are role-gated (admin-only)"
+                endpoint="GET /api/admin/participants"
+                derivation="read-only list from the EmbeddedRoleDirectory SQLite at roles_db_path; grants/edits happen via the CLI, not this UI"
                 kind="local"
               />
               <HowItWorks summary="How roles are stored and enforced">
@@ -347,118 +350,6 @@ export function AdminView() {
               clusters={topology.clusters_by_person ?? []}
               selfHost={topology.self.host}
             />
-          </section>
-
-          <section className="rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
-            <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Share policy</h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
-                Sessions originating on this device. <code>shared</code> means
-                they flow into the federation aggregate; <code>private</code>{" "}
-                means they never leave this device. The default is{" "}
-                <strong className="text-[#9ece6a]">opt-in</strong>: a
-                loopback-only instance defaults to <code>shared</code> (your
-                local dashboard just works), but once networking is configured
-                the default flips to <code>private</code> so going to a hub
-                never auto-shares your history.
-              </p>
-              <DataSourceNote
-                endpoint="GET /api/admin/share-policy · PUT /…/{session}"
-                derivation="session store + share_policy table; an unset session's value is derived from config (loopback→shared, networked→private). Writes are admin-only"
-                kind="local"
-              />
-              <HowItWorks summary="How share policy works under the hood">
-                <p>
-                  <strong className="text-[#c0caf5]">Source of truth.</strong>{" "}
-                  The <code>share_policy</code> SQLite table holds one row per
-                  session you've explicitly set (<code>mode</code> =
-                  shared/private, plus <code>updated_at</code>/
-                  <code>updated_by</code>). A session with{" "}
-                  <em>no row</em> falls back to the config-derived default
-                  (<code>effective_default_share_policy</code>): loopback-only →{" "}
-                  <code>shared</code>, networked → <code>private</code>. So the
-                  default tracks whether you've gone to a hub, and an explicit
-                  row always wins.
-                </p>
-                <p>
-                  <strong className="text-[#c0caf5]">
-                    What <code>private</code> actually does — three independent
-                    gates:
-                  </strong>
-                </p>
-                <ol className="ml-4 list-decimal space-y-1">
-                  <li>
-                    <strong className="text-[#9ece6a]">
-                      Bus publish-skip
-                    </strong>{" "}
-                    (the federation gate, Invariant ①). At publish time the NATS
-                    bus calls <code>is_private(session)</code> and{" "}
-                    <em>skips</em> private sessions — the event never enters
-                    NATS, never reaches the hub aggregate, never reaches peers
-                    (counted by the <code>bus_publish_skipped_total</code>{" "}
-                    metric). This is what stops sharing <em>at the source</em>.
-                  </li>
-                  <li>
-                    <strong className="text-[#7aa2f7]">
-                      API read gate
-                    </strong>{" "}
-                    (<code>RequirePublicSession</code>). Per-session reads
-                    (<code>/events</code>, <code>/transcript</code>, …) return{" "}
-                    <strong>404</strong> for a private session — denying
-                    existence, so a peer's catch-up stops asking (also why an
-                    unconfigured session 404s).
-                  </li>
-                  <li>
-                    <strong className="text-[#bb9af7]">
-                      Digest + search filters
-                    </strong>
-                    . Cross-session reads include <em>only</em> explicitly-shared
-                    sessions (<code>shared_session_ids()</code>), and{" "}
-                    <em>fail-closed</em> (503) if the policy can't be read — so a
-                    private session never leaks via search.
-                  </li>
-                </ol>
-                <p>
-                  <strong className="text-[#c0caf5]">Writes.</strong>{" "}
-                  <code>PUT</code> upserts the row and is admin-only — it passes
-                  through <code>require_admin_role_middleware</code> (the caller's
-                  principal must be Admin), which is why an unbootstrapped
-                  instance 403s.
-                </p>
-                <p>
-                  <strong className="text-[#e0af68]">
-                    Revocation is stop-flow, not purge
-                  </strong>{" "}
-                  (Invariant ③). Flipping back to <code>private</code> stops{" "}
-                  <em>new</em> propagation immediately, but does{" "}
-                  <strong>not</strong> pull back copies already mirrored to the
-                  hub or other devices; your local events also stay on disk
-                  (flipping back to <code>shared</code> restores visibility with
-                  no rebuild).
-                </p>
-                <p>
-                  <strong className="text-[#c0caf5]">
-                    Cross-person sharing is the part that dynamically rewrites
-                    NATS.
-                  </strong>{" "}
-                  The shared/private toggle above is just a <em>publish gate</em>
-                  — it never touches NATS config. Granting another{" "}
-                  <em>person</em> access (<code>share-with-person</code>) is what
-                  reconfigures the bus at runtime:{" "}
-                  <code>AccountConfigWriter::add_share</code> adds a one-way{" "}
-                  <code>export</code> on your <code>PERSON_*</code> account for{" "}
-                  <code>{"events.*.<session>.>"}</code> to the target person's
-                  account (plus a matching <code>import</code>), rewrites the{" "}
-                  <code>accounts {"{…}"}</code> block <strong>atomically</strong>{" "}
-                  (tmpfile → <code>rename</code>), then <strong>SIGHUPs</strong>{" "}
-                  nats-server to apply it live — no restart. It's idempotent, and
-                  gated by owner-consent (only the session's owner can share it).
-                  That conf-rewrite + reload is the mechanism that actually moves
-                  data between people.
-                </p>
-              </HowItWorks>
-            </header>
-            <SharePolicyTable selfHost={topology.self.host} />
           </section>
         </>
       )}

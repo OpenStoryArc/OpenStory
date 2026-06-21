@@ -1,45 +1,19 @@
 /**
- * ParticipantsPanel — manage the role directory from the UI.
+ * ParticipantsPanel — read-only view of the role directory.
  *
- * Lists everyone in the local `EmbeddedRoleDirectory`, lets an Admin
- * grant/revoke roles. First Admin must be bootstrapped via
- * `open-story grant-role` from the CLI (chicken-and-egg: every admin
- * endpoint requires an existing Admin to authorize).
+ * Lists everyone in the local `EmbeddedRoleDirectory` with their role.
+ * Granting and revoking roles is intentionally NOT wired into the UI:
+ * the foundation exists in the backend (PUT/DELETE /api/admin/participants),
+ * but the model isn't hardened end-to-end, so mutations stay on the CLI
+ * (`open-story grant-role`). This panel observes; it never mutates.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  deleteParticipant,
-  fetchParticipants,
-  upsertParticipant,
-  type Participant,
-  type Role,
-} from "@/lib/admin-api";
-import { useFleet } from "@/hooks/use-fleet";
-
-const ROLES: readonly Role[] = ["observer", "contributor", "admin"];
+import { fetchParticipants, type Participant } from "@/lib/admin-api";
 
 export function ParticipantsPanel() {
   const [participants, setParticipants] = useState<readonly Participant[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<Set<string>>(new Set());
-
-  // Known identities (this person + their configured principals) so the
-  // grant form suggests real ids instead of demanding hand-typed UUIDs.
-  const { fleet } = useFleet();
-
-  // Add-form state
-  const [newPrincipalId, setNewPrincipalId] = useState("");
-  const [newPersonId, setNewPersonId] = useState("");
-  const [newRole, setNewRole] = useState<Role>("observer");
-
-  // Prefill the person id with the configured owner once the fleet loads —
-  // you're usually granting roles to your own principals.
-  useEffect(() => {
-    if (fleet?.person.id) {
-      setNewPersonId((cur) => (cur === "" ? fleet.person.id : cur));
-    }
-  }, [fleet?.person.id]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -57,58 +31,6 @@ export function ParticipantsPanel() {
     refresh(ctrl.signal);
     return () => ctrl.abort();
   }, [refresh]);
-
-  const markBusy = (id: string, on: boolean) =>
-    setBusy((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-
-  const handleGrant = async () => {
-    if (!newPrincipalId.trim() || !newPersonId.trim()) {
-      setError("principal_id and person_id are required");
-      return;
-    }
-    markBusy("__new__", true);
-    try {
-      await upsertParticipant(newPrincipalId.trim(), newPersonId.trim(), newRole);
-      setNewPrincipalId("");
-      setNewPersonId("");
-      setNewRole("observer");
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      markBusy("__new__", false);
-    }
-  };
-
-  const handleChangeRole = async (p: Participant, role: Role) => {
-    markBusy(p.principal_id, true);
-    try {
-      await upsertParticipant(p.principal_id, p.person_id, role);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      markBusy(p.principal_id, false);
-    }
-  };
-
-  const handleRevoke = async (p: Participant) => {
-    if (!window.confirm(`Revoke role for ${p.principal_id}?`)) return;
-    markBusy(p.principal_id, true);
-    try {
-      await deleteParticipant(p.principal_id);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      markBusy(p.principal_id, false);
-    }
-  };
 
   if (participants === null) {
     return <p className="text-sm text-[#565f89]">Loading participants…</p>;
@@ -138,115 +60,35 @@ export function ParticipantsPanel() {
               <th className="py-2 pr-4">Person</th>
               <th className="py-2 pr-4">Role</th>
               <th className="py-2 pr-4">Granted</th>
-              <th className="py-2 pr-4"></th>
             </tr>
           </thead>
           <tbody>
-            {participants.map((p) => {
-              const isBusy = busy.has(p.principal_id);
-              return (
-                <tr key={p.principal_id} className="border-b border-[#16161e]">
-                  <td className="py-2 pr-4 font-mono text-[#c0caf5]">{p.principal_id}</td>
-                  <td className="py-2 pr-4 text-[#bb9af7]">{p.person_id}</td>
-                  <td className="py-2 pr-4">
-                    <select
-                      value={p.role}
-                      onChange={(e) => handleChangeRole(p, e.target.value as Role)}
-                      disabled={isBusy}
-                      className="rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-xs px-2 py-1"
-                      data-testid={`role-select-${p.principal_id}`}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-2 pr-4 text-xs text-[#565f89]">
-                    {p.created_at.slice(0, 16)}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <button
-                      type="button"
-                      onClick={() => handleRevoke(p)}
-                      disabled={isBusy}
-                      className="rounded px-2 py-1 text-xs bg-[#f7768e]/20 text-[#f7768e] hover:bg-[#f7768e]/30 cursor-pointer"
-                      data-testid={`revoke-${p.principal_id}`}
-                    >
-                      revoke
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+            {participants.map((p) => (
+              <tr key={p.principal_id} className="border-b border-[#16161e]">
+                <td className="py-2 pr-4 font-mono text-[#c0caf5]">{p.principal_id}</td>
+                <td className="py-2 pr-4 text-[#bb9af7]">{p.person_id}</td>
+                <td className="py-2 pr-4">
+                  <span
+                    className="inline-block rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-xs px-2 py-1"
+                    data-testid={`role-${p.principal_id}`}
+                  >
+                    {p.role}
+                  </span>
+                </td>
+                <td className="py-2 pr-4 text-xs text-[#565f89]">
+                  {p.created_at.slice(0, 16)}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
 
-      <div className="mt-4 pt-4 border-t border-[#24283b]">
-        <h4 className="text-xs font-medium text-[#565f89] uppercase tracking-wider mb-2">
-          Grant role
-        </h4>
-        <div className="flex gap-2 items-end">
-          <div className="flex-1">
-            <label className="text-xs text-[#565f89] block mb-1">Principal id</label>
-            <input
-              type="text"
-              list="known-principal-ids"
-              value={newPrincipalId}
-              onChange={(e) => setNewPrincipalId(e.target.value)}
-              placeholder="pick a known principal, or type a new id"
-              className="w-full rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-sm px-2 py-1 font-mono"
-              data-testid="new-principal-id"
-            />
-            <datalist id="known-principal-ids">
-              {(fleet?.principals ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.display_name}
-                </option>
-              ))}
-            </datalist>
-          </div>
-          <div className="flex-1">
-            <label className="text-xs text-[#565f89] block mb-1">Person id</label>
-            <input
-              type="text"
-              list="known-person-ids"
-              value={newPersonId}
-              onChange={(e) => setNewPersonId(e.target.value)}
-              placeholder="pick a person, or type a new id"
-              className="w-full rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-sm px-2 py-1 font-mono"
-              data-testid="new-person-id"
-            />
-            <datalist id="known-person-ids">
-              {fleet?.person && (
-                <option value={fleet.person.id}>{fleet.person.display_name}</option>
-              )}
-            </datalist>
-          </div>
-          <div>
-            <label className="text-xs text-[#565f89] block mb-1">Role</label>
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as Role)}
-              className="rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-sm px-2 py-1"
-              data-testid="new-role"
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={handleGrant}
-            disabled={busy.has("__new__")}
-            className="rounded px-3 py-1 text-sm font-medium bg-[#7aa2f7]/20 text-[#7aa2f7] hover:bg-[#7aa2f7]/30 cursor-pointer"
-            data-testid="grant-button"
-          >
-            grant
-          </button>
-        </div>
-      </div>
+      <p className="mt-4 pt-4 border-t border-[#24283b] text-xs text-[#565f89]">
+        Roles are managed from the CLI
+        (<code className="text-[#7aa2f7]">open-story grant-role</code>), not from
+        this read-only view.
+      </p>
     </div>
   );
 }

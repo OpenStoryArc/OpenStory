@@ -73,45 +73,12 @@ export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
 
 // ── Share policy ────────────────────────────────────────────────────────
 
-export type SharePolicyMode = "shared" | "private";
-
-export interface SharePolicyRow {
-  readonly session_id: string;
-  readonly mode: SharePolicyMode;
-  readonly updated_at: string;
-  readonly updated_by: string | null;
-}
-
-export interface SharePolicyResponse {
-  readonly default_mode: SharePolicyMode;
-  readonly policies: readonly SharePolicyRow[];
-}
-
-export async function fetchSharePolicies(signal?: AbortSignal): Promise<SharePolicyResponse> {
-  const res = await fetch("/api/admin/share-policy", { signal });
-  if (!res.ok) {
-    throw new Error(`fetchSharePolicies: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}
-
-export async function setSharePolicy(
-  sessionId: string,
-  mode: SharePolicyMode,
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch(`/api/admin/share-policy/${encodeURIComponent(sessionId)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
-    signal,
-  });
-  if (!res.ok) {
-    throw new Error(`setSharePolicy(${sessionId}, ${mode}): ${res.status} ${res.statusText}`);
-  }
-}
-
-// ── Participants (Phase 6 polish) ───────────────────────────────────────
+// ── Participants (Phase 6 polish) — read-only in the UI ─────────────────
+//
+// Role grants/revocations (PUT/DELETE /api/admin/participants) exist in the
+// backend but are intentionally not wired into the UI; the admin surface is
+// read-only until the sharing/identity model is hardened end-to-end. Mutations
+// happen via the CLI (`open-story grant-role`).
 
 export type Role = "observer" | "contributor" | "admin";
 
@@ -127,36 +94,4 @@ export async function fetchParticipants(signal?: AbortSignal): Promise<readonly 
   if (!res.ok) throw new Error(`fetchParticipants: ${res.status} ${res.statusText}`);
   const body = await res.json();
   return body.participants ?? [];
-}
-
-export async function upsertParticipant(
-  principalId: string,
-  personId: string,
-  role: Role,
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch("/api/admin/participants", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ principal_id: principalId, person_id: personId, role }),
-    signal,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`upsertParticipant: HTTP ${res.status} ${text}`);
-  }
-}
-
-export async function deleteParticipant(
-  principalId: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch(`/api/admin/participants/${encodeURIComponent(principalId)}`, {
-    method: "DELETE",
-    signal,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`deleteParticipant: HTTP ${res.status} ${text}`);
-  }
 }
