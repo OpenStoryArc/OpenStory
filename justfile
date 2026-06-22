@@ -5,6 +5,16 @@
 # ONNX Runtime library name (platform-dependent)
 ort_lib := if os() == "windows" { "onnxruntime.dll" } else if os() == "macos" { "libonnxruntime.dylib" } else { "libonnxruntime.so" }
 
+# ── Two instances ──────────────────────────────────────────────────────────
+# The stable "watcher" (Docker, `just watcher`) owns the canonical ports
+# 3002/5173 — your always-on window that nothing here clobbers. The native dev
+# "sandbox" (`just up` / `just up-no-mongo`) lives on these alternate ports and
+# its own data dir, so rebuilding/restarting it never touches the watcher.
+# See the "Two instances" section in CLAUDE.md.
+sandbox_api_port := "3012"
+sandbox_ui_port := "5183"
+sandbox_data_dir := "./data/sandbox"
+
 # Default recipe: list available commands
 default:
     @just --list
@@ -65,18 +75,20 @@ kill-port port:
 check *ARGS:
     bash scripts/check-prereqs.sh {{ARGS}}
 
-# Build and start NATS + Mongo + server (mongo backend) + UI (Ctrl+C to stop)
+# Dev sandbox: NATS + Mongo + server + UI on ALT ports (mongo backend, Ctrl+C to stop)
 up:
     #!/usr/bin/env bash
     set -e
+    echo "Dev sandbox → API http://localhost:{{sandbox_api_port}}  UI http://localhost:{{sandbox_ui_port}}"
+    echo "(the stable watcher owns 3002/5173 — see 'just watcher')"
     # Kill any lingering processes
     if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
       taskkill //F //IM open-story.exe 2>/dev/null || true
     else
       pkill -f 'open-story.*serve' 2>/dev/null || true
     fi
-    just kill-port 3002
-    just kill-port 5173
+    just kill-port {{sandbox_api_port}}
+    just kill-port {{sandbox_ui_port}}
 
     # Start NATS JetStream (hard dependency)
     if ! command -v nats-server &>/dev/null; then
@@ -101,22 +113,25 @@ up:
     OPEN_STORY_DATA_BACKEND=mongo \
     OPEN_STORY_MONGO_URI=mongodb://localhost:27017 \
     OPEN_STORY_MONGO_DB=openstory \
-      cargo run --manifest-path rs/cli/Cargo.toml --features mongo -- serve &
+      cargo run --manifest-path rs/cli/Cargo.toml --features mongo -- serve \
+        --port {{sandbox_api_port}} --data-dir {{sandbox_data_dir}} &
     sleep 2
-    cd ui && npm run dev &
+    cd ui && VITE_API_URL=http://localhost:{{sandbox_api_port}} npm run dev -- --port {{sandbox_ui_port}} &
     wait
 
-# Same as `just up` but uses SQLite (no Docker / Mongo container required)
+# Dev sandbox on ALT ports using SQLite (no Docker / Mongo container required)
 up-no-mongo:
     #!/usr/bin/env bash
     set -e
+    echo "Dev sandbox → API http://localhost:{{sandbox_api_port}}  UI http://localhost:{{sandbox_ui_port}}"
+    echo "(the stable watcher owns 3002/5173 — see 'just watcher')"
     if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
       taskkill //F //IM open-story.exe 2>/dev/null || true
     else
       pkill -f 'open-story.*serve' 2>/dev/null || true
     fi
-    just kill-port 3002
-    just kill-port 5173
+    just kill-port {{sandbox_api_port}}
+    just kill-port {{sandbox_ui_port}}
 
     if ! command -v nats-server &>/dev/null; then
       echo "ERROR: nats-server not found. Install: brew install nats-server"
@@ -134,9 +149,10 @@ up-no-mongo:
 
     trap 'kill $(jobs -p) 2>/dev/null' EXIT
     cargo build --manifest-path rs/cli/Cargo.toml
-    cargo run --manifest-path rs/cli/Cargo.toml -- serve &
+    cargo run --manifest-path rs/cli/Cargo.toml -- serve \
+      --port {{sandbox_api_port}} --data-dir {{sandbox_data_dir}} &
     sleep 2
-    cd ui && npm run dev &
+    cd ui && VITE_API_URL=http://localhost:{{sandbox_api_port}} npm run dev -- --port {{sandbox_ui_port}} &
     wait
 
 # Start MongoDB (mongo:7) as a Docker container (idempotent)
@@ -244,7 +260,25 @@ backfill:
 nats-docker:
     docker run --rm -p 4222:4222 -p 8222:8222 nats:2-alpine --jetstream
 
-# Start everything with Docker Compose (NATS + server + UI)
+# ── Stable watcher (always-on Docker instance) ─────────────────────────────
+# Owns canonical 3002/5173. Ingests Claude + Codex, read-only. Survives branch
+# switches, rebuilds, and sandbox restarts. This is your window — see
+# docker-compose.yml and the "Two instances" section in CLAUDE.md.
+
+# Start (or rebuild) the stable watcher, detached. First build ~3 min.
+watcher:
+    docker compose up -d --build
+    @echo "Watcher up → UI http://localhost:5173  API http://localhost:3002"
+
+# Stop the stable watcher (mongo volume persists).
+watcher-down:
+    docker compose down
+
+# Tail the watcher's server logs.
+watcher-logs:
+    docker compose logs -f server
+
+# Start everything with Docker Compose in the FOREGROUND (NATS + server + UI)
 compose:
     docker compose up --build
 
