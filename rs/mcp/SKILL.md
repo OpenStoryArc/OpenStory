@@ -5,7 +5,7 @@ description: Query your own coding sessions via the OpenStory MCP tools — find
 
 # OpenStory — self-awareness via your own session history
 
-OpenStory observes every session you run. You can query that history in real time through the `openstory` MCP server, which exposes 21 read-only tools — 19 query tools plus 2 streaming tools that pump live events. The server is a native Rust binary (`open-story-mcp`) that talks directly to the OpenStory event store and NATS event bus — no HTTP hop, no Python, no proxy.
+OpenStory observes every session you run. You can query that history in real time through the `openstory` MCP server, which exposes 21 read-only tools — 19 query tools plus 2 streaming tools that pump live events. The server is a native Rust binary (`open-story-mcp`) that reads OpenStory over its REST API (the query tools) and subscribes to the NATS event bus (the streaming tools) — no Python, no proxy. It never opens your database and never writes.
 
 ## When to use these tools
 
@@ -49,7 +49,7 @@ OpenStory observes every session you run. You can query that history in real tim
 
 - **All tools are read-only.** OpenStory observes, it never mutates.
 - **Session IDs are UUIDs** derived from the source-agent JSONL filenames — they're globally unique.
-- **Direct store access.** The Rust MCP reads SQLite (or Mongo, when `OPENSTORY_DATA_BACKEND=mongo`) directly — no REST hop. That makes `session_story`, `search`, and the analytics tools faster and immune to REST-layer truncation.
+- **REST-only data path.** The Rust MCP reads OpenStory over its REST API (`OPENSTORY_API_URL`, default `http://localhost:3002`) via an `HttpEventStore` — it never opens the database directly. That makes it cwd-independent (launch from anywhere), portable, and remote-capable. See `docs/mcp-architecture.md`.
 - **Before guessing, query.** If the user asks about something you *could* know from history, look it up instead of guessing from memory.
 - **When picking up from a past session**, call `session_story` first to get the full fact sheet, then drill into specific tools (`tool_journey`, `session_transcript`) if you need detail.
 - **For live work**, prefer `subscribe_session` over polling. The stream pushes events as the watcher sees them.
