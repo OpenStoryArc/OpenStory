@@ -1,24 +1,47 @@
+# The stable "watcher" instance.
+#
+# This is your always-on window into what your agents are doing. It is fully
+# self-contained and SEALED: only the API (3002) and UI (5173) are published to
+# the host. NATS and Mongo talk over the compose-internal network only, so this
+# stack never fights a native dev instance for ports (the native dev sandbox,
+# `just up` / `just up-no-mongo`, keeps its own NATS leaf on 4222 — see the
+# "Two instances" section in CLAUDE.md).
+#
+# It ingests BOTH Claude Code and Codex sessions, read-only, and survives branch
+# switches, rebuilds, and agent restarts in any working checkout because the
+# project name is pinned below.
+#
+#   docker compose up -d --build     # first boot (~3 min, builds the mongo image)
+#   docker compose logs -f server    # tail
+#   docker compose down              # stop (volumes persist)
+#
+# Override the host source dirs if yours aren't in the default locations:
+#   CLAUDE_PROJECTS_DIR=/path/to/.claude/projects \
+#   CODEX_SESSIONS_DIR=/path/to/.codex/sessions \
+#   docker compose up -d
+name: openstory-watcher
+
 services:
   nats:
     image: nats:2-alpine
     command: ["--jetstream", "--store_dir", "/data/jetstream"]
-    ports:
-      - "4222:4222"   # client connections
-      - "8222:8222"   # HTTP monitoring
+    # Internal only — no host ports. The native dev sandbox owns host :4222.
+    expose:
+      - "4222"
     volumes:
       - nats-data:/data
     restart: unless-stopped
 
   mongo:
     image: mongo:7
-    ports:
-      - "27017:27017"
+    # Internal only — no host port. Inspect with `docker compose exec mongo mongosh`.
+    expose:
+      - "27017"
     volumes:
       - openstory-mongo-data:/data/db
     restart: unless-stopped
-    # Default backend for `just compose`. Server picks this up via the
-    # OPEN_STORY_DATA_BACKEND=mongo env var below. To run with SQLite
-    # instead, comment out this service and the env vars on `server`.
+    # Default backend for this stack. The server picks this up via the
+    # OPEN_STORY_DATA_BACKEND=mongo env var below.
 
   server:
     build:
@@ -26,24 +49,35 @@ services:
       dockerfile: Dockerfile
       args:
         # Build the binary with the mongo feature so the server can
-        # actually use the mongo service above. Drop this arg if you
-        # want a SQLite-only image.
+        # actually use the mongo service above.
         FEATURES: mongo
     ports:
-      - "3002:3002"
+      - "3002:3002"   # canonical API — the address everyone already knows
     volumes:
       - ./data:/data
-      - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
+      # Watch BOTH agents, read-only. Each host dir is mounted at a distinct
+      # path and named via the per-agent env vars below so the watcher labels
+      # events correctly (claude-code vs codex). Format is also auto-detected
+      # per file, so this is robust even if a stray file lands in either dir.
+      - ${CLAUDE_PROJECTS_DIR:-${HOME}/.claude/projects}:/watch/claude:ro
+      - ${CODEX_SESSIONS_DIR:-${HOME}/.codex/sessions}:/watch/codex:ro
     environment:
       - NATS_URL=nats://nats:4222
       - OPEN_STORY_DATA_BACKEND=mongo
       - OPEN_STORY_MONGO_URI=mongodb://mongo:27017
       - OPEN_STORY_MONGO_DB=openstory
+      # Point the watcher at the mounted host dirs. Setting both per-agent dirs
+      # makes `agent_for_watch_dir` label each root exactly (the combined
+      # OPEN_STORY_WATCH_DIR would mislabel /watch/codex as claude-code via its
+      # fallback heuristic). With watch_dirs left empty, the resolver auto-
+      # populates it from these two. (rs/cli/src/main.rs, rs/src/server/mod.rs)
+      - OPEN_STORY_CLAUDE_WATCH_DIR=/watch/claude
+      - OPEN_STORY_CODEX_WATCH_DIR=/watch/codex
       # Stamp every CloudEvent with the host machine's identity (not the
       # container's transient ID). Set in your shell or .env, e.g.
-      # `export OPEN_STORY_HOST=Katies-Mac-mini`. Unset → resolver falls
-      # back to gethostname() inside the container, which returns the
-      # Docker container ID and defeats the feature.
+      # `export OPEN_STORY_HOST=Maxs-MacBook`. Unset → resolver falls back to
+      # gethostname() inside the container, which returns the Docker container
+      # ID and defeats the feature.
       - OPEN_STORY_HOST=${OPEN_STORY_HOST:-}
       # Stamp every event with the human user's identity. Same orthogonal
       # purpose as host (one human across many machines).
@@ -58,7 +92,7 @@ services:
     working_dir: /app
     command: sh -c "npm install && npx vite --host 0.0.0.0 --port 5173"
     ports:
-      - "5173:5173"
+      - "5173:5173"   # canonical UI
     volumes:
       - ./ui:/app
     environment:

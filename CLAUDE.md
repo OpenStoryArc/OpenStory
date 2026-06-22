@@ -123,9 +123,49 @@ Full list with context: `docs/soul/patterns.md`
 
 ---
 
+## Two instances: the watcher and the sandbox
+
+This repo is meant to run OpenStory two ways at once, on purpose. The trap it
+avoids: if the only instance is the one your agents rebuild and restart, you
+can't watch your agents — the observer becomes part of the work being observed,
+and every branch switch or `serve` restart blinds you.
+
+**The watcher** — the stable, always-on instance. Start with `just watcher`
+(Docker compose). It owns the canonical ports everyone already knows: **API
+3002, UI 5173**. It ingests *both* Claude Code (`~/.claude/projects`) and Codex
+(`~/.codex/sessions`), read-only. Its NATS and Mongo are sealed inside the
+compose network (no host ports), so it never fights a native instance for 4222
+or 27017. It survives branch switches, rebuilds, and sandbox restarts — its
+containers and Mongo volume are pinned under the compose project name
+`openstory-watcher`, independent of which checkout or worktree you launch from.
+This is your window. Nobody edits it; it just runs.
+
+**The sandbox** — the native dev instance agents are free to clobber. Start with
+`just up` (Mongo) or `just up-no-mongo` (SQLite). It lives on **alternate ports —
+API 3012, UI 5183** — with its own data dir (`data/sandbox/`) and its own NATS
+leaf on 4222. Rebuild it, restart it, kill it; the watcher never notices.
+
+| | Watcher (stable) | Sandbox (dev) |
+|---|---|---|
+| Launch | `just watcher` (Docker) | `just up` / `just up-no-mongo` (native) |
+| API / UI | **3002 / 5173** | **3012 / 5183** |
+| Backend | Mongo (sealed volume) | Mongo or SQLite (`data/sandbox/`) |
+| Ingests | Claude + Codex | Claude (+ NATS leaf → hub) |
+| Who touches it | nobody | agents, freely |
+
+Why the watcher keeps the canonical ports: most humans and agents reach for
+`localhost:3002` / `localhost:5173` from muscle memory, and the watcher is the
+one that's *always up* — so "how does everyone else know?" mostly resolves to
+"they don't need to." Only whoever is actively doing dev *in this checkout*
+needs the sandbox ports, and they get them from `just up` / `just --list` and
+this section. The MCP tools and the **Dogfood OpenStory** REST calls above all
+target 3002 — the watcher — so self-awareness queries always hit the durable,
+always-on store.
+
 ## Booting OpenStory
 
-Three modes plus "you choose for me." All three serve the UI at http://localhost:5173 and API at http://localhost:3002.
+Two instances (above): the **watcher** (Docker, canonical 3002/5173) and the dev
+**sandbox** (native, 3012/5183). Plus "you choose for me."
 
 ### For Claude
 
@@ -135,12 +175,12 @@ When the user asks to start, run, boot, or "stand up" OpenStory:
 
 1. **Check if it's already running** — narrate first ("Let me see if it's already up…"), then `curl -s -o /dev/null -w "%{http_code}" http://localhost:3002/api/sessions`. A `200` means it's up; tell the user warmly that it's already at http://localhost:5173 and offer the natural next steps (tail logs, leave it, restart) — don't restart unless they ask.
 2. **If not running, ask which mode they want** — phrase it as a question, not a menu. Mention the four options inline if helpful, but the goal is "how would you like to start it?" not "select an item from this list."
-   - **Docker** — `docker compose up -d --build`. No native deps, ~3 min first build.
-   - **Native SQLite** — `just up-no-mongo`. Fastest restart; needs `cargo`, `npm`, `nats-server`.
-   - **Split dev mode** — three terminals (`just nats`, `just serve`, `just dev`). For active code editing.
-   - **You choose for me** — probe `docker info`, `just --version`, `cargo --version`, `nats-server --version` in parallel. Prefer Docker if available, then native SQLite. Tell the user what you picked and why.
+   - **Watcher (Docker)** — `just watcher`. The stable, always-on instance on canonical 3002/5173, ingesting Claude + Codex. No native deps, ~3 min first build. This is what most people want running.
+   - **Sandbox, SQLite** — `just up-no-mongo`. The native dev instance on alt ports 3012/5183. Fastest restart; needs `cargo`, `npm`, `nats-server`.
+   - **Split dev mode** — three terminals (`just nats`, `just serve`, `just dev`). For active code editing. Note: raw `just serve`/`just dev` bind canonical 3002/5173 — pass `--port 3012 --data-dir data/sandbox` to serve and `VITE_API_URL=http://localhost:3012` to dev if the watcher is running.
+   - **You choose for me** — probe `docker info`, `just --version`, `cargo --version`, `nats-server --version` in parallel. Prefer the Docker watcher if available, then the native sandbox. Tell the user what you picked and why.
 3. **Verify prereqs before starting** — run `just check --mode <native|docker>` (or no flag to check all; under the hood: `scripts/check-prereqs.sh`). If anything's missing, walk the user through it: the brew-installable ones can be installed in one shot with `just check --mode <…> --install` after the user agrees; for things the script can't auto-install (Rust toolchain via rustup, Docker Desktop), surface the install command and let the user run it. Don't silently fall back to a different mode.
-4. **Check for port collisions** — `lsof -ti:3002,5173,4222`. Any PID = something's bound; investigate before booting.
+4. **Check for port collisions** — `lsof -ti:3002,5173,4222,3012,5183`. Any PID = something's bound; investigate before booting (the watcher legitimately holds 3002/5173/4222 — don't kill it to start a sandbox; use the alt ports instead).
 5. **After boot, verify** the API returns 200 on `/api/sessions` and the UI loads.
 6. **If `~/.claude/projects/` is empty,** warn the user the UI will show zero sessions until they run a Claude Code session somewhere — expected, not a bug.
 
@@ -158,20 +198,27 @@ When the user asks to start, run, boot, or "stand up" OpenStory:
 
 ### Modes (reference)
 
-#### Docker
+#### Watcher (Docker) — the stable instance
 
 ```bash
-docker compose up -d --build      # first boot (~3 min)
-docker compose down               # stop (volumes persist)
-docker compose logs -f server     # tail logs
+just watcher                      # start/rebuild detached, canonical 3002/5173 (~3 min first build)
+just watcher-down                 # stop (mongo volume persists)
+just watcher-logs                 # tail server logs
 ```
 
-Override watch dir: `CLAUDE_PROJECTS_DIR=/path/to/projects docker compose up -d`.
-
-#### Native, SQLite
+Ingests Claude Code *and* Codex by default. Override the host source dirs if
+yours aren't in the standard locations:
 
 ```bash
-just up-no-mongo
+CLAUDE_PROJECTS_DIR=/path/to/.claude/projects \
+CODEX_SESSIONS_DIR=/path/to/.codex/sessions \
+  just watcher
+```
+
+#### Sandbox, SQLite — the native dev instance
+
+```bash
+just up-no-mongo                  # alt ports 3012/5183, data in data/sandbox/
 ```
 
 Prereqs: `brew install just nats-server`, plus `cargo` and `npm`.
@@ -248,13 +295,16 @@ docker compose up
 ## Development Quick Reference
 
 ```bash
-just up              # Start NATS + Mongo + server (mongo backend) + UI (default)
-just up-no-mongo     # Same as above but uses SQLite (no Docker required)
+just watcher         # Stable watcher (Docker): canonical 3002/5173, Claude + Codex
+just watcher-down    # Stop the watcher (mongo volume persists)
+just watcher-logs    # Tail the watcher's server logs
+just up              # Dev sandbox: NATS + Mongo + server + UI on alt ports 3012/5183
+just up-no-mongo     # Dev sandbox on alt ports using SQLite (no Docker required)
 just mongo           # Start the openstory-mongo container only
 just mongo-stop      # Stop the openstory-mongo container (data preserved)
 just mongo-reset     # Drop the Mongo data volume (DESTRUCTIVE)
-just serve           # Start Rust server only
-just dev             # Start Vite UI dev server only
+just serve           # Start Rust server only (raw, canonical 3002 — pass --port to relocate)
+just dev             # Start Vite UI dev server only (raw, canonical 5173)
 just nats            # Start NATS JetStream standalone
 just nats-stop       # Stop NATS
 just test            # Run all tests (Rust + UI)
