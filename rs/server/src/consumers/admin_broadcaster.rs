@@ -38,7 +38,7 @@ use open_story_bus::Bus;
 use open_story_store::event_store::EventStore;
 
 use crate::admin::{
-    compute_topology, compute_topology_with_owners, fetch_live_sources, EnvInputs, Topology,
+    compute_topology_with_owners, fetch_live_sources, EnvInputs, Topology,
 };
 use crate::config::Role;
 
@@ -146,6 +146,7 @@ async fn tally_session_hosts_and_owners(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::admin::compute_topology;
     use open_story_store::event_store::SessionRow;
     use std::time::Duration;
 

@@ -139,7 +139,7 @@ mod truncation {
 #[cfg(test)]
 mod content_endpoint {
     use super::*;
-    use open_story::server::ingest_events;
+    use super::helpers::ingest_and_share;
 
     #[tokio::test]
     async fn it_should_return_full_payload_for_truncated_record() {
@@ -148,7 +148,7 @@ mod content_endpoint {
         {
             let mut s = state.write().await;
             let event = make_event_with_large_payload("sess-1", "evt-big", 5000);
-            ingest_events(&mut s, "sess-1", &[event], None).await;
+            ingest_and_share(&mut s, "sess-1", &[event], None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-big/content")
@@ -183,7 +183,7 @@ mod content_endpoint {
             let mut s = state.write().await;
             // 100 bytes — well under TRUNCATION_THRESHOLD
             let event = make_event_with_large_payload("sess-1", "evt-small", 100);
-            ingest_events(&mut s, "sess-1", &[event], None).await;
+            ingest_and_share(&mut s, "sess-1", &[event], None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/events/evt-small/content")

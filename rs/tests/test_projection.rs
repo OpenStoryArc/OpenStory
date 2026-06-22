@@ -310,6 +310,7 @@ mod projection_labels {
 #[cfg(test)]
 mod appstate_integration {
     use super::*;
+    use super::helpers::ingest_and_share;
     use open_story::server::ingest_events;
 
     #[tokio::test]
@@ -367,7 +368,7 @@ mod appstate_integration {
                 make_user_prompt("sess-1", "evt-1"),
                 make_tool_use("sess-1", "evt-2", Some("evt-1"), "Read", "/foo.rs"),
             ];
-            ingest_events(&mut s, "sess-1", &events, None).await;
+            ingest_and_share(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/meta")

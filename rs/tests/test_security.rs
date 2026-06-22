@@ -19,10 +19,12 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tempfile::TempDir;
 
-use helpers::{body_json, make_event_with_id, make_user_prompt, send_request, test_state};
+use helpers::{
+    body_json, make_event_with_id, make_user_prompt, send_request, share_session, test_state,
+};
 use open_story::server::ingest_events;
 
 // ── Path Traversal ────────────────────────────────────────────────────
@@ -52,6 +54,10 @@ async fn transcript_api_rejects_dotdot_in_path() {
             .event_store
             .insert_event("sess-traversal", &event)
             .await;
+        // Share the session so the read reaches the transcript handler — the
+        // point here is that the *handler* refuses to serve a traversal path,
+        // not that the share gate hides the session.
+        share_session(&s, "sess-traversal").await;
     }
 
     let req = Request::get("/api/sessions/sess-traversal/transcript")
@@ -90,6 +96,8 @@ async fn transcript_api_rejects_backslash_traversal() {
             }
         });
         let _ = s.store.event_store.insert_event("sess-bs", &event).await;
+        // Share so the read reaches the handler (see the dotdot test above).
+        share_session(&s, "sess-bs").await;
     }
 
     let req = Request::get("/api/sessions/sess-bs/transcript")
@@ -117,11 +125,16 @@ async fn session_id_with_path_traversal_chars_returns_empty() {
         .body(Body::empty())
         .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
-    // axum might 404 due to route mismatch or return empty array
+    // The point of this test is that a traversal-looking session id is
+    // handled cleanly — it must NOT cause a 5xx server error or serve a
+    // file. Any clean client-side outcome is acceptable: 200 (treated as
+    // an opaque, unknown session id), 404 (route mismatch), or 403 (the
+    // `..` segments route into an admin-gated path that the role gate
+    // refuses). What we forbid is a server error.
     let status = resp.status();
     assert!(
-        status == StatusCode::OK || status == StatusCode::NOT_FOUND,
-        "path traversal in session_id should not cause server error, got {}",
+        !status.is_server_error(),
+        "path traversal in session_id must not cause a server error, got {}",
         status
     );
 }
@@ -408,14 +421,10 @@ async fn api_nonexistent_session_returns_empty() {
         .body(Body::empty())
         .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body: Value = body_json(resp).await;
-    assert_eq!(
-        body.as_array().unwrap().len(),
-        0,
-        "nonexistent session should return empty array, not error"
-    );
+    // Opt-in sharing: an unknown/unshared session denies existence (404),
+    // indistinguishable from a private one — no existence oracle, and no
+    // server error.
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

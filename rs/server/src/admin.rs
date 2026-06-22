@@ -325,6 +325,7 @@ pub fn compute_topology_with_owners(
 /// session store; the function merges that with the configured peers so
 /// the returned `nodes` includes both seen-in-data and known-by-config
 /// fleet members.
+#[allow(clippy::too_many_arguments)]
 pub fn derive_topology(
     host: &str,
     role: Role,

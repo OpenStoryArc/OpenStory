@@ -11,7 +11,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use chrono::{Timelike, Utc};
-use open_story_bus::Bus;
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
 use crate::logging::{log_event, short_id};

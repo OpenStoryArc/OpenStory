@@ -474,7 +474,7 @@ pub async fn run_server(
             let s = state.read().await;
             let watch_tx = s.admin_topology_tx.clone();
             let event_store = s.store.event_store.clone();
-            let mut broadcast_rx = s.broadcast_tx.subscribe();
+            let broadcast_rx = s.broadcast_tx.subscribe();
             let host = open_story_core::host::host().to_string();
             let role = s.config.role;
             drop(s);
