@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanMeta {
     pub id: String,
     pub session_id: String,

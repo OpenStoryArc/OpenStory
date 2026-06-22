@@ -10,9 +10,9 @@
 //! land in a subsequent commit alongside the Server-context extensions
 //! they need.
 
+use crate::plan_source::PlanSource;
 use open_story_store::analysis::activity_summary;
 use open_story_store::event_store::EventStore;
-use open_story_store::plan_store::PlanStore;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -168,9 +168,13 @@ pub fn session_plans_schema() -> Value {
     })
 }
 
-pub async fn session_plans(plan_store: &Arc<PlanStore>, args: Value) -> Result<Value, String> {
-    let session_id = extract_session_id(&args).map_err(|e| format!("session_plans {e}"))?;
-    let mut plans = plan_store.list_for_session(session_id);
+pub async fn session_plans(
+    plan_store: &Arc<dyn PlanSource>,
+    args: Value,
+) -> Result<Value, String> {
+    let session_id = extract_session_id(&args)
+        .map_err(|e| format!("session_plans {e}"))?;
+    let mut plans = plan_store.list_for_session(session_id).await;
     // Newest first.
     plans.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     serde_json::to_value(plans).map_err(|e| format!("serialize: {e}"))

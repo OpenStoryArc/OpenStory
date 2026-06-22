@@ -3,9 +3,9 @@
     "openstory": {
       "command": "./rs/target/release/open-story-mcp",
       "env": {
+        "OPENSTORY_API_URL": "${OPENSTORY_API_URL:-http://localhost:3002}",
+        "OPENSTORY_API_TOKEN": "${OPENSTORY_API_TOKEN:-}",
         "OPENSTORY_NATS_URL": "${OPENSTORY_NATS_URL:-nats://localhost:4222}",
-        "OPENSTORY_DATA_BACKEND": "${OPENSTORY_DATA_BACKEND:-sqlite}",
-        "OPENSTORY_DATA_DIR": "${OPENSTORY_DATA_DIR:-./data}",
         "OPENSTORY_LABEL": "local"
       }
     }
