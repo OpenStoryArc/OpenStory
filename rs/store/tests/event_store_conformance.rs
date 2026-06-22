@@ -1577,48 +1577,44 @@ pub async fn it_returns_recent_files_for_a_project(store: Arc<dyn EventStore>) {
 /// compute the same Monday-of-week from the same input timestamp,
 /// so this is **C1** strict equality after the redesign — no week
 /// labeling divergence.
+///
+/// Boundary independence: the fixture seeds events relative to `now()`
+/// (spanning ~24h), so when `now()` is near an ISO-week boundary (e.g.
+/// the test runs on a Monday) the events legitimately straddle two
+/// adjacent weeks. We therefore do **not** assume a single bucket.
+/// Instead we verify (a) every bucket is a valid Monday→Sunday week,
+/// and (b) the per-tool counts **aggregated across all buckets** match
+/// the fixture — which is exactly the bucketed tool mix, robust to
+/// where the week boundary falls.
 pub async fn it_returns_tool_evolution_bucketed_by_week(store: Arc<dyn EventStore>) {
     seed_analytics_universe(&*store).await;
 
     let result = store.query_tool_evolution(365).await;
 
-    // All fixture events are within ~24h of `now()`, so they all bucket
-    // into the SAME week. Both backends produce the same `bucket_start`.
     assert!(!result.is_empty(), "fixture has tool_use events");
 
-    // All rows must have the SAME bucket_start (we're in one week).
-    let first_bucket = result[0].bucket_start.clone();
-    let first_end = result[0].bucket_end.clone();
+    // Every bucket must be a valid ISO week: bucket_start is a Monday and
+    // bucket_end is exactly 6 days later (the Sunday that closes it). This
+    // holds for each bucket regardless of how many weeks the fixture spans.
+    use chrono::Datelike;
     for row in &result {
+        let start_date = chrono::NaiveDate::parse_from_str(&row.bucket_start, "%Y-%m-%d")
+            .expect("bucket_start must be YYYY-MM-DD");
         assert_eq!(
-            row.bucket_start, first_bucket,
-            "all events should be in the same week bucket"
+            start_date.weekday(),
+            chrono::Weekday::Mon,
+            "bucket_start must be a Monday, got {} ({})",
+            row.bucket_start,
+            start_date.weekday()
         );
+        let end_date = chrono::NaiveDate::parse_from_str(&row.bucket_end, "%Y-%m-%d")
+            .expect("bucket_end must be YYYY-MM-DD");
         assert_eq!(
-            row.bucket_end, first_end,
-            "bucket_end should match across rows in the same bucket"
+            (end_date - start_date).num_days(),
+            6,
+            "bucket_end must be 6 days after bucket_start"
         );
     }
-
-    // bucket_start must be a Monday (day-of-week == 1) and
-    // bucket_end == bucket_start + 6 days
-    let start_date = chrono::NaiveDate::parse_from_str(&first_bucket, "%Y-%m-%d")
-        .expect("bucket_start must be YYYY-MM-DD");
-    use chrono::Datelike;
-    assert_eq!(
-        start_date.weekday(),
-        chrono::Weekday::Mon,
-        "bucket_start must be a Monday, got {} ({})",
-        first_bucket,
-        start_date.weekday()
-    );
-    let end_date = chrono::NaiveDate::parse_from_str(&first_end, "%Y-%m-%d")
-        .expect("bucket_end must be YYYY-MM-DD");
-    assert_eq!(
-        (end_date - start_date).num_days(),
-        6,
-        "bucket_end must be 6 days after bucket_start"
-    );
 
     // Sum of tool counts must match the fixture's total tool_use count:
     // sess-A1: Edit×2 + Bash×1 + Read×2 = 5
@@ -1628,11 +1624,15 @@ pub async fn it_returns_tool_evolution_bucketed_by_week(store: Arc<dyn EventStor
     let total: u64 = result.iter().map(|r| r.count).sum();
     assert_eq!(total, 10, "10 tool_use events in the fixture");
 
-    // The set of (tool, count) pairs across the single bucket should
-    // match the per-tool aggregate. Sort canonically before compare.
-    let mut canonical: Vec<(String, u64)> =
-        result.iter().map(|r| (r.tool.clone(), r.count)).collect();
-    canonical.sort_by(|a, b| a.0.cmp(&b.0));
+    // Aggregate the (tool, count) pairs across **all** week buckets, then
+    // compare against the per-tool fixture totals. Summing across buckets
+    // is boundary-independent: whether the ~24h window lands in one week
+    // or splits across two, each tool's total is the same.
+    let mut by_tool: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for row in &result {
+        *by_tool.entry(row.tool.clone()).or_insert(0) += row.count;
+    }
+    let canonical: Vec<(String, u64)> = by_tool.into_iter().collect();
 
     // Aggregate tool counts:
     //   Bash: 2 (1 in A1, 1 in A2)
