@@ -1,6 +1,6 @@
 [package]
 name = "open-story-mcp"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Rust-native MCP server for open-story — streaming subscriptions + query tools, no Python in the path"
