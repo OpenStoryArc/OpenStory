@@ -353,7 +353,11 @@ where
                     for (source_path, events) in batches {
                         let sid = session_id_from_path(&source_path);
                         let pid = project_id_from_path(&source_path, watch_dir);
-                        let subject = nats_subject_from_path(&source_path, watch_dir);
+                        let subject = nats_subject_from_path(
+                            &source_path,
+                            watch_dir,
+                            open_story_core::host::host(),
+                        );
                         for chunk in events.chunks(BATCH_CHUNK_SIZE) {
                             on_events(&sid, pid.as_deref(), &subject, chunk.to_vec());
                         }

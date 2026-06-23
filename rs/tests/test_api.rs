@@ -9,6 +9,7 @@ use tempfile::TempDir;
 
 use helpers::seed_and_ingest;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
+use open_story_store::event_store::SharePolicyMode;
 
 #[tokio::test]
 async fn test_list_sessions_empty() {
@@ -1467,6 +1468,56 @@ async fn test_delete_session_removes_session() {
     assert!(
         !ids.contains(&"sess-del"),
         "deleted session should not appear in list"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_private_session_is_gated() {
+    // Invariant ①: DELETE must not leak a private session's existence or let a
+    // caller destroy it. A private session must 404 on DELETE (deny existence)
+    // and stay intact.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events = vec![
+            make_event("io.arc.event", "sess-priv"),
+            make_event("io.arc.event", "sess-priv"),
+        ];
+        seed_and_ingest(&mut s, "sess-priv", &events, None).await;
+        // seed_and_ingest auto-shares; mark it Private to exercise the gate.
+        s.store
+            .event_store
+            .set_share_policy("sess-priv", SharePolicyMode::Private, None)
+            .await
+            .expect("set private");
+    }
+
+    let req = Request::builder()
+        .method("DELETE")
+        .uri("/api/sessions/sess-priv")
+        .body(Body::empty())
+        .unwrap();
+    let resp = send_request(state.clone(), req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "DELETE on a private session must 404 (deny existence), not delete it"
+    );
+
+    // The session and its events must still be on disk.
+    let s = state.read().await;
+    let still_there = s
+        .store
+        .event_store
+        .session_events("sess-priv")
+        .await
+        .expect("read events");
+    assert_eq!(
+        still_there.len(),
+        2,
+        "private session must survive a gated DELETE"
     );
 }
 

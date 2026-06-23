@@ -71,8 +71,6 @@ export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
   return res.json();
 }
 
-// ── Share policy ────────────────────────────────────────────────────────
-
 // ── Participants (Phase 6 polish) — read-only in the UI ─────────────────
 //
 // Role grants/revocations (PUT/DELETE /api/admin/participants) exist in the

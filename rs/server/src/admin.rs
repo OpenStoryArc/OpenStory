@@ -254,6 +254,18 @@ impl EnvInputs {
         }
     }
 
+    /// True if any federation signal is set — hub/peer domains or a NATS
+    /// leafnode upstream. A node with any of these is exchanging data with
+    /// other machines, so it counts as "networked" for the trusted-local
+    /// gate and the safe-network share default, independently of
+    /// `Config::nats_leaf_url`.
+    pub fn is_federated(&self) -> bool {
+        self.hub_domain.is_some()
+            || !self.peer_hub_domains.is_empty()
+            || !self.peer_domains.is_empty()
+            || self.nats_leafnode_hub.is_some()
+    }
+
     /// Read env vars + attempt leafnode auto-discovery via NATS monitoring
     /// HTTP API. Explicit `OPEN_STORY_NATS_HUB` takes precedence; discovery
     /// only fills `nats_leafnode_hub` when the env var is unset. Best-

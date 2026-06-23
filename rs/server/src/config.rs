@@ -393,18 +393,44 @@ impl Config {
     /// dashboard just works, while configuring a hub/leaf flips the default to
     /// `Private` so pointing at a network never auto-shares your history.
     pub fn effective_default_share_policy(&self) -> open_story_store::event_store::SharePolicyMode {
+        self.effective_default_share_policy_with(
+            crate::admin::EnvInputs::from_env().is_federated(),
+        )
+    }
+
+    /// Testable core of [`Self::effective_default_share_policy`]. `federated`
+    /// is the federation-env snapshot ([`crate::admin::EnvInputs::is_federated`]),
+    /// split out so the policy logic is exercised without mutating process env.
+    fn effective_default_share_policy_with(
+        &self,
+        federated: bool,
+    ) -> open_story_store::event_store::SharePolicyMode {
         use open_story_store::event_store::SharePolicyMode;
         std::env::var("OPEN_STORY_DEFAULT_SHARE_POLICY")
             .ok()
             .and_then(|v| v.parse().ok())
             .or(self.default_share_policy)
             .unwrap_or_else(|| {
-                if self.nats_leaf_url.trim().is_empty() {
-                    SharePolicyMode::Shared // loopback-only: local dashboard just works
-                } else {
+                if self.is_networked_with(federated) {
                     SharePolicyMode::Private // networked: sharing is opt-in
+                } else {
+                    SharePolicyMode::Shared // loopback-only: local dashboard just works
                 }
             })
+    }
+
+    /// True if this instance is configured to exchange data with other
+    /// machines — a NATS leaf URL (`nats_leaf_url`) OR hub/peer-domain
+    /// federation. This is the single definition of "networked" used by both
+    /// the safe-network share default and the trusted-local admin gate; before
+    /// this existed, each checked only `nats_leaf_url` and a hub/peer-domain
+    /// node was wrongly treated as loopback-only.
+    pub fn is_networked(&self) -> bool {
+        self.is_networked_with(crate::admin::EnvInputs::from_env().is_federated())
+    }
+
+    fn is_networked_with(&self, federated: bool) -> bool {
+        !self.nats_leaf_url.trim().is_empty() || federated
     }
 
     /// Load config from a TOML file, falling back to defaults for missing fields.
@@ -506,16 +532,21 @@ impl Config {
         }
     }
 
-    /// A loopback-only instance with no API auth and no hub — the local
+    /// A loopback-only instance with no API auth and no networking — the local
     /// operator is implicitly trusted (it's their own machine). Drives the
     /// frictionless defaults (auto-grant Admin, default-shared). The moment
-    /// any of these change (bind to a LAN/`0.0.0.0`, set an `api_token`,
-    /// configure a leaf URL) the instance is no longer trusted-local and
-    /// falls back to the deliberate CLI bootstrap.
+    /// any of these change (bind to a LAN/`0.0.0.0`, set an `api_token`, or
+    /// configure ANY federation — a leaf URL OR hub/peer domains) the instance
+    /// is no longer trusted-local and falls back to the deliberate CLI
+    /// bootstrap (no ambient admin on a node that talks to other machines).
     pub fn is_trusted_local(&self) -> bool {
+        self.is_trusted_local_with(crate::admin::EnvInputs::from_env().is_federated())
+    }
+
+    fn is_trusted_local_with(&self, federated: bool) -> bool {
         is_loopback_host(&self.host)
             && self.api_token.trim().is_empty()
-            && self.nats_leaf_url.trim().is_empty()
+            && !self.is_networked_with(federated)
     }
 
     /// Serialize the current Config back to disk as TOML. Used by
@@ -1248,6 +1279,70 @@ matchers = {}
             local_but_private.effective_default_share_policy(),
             SharePolicyMode::Private,
             "explicit Private must hold even loopback-only"
+        );
+    }
+
+    #[test]
+    fn env_inputs_is_federated_detects_each_signal() {
+        use crate::admin::EnvInputs;
+        // No signals → not federated.
+        assert!(!EnvInputs::default().is_federated());
+        // Each federation signal independently means "networked".
+        assert!(EnvInputs {
+            hub_domain: Some("hub".into()),
+            ..Default::default()
+        }
+        .is_federated());
+        assert!(EnvInputs {
+            peer_domains: vec!["peer".into()],
+            ..Default::default()
+        }
+        .is_federated());
+        assert!(EnvInputs {
+            peer_hub_domains: vec!["ph".into()],
+            ..Default::default()
+        }
+        .is_federated());
+        assert!(EnvInputs {
+            nats_leafnode_hub: Some("nats://hub".into()),
+            ..Default::default()
+        }
+        .is_federated());
+    }
+
+    #[test]
+    fn share_default_is_private_when_federated_without_leaf_url() {
+        use open_story_store::event_store::SharePolicyMode;
+        // The bug: a hub/peer-domain-federated node with an EMPTY nats_leaf_url
+        // (federation runs via OPEN_STORY_HUB_DOMAIN, not the leaf URL) used to
+        // resolve Shared. Networking is networking — it must default Private.
+        let config = Config::default();
+        assert_eq!(config.nats_leaf_url, "", "precondition: no leaf URL");
+        assert_eq!(
+            config.effective_default_share_policy_with(true),
+            SharePolicyMode::Private,
+            "a domain-federated node must default to opt-in, even with no leaf URL"
+        );
+        // And the loopback (non-federated) case still defaults Shared.
+        assert_eq!(
+            config.effective_default_share_policy_with(false),
+            SharePolicyMode::Shared,
+        );
+    }
+
+    #[test]
+    fn not_trusted_local_when_federated_without_leaf_url() {
+        // The auto-admin bug: a loopback-bound, tokenless, leaf-URL-less node
+        // that is federated via hub/peer domains was treated as trusted-local
+        // and auto-granted Admin. Federation ⇒ not trusted-local.
+        let config = Config::default();
+        assert!(
+            config.is_trusted_local_with(false),
+            "precondition: loopback + no token + not federated IS trusted-local"
+        );
+        assert!(
+            !config.is_trusted_local_with(true),
+            "a domain-federated node must NOT auto-admin, even loopback + no token"
         );
     }
 

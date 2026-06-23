@@ -1986,6 +1986,11 @@ pub async fn get_session_records(
 /// Removes a session and all its events, patterns, and plans from SQLite.
 /// Also clears in-memory projections and caches.
 pub async fn delete_session(
+    // Invariant ①: a private session denies its own existence. Without this
+    // gate, DELETE leaks existence (404 vs 200) and lets a read-token holder
+    // destroy a private session — every other per-session route is gated, so
+    // this one must be too.
+    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {

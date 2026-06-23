@@ -37,14 +37,17 @@ a trusted single-machine deployment — or the test harness — can set to
 default; this is an informed escape hatch, not a silent foot-gun.
 
 ### "Networked" should also be detected from the live NATS leaf state
-`effective_default_share_policy()` derives "networked" from
-`config.nats_leaf_url`. But a NATS that's leaf-connected via an external
-`nats.conf` (the dev `just up` path) leaves `nats_leaf_url` empty, so the
-instance derives `Shared` and auto-propagates to the hub — the exact
-"share without meaning to" case, slipping past the safe-network default.
-Homebrew users are unaffected (they set `nats_leaf_url`). Fix: also consult
-the live NATS `/leafz` monitor (the same signal the topology's
-`nats-leafnode-hub` detection already uses) when deriving the default.
+`Config::is_networked()` now treats both `nats_leaf_url` AND the federation
+env vars (`OPEN_STORY_HUB_DOMAIN` / `OPEN_STORY_PEER_DOMAINS` /
+`OPEN_STORY_PEER_HUB_DOMAINS` / `OPEN_STORY_NATS_HUB`) as networked — that
+gap (a domain-federated node auto-admining and defaulting `Shared`) is
+closed, and both `is_trusted_local()` and `effective_default_share_policy()`
+key off it. The remaining hole: a NATS leaf-connected purely via an external
+`nats.conf` (the dev `just up` path) with NONE of those env vars set still
+leaves the instance looking loopback-only. Fix: also consult the live NATS
+`/leafz` monitor (the same signal the topology's `nats-leafnode-hub`
+detection already uses) so the *runtime* leaf state, not just config/env,
+feeds `is_networked()`.
 
 ### Container/e2e tests: NATS-at-boot + opt-in fixtures
 `rs/tests/test_container.rs` fails because the `open-story:test` image's
@@ -54,6 +57,68 @@ a hard boot dependency. Fix the test image to manage/bundle NATS, then
 (once it boots) reconcile the seed fixtures with opt-in sharing via the
 `default_share_policy` knob above so the Dockerized data path can be
 verified end-to-end.
+
+### Share policy is inert on the Mongo backend
+`MongoStore` implements none of `get_share_policy` / `set_share_policy` /
+`list_share_policies`, so it inherits the `EventStore` trait defaults
+(`get → Private`, `set → bail!`, `list → empty`). On a `data_backend =
+"mongo"` deployment the whole opt-in model is broken: every per-session read
+404s (everything resolves Private), the privacy toggle errors, and nothing
+can ever be marked shared. It "fails closed," but the feature is
+non-functional. Mongo is optional (`--features mongo`) so this isn't a
+default-path blocker, but it violates the documented SQLite/Mongo
+conformance parity. Fix: implement the three methods on `MongoStore` (a
+`share_policy` collection mirroring the SQLite table + `with_default_share_policy`),
+and add the share-policy cases to `rs/store/tests/event_store_conformance.rs`
+so the parity claim is actually enforced. Surfaced 2026-06-23 in the PR #58
+deep review.
+
+### Federated catch-up re-injects to a host-less subject (silent no-op)
+`rs/server/src/catch_up.rs:110` publishes healed events to
+`events.{sid}` (flat, pre-host form, with `project_id = ""`). In federated
+mode a leaf's local `events` stream binds only `events.{host}.>`
+(`nats_bus.rs` `events_stream_config`), so the publish matches no stream and
+is dropped — `catch_up_once` treats it as not-healed and the session never
+converges. Catch-up is the anti-entropy backstop *for federated cold-boot
+loss*, so it fails in the exact mode it exists for. (Solo works because the
+stream binds `events.>`.) It does NOT leak — catch-up pulls from
+share-gated peer endpoints, so private sessions are invisible to it. Fix:
+build the re-injection subject with the originating host + real project
+(`events.{host}.{project}.{sid}.main`), taken from the peer event's own
+fields, not relabeled as local. Surfaced 2026-06-23 in the PR #58 deep review.
+
+### Unsanitized project/session/agent_id in NATS subjects
+`rs/core/src/paths.rs` `nats_subject_from_path` sanitizes only the `host`
+token (via `host::normalize`); `project`, `session`/`file_stem`, and
+`agent_id` are interpolated raw (the repo's own tests at `paths.rs`
+document a dotted project name inflating the token count and a space
+producing an invalid subject → publish failure → silent per-session loss).
+The host prefix being sanitized means the double-count guard holds, so this
+is HIGH-not-blocker, and Claude Code project dirs are path-encoded
+(dot-free) — but Codex/pi-mono/arbitrary watch dirs aren't guaranteed safe.
+Fix: lift `host::normalize` to a shared `sanitize_subject_token` and apply
+it to all interpolated tokens. Surfaced 2026-06-23 in the PR #58 deep review.
+
+### NATS accounts-conf injection via unescaped ids in share-with-person
+`rs/server/src/admin.rs` builds `events.*.{session_id}.>` and
+`rs/bus/src/accounts.rs` renders account names + subjects into the
+generated nats accounts conf with no escaping of `"`, `\n`, or `}`. The
+attack surface is bounded — `session_id` must match an existing
+`SessionRow.id` and the caller must own it (owner-consent gate) — so it's
+only exploitable if an ingested session/person id can itself contain conf
+metacharacters. Fix defensively anyway: reject/escape ids that aren't
+`[A-Za-z0-9._-]+` at the `share_with_person` boundary and in
+`render_accounts_block`, with a test feeding `session_id = "x\".>\"\n EVIL:{"`.
+Surfaced 2026-06-23 in the PR #58 deep review.
+
+### cargo-vet apparatus exists but isn't enforced in CI
+This branch added the full `rs/supply-chain/` cargo-vet directory
+(config/audits/imports), and `cargo vet check` passes today — but no
+workflow runs it (`grep 'cargo vet' .github/workflows` → nothing). So the
+supply-chain dir gives a false sense of enforcement: the next PR adding an
+un-exempted crate won't be caught. Fix: add a `cargo vet --locked` step to
+`.github/workflows/test.yml` (or document it as a required manual pre-merge
+check). Surfaced 2026-06-23 in the PR #58 deep review.
 
 ---
 
