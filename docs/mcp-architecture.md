@@ -70,7 +70,7 @@ properties, called out in the source (`rs/mcp/src/http_store.rs:1-17`,
 The one tool that doesn't read events — `session_plans` — reads through the same
 seam via its own `PlanSource` abstraction (`rs/mcp/src/plan_source.rs:22`), with
 an `HttpPlanSource` that calls `GET /api/sessions/{id}/plans`
-(`rs/mcp/src/plan_source.rs:34-40`). Same principle, different endpoint.
+(`rs/mcp/src/plan_source.rs:57`). Same principle, different endpoint.
 
 ## Transport: JSON-RPC 2.0 over stdio
 
