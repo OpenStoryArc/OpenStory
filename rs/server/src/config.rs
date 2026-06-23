@@ -390,41 +390,40 @@ impl Config {
     /// `default_share_policy` in config → derived from networking. The
     /// derivation is the heart of "easy local, safe network": a loopback-only
     /// instance (no `nats_leaf_url`) defaults to `Shared` so the local
-    /// dashboard just works, while configuring a hub/leaf flips the default to
+    /// dashboard just works, while configuring a leaf flips the default to
     /// `Private` so pointing at a network never auto-shares your history.
+    ///
+    /// NOTE: this intentionally keys on `nats_leaf_url` only, NOT the full
+    /// [`Self::is_networked`] (which also counts hub/peer-domain federation).
+    /// A `private` default applies to a session with no policy row — and on a
+    /// hub, *mirrored* peer sessions have no local row, so a Private default
+    /// would 404 every mirrored session and blank the "common UI." Extending
+    /// the safe-network default to hub/peer federation requires distinguishing
+    /// a node's own unconfigured sessions from mirrored ones (set Shared on
+    /// ingest of a non-local-host session). Tracked in BACKLOG; until then the
+    /// default-share derivation stays leaf-URL-only to avoid regressing hubs.
     pub fn effective_default_share_policy(&self) -> open_story_store::event_store::SharePolicyMode {
-        self.effective_default_share_policy_with(
-            crate::admin::EnvInputs::from_env().is_federated(),
-        )
-    }
-
-    /// Testable core of [`Self::effective_default_share_policy`]. `federated`
-    /// is the federation-env snapshot ([`crate::admin::EnvInputs::is_federated`]),
-    /// split out so the policy logic is exercised without mutating process env.
-    fn effective_default_share_policy_with(
-        &self,
-        federated: bool,
-    ) -> open_story_store::event_store::SharePolicyMode {
         use open_story_store::event_store::SharePolicyMode;
         std::env::var("OPEN_STORY_DEFAULT_SHARE_POLICY")
             .ok()
             .and_then(|v| v.parse().ok())
             .or(self.default_share_policy)
             .unwrap_or_else(|| {
-                if self.is_networked_with(federated) {
-                    SharePolicyMode::Private // networked: sharing is opt-in
-                } else {
+                if self.nats_leaf_url.trim().is_empty() {
                     SharePolicyMode::Shared // loopback-only: local dashboard just works
+                } else {
+                    SharePolicyMode::Private // networked: sharing is opt-in
                 }
             })
     }
 
     /// True if this instance is configured to exchange data with other
     /// machines — a NATS leaf URL (`nats_leaf_url`) OR hub/peer-domain
-    /// federation. This is the single definition of "networked" used by both
-    /// the safe-network share default and the trusted-local admin gate; before
-    /// this existed, each checked only `nats_leaf_url` and a hub/peer-domain
-    /// node was wrongly treated as loopback-only.
+    /// federation. Used by [`Self::is_trusted_local`] so a federated node
+    /// (which talks to other people's machines) is never treated as a
+    /// single-user trusted-local box and never auto-grants Admin. (The
+    /// share-default deliberately does NOT use this — see
+    /// [`Self::effective_default_share_policy`].)
     pub fn is_networked(&self) -> bool {
         self.is_networked_with(crate::admin::EnvInputs::from_env().is_federated())
     }
@@ -1308,26 +1307,6 @@ matchers = {}
             ..Default::default()
         }
         .is_federated());
-    }
-
-    #[test]
-    fn share_default_is_private_when_federated_without_leaf_url() {
-        use open_story_store::event_store::SharePolicyMode;
-        // The bug: a hub/peer-domain-federated node with an EMPTY nats_leaf_url
-        // (federation runs via OPEN_STORY_HUB_DOMAIN, not the leaf URL) used to
-        // resolve Shared. Networking is networking — it must default Private.
-        let config = Config::default();
-        assert_eq!(config.nats_leaf_url, "", "precondition: no leaf URL");
-        assert_eq!(
-            config.effective_default_share_policy_with(true),
-            SharePolicyMode::Private,
-            "a domain-federated node must default to opt-in, even with no leaf URL"
-        );
-        // And the loopback (non-federated) case still defaults Shared.
-        assert_eq!(
-            config.effective_default_share_policy_with(false),
-            SharePolicyMode::Shared,
-        );
     }
 
     #[test]

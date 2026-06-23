@@ -36,18 +36,25 @@ a trusted single-machine deployment — or the test harness — can set to
 `shared`. Thread it into `SqliteStore`'s no-row branch. Keep the *secure*
 default; this is an informed escape hatch, not a silent foot-gun.
 
-### "Networked" should also be detected from the live NATS leaf state
-`Config::is_networked()` now treats both `nats_leaf_url` AND the federation
-env vars (`OPEN_STORY_HUB_DOMAIN` / `OPEN_STORY_PEER_DOMAINS` /
-`OPEN_STORY_PEER_HUB_DOMAINS` / `OPEN_STORY_NATS_HUB`) as networked — that
-gap (a domain-federated node auto-admining and defaulting `Shared`) is
-closed, and both `is_trusted_local()` and `effective_default_share_policy()`
-key off it. The remaining hole: a NATS leaf-connected purely via an external
-`nats.conf` (the dev `just up` path) with NONE of those env vars set still
-leaves the instance looking loopback-only. Fix: also consult the live NATS
-`/leafz` monitor (the same signal the topology's `nats-leafnode-hub`
-detection already uses) so the *runtime* leaf state, not just config/env,
-feeds `is_networked()`.
+### Safe-network default-share for hub/peer-domain federation (needs own-vs-mirrored)
+`Config::is_networked()` now treats `nats_leaf_url` AND the federation env
+vars (`OPEN_STORY_HUB_DOMAIN` / `OPEN_STORY_PEER_DOMAINS` /
+`OPEN_STORY_PEER_HUB_DOMAINS` / `OPEN_STORY_NATS_HUB`) as networked, and
+`is_trusted_local()` keys off it — so a domain-federated node no longer
+auto-grants Admin (that half of the gap is **closed**). But
+`effective_default_share_policy()` deliberately still keys on `nats_leaf_url`
+**only**: a Private default applies to any session with no policy row, and on
+a hub the *mirrored* peer sessions have no local row, so flipping
+hub/peer-federated → Private would 404 every mirrored session and blank the
+"common UI." (The existing `nats_leaf_url` → Private path has the same latent
+issue for a leaf's local dashboard — pre-existing, just less visible.) The
+real fix is to distinguish a node's **own** unconfigured sessions from
+**mirrored** ones: mark a session `Shared` when the persist consumer ingests
+an event whose origin host ≠ this node's host (or have the gate treat
+non-local-host sessions as shared). Once that lands, the safe-network default
+can safely extend to hub/peer federation. **Also still open:** detecting the
+live NATS `/leafz` leaf state (the `just up` external-`nats.conf` path leaves
+all of `nats_leaf_url`/env unset) so runtime leaf state feeds `is_networked()`.
 
 ### Container/e2e tests: NATS-at-boot + opt-in fixtures
 `rs/tests/test_container.rs` fails because the `open-story:test` image's
