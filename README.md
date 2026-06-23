@@ -30,15 +30,17 @@ Real-time observability for AI coding agents. Open Story watches what your agent
 
 ## What you see
 
-Four dashboard views, each a different lens on the same data:
+The dashboard's views, each a different lens on the same data:
 
-**Live** — real-time event stream as your agent works. Every tool call, file read, command execution, and model response appears as it happens. Session sidebar shows all active sessions with event counts, token usage, depth sparklines, and subagent hierarchy.
+**Live** — real-time event stream as your agent works. Every tool call, file read, command execution, and model response appears as it happens. The session sidebar shows all active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by the fleet member that produced them** (your laptop, a teammate's machine, an agent on a VPS), so the mirror reflects not just *what* happened but *who* did it.
 
 **Story** — narrative view of agent work. Each turn is a card showing what Claude did and why: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain fact badges (files created/modified, commands run, searches performed), and eval-apply phase detail. Subagent delegations expand inline — click an Agent apply to see the subagent's eval-apply cycles nested recursively. The same structure at every depth.
 
 **Explore** — historical browse and search across sessions. Full-text search, event filtering, session comparison.
 
-**Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
+**Admin** — a **read-only** view of the federation and identity model: this node's topology (solo / leaf / hub), the fleet roster, live sources, person clusters, and the role directory. It *observes* state; it doesn't change it — sharing and role grants stay on the CLI. Beta.
+
+**Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{host}.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
 
 ### The Story tab — surface and depth
 
@@ -80,7 +82,7 @@ See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, an
 
 ## How it works
 
-The file watcher detects JSONL transcript changes, auto-detects the agent format (Claude Code, pi-mono, or Hermes), translates each line into CloudEvents via agent-specific translators, and publishes to NATS JetStream with hierarchical subjects (`events.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
+The file watcher detects JSONL transcript changes, auto-detects the agent format (Claude Code, pi-mono, or Hermes), translates each line into CloudEvents via agent-specific translators, and publishes to NATS JetStream with hierarchical, host-prefixed subjects (`events.{host}.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
 
 - **persist** — dedup + durable event store (SQLite default, MongoDB optional via `--features mongo`) + JSONL sovereignty backup + full-text search index
 - **patterns** — eval-apply cycle detection → sentence generation → PatternEvents (2 streaming detectors: EvalApplyDetector + SentenceDetector)
@@ -384,7 +386,7 @@ OPEN_STORY_HERMES_WATCH_DIR=/path/to/hermes/sessions just up
 # hermes_watch_dir = "/path/to/hermes/sessions"
 ```
 
-### Distributed streaming across machines (optional)
+### Federation — multi-device & multi-person (optional)
 
 Out of the box OpenStory is single-machine and loopback-only — no networking. To
 see sessions from several machines (your laptop, a teammate's, a VPS agent) in one
@@ -399,7 +401,25 @@ OPEN_STORY_NATS_LEAF_URL="nats://<token>@hub-host:7422" just up
 With `--manage-nats` (the Homebrew service uses it), this turns the local NATS
 into a JetStream leaf node: your sessions stream up to the hub and everyone else's
 stream back down, so the local dashboard becomes a shared team view. Empty =
-single-machine. Full hub + leaf + Tailscale setup: [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
+single-machine.
+
+**Identity.** Every event is stamped with a `person_id` (the human who owns it)
+and a `principal_id` (the device or agent that produced it), derived from a
+`[person]` block in `config.toml`. That's what powers the fleet-grouped sidebar
+and the Admin view's person clusters. This is *attribution* — "whose activity is
+this" — not authentication; human-to-human login is future work.
+
+**Consent — easy local, safe network.** Sharing is opt-in. A loopback-only
+instance defaults its sessions to `shared` (your local dashboard just works), but
+the moment you configure a hub the default flips to `private` — going networked
+never auto-shares your history. A `private` session is enforced at three gates:
+it's never published to NATS, its per-session API reads return 404, and it's
+excluded from search/digests. Federation subjects are host-prefixed
+(`events.{host}.{project}.{session}`) so each leaf owns its own namespace and the
+hub aggregate never double-counts.
+
+Full hub + leaf + Tailscale setup, the consent model, and **upgrade notes for the
+host-in-subject change** live in [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
 
 ### MongoDB backend (optional)
 

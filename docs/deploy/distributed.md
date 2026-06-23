@@ -43,6 +43,50 @@ This is intentional — it gives every team member full sovereignty over their d
 - **Resilience**: any machine going offline doesn't affect the others. When it reconnects, NATS catches it up.
 - **Search**: when you search locally, you're searching across all machines' sessions, not just yours.
 
+## Subject naming & upgrading
+
+Federation events use a **host-prefixed** NATS subject:
+
+```
+events.{host}.{project}.{session}.main           # main agent
+events.{host}.{project}.{session}.agent.{id}     # subagent
+```
+
+The leading `{host}` segment is what makes the hub aggregate safe: each leaf binds
+only its own `events.{host}.>` namespace, so a session two machines both hold is
+never counted twice. (Session IDs are UUIDs and don't collide — but the
+*aggregate* still needs per-host scoping to avoid double-delivery.)
+
+This schema changed: earlier builds published `events.{project}.{session}.…` with
+no host. If you're upgrading an existing deployment, here's what is and isn't
+affected.
+
+**Your stored data is safe — there is no data migration.** The subject is a
+transport/routing detail; it is never persisted. JSONL backups and the
+SQLite/Mongo event store key on event *content*, not on the NATS subject, so
+nothing on disk is re-keyed or rewritten.
+
+**What you do need to know:**
+
+- **Upgrade a fleet together.** A node on the old build publishes
+  `events.{project}.…` (no host); a hub on the new build binds `events.{host}.>`
+  and won't see those events. Don't run a mixed-version fleet — upgrade every leaf
+  and the hub in the same window.
+- **Existing JetStream streams.** A standalone instance's `events` stream was
+  created with the host-agnostic filter `events.>`, which still matches the new
+  host-prefixed subjects, so a **solo upgrade just works**. Federated mode adds
+  per-host / aggregate streams; if a stream already exists with a different
+  subject binding, JetStream refuses to silently reconfigure it — delete it and
+  let Open Story recreate it (`nats stream rm events` on the affected node), or
+  start the hub on a fresh JetStream store.
+- **Custom subscribers.** Internal consumers already subscribe to the
+  host-agnostic `events.>`, so they're unaffected. Any *hand-rolled* external
+  subscriber pinned to `events.{project}.>` will silently stop matching — repoint
+  it to `events.>` or `events.{host}.>`.
+
+Beyond clearing/recreating any pre-existing stream whose subject binding changed
+and upgrading all nodes together, there's nothing else to do.
+
 ## How to Use
 
 ### For humans

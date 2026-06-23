@@ -87,13 +87,16 @@ fn is_codex_rollout_relative_path(relative: &Path) -> bool {
 /// Compose a hierarchical NATS subject from a JSONL file path.
 ///
 /// Main agent:  `{watch_dir}/{project}/{session}.jsonl`
-///              → `events.{project}.{session}.main`
+///              → `events.{host}.{project}.{session}.main`
 ///
 /// Subagent:    `{watch_dir}/{project}/{session}/subagents/agent-{id}.jsonl`
-///              → `events.{project}.{session}.agent.{id}`
+///              → `events.{host}.{project}.{session}.agent.{id}`
 ///
-/// The subject hierarchy encodes the parent-child relationship so NATS
-/// wildcard subscriptions can target a session + all its subagents.
+/// The `host` segment is the mandatory federation prefix: each leaf binds
+/// only its own `events.{host}.>` namespace, so the hub aggregate never
+/// double-counts a session that two leaves both hold. The rest of the
+/// hierarchy encodes the parent-child relationship so NATS wildcard
+/// subscriptions can target a session + all its subagents.
 pub fn nats_subject_from_path(path: &Path, watch_dir: &Path, host: &str) -> String {
     let project = project_id_from_path(path, watch_dir).unwrap_or_else(|| "unknown".to_string());
     let session_id = session_id_from_path(path);
