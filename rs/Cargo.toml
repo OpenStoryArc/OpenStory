@@ -3,7 +3,7 @@ members = [".", "bus", "cli", "core", "mcp", "patterns", "schemas", "server", "s
 
 [package]
 name = "open-story"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Max Glassie"]
 license = "Apache-2.0"
