@@ -1,6 +1,6 @@
 [package]
 name = "open-story-mcp"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Rust-native MCP server for open-story — streaming subscriptions + query tools, no Python in the path"
@@ -23,7 +23,9 @@ async-trait = "0.1"
 chrono = "0.4"
 open-story-bus = { path = "../bus" }
 open-story-core = { path = "../core" }
+open-story-patterns = { path = "../patterns" }
 open-story-store = { path = "../store" }
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }
@@ -32,6 +34,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [dev-dependencies]
 async-nats = "0.49"
 async-trait = "0.1"
+# Hand-rolled mock REST server for HttpEventStore parity tests — returns the
+# exact shapes the open-story-server handlers emit (see tests/http_store.rs).
+axum = { version = "0.8", features = ["ws"] }
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 open-story-core = { path = "../core" }
 tempfile = "3"

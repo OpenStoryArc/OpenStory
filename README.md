@@ -167,34 +167,46 @@ GET /api/search?q=...                              — full-text search across e
 
 `rs/mcp/` is the agent-facing edge of OpenStory: a single-binary Rust MCP (Model Context Protocol) server that handles both **live streaming subscriptions** (the agent watches its own session in real time) and **query tools** (sessions, search, analytics, transcripts, …). JSON-RPC 2.0 over stdio. Built and tested as a first-class workspace crate.
 
+**It reads OpenStory over its REST API — it never opens your database.** The
+query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
+`GET`s instead of holding a SQLite handle), so the binary needs only a URL and
+runs from any directory. It is read-only by construction. For the full
+architecture and the trust story, see **[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**.
+
+The recommended way to install it is the `openstory-mcp` Homebrew formula
+(see [With Homebrew](#with-homebrew-recommended) below). To build from source:
+
 ```bash
-# build (SQLite backend only)
 cargo build --release -p open-story-mcp
-
-# build with MongoDB backend support
-cargo build --release -p open-story-mcp --features mongo
-
-# run — picks store backend from OPENSTORY_DATA_BACKEND (default "sqlite",
-# or "mongo" if built with --features mongo). NATS is always required.
 ./rs/target/release/open-story-mcp
 ```
 
-**Environment:**
+**Environment** — the binary reads exactly three variables:
 
-| Var | Default | Used when |
+| Var | Default | Used by |
 |---|---|---|
-| `OPENSTORY_NATS_URL` | `nats://localhost:4222` | always |
-| `OPENSTORY_DATA_BACKEND` | `sqlite` | always — `sqlite` or `mongo` |
-| `OPENSTORY_DATA_DIR` | `./data` | `DATA_BACKEND=sqlite` (SQLite db + plans dir live here) |
-| `OPENSTORY_MONGO_URI` | `mongodb://localhost:27017` | `DATA_BACKEND=mongo` |
-| `OPENSTORY_MONGO_DB` | `openstory` | `DATA_BACKEND=mongo` |
+| `OPENSTORY_API_URL` | `http://localhost:3002` | Every query tool — the REST origin it reads from. |
+| `OPENSTORY_API_TOKEN` | *(none)* | Optional bearer token, if the server has `api_token` set. |
+| `OPENSTORY_NATS_URL` | `nats://localhost:4222` | The two `subscribe_*` streaming tools only. |
 
-(Match these to the OpenStory server's own `config.toml` so MCP and server share the same store.)
-
-Register it with Claude Code:
+**Wiring it into an agent.** Two ways:
 
 ```bash
-claude mcp add openstory stdio /full/path/to/open-story-mcp
+# 1. Direct — register the Homebrew-installed binary with Claude Code
+claude mcp add openstory stdio /opt/homebrew/opt/openstory-mcp/bin/open-story-mcp
+#    (set OPENSTORY_API_URL in the environment if not the default)
+```
+
+```jsonc
+// 2. Via a Claude Code plugin .mcp.json (binary on PATH as `open-story-mcp`)
+{
+  "mcpServers": {
+    "openstory": {
+      "command": "open-story-mcp",
+      "env": { "OPENSTORY_API_URL": "${OPENSTORY_API_URL:-http://localhost:3002}" }
+    }
+  }
+}
 ```
 
 **The 21-tool surface:**
@@ -208,14 +220,20 @@ claude mcp add openstory stdio /full/path/to/open-story-mcp
 | Analytics | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
 | Streaming | `subscribe_session`, `subscribe_tokens` — push notifications via `notifications/openstory/{stream,tokens}` |
 
-Manual smoke (against a running NATS + OpenStory server):
+Manual smoke (against a running NATS + OpenStory server). Query tools read
+the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only
+the streaming tools need NATS:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscribe_tokens","arguments":{"session_id":"<your-session-id>"}}}' \
-  | OPENSTORY_NATS_URL=nats://localhost:4222 OPENSTORY_DATA_DIR=./data ./rs/target/release/open-story-mcp
+  | OPENSTORY_API_URL=http://localhost:3002 OPENSTORY_NATS_URL=nats://localhost:4222 ./rs/target/release/open-story-mcp
 ```
+
+Because the MCP reads through the API rather than opening the store on disk,
+it works from any directory — there's no `OPENSTORY_DATA_DIR` to resolve
+relative to your shell's working directory.
 
 Test it with `cargo test -p open-story-mcp`. Design notes for the streaming substrate live in `docs/research/streaming-mcp/`.
 
@@ -276,6 +294,28 @@ Want it to launch automatically at login instead, use `brew services start opens
 Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
 
 Installing builds from source (~1–3 min on first install); `nats-server`, Rust, and Node come along as dependencies. Prebuilt bottles for seconds-fast installs are planned — see `docs/BACKLOG.md`.
+
+The tap ships two formulae:
+
+| Formula | Installs | What it provides |
+|---|---|---|
+| `openstory` | `open-story` | The server + CLI — the whole stack (watcher, API, dashboard, managed NATS). |
+| `openstory-mcp` | `open-story-mcp` | **Optional companion.** The MCP server so a coding agent can query its own OpenStory history. `depends_on "openstory"`. |
+
+The MCP companion is optional — install it only if you want to wire OpenStory
+into a coding agent's tool set:
+
+```sh
+brew install openstoryarc/openstory/openstory-mcp
+```
+
+The binary lands at `/opt/homebrew/opt/openstory-mcp/bin/open-story-mcp` and is
+symlinked onto your PATH as `open-story-mcp`. It reads OpenStory over the REST
+API at `OPENSTORY_API_URL` (default `http://localhost:3002`) — point it at the
+`openstory` instance you're already running. To wire it into an agent, see
+[MCP server](#mcp-server--21-tools-all-rust) above for the two methods, and
+[`docs/mcp-architecture.md`](docs/mcp-architecture.md) for how it works and why
+it's safe to trust.
 
 ### With `openstory` command
 
