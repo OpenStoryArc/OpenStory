@@ -1,14 +1,18 @@
-//! TDD: Hierarchical NATS subject naming for parent-child session relationships.
+//! Hierarchical NATS subject naming for parent-child session relationships.
 //!
-//! These tests describe the DESIRED behavior — events published with
-//! hierarchical subjects that encode project, session, and agent identity.
+//! These tests exercise the NATS *mechanics* of hierarchical subjects — the
+//! `.main` suffix, session wildcards (`…{session}.>`), agent-only filtering
+//! (`…agent.>`), and project isolation — using simplified example subjects.
 //!
-//! Current: events.session.{session_id}           (flat, peers)
-//! Target:  events.{project}.{session}.main       (main agent)
-//!          events.{project}.{session}.agent.{id}  (subagent)
+//! NOTE: production subjects are **host-prefixed** —
+//! `events.{host}.{project}.{session}.main` (and `…agent.{id}`). The
+//! authoritative path→subject mapping and its format test live in
+//! `rs/core/src/paths.rs`; the examples here omit the host segment for
+//! brevity, because the wildcard / isolation behavior they verify is
+//! identical whether or not the leading host token is present.
 //!
-//! The ".main" suffix on main agent subjects ensures events.{project}.{session}.>
-//! matches BOTH main and subagent events (NATS ">" requires at least one token).
+//! The ".main" suffix ensures a session wildcard (`…{session}.>`) matches
+//! BOTH main and subagent events (NATS ">" requires at least one token).
 //!
 //! Run with: cargo test -p open-story --test test_subject_hierarchy
 
