@@ -30,8 +30,6 @@ Real-time observability for AI coding agents. Open Story watches what your agent
 
 ## Quickstart
 
-Get OpenStory watching your agents, then ask your history in plain English.
-
 **1. Install & run** (Homebrew — launches its own JetStream NATS and serves the API **and** dashboard from one process):
 
 ```sh
