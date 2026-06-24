@@ -125,6 +125,36 @@ fn session_wildcard_pattern_matches_both() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[tokio::test]
+async fn local_only_events_are_delivered_to_subscribers() {
+    // publish_sessions = false routes own events to `local.>` (a stream
+    // federation never sources). A subscriber must still receive them — that's
+    // what makes "I don't publish to the network" mean *local-only*, not
+    // *not-stored*. The events consumer subscribe also reads the `local`
+    // stream, so a publish to `local.…` lands regardless of the events pattern.
+    let (bus, _container) = start_nats().await;
+
+    let mut sub = bus
+        .subscribe("events.openstory.>")
+        .await
+        .expect("subscribe");
+
+    let batch = IngestBatch {
+        session_id: "loc-1".to_string(),
+        project_id: "openstory".to_string(),
+        events: vec![test_event("loc-1", "message.user.prompt")],
+    };
+    bus.publish("local.maxs-air.openstory.loc-1.main", &batch)
+        .await
+        .expect("publish local-only");
+
+    let got = tokio::time::timeout(std::time::Duration::from_secs(10), sub.receiver.recv())
+        .await
+        .expect("local-only event must be delivered to the subscriber")
+        .expect("receive");
+    assert_eq!(got.session_id, "loc-1");
+}
+
+#[tokio::test]
 async fn publish_and_subscribe_with_hierarchical_subjects() {
     let (bus, _container) = start_nats().await;
 

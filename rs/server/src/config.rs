@@ -248,6 +248,17 @@ pub struct Config {
     /// Also settable via `OPEN_STORY_NATS_LEAF_URL`. Has no effect without
     /// `--manage-nats` (when you run your own NATS, configure leafnodes there).
     pub nats_leaf_url: String,
+    /// Whether this node publishes its own observed sessions into the network
+    /// it's connected to. `true` (default): your sessions stream to the rest of
+    /// the network (and are stored locally). `false`: your sessions are stored
+    /// **locally only** and never leave this machine — you still receive and
+    /// see everyone else's. This is a NODE-level switch over your own data, not
+    /// a per-session or per-person permission: there is no way to share some
+    /// sessions and not others, and the access boundary for what you DO publish
+    /// is your network itself (Tailscale + NATS auth), not this flag. Also
+    /// settable via `OPEN_STORY_PUBLISH_SESSIONS`.
+    #[serde(default = "default_publish_sessions")]
+    pub publish_sessions: bool,
 
     // ── tuning ──
     /// Maximum records sent in the WebSocket initial_state handshake.
@@ -310,6 +321,10 @@ fn default_nats_reload_command() -> String {
     "pkill -HUP nats-server".to_string()
 }
 
+fn default_publish_sessions() -> bool {
+    true
+}
+
 /// Whether a bind host is loopback-only (no LAN/public exposure).
 fn is_loopback_host(host: &str) -> bool {
     let h = host.trim();
@@ -361,6 +376,7 @@ impl Default for Config {
             mongo_db: "openstory".to_string(),
             nats_url: "nats://localhost:4222".to_string(),
             nats_leaf_url: String::new(), // no networking by default (loopback-only)
+            publish_sessions: true,       // share own sessions into the network by default
             max_initial_records: 2000,
             watch_backfill_hours: 24,
             truncation_threshold: 100_000,
@@ -834,6 +850,7 @@ mod tests {
             mongo_db: "openstory".into(),
             nats_url: "nats://custom:4222".into(),
             nats_leaf_url: "nats://tok@hub:7422".into(),
+            publish_sessions: false,
             max_initial_records: 100,
             watch_backfill_hours: 48,
             truncation_threshold: 4000,

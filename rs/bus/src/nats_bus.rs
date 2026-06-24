@@ -192,6 +192,17 @@ impl NatsBus {
             .await
             .context("failed to create/get 'events' JetStream stream")?;
 
+        // Local stream — own sessions a node chooses NOT to publish
+        // (`publish_sessions = false`). Bound to `local.>`, it is NEVER a
+        // federation source (the hub/peers source the `events` stream by
+        // name), so these events are stored + visible locally but never
+        // leave the machine. Always created so subscribers can read it
+        // regardless of the publish switch.
+        self.jetstream
+            .get_or_create_stream(local_stream_config())
+            .await
+            .context("failed to create/get 'local' JetStream stream")?;
+
         if let Some(fed) = &self.federation {
             match &fed.peers {
                 FederationPeers::Hub { hub_domain } => {
@@ -378,6 +389,12 @@ impl Bus for NatsBus {
         let (tx, rx) = mpsc::channel(256);
         self.spawn_consumer(tx.clone(), "events", pattern).await
             .context("failed to spawn 'events' consumer")?;
+        // Own local-only events (`publish_sessions = false`) live in the
+        // `local` stream, which federation never sources — read it too so a
+        // node always sees its own sessions, published or not. Filter to
+        // `local.>` so the `events.>`-shaped `pattern` doesn't exclude them.
+        self.spawn_consumer(tx.clone(), "local", "local.>").await
+            .context("failed to spawn 'local' consumer")?;
         if self.federation.is_some() {
             self.spawn_consumer(tx, "events-mirror", pattern).await
                 .context("failed to spawn 'events-mirror' consumer")?;
@@ -492,6 +509,21 @@ pub(crate) fn events_stream_config(host: &str, federation: bool) -> stream::Conf
     stream::Config {
         name: "events".to_string(),
         subjects,
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: EVENTS_MAX_BYTES,
+        ..Default::default()
+    }
+}
+
+/// The `local` stream — own sessions a node keeps private to itself
+/// (`publish_sessions = false`). Bound to `local.>` and deliberately NOT a
+/// federation source (peers/hubs source the `events` stream by name), so its
+/// events are persisted and visible on this node but never propagate. Host is
+/// irrelevant — a node only ever publishes its OWN local events here.
+pub(crate) fn local_stream_config() -> stream::Config {
+    stream::Config {
+        name: "local".to_string(),
+        subjects: vec!["local.>".to_string()],
         retention: stream::RetentionPolicy::Limits,
         max_bytes: EVENTS_MAX_BYTES,
         ..Default::default()
@@ -866,6 +898,18 @@ mod federation_config_tests {
         assert_eq!(cfg.name, "events");
         assert_eq!(cfg.subjects, vec!["events.maxs-air.>".to_string()]);
         assert!(cfg.sources.is_none(), "local events stream is publish-only");
+    }
+
+    #[test]
+    fn local_stream_binds_local_subject_and_is_never_a_source() {
+        // The `local` stream holds own events a node keeps to itself
+        // (`publish_sessions = false`). It binds `local.>` and has NO sources
+        // — and crucially nothing ever sources IT (peers source the `events`
+        // stream by name), so these events never leave the machine.
+        let cfg = local_stream_config();
+        assert_eq!(cfg.name, "local");
+        assert_eq!(cfg.subjects, vec!["local.>".to_string()]);
+        assert!(cfg.sources.is_none());
     }
 
     #[test]

@@ -547,6 +547,11 @@ async fn main() -> Result<()> {
                     config.nats_leaf_url = v;
                 }
             }
+            if let Ok(v) = std::env::var("OPEN_STORY_PUBLISH_SESSIONS") {
+                // Accept 1/true/yes/on (any case) as true; anything else false.
+                let v = v.trim().to_ascii_lowercase();
+                config.publish_sessions = matches!(v.as_str(), "1" | "true" | "yes" | "on");
+            }
 
             let host = config.host.clone();
             let port = config.port;

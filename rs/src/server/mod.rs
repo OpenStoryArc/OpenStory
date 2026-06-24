@@ -64,6 +64,19 @@ fn agent_for_watch_dir(path: &Path, claude_watch_dir: &str, codex_watch_dir: &st
 /// - `Full`: watcher + consumer + API (default, current behavior)
 /// - `Publisher`: watcher + hooks server, publishes to NATS, no local store/ingest
 /// - `Consumer`: subscribes from NATS, runs ingest + API, no watcher
+///
+/// Route an own-event subject by the node's publish switch. With
+/// `publish_sessions = true` it stays on the federated `events.{host}.…`
+/// subject; with `false` it moves to `local.…` — a stream federation never
+/// sources, so the events are stored and visible on this node but never leave.
+fn egress_subject(subject: &str, publish_sessions: bool) -> String {
+    if publish_sessions {
+        subject.to_string()
+    } else {
+        subject.replacen("events.", "local.", 1)
+    }
+}
+
 pub async fn run_server(
     host: &str,
     port: u16,
@@ -504,6 +517,10 @@ pub async fn run_server(
     // time we reach here, but we tolerate None defensively.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     let person_snapshot: Option<config::Person> = state.read().await.config.person.clone();
+    // Node-level publish switch: when false, own events are routed to the
+    // `local.>` subject (stored + visible here, never federated) instead of
+    // `events.{host}.>`. A plain Copy bool, captured per watcher closure.
+    let publish_sessions: bool = state.read().await.config.publish_sessions;
     if is_publisher {
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
@@ -559,7 +576,9 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let result = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        );
                         let success = result.is_ok();
                         diagnostics.record_publish(
                             &actor,
@@ -626,7 +645,9 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let result = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        );
                         let success = result.is_ok();
                         diagnostics.record_publish(
                             &actor,
@@ -695,7 +716,9 @@ pub async fn run_server(
                             events,
                         };
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                        if let Err(e) = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        ) {
                             eprintln!("Hermes bus publish error: {e}");
                         }
                     },
@@ -732,4 +755,33 @@ pub async fn run_server(
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::egress_subject;
+
+    #[test]
+    fn publish_true_keeps_the_federated_events_subject() {
+        // Default: own events stay on `events.{host}.…` → stored + federated.
+        assert_eq!(
+            egress_subject("events.maxs-air.proj.sess.main", true),
+            "events.maxs-air.proj.sess.main"
+        );
+    }
+
+    #[test]
+    fn publish_false_routes_to_the_local_only_subject() {
+        // publish_sessions = false: own events move to `local.…`, a stream
+        // federation never sources — stored + visible here, never sent.
+        assert_eq!(
+            egress_subject("events.maxs-air.proj.sess.main", false),
+            "local.maxs-air.proj.sess.main"
+        );
+        // Only the leading token is rewritten.
+        assert_eq!(
+            egress_subject("events.h.events-project.s.main", false),
+            "local.h.events-project.s.main"
+        );
+    }
 }
