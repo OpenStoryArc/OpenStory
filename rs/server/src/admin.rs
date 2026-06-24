@@ -1,4 +1,4 @@
-//! Admin — operator-facing topology + (eventually) share/store policy.
+//! Admin — operator-facing, read-only topology + fleet/role views.
 //!
 //! v0 surface: `GET /api/admin/topology` returns this node's view of the
 //! federation it boots into — derived purely from its own configuration

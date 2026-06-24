@@ -38,7 +38,7 @@ The dashboard's views, each a different lens on the same data:
 
 **Explore** — historical browse and search across sessions. Full-text search, event filtering, session comparison.
 
-**Admin** — a **read-only** view of the federation and identity model: this node's topology (solo / leaf / hub), the fleet roster, live sources, person clusters, and the role directory. It *observes* state; it doesn't change it — sharing and role grants stay on the CLI. Beta.
+**Admin** — a **read-only** view of the federation and identity model: this node's topology (solo / leaf / hub), the fleet roster, live sources, and person clusters. It *observes* state; it never changes it. Beta.
 
 **Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{host}.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
 
@@ -409,17 +409,29 @@ and a `principal_id` (the device or agent that produced it), derived from a
 and the Admin view's person clusters. This is *attribution* — "whose activity is
 this" — not authentication; human-to-human login is future work.
 
-**Consent — easy local, safe network.** Sharing is opt-in. A loopback-only
-instance defaults its sessions to `shared` (your local dashboard just works), but
-the moment you configure a hub the default flips to `private` — going networked
-never auto-shares your history. A `private` session is enforced at three gates:
-it's never published to NATS, its per-session API reads return 404, and it's
-excluded from search/digests. Federation subjects are host-prefixed
-(`events.{host}.{project}.{session}`) so each leaf owns its own namespace and the
-hub aggregate never double-counts.
+**Sharing means joining a network — secure the network, not the session.**
+OpenStory does **not** enforce per-session or per-person sharing permissions, and
+it can't: once an event is on the NATS bus, every connected node has a full copy.
+Propagation is bidirectional — if you're on the bus, you see what's published to
+it, and others see what you publish. Access is enforced at two real layers, both
+outside the app: **Tailscale** network membership decides who can reach the NATS
+port at all, and **NATS token / accounts** decide who can connect and which
+subjects a credential may pub/sub.
 
-Full hub + leaf + Tailscale setup, the consent model, and **upgrade notes for the
-host-in-subject change** live in [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
+There is one node-level switch over your *own* data: `publish_sessions` (default
+`true`; env `OPEN_STORY_PUBLISH_SESSIONS`). Left `true`, this node publishes its
+observed sessions into the network and stores them locally. Set `false`, its
+sessions are stored locally only and never leave the machine — but it still
+receives and sees everyone else's. This is a node-level choice, not a permission
+enforced on readers. The honest guidance: **don't put a node on a network with
+people who shouldn't see its sessions.** If a machine has sensitive sessions, run
+it solo (no `nats_leaf_url`) or set `publish_sessions = false`.
+
+Federation subjects are host-prefixed (`events.{host}.{project}.{session}`) so
+each leaf owns its own namespace and the hub aggregate never double-counts.
+
+Full hub + leaf + Tailscale setup, the `publish_sessions` switch, and **upgrade
+notes for the host-in-subject change** live in [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
 
 ### MongoDB backend (optional)
 

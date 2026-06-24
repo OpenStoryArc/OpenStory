@@ -4,81 +4,14 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
-## Sharing & consent — follow-ups from the opt-in/owner-consent hardening
+## Federation & transport — follow-ups from the host-in-subject work
 
-### Delegated share authority
-`share-with-person` is now strict: only the session **owner** (caller's
-`person_id` == session's `person_id`) may share it, even for an Admin. That
-closes the "an admin re-shares data they don't own" gap, but it also blocks
-legitimate hub-operator workflows where an owner *wants* a trusted operator
-to manage their sharing. Add an explicit delegation model: an owner grants
-named share-rights to another principal/person, stored alongside the role
-directory, and `share-with-person` accepts owner-OR-delegate. Must be
-explicit, per-owner, revocable, and audit-logged — never an ambient Admin
-power.
-
-### RBAC governance hardening (anti-lockout, anti-escalation)
-`upsert_participant` lets any Admin grant Admin to any principal (including
-new ones), and `delete_participant` can revoke any participant — including
-the last remaining Admin, which would lock the directory. Add guards:
-refuse to delete/demote the final Admin, and consider an approval step (or
-at least a mandatory audit record) for Admin→Admin grants. Today these are
-mitigated by the owner-consent gate (a rogue Admin still can't share data
-they don't own) and the CLI-only bootstrap, but governance is unspecced.
-
-### Default-share-posture config knob (single-user UX + test fixtures)
-Sessions now default to **Private** (opt-in sharing) — the secure default,
-but it means a single-user local operator must explicitly share each of
-their own sessions to revisit historical detail (`/records`, `/patterns`,
-search), and the container/e2e seed fixtures become invisible. Add an
-opt-in per-instance `default_share_policy` config (default `private`) that
-a trusted single-machine deployment — or the test harness — can set to
-`shared`. Thread it into `SqliteStore`'s no-row branch. Keep the *secure*
-default; this is an informed escape hatch, not a silent foot-gun.
-
-### Safe-network default-share for hub/peer-domain federation (needs own-vs-mirrored)
-`Config::is_networked()` now treats `nats_leaf_url` AND the federation env
-vars (`OPEN_STORY_HUB_DOMAIN` / `OPEN_STORY_PEER_DOMAINS` /
-`OPEN_STORY_PEER_HUB_DOMAINS` / `OPEN_STORY_NATS_HUB`) as networked, and
-`is_trusted_local()` keys off it — so a domain-federated node no longer
-auto-grants Admin (that half of the gap is **closed**). But
-`effective_default_share_policy()` deliberately still keys on `nats_leaf_url`
-**only**: a Private default applies to any session with no policy row, and on
-a hub the *mirrored* peer sessions have no local row, so flipping
-hub/peer-federated → Private would 404 every mirrored session and blank the
-"common UI." (The existing `nats_leaf_url` → Private path has the same latent
-issue for a leaf's local dashboard — pre-existing, just less visible.) The
-real fix is to distinguish a node's **own** unconfigured sessions from
-**mirrored** ones: mark a session `Shared` when the persist consumer ingests
-an event whose origin host ≠ this node's host (or have the gate treat
-non-local-host sessions as shared). Once that lands, the safe-network default
-can safely extend to hub/peer federation. **Also still open:** detecting the
-live NATS `/leafz` leaf state (the `just up` external-`nats.conf` path leaves
-all of `nats_leaf_url`/env unset) so runtime leaf state feeds `is_networked()`.
-
-### Container/e2e tests: NATS-at-boot + opt-in fixtures
+### Container/e2e tests: NATS-at-boot
 `rs/tests/test_container.rs` fails because the `open-story:test` image's
 CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
 NATS server — pre-existing, identical on master, surfaced once NATS became
-a hard boot dependency. Fix the test image to manage/bundle NATS, then
-(once it boots) reconcile the seed fixtures with opt-in sharing via the
-`default_share_policy` knob above so the Dockerized data path can be
-verified end-to-end.
-
-### Share policy is inert on the Mongo backend
-`MongoStore` implements none of `get_share_policy` / `set_share_policy` /
-`list_share_policies`, so it inherits the `EventStore` trait defaults
-(`get → Private`, `set → bail!`, `list → empty`). On a `data_backend =
-"mongo"` deployment the whole opt-in model is broken: every per-session read
-404s (everything resolves Private), the privacy toggle errors, and nothing
-can ever be marked shared. It "fails closed," but the feature is
-non-functional. Mongo is optional (`--features mongo`) so this isn't a
-default-path blocker, but it violates the documented SQLite/Mongo
-conformance parity. Fix: implement the three methods on `MongoStore` (a
-`share_policy` collection mirroring the SQLite table + `with_default_share_policy`),
-and add the share-policy cases to `rs/store/tests/event_store_conformance.rs`
-so the parity claim is actually enforced. Surfaced 2026-06-23 in the PR #58
-deep review.
+a hard boot dependency. Fix the test image to manage/bundle NATS so the
+Dockerized data path can be verified end-to-end.
 
 ### Federated catch-up re-injects to a host-less subject (silent no-op)
 `rs/server/src/catch_up.rs:110` publishes healed events to
@@ -88,9 +21,11 @@ mode a leaf's local `events` stream binds only `events.{host}.>`
 is dropped — `catch_up_once` treats it as not-healed and the session never
 converges. Catch-up is the anti-entropy backstop *for federated cold-boot
 loss*, so it fails in the exact mode it exists for. (Solo works because the
-stream binds `events.>`.) It does NOT leak — catch-up pulls from
-share-gated peer endpoints, so private sessions are invisible to it. Fix:
-build the re-injection subject with the originating host + real project
+stream binds `events.>`.) Catch-up only heals sessions a peer actually
+published into the network — a node running with `publish_sessions = false`
+never put its sessions on the bus, so they are invisible to catch-up by
+construction. Fix: build the re-injection subject with the originating host
++ real project
 (`events.{host}.{project}.{sid}.main`), taken from the peer event's own
 fields, not relabeled as local. Surfaced 2026-06-23 in the PR #58 deep review.
 
@@ -105,18 +40,6 @@ is HIGH-not-blocker, and Claude Code project dirs are path-encoded
 (dot-free) — but Codex/pi-mono/arbitrary watch dirs aren't guaranteed safe.
 Fix: lift `host::normalize` to a shared `sanitize_subject_token` and apply
 it to all interpolated tokens. Surfaced 2026-06-23 in the PR #58 deep review.
-
-### NATS accounts-conf injection via unescaped ids in share-with-person
-`rs/server/src/admin.rs` builds `events.*.{session_id}.>` and
-`rs/bus/src/accounts.rs` renders account names + subjects into the
-generated nats accounts conf with no escaping of `"`, `\n`, or `}`. The
-attack surface is bounded — `session_id` must match an existing
-`SessionRow.id` and the caller must own it (owner-consent gate) — so it's
-only exploitable if an ingested session/person id can itself contain conf
-metacharacters. Fix defensively anyway: reject/escape ids that aren't
-`[A-Za-z0-9._-]+` at the `share_with_person` boundary and in
-`render_accounts_block`, with a test feeding `session_id = "x\".>\"\n EVIL:{"`.
-Surfaced 2026-06-23 in the PR #58 deep review.
 
 ### cargo-vet apparatus exists but isn't enforced in CI
 This branch added the full `rs/supply-chain/` cargo-vet directory
@@ -586,12 +509,12 @@ Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS acce
 
 **Correction (arch review 2026-05):** the original claim that "all sessions land on every node (JetStream propagates bidirectionally)" is *not* structurally true — it rides NATS **core interest-propagation**, a timing race that drops cross-leaf events on cold boot (faithful 10-node lab fails 4/4: hub 10/10, slowest node 8–9/10). Convergence is currently guaranteed by the **app-level catch-up anti-entropy** (`024fcc2`, `rs/server/src/catch_up.rs`), not by the transport. The transport-native fix is the federation entry below.
 
-### Federation transport + layered identity (host-in-subject → accounts → permissions → share/store)
+### Federation transport — native JetStream cross-domain sources
 **Spec:** `docs/research/jetstream-sources-federation.md`. Replace racy core-propagation with native **JetStream cross-domain sources** ("Idea A" from the arch review — picked over making NATS the system of record, which violates JSONL-as-sovereign-record). The spike (`scripts/spike_jetstream_sources.sh`) proved the mechanics: cross-domain `$JS.hub.API` reachable over a token leafnode, loop-free via a publish-only local stream + source-only mirror, and **per-host subject namespacing is mandatory** (else core propagation cross-pollinates and the aggregate double-counts).
 
-This is the foundation for the permissions/person layers, not a standalone fix — all four ride the same subject + account: **(1)** `host` in the subject (`events.{host}.{project}.{session}.main`; `host.rs`/`user.rs` already exist subject-safe), **(2)** account = person (hard isolation; cross-person = consent-bound export/import — overlaps "Distributed Deployment Security Hardening" below), **(3)** grants/roles as per-subject permissions, **(4)** per-device share/store `filter_subject` policies (each node decides what it shares & stores; unshared sessions never leave the device). Three invariants: catch-up/digests filter to the shared set; retention always keeps own sessions; revocation-purge is the named hard edge.
+`host` in the subject (`events.{host}.{project}.{session}.main`; `host.rs`/`user.rs` already exist subject-safe) is shipped. The node-level publish switch is shipped too: `publish_sessions = false` routes a node's own observed sessions to a `local.>` stream that federation never sources, so they stay on the machine while the node still receives everyone else's. That is the *only* sharing control — there is no per-session or per-person permission model (the attempt at one was removed as unenforceable; once an event is on the bus every connected node has it). Access is enforced at the network layer instead: Tailscale membership decides who can reach the NATS port, and NATS token/accounts decide who can connect and to which subjects. See `docs/deploy/distributed.md` for the model.
 
-**Plan:** 5 phases, branch-per-phase, **TDD + testcontainers throughout** (red container test first). P1 host-in-subject → P2 JetStream sources (`lab_federation_jetstream_sources_10_nodes`, catch-up OFF, vs catch-up's 12.8s) → P3 accounts → P4 share/store filters → P5 grants/roles. Keep catch-up as the topology-agnostic backstop (and the only path for non-NATS peers). v0 ship line decided after Phase 2 with convergence numbers in hand.
+**Plan:** branch-per-phase, **TDD + testcontainers throughout** (red container test first). P1 host-in-subject (done) → P2 JetStream sources (`lab_federation_jetstream_sources_10_nodes`, catch-up OFF, vs catch-up's 12.8s). Keep catch-up as the topology-agnostic backstop (and the only path for non-NATS peers). v0 ship line decided after P2 with convergence numbers in hand.
 
 ### Federation cold-ramp 10-node regression inside lab framework
 `lab_federation_full_mirror_10_nodes_cold` (standalone) converges in ~4.6 s on the dev machine (32 CPUs, 123 GiB RAM, plenty of headroom). The same code path inside `lab_federation_ramp_cold` — after a successful 5-node iteration + a 10 s settle delay — stalls at `slowest_node=8/10` for the full 120 s timeout. Two missing sessions every time. The hub fan-in is fine (10/10 via core leafnode propagation); the events-mirror is short by a few sessions in exactly one leaf. Hypothesis: a self-registration race where one leaf's `register_self_with_hub` lands *after* peer leaves have already started publishing into their events streams, so the source's `start_sequence` is effectively past those events. Standalone-10 doesn't hit this because the first publish racing the first registration *is* the same event sequence; in the ramp's environment something delays one specific leaf's registration enough that other leaves have already advanced. Worth: instrumenting `run_lab_federation` to dump per-leaf stream state on timeout (which leaf, which missing sessions), then either setting source `DeliverPolicy::All` explicitly or sequencing self-registration before any leaf publishes. Surfaced 2026-05-28 during Phase 2b Step 6; the ramp test ships as-is reporting ceiling=5 honestly until this is resolved.
