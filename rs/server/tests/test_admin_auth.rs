@@ -93,16 +93,24 @@ async fn state_with_tokens_and_role(
     }))
 }
 
+/// Exercise an admin-gated write route (participants upsert) so the
+/// token-tier + role-tier middleware contract can be asserted independently
+/// of any particular handler's body.
 async fn put_share_policy(
     state: Arc<RwLock<AppState>>,
     config: &Config,
     bearer: &str,
 ) -> axum::response::Response {
     let router = build_router(state, None, config);
-    let req = Request::put("/api/admin/share-policy/sess-X")
+    let body = json!({
+        "principal_id": "p-1",
+        "person_id": "max",
+        "role": "observer",
+    });
+    let req = Request::put("/api/admin/participants")
         .header("authorization", format!("Bearer {bearer}"))
         .header("content-type", "application/json")
-        .body(Body::from(json!({"mode": "private"}).to_string()))
+        .body(Body::from(body.to_string()))
         .unwrap();
     router.oneshot(req).await.unwrap()
 }

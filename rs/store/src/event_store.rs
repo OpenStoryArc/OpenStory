@@ -74,54 +74,6 @@ impl SessionRow {
     }
 }
 
-/// Per-session share/store policy mode (Admin v0 → Phase 4 federation).
-///
-/// Sovereignty by default is **share by default at the operator's choice** —
-/// the *operator* decides whether a session leaves the device, and the
-/// default is "yes" (matches today's behavior where every session goes to
-/// the hub aggregate). Marking a session `Private` makes it explicit:
-/// it never leaves the device. The bus enforces this via `filter_subject`
-/// on the cross-domain source; the API enforces it on digests and event
-/// reads (invariant ① from the federation research doc).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SharePolicyMode {
-    Shared,
-    Private,
-}
-
-impl SharePolicyMode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SharePolicyMode::Shared => "shared",
-            SharePolicyMode::Private => "private",
-        }
-    }
-}
-
-impl std::str::FromStr for SharePolicyMode {
-    type Err = String;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "shared" => Ok(SharePolicyMode::Shared),
-            "private" => Ok(SharePolicyMode::Private),
-            _ => Err(format!("invalid share policy mode '{}': expected 'shared' or 'private'", s)),
-        }
-    }
-}
-
-/// One row in the share_policy table — sessions that have been **explicitly**
-/// configured. Sessions without a row default to `SharePolicyMode::Private`
-/// (sharing is opt-in).
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct SharePolicyRow {
-    pub session_id: String,
-    pub mode: SharePolicyMode,
-    /// ISO-8601 wall clock when this row was last written.
-    pub updated_at: String,
-    /// Optional principal that performed the update (when auth tracks it).
-    pub updated_by: Option<String>,
-}
 
 /// Persistence interface for events, sessions, patterns, and plans.
 ///
@@ -372,41 +324,6 @@ pub trait EventStore: Send + Sync {
     /// Count of records in the full-text index.
     async fn fts_count(&self) -> anyhow::Result<u64> {
         Ok(0)
-    }
-
-    // ── Share policy (Admin v0 → Phase 4) ────────────────────────────────
-    //
-    // The sovereignty-by-default convention: a session whose policy is
-    // unset returns `Shared`. Marking it `Private` is the explicit edge
-    // sovereignty hook — the bus's `filter_subject` and the API's digest
-    // filter both consult this.
-    //
-    // Default impls cover backends that don't implement policy storage:
-    // get returns `Private`, set returns `Err` (so an unsupported backend
-    // surfaces the gap loudly instead of silently dropping a write). A
-    // backend that can't record consent must fail safe — never share.
-    // `SqliteStore` overrides both.
-
-    /// Get this session's share policy. Returns `Private` when no row exists —
-    /// sharing is opt-in (sovereignty default).
-    async fn get_share_policy(&self, _session_id: &str) -> Result<SharePolicyMode> {
-        Ok(SharePolicyMode::Private)
-    }
-
-    /// Set this session's share policy. Backends without storage error out.
-    async fn set_share_policy(
-        &self,
-        _session_id: &str,
-        _mode: SharePolicyMode,
-        _updated_by: Option<&str>,
-    ) -> Result<()> {
-        anyhow::bail!("share policy storage not implemented for this EventStore backend")
-    }
-
-    /// List every session that has an explicitly-set policy. Sessions not
-    /// returned default to `Shared`.
-    async fn list_share_policies(&self) -> Result<Vec<SharePolicyRow>> {
-        Ok(vec![])
     }
 }
 

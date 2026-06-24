@@ -1,6 +1,6 @@
 //! REST API handlers — all /api/* routes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 use axum::Json;
@@ -14,7 +14,6 @@ use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
 use crate::logging::{log_event, short_id};
-use crate::share_gate::RequirePublicSession;
 use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
 use crate::transcript::{find_transcript_path, read_transcript};
@@ -80,14 +79,6 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
 /// stable event-id hash)`; a peer fetches this and diffs it against its own
 /// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
 /// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
-///
-/// **Invariant ① (federation Phase 4):** sessions marked `private` in
-/// `share_policy` are omitted entirely from the digest. The catch-up backstop
-/// fetches digests then asks for missing sessions — if a private session
-/// appeared here, a peer would request it via `/api/sessions/{id}/events`
-/// and the app-level path would leak exactly what the federation transport
-/// correctly withheld. The DB authority is the operator's; this endpoint
-/// honors it.
 pub async fn session_digests(
     State(state): State<SharedState>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -98,13 +89,9 @@ pub async fn session_digests(
         .list_sessions()
         .await
         .unwrap_or_default();
-    let shared = shared_session_ids(&s).await?;
 
     let mut digests = Vec::with_capacity(sessions.len());
     for row in &sessions {
-        if !shared.contains(&row.id) {
-            continue; // opt-in: disclose existence only for shared sessions
-        }
         let events = s
             .store
             .event_store
@@ -123,41 +110,6 @@ pub async fn session_digests(
     }
 
     Ok(Json(json!({ "sessions": digests })))
-}
-
-/// Resolve the set of session IDs the operator has **explicitly shared**.
-///
-/// Sharing is opt-in: a session is visible to cross-session reads (digests,
-/// full-text search) only if it carries an explicit `Shared` row. A session
-/// with no row defaults to Private and is therefore absent from this set —
-/// callers INCLUDE only members, never "exclude the private ones" (which
-/// would leak every unconfigured session).
-///
-/// Fails closed: a store read error is propagated as
-/// `Err(StatusCode::SERVICE_UNAVAILABLE)`; the calling endpoint surfaces it
-/// as a 5xx and MUST NOT swallow the failure to an empty/permissive set.
-/// No LKG cache per the approved plan.
-async fn shared_session_ids(
-    state: &crate::state::AppState,
-) -> Result<HashSet<String>, StatusCode> {
-    use open_story_store::event_store::SharePolicyMode;
-    let rows = state
-        .store
-        .event_store
-        .list_share_policies()
-        .await
-        .map_err(|e| {
-            log_event(
-                "api",
-                &format!("shared_session_ids → 503 (list_share_policies error: {e})"),
-            );
-            StatusCode::SERVICE_UNAVAILABLE
-        })?;
-    Ok(rows
-        .into_iter()
-        .filter(|r| matches!(r.mode, SharePolicyMode::Shared))
-        .map(|r| r.session_id)
-        .collect())
 }
 
 pub async fn list_sessions(
@@ -595,12 +547,8 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
 
 /// `GET /api/sessions/{session_id}/events` — full event stream for a session.
 ///
-/// **Invariant ① (federation Phase 4):** if the session is marked `private`
-/// in `share_policy`, returns 404 — denying existence rather than 403'ing or
-/// 200-with-empty so that the catch-up peer's diff sees "not on this device"
-/// and stops asking. The operator's policy is the authority.
+/// Unknown sessions return `200` with an empty array.
 pub async fn get_events(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -623,7 +571,6 @@ pub async fn get_events(
 }
 
 pub async fn get_summary(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -663,7 +610,6 @@ pub async fn get_summary(
 }
 
 pub async fn get_activity(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -693,7 +639,6 @@ pub async fn get_activity(
 }
 
 pub async fn get_tools(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -715,7 +660,6 @@ pub struct TranscriptQuery {
 }
 
 pub async fn get_transcript(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<TranscriptQuery>,
@@ -837,7 +781,6 @@ pub async fn get_transcript(
 // ---------------------------------------------------------------------------
 
 pub async fn get_view_records(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -873,7 +816,6 @@ pub struct ConversationQuery {
 }
 
 pub async fn get_conversation(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<ConversationQuery>,
@@ -927,7 +869,6 @@ pub async fn get_conversation(
 }
 
 pub async fn get_file_changes(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -968,7 +909,6 @@ pub async fn get_tool_schemas() -> Json<Value> {
 /// Returns cached projection metadata: event_count and filter_counts.
 /// O(1) — reads from the projection cache, never iterates rows.
 pub async fn get_session_meta(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -994,7 +934,6 @@ pub async fn get_session_meta(
 /// Returns the full (untruncated) payload for a truncated record.
 /// Returns 404 if the session/event doesn't exist or wasn't truncated.
 pub async fn get_event_content(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath((session_id, event_id)): AxumPath<(String, String)>,
 ) -> Result<String, StatusCode> {
@@ -1062,7 +1001,6 @@ pub struct PatternQuery {
 /// Returns all detected patterns for a session. Optional `?type=` query
 /// parameter filters by pattern_type (e.g., `?type=git.workflow`).
 pub async fn get_patterns(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<PatternQuery>,
@@ -1082,7 +1020,6 @@ pub async fn get_patterns(
 }
 
 pub async fn get_turns(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1131,7 +1068,6 @@ pub async fn get_plan(
 }
 
 pub async fn get_session_plans(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1165,7 +1101,6 @@ pub async fn get_session_plans(
 
 /// GET /api/sessions/{session_id}/synopsis
 pub async fn get_session_synopsis(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -1185,7 +1120,6 @@ pub async fn get_session_synopsis(
 
 /// GET /api/sessions/{session_id}/tool-journey
 pub async fn get_tool_journey(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1200,7 +1134,6 @@ pub async fn get_tool_journey(
 
 /// GET /api/sessions/{session_id}/file-impact
 pub async fn get_file_impact(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1215,7 +1148,6 @@ pub async fn get_file_impact(
 
 /// GET /api/sessions/{session_id}/errors
 pub async fn get_session_errors(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Json<Value> {
@@ -1619,17 +1551,6 @@ pub async fn search_events(
             )
         })?;
 
-    // Invariant ①: FTS reaches every indexed event. Sharing is opt-in, so
-    // return only events from explicitly-shared sessions — fail-closed (503)
-    // if the share policy can't be read, never leak.
-    let shared = shared_session_ids(&s)
-        .await
-        .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
-    let results: Vec<_> = results
-        .into_iter()
-        .filter(|r| shared.contains(&r.session_id))
-        .collect();
-
     Ok(Json(serde_json::to_value(results).unwrap_or(json!([]))))
 }
 
@@ -1700,16 +1621,6 @@ pub async fn agent_search(
                 Json(json!({"error": format!("search failed: {e}")})),
             )
         })?;
-
-    // Invariant ①: sharing is opt-in — keep only events from explicitly-shared
-    // sessions before grouping. Fail-closed (503) if policy can't be read.
-    let shared = shared_session_ids(&s)
-        .await
-        .map_err(|code| (code, Json(json!({"error": "share policy unavailable"}))))?;
-    let results: Vec<_> = results
-        .into_iter()
-        .filter(|r| shared.contains(&r.session_id))
-        .collect();
 
     // Collect project filter info
     let project_filter = query.project.clone();
@@ -1841,7 +1752,6 @@ const MAX_RECORDS_LIMIT: usize = 2000;
 /// rather than any in-memory cache, so any event persisted to the store
 /// is visible here regardless of which ingest path wrote it.
 pub async fn get_session_records(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
     Query(query): Query<SessionRecordsQuery>,
@@ -1986,11 +1896,6 @@ pub async fn get_session_records(
 /// Removes a session and all its events, patterns, and plans from SQLite.
 /// Also clears in-memory projections and caches.
 pub async fn delete_session(
-    // Invariant ①: a private session denies its own existence. Without this
-    // gate, DELETE leaks existence (404 vs 200) and lets a read-token holder
-    // destroy a private session — every other per-session route is gated, so
-    // this one must be too.
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -2045,7 +1950,6 @@ pub async fn delete_session(
 /// Returns all events for a session as newline-delimited JSON (JSONL).
 /// Content-Type: application/x-ndjson for proper JSONL handling.
 pub async fn export_session(
-    _gate: RequirePublicSession,
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
 ) -> Result<

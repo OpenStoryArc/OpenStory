@@ -23,7 +23,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 use helpers::{
-    body_json, make_event_with_id, make_user_prompt, send_request, share_session, test_state,
+    body_json, make_event_with_id, make_user_prompt, send_request, test_state,
 };
 use open_story::server::ingest_events;
 
@@ -54,10 +54,6 @@ async fn transcript_api_rejects_dotdot_in_path() {
             .event_store
             .insert_event("sess-traversal", &event)
             .await;
-        // Share the session so the read reaches the transcript handler — the
-        // point here is that the *handler* refuses to serve a traversal path,
-        // not that the share gate hides the session.
-        share_session(&s, "sess-traversal").await;
     }
 
     let req = Request::get("/api/sessions/sess-traversal/transcript")
@@ -96,8 +92,6 @@ async fn transcript_api_rejects_backslash_traversal() {
             }
         });
         let _ = s.store.event_store.insert_event("sess-bs", &event).await;
-        // Share so the read reaches the handler (see the dotdot test above).
-        share_session(&s, "sess-bs").await;
     }
 
     let req = Request::get("/api/sessions/sess-bs/transcript")
@@ -421,10 +415,15 @@ async fn api_nonexistent_session_returns_empty() {
         .body(Body::empty())
         .unwrap();
     let resp = send_request(Arc::clone(&state), req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle, and no
-    // server error.
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    // A nonexistent session returns an empty array (200), not an error —
+    // it's an opaque id with no events, handled gracefully.
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = body_json(resp).await;
+    assert_eq!(
+        body.as_array().unwrap().len(),
+        0,
+        "nonexistent session should return empty array, not error"
+    );
 }
 
 #[tokio::test]

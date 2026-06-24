@@ -10,9 +10,10 @@ mod helpers;
 use axum::body::Body;
 use axum::http::Request;
 use helpers::{
-    body_json, ingest_and_share, make_assistant_text, make_tool_result, make_tool_use,
-    make_user_prompt, send_request, share_session, test_state,
+    body_json, make_assistant_text, make_tool_result, make_tool_use,
+    make_user_prompt, send_request, test_state,
 };
+use open_story::server::ingest_events;
 use tempfile::TempDir;
 
 // describe("GET /api/sessions/{id}/records")
@@ -28,9 +29,10 @@ mod records_endpoint {
             .body(Body::empty())
             .unwrap();
         let resp = send_request(state, req).await;
-        // Opt-in sharing: an unknown/unshared session denies existence (404),
-        // indistinguishable from a private one — no existence oracle.
-        assert_eq!(resp.status(), 404);
+        // Unknown session → 200 with an empty array (no existence oracle, no gate).
+        assert_eq!(resp.status(), 200);
+        let body = body_json(resp).await;
+        assert_eq!(body, serde_json::json!([]));
     }
 
     #[tokio::test]
@@ -44,7 +46,7 @@ mod records_endpoint {
                 make_tool_use("sess-rec", "evt-2", None, "Bash", "cargo test"),
                 make_tool_result("sess-rec", "evt-3", None, "toolu_evt-2", "test result: ok"),
             ];
-            ingest_and_share(&mut s, "sess-rec", &events, None).await;
+            ingest_events(&mut s, "sess-rec", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-rec/records")
@@ -97,7 +99,7 @@ mod records_endpoint {
                 make_user_prompt("sess-depth", "evt-root"),
                 make_tool_use("sess-depth", "evt-child", Some("evt-root"), "Bash", "ls"),
             ];
-            ingest_and_share(&mut s, "sess-depth", &events, None).await;
+            ingest_events(&mut s, "sess-depth", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-depth/records")
@@ -170,9 +172,6 @@ mod records_endpoint {
                 !s.store.projections.contains_key("sess-bypass"),
                 "test precondition: projection must NOT contain the session"
             );
-            // Opt-in sharing: mark this directly-seeded session shared so the
-            // per-session read passes the RequirePublicSession gate.
-            share_session(&s, "sess-bypass").await;
         }
 
         let req = Request::get("/api/sessions/sess-bypass/records")
@@ -218,7 +217,7 @@ mod records_endpoint {
                 make_assistant_text("sess-sort", "evt-b", None, "hello"),
                 make_tool_use("sess-sort", "evt-c", None, "Read", "/tmp/file"),
             ];
-            ingest_and_share(&mut s, "sess-sort", &events, None).await;
+            ingest_events(&mut s, "sess-sort", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-sort/records")

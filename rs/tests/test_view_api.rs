@@ -5,7 +5,8 @@ mod helpers;
 
 use axum::body::Body;
 use axum::http::Request;
-use helpers::{body_json, ingest_and_share, send_request, test_state};
+use helpers::{body_json, send_request, test_state};
+use open_story::server::ingest_events;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -120,7 +121,7 @@ mod view_records_endpoint {
                 ),
                 make_tool_result_event("sess-1", "toolu_1", "test result: ok"),
             ];
-            ingest_and_share(&mut s, "sess-1", &events, None).await;
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/view-records")
@@ -164,7 +165,7 @@ mod view_records_endpoint {
                 }),
                 "toolu_edit",
             )];
-            ingest_and_share(&mut s, "sess-1", &events, None).await;
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/view-records")
@@ -196,9 +197,10 @@ mod view_records_endpoint {
             .body(Body::empty())
             .unwrap();
         let resp = send_request(state, req).await;
-        // Opt-in sharing: an unknown/unshared session denies existence (404),
-        // indistinguishable from a private one — no existence oracle.
-        assert_eq!(resp.status(), 404);
+        // Unknown session → 200 with an empty array (no existence oracle, no gate).
+        assert_eq!(resp.status(), 200);
+        let body = body_json(resp).await;
+        assert_eq!(body, json!([]));
     }
 }
 
@@ -222,7 +224,7 @@ mod conversation_endpoint {
                 ),
                 make_tool_result_event("sess-1", "toolu_1", "all tests passed"),
             ];
-            ingest_and_share(&mut s, "sess-1", &events, None).await;
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/conversation")
@@ -266,7 +268,7 @@ mod conversation_endpoint {
                 json!({"command": "long running"}),
                 "toolu_pending",
             )];
-            ingest_and_share(&mut s, "sess-1", &events, None).await;
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/conversation")
@@ -331,7 +333,7 @@ mod file_changes_endpoint {
                     "toolu_read",
                 ),
             ];
-            ingest_and_share(&mut s, "sess-1", &events, None).await;
+            ingest_events(&mut s, "sess-1", &events, None).await;
         }
 
         let req = Request::get("/api/sessions/sess-1/file-changes")

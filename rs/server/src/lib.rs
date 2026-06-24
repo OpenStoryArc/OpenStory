@@ -23,7 +23,6 @@ pub mod principal_resolver;
 pub mod reconcile;
 pub mod reproject;
 pub mod router;
-pub mod share_gate;
 pub mod state;
 pub mod tool_schemas;
 pub mod transcript;

@@ -58,21 +58,6 @@ pub struct NatsBus {
     local_domain: Option<String>,
     client: async_nats::Client,
     federation: Option<Federation>,
-    /// Phase 4.10 — bus-level Invariant ① enforcement. On every publish,
-    /// the bus consults this lookup; if the batch's session is private,
-    /// the publish is skipped (event never reaches NATS, never reaches
-    /// peers, never lands on the hub aggregate). Defaults to noop (every
-    /// session shared); the server's boot path swaps in the real store-
-    /// backed lookup via `set_share_policy_lookup`.
-    ///
-    /// Interior mutability so the swap works through `Arc<dyn Bus>` —
-    /// publish briefly locks to clone the inner Arc, releases the lock
-    /// before the async `is_private` call.
-    policy_lookup: std::sync::Mutex<std::sync::Arc<dyn crate::share_policy::SharePolicyLookup>>,
-    /// Counter of publishes skipped because the session was private.
-    /// Surfaced as the prometheus metric `bus_publish_skipped_total
-    /// {reason="private"}` by the server's metrics endpoint.
-    publish_skipped_private: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl NatsBus {
@@ -148,35 +133,7 @@ impl NatsBus {
             local_domain,
             client,
             federation,
-            policy_lookup: std::sync::Mutex::new(
-                crate::share_policy::NoopSharePolicyLookup::arc(),
-            ),
-            publish_skipped_private: std::sync::Arc::new(
-                std::sync::atomic::AtomicU64::new(0),
-            ),
         })
-    }
-
-    /// Inject a real share-policy lookup. Called by the server at boot to
-    /// wrap its event_store; before that call, the bus uses the noop
-    /// lookup (every session shared). Returns `self` for chaining at
-    /// construction time. For post-construction swap (after the bus is
-    /// already in `Arc<dyn Bus>`), use the trait method
-    /// `Bus::set_share_policy_lookup`.
-    pub fn with_policy_lookup(
-        self,
-        lookup: std::sync::Arc<dyn crate::share_policy::SharePolicyLookup>,
-    ) -> Self {
-        *self.policy_lookup.lock().unwrap() = lookup;
-        self
-    }
-
-    /// Read the count of publishes skipped because the session was
-    /// private. Surfaced as the `bus_publish_skipped_total` prometheus
-    /// metric by the server.
-    pub fn publish_skipped_private_count(&self) -> u64 {
-        self.publish_skipped_private
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Extract token from `nats://TOKEN@host:port` URL.
@@ -390,21 +347,6 @@ impl NatsBus {
 #[async_trait]
 impl Bus for NatsBus {
     async fn publish(&self, subject: &str, batch: &IngestBatch) -> Result<()> {
-        // Phase 4.10: bus-level Invariant ① enforcement. If the operator
-        // marked this session private, the publish is skipped — the
-        // event never enters NATS, never reaches peer subscribers, never
-        // lands on the hub aggregate. The local store is updated
-        // separately via the direct ingest path; the bus only carries
-        // events that the operator consents to share.
-        //
-        // Clone the inner Arc inside the lock + release before await —
-        // sync Mutex must not be held across await points.
-        let lookup = self.policy_lookup.lock().unwrap().clone();
-        if lookup.is_private(&batch.session_id).await {
-            self.publish_skipped_private
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            return Ok(());
-        }
         let payload = serde_json::to_vec(batch).context("failed to serialize IngestBatch")?;
 
         self.jetstream
@@ -461,13 +403,6 @@ impl Bus for NatsBus {
 
     fn jetstream(&self) -> Option<&async_nats::jetstream::Context> {
         Some(&self.jetstream)
-    }
-
-    fn set_share_policy_lookup(
-        &self,
-        lookup: std::sync::Arc<dyn crate::share_policy::SharePolicyLookup>,
-    ) {
-        *self.policy_lookup.lock().unwrap() = lookup;
     }
 }
 

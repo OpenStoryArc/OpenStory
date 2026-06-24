@@ -10,8 +10,8 @@
 //! adds an account, a user, or an export/import. Hand-editing the conf file
 //! at runtime is fragile — operators forget commas, get account names wrong,
 //! and there's no way to test what they wrote. A typed generator lets the
-//! server compute the right config from `Person` records + `share_policy`
-//! rows and emit a deterministic block we can diff against the live file.
+//! server compute the right config from `Person` records and emit a
+//! deterministic block we can diff against the live file.
 
 use std::fmt::Write as _;
 

@@ -16,9 +16,7 @@ use std::sync::Mutex;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 
-use open_story_bus::accounts::{
-    render_accounts_block, AccountSpec, ExportSpec, ImportSpec,
-};
+use open_story_bus::accounts::{render_accounts_block, AccountSpec};
 
 /// Mutates and persists the nats-server account config.
 ///
@@ -42,99 +40,6 @@ impl AccountConfigWriter {
             static_prefix: static_prefix.into(),
             state: Mutex::new(initial),
         }
-    }
-
-    /// Add a one-way share: `from_account` exports `subject` to `to_account`,
-    /// `to_account` imports it. Idempotent — adding the same pair twice is a
-    /// no-op.
-    pub fn add_share(&self, from_account: &str, to_account: &str, subject: &str) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        let from = state
-            .iter_mut()
-            .find(|a| a.name == from_account)
-            .ok_or_else(|| anyhow!("source account {from_account} not in config"))?;
-        let existing_export = from
-            .exports
-            .iter_mut()
-            .find(|e| e.subject == subject && e.allowed_accounts.contains(&to_account.to_string()));
-        if existing_export.is_none() {
-            // Try matching subject first — extend allowed_accounts.
-            if let Some(e) = from.exports.iter_mut().find(|e| e.subject == subject) {
-                e.allowed_accounts.push(to_account.to_string());
-            } else {
-                from.exports.push(ExportSpec {
-                    subject: subject.to_string(),
-                    allowed_accounts: vec![to_account.to_string()],
-                });
-            }
-        }
-
-        let to = state
-            .iter_mut()
-            .find(|a| a.name == to_account)
-            .ok_or_else(|| anyhow!("destination account {to_account} not in config"))?;
-        let already_imported = to.imports.iter().any(|i| {
-            i.from_account == from_account && i.subject == subject && i.to.is_none()
-        });
-        if !already_imported {
-            to.imports.push(ImportSpec {
-                from_account: from_account.to_string(),
-                subject: subject.to_string(),
-                to: None,
-            });
-        }
-        Ok(())
-    }
-
-    /// Like [`add_share`] but creates `to_account` as a stub if it doesn't
-    /// already exist. The stub has no users — no client can connect *as*
-    /// this account locally. Useful for the operator-driven flow where you
-    /// declare "I want to share with person X" before person X's credentials
-    /// have been provisioned on this node. Actual delivery to X requires
-    /// X's credentials to land in the conf (via this writer or by manual
-    /// add) so a client can subscribe under that account.
-    pub fn add_share_with_stubs(
-        &self,
-        from_account: &str,
-        to_account: &str,
-        subject: &str,
-    ) -> Result<()> {
-        {
-            let mut state = self.state.lock().unwrap();
-            if !state.iter().any(|a| a.name == to_account) {
-                state.push(AccountSpec {
-                    name: to_account.to_string(),
-                    users: vec![],
-                    exports: vec![],
-                    imports: vec![],
-                });
-            }
-        }
-        self.add_share(from_account, to_account, subject)
-    }
-
-    /// Remove a share previously added by [`add_share`]. Idempotent.
-    pub fn remove_share(
-        &self,
-        from_account: &str,
-        to_account: &str,
-        subject: &str,
-    ) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(from) = state.iter_mut().find(|a| a.name == from_account) {
-            for e in from.exports.iter_mut() {
-                if e.subject == subject {
-                    e.allowed_accounts.retain(|a| a != to_account);
-                }
-            }
-            from.exports
-                .retain(|e| !(e.subject == subject && e.allowed_accounts.is_empty()));
-        }
-        if let Some(to) = state.iter_mut().find(|a| a.name == to_account) {
-            to.imports
-                .retain(|i| !(i.from_account == from_account && i.subject == subject));
-        }
-        Ok(())
     }
 
     /// Render the current in-memory state as a complete nats-server conf.
@@ -262,86 +167,9 @@ mod tests {
     }
 
     #[test]
-    fn add_share_produces_paired_export_and_import() {
-        let tmp = tempfile::tempdir().unwrap();
-        let writer = writer_in(&tmp, vec![person("PERSON_MAX", "max"), person("PERSON_KATIE", "katie")]);
-
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
-
-        let conf = writer.current_config();
-        assert!(conf.contains("{ stream: \"events.session-X.>\", accounts: [PERSON_KATIE] }"));
-        assert!(conf.contains(
-            "{ stream: { account: PERSON_MAX, subject: \"events.session-X.>\" } }"
-        ));
-    }
-
-    #[test]
-    fn add_share_is_idempotent_for_repeated_calls() {
-        let tmp = tempfile::tempdir().unwrap();
-        let writer = writer_in(&tmp, vec![person("PERSON_MAX", "max"), person("PERSON_KATIE", "katie")]);
-
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
-        let first = writer.current_config();
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
-        let second = writer.current_config();
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn add_share_with_same_subject_different_target_extends_allowed_accounts() {
-        let tmp = tempfile::tempdir().unwrap();
-        let writer = writer_in(
-            &tmp,
-            vec![
-                person("PERSON_MAX", "max"),
-                person("PERSON_KATIE", "katie"),
-                person("PERSON_BOBBY", "bobby"),
-            ],
-        );
-
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.public.>")
-            .unwrap();
-        writer
-            .add_share("PERSON_MAX", "PERSON_BOBBY", "events.public.>")
-            .unwrap();
-
-        let conf = writer.current_config();
-        assert!(
-            conf.contains("accounts: [PERSON_KATIE, PERSON_BOBBY]"),
-            "expected combined allowed_accounts, got:\n{conf}"
-        );
-    }
-
-    #[test]
-    fn remove_share_undoes_add_share() {
-        let tmp = tempfile::tempdir().unwrap();
-        let writer = writer_in(&tmp, vec![person("PERSON_MAX", "max"), person("PERSON_KATIE", "katie")]);
-        let initial = writer.current_config();
-
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
-        writer
-            .remove_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
-
-        assert_eq!(writer.current_config(), initial);
-    }
-
-    #[test]
     fn persist_writes_the_current_config_atomically() {
         let tmp = tempfile::tempdir().unwrap();
         let writer = writer_in(&tmp, vec![person("PERSON_MAX", "max"), person("PERSON_KATIE", "katie")]);
-        writer
-            .add_share("PERSON_MAX", "PERSON_KATIE", "events.session-X.>")
-            .unwrap();
         writer.persist().unwrap();
 
         let on_disk = std::fs::read_to_string(tmp.path().join("nats-server.conf")).unwrap();
@@ -365,15 +193,5 @@ mod tests {
         assert!(listen_idx < accounts_idx);
         // Both required pieces of the static prefix landed.
         assert!(on_disk.contains("jetstream { store_dir:"));
-    }
-
-    #[test]
-    fn add_share_rejects_unknown_source_account() {
-        let tmp = tempfile::tempdir().unwrap();
-        let writer = writer_in(&tmp, vec![person("PERSON_KATIE", "katie")]);
-        let err = writer
-            .add_share("PERSON_PHANTOM", "PERSON_KATIE", "x")
-            .unwrap_err();
-        assert!(err.to_string().contains("PERSON_PHANTOM"));
     }
 }

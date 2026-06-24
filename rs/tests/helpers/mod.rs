@@ -393,54 +393,6 @@ pub async fn seed_and_ingest(
         })
         .await;
 
-    // Sharing is opt-in (sessions default to Private). A seeded session
-    // represents one the operator is actively viewing, so mark it Shared
-    // here — most tests assert on visible content and shouldn't each carry
-    // share-policy boilerplate. Tests that exercise the *default* posture
-    // (e.g. the opt-in default specs) insert events directly instead, and
-    // privacy tests override this with an explicit Private row.
-    let _ = state
-        .store
-        .event_store
-        .set_share_policy(
-            session_id,
-            open_story_store::event_store::SharePolicyMode::Shared,
-            None,
-        )
-        .await;
-
-    result
-}
-
-/// Mark a seeded session `Shared` so per-session reads pass the
-/// `RequirePublicSession` gate. Sessions default to `Private` (opt-in
-/// sharing), so a test that asserts on the *visible content* of a session
-/// it seeded directly via `ingest_events` / `insert_event` must opt that
-/// session into sharing first — otherwise every per-session read 404s.
-/// `seed_and_ingest` already does this internally; this is the explicit
-/// hook for the `ingest_events`-based read tests.
-pub async fn share_session(state: &open_story::server::AppState, session_id: &str) {
-    let _ = state
-        .store
-        .event_store
-        .set_share_policy(
-            session_id,
-            open_story_store::event_store::SharePolicyMode::Shared,
-            None,
-        )
-        .await;
-}
-
-/// `ingest_events` + `share_session` in one call — the drop-in for read
-/// tests that seed a session and then assert on its visible content.
-pub async fn ingest_and_share(
-    state: &mut open_story::server::AppState,
-    session_id: &str,
-    events: &[CloudEvent],
-    project_id: Option<&str>,
-) -> open_story::server::IngestResult {
-    let result = open_story::server::ingest_events(state, session_id, events, project_id).await;
-    share_session(state, session_id).await;
     result
 }
 

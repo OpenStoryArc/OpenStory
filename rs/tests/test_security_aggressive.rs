@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-use helpers::{body_json, body_text, send_request, share_session, test_state};
+use helpers::{body_json, body_text, send_request, test_state};
 use open_story::server::{Config, SharedState, build_router};
 
 /// Build a router with a specific `api_token` set. Tests of the auth path
@@ -408,10 +408,6 @@ async fn transcript_path_symlink_outside_data_dir_blocked() {
             }
         });
         let _ = s.store.event_store.insert_event("sess-symlink", &event).await;
-        // Share so the read reaches the transcript handler — the test is that
-        // the handler refuses to follow a symlink escaping data_dir, not that
-        // the share gate hides the session.
-        share_session(&s, "sess-symlink").await;
     }
 
     let req = Request::get("/api/sessions/sess-symlink/transcript")

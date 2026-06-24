@@ -854,13 +854,7 @@ async fn main() -> Result<()> {
                 Some(config.db_key.as_str())
             };
 
-            let mut store = StoreState::with_backend(
-                &data_dir,
-                key,
-                backend,
-                config.effective_default_share_policy(),
-            )
-            .await?;
+            let mut store = StoreState::with_backend(&data_dir, key, backend).await?;
             let report =
                 open_story::server::reconcile::reconcile_local(&data_dir, &mut store).await?;
 

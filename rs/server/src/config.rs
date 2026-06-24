@@ -227,15 +227,6 @@ pub struct Config {
     /// The hermes-openstory plugin writes per-session JSONL here; the watcher
     /// auto-detects the format via `envelope.source == "hermes"`.
     pub hermes_watch_dir: String,
-    /// Default share policy for a session with no explicit row. When unset
-    /// (`None`), the effective default is *derived from whether networking is
-    /// configured* — loopback-only → `shared` (the local dashboard just works
-    /// out of the box), networked → `private` (sharing is opt-in, so pointing
-    /// at a hub never leaks your history). Set explicitly to pin one way. See
-    /// [`Config::effective_default_share_policy`]. Env override:
-    /// `OPEN_STORY_DEFAULT_SHARE_POLICY`.
-    #[serde(default)]
-    pub default_share_policy: Option<open_story_store::event_store::SharePolicyMode>,
     /// Persistence backend: "sqlite" (default) or "mongo".
     /// `mongo` requires building with `--features open-story-store/mongo`.
     pub data_backend: DataBackend,
@@ -365,7 +356,6 @@ impl Default for Config {
             watch_dirs: Vec::new(),
             pi_watch_dir: String::new(),     // disabled by default
             hermes_watch_dir: String::new(), // disabled by default
-            default_share_policy: None,
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".to_string(),
             mongo_db: "openstory".to_string(),
@@ -384,46 +374,11 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Resolve the default share policy for sessions with no explicit row.
-    ///
-    /// Precedence: `OPEN_STORY_DEFAULT_SHARE_POLICY` env var → explicit
-    /// `default_share_policy` in config → derived from networking. The
-    /// derivation is the heart of "easy local, safe network": a loopback-only
-    /// instance (no `nats_leaf_url`) defaults to `Shared` so the local
-    /// dashboard just works, while configuring a leaf flips the default to
-    /// `Private` so pointing at a network never auto-shares your history.
-    ///
-    /// NOTE: this intentionally keys on `nats_leaf_url` only, NOT the full
-    /// [`Self::is_networked`] (which also counts hub/peer-domain federation).
-    /// A `private` default applies to a session with no policy row — and on a
-    /// hub, *mirrored* peer sessions have no local row, so a Private default
-    /// would 404 every mirrored session and blank the "common UI." Extending
-    /// the safe-network default to hub/peer federation requires distinguishing
-    /// a node's own unconfigured sessions from mirrored ones (set Shared on
-    /// ingest of a non-local-host session). Tracked in BACKLOG; until then the
-    /// default-share derivation stays leaf-URL-only to avoid regressing hubs.
-    pub fn effective_default_share_policy(&self) -> open_story_store::event_store::SharePolicyMode {
-        use open_story_store::event_store::SharePolicyMode;
-        std::env::var("OPEN_STORY_DEFAULT_SHARE_POLICY")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .or(self.default_share_policy)
-            .unwrap_or_else(|| {
-                if self.nats_leaf_url.trim().is_empty() {
-                    SharePolicyMode::Shared // loopback-only: local dashboard just works
-                } else {
-                    SharePolicyMode::Private // networked: sharing is opt-in
-                }
-            })
-    }
-
     /// True if this instance is configured to exchange data with other
     /// machines — a NATS leaf URL (`nats_leaf_url`) OR hub/peer-domain
     /// federation. Used by [`Self::is_trusted_local`] so a federated node
     /// (which talks to other people's machines) is never treated as a
-    /// single-user trusted-local box and never auto-grants Admin. (The
-    /// share-default deliberately does NOT use this — see
-    /// [`Self::effective_default_share_policy`].)
+    /// single-user trusted-local box and never auto-grants Admin.
     pub fn is_networked(&self) -> bool {
         self.is_networked_with(crate::admin::EnvInputs::from_env().is_federated())
     }
@@ -874,7 +829,6 @@ mod tests {
             watch_dirs: vec!["/tmp/watch".into(), "/tmp/codex".into()],
             pi_watch_dir: String::new(),
             hermes_watch_dir: String::new(),
-            default_share_policy: Some(open_story_store::event_store::SharePolicyMode::Private),
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".into(),
             mongo_db: "openstory".into(),
@@ -1223,62 +1177,6 @@ matchers = {}
         // Sovereignty default: a fresh install is single-machine and
         // loopback-only. Distributed streaming is strictly opt-in via a hub URL.
         assert_eq!(Config::default().nats_leaf_url, "");
-    }
-
-    #[test]
-    fn effective_share_policy_is_shared_when_loopback_only() {
-        use open_story_store::event_store::SharePolicyMode;
-        // Easy local: a fresh, loopback-only install makes its own sessions
-        // visible without a per-session opt-in.
-        let config = Config::default();
-        assert_eq!(config.nats_leaf_url, "", "precondition: no networking");
-        assert!(config.default_share_policy.is_none(), "precondition: not pinned");
-        assert_eq!(
-            config.effective_default_share_policy(),
-            SharePolicyMode::Shared,
-            "loopback-only default must be Shared so the local dashboard just works"
-        );
-    }
-
-    #[test]
-    fn effective_share_policy_is_private_when_networked() {
-        use open_story_store::event_store::SharePolicyMode;
-        // Safe network: the moment a hub/leaf is configured, sharing becomes
-        // opt-in so pointing at a network never auto-shares history.
-        let config = Config {
-            nats_leaf_url: "nats://hub.example:7422".to_string(),
-            ..Config::default()
-        };
-        assert_eq!(
-            config.effective_default_share_policy(),
-            SharePolicyMode::Private,
-            "configuring networking must flip the default to opt-in"
-        );
-    }
-
-    #[test]
-    fn explicit_share_policy_pins_regardless_of_networking() {
-        use open_story_store::event_store::SharePolicyMode;
-        // An explicit setting wins over the networking-derived default.
-        let networked_but_shared = Config {
-            nats_leaf_url: "nats://hub.example:7422".to_string(),
-            default_share_policy: Some(SharePolicyMode::Shared),
-            ..Config::default()
-        };
-        assert_eq!(
-            networked_but_shared.effective_default_share_policy(),
-            SharePolicyMode::Shared,
-            "explicit Shared must hold even when networked"
-        );
-        let local_but_private = Config {
-            default_share_policy: Some(SharePolicyMode::Private),
-            ..Config::default()
-        };
-        assert_eq!(
-            local_but_private.effective_default_share_policy(),
-            SharePolicyMode::Private,
-            "explicit Private must hold even loopback-only"
-        );
     }
 
     #[test]

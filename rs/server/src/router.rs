@@ -113,10 +113,6 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::admin::get_topology),
         )
         .route(
-            "/api/admin/share-policy",
-            axum::routing::get(crate::admin::list_share_policy),
-        )
-        .route(
             "/api/admin/participants",
             axum::routing::get(crate::admin::list_participants),
         )
@@ -265,24 +261,15 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
     let cors = build_cors(config);
 
     // Phase 6.2 — policy-write routes get the admin_only middleware so a
-    // read-only api_token holder can't mutate share policy or trigger a
-    // cross-person share. Empty `admin_token` falls back to api_token
-    // semantics (backwards compat for single-token deployments).
+    // read-only api_token holder can't mutate participant roles. Empty
+    // `admin_token` falls back to api_token semantics (backwards compat
+    // for single-token deployments).
     let api_token_for_admin = config.api_token.clone();
     let admin_token = config.admin_token.clone();
     let admin_writes_router = Router::new()
-        .route(
-            "/api/admin/share-policy/{session_id}",
-            axum::routing::put(crate::admin::set_share_policy),
-        )
-        .route(
-            "/api/admin/share-with-person",
-            axum::routing::post(crate::admin::share_with_person),
-        )
-        // Phase 6 polish: participants (role) management. Same auth tier
-        // + role gate as share-policy writes. GET sits on the read tier
-        // below (line ~118) so the UI can populate dropdowns without an
-        // admin token.
+        // Phase 6 polish: participants (role) management. Admin-gated. GET
+        // sits on the read tier above so the UI can populate dropdowns
+        // without an admin token.
         .route(
             "/api/admin/participants",
             axum::routing::put(crate::admin::upsert_participant),

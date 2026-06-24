@@ -9,7 +9,6 @@ use tempfile::TempDir;
 
 use helpers::seed_and_ingest;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story_store::event_store::SharePolicyMode;
 
 #[tokio::test]
 async fn test_list_sessions_empty() {
@@ -195,333 +194,10 @@ async fn test_get_events_unknown_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
-}
-
-// ── Invariant ① — catch-up respects share policy ─────────────────────────
-//
-// `share_policy[id] = private` means the session must not leak through
-// the app-level catch-up path. Two endpoints carry the contract:
-//   /api/digests           → omit private sessions entirely
-//   /api/sessions/{id}/events → 404 (deny existence)
-//
-// Together these mean a peer running catch-up against this node sees the
-// private session as "not on this device" — same shape as never having
-// observed it, exactly what the federation transport's `filter_subject`
-// would also produce.
-
-#[tokio::test]
-async fn test_digests_omit_private_sessions_invariant_one() {
-    use open_story_store::event_store::SharePolicyMode;
-
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let events_a = vec![make_event("io.arc.event", "sess-shared")];
-        seed_and_ingest(&mut s, "sess-shared", &events_a, None).await;
-        let events_b = vec![make_event("io.arc.event", "sess-private")];
-        seed_and_ingest(&mut s, "sess-private", &events_b, None).await;
-
-        // Mark one private — the other stays at default (shared).
-        s.store
-            .event_store
-            .set_share_policy("sess-private", SharePolicyMode::Private, None)
-            .await
-            .expect("set share policy");
-    }
-
-    let req = Request::get("/api/digests").body(Body::empty()).unwrap();
-    let resp = send_request(state, req).await;
+    // Unknown session → 200 with an empty array (no existence oracle, no gate).
     assert_eq!(resp.status(), 200);
     let body = body_json(resp).await;
-    let ids: Vec<&str> = body["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|d| d["session_id"].as_str().unwrap())
-        .collect();
-    assert!(ids.contains(&"sess-shared"), "shared session must appear");
-    assert!(
-        !ids.contains(&"sess-private"),
-        "private session must be omitted (invariant ①)"
-    );
-}
-
-#[tokio::test]
-async fn test_get_events_404s_on_private_session_invariant_one() {
-    use open_story_store::event_store::SharePolicyMode;
-
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let events = vec![make_event("io.arc.event", "sess-secret")];
-        seed_and_ingest(&mut s, "sess-secret", &events, None).await;
-        s.store
-            .event_store
-            .set_share_policy("sess-secret", SharePolicyMode::Private, None)
-            .await
-            .expect("set share policy");
-    }
-
-    let req = Request::get("/api/sessions/sess-secret/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state, req).await;
-    assert_eq!(
-        resp.status(),
-        404,
-        "private session must 404 — denying existence so peer catch-up stops asking"
-    );
-}
-
-// ── Default posture — sharing is opt-IN, not opt-out ────────────────────
-//
-// Sovereignty: a session the operator has never touched must be PRIVATE.
-// Nothing federates or becomes API-readable until the user explicitly
-// shares it. (Was the inverse — default Shared — which meant any new
-// session leaked outward the moment a hub existed.)
-#[tokio::test]
-async fn test_unconfigured_session_is_private_by_default_opt_in_share() {
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        // Insert directly (NOT seed_and_ingest, which marks sessions shared
-        // as a test convenience) so the session has no share_policy row at
-        // all — exercising the genuine default.
-        let event = make_event("io.arc.event", "sess-fresh");
-        let val = serde_json::to_value(&event).unwrap();
-        s.store
-            .event_store
-            .insert_event("sess-fresh", &val)
-            .await
-            .expect("insert event");
-    }
-
-    // Per-session read denies existence (private → 404).
-    let req = Request::get("/api/sessions/sess-fresh/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(std::sync::Arc::clone(&state), req).await;
-    assert_eq!(
-        resp.status(),
-        404,
-        "an unconfigured session must be private by default (opt-in sharing)"
-    );
-
-    // And it is omitted from the digest list.
-    let req = Request::get("/api/digests").body(Body::empty()).unwrap();
-    let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-    let body = body_json(resp).await;
-    let ids: Vec<&str> = body["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|d| d["session_id"].as_str())
-        .collect();
-    assert!(
-        !ids.contains(&"sess-fresh"),
-        "unconfigured (private) session must not appear in digests, got {ids:?}"
-    );
-}
-
-// ── Invariant ① — full-text search must not leak private session content ──
-//
-// The per-session read endpoints carry the `RequirePublicSession` gate, but
-// `/api/search` and `/api/agent/search` reach the FTS index directly. Without
-// a filter they return event snippets + session_id for sessions the operator
-// marked private — a back door around the gate. Both share-modes are set
-// explicitly so the test is robust to the default-private posture.
-#[tokio::test]
-async fn test_search_omits_private_session_content_invariant_one() {
-    use open_story_store::event_store::SharePolicyMode;
-
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let shared = vec![make_event("io.arc.event", "sess-search-shared")];
-        seed_and_ingest(&mut s, "sess-search-shared", &shared, None).await;
-        let private = vec![make_event("io.arc.event", "sess-search-private")];
-        seed_and_ingest(&mut s, "sess-search-private", &private, None).await;
-
-        s.store
-            .event_store
-            .set_share_policy("sess-search-shared", SharePolicyMode::Shared, None)
-            .await
-            .expect("set shared");
-        s.store
-            .event_store
-            .set_share_policy("sess-search-private", SharePolicyMode::Private, None)
-            .await
-            .expect("set private");
-
-        // seed_and_ingest persists but does not touch FTS (that happens in
-        // the broadcast consumer on the live bus path); index explicitly.
-        s.store
-            .event_store
-            .index_fts(&shared[0].id, "sess-search-shared", "message.assistant.text", "test content")
-            .await
-            .expect("index shared");
-        s.store
-            .event_store
-            .index_fts(&private[0].id, "sess-search-private", "message.assistant.text", "test content")
-            .await
-            .expect("index private");
-    }
-
-    // Both sessions index the text "test content"; search a common term.
-    let req = Request::get("/api/search?q=content")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(std::sync::Arc::clone(&state), req).await;
-    assert_eq!(resp.status(), 200);
-    let body = body_json(resp).await;
-    let sessions: Vec<&str> = body
-        .as_array()
-        .expect("/api/search returns an array")
-        .iter()
-        .filter_map(|r| r["session_id"].as_str())
-        .collect();
-    assert!(
-        sessions.contains(&"sess-search-shared"),
-        "shared session content must remain searchable, got {sessions:?}"
-    );
-    assert!(
-        !sessions.contains(&"sess-search-private"),
-        "private session content must NOT leak via /api/search, got {sessions:?}"
-    );
-
-    // Same guarantee for the session-grouped agentic search endpoint.
-    let req = Request::get("/api/agent/search?q=content")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-    let body = body_json(resp).await;
-    let blob = body.to_string();
-    assert!(
-        !blob.contains("sess-search-private"),
-        "private session must NOT appear in /api/agent/search results, got {blob}"
-    );
-}
-
-// ── Invariant ③ — revocation is stop-flow, not purge ────────────────────
-//
-// Naming the hard edge the research doc surfaces: marking a session
-// private STOPS new visibility (the API filter from invariant ① kicks in
-// immediately), but does NOT delete the events on disk. Local data
-// remains intact — flipping back to `shared` restores API access without
-// rebuilding anything. Peer-mirrored copies on OTHER devices are the
-// unresolved part of revocation (the personhood Q1/Q9 problem); this
-// test pins the *local* half of the contract.
-#[tokio::test]
-async fn test_revocation_is_stop_flow_not_purge_invariant_three() {
-    use open_story_store::event_store::SharePolicyMode;
-
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let events = vec![
-            make_event("io.arc.event", "sess-toggle"),
-            make_event("io.arc.event", "sess-toggle"),
-            make_event("io.arc.event", "sess-toggle"),
-        ];
-        seed_and_ingest(&mut s, "sess-toggle", &events, None).await;
-    }
-
-    // 1. While shared, three events are visible.
-    let req = Request::get("/api/sessions/sess-toggle/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state.clone(), req).await;
-    assert_eq!(resp.status(), 200);
-    assert_eq!(body_json(resp).await.as_array().unwrap().len(), 3);
-
-    // 2. Mark private — events on disk are NOT deleted, just gated.
-    {
-        let s = state.write().await;
-        s.store
-            .event_store
-            .set_share_policy("sess-toggle", SharePolicyMode::Private, None)
-            .await
-            .expect("set private");
-        // Sanity: store still has the events (count via direct read).
-        let evs = s
-            .store
-            .event_store
-            .session_events("sess-toggle")
-            .await
-            .unwrap();
-        assert_eq!(evs.len(), 3, "events are NOT purged from storage");
-    }
-    let req = Request::get("/api/sessions/sess-toggle/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state.clone(), req).await;
-    assert_eq!(resp.status(), 404, "API gates while private");
-
-    // 3. Flip back to shared — API access is restored from the same rows.
-    {
-        let s = state.write().await;
-        s.store
-            .event_store
-            .set_share_policy("sess-toggle", SharePolicyMode::Shared, None)
-            .await
-            .expect("set shared");
-    }
-    let req = Request::get("/api/sessions/sess-toggle/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-    assert_eq!(
-        body_json(resp).await.as_array().unwrap().len(),
-        3,
-        "events come back unchanged — stop-flow toggled, not destroyed"
-    );
-}
-
-#[tokio::test]
-async fn test_get_events_still_returns_shared_after_policy_table_exists() {
-    // Defense-in-depth: confirm the new private-filter branch doesn't
-    // accidentally suppress shared sessions when the policy table is
-    // populated for OTHER sessions.
-    use open_story_store::event_store::SharePolicyMode;
-
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let events = vec![make_event("io.arc.event", "sess-keep")];
-        seed_and_ingest(&mut s, "sess-keep", &events, None).await;
-        // Some other session is private — shouldn't affect this one.
-        s.store
-            .event_store
-            .set_share_policy("sess-other", SharePolicyMode::Private, None)
-            .await
-            .expect("set share policy");
-    }
-
-    let req = Request::get("/api/sessions/sess-keep/events")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state, req).await;
-    assert_eq!(resp.status(), 200);
-    let body = body_json(resp).await;
-    assert_eq!(body.as_array().unwrap().len(), 1);
+    assert_eq!(body, serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -736,9 +412,9 @@ async fn test_get_activity_empty_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 // ── Tools endpoint ─────────────────────────────────────────────────
@@ -786,9 +462,9 @@ async fn test_get_tools_empty_session() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 // ── Transcript endpoint ────────────────────────────────────────────
@@ -857,9 +533,9 @@ async fn test_get_session_plans_empty() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 // ── Subagent plan attribution ────────────────────────────────────────
@@ -1472,56 +1148,6 @@ async fn test_delete_session_removes_session() {
 }
 
 #[tokio::test]
-async fn test_delete_private_session_is_gated() {
-    // Invariant ①: DELETE must not leak a private session's existence or let a
-    // caller destroy it. A private session must 404 on DELETE (deny existence)
-    // and stay intact.
-    let data_dir = TempDir::new().unwrap();
-    let state = test_state(&data_dir);
-
-    {
-        let mut s = state.write().await;
-        let events = vec![
-            make_event("io.arc.event", "sess-priv"),
-            make_event("io.arc.event", "sess-priv"),
-        ];
-        seed_and_ingest(&mut s, "sess-priv", &events, None).await;
-        // seed_and_ingest auto-shares; mark it Private to exercise the gate.
-        s.store
-            .event_store
-            .set_share_policy("sess-priv", SharePolicyMode::Private, None)
-            .await
-            .expect("set private");
-    }
-
-    let req = Request::builder()
-        .method("DELETE")
-        .uri("/api/sessions/sess-priv")
-        .body(Body::empty())
-        .unwrap();
-    let resp = send_request(state.clone(), req).await;
-    assert_eq!(
-        resp.status(),
-        404,
-        "DELETE on a private session must 404 (deny existence), not delete it"
-    );
-
-    // The session and its events must still be on disk.
-    let s = state.read().await;
-    let still_there = s
-        .store
-        .event_store
-        .session_events("sess-priv")
-        .await
-        .expect("read events");
-    assert_eq!(
-        still_there.len(),
-        2,
-        "private session must survive a gated DELETE"
-    );
-}
-
-#[tokio::test]
 async fn test_export_session_unknown_returns_404() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
@@ -1662,9 +1288,9 @@ async fn test_tool_journey_empty_for_unknown() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test]
@@ -1702,9 +1328,9 @@ async fn test_file_impact_empty_for_unknown() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test]
@@ -1743,9 +1369,9 @@ async fn test_errors_empty_when_none() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 // ── Insights endpoints ──────────────────────────────────────────────
@@ -1928,9 +1554,9 @@ async fn test_patterns_empty() {
         .unwrap();
 
     let resp = send_request(state, req).await;
-    // Opt-in sharing: an unknown/unshared session denies existence (404),
-    // indistinguishable from a private one — no existence oracle.
-    assert_eq!(resp.status(), 404);
+    // Unknown/empty session: the endpoint serves it gracefully with an
+    // empty result (200), not an error — there's no sharing gate.
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test]
