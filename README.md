@@ -28,6 +28,29 @@ Real-time observability for AI coding agents. Open Story watches what your agent
                                                    └──────────┘  └──────────┘  └──────────┘
 ```
 
+## Quickstart
+
+**1. Install & run** (Homebrew — launches its own JetStream NATS and serves the API **and** dashboard from one process):
+
+```sh
+brew install openstoryarc/openstory/openstory
+brew services run openstory          # → dashboard at http://localhost:3002
+```
+
+Prefer to pick the watch dir / port / history window first? Run `open-story init` for a guided wizard.
+
+**2. Ask your history in natural language** *(optional)* — the [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) Claude Code plugin turns your store into slash commands:
+
+```sh
+brew install openstoryarc/openstory/openstory-mcp   # the MCP binary the skills read
+# then, inside Claude Code:
+/plugin marketplace add openstoryarc/openstory-skills
+/plugin install openstory@openstory-skills
+/openstory:cost      # what your sessions cost — also: recap, recall, time, coach, team…
+```
+
+Full prerequisites, dev modes, and storage backends are in the [detailed Quick Start](#quick-start); the MCP tool surface and [skills catalog](#natural-language-skills-the-openstory-skills-plugin) are below.
+
 ## What you see
 
 Four dashboard views, each a different lens on the same data:
@@ -202,12 +225,16 @@ claude mcp add openstory stdio /opt/homebrew/opt/openstory-mcp/bin/open-story-mc
 {
   "mcpServers": {
     "openstory": {
-      "command": "open-story-mcp",
-      "env": { "OPENSTORY_API_URL": "${OPENSTORY_API_URL:-http://localhost:3002}" }
+      "command": "open-story-mcp"
     }
   }
 }
 ```
+
+The binary defaults to `http://localhost:3002`, so no `env` is needed locally. For
+a remote or token-secured instance, add an `env` block with a **literal** value
+(`"OPENSTORY_API_URL": "https://your-host"`) — Claude Code does not reliably expand
+`${VAR:-default}` syntax here, so a literal avoids a silently-empty result.
 
 **The 21-tool surface:**
 
@@ -236,6 +263,31 @@ it works from any directory — there's no `OPENSTORY_DATA_DIR` to resolve
 relative to your shell's working directory.
 
 Test it with `cargo test -p open-story-mcp`. Design notes for the streaming substrate live in `docs/research/streaming-mcp/`.
+
+### Natural-language skills (the `openstory-skills` plugin)
+
+Don't want to call the MCP tools by hand? The **[openstory-skills](https://github.com/OpenStoryArc/openstory-skills)**
+Claude Code plugin wraps them into slash commands that read your own store:
+
+```sh
+/plugin marketplace add openstoryarc/openstory-skills
+/plugin install openstory@openstory-skills
+```
+
+| Command | Answers |
+|---|---|
+| `/openstory:cost` | what your agent sessions have cost |
+| `/openstory:recap` | what you worked on this week, by project |
+| `/openstory:recall <topic>` | the last time you solved X, with the exact commands |
+| `/openstory:time` · `/openstory:tools` | where your time goes · what you reach for |
+| `/openstory:coach` | honest feedback on how you work |
+| `/openstory:team` · `/openstory:watch` | who's working on what · a live branch tail |
+| `/openstory:standup` · `/openstory:scan` · `/openstory:arc` · `/openstory:prime` | …and more (12 total) |
+
+Each is a thin `SKILL.md` over the MCP tools above — no scripts to install. Every
+command traces prompt → skill → MCP tool → REST endpoint → source in the plugin's
+[`CITATIONS.md`](https://github.com/OpenStoryArc/openstory-skills/blob/master/CITATIONS.md),
+and the manifest + citation tree are contract-tested in CI.
 
 ### Deployed agent observability (OpenClaw)
 
