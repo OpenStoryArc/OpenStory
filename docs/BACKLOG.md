@@ -4,6 +4,54 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Federation & transport — follow-ups from the host-in-subject work
+
+### Container/e2e tests: NATS-at-boot
+`rs/tests/test_container.rs` fails because the `open-story:test` image's
+CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
+NATS server — pre-existing, identical on master, surfaced once NATS became
+a hard boot dependency. Fix the test image to manage/bundle NATS so the
+Dockerized data path can be verified end-to-end.
+
+### Federated catch-up re-injects to a host-less subject (silent no-op)
+`rs/server/src/catch_up.rs:110` publishes healed events to
+`events.{sid}` (flat, pre-host form, with `project_id = ""`). In federated
+mode a leaf's local `events` stream binds only `events.{host}.>`
+(`nats_bus.rs` `events_stream_config`), so the publish matches no stream and
+is dropped — `catch_up_once` treats it as not-healed and the session never
+converges. Catch-up is the anti-entropy backstop *for federated cold-boot
+loss*, so it fails in the exact mode it exists for. (Solo works because the
+stream binds `events.>`.) Catch-up only heals sessions a peer actually
+published into the network — a node running with `publish_sessions = false`
+never put its sessions on the bus, so they are invisible to catch-up by
+construction. Fix: build the re-injection subject with the originating host
++ real project
+(`events.{host}.{project}.{sid}.main`), taken from the peer event's own
+fields, not relabeled as local. Surfaced 2026-06-23 in the PR #58 deep review.
+
+### Unsanitized project/session/agent_id in NATS subjects
+`rs/core/src/paths.rs` `nats_subject_from_path` sanitizes only the `host`
+token (via `host::normalize`); `project`, `session`/`file_stem`, and
+`agent_id` are interpolated raw (the repo's own tests at `paths.rs`
+document a dotted project name inflating the token count and a space
+producing an invalid subject → publish failure → silent per-session loss).
+The host prefix being sanitized means the double-count guard holds, so this
+is HIGH-not-blocker, and Claude Code project dirs are path-encoded
+(dot-free) — but Codex/pi-mono/arbitrary watch dirs aren't guaranteed safe.
+Fix: lift `host::normalize` to a shared `sanitize_subject_token` and apply
+it to all interpolated tokens. Surfaced 2026-06-23 in the PR #58 deep review.
+
+### cargo-vet apparatus exists but isn't enforced in CI
+This branch added the full `rs/supply-chain/` cargo-vet directory
+(config/audits/imports), and `cargo vet check` passes today — but no
+workflow runs it (`grep 'cargo vet' .github/workflows` → nothing). So the
+supply-chain dir gives a false sense of enforcement: the next PR adding an
+un-exempted crate won't be caught. Fix: add a `cargo vet --locked` step to
+`.github/workflows/test.yml` (or document it as a required manual pre-merge
+check). Surfaced 2026-06-23 in the PR #58 deep review.
+
+---
+
 ## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
 
 ### Boot-replay status on `/api/health`
@@ -390,9 +438,6 @@ We have a criterion bench scaffold at `rs/mcp/benches/` (added in commit `perf(m
 ### MCP streaming tools over WebSocket (drop the NATS dependency)
 The query tools now read through the REST API (`HttpEventStore`, commit `feat(mcp): read query tools through REST API`), so the MCP no longer opens SQLite relative to its launch directory. The two streaming tools — `subscribe_session` and `subscribe_tokens` — still subscribe over NATS via `crate::subscription::Subscribe` (`NatsBus`), so the binary keeps a hard NATS dependency (`OPENSTORY_NATS_URL`, default `nats://localhost:4222`) and bails at boot if NATS is unreachable. NATS is a fixed URL, not cwd-relative, so it isn't the directory-fragility bug — but it's a second piece of infrastructure the MCP must reach. Phase 2: migrate both streaming tools to the server's `/ws` WebSocket (`rs/server/src/ws.rs`) so the MCP needs only `OPENSTORY_API_URL`. Design notes: `/ws` currently opens with an `initial_state` frame (patterns + session_labels for sessions within `watch_backfill_hours`) and then broadcasts `BroadcastMessage`s for *all* sessions; the client ignores inbound messages. To replace NATS, the streaming layer needs a per-session subscription (filter the broadcast to one `session_id`, or add a subscribe frame the server honors) and a `Subscribe` impl backed by a WS client (`tokio-tungstenite` / `reqwest`'s upgrade) that adapts the frame shape to the existing `StreamEvent` the stdio handler emits as `notifications/openstory/stream` + `notifications/openstory/tokens`. Threads to pull: does `/ws` need a new "subscribe to session X" control frame (today it's broadcast-to-all), and can `subscribe_tokens`' running tally be computed client-side from the same per-message events. Once done, the binary's NATS env and boot check come out, and `Server` no longer carries a NATS `Subscribe`. Surfaced 2026-06-13 alongside the query-decoupling cutover.
 
-### Remove the vestigial `mongo` feature from `open-story-mcp`
-Since the MCP went REST-only (`HttpEventStore`, PR #88), the `mongo` feature in `rs/mcp/Cargo.toml` (a pass-through to `open-story-store/mongo`) gates **zero live code** — `grep -rn 'feature = "mongo"' rs/mcp/src/` returns nothing, and there's no mongo/bson usage anywhere in `rs/mcp/src/`. The binary reaches its data only through the REST API, so it never opens a backend directly and the feature compiles nothing. It's pure dead config now. The reason it wasn't removed in this cleanup: the flag is still passed by several build references that would all break the moment it's deleted — `Dockerfile.openclaw:53` (`cargo build --release -p open-story-mcp --features mongo`), `README.md:175,178`, `docs/deploy/hetzner.md:157`, and `rs/tests/docker-compose.openclaw-mcp.yml:20` (comment). Removal is therefore a small but multi-file change that must land atomically: drop `mongo = [...]` from `rs/mcp/Cargo.toml`, strip `--features mongo` from `Dockerfile.openclaw` (the openclaw-mcp image build), update the README + hetzner doc prose, and rebuild the openclaw image to confirm the no-feature build is clean (the cheap proxy is `cargo build -p open-story-mcp` with no feature, but the Docker path is the real gate since that's what ships). Worth doing because a dead feature flag in a shipped Dockerfile is a drift trap — the next person to touch the mcp will wonder whether mongo support is load-bearing. Surfaced 2026-06-17 during the mcp 0.2.0→0.3.0 version-bump cleanup; deferred because the cross-dependency made it broader than a one-file edit.
-
 ### hickory-proto stuck on 0.25 via mongodb pin
 Two open Dependabot alerts on `rs/Cargo.lock` for hickory-proto can't be resolved with a plain `cargo update` because mongodb 3.6.0 pins `hickory-proto = "^0.25"` and the security patches land in 0.26.1. GHSA-94w7-72p3-jvw7 (high, NSEC3 closest-encloser proof unbounded loop) currently has no patched version listed at all. Plan: (1) watch the mongodb crate for a release that widens the constraint to `^0.25 || ^0.26` and bump when it ships; (2) if the high stays open past Q3 2026, evaluate forcing it via `[patch.crates-io] hickory-proto = "0.26"` in the workspace `rs/Cargo.toml` after a small audit of mongodb's hickory-proto API usage. The risk is API drift between 0.25 and 0.26 — mongodb only uses hickory-proto for SRV-record resolution, so the blast radius is narrow. Decline path: dismiss the alerts on GitHub with reasoning "no upstream fix in mongodb's transitive graph" so the noise stops without losing the trail. Surfaced 2026-05-20 alongside the Dependabot bump PR (PR #56) — see commit chore(deps): bump openssl/rustls-webpki/rand/astral-tokio-tar for the rest of the cleanup.
 
@@ -459,8 +504,26 @@ The hotfix entry directly above quotes the live NATS token verbatim, and that co
 ### Build `open-story:test` in CI so docker-required tests run for real
 The `test_convergence_invariants`, `test_compose_*`, `test_container`, `test_pi_mono_container`, `test_config_degrade`, and `test_config_full` suites all depend on a locally-built `open-story:test` Docker image. The CI workflow (`.github/workflows/test.yml`) doesn't build that image, so these tests are marked `#[ignore]` and never exercised on PRs — coverage is on the honor system (devs run them locally before pushing). The honest fix is to add a `docker build -t open-story:test rs/` step before `cargo test` in the Rust job and drop the `--skip compose --skip container --skip pi_mono` filter (plus the `#[ignore]` markers on the convergence tests). Cost is one extra ~2-min Docker build per CI run; benefit is real convergence/compose/container coverage on every PR instead of trust-me coverage.
 
-### Multi-Machine Session Aggregation — SHIPPED
-Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. All sessions from all machines land on every node (JetStream propagates bidirectionally). Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
+### Multi-Machine Session Aggregation — SHIPPED (with a known convergence caveat)
+Implemented via NATS leaf node architecture over Tailscale. Hub NATS on VPS accepts leaf connections on :7422 with token auth; each machine runs a local leaf NATS that forwards events to the hub. `NatsBus::connect()` supports `nats://TOKEN@host:port` URLs. Dual MCP servers (local + remote) let agents query either instance. See `docs/deploy/distributed.md`, `deploy/nats-hub.conf`, `deploy/nats-leaf.conf`. Integration tests cover solo local → solo+VPS → team hub → team+guests state machine (`rs/tests/test_deployment_states.rs`).
+
+**Correction (arch review 2026-05):** the original claim that "all sessions land on every node (JetStream propagates bidirectionally)" is *not* structurally true — it rides NATS **core interest-propagation**, a timing race that drops cross-leaf events on cold boot (faithful 10-node lab fails 4/4: hub 10/10, slowest node 8–9/10). Convergence is currently guaranteed by the **app-level catch-up anti-entropy** (`024fcc2`, `rs/server/src/catch_up.rs`), not by the transport. The transport-native fix is the federation entry below.
+
+### Federation transport — native JetStream cross-domain sources
+**Spec:** `docs/research/jetstream-sources-federation.md`. Replace racy core-propagation with native **JetStream cross-domain sources** ("Idea A" from the arch review — picked over making NATS the system of record, which violates JSONL-as-sovereign-record). The spike (`scripts/spike_jetstream_sources.sh`) proved the mechanics: cross-domain `$JS.hub.API` reachable over a token leafnode, loop-free via a publish-only local stream + source-only mirror, and **per-host subject namespacing is mandatory** (else core propagation cross-pollinates and the aggregate double-counts).
+
+`host` in the subject (`events.{host}.{project}.{session}.main`; `host.rs`/`user.rs` already exist subject-safe) is shipped. The node-level publish switch is shipped too: `publish_sessions = false` routes a node's own observed sessions to a `local.>` stream that federation never sources, so they stay on the machine while the node still receives everyone else's. That is the *only* sharing control — there is no per-session or per-person permission model (the attempt at one was removed as unenforceable; once an event is on the bus every connected node has it). Access is enforced at the network layer instead: Tailscale membership decides who can reach the NATS port, and NATS token/accounts decide who can connect and to which subjects. See `docs/deploy/distributed.md` for the model.
+
+**Plan:** branch-per-phase, **TDD + testcontainers throughout** (red container test first). P1 host-in-subject (done) → P2 JetStream sources (`lab_federation_jetstream_sources_10_nodes`, catch-up OFF, vs catch-up's 12.8s). Keep catch-up as the topology-agnostic backstop (and the only path for non-NATS peers). v0 ship line decided after P2 with convergence numbers in hand.
+
+### Federation cold-ramp 10-node regression inside lab framework
+`lab_federation_full_mirror_10_nodes_cold` (standalone) converges in ~4.6 s on the dev machine (32 CPUs, 123 GiB RAM, plenty of headroom). The same code path inside `lab_federation_ramp_cold` — after a successful 5-node iteration + a 10 s settle delay — stalls at `slowest_node=8/10` for the full 120 s timeout. Two missing sessions every time. The hub fan-in is fine (10/10 via core leafnode propagation); the events-mirror is short by a few sessions in exactly one leaf. Hypothesis: a self-registration race where one leaf's `register_self_with_hub` lands *after* peer leaves have already started publishing into their events streams, so the source's `start_sequence` is effectively past those events. Standalone-10 doesn't hit this because the first publish racing the first registration *is* the same event sequence; in the ramp's environment something delays one specific leaf's registration enough that other leaves have already advanced. Worth: instrumenting `run_lab_federation` to dump per-leaf stream state on timeout (which leaf, which missing sessions), then either setting source `DeliverPolicy::All` explicitly or sequencing self-registration before any leaf publishes. Surfaced 2026-05-28 during Phase 2b Step 6; the ramp test ships as-is reporting ceiling=5 honestly until this is resolved.
+
+### Live-streaming MCP server: federation-aware subscribe (follow-up to federation Phase 2b)
+The streaming MCP server (`rs/mcp/`) wraps `NatsBus::connect(url)` and subscribes to `events.>` to stream the *fleet* view to a Claude session. Once Phase 2b's cross-domain wrapper lands, the bus exposes federation mode (local `events` + source-only `events-mirror`), and `subscribe`/`replay` read both — but the MCP server still calls the solo constructor. After Phase 2b is green, update `rs/mcp/src/nats_bus.rs` and `rs/mcp/src/bin/open-story-mcp.rs` to pass federation config through (or pick a clean "subscribe to fleet" Bus method) so an MCP-connected agent sees the union, not just local. Touches: `InnerNatsBus::connect` wrapper, the streaming subscription in `open-story-mcp`, and `rs/mcp/tests/nats_smoke.rs` (add a federation smoke that asserts events from a peer leaf land in the MCP stream). Surfaced 2026-05-28 while wiring Phase 2b; deferred to keep the federation commit atomic.
+
+### MCP per-session subscribe wildcard is stale on `feat/federation-host-in-subject`
+`rs/mcp/src/nats_bus.rs:42` subscribes to `events.*.{session_id}.>` (4 tokens). On this branch, publishes go to `events.{host}.{project}.{session_id}.main|agent.{id}` (5 tokens — see `rs/core/src/paths.rs:119`), so the wildcard never matches and the MCP `subscribe_session` stream stays silent even though the binary connects to NATS and the session is alive. The file's existing TODO at line 42 predicted exactly this (*"when the cybersecurity spike's ... proposal lands, update this wildcard"*). Fix: widen to `events.*.*.{session_id}.>` (or better, pull subject construction into `open_story_bus` and call a typed helper so MCP subscribe and core publish can't drift again). Add a regression test in `rs/mcp/tests/nats_smoke.rs` that publishes one event with the current subject scheme and asserts the subscriber sees it. Surfaced 2026-05-28 while demoing the live stream against this session — WebSocket broadcaster path was unaffected and worked fine; the bug only bites the MCP stdio subscribe path.
 
 ### Distributed Deployment Security Hardening
 With NATS leaf node streaming, every machine gets a full copy of all team data (sessions, prompts, file contents, tool outputs). This is the correct sovereignty behavior but raises security concerns for team deployments. Items to address:

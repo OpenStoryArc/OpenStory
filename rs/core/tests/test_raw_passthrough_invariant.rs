@@ -136,9 +136,17 @@ fn pi_mono_decomposed_events_all_share_the_same_raw() {
         groups.entry(raw_str).or_default().push(ev);
     }
 
-    // For pi-mono scenario_07, line 5 has [toolCall, toolCall] which
-    // decomposes to 2 events sharing the same raw. So we expect at least
-    // one group with multiple events all referencing the same raw.
+    // Two sources of multi-event groups in scenario_07:
+    //   (a) The [toolCall, toolCall] line decomposes into 2 tool_use events.
+    //   (b) Any single-block line with stopReason="stop" ALSO produces 2
+    //       events (the original + a synthesized system.turn.complete from
+    //       commit d01484d). Both share the same raw.
+    //
+    // Invariant we care about: every multi-event group shares raw
+    // byte-for-byte (DR2). Additionally, the toolCall decomposition must
+    // exist somewhere — that's the property the test was originally
+    // written to pin (raw is the bundled multi-block original, not a per-
+    // block slice).
     let multi_groups: Vec<_> = groups.iter().filter(|(_, evs)| evs.len() > 1).collect();
     assert!(
         !multi_groups.is_empty(),
@@ -196,6 +204,40 @@ fn hermes_fixtures_preserve_data_raw_byte_for_byte() {
             eprintln!("  {}: {}", path.file_name().unwrap().to_string_lossy(), msg);
         }
         panic!("{} hermes raw mutation(s)", all_failures.len());
+    }
+}
+
+#[test]
+fn codex_fixtures_preserve_data_raw_byte_for_byte() {
+    let dir = fixtures_dir().join("codex");
+    let files: Vec<PathBuf> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    if files.is_empty() {
+        // Codex fixtures may not be present in all checkouts — skip
+        // gracefully rather than fail the test.
+        eprintln!("no codex fixtures present, skipping");
+        return;
+    }
+
+    let mut all_failures: Vec<(PathBuf, String)> = Vec::new();
+    for path in &files {
+        for f in raw_passthrough_failures(path) {
+            all_failures.push((path.clone(), f));
+        }
+    }
+
+    if !all_failures.is_empty() {
+        eprintln!("\n❌ raw-passthrough failures in codex fixtures:");
+        for (path, msg) in all_failures.iter().take(5) {
+            eprintln!("  {}: {}", path.file_name().unwrap().to_string_lossy(), msg);
+        }
+        panic!("{} codex raw mutation(s)", all_failures.len());
     }
 }
 

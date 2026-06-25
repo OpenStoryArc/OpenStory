@@ -62,7 +62,7 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let batch = batch_with_raw(&session_id, serde_json::json!({"hello": "from-jetstream"}));
-        let subject = format!("events.test-project.{}.main", session_id);
+        let subject = format!("events.test-host.test-project.{}.main", session_id);
         publisher
             .publish(&subject, &batch)
             .await
@@ -90,7 +90,7 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let batch = batch_with_raw(&session_id, serde_json::json!({"from": "subagent"}));
-        let subject = format!("events.test-project.{}.agent.aabb1122", session_id);
+        let subject = format!("events.test-host.test-project.{}.agent.aabb1122", session_id);
         publisher.publish(&subject, &batch).await.unwrap();
 
         let event = timeout(Duration::from_secs(2), sub.recv())

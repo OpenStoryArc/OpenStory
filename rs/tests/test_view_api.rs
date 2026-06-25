@@ -6,12 +6,12 @@ mod helpers;
 use axum::body::Body;
 use axum::http::Request;
 use helpers::{body_json, send_request, test_state};
+use open_story::server::ingest_events;
 use serde_json::json;
 use tempfile::TempDir;
 
 use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story::server::ingest_events;
 
 fn make_tool_use_event(
     session_id: &str,
@@ -197,8 +197,8 @@ mod view_records_endpoint {
             .body(Body::empty())
             .unwrap();
         let resp = send_request(state, req).await;
+        // Unknown session → 200 with an empty array (no existence oracle, no gate).
         assert_eq!(resp.status(), 200);
-
         let body = body_json(resp).await;
         assert_eq!(body, json!([]));
     }

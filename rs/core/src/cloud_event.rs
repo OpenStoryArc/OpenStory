@@ -41,6 +41,22 @@ pub struct CloudEvent {
     /// "Max's laptop". CloudEvent extension attribute.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
+    /// Person who owns this event in OpenStory's identity model — a stable
+    /// UUID from the `[person]` config section, distinct from the OS-level
+    /// `user` field. The person represents a sovereign human who owns a
+    /// fleet of principals (devices, agents). Stamped at event creation via
+    /// [`CloudEvent::with_person_id`] by the source-aware caller (watcher
+    /// or hook handler) after consulting the principal resolver.
+    /// CloudEvent extension attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_id: Option<String>,
+    /// Principal that produced this event — a stable UUID identifying which
+    /// device or agent in the person's fleet did the work (e.g. "MacBook
+    /// running Claude Code", "Hetzner running Bobby"). Stamped at event
+    /// creation via [`CloudEvent::with_principal_id`] alongside `person_id`.
+    /// CloudEvent extension attribute.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal_id: Option<String>,
 }
 
 impl CloudEvent {
@@ -71,6 +87,8 @@ impl CloudEvent {
             agent,
             host: None,
             user: None,
+            person_id: None,
+            principal_id: None,
         }
     }
 
@@ -91,6 +109,27 @@ impl CloudEvent {
     /// `with_host`.
     pub fn with_user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
+        self
+    }
+
+    /// Stamp the owning person's id onto this event. Chainable.
+    ///
+    /// Source-aware callers (watcher, hook handler) call this after
+    /// translation using the `(person_id, principal_id)` returned by the
+    /// principal resolver. Distinct from `with_user` (which records the
+    /// OS-level user); `person_id` is OpenStory's identity-model handle.
+    pub fn with_person_id(mut self, person_id: impl Into<String>) -> Self {
+        self.person_id = Some(person_id.into());
+        self
+    }
+
+    /// Stamp the producing principal's id onto this event. Chainable.
+    ///
+    /// Paired with [`Self::with_person_id`] — both come from the resolver.
+    /// Identifies which device or agent in the person's fleet produced this
+    /// event (e.g. "MacBook running Claude Code", "Hetzner running Bobby").
+    pub fn with_principal_id(mut self, principal_id: impl Into<String>) -> Self {
+        self.principal_id = Some(principal_id.into());
         self
     }
 }
@@ -355,5 +394,111 @@ mod tests {
         }"#;
         let ce: CloudEvent = serde_json::from_str(json).unwrap();
         assert!(ce.host.is_none());
+    }
+
+    // ── person_id / principal_id stamping ──────────────────────────────
+
+    #[test]
+    fn person_and_principal_default_to_none_from_new() {
+        // Mirror host: new() must not set them — only source-aware
+        // callers opt in via the builders. Existing call sites (52+)
+        // remain untouched.
+        let ce = minimal_ce();
+        assert!(ce.person_id.is_none(), "new() must default person_id to None");
+        assert!(ce.principal_id.is_none(), "new() must default principal_id to None");
+    }
+
+    #[test]
+    fn with_person_id_sets_field() {
+        let ce = minimal_ce().with_person_id("p-uuid-123");
+        assert_eq!(ce.person_id.as_deref(), Some("p-uuid-123"));
+    }
+
+    #[test]
+    fn with_principal_id_sets_field() {
+        let ce = minimal_ce().with_principal_id("k-uuid-456");
+        assert_eq!(ce.principal_id.as_deref(), Some("k-uuid-456"));
+    }
+
+    #[test]
+    fn person_and_principal_builders_accept_string_and_str() {
+        let _ = minimal_ce().with_person_id("literal").with_principal_id("literal");
+        let owned: String = "owned".to_string();
+        let _ = minimal_ce()
+            .with_person_id(owned.clone())
+            .with_principal_id(owned);
+    }
+
+    #[test]
+    fn person_and_principal_builders_chain_and_compose() {
+        let ce = minimal_ce()
+            .with_person_id("max-uuid")
+            .with_principal_id("macbook-uuid")
+            .with_host("Maxs-Air")
+            .with_user("max");
+        assert_eq!(ce.person_id.as_deref(), Some("max-uuid"));
+        assert_eq!(ce.principal_id.as_deref(), Some("macbook-uuid"));
+        assert_eq!(ce.host.as_deref(), Some("Maxs-Air"));
+        assert_eq!(ce.user.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn with_person_id_overrides_on_repeat() {
+        let ce = minimal_ce().with_person_id("first").with_person_id("second");
+        assert_eq!(ce.person_id.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn serialization_skips_person_and_principal_when_none() {
+        let ce = minimal_ce();
+        let json = serde_json::to_string(&ce).unwrap();
+        assert!(
+            !json.contains("\"person_id\""),
+            "person_id=None must be absent from JSON, got: {json}"
+        );
+        assert!(
+            !json.contains("\"principal_id\""),
+            "principal_id=None must be absent from JSON, got: {json}"
+        );
+    }
+
+    #[test]
+    fn serialization_includes_person_and_principal_when_set() {
+        let ce = minimal_ce()
+            .with_person_id("max-uuid")
+            .with_principal_id("macbook-uuid");
+        let json = serde_json::to_string(&ce).unwrap();
+        assert!(json.contains("\"person_id\":\"max-uuid\""), "got: {json}");
+        assert!(json.contains("\"principal_id\":\"macbook-uuid\""), "got: {json}");
+    }
+
+    #[test]
+    fn person_and_principal_round_trip_through_serde() {
+        let ce = minimal_ce()
+            .with_person_id("max-uuid")
+            .with_principal_id("macbook-uuid");
+        let json = serde_json::to_string(&ce).unwrap();
+        let round: CloudEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.person_id.as_deref(), Some("max-uuid"));
+        assert_eq!(round.principal_id.as_deref(), Some("macbook-uuid"));
+    }
+
+    #[test]
+    fn person_and_principal_deserialize_as_none_when_absent() {
+        // Existing events on disk have neither key. They must deserialize
+        // cleanly with both fields None — this is the backward-compat
+        // contract for v1 of the personhood model.
+        let json = r#"{
+            "specversion":"1.0",
+            "id":"evt-1",
+            "source":"arc://test",
+            "type":"io.arc.event",
+            "time":"2026-04-21T00:00:00Z",
+            "datacontenttype":"application/json",
+            "data":{"raw":{},"seq":1,"session_id":"s"}
+        }"#;
+        let ce: CloudEvent = serde_json::from_str(json).unwrap();
+        assert!(ce.person_id.is_none());
+        assert!(ce.principal_id.is_none());
     }
 }

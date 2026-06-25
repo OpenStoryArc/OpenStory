@@ -32,7 +32,10 @@ pub use broadcast::BroadcastMessage;
 pub use ingest::{
     IngestResult, ReplayContext, ingest_events, is_plan_event, replay_boot_sessions, to_wire_record,
 };
+pub use open_story_server::account_config;
+pub use open_story_server::admin;
 pub use open_story_server::config;
+pub use open_story_server::directory;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
 pub use open_story_server::reconcile;
@@ -61,6 +64,19 @@ fn agent_for_watch_dir(path: &Path, claude_watch_dir: &str, codex_watch_dir: &st
 /// - `Full`: watcher + consumer + API (default, current behavior)
 /// - `Publisher`: watcher + hooks server, publishes to NATS, no local store/ingest
 /// - `Consumer`: subscribes from NATS, runs ingest + API, no watcher
+///
+/// Route an own-event subject by the node's publish switch. With
+/// `publish_sessions = true` it stays on the federated `events.{host}.…`
+/// subject; with `false` it moves to `local.…` — a stream federation never
+/// sources, so the events are stored and visible on this node but never leave.
+fn egress_subject(subject: &str, publish_sessions: bool) -> String {
+    if publish_sessions {
+        subject.to_string()
+    } else {
+        subject.replacen("events.", "local.", 1)
+    }
+}
+
 pub async fn run_server(
     host: &str,
     port: u16,
@@ -421,11 +437,90 @@ pub async fn run_server(
                 }
             });
         }
+
+        // ── Actor 5: admin topology broadcaster (SICP stream-mux) ──
+        //
+        // Owns updates to AppState.admin_topology_tx. Composes existing
+        // streams: subscribes to the WS broadcast channel (every event
+        // flowing to clients) and pulses the actor on each message. The
+        // actor's diff-vs-cache check prevents downstream spam — only
+        // topology changes propagate to WS subscribers.
+        {
+            let s = state.read().await;
+            let watch_tx = s.admin_topology_tx.clone();
+            let event_store = s.store.event_store.clone();
+            let broadcast_rx = s.broadcast_tx.subscribe();
+            let host = open_story_core::host::host().to_string();
+            let role = s.config.role;
+            drop(s);
+            let env = open_story_server::admin::EnvInputs::from_env_and_discover().await;
+            let (pulse_tx, pulse_rx) = tokio::sync::mpsc::channel(64);
+            let _actor_handle = open_story_server::consumers::admin_broadcaster::spawn(
+                watch_tx,
+                event_store,
+                Some(bus.clone()),
+                env,
+                host,
+                role,
+                pulse_rx,
+            );
+            // Pulse forwarder: WS broadcast events → pulse channel.
+            // Lagged-tolerant and non-blocking — see spawn_pulse_forwarder.
+            let _forwarder = open_story_server::consumers::admin_broadcaster::spawn_pulse_forwarder(
+                broadcast_rx,
+                pulse_tx,
+            );
+
+            // Topology push: when the watch channel fires (broadcaster
+            // wrote a new frame), translate it to a BroadcastMessage and
+            // push to the WS broadcast channel. UI sinks receive it.
+            let push_state = state.clone();
+            tokio::spawn(async move {
+                let mut topology_rx = {
+                    let s = push_state.read().await;
+                    s.admin_topology_tx.subscribe()
+                };
+                loop {
+                    if topology_rx.changed().await.is_err() {
+                        break; // broadcaster dropped
+                    }
+                    let frame = topology_rx.borrow_and_update().clone();
+                    let msg = crate::server::BroadcastMessage::AdminTopologyChanged {
+                        topology: frame,
+                    };
+                    let tx = push_state.read().await.broadcast_tx.clone();
+                    let _ = tx.send(msg);
+                }
+            });
+        }
+    }
+
+    // ── catch-up anti-entropy (consumer + full roles) ──
+    // Peer-generic reconciliation: if OPEN_STORY_CATCH_UP_PEER is set, this node
+    // periodically digest-diffs against that peer and pulls whatever it's
+    // missing — closing the cross-leaf convergence race without depending on
+    // NATS replication timing. The hub is the convenient default peer; nothing
+    // here requires one (the same mechanism supports a hub-less peer mesh).
+    if is_consumer {
+        if let Ok(peer) = std::env::var("OPEN_STORY_CATCH_UP_PEER") {
+            if !peer.trim().is_empty() {
+                let event_store = state.read().await.store.event_store.clone();
+                open_story_server::catch_up::spawn_catch_up(event_store, bus.clone(), peer);
+            }
+        }
     }
 
     // ── File watcher (publisher + full roles) ──
-    // Snapshot the backfill window from config before any closures move it.
+    // Snapshot the backfill window and the resolved Person from config before
+    // any closures move them. `person_snapshot` is what the principal_resolver
+    // uses to stamp every batch — the bootstrap step ensures it is Some by the
+    // time we reach here, but we tolerate None defensively.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
+    let person_snapshot: Option<config::Person> = state.read().await.config.person.clone();
+    // Node-level publish switch: when false, own events are routed to the
+    // `local.>` subject (stored + visible here, never federated) instead of
+    // `events.{host}.>`. A plain Copy bool, captured per watcher closure.
+    let publish_sessions: bool = state.read().await.config.publish_sessions;
     if is_publisher {
         // NATS required (commit 1.1): the watcher always publishes to the
         // bus. The old `else { ... direct ingest_events() ... }` branch
@@ -439,6 +534,8 @@ pub async fn run_server(
                 continue;
             }
             let watcher_bus = bus.clone();
+            let watcher_dir_str = watcher_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             let diagnostics = {
                 let s = state.read().await;
                 s.watcher_diagnostics.clone()
@@ -463,17 +560,25 @@ pub async fn run_server(
                     &watcher_dir,
                     backfill_window,
                     Some(observer),
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, events| {
+                        let mut events = events.to_vec();
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(watcher_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events: events.clone(),
                         };
                         let first_subtype = events.first().and_then(|event| event.subtype.clone());
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let result = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        );
                         let success = result.is_ok();
                         diagnostics.record_publish(
                             &actor,
@@ -504,6 +609,8 @@ pub async fn run_server(
         let pi_dir = std::path::PathBuf::from(&pi_watch_dir);
         if pi_dir.exists() {
             let watcher_bus = bus.clone();
+            let pi_dir_str = pi_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             let diagnostics = {
                 let s = state.read().await;
                 s.watcher_diagnostics.clone()
@@ -522,17 +629,25 @@ pub async fn run_server(
                     &pi_dir,
                     backfill_window,
                     Some(observer),
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, events| {
+                        let mut events = events.to_vec();
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(pi_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events: events.clone(),
                         };
                         let first_subtype = events.first().and_then(|event| event.subtype.clone());
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
-                        let result = rt.block_on(watcher_bus.publish(subject, &batch));
+                        let result = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        );
                         let success = result.is_ok();
                         diagnostics.record_publish(
                             &actor,
@@ -583,18 +698,27 @@ pub async fn run_server(
                 ));
             }
             let watcher_bus = bus.clone();
+            let hermes_dir_str = hermes_dir.to_string_lossy().to_string();
+            let person_for_closure = person_snapshot.clone();
             tokio::task::spawn_blocking(move || {
                 if let Err(e) = crate::snapshot_watcher::watch_snapshots(
                     &hermes_dir,
                     backfill_window,
-                    |session_id, project_id, subject, events| {
+                    move |session_id, project_id, subject, mut events| {
+                        open_story_server::principal_resolver::stamp_events(
+                            person_for_closure.as_ref(),
+                            Some(hermes_dir_str.clone()),
+                            &mut events,
+                        );
                         let batch = IngestBatch {
                             session_id: session_id.to_string(),
                             project_id: project_id.unwrap_or("").to_string(),
-                            events: events.to_vec(),
+                            events,
                         };
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(watcher_bus.publish(subject, &batch)) {
+                        if let Err(e) = rt.block_on(
+                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
+                        ) {
                             eprintln!("Hermes bus publish error: {e}");
                         }
                     },
@@ -631,4 +755,33 @@ pub async fn run_server(
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::egress_subject;
+
+    #[test]
+    fn publish_true_keeps_the_federated_events_subject() {
+        // Default: own events stay on `events.{host}.…` → stored + federated.
+        assert_eq!(
+            egress_subject("events.maxs-air.proj.sess.main", true),
+            "events.maxs-air.proj.sess.main"
+        );
+    }
+
+    #[test]
+    fn publish_false_routes_to_the_local_only_subject() {
+        // publish_sessions = false: own events move to `local.…`, a stream
+        // federation never sources — stored + visible here, never sent.
+        assert_eq!(
+            egress_subject("events.maxs-air.proj.sess.main", false),
+            "local.maxs-air.proj.sess.main"
+        );
+        // Only the leading token is rewritten.
+        assert_eq!(
+            egress_subject("events.h.events-project.s.main", false),
+            "local.h.events-project.s.main"
+        );
+    }
 }

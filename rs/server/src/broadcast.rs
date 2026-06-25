@@ -60,6 +60,14 @@ pub enum BroadcastMessage {
     },
     #[serde(rename = "plan_saved")]
     PlanSaved { session_id: String },
+    /// Admin v0.2: the full topology snapshot is pushed whenever the
+    /// admin_broadcaster actor's `compute_topology` produces a different
+    /// frame from the cached one. The UI's `admin$` BehaviorSubject
+    /// emits each frame as it arrives — UI is a pure sink.
+    #[serde(rename = "admin_topology_changed")]
+    AdminTopologyChanged {
+        topology: crate::admin::Topology,
+    },
 }
 
 #[cfg(test)]

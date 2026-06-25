@@ -157,6 +157,10 @@ struct ApiSessionRow {
     user: Option<String>,
     #[serde(default)]
     origin_agent: Option<String>,
+    #[serde(default)]
+    person_id: Option<String>,
+    #[serde(default)]
+    principal_id: Option<String>,
 }
 
 impl From<ApiSessionRow> for SessionRow {
@@ -174,6 +178,8 @@ impl From<ApiSessionRow> for SessionRow {
             host: r.host,
             user: r.user,
             origin_agent: r.origin_agent,
+            person_id: r.person_id,
+            principal_id: r.principal_id,
         }
     }
 }

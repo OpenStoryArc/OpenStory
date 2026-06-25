@@ -102,7 +102,11 @@ services:
       - OPEN_STORY_RETENTION_DAYS=${OPEN_STORY_RETENTION_DAYS:-90}
       - NATS_URL=nats://${NATS_LEAF_TOKEN}@nats:4222
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:3002/api/sessions"]
+      # Pure-bash TCP probe — avoids curl/wget in the runtime image,
+      # which dropped ~5 unfixed-upstream CVEs (curl/libcurl4/libldap/
+      # libssh2). The `< /dev/null` is required so bash treats the
+      # /dev/tcp open as a check, not a stream to read.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/3002 && echo -e 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200 OK'"]
       interval: 10s
       timeout: 5s
       retries: 5

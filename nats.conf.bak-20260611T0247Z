@@ -1,0 +1,5 @@
+jetstream {
+    store_dir: "/tmp/nats-jetstream"
+}
+max_payload: 8MB
+http_port: 8222

@@ -20,3 +20,5 @@ uuid = { version = "1", features = ["v4"] }
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
+testcontainers = { version = "0.27.3", features = ["http_wait"] }
+tempfile = "3"

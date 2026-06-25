@@ -94,6 +94,8 @@ fn test_session_row(id: &str, label: Option<&str>) -> SessionRow {
         host: None,
         user: None,
         origin_agent: None,
+        person_id: None,
+        principal_id: None,
     }
 }
 
@@ -250,6 +252,89 @@ pub async fn it_updates_an_existing_session_on_upsert(store: Arc<dyn EventStore>
     let found = sessions.iter().find(|s| s.id == "sess-update").unwrap();
     assert_eq!(found.label.as_deref(), Some("v2"));
     assert_eq!(found.event_count, 99);
+}
+
+/// person_id round-trip: a SessionRow upserted with a person_id must
+/// be readable back via list_sessions with that person_id intact.
+/// Both backends must agree — this is the storage layer of the
+/// PersonId + Fleet View v1 contract.
+pub async fn it_round_trips_person_id_on_session(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-person", Some("with person"));
+    row.person_id = Some("person-uuid-001".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-person")
+        .expect("upserted session must be listed");
+    assert_eq!(
+        found.person_id.as_deref(),
+        Some("person-uuid-001"),
+        "person_id must round-trip through {}",
+        std::any::type_name::<dyn EventStore>(),
+    );
+}
+
+/// COALESCE protection on person_id: a later upsert with person_id=None
+/// must NOT blank out an already-stamped person_id. Mirrors the same
+/// monotone-frontier protection applied to host/user/label/branch.
+pub async fn it_does_not_blank_person_id_with_none(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-person-coalesce", Some("v1"));
+    row.person_id = Some("person-uuid-001".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    // Second upsert with person_id=None — must not blank the field.
+    row.person_id = None;
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-person-coalesce")
+        .unwrap();
+    assert_eq!(
+        found.person_id.as_deref(),
+        Some("person-uuid-001"),
+        "person_id must survive a None-bearing upsert (COALESCE protection)"
+    );
+}
+
+/// principal_id round-trip — UI's "your fleet" sidebar grouping queries
+/// this column directly, so it must round-trip identically across backends.
+pub async fn it_round_trips_principal_id_on_session(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-principal", Some("with principal"));
+    row.principal_id = Some("principal-uuid-laptop".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-principal")
+        .expect("upserted session must be listed");
+    assert_eq!(found.principal_id.as_deref(), Some("principal-uuid-laptop"));
+}
+
+/// COALESCE protection on principal_id: a later upsert with
+/// principal_id=None must NOT blank out an already-stamped value.
+pub async fn it_does_not_blank_principal_id_with_none(store: Arc<dyn EventStore>) {
+    let mut row = test_session_row("sess-principal-coalesce", Some("v1"));
+    row.principal_id = Some("principal-uuid-laptop".to_string());
+    store.upsert_session(&row).await.unwrap();
+
+    row.principal_id = None;
+    store.upsert_session(&row).await.unwrap();
+
+    let sessions = store.list_sessions().await.unwrap();
+    let found = sessions
+        .iter()
+        .find(|s| s.id == "sess-principal-coalesce")
+        .unwrap();
+    assert_eq!(
+        found.principal_id.as_deref(),
+        Some("principal-uuid-laptop"),
+        "principal_id must survive a None-bearing upsert (COALESCE protection)"
+    );
 }
 
 /// Critical contract: `upsert_session` is called once per persist batch,
@@ -1112,6 +1197,8 @@ async fn seed_analytics_universe(store: &dyn EventStore) {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1377,6 +1464,8 @@ pub async fn it_returns_project_pulse_grouped_by_project(store: Arc<dyn EventSto
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1944,6 +2033,10 @@ macro_rules! for_each_conformance_test {
         $macro!(it_does_not_blank_branch_with_none);
         $macro!(it_does_not_blank_project_id_with_none);
         $macro!(it_does_not_blank_project_name_with_none);
+        $macro!(it_round_trips_person_id_on_session);
+        $macro!(it_does_not_blank_person_id_with_none);
+        $macro!(it_round_trips_principal_id_on_session);
+        $macro!(it_does_not_blank_principal_id_with_none);
         $macro!(it_concurrent_upserts_converge_to_max_event_count);
         $macro!(it_never_overwrites_a_user_set_custom_label);
         $macro!(it_persists_and_queries_a_detected_pattern);

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenStory — personhood &amp; principals</title>
+<style>
+  :root {
+    --ink: #1e1e1e;
+    --muted: #6b6b6b;
+    --paper: #fafaf7;
+    --rule: #e6e3dc;
+    --world: #f3f3f0;
+    --world-edge: #999;
+    --os: #e9f1f5;
+    --os-edge: #2e6b87;
+    --os-tier-a: #cfe1ea;
+    --os-tier-b: #dcebf0;
+    --person: #c84a1f;
+    --trait: #fff5e6;
+    --trait-edge: #b35900;
+    --embed: #eaf3ec;
+    --embed-edge: #2e7d32;
+    --ext: #fbeaee;
+    --ext-edge: #ad1457;
+    --science: #f3e5f5;
+    --science-edge: #6a1b9a;
+    --observe: #2e7d4f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    padding: 56px 24px 96px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  header { margin-bottom: 40px; }
+  h1 { font-weight: 600; font-size: 30px; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .subtitle { color: var(--muted); font-size: 15px; margin: 0; }
+  .subtitle code { font-size: 13px; background: #f0ede5; padding: 1px 5px; border-radius: 3px; }
+  h2 { font-weight: 600; font-size: 20px; letter-spacing: -0.01em; margin: 56px 0 4px; }
+  h2 .num { color: var(--muted); font-weight: 400; margin-right: 8px; }
+  .caption { color: var(--muted); font-size: 14px; font-style: italic; margin: 6px 0 18px; }
+  .figure {
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px;
+  }
+  svg { display: block; width: 100%; height: auto; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .legend .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend .swatch {
+    width: 22px;
+    height: 0;
+    border-top-width: 2px;
+    border-top-style: solid;
+    display: inline-block;
+  }
+  .legend .swatch.dashed { border-top-style: dashed; }
+  .legend .swatch.bold { border-top-width: 3px; }
+  .legend .swatch.observe { border-color: var(--observe); }
+  .legend .swatch.person { border-color: var(--person); }
+  .legend .swatch.consult { border-color: #888; }
+  .legend .swatch.world { border-color: #555; }
+  footer {
+    margin-top: 48px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  footer code { background: #f0ede5; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>OpenStory — personhood &amp; principals</h1>
+  <p class="subtitle">Visual companion to <code>docs/research/personhood-and-principals.md</code> &nbsp;·&nbsp; 2026-05-06</p>
+</header>
+
+<h2><span class="num">01</span>The system, with the membrane</h2>
+<p class="caption">What's ours, what isn't, who consults whom, who can edit what.</p>
+
+<div class="figure">
+  <svg viewBox="0 0 920 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="System architecture diagram">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+      </marker>
+      <marker id="arrow-observe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--observe)"/>
+      </marker>
+      <marker id="arrow-person" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--person)"/>
+      </marker>
+      <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#888"/>
+      </marker>
+    </defs>
+
+    <!-- World zone -->
+    <rect x="30" y="40" width="860" height="290" rx="10" fill="var(--world)" stroke="var(--world-edge)" stroke-dasharray="6 4" stroke-width="1.25"/>
+    <text x="50" y="68" font-size="12" font-weight="700" fill="#666" letter-spacing="1.2">THE WORLD &nbsp;·&nbsp; not ours, no authority here</text>
+
+    <!-- Agent -->
+    <rect x="80" y="105" width="220" height="64" rx="6" fill="white" stroke="#444"/>
+    <text x="190" y="132" text-anchor="middle" font-size="15" font-weight="600">Agent</text>
+    <text x="190" y="152" text-anchor="middle" font-size="11" fill="var(--muted)">Bobby · Claude Code · pi-mono</text>
+
+    <!-- Device -->
+    <rect x="340" y="105" width="180" height="64" rx="6" fill="white" stroke="#444"/>
+    <text x="430" y="132" text-anchor="middle" font-size="15" font-weight="600">Device</text>
+    <text x="430" y="152" text-anchor="middle" font-size="11" fill="var(--muted)">laptop · phone · ...</text>
+
+    <!-- Person (in world) -->
+    <rect x="600" y="105" width="220" height="64" rx="6" fill="white" stroke="var(--person)" stroke-width="2"/>
+    <text x="710" y="132" text-anchor="middle" font-size="15" font-weight="600" fill="var(--person)">Person</text>
+    <text x="710" y="152" text-anchor="middle" font-size="11" fill="var(--muted)">human · sovereign</text>
+
+    <!-- World state cylinder -->
+    <ellipse cx="280" cy="240" rx="90" ry="10" fill="white" stroke="#666"/>
+    <line x1="190" y1="240" x2="190" y2="280" stroke="#666"/>
+    <line x1="370" y1="240" x2="370" y2="280" stroke="#666"/>
+    <path d="M 190 280 A 90 10 0 0 0 370 280" fill="white" stroke="#666"/>
+    <text x="280" y="265" text-anchor="middle" font-size="12" fill="var(--muted)">World state &nbsp;·&nbsp; files, APIs, network</text>
+
+    <!-- Person → Agent (prompts) -->
+    <path d="M 600 138 L 305 138" stroke="#888" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow-muted)"/>
+    <text x="450" y="128" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">prompts, instructs</text>
+
+    <!-- Person → Device (acts through) -->
+    <path d="M 600 158 Q 540 175 525 165" stroke="#888" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow-muted)"/>
+    <text x="565" y="180" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">acts through</text>
+
+    <!-- Agent → World state -->
+    <path d="M 230 169 L 250 232" stroke="#444" fill="none" marker-end="url(#arrow)"/>
+    <!-- Device → World state -->
+    <path d="M 380 169 L 320 232" stroke="#444" fill="none" marker-end="url(#arrow)"/>
+    <text x="190" y="210" text-anchor="end" font-size="11" font-style="italic" fill="var(--muted)">side effects</text>
+
+    <!-- Membrane -->
+    <line x1="30" y1="345" x2="890" y2="345" stroke="#888" stroke-dasharray="2 5" stroke-width="1.5"/>
+    <text x="460" y="340" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">— observable activity flows down · nothing flows back up —</text>
+
+    <!-- Activity arrow crossing membrane (Agent → Listener) -->
+    <path d="M 230 169 L 230 240 L 230 555 L 175 555" stroke="var(--observe)" stroke-dasharray="4 3" fill="none"/>
+    <path d="M 230 280 L 230 555 L 175 555" stroke="var(--observe)" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow-observe)"/>
+    <text x="245" y="430" font-size="11" font-style="italic" fill="var(--observe)">observable activity</text>
+
+    <!-- OpenStory zone -->
+    <rect x="30" y="365" width="860" height="375" rx="10" fill="var(--os)" stroke="var(--os-edge)" stroke-width="1.5"/>
+    <text x="50" y="393" font-size="12" font-weight="700" fill="var(--os-edge)" letter-spacing="1.2">OPENSTORY &nbsp;·&nbsp; the network entity (ours)</text>
+
+    <!-- Directory tier -->
+    <rect x="60" y="415" width="600" height="105" rx="8" fill="var(--os-tier-a)" stroke="var(--os-edge)"/>
+    <text x="80" y="438" font-size="11" font-weight="700" fill="var(--os-edge)" letter-spacing="1">DIRECTORY TIER &nbsp;·&nbsp; management plane</text>
+    <text x="360" y="470" text-anchor="middle" font-size="14" fill="var(--ink)">Persons · Principals · Roles</text>
+    <text x="360" y="492" text-anchor="middle" font-size="14" fill="var(--ink)">Groups · Policies · Trust · Audit</text>
+
+    <!-- consults arrow (Directory → Runtime) -->
+    <path d="M 360 520 L 360 535" stroke="#666" stroke-dasharray="4 3" fill="none" marker-end="url(#arrow-muted)"/>
+    <text x="375" y="533" font-size="11" font-style="italic" fill="var(--muted)">consults</text>
+
+    <!-- Runtime tier -->
+    <rect x="60" y="540" width="600" height="170" rx="8" fill="var(--os-tier-b)" stroke="var(--os-edge)"/>
+    <text x="80" y="563" font-size="11" font-weight="700" fill="var(--os-edge)" letter-spacing="1">RUNTIME TIER &nbsp;·&nbsp; data plane</text>
+
+    <!-- Runtime components -->
+    <rect x="85" y="585" width="120" height="56" rx="5" fill="white" stroke="#444"/>
+    <text x="145" y="610" text-anchor="middle" font-size="13" font-weight="600">Listener</text>
+    <text x="145" y="627" text-anchor="middle" font-size="10" fill="var(--muted)">read-only on agents</text>
+
+    <rect x="225" y="585" width="120" height="56" rx="5" fill="white" stroke="#444"/>
+    <text x="285" y="610" text-anchor="middle" font-size="13" font-weight="600">Bus</text>
+    <text x="285" y="627" text-anchor="middle" font-size="10" fill="var(--muted)">routes &amp; enforces</text>
+
+    <rect x="365" y="585" width="120" height="56" rx="5" fill="white" stroke="#444"/>
+    <text x="425" y="610" text-anchor="middle" font-size="13" font-weight="600">Store</text>
+    <text x="425" y="627" text-anchor="middle" font-size="10" fill="var(--muted)">persists</text>
+
+    <rect x="505" y="585" width="135" height="56" rx="5" fill="white" stroke="#444"/>
+    <text x="572" y="610" text-anchor="middle" font-size="13" font-weight="600">Query / Subscribe</text>
+    <text x="572" y="627" text-anchor="middle" font-size="10" fill="var(--muted)">serves the mirror</text>
+
+    <!-- Runtime chain arrows -->
+    <line x1="205" y1="613" x2="225" y2="613" stroke="#444" marker-end="url(#arrow)"/>
+    <line x1="345" y1="613" x2="365" y2="613" stroke="#444" marker-end="url(#arrow)"/>
+    <line x1="485" y1="613" x2="505" y2="613" stroke="#444" marker-end="url(#arrow)"/>
+
+    <!-- Person admin arrow (Person → Directory, bold orange) -->
+    <path d="M 710 169 Q 800 290 660 470" stroke="var(--person)" stroke-width="2.25" fill="none" marker-end="url(#arrow-person)"/>
+    <text x="800" y="370" text-anchor="middle" font-size="12" font-weight="600" fill="var(--person)">edits directory</text>
+    <text x="800" y="386" text-anchor="middle" font-size="10" font-style="italic" fill="var(--person)">(only persons can)</text>
+
+    <!-- Query → Person (bold orange, the mirror) -->
+    <path d="M 640 613 Q 800 580 770 169" stroke="var(--person)" stroke-width="2.25" fill="none" marker-end="url(#arrow-person)"/>
+    <text x="845" y="500" text-anchor="middle" font-size="12" font-weight="600" fill="var(--person)">the mirror</text>
+
+    <!-- Sticky note: Directory consults Runtime extends to all four -->
+    <text x="780" y="675" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">all runtime components</text>
+    <text x="780" y="690" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">consult the directory</text>
+
+  </svg>
+  <div class="legend">
+    <span class="key"><span class="swatch dashed world"></span> world action</span>
+    <span class="key"><span class="swatch world"></span> world side effect</span>
+    <span class="key"><span class="swatch dashed observe"></span> observable activity (read-only)</span>
+    <span class="key"><span class="swatch dashed consult"></span> consults</span>
+    <span class="key"><span class="swatch bold person"></span> person's sovereign action</span>
+  </div>
+</div>
+
+<h2><span class="num">02</span>The pluggability experiment</h2>
+<p class="caption">What the science setup looks like — directory trait, two backends, one conformance suite proving the abstraction is real.</p>
+
+<div class="figure">
+  <svg viewBox="0 0 920 580" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pluggability diagram">
+    <defs>
+      <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+      </marker>
+      <marker id="arrow-sci" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--science-edge)"/>
+      </marker>
+    </defs>
+
+    <!-- Callers -->
+    <rect x="30" y="60" width="200" height="220" rx="10" fill="var(--os-tier-b)" stroke="var(--os-edge)" stroke-width="1.5"/>
+    <text x="50" y="86" font-size="11" font-weight="700" fill="var(--os-edge)" letter-spacing="1">OPENSTORY RUNTIME</text>
+    <text x="50" y="102" font-size="11" fill="var(--muted)" font-style="italic">consults the directory</text>
+
+    <rect x="55" y="120" width="150" height="44" rx="5" fill="white" stroke="#444"/>
+    <text x="130" y="147" text-anchor="middle" font-size="13" font-weight="600">Bus</text>
+
+    <rect x="55" y="174" width="150" height="44" rx="5" fill="white" stroke="#444"/>
+    <text x="130" y="201" text-anchor="middle" font-size="13" font-weight="600">Listener</text>
+
+    <rect x="55" y="228" width="150" height="44" rx="5" fill="white" stroke="#444"/>
+    <text x="130" y="255" text-anchor="middle" font-size="13" font-weight="600">Query / Subscribe</text>
+
+    <!-- Trait -->
+    <rect x="290" y="50" width="320" height="240" rx="10" fill="var(--trait)" stroke="var(--trait-edge)" stroke-width="2"/>
+    <text x="310" y="78" font-size="11" font-weight="700" fill="var(--trait-edge)" letter-spacing="1">DIRECTORY TRAIT</text>
+    <text x="310" y="94" font-size="11" font-style="italic" fill="var(--trait-edge)">the pluggable seam</text>
+
+    <text x="450" y="128" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="var(--ink)">upsert_person()</text>
+    <text x="450" y="153" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="var(--ink)">lookup_person()</text>
+    <text x="450" y="178" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="var(--ink)">add_to_group()</text>
+    <text x="450" y="203" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="var(--ink)">groups_for_person()</text>
+    <text x="450" y="228" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13.5" fill="var(--ink)">members_of_group()</text>
+
+    <text x="450" y="262" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">five methods. anything more belongs above (OS-specific)</text>
+    <text x="450" y="277" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">or below (impl-specific).</text>
+
+    <!-- Callers → Trait -->
+    <line x1="230" y1="170" x2="285" y2="170" stroke="#444" marker-end="url(#arrow2)"/>
+
+    <!-- Backends -->
+    <rect x="670" y="50" width="220" height="100" rx="10" fill="var(--embed)" stroke="var(--embed-edge)" stroke-width="1.5"/>
+    <text x="685" y="76" font-size="11" font-weight="700" fill="var(--embed-edge)" letter-spacing="1">EMBEDDED · v1 default</text>
+    <text x="780" y="106" text-anchor="middle" font-size="14" font-weight="600">SQLite in data dir</text>
+    <text x="780" y="128" text-anchor="middle" font-size="11" fill="var(--muted)">zero deps · sovereignty-shaped</text>
+
+    <rect x="670" y="190" width="220" height="100" rx="10" fill="var(--ext)" stroke="var(--ext-edge)" stroke-width="1.5"/>
+    <text x="685" y="216" font-size="11" font-weight="700" fill="var(--ext-edge)" letter-spacing="1">EXTERNAL IdP · enterprise future</text>
+    <text x="780" y="246" text-anchor="middle" font-size="14" font-weight="600">Keycloak / OIDC / LDAP / AD</text>
+    <text x="780" y="268" text-anchor="middle" font-size="11" fill="var(--muted)">delegated identity</text>
+
+    <!-- Trait → Backends -->
+    <line x1="610" y1="105" x2="665" y2="105" stroke="#444" marker-end="url(#arrow2)"/>
+    <line x1="610" y1="240" x2="665" y2="240" stroke="#444" marker-end="url(#arrow2)"/>
+
+    <!-- Conformance suite -->
+    <rect x="170" y="380" width="580" height="150" rx="10" fill="var(--science)" stroke="var(--science-edge)" stroke-width="2" stroke-dasharray="6 3"/>
+    <text x="190" y="408" font-size="11" font-weight="700" fill="var(--science-edge)" letter-spacing="1">CONFORMANCE SUITE &nbsp;·&nbsp; the science</text>
+    <text x="460" y="438" text-anchor="middle" font-size="14" fill="var(--ink)">5 BDD scenarios:</text>
+    <text x="460" y="462" text-anchor="middle" font-size="12.5" fill="#444">identity · group membership · multi-group · multi-member · persistence across sessions</text>
+    <text x="460" y="498" text-anchor="middle" font-size="12" font-style="italic" fill="var(--science-edge)">if both backends pass the same assertions, pluggability is property — not claim.</text>
+    <text x="460" y="515" text-anchor="middle" font-size="11" font-style="italic" fill="var(--muted)">(same shape as the existing EventStore conformance for SQLite + Mongo)</text>
+
+    <!-- Conformance → Backends (dashed) -->
+    <path d="M 600 380 Q 700 280 770 150" stroke="var(--science-edge)" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-sci)"/>
+    <path d="M 620 380 Q 720 320 770 290" stroke="var(--science-edge)" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-sci)"/>
+    <text x="710" y="370" text-anchor="middle" font-size="11" font-style="italic" fill="var(--science-edge)">runs same assertions against both</text>
+
+  </svg>
+  <div class="legend">
+    <span class="key"><span class="swatch consult"></span> runtime consults trait</span>
+    <span class="key"><span class="swatch consult"></span> trait dispatches to backend</span>
+    <span class="key"><span class="swatch dashed" style="border-color: var(--science-edge);"></span> conformance assertions</span>
+  </div>
+</div>
+
+<footer>
+  Open <code>docs/research/personhood-and-principals.md</code> for the prose · branch <code>research/personhood-and-principals</code>
+</footer>
+
+</div>
+</body>
+</html>

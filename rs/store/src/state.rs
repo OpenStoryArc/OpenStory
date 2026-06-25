@@ -295,9 +295,13 @@ mod tests {
     #[tokio::test]
     async fn with_backend_sqlite_works() {
         let tmp = TempDir::new().unwrap();
-        let state = StoreState::with_backend(tmp.path(), None, BackendChoice::Sqlite)
-            .await
-            .expect("sqlite backend must always boot");
+        let state = StoreState::with_backend(
+            tmp.path(),
+            None,
+            BackendChoice::Sqlite,
+        )
+        .await
+        .expect("sqlite backend must always boot");
         assert!(state.event_store.list_sessions().await.unwrap().is_empty());
     }
 

@@ -29,6 +29,10 @@ pub enum Subtype {
     AssistantThinking,
     #[serde(rename = "message.assistant.tool_use")]
     AssistantToolUse,
+    /// Codex surfaces developer-role messages (instructions / system prompts
+    /// shown as developer turns).
+    #[serde(rename = "message.developer.text")]
+    DeveloperText,
 
     // ── system.* — runtime lifecycle ──
     #[serde(rename = "system.turn.complete")]
@@ -47,6 +51,19 @@ pub enum Subtype {
     LocalCommand,
     #[serde(rename = "system.away_summary")]
     AwaySummary,
+    /// Codex emits a per-turn context frame (cwd, model, timezone) before
+    /// the turn's events.
+    #[serde(rename = "system.turn.context")]
+    TurnContext,
+    /// Codex emits running token accounting as a `token_count` event_msg.
+    #[serde(rename = "system.token_count")]
+    TokenCount,
+    /// Codex task lifecycle. `task_complete` is the signal we synthesize
+    /// `system.turn.complete` from; `task_started` opens the turn loop.
+    #[serde(rename = "system.task.started")]
+    TaskStarted,
+    #[serde(rename = "system.task.complete")]
+    TaskComplete,
 
     // ── progress.* — ephemeral streaming ──
     #[serde(rename = "progress.bash")]
@@ -93,6 +110,7 @@ impl Subtype {
             Subtype::AssistantText => "message.assistant.text",
             Subtype::AssistantThinking => "message.assistant.thinking",
             Subtype::AssistantToolUse => "message.assistant.tool_use",
+            Subtype::DeveloperText => "message.developer.text",
             Subtype::TurnComplete => "system.turn.complete",
             Subtype::SystemError => "system.error",
             Subtype::SystemCompact => "system.compact",
@@ -101,6 +119,10 @@ impl Subtype {
             Subtype::ModelChange => "system.model_change",
             Subtype::LocalCommand => "system.local_command",
             Subtype::AwaySummary => "system.away_summary",
+            Subtype::TurnContext => "system.turn.context",
+            Subtype::TokenCount => "system.token_count",
+            Subtype::TaskStarted => "system.task.started",
+            Subtype::TaskComplete => "system.task.complete",
             Subtype::ProgressBash => "progress.bash",
             Subtype::ProgressAgent => "progress.agent",
             Subtype::ProgressHook => "progress.hook",
@@ -122,6 +144,7 @@ impl Subtype {
                 | Subtype::AssistantText
                 | Subtype::AssistantThinking
                 | Subtype::AssistantToolUse
+                | Subtype::DeveloperText
         )
     }
 
@@ -136,6 +159,10 @@ impl Subtype {
                 | Subtype::ModelChange
                 | Subtype::LocalCommand
                 | Subtype::AwaySummary
+                | Subtype::TurnContext
+                | Subtype::TokenCount
+                | Subtype::TaskStarted
+                | Subtype::TaskComplete
         )
     }
 
@@ -221,6 +248,7 @@ impl FromStr for Subtype {
             "message.assistant.text" => Ok(Subtype::AssistantText),
             "message.assistant.thinking" => Ok(Subtype::AssistantThinking),
             "message.assistant.tool_use" => Ok(Subtype::AssistantToolUse),
+            "message.developer.text" => Ok(Subtype::DeveloperText),
             "system.turn.complete" => Ok(Subtype::TurnComplete),
             "system.error" => Ok(Subtype::SystemError),
             "system.compact" => Ok(Subtype::SystemCompact),
@@ -229,6 +257,10 @@ impl FromStr for Subtype {
             "system.model_change" => Ok(Subtype::ModelChange),
             "system.local_command" => Ok(Subtype::LocalCommand),
             "system.away_summary" => Ok(Subtype::AwaySummary),
+            "system.turn.context" => Ok(Subtype::TurnContext),
+            "system.token_count" => Ok(Subtype::TokenCount),
+            "system.task.started" => Ok(Subtype::TaskStarted),
+            "system.task.complete" => Ok(Subtype::TaskComplete),
             "progress.bash" => Ok(Subtype::ProgressBash),
             "progress.agent" => Ok(Subtype::ProgressAgent),
             "progress.hook" => Ok(Subtype::ProgressHook),
@@ -258,6 +290,7 @@ mod tests {
             (Subtype::AssistantText, "message.assistant.text"),
             (Subtype::AssistantThinking, "message.assistant.thinking"),
             (Subtype::AssistantToolUse, "message.assistant.tool_use"),
+            (Subtype::DeveloperText, "message.developer.text"),
             (Subtype::TurnComplete, "system.turn.complete"),
             (Subtype::SystemError, "system.error"),
             (Subtype::SystemCompact, "system.compact"),
@@ -266,6 +299,10 @@ mod tests {
             (Subtype::ModelChange, "system.model_change"),
             (Subtype::LocalCommand, "system.local_command"),
             (Subtype::AwaySummary, "system.away_summary"),
+            (Subtype::TurnContext, "system.turn.context"),
+            (Subtype::TokenCount, "system.token_count"),
+            (Subtype::TaskStarted, "system.task.started"),
+            (Subtype::TaskComplete, "system.task.complete"),
             (Subtype::ProgressBash, "progress.bash"),
             (Subtype::ProgressAgent, "progress.agent"),
             (Subtype::ProgressHook, "progress.hook"),

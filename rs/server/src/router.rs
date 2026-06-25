@@ -96,6 +96,8 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/sessions",
             axum::routing::get(crate::api::list_sessions),
         )
+        .route("/api/health", axum::routing::get(crate::api::node_health))
+        .route("/api/digests", axum::routing::get(crate::api::session_digests))
         .route(
             "/api/watchers",
             axum::routing::get(crate::api::list_watchers),
@@ -105,6 +107,19 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/local-info",
             axum::routing::get(crate::api::list_local_info),
         )
+        .route("/api/fleet", axum::routing::get(crate::api::get_fleet))
+        .route(
+            "/api/admin/topology",
+            axum::routing::get(crate::admin::get_topology),
+        )
+        .route(
+            "/api/admin/participants",
+            axum::routing::get(crate::admin::list_participants),
+        )
+        // NB: Policy WRITES (PUT/POST below) move to `admin_writes_router`
+        // below so they get the `admin_only_middleware` instead of the
+        // generic `auth_middleware`. The GET above is read-only and stays
+        // on the api_token surface.
         .route(
             "/api/sessions/{session_id}/events",
             axum::routing::get(crate::api::get_events),
@@ -245,13 +260,53 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
 
     let cors = build_cors(config);
 
-    // Auth middleware — wraps all routes. Empty token = pass-through.
-    let api_token = config.api_token.clone();
-    let router = api_router
+    // Phase 6.2 — policy-write routes get the admin_only middleware so a
+    // read-only api_token holder can't mutate participant roles. Empty
+    // `admin_token` falls back to api_token semantics (backwards compat
+    // for single-token deployments).
+    let api_token_for_admin = config.api_token.clone();
+    let admin_token = config.admin_token.clone();
+    let admin_writes_router = Router::new()
+        // Phase 6 polish: participants (role) management. Admin-gated. GET
+        // sits on the read tier above so the UI can populate dropdowns
+        // without an admin token.
+        .route(
+            "/api/admin/participants",
+            axum::routing::put(crate::admin::upsert_participant),
+        )
+        .route(
+            "/api/admin/participants/{principal_id}",
+            axum::routing::delete(crate::admin::delete_participant),
+        )
+        // Layer order is outermost-first: the require_admin_role check
+        // runs BEFORE the token check, but both must pass before the
+        // handler runs. (Token check verifies the caller; role check
+        // verifies the local principal has the assigned permission.)
         .layer(middleware::from_fn(move |req, next| {
-            let token = api_token.clone();
-            async move { crate::auth::auth_middleware(req, next, token).await }
+            let api_t = api_token_for_admin.clone();
+            let admin_t = admin_token.clone();
+            async move {
+                crate::auth::admin_only_middleware(req, next, api_t, admin_t).await
+            }
         }))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::require_admin_role_middleware,
+        ));
+
+    // Apply the generic auth_middleware to api_router BEFORE merging in
+    // admin_writes_router. This way the admin writes are wrapped only by
+    // admin_only_middleware (which already handles the api_token fallback
+    // when admin_token is empty), not by both — which would otherwise
+    // reject a valid admin_token as "not the api_token."
+    let api_token = config.api_token.clone();
+    let api_router = api_router.layer(middleware::from_fn(move |req, next| {
+        let token = api_token.clone();
+        async move { crate::auth::auth_middleware(req, next, token).await }
+    }));
+
+    let router = api_router
+        .merge(admin_writes_router)
         .layer(cors)
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
         .with_state(state);
@@ -313,14 +368,27 @@ mod tests {
         let watch_dir = tmp.path().join("watch");
         std::fs::create_dir_all(&watch_dir).unwrap();
 
+        let config = Config::default();
+        let initial_topology = crate::admin::compute_topology(
+            "test-host",
+            config.role,
+            &crate::admin::EnvInputs::default(),
+            &[],
+        );
+        let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
         Arc::new(RwLock::new(crate::state::AppState {
             store,
             transcript_states: HashMap::new(),
             watcher_diagnostics: crate::watcher_diagnostics::WatcherDiagnostics::default(),
             broadcast_tx,
             bus: Arc::new(NoopBus),
-            config: Config::default(),
+            admin_topology_tx,
+            config,
             watch_dir,
+            account_config_writer: None,
+            account_config_reloader: None,
+            role_directory: Arc::new(crate::directory::NoopRoleDirectory),
         }))
     }
 
@@ -368,6 +436,75 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["status"], "ok");
         assert_eq!(body["role"], "full");
+    }
+
+    #[tokio::test]
+    async fn fleet_endpoint_returns_404_when_no_person_configured() {
+        use tower::ServiceExt;
+        use axum::http::Request;
+        use axum::body::Body;
+
+        // test_state() uses Config::default() which has person: None.
+        let state = test_state();
+        let config = Config::default();
+        let router = build_router(state.clone(), None, &config);
+
+        let req = Request::get("/api/fleet").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test]
+    async fn fleet_endpoint_returns_configured_fleet() {
+        use tower::ServiceExt;
+        use axum::http::Request;
+        use axum::body::Body;
+        use http_body_util::BodyExt;
+        use crate::config::{Person, Principal, PrincipalMatchers};
+
+        // Inject a Person + Principal into state's config so the endpoint
+        // has a fleet to return.
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.config.person = Some(Person {
+                id: "person-test".to_string(),
+                display_name: "Tester".to_string(),
+                email: "tester@example.test".to_string(),
+                principals: vec![
+                    Principal {
+                        id: "k-laptop".to_string(),
+                        display_name: "Laptop".to_string(),
+                        matchers: PrincipalMatchers {
+                            host: Some("test-host".into()),
+                            user: Some("tester".into()),
+                            agent: None,
+                            watch_dir_pattern: None,
+                        },
+                    },
+                ],
+            });
+        }
+        let config = Config::default();
+        let router = build_router(state.clone(), None, &config);
+
+        let req = Request::get("/api/fleet").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["person"]["id"], "person-test");
+        assert_eq!(body["person"]["display_name"], "Tester");
+        assert_eq!(body["person"]["email"], "tester@example.test");
+        assert_eq!(body["principals"].as_array().unwrap().len(), 1);
+        assert_eq!(body["principals"][0]["id"], "k-laptop");
+        assert_eq!(body["principals"][0]["display_name"], "Laptop");
+        assert_eq!(body["principals"][0]["matchers"]["host"], "test-host");
+        assert_eq!(body["principals"][0]["matchers"]["user"], "tester");
+        // Wildcard matchers serialize as null (None → JSON null).
+        assert!(body["principals"][0]["matchers"]["agent"].is_null());
+        assert!(body["principals"][0]["matchers"]["watch_dir_pattern"].is_null());
     }
 
     #[tokio::test]

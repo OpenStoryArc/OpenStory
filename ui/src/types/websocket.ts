@@ -11,7 +11,7 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -75,4 +75,12 @@ export interface ViewRecordsMessage {
 export interface PlanSavedMessage {
   readonly kind: "plan_saved";
   readonly session_id: string;
+}
+
+/** Admin v0.2 — full topology snapshot pushed when the broadcaster
+ *  detects a change. UI subscribes via streams/admin.ts; AdminView
+ *  consumes via useObservable. */
+export interface AdminTopologyChangedMessage {
+  readonly kind: "admin_topology_changed";
+  readonly topology: import("@/lib/admin-api").Topology;
 }

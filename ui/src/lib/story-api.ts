@@ -31,6 +31,46 @@ export interface StorySession {
   user?: string | null;
   /** Agent platform that produced the session (`claude-code`, `codex`, `pi-mono`, `hermes`). */
   origin_agent?: string | null;
+  /** Owning person id from OpenStory's directory model. `null` for pre-migration sessions. */
+  person_id?: string | null;
+  /** Producing principal id (which device/agent in the person's fleet). `null` for pre-migration sessions. */
+  principal_id?: string | null;
+}
+
+/** Matchers for one principal — same shape as the `[person.principals.matchers]` config. */
+export interface PrincipalMatchers {
+  agent?: string | null;
+  host?: string | null;
+  user?: string | null;
+  watch_dir_pattern?: string | null;
+}
+
+/** One fleet member: a device or agent in the person's fleet. */
+export interface FleetPrincipal {
+  id: string;
+  display_name: string;
+  matchers: PrincipalMatchers;
+}
+
+/** Response shape from GET /api/fleet — the configured Person + their principals. */
+export interface Fleet {
+  person: {
+    id: string;
+    display_name: string;
+    email: string;
+  };
+  principals: FleetPrincipal[];
+}
+
+/**
+ * Fetch the configured fleet from /api/fleet.
+ * Returns `null` when no [person] section is configured (404 from the API).
+ */
+export async function fetchFleet(baseUrl: string = ""): Promise<Fleet | null> {
+  const res = await fetch(`${baseUrl}/api/fleet`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to fetch fleet: ${res.status}`);
+  return res.json();
 }
 
 /** Response shape from GET /api/sessions */

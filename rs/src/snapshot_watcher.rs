@@ -321,7 +321,8 @@ where
                         .get(path)
                         .map(|s| s.session_id.clone())
                         .unwrap_or_else(|| session_id_from_path(path));
-                    let subject = format!("events.hermes.{}.main", sid);
+                    let subject =
+                        format!("events.{}.hermes.{}.main", open_story_core::host::host(), sid);
                     on_events(&sid, None, &subject, events);
                 }
                 Ok(_) => {}
@@ -353,7 +354,8 @@ where
                                     .get(path.as_path())
                                     .map(|s| s.session_id.clone())
                                     .unwrap_or_else(|| session_id_from_path(path));
-                                let subject = format!("events.hermes.{}.main", sid);
+                                let subject =
+                        format!("events.{}.hermes.{}.main", open_story_core::host::host(), sid);
                                 on_events(&sid, None, &subject, events);
                             }
                             Ok(_) => {}

@@ -56,6 +56,7 @@ __pycache__/
 # Generated history
 history/
 .env
+.env.federation
 deploy/*.env
 !deploy/*.env.example
 
@@ -70,3 +71,10 @@ deploy/*.local.conf
 # Local-only content (never pushed)
 personal/
 captures/
+.bandit-rt.json
+.bandit-report.json
+.semgrep-report.json
+/tmp/gitleaks-rt.json
+
+# Generated leaf-remote configs (contain hub tokens — never commit)
+deploy/*.generated.conf

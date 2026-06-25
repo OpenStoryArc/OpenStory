@@ -196,6 +196,20 @@ impl SqliteStore {
             "CREATE INDEX IF NOT EXISTS idx_sessions_origin_agent ON sessions(origin_agent)",
         );
 
+        // Migration: add person_id column + index — OpenStory's directory
+        // identity for the session's owner (distinct from `user` which is
+        // the OS-level field). Same additive ALTER TABLE / let-_ pattern.
+        // The "your fleet" sidebar grouping queries on this column, so
+        // the index is worth its weight even at small scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN person_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
+
+        // Migration: add principal_id column + index. The UI groups sessions
+        // by principal in the sidebar, so an index pays for itself even at
+        // single-user scale.
+        let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN principal_id TEXT");
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id)");
+
         Ok(())
     }
 
@@ -382,6 +396,45 @@ impl EventStore for SqliteStore {
         Ok(count)
     }
 
+    async fn insert_batch_returning(
+        &self,
+        session_id: &str,
+        events: &[Value],
+    ) -> Result<Vec<bool>> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut flags = Vec::with_capacity(events.len());
+        for event in events {
+            let id = event.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            let subtype = event
+                .get("subtype")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let timestamp = event
+                .get("time")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let agent_id = event
+                .get("data")
+                .and_then(|d| d.get("agent_id"))
+                .and_then(|v| v.as_str());
+            let parent_uuid = event
+                .get("data")
+                .and_then(|d| d.get("parent_uuid"))
+                .and_then(|v| v.as_str());
+            let payload = serde_json::to_string(event)?;
+
+            let rows = tx.execute(
+                "INSERT OR IGNORE INTO events (id, session_id, subtype, timestamp, agent_id, parent_uuid, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![id, session_id, subtype, timestamp, agent_id, parent_uuid, payload],
+            )?;
+            flags.push(rows > 0);
+        }
+        tx.commit()?;
+        Ok(flags)
+    }
+
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
@@ -404,7 +457,7 @@ impl EventStore for SqliteStore {
     async fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, origin_agent
+            "SELECT id, project_id, project_name, label, custom_label, branch, event_count, first_event, last_event, host, user, origin_agent, person_id, principal_id
              FROM sessions ORDER BY last_event DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -421,6 +474,8 @@ impl EventStore for SqliteStore {
                 host: row.get(9)?,
                 user: row.get(10)?,
                 origin_agent: row.get(11)?,
+                person_id: row.get(12)?,
+                principal_id: row.get(13)?,
             })
         })?;
         let mut sessions = Vec::new();
@@ -459,8 +514,8 @@ impl EventStore for SqliteStore {
         // RFC 3339 strings sort lexicographically → chronologically, so
         // MIN/MAX on the TEXT columns is correct.
         conn.execute(
-            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, origin_agent)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO sessions (id, project_id, project_name, label, branch, event_count, first_event, last_event, host, user, origin_agent, person_id, principal_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                 project_id = COALESCE(excluded.project_id, sessions.project_id),
                 project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -477,7 +532,9 @@ impl EventStore for SqliteStore {
                 ),
                 host = COALESCE(excluded.host, sessions.host),
                 user = COALESCE(excluded.user, sessions.user),
-                origin_agent = COALESCE(excluded.origin_agent, sessions.origin_agent)",
+                origin_agent = COALESCE(excluded.origin_agent, sessions.origin_agent),
+                person_id = COALESCE(excluded.person_id, sessions.person_id),
+                principal_id = COALESCE(excluded.principal_id, sessions.principal_id)",
             rusqlite::params![
                 session.id,
                 session.project_id,
@@ -490,6 +547,8 @@ impl EventStore for SqliteStore {
                 session.host,
                 session.user,
                 session.origin_agent,
+                session.person_id,
+                session.principal_id,
             ],
         )?;
         Ok(())
@@ -755,22 +814,44 @@ impl EventStore for SqliteStore {
         Ok(events_deleted)
     }
 
-    async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
+    async fn cleanup_old_sessions(
+        &self,
+        retention_days: u32,
+        keep_host: Option<&str>,
+    ) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
 
-        // Find sessions older than cutoff
-        let mut stmt = conn.prepare(
-            "SELECT id FROM sessions WHERE last_event < ?1 OR (last_event IS NULL AND first_event < ?1)",
-        )?;
-        let session_ids: Vec<String> = stmt
-            .query_map([&cutoff_str], |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+        // Invariant ②: when keep_host is set, exclude rows whose host
+        // matches — your own data is yours, always. NULL host is treated
+        // as foreign here (mirrored from a pre-stamping peer) and is
+        // eligible for sweep.
+        let ids: Vec<String> = if let Some(host) = keep_host {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM sessions \
+                 WHERE (last_event < ?1 OR (last_event IS NULL AND first_event < ?1)) \
+                   AND (host IS NULL OR host <> ?2)",
+            )?;
+            let rows = stmt
+                .query_map(rusqlite::params![&cutoff_str, host], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM sessions \
+                 WHERE last_event < ?1 OR (last_event IS NULL AND first_event < ?1)",
+            )?;
+            let rows = stmt
+                .query_map([&cutoff_str], |row| row.get::<_, String>(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            rows
+        };
 
         let mut total = 0u64;
-        for sid in &session_ids {
+        for sid in &ids {
             conn.execute("DELETE FROM events_fts WHERE session_id = ?1", [sid])?;
             total += conn.execute("DELETE FROM events WHERE session_id = ?1", [sid])? as u64;
             conn.execute("DELETE FROM patterns WHERE session_id = ?1", [sid])?;
@@ -788,6 +869,19 @@ impl EventStore for SqliteStore {
         text: &str,
     ) -> Result<()> {
         self.index_fts_inner(event_id, session_id, record_type, text)
+    }
+
+    async fn index_fts_batch(&self, records: &[(String, String, String, String)]) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for (event_id, session_id, record_type, text) in records {
+            tx.execute(
+                "INSERT INTO events_fts(event_id, session_id, record_type, content) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![event_id, session_id, record_type, text],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     async fn search_fts(
@@ -1026,6 +1120,29 @@ mod tests {
         assert_eq!(store.insert_batch("sess-1", &[]).await.unwrap(), 0);
     }
 
+    #[tokio::test]
+    async fn insert_batch_returning_flags_new_vs_duplicate_in_order() {
+        let store = SqliteStore::in_memory().unwrap();
+        store
+            .insert_event("sess-1", &test_event("evt-2", "2025-01-14T00:00:02Z"))
+            .await
+            .unwrap();
+
+        // evt-1 new, evt-2 duplicate, evt-3 new — flags must line up by index.
+        let events = vec![
+            test_event("evt-1", "2025-01-14T00:00:01Z"),
+            test_event("evt-2", "2025-01-14T00:00:02Z"),
+            test_event("evt-3", "2025-01-14T00:00:03Z"),
+        ];
+        let flags = store
+            .insert_batch_returning("sess-1", &events)
+            .await
+            .unwrap();
+        assert_eq!(flags, vec![true, false, true]);
+        // And the new ones are actually persisted (single-transaction commit).
+        assert_eq!(store.session_events("sess-1").await.unwrap().len(), 3);
+    }
+
     // ── Phase 1e: list_sessions + upsert_session ──
 
     #[tokio::test]
@@ -1051,6 +1168,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1079,6 +1198,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1097,6 +1218,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1125,6 +1248,8 @@ mod tests {
                 host: Some("Maxs-Air".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1154,6 +1279,8 @@ mod tests {
                 host: Some("debian-16gb-ash-1".into()),
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1173,6 +1300,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1199,6 +1328,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1225,6 +1356,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1242,6 +1375,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1408,6 +1543,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1448,6 +1585,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1465,6 +1604,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1539,6 +1680,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -1563,14 +1706,86 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
 
-        let deleted = store.cleanup_old_sessions(30).await.unwrap();
+        let deleted = store.cleanup_old_sessions(30, None).await.unwrap();
         assert_eq!(deleted, 1, "should delete 1 old event");
         assert_eq!(store.list_sessions().await.unwrap().len(), 1);
         assert_eq!(store.list_sessions().await.unwrap()[0].id, "sess-new");
+    }
+
+    #[tokio::test]
+    async fn cleanup_preserves_own_host_sessions_invariant_two() {
+        // Invariant ② — federation Phase 4: sessions whose `host` matches
+        // the passed `keep_host` must NEVER be swept, regardless of age.
+        // Your own data is yours, always.
+        let store = SqliteStore::in_memory().unwrap();
+
+        // An OLD session belonging to THIS host (must be preserved).
+        let old_ts = "2025-12-01T00:00:00Z";
+        store
+            .insert_event("sess-mine-old", &test_event("evt-mine", old_ts))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-mine-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
+                custom_label: None,
+                first_event: Some(old_ts.into()),
+                last_event: Some(old_ts.into()),
+                host: Some("a1".into()),
+                user: None,
+                origin_agent: None,
+                person_id: None,
+                principal_id: None,
+            })
+            .await
+            .unwrap();
+
+        // An OLD session belonging to a PEER (eligible for sweep).
+        store
+            .insert_event("sess-peer-old", &test_event("evt-peer", old_ts))
+            .await
+            .unwrap();
+        store
+            .upsert_session(&SessionRow {
+                id: "sess-peer-old".into(),
+                project_id: None,
+                project_name: None,
+                label: None,
+                branch: None,
+                event_count: 1,
+                custom_label: None,
+                first_event: Some(old_ts.into()),
+                last_event: Some(old_ts.into()),
+                host: Some("katies-mini".into()),
+                user: None,
+                origin_agent: None,
+                person_id: None,
+                principal_id: None,
+            })
+            .await
+            .unwrap();
+
+        let deleted = store.cleanup_old_sessions(30, Some("a1")).await.unwrap();
+        assert_eq!(deleted, 1, "only the peer session should be deleted");
+        let remaining: Vec<String> = store
+            .list_sessions()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(remaining, vec!["sess-mine-old"], "own old session preserved");
     }
 
     #[tokio::test]
@@ -1595,11 +1810,13 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
 
-        let deleted = store.cleanup_old_sessions(7).await.unwrap();
+        let deleted = store.cleanup_old_sessions(7, None).await.unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(store.list_sessions().await.unwrap().len(), 1);
     }
@@ -1774,6 +1991,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -2058,6 +2277,8 @@ mod tests {
             host: Some("kloughra-mac".into()),
             user: None,
             origin_agent: None,
+            person_id: None,
+            principal_id: None,
         };
         store.upsert_session(&row).await.unwrap();
 

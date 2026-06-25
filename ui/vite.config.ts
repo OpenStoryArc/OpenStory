@@ -5,6 +5,11 @@ import { resolve } from "path";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // esbuild 0.28 (pulled in via the security override for GHSA-gv7w-rqvm-qjhr)
+  // no longer down-transpiles modern syntax like destructuring to old targets.
+  // A modern build target means there's nothing to lower — fine for a
+  // localhost dashboard. (Dev/test transforms already default to esnext.)
+  build: { target: "es2022" },
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),

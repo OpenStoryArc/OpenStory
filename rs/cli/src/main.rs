@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use open_story::server;
@@ -18,7 +18,7 @@ use open_story::server::Config;
 use open_story::server::config::{DataBackend, Role};
 use open_story::watcher;
 use open_story_bus::Bus;
-use open_story_bus::nats_bus::NatsBus;
+use open_story_bus::nats_bus::{Federation, FederationPeers, NatsBus};
 use open_story_store::sqlite_store::SqliteStore;
 
 mod init;
@@ -209,6 +209,50 @@ enum Command {
     /// after manually copying JSONL between machines, or after a backend
     /// switch when you don't want to wait for the next server restart.
     /// Boot-time reconciliation runs the same logic automatically.
+    /// Grant a role to a principal in the local role directory.
+    ///
+    /// Bootstrap for Phase 6: the first Admin must be granted at the
+    /// SQLite level because every admin route 403s without an existing
+    /// Admin to authorize it. After running this once, all subsequent
+    /// role grants can go through the PUT /api/admin/participants UI.
+    GrantRole {
+        /// Path to the roles SQLite file. Defaults to data/openstory-roles.db.
+        #[arg(long, default_value = "data/openstory-roles.db")]
+        roles_db: PathBuf,
+        /// Principal id (e.g. "max-laptop").
+        #[arg(long)]
+        principal_id: String,
+        /// Person id (e.g. "max").
+        #[arg(long)]
+        person_id: String,
+        /// Role: observer | contributor | admin.
+        #[arg(long)]
+        role: String,
+    },
+
+    /// Write the initial multi-account NATS conf file from `data/config.toml`.
+    ///
+    /// Solves the chicken-and-egg problem on first boot: nats-server needs
+    /// the conf file to exist before it starts, but the server normally
+    /// writes the file at runtime via `AccountConfigWriter`. Running this
+    /// subcommand first means the operator can start nats-server with the
+    /// writer-managed conf BEFORE starting the OpenStory server.
+    ///
+    /// Reads `nats_accounts_conf_path` + `[person]` from the supplied config,
+    /// builds a single PERSON_<NAME> account with one local-dev password
+    /// user, and persists to the output path. The subsequent
+    /// POST /api/admin/share-with-person calls will mutate the same file
+    /// via the writer's atomic rename + SIGHUP path.
+    InitAccountsConf {
+        /// Path to the OpenStory config file (TOML).
+        #[arg(long, default_value = "data/config.toml")]
+        config: PathBuf,
+        /// Output path for the generated nats-server conf. Defaults to
+        /// the `nats_accounts_conf_path` value in the config.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
     Reconcile {
         /// Directory for persisted session data (JSONL + EventStore)
         #[arg(long, env = "OPEN_STORY_DATA_DIR", default_value = "./data")]
@@ -402,7 +446,12 @@ async fn main() -> Result<()> {
             }
 
             // Load config: defaults → config.toml → CLI flags
-            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            let config_path = data_dir.join("config.toml");
+            let mut config = Config::from_file(&config_path);
+            // First-boot: auto-create [person] section with detected (host, user)
+            // matchers and persist back to config.toml. Idempotent on later boots.
+            std::fs::create_dir_all(&data_dir).ok();
+            config.ensure_person_bootstrap(&config_path);
             config.data_dir = data_dir.to_string_lossy().to_string();
             config.role = cli_role;
             if let Some(v) = cli_host {
@@ -498,6 +547,11 @@ async fn main() -> Result<()> {
                     config.nats_leaf_url = v;
                 }
             }
+            if let Ok(v) = std::env::var("OPEN_STORY_PUBLISH_SESSIONS") {
+                // Accept 1/true/yes/on (any case) as true; anything else false.
+                let v = v.trim().to_ascii_lowercase();
+                config.publish_sessions = matches!(v.as_str(), "1" | "true" | "yes" | "on");
+            }
 
             let host = config.host.clone();
             let port = config.port;
@@ -530,26 +584,106 @@ async fn main() -> Result<()> {
             // To enable a no-NATS demo path in the future, build a
             // first-class InProcessBus that actually delivers to the
             // consumers — don't resurrect NoopBus here.
-            let bus: Arc<dyn Bus> = match NatsBus::connect(&nats_url).await {
-                Ok(nats_bus) => {
-                    if let Err(e) = nats_bus.ensure_streams().await {
+            // Federation mode is opted in via env vars:
+            //   OPEN_STORY_HUB_DOMAIN=<dom>       T2/T3 hub-star (with hubs)
+            //   OPEN_STORY_PEER_DOMAINS=<comma>   T1 solo multi-device mesh
+            // Hub role + hub_domain → hub-side: create events-agg.
+            // Leaf + hub_domain → Hub federation peers (Phase 2a/b).
+            // Leaf + peer_domains → Mesh federation peers (Phase 2b Step 4).
+            // Both unset → solo, as before.
+            let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok().filter(|s| !s.is_empty());
+            let peer_domains_raw = std::env::var("OPEN_STORY_PEER_DOMAINS").ok().filter(|s| !s.is_empty());
+            let peer_domains: Option<Vec<String>> = peer_domains_raw.as_ref().map(|s| {
+                s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+            });
+            let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
+
+            // T3 multi-hub mesh: a hub also sources peer hubs' aggregates.
+            let peer_hub_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .unwrap_or_default();
+
+            let bus: Arc<dyn Bus> = if let Some(dom) = hub_domain.clone().filter(|_| is_hub) {
+                // Hub role: own NATS configured with `domain: <dom>`; create
+                // events-agg so leaves can self-register sources into it.
+                // In T3, also source peer hubs' events-agg streams.
+                match NatsBus::connect_hub(&nats_url, &dom).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| "NATS stream setup (hub) failed")?;
+                        nats_bus.ensure_aggregate(&peer_hub_domains).await
+                            .with_context(|| "NATS events-agg setup (hub) failed")?;
+                        let peer_label = if peer_hub_domains.is_empty() { String::new() } else { format!(" peers=[{}]", peer_hub_domains.join(",")) };
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom}{peer_label})");
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (hub): {e}\nNATS URL: {nats_url}"),
+                }
+            } else if let Some(dom) = hub_domain {
+                // Leaf attached to a hub (T2/T3).
+                let host = open_story_core::host::host().to_string();
+                let fed = Federation {
+                    host: host.clone(),
+                    peers: FederationPeers::Hub { hub_domain: dom.clone() },
+                };
+                match NatsBus::connect_federation(&nats_url, fed).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| format!("NATS stream setup (leaf, hub={dom}) failed"))?;
+                        eprintln!(
+                            "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: leaf host={host} → hub={dom})"
+                        );
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (leaf): {e}\nNATS URL: {nats_url}"),
+                }
+            } else if let Some(peers) = peer_domains {
+                // T1 solo multi-device mesh: no hub, source from each peer.
+                let host = open_story_core::host::host().to_string();
+                // Filter the host out of its own peer list defensively — the
+                // operator might pass the full fleet list to every device.
+                let peer_filtered: Vec<String> = peers.into_iter().filter(|p| p != &host).collect();
+                let fed = Federation {
+                    host: host.clone(),
+                    peers: FederationPeers::Mesh { peer_domains: peer_filtered.clone() },
+                };
+                match NatsBus::connect_federation(&nats_url, fed).await {
+                    Ok(nats_bus) => {
+                        nats_bus.ensure_streams().await
+                            .with_context(|| format!("NATS stream setup (mesh, peers={peer_filtered:?}) failed"))?;
+                        eprintln!(
+                            "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: mesh host={host} peers={})",
+                            peer_filtered.join(",")
+                        );
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => anyhow::bail!("NATS unavailable (mesh leaf): {e}\nNATS URL: {nats_url}"),
+                }
+            } else {
+                // Solo.
+                match NatsBus::connect(&nats_url).await {
+                    Ok(nats_bus) => {
+                        if let Err(e) = nats_bus.ensure_streams().await {
+                            anyhow::bail!(
+                                "NATS stream setup failed: {e}\n\
+                                 NATS JetStream is required. Install with `brew install nats-server` \
+                                 and start it (`just up` handles this automatically).\n\
+                                 NATS URL: {nats_url}"
+                            );
+                        }
+                        eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (solo)");
+                        Arc::new(nats_bus)
+                    }
+                    Err(e) => {
                         anyhow::bail!(
-                            "NATS stream setup failed: {e}\n\
+                            "NATS unavailable: {e}\n\
                              NATS JetStream is required. Install with `brew install nats-server` \
                              and start it (`just up` handles this automatically).\n\
                              NATS URL: {nats_url}"
                         );
                     }
-                    eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url}");
-                    Arc::new(nats_bus)
-                }
-                Err(e) => {
-                    anyhow::bail!(
-                        "NATS unavailable: {e}\n\
-                         NATS JetStream is required. Install with `brew install nats-server` \
-                         and start it (`just up` handles this automatically).\n\
-                         NATS URL: {nats_url}"
-                    );
                 }
             };
 
@@ -694,7 +828,10 @@ async fn main() -> Result<()> {
             use open_story_store::state::{BackendChoice, StoreState};
 
             // Load config: defaults → config.toml → CLI flags / env (mirrors `serve`).
-            let mut config = Config::from_file(&data_dir.join("config.toml"));
+            let config_path = data_dir.join("config.toml");
+            let mut config = Config::from_file(&config_path);
+            std::fs::create_dir_all(&data_dir).ok();
+            config.ensure_person_bootstrap(&config_path);
             config.data_dir = data_dir.to_string_lossy().to_string();
             if let Some(v) = data_backend {
                 config.data_backend = v;
@@ -747,6 +884,113 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+
+        Some(Command::GrantRole {
+            roles_db,
+            principal_id,
+            person_id,
+            role,
+        }) => {
+            use open_story::server::directory::{
+                EmbeddedRoleDirectory, Participant, Role, RoleDirectory,
+            };
+            let role: Role = role
+                .parse()
+                .map_err(|e: String| anyhow::anyhow!(e))?;
+            if let Some(parent) = roles_db.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let dir = EmbeddedRoleDirectory::open(&roles_db)?;
+            dir.upsert_participant(Participant {
+                principal_id: principal_id.clone(),
+                person_id: person_id.clone(),
+                role,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            })
+            .await?;
+            println!(
+                "✓ granted {role:?} to principal={principal_id} (person={person_id}) in {}",
+                roles_db.display()
+            );
+            Ok(())
+        }
+
+        Some(Command::InitAccountsConf { config, output }) => {
+            use open_story::server::account_config::{
+                AccountConfigWriter, DEFAULT_NATS_STATIC_PREFIX,
+            };
+            use open_story_bus::accounts::{AccountSpec, UserSpec};
+
+            let raw = std::fs::read_to_string(&config)
+                .map_err(|e| anyhow::anyhow!("read {}: {e}", config.display()))?;
+            let cfg: open_story::server::config::Config = toml::from_str(&raw)
+                .map_err(|e| anyhow::anyhow!("parse {}: {e}", config.display()))?;
+
+            let output_path = output
+                .or_else(|| {
+                    if cfg.nats_accounts_conf_path.is_empty() {
+                        None
+                    } else {
+                        Some(PathBuf::from(&cfg.nats_accounts_conf_path))
+                    }
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no output: pass --output or set `nats_accounts_conf_path` in {}",
+                        config.display()
+                    )
+                })?;
+
+            let person = cfg.person.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no [person] section in {} — cannot build accounts conf",
+                    config.display()
+                )
+            })?;
+
+            let account_name = format!(
+                "PERSON_{}",
+                person.id.to_uppercase().replace('-', "_")
+            );
+            let local_account = AccountSpec {
+                name: account_name.clone(),
+                users: vec![UserSpec {
+                    user: person.id.clone(),
+                    // Deterministic local-dev password — matches the boot path
+                    // (`build_account_config` in state.rs). NOT a security
+                    // control by itself; swap to NKEY for any deployment that
+                    // crosses an untrusted network.
+                    password: format!("{}-local-dev", person.id),
+                    permissions: None,
+                }],
+                exports: vec![],
+                imports: vec![],
+            };
+
+            let writer = AccountConfigWriter::new(
+                output_path.clone(),
+                DEFAULT_NATS_STATIC_PREFIX,
+                vec![local_account],
+            );
+            writer
+                .persist()
+                .map_err(|e| anyhow::anyhow!("persist to {}: {e}", output_path.display()))?;
+
+            println!(
+                "✓ wrote initial accounts conf to {}",
+                output_path.display()
+            );
+            println!("  account: {account_name}");
+            println!("  user:    {} (password: {}-local-dev)", person.id, person.id);
+            println!();
+            println!("Next:");
+            println!(
+                "  nats-server -c {} &disown",
+                output_path.display()
+            );
+            println!("  just serve");
             Ok(())
         }
 

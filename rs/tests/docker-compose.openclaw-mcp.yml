@@ -13,11 +13,11 @@
 #                              ───SQLite──▶  os-data ◀── open-story writes here
 #                                            (shared volume, ro on the MCP side)
 #
-# SQLite (not Mongo) is used here to keep the test stack lean and match
-# the layout of docker-compose.{agent,prod}.yml — both of which share
-# os-data between open-story (writer) and openclaw-mcp (reader). The
-# Rust binary still supports Mongo via OPENSTORY_DATA_BACKEND=mongo when
-# the openclaw-mcp image is built with `--features mongo`.
+# The open-story writer uses SQLite here (not Mongo) to keep the test
+# stack lean and match the layout of docker-compose.{agent,prod}.yml.
+# The openclaw-mcp reader doesn't open a backend at all — it reads the
+# writer's data over the REST API (HttpEventStore, PR #88), so the
+# backend choice is the writer's alone.
 #
 # Prerequisites:
 #   docker build -t open-story:test ./rs

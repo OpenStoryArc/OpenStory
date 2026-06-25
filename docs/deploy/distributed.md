@@ -2,6 +2,30 @@
 
 Stream OpenStory events from multiple machines to a central dashboard via NATS and Tailscale.
 
+## What sharing means (and what it doesn't)
+
+Read this before deploying. The model is deliberately simple, and the simplicity is the honest part.
+
+**OpenStory does not enforce per-session or per-person sharing permissions — and it cannot.** There is no "private session," no share toggle, no owner-consent, no per-session ACL. Once an event is published to the NATS bus, every connected node receives a full copy of it; there is no point at which the app could withhold it from a reader who is already on the bus. An earlier design tried to gate this per session and was removed because it could not be enforced.
+
+**Sharing means joining a network. Access is enforced at the network, not the session — by two layers, both outside the app:**
+
+1. **Tailscale membership** — who can reach the NATS leaf/hub port at all. If a machine isn't on your tailnet, it can't connect.
+2. **NATS token / accounts** — who can connect once reachable, and which subjects a credential is allowed to publish or subscribe to.
+
+You secure the network, not the session. **Within a network, propagation is bidirectional:** every connected node ends up with a full copy of what other nodes publish. If you're on the bus, you see what's published to it.
+
+**The one node-level switch: `publish_sessions`** (config `publish_sessions`, env `OPEN_STORY_PUBLISH_SESSIONS`, default `true`).
+
+| `publish_sessions` | This node's own observed sessions | Other nodes' sessions |
+|---|---|---|
+| `true` (default) | Published into the network **and** stored locally | Received and visible |
+| `false` | Stored **locally only** — never leave the machine | Still received and visible |
+
+This is a node-level switch over your *own* data. It is **not** per-session and **not** a permission enforced on readers — it decides whether this machine puts its sessions on the bus in the first place. (Implementation: local-only events go to a `local.>` NATS stream that federation never sources. The `nats_leaf_url` / hub config remains the separate "do I join a network at all" switch.)
+
+**The honest guidance:** do not put a node on a network with people who shouldn't see its sessions. If a machine has sensitive sessions, run it solo (no `nats_leaf_url`) or set `publish_sessions = false`. The Admin dashboard is read-only — it observes topology and the fleet; it changes nothing.
+
 ## Architecture
 
 ```
@@ -42,6 +66,56 @@ This is intentional — it gives every team member full sovereignty over their d
 - **Privacy**: every machine can read every other machine's session content (prompts, file contents, tool outputs). Tailscale + token auth prevents outsiders from reading, but team members can read each other.
 - **Resilience**: any machine going offline doesn't affect the others. When it reconnects, NATS catches it up.
 - **Search**: when you search locally, you're searching across all machines' sessions, not just yours.
+
+## Subject naming & upgrading
+
+Federation events use a **host-prefixed** NATS subject:
+
+```
+events.{host}.{project}.{session}.main           # main agent
+events.{host}.{project}.{session}.agent.{id}     # subagent
+```
+
+The leading `{host}` segment is what makes the hub aggregate safe: each leaf binds
+only its own `events.{host}.>` namespace, so a session two machines both hold is
+never counted twice. (Session IDs are UUIDs and don't collide — but the
+*aggregate* still needs per-host scoping to avoid double-delivery.)
+
+When a node runs with `publish_sessions = false`, its own observed sessions are
+written to a separate **`local.>`** stream instead of `events.{host}.>`.
+Federation only sources `events.{host}.>`, so `local.>` never leaves the machine —
+it's the storage path for sessions you keep off the network. That node still
+subscribes to `events.>` and receives every other node's sessions normally.
+
+This schema changed: earlier builds published `events.{project}.{session}.…` with
+no host. If you're upgrading an existing deployment, here's what is and isn't
+affected.
+
+**Your stored data is safe — there is no data migration.** The subject is a
+transport/routing detail; it is never persisted. JSONL backups and the
+SQLite/Mongo event store key on event *content*, not on the NATS subject, so
+nothing on disk is re-keyed or rewritten.
+
+**What you do need to know:**
+
+- **Upgrade a fleet together.** A node on the old build publishes
+  `events.{project}.…` (no host); a hub on the new build binds `events.{host}.>`
+  and won't see those events. Don't run a mixed-version fleet — upgrade every leaf
+  and the hub in the same window.
+- **Existing JetStream streams.** A standalone instance's `events` stream was
+  created with the host-agnostic filter `events.>`, which still matches the new
+  host-prefixed subjects, so a **solo upgrade just works**. Federated mode adds
+  per-host / aggregate streams; if a stream already exists with a different
+  subject binding, JetStream refuses to silently reconfigure it — delete it and
+  let Open Story recreate it (`nats stream rm events` on the affected node), or
+  start the hub on a fresh JetStream store.
+- **Custom subscribers.** Internal consumers already subscribe to the
+  host-agnostic `events.>`, so they're unaffected. Any *hand-rolled* external
+  subscriber pinned to `events.{project}.>` will silently stop matching — repoint
+  it to `events.>` or `events.{host}.>`.
+
+Beyond clearing/recreating any pre-existing stream whose subject binding changed
+and upgrading all nodes together, there's nothing else to do.
 
 ## How to Use
 
@@ -145,6 +219,23 @@ leaf instead of a standalone server; leave it empty to stay local.
 The URL format is `nats://<your-token>@<vps-tailscale-hostname>:7422`. The
 Tailscale hostname is your VPS's MagicDNS name (e.g., `debian-16gb-ash-1`) or its
 Tailscale IP (e.g., `100.64.0.1`).
+
+**Keeping this node's sessions off the network.** Joining a network publishes
+this node's observed sessions to it by default. To join the network (so you
+*receive* everyone else's sessions) but keep your *own* sessions on this machine,
+set `publish_sessions = false`:
+
+```bash
+# In config.toml:
+#   publish_sessions = false
+# …or via the environment:
+OPEN_STORY_PUBLISH_SESSIONS=false
+```
+
+With this set, your sessions are stored locally only (in the `local.>` stream) and
+never reach the hub or other leaves; you still see all of theirs. See
+[What sharing means](#what-sharing-means-and-what-it-doesnt) above for why this is
+a node-level switch and not a per-session permission.
 
 #### Option A: Homebrew, single command (recommended for Mac)
 

@@ -51,6 +51,20 @@ pub struct SessionRow {
     /// in a batch and coalesced like host/user.
     #[serde(default)]
     pub origin_agent: Option<String>,
+    /// OpenStory directory person id — the sovereign owner of this session
+    /// in the identity model. Distinct from the OS-level `user` field.
+    /// Populated from the first CloudEvent's `person_id` in a batch.
+    /// `None` for pre-migration rows and events that arrived without a
+    /// person_id stamp.
+    #[serde(default)]
+    pub person_id: Option<String>,
+    /// Principal id — the device or agent in the person's fleet that
+    /// produced this session. A session is one transcript file from one
+    /// source, so it has exactly one principal. Used by the UI to group
+    /// sessions under the fleet member that produced them.
+    /// `None` for pre-migration rows.
+    #[serde(default)]
+    pub principal_id: Option<String>,
 }
 
 impl SessionRow {
@@ -59,6 +73,7 @@ impl SessionRow {
         self.custom_label.as_deref().or(self.label.as_deref())
     }
 }
+
 
 /// Persistence interface for events, sessions, patterns, and plans.
 ///
@@ -73,6 +88,29 @@ pub trait EventStore: Send + Sync {
 
     /// Insert a batch of events. Returns count of new (non-duplicate) events.
     async fn insert_batch(&self, session_id: &str, events: &[Value]) -> Result<usize>;
+
+    /// Insert a batch and report, per input event, whether it was newly
+    /// inserted (`true`) or a duplicate skipped by the PK (`false`). Order
+    /// matches `events`.
+    ///
+    /// This is the dedup-aware form the persist consumer needs: it gates the
+    /// JSONL append and FTS index on *which* events are new, but wants the
+    /// whole batch to land in a single transaction (one fsync) rather than
+    /// one transaction per event. The default impl preserves semantics by
+    /// looping `insert_event`; `SqliteStore` overrides it with a single
+    /// transaction. See the batched persist path in
+    /// `server/src/consumers/persist.rs`.
+    async fn insert_batch_returning(
+        &self,
+        session_id: &str,
+        events: &[Value],
+    ) -> Result<Vec<bool>> {
+        let mut flags = Vec::with_capacity(events.len());
+        for event in events {
+            flags.push(self.insert_event(session_id, event).await?);
+        }
+        Ok(flags)
+    }
 
     /// Load all events for a session, ordered by timestamp.
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>>;
@@ -146,9 +184,21 @@ pub trait EventStore: Send + Sync {
         Ok(lines.join("\n"))
     }
 
-    /// Delete sessions older than `retention_days`.
-    /// Returns the number of sessions deleted.
-    async fn cleanup_old_sessions(&self, _retention_days: u32) -> Result<u64> {
+    /// Delete sessions whose most recent activity is older than
+    /// `retention_days`. Returns the number of sessions deleted.
+    ///
+    /// **Invariant ② (federation Phase 4):** sessions whose `host` equals
+    /// `keep_host` MUST be preserved regardless of age — your own data is
+    /// yours, always; only fleet-mirrored sessions are eligible for the
+    /// sweep. Pass `None` only when operating outside federation (single-
+    /// host dev cleanup or a legacy retention sweep that hasn't been
+    /// audited for sovereignty). Default impl is a no-op for backends that
+    /// don't track session bounds.
+    async fn cleanup_old_sessions(
+        &self,
+        _retention_days: u32,
+        _keep_host: Option<&str>,
+    ) -> Result<u64> {
         Ok(0)
     }
 
@@ -248,6 +298,19 @@ pub trait EventStore: Send + Sync {
         Ok(())
     }
 
+    /// Index a batch of records in the full-text index in one transaction.
+    ///
+    /// Each tuple is `(event_id, session_id, record_type, text)`. The default
+    /// impl loops `index_fts`; `SqliteStore` overrides it to commit once for
+    /// the whole batch (one fsync instead of one per record).
+    async fn index_fts_batch(&self, records: &[(String, String, String, String)]) -> Result<()> {
+        for (event_id, session_id, record_type, text) in records {
+            self.index_fts(event_id, session_id, record_type, text)
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Full-text search across indexed events.
     async fn search_fts(
         &self,
@@ -289,6 +352,8 @@ mod tests {
             host: None,
             user: None,
             origin_agent: None,
+            person_id: None,
+            principal_id: None,
         };
         assert_eq!(row.id, "test");
         assert_eq!(row.event_count, 0);

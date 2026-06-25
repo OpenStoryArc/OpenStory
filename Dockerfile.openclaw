@@ -5,11 +5,12 @@
 # tools, the MCP binary has to live inside the OpenClaw container.
 #
 # After the 2026-05 cutover the wrapper is native Rust (rs/mcp/) — no
-# Python runtime in this image. The binary talks to a shared Mongo + NATS
-# stack reached over the Docker network.
+# Python runtime in this image. The binary reaches its local OpenStory
+# instance over the REST API (query tools) and NATS (streaming tools),
+# over the Docker network.
 #
 # Multi-stage build:
-#   Stage 1: rust:1.83-slim — compiles open-story-mcp with --features mongo.
+#   Stage 1: rust:1.83-slim — compiles open-story-mcp.
 #            Layer-cached on Cargo.toml so iteration on source code skips
 #            the dep-compilation step.
 #   Stage 2: openclaw:latest — copies the binary in at /usr/local/bin.
@@ -49,10 +50,17 @@ COPY rs/views/Cargo.toml ./rs/views/
 # Now bring in the actual source tree.
 COPY rs/ ./rs/
 
-# Build the Rust MCP with mongo support. Output: /build/rs/target/release/open-story-mcp
-RUN cd rs && cargo build --release -p open-story-mcp --features mongo
+# Build the Rust MCP. Output: /build/rs/target/release/open-story-mcp
+WORKDIR /build/rs
+RUN cargo build --release -p open-story-mcp
 
 # ── Stage 2: openclaw runtime with the binary baked in ───────────────
+#
+# openclaw is a locally-built base image (the build flow expects
+# `docker build -t openclaw:latest ~/projects/openclaw` to have run
+# first — see prerequisites in docker-compose.prod.yml header).
+# Pinning to a digest would defeat that flow.
+# hadolint ignore=DL3007
 FROM openclaw:latest
 
 USER root

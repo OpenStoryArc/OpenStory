@@ -48,7 +48,7 @@ mod when_publisher_writes_via_jetstream_and_subscriber_reads_via_mcp_nats_bus {
 
         let batch = batch_with_raw(&sid, json!({"hello": "jetstream"}));
         publisher
-            .publish(&format!("events.test-p.{}.main", sid), &batch)
+            .publish(&format!("events.test-host.test-p.{}.main", sid), &batch)
             .await
             .expect("publish");
 
@@ -83,7 +83,7 @@ mod when_a_subagent_subject_is_published {
         tokio::time::sleep(CONSUMER_WIRE_DELAY).await;
 
         let batch = batch_with_raw(&sid, json!({"from": "subagent"}));
-        let subject = format!("events.test-p.{}.agent.aabbccdd", sid);
+        let subject = format!("events.test-host.test-p.{}.agent.aabbccdd", sid);
         publisher.publish(&subject, &batch).await.expect("publish");
 
         let event = timeout(ROUND_TRIP_TIMEOUT, sub.recv())
@@ -112,7 +112,7 @@ mod when_multiple_events_are_published_in_order {
         for i in 0..5 {
             let batch = batch_with_raw(&sid, json!({"i": i}));
             publisher
-                .publish(&format!("events.test-p.{}.main", sid), &batch)
+                .publish(&format!("events.test-host.test-p.{}.main", sid), &batch)
                 .await
                 .expect("publish");
         }
@@ -155,7 +155,7 @@ mod when_one_hundred_subscribers_listen_to_one_hundred_sessions {
         // fast enough that 100 sequential publishes are well under budget.
         let started = Instant::now();
         for (sid, _) in &subs {
-            let subject = format!("events.test-p.{}.main", sid);
+            let subject = format!("events.test-host.test-p.{}.main", sid);
             let batch = batch_with_raw(sid, json!({"target": sid}));
             publisher.publish(&subject, &batch).await.expect("publish");
         }
@@ -208,7 +208,7 @@ mod when_an_assistant_event_with_cache_fields_is_published {
         });
         let batch = batch_with_usage(&sid, usage);
         publisher
-            .publish(&format!("events.test-p.{}.main", sid), &batch)
+            .publish(&format!("events.test-host.test-p.{}.main", sid), &batch)
             .await
             .expect("publish");
 
@@ -320,7 +320,7 @@ mod when_the_compiled_binary_is_spawned_with_nats_url {
         // 4. Publish via JetStream — the binary should emit a notification.
         let batch = batch_with_raw(&sid, json!({"marker": "from-test"}));
         publisher
-            .publish(&format!("events.test-p.{}.main", sid), &batch)
+            .publish(&format!("events.test-host.test-p.{}.main", sid), &batch)
             .await
             .expect("publish");
 

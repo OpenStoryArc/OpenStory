@@ -34,9 +34,35 @@ pub struct AppState {
     // ── bus ── event bus for publishing
     pub bus: Arc<dyn Bus>,
 
+    // ── admin: live topology as a watch channel (SICP stream-with-memory).
+    // The broadcaster (consumers/admin_broadcaster) owns updates; the REST
+    // handler reads via `.borrow()`. Initialized at boot from a fresh
+    // `compute_topology` so the first GET never sees an uninitialized state.
+    pub admin_topology_tx: tokio::sync::watch::Sender<crate::admin::Topology>,
+
     // ── configuration ──
     pub config: Config,
     pub watch_dir: PathBuf,
+
+    // ── account config writer (Phase 5.4) ──
+    // `None` for solo / single-account deployments and for tests that don't
+    // exercise cross-person sharing. `Some(_)` when the server is configured
+    // with a multi-account nats-server conf and is allowed to mutate it via
+    // POST /api/admin/share-with-person.
+    pub account_config_writer: Option<Arc<crate::account_config::AccountConfigWriter>>,
+
+    /// Reloader called after the writer persists. Tells the running
+    /// nats-server to reread its conf so new exports/imports take effect
+    /// without a server restart. `None` skips the reload (useful for tests
+    /// that only care about the disk write).
+    pub account_config_reloader:
+        Option<Arc<dyn crate::account_config::NatsReloader>>,
+
+    /// Phase 6.5 — role lookup for the local principal. Defaults to
+    /// `NoopRoleDirectory`, which fails-closed on every role-gated route.
+    /// Boot wires `EmbeddedRoleDirectory` when `Config::roles_db_path`
+    /// is set.
+    pub role_directory: Arc<dyn crate::directory::RoleDirectory>,
 }
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -130,38 +156,83 @@ pub async fn create_state_with_watch_dirs(
         .filter_map(|entry| entry.file_name().to_str().map(|name| name.to_string()))
         .collect();
 
-    // Boot from SQLite if it has data (restart case — data already translated)
+    // Boot from SQLite if it has data (restart case — data already translated).
+    // A single pass per session inside boot_from_sqlite loads each session's
+    // events ONCE and derives both the subagent tree and the cwd→project
+    // mapping. Previously this was two separate full scans (subagent detection
+    // here, project resolution in a second loop), each deserializing every
+    // event of every session to pull one field.
     let sqlite_sessions = store.event_store.list_sessions().await.unwrap_or_default();
     if !sqlite_sessions.is_empty() {
         boot_from_sqlite(&mut store, &sqlite_sessions).await;
+        // Rebuild the in-memory read model from the durable store. boot_from_sqlite
+        // only derives the subagent tree + project map; without this, projections
+        // (which /api/sessions serves token totals + live label/branch from) stay
+        // empty until the watcher re-reads a source — so sessions whose source is
+        // gone or beyond boot_window show 0 tokens despite being durably stored.
+        // Idempotent: the watcher's later re-read dedups against the rebuilt seen_ids.
+        let report = crate::reproject::reproject_all(&store).await;
+        if report.sessions_reprojected > 0 {
+            eprintln!(
+                "  \x1b[32mReprojected {} sessions ({} events) from store\x1b[0m",
+                report.sessions_reprojected, report.events_applied
+            );
+        }
     }
     // If SQLite is empty (first boot), watcher backfill handles everything.
     // Events go through: JSONL → translate_line() → NATS → consumers → SQLite.
 
-    // Derive project_id and project_name from cwd for all loaded sessions
-    let boot_session_ids: Vec<String> = store
-        .event_store
-        .list_sessions()
-        .await
-        .unwrap_or_default()
-        .iter()
-        .map(|r| r.id.clone())
-        .collect();
-    for sid in &boot_session_ids {
-        let events = store
-            .event_store
-            .session_events(sid)
-            .await
-            .unwrap_or_default();
-        if let Some(cwd) = extract_cwd_from_events(&events) {
-            let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
-            store
-                .session_projects
-                .insert(sid.clone(), resolved.project_id);
-            store
-                .session_project_names
-                .insert(sid.clone(), resolved.project_name);
-        }
+    // Seed the admin topology stream with the initial snapshot — `nodes`
+    // populated from whatever sessions just loaded. The broadcaster will
+    // re-derive on every input event after boot.
+    //
+    // EnvInputs::from_env_and_discover reads explicit env vars AND tries
+    // NATS-monitor auto-discovery of the leafnode upstream — best-effort,
+    // silent None on any failure.
+    let env_inputs = crate::admin::EnvInputs::from_env_and_discover().await;
+    let initial_topology = {
+        let session_hosts: Vec<(String, u64)> = {
+            let mut tally: HashMap<String, u64> = HashMap::new();
+            let rows = store.event_store.list_sessions().await.unwrap_or_default();
+            for row in rows {
+                if let Some(h) = row.host {
+                    *tally.entry(h).or_insert(0) += 1;
+                }
+            }
+            tally.into_iter().collect()
+        };
+        crate::admin::compute_topology(
+            open_story_core::host::host(),
+            config.role,
+            &env_inputs,
+            &session_hosts,
+        )
+    };
+    let (admin_topology_tx, _) = tokio::sync::watch::channel(initial_topology);
+
+    // ── Phase 5 boot-wire: build the AccountConfigWriter + reloader
+    // when the operator has opted in via `nats_accounts_conf_path` + a
+    // `[person]` block. Without both, multi-account mode stays off and
+    // POST /api/admin/share-with-person returns 503.
+    let (account_config_writer, account_config_reloader) =
+        build_account_config(&config);
+
+    // ── Phase 6.5 boot-wire: role directory.
+    // Defaults to {data_dir}/openstory-roles.db so a CLI `grant-role` is
+    // actually read back (an empty path used to fall through to the
+    // fail-closed NoopRoleDirectory, which silently 403s everything).
+    let roles_db = config.effective_roles_db_path(data_dir);
+    let role_directory = build_role_directory(&roles_db);
+
+    // Frictionless local bootstrap: on a trusted-local instance (loopback,
+    // no api_token, no hub), grant the local principal Admin if the
+    // directory has no admin yet — so a fresh single-user box can manage its
+    // own share policy without a manual CLI dance. A networked/exposed
+    // instance is NOT trusted-local, so it keeps the deliberate
+    // `open-story grant-role` bootstrap (no ambient admin reachable over the
+    // network).
+    if config.is_trusted_local() {
+        maybe_auto_grant_local_admin(&role_directory, &config).await;
     }
 
     Ok(Arc::new(RwLock::new(AppState {
@@ -170,9 +241,158 @@ pub async fn create_state_with_watch_dirs(
         watcher_diagnostics: WatcherDiagnostics::default(),
         broadcast_tx,
         bus,
+        admin_topology_tx,
         config,
         watch_dir,
+        account_config_writer,
+        account_config_reloader,
+        role_directory,
     })))
+}
+
+/// Build the role directory backed by the SQLite file at `roles_db`. Falls
+/// back to the fail-closed `NoopRoleDirectory` only if the DB can't be opened.
+fn build_role_directory(roles_db: &Path) -> Arc<dyn crate::directory::RoleDirectory> {
+    use crate::directory::{EmbeddedRoleDirectory, NoopRoleDirectory};
+    match EmbeddedRoleDirectory::open(roles_db) {
+        Ok(d) => Arc::new(d),
+        Err(e) => {
+            eprintln!(
+                "warning: could not open roles db {}: {e}; falling back to NoopRoleDirectory (all role-gated routes will 403)",
+                roles_db.display()
+            );
+            Arc::new(NoopRoleDirectory)
+        }
+    }
+}
+
+/// Grant the local principal Admin when the directory has no admin yet.
+/// Caller gates this on `Config::is_trusted_local()`. No-op if the local
+/// principal id is unknown, an admin already exists, or the write fails.
+async fn maybe_auto_grant_local_admin(
+    dir: &Arc<dyn crate::directory::RoleDirectory>,
+    config: &Config,
+) {
+    use crate::directory::{Participant, Role};
+
+    let principal_id = config.local_principal_id.trim();
+    if principal_id.is_empty() {
+        return;
+    }
+    let participants = match dir.list_participants().await {
+        Ok(ps) => ps,
+        Err(e) => {
+            eprintln!("warning: could not read role directory for auto-grant: {e}");
+            return;
+        }
+    };
+    if participants.iter().any(|p| p.role >= Role::Admin) {
+        return; // an admin already exists — respect the configured directory
+    }
+    let person_id = config
+        .person
+        .as_ref()
+        .map(|p| p.id.clone())
+        .unwrap_or_default();
+    let participant = Participant {
+        principal_id: principal_id.to_string(),
+        person_id,
+        role: Role::Admin,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    match dir.upsert_participant(participant).await {
+        Ok(()) => eprintln!(
+            "  \x1b[32mTrusted-local boot: granted Admin to local principal {principal_id} \
+             (loopback, no auth, no hub). Networked/exposed instances require \
+             `open-story grant-role`.\x1b[0m"
+        ),
+        Err(e) => eprintln!("warning: auto-grant Admin failed: {e}"),
+    }
+}
+
+/// Build the AccountConfigWriter + matching NatsReloader from config.
+/// Returns `(None, None)` when multi-account mode isn't configured.
+///
+/// Boot semantics:
+/// - `nats_accounts_conf_path` empty → no multi-account mode.
+/// - `nats_accounts_conf_path` set but `[person]` missing → log a warning
+///   and disable (the writer needs at least one local account to seed).
+/// - Both set → build writer seeded with this device's person as the
+///   only account, persist the initial conf to disk (so nats-server has
+///   a file to read on its first boot), and wire the reloader.
+fn build_account_config(
+    config: &Config,
+) -> (
+    Option<Arc<crate::account_config::AccountConfigWriter>>,
+    Option<Arc<dyn crate::account_config::NatsReloader>>,
+) {
+    use crate::account_config::{
+        AccountConfigWriter, NatsReloader, ShellCommandReloader,
+        DEFAULT_NATS_STATIC_PREFIX,
+    };
+    use open_story_bus::accounts::{AccountSpec, UserSpec};
+
+    if config.nats_accounts_conf_path.is_empty() {
+        return (None, None);
+    }
+    let Some(person) = &config.person else {
+        eprintln!(
+            "warning: nats_accounts_conf_path is set but [person] is not — \
+             multi-account mode disabled; share-with-person will return 503"
+        );
+        return (None, None);
+    };
+
+    // Single seed account: this device's owner. The handler's
+    // `add_share_with_stubs` will lazily create stubs for any other persons
+    // the operator names as share targets. Real credentials for those other
+    // persons must be added by the operator (Phase 6 directory work will
+    // generalize this).
+    let local_account = AccountSpec {
+        name: person_account_name(&person.id),
+        users: vec![UserSpec {
+            user: person.id.clone(),
+            // TODO(Phase 6.7+): swap password for NKEY-based auth. For
+            // boot-wire scope the password is derived deterministically so
+            // local dev can connect; not a security control by itself.
+            password: format!("{}-local-dev", person.id),
+            permissions: None,
+        }],
+        exports: vec![],
+        imports: vec![],
+    };
+    let writer = Arc::new(AccountConfigWriter::new(
+        std::path::PathBuf::from(&config.nats_accounts_conf_path),
+        DEFAULT_NATS_STATIC_PREFIX,
+        vec![local_account],
+    ));
+    if let Err(e) = writer.persist() {
+        eprintln!(
+            "warning: could not persist initial nats accounts conf to {}: {e}",
+            config.nats_accounts_conf_path
+        );
+    }
+
+    let reloader: Option<Arc<dyn NatsReloader>> = if config
+        .nats_reload_command
+        .is_empty()
+    {
+        None
+    } else {
+        Some(Arc::new(ShellCommandReloader {
+            command: config.nats_reload_command.clone(),
+        }))
+    };
+
+    (Some(writer), reloader)
+}
+
+/// Convention: PersonId `max` → NATS account `PERSON_MAX`. Hyphens become
+/// underscores; lowercase becomes uppercase. Single source of truth used
+/// by both this boot path and the share-with-person handler so the
+/// account names match across the two paths.
+pub(crate) fn person_account_name(person_id: &str) -> String {
+    format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
 }
 
 /// Boot from SQLite — sessions already in the DB.
@@ -199,6 +419,17 @@ async fn boot_from_sqlite(
                 &store.subagent_parents,
                 &store.session_children,
             );
+        }
+        // Derive project_id / project_name from cwd in the SAME pass, reusing
+        // the events we already loaded rather than re-scanning every session.
+        if let Some(cwd) = extract_cwd_from_events(&events) {
+            let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
+            store
+                .session_projects
+                .insert(row.id.clone(), resolved.project_id);
+            store
+                .session_project_names
+                .insert(row.id.clone(), resolved.project_name);
         }
     }
 }
@@ -349,6 +580,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -377,6 +610,91 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    /// Boot rebuilds the in-memory projection from the durable store via
+    /// `reproject_all`. `/api/sessions` serves token totals (and live
+    /// label/branch) from `store.projections` (api.rs:~100,141); before the
+    /// reproject step those stayed empty until the watcher re-read a source, so
+    /// a session whose source is gone or beyond boot_window (pi-mono
+    /// --no-session, old sessions) showed 0 tokens despite being durably stored.
+    /// This pins the fix: after boot, the projection exists with the right count
+    /// even with an empty watch dir (no re-readable source).
+    #[tokio::test]
+    async fn boot_reprojects_the_in_memory_projection_from_store() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data_dir = tmp.path().join("data");
+        let watch_dir = tmp.path().join("watch");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::create_dir_all(&watch_dir).unwrap();
+
+        {
+            use open_story_store::event_store::{EventStore, SessionRow};
+            use open_story_store::sqlite_store::SqliteStore;
+            let db = SqliteStore::new(&data_dir).unwrap();
+            db.insert_event(
+                "orphan-session",
+                &serde_json::json!({
+                    "id": "orphan-evt-1",
+                    "type": "io.arc.event",
+                    "subtype": "message.user.prompt",
+                    "time": "2025-01-14T10:00:00Z",
+                    "source": "arc://test",
+                    "data": {"text": "stored but no re-readable source"}
+                }),
+            )
+            .await
+            .unwrap();
+            db.upsert_session(&SessionRow {
+                id: "orphan-session".into(),
+                project_id: None,
+                project_name: None,
+                label: Some("orphan".into()),
+                custom_label: None,
+                branch: None,
+                event_count: 1,
+                first_event: Some("2025-01-14T10:00:00Z".into()),
+                last_event: Some("2025-01-14T10:00:00Z".into()),
+                host: None,
+                user: None,
+                origin_agent: None,
+                person_id: None,
+                principal_id: None,
+            })
+            .await
+            .unwrap();
+        }
+
+        let state = create_state(&data_dir, &watch_dir, Arc::new(NoopBus), Config::default())
+            .await
+            .unwrap();
+        let s = state.read().await;
+
+        // Durable store HAS the session after boot.
+        assert_eq!(
+            s.store
+                .event_store
+                .session_events("orphan-session")
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "event is durably present after boot"
+        );
+
+        // And the in-memory projection IS rebuilt from the store — the field
+        // /api/sessions serves token totals from is present with the right
+        // count, even though the watch dir is empty (no source to re-read).
+        let proj = s.store.projections.get("orphan-session");
+        assert!(
+            proj.is_some(),
+            "reproject_all should rebuild the projection from the durable store at boot"
+        );
+        assert_eq!(
+            proj.unwrap().event_count(),
+            1,
+            "reprojected event_count must match the stored events"
         );
     }
 
@@ -419,6 +737,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -447,6 +767,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -517,6 +839,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -603,6 +927,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -677,6 +1003,8 @@ mod tests {
                 host: None,
                 user: None,
                 origin_agent: None,
+                person_id: None,
+                principal_id: None,
             })
             .await
             .unwrap();
@@ -697,5 +1025,92 @@ mod tests {
         assert_eq!(events.len(), 5);
         assert_eq!(events[0]["id"], "api-evt-1");
         assert_eq!(events[4]["id"], "api-evt-5");
+    }
+
+    // ── build_account_config — boot-wire for share-with-person ──────────
+
+    use crate::config::{Person, Principal, PrincipalMatchers};
+
+    fn person_max() -> Person {
+        Person {
+            id: "max".to_string(),
+            display_name: "Max".to_string(),
+            email: "max@example.test".to_string(),
+            principals: vec![Principal {
+                id: "laptop".into(),
+                display_name: "Laptop".into(),
+                matchers: PrincipalMatchers {
+                    host: Some("laptop.local".into()),
+                    user: Some("max".into()),
+                    agent: None,
+                    watch_dir_pattern: None,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn empty_conf_path_returns_no_writer_no_reloader() {
+        let cfg = Config::default();
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_none());
+        assert!(reloader.is_none());
+    }
+
+    #[test]
+    fn conf_path_set_without_person_returns_no_writer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path = tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        // No [person] block.
+        cfg.person = None;
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_none());
+        assert!(reloader.is_none());
+    }
+
+    #[test]
+    fn conf_path_set_with_person_builds_writer_and_persists_initial_conf() {
+        let tmp = tempfile::tempdir().unwrap();
+        let conf_path = tmp.path().join("nats.conf");
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path = conf_path.to_string_lossy().into_owned();
+        cfg.person = Some(person_max());
+        // Use `true` as a no-op reload command so the unit test doesn't
+        // try to pkill nats-server in CI.
+        cfg.nats_reload_command = "true".into();
+
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_some());
+        assert!(reloader.is_some());
+
+        // Initial conf is on disk and includes max's account.
+        let on_disk = std::fs::read_to_string(&conf_path).unwrap();
+        assert!(on_disk.contains("PERSON_MAX"));
+        assert!(on_disk.contains("user: \"max\""));
+        // Static prefix landed too.
+        assert!(on_disk.contains("listen:"));
+        assert!(on_disk.contains("jetstream"));
+    }
+
+    #[test]
+    fn empty_reload_command_disables_the_reloader() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.nats_accounts_conf_path =
+            tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        cfg.person = Some(person_max());
+        cfg.nats_reload_command = String::new();
+
+        let (writer, reloader) = build_account_config(&cfg);
+        assert!(writer.is_some(), "writer should still build");
+        assert!(reloader.is_none(), "reloader should be disabled");
+    }
+
+    #[test]
+    fn person_account_name_normalizes_case_and_hyphens() {
+        assert_eq!(person_account_name("max"), "PERSON_MAX");
+        assert_eq!(person_account_name("Katie"), "PERSON_KATIE");
+        assert_eq!(person_account_name("uuid-with-hyphens"), "PERSON_UUID_WITH_HYPHENS");
     }
 }

@@ -16,6 +16,9 @@ services:
       - ${FIXTURE_DIR:-.}:/watch:ro
     environment:
       - NATS_URL=nats://nats:4222
+      # Test instance is trusted: make fixture sessions visible without a
+      # per-session opt-in. Production defaults to `private` (opt-in sharing).
+      - OPEN_STORY_DEFAULT_SHARE_POLICY=shared
     depends_on:
       - nats
 

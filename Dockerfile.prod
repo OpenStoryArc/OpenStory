@@ -21,7 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Copy workspace manifests first for layer caching
+# Copy workspace manifests first for layer caching.
+# This list MUST include every workspace member in rs/Cargo.toml — if a
+# new crate is added to the workspace without being added here, the
+# build fails with "failed to read /build/<new-crate>/Cargo.toml". The
+# `mcp` crate hit that exact regression in 2026-05; the test image
+# (Dockerfile in rs/) and the prod image must stay in sync.
 COPY rs/Cargo.toml rs/Cargo.lock* ./
 COPY rs/bus/Cargo.toml bus/Cargo.toml
 COPY rs/cli/Cargo.toml cli/Cargo.toml
@@ -73,9 +78,21 @@ RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \
 # ── Stage 3: Runtime ──
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
+# `apt-get upgrade` pulls in security patches Debian shipped after the
+# base image was built (trivy/grype flag those as CVEs even when the
+# fix is already in the apt feed). `--no-install-recommends` keeps the
+# runtime minimal — every extra binary is more CVE surface. We delete
+# the apt lists in the same RUN to avoid bloating the image layer.
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    apt-get autoremove -y --purge && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+
+# curl was previously installed for the docker-compose healthcheck.
+# Dropping it removes ~5 CVEs from the curl/libcurl4/libldap/libssh2
+# chain that Debian has no fix for yet. The healthcheck is now a
+# pure-bash TCP probe — see docker-compose.prod.yml.
 
 COPY --from=rs-builder /build/target/release/open-story /usr/local/bin/open-story
 COPY --from=ui-builder /ui/dist /static

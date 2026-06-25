@@ -1,0 +1,134 @@
+## OpenStory NATS configuration — accounts + per-role permission profiles.
+##
+## Reference template for the Layer 3 sovereignty deployment shape:
+##   - one account per person (Layer 2 isolation)
+##   - one user per (person, role) tuple inside each account
+##   - per-user permission profile constrains what each role can publish/subscribe
+##
+## This file is for **operators reading**. The OpenStory server's
+## `AccountConfigWriter` (Phase 5.4) generates an equivalent file at runtime
+## driven by the directory + share-policy state; this template documents the
+## shape so operators can hand-roll a starting conf or audit what the writer
+## produced.
+##
+## ─── How to use ──────────────────────────────────────────────────────────
+##
+## 1. Copy this file to data/openstory-nats.conf (or wherever you want the
+##    writer to live). The boot-wire `Config.nats_accounts_conf_path` should
+##    point at it.
+##
+## 2. Replace the `PERSON_<NAME>` accounts with your real persons.
+##
+## 3. Replace the user passwords with strong secrets (or swap to nkeys —
+##    `nkey: "U..."` in place of `user: "..." password: "..."`; the
+##    permission profile syntax is unchanged).
+##
+## 4. Start nats-server with `nats-server -c data/openstory-nats.conf`.
+##
+## 5. Start OpenStory with the same `nats_accounts_conf_path` configured.
+##    Note: OpenStory's writer will **overwrite this file** on every
+##    POST /api/admin/share-with-person — if you want hand-written
+##    customizations to survive, run the writer against a different file
+##    OR design your hand edits to be regenerated from config.
+
+listen: 0.0.0.0:4222
+
+jetstream {
+  store_dir: /var/lib/nats/jetstream
+  max_mem: 256MB
+  max_file: 8GB
+  domain: hub        # set per node; leaves use their device id
+}
+
+# Optional: enable leafnode listening for federation (Layer 1).
+leafnodes {
+  listen: "0.0.0.0:7422"
+}
+
+accounts {
+  ## ───────────────────────────────────────────────────────────────
+  ## PERSON_MAX — one person, three role tiers
+  ## ───────────────────────────────────────────────────────────────
+  PERSON_MAX: {
+    users: [
+      ## Admin: unrestricted within the account. Use for the operator's
+      ## personal device that runs `share-with-person`, sets policies,
+      ## etc. Should be the smallest set of users possible.
+      {
+        user: "max-admin"
+        password: "REPLACE_WITH_STRONG_SECRET"
+        permissions: { publish: { allow: [">"] }, subscribe: { allow: [">"] } }
+      }
+      ## Contributor: can publish AND subscribe under events.> but cannot
+      ## reach control/admin subjects. Suitable for an automation bot,
+      ## a CI runner, or a secondary device that should be allowed to
+      ## stream sessions but not to mutate share policy.
+      {
+        user: "max-bot"
+        password: "REPLACE_WITH_STRONG_SECRET"
+        permissions: { publish: { allow: ["events.>"] }, subscribe: { allow: ["events.>"] } }
+      }
+      ## Observer: read-only. Can subscribe to events.> but cannot
+      ## publish anything. Good for monitoring dashboards, archival
+      ## listeners, mirroring jobs that pull but never push.
+      {
+        user: "max-readonly"
+        password: "REPLACE_WITH_STRONG_SECRET"
+        permissions: { publish: { deny: [">"] }, subscribe: { allow: ["events.>"] } }
+      }
+    ]
+    ## Cross-person sharing (Layer 2). Empty by default — operator
+    ## opts in per session via POST /api/admin/share-with-person.
+    ## Example (commented): Max has shared session-abc with Katie.
+    # exports: [
+    #   { stream: "events.*.session-abc.>", accounts: [PERSON_KATIE] }
+    # ]
+  }
+
+  ## ───────────────────────────────────────────────────────────────
+  ## PERSON_KATIE — second person, parallel shape
+  ## ───────────────────────────────────────────────────────────────
+  PERSON_KATIE: {
+    users: [
+      {
+        user: "katie-admin"
+        password: "REPLACE_WITH_STRONG_SECRET"
+        permissions: { publish: { allow: [">"] }, subscribe: { allow: [">"] } }
+      }
+      {
+        user: "katie-readonly"
+        password: "REPLACE_WITH_STRONG_SECRET"
+        permissions: { publish: { deny: [">"] }, subscribe: { allow: ["events.>"] } }
+      }
+    ]
+    ## Matching imports for any exports declared above on other accounts.
+    # imports: [
+    #   { stream: { account: PERSON_MAX, subject: "events.*.session-abc.>" } }
+    # ]
+  }
+}
+
+## ─── NKEY alternative ───────────────────────────────────────────────────
+##
+## To swap passwords for NKEYs (recommended for production — credentials
+## can rotate without touching this file):
+##
+##   {
+##     nkey: "UABC...REPLACE_WITH_PUBLIC_KEY"
+##     permissions: { publish: { allow: [">"] }, subscribe: { allow: [">"] } }
+##   }
+##
+## Generate the keypair with `nk -gen user` (from `nats-io/nkeys`):
+##   nk -gen user -pubout
+## Distribute the PRIVATE seed file to the client; the PUBLIC key (U...)
+## goes here. The permission profile is identical.
+##
+## ─── Profile shorthand reference ────────────────────────────────────────
+##
+## Observer    publish: { deny: [">"] }                  subscribe: { allow: ["events.>"] }
+## Contributor publish: { allow: ["events.>"] }          subscribe: { allow: ["events.>"] }
+## Admin       publish: { allow: [">"] }                 subscribe: { allow: [">"] }
+##
+## Empty `publish: []` shorthand is NOT the same as "deny all" — NATS
+## treats it as "no restriction." Use `{ deny: [">"] }` for explicit
+## denial. (This is what tripped Phase 6.7's first run.)

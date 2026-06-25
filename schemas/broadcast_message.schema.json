@@ -172,6 +172,44 @@
       },
       "type": "object"
     },
+    "LiveSourceSummary": {
+      "description": "UI-facing projection of `open_story_bus::nats_bus::LiveSourceEntry` — renamed `active_ms` → `active_ms` and re-derived so the admin module doesn't pull bus types into its public API. (Same shape; future-proofs against changes to the upstream type.)",
+      "properties": {
+        "active_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "api_prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lag": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lag",
+        "name"
+      ],
+      "type": "object"
+    },
     "MessageContent": {
       "anyOf": [
         {
@@ -184,6 +222,130 @@
           "type": "array"
         }
       ]
+    },
+    "NodeEvidence": {
+      "oneOf": [
+        {
+          "enum": [
+            "self-node",
+            "sessions",
+            "peer-config",
+            "hub-config"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The NATS leafnode upstream — `OPEN_STORY_NATS_HUB` env var. This is the network-topology layer (the box that carries our traffic), distinct from `HubConfig` which names the JetStream-domain layer. A deployment can have both, or just one, or neither (truly solo).",
+          "enum": [
+            "nats-leafnode-hub"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "NodeInfo": {
+      "description": "This node's identity + configuration view.",
+      "properties": {
+        "domain": {
+          "description": "JetStream domain pinned for this node's NATS when federation is on (== `host` for leaves, == `hub_domain` for hubs; `None` for solo).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "type": "string"
+        },
+        "hub_domain": {
+          "description": "The hub this leaf is attached to, or this hub's own domain.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peer_domains": {
+          "description": "In T1, the peer devices this node sources from.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "peer_hub_domains": {
+          "description": "In T3, the peer hubs this hub sources from.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "role": {
+          "$ref": "#/definitions/NodeRole"
+        }
+      },
+      "required": [
+        "host",
+        "peer_domains",
+        "peer_hub_domains",
+        "role"
+      ],
+      "type": "object"
+    },
+    "NodeRole": {
+      "description": "What this node is doing in the topology.",
+      "oneOf": [
+        {
+          "description": "Standalone — no federation.",
+          "enum": [
+            "solo"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Hub aggregate (T2 single-hub, T3 multi-hub) — runs `events-agg`.",
+          "enum": [
+            "hub"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Leaf — publishes its own events, mirrors the fleet.",
+          "enum": [
+            "leaf"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "NodeSummary": {
+      "description": "A single host known to be (or to have been) part of the fleet, from this device's vantage. Used to render the \"whole topology\" view — not just self + configured peers, but every node we have evidence of.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "is_self": {
+          "type": "boolean"
+        },
+        "session_count": {
+          "description": "How many sessions originating on this host have landed in local storage. Zero is meaningful: it means the host is *configured* as a peer (env var) but we haven't seen events from it yet.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/NodeEvidence"
+            }
+          ],
+          "description": "Why we know about this host. `\"self\"` = this device. `\"sessions\"` = at least one SessionRow has this host. `\"peer-config\"` = this host appears in `OPEN_STORY_PEER_DOMAINS` (T1 mesh). `\"hub-config\"` = this host is the configured `OPEN_STORY_HUB_DOMAIN` (T2/T3)."
+        }
+      },
+      "required": [
+        "host",
+        "is_self",
+        "session_count",
+        "source"
+      ],
+      "type": "object"
     },
     "PatternEvent": {
       "description": "Higher-order event emitted by pattern detectors. Represents a recognized behavioral pattern spanning multiple events.",
@@ -227,6 +389,26 @@
         "session_id",
         "started_at",
         "summary"
+      ],
+      "type": "object"
+    },
+    "PersonCluster": {
+      "description": "One person's fleet: the hosts where they own sessions.",
+      "properties": {
+        "hosts": {
+          "description": "Hosts sorted alphabetically for deterministic comparison.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "person_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hosts",
+        "person_id"
       ],
       "type": "object"
     },
@@ -1346,6 +1528,57 @@
       ],
       "type": "object"
     },
+    "Topology": {
+      "description": "What `/api/admin/topology` returns.",
+      "properties": {
+        "clusters_by_person": {
+          "description": "Phase 5.7+ — fleet roster grouped by the person who owns each host's sessions. Derived from `SessionRow.person_id`. A host appears in every cluster of a person who has sessions on it (one host, many users is normal — e.g. a shared dev box). Default empty for pre-PR-#54 callers / tests that don't populate `session_owners`.",
+          "items": {
+            "$ref": "#/definitions/PersonCluster"
+          },
+          "type": "array"
+        },
+        "live_sources": {
+          "description": "Authoritative fleet roster from JetStream's `events-agg.sources[]`. `None` when this node has no JetStream context (NoopBus) or is not in a hub-visible mode. `Some(empty)` when JetStream is up but no leaves have registered yet (just-booted hub).",
+          "items": {
+            "$ref": "#/definitions/LiveSourceSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "nodes": {
+          "description": "Every host this device has evidence of — self plus any host appearing in `SessionRow.host` plus any configured peer. Sorted self-first then alphabetically. Used to render the fleet view.",
+          "items": {
+            "$ref": "#/definitions/NodeSummary"
+          },
+          "type": "array"
+        },
+        "self": {
+          "$ref": "#/definitions/NodeInfo"
+        },
+        "shape": {
+          "$ref": "#/definitions/TopologyShape"
+        }
+      },
+      "required": [
+        "nodes",
+        "self",
+        "shape"
+      ],
+      "type": "object"
+    },
+    "TopologyShape": {
+      "description": "One of the four topology shapes the federation can be in, from this node's vantage. Encoded kebab-case for the JSON wire (`solo`, `t1`, `t2`, `t3`) so the UI can branch with a single string compare.",
+      "enum": [
+        "solo",
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "type": "string"
+    },
     "TurnEnd": {
       "properties": {
         "duration_ms": {
@@ -2144,6 +2377,25 @@
       "required": [
         "kind",
         "session_id"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Admin v0.2: the full topology snapshot is pushed whenever the admin_broadcaster actor's `compute_topology` produces a different frame from the cached one. The UI's `admin$` BehaviorSubject emits each frame as it arrives — UI is a pure sink.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "admin_topology_changed"
+          ],
+          "type": "string"
+        },
+        "topology": {
+          "$ref": "#/definitions/Topology"
+        }
+      },
+      "required": [
+        "kind",
+        "topology"
       ],
       "type": "object"
     }

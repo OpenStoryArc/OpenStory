@@ -275,6 +275,12 @@ impl EventStore for MongoStore {
         if let Some(origin_agent) = session.origin_agent.as_deref() {
             set_doc.insert("origin_agent", origin_agent);
         }
+        if let Some(person_id) = session.person_id.as_deref() {
+            set_doc.insert("person_id", person_id);
+        }
+        if let Some(principal_id) = session.principal_id.as_deref() {
+            set_doc.insert("principal_id", principal_id);
+        }
         if let Some(pid) = session.project_id.as_deref() {
             set_doc.insert("project_id", pid);
         }
@@ -555,14 +561,22 @@ impl EventStore for MongoStore {
     /// Delete sessions whose `last_event` is older than the cutoff.
     /// Mirrors `SqliteStore::cleanup_old_sessions`. Returns the total
     /// count of events removed across all deleted sessions.
-    async fn cleanup_old_sessions(&self, retention_days: u32) -> Result<u64> {
+    ///
+    /// Invariant ②: when `keep_host` is set, sessions whose `host`
+    /// matches are excluded from the sweep — your own data is yours,
+    /// always.
+    async fn cleanup_old_sessions(
+        &self,
+        retention_days: u32,
+        keep_host: Option<&str>,
+    ) -> Result<u64> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
 
         // Find stale sessions. Match SQLite semantics: stale = last_event
         // older than cutoff, OR last_event missing AND first_event older.
-        let filter = doc! {
+        let age_filter = doc! {
             "$or": [
                 { "last_event": { "$lt": &cutoff_str } },
                 {
@@ -572,6 +586,23 @@ impl EventStore for MongoStore {
                     ]
                 }
             ]
+        };
+        // Invariant ②: exclude rows whose host == keep_host (NULL host is
+        // treated as foreign so pre-migration / pre-stamping mirrors
+        // remain eligible for sweep).
+        let filter = match keep_host {
+            None => age_filter,
+            Some(host) => doc! {
+                "$and": [
+                    age_filter,
+                    {
+                        "$or": [
+                            { "host": Bson::Null },
+                            { "host": { "$ne": host } },
+                        ]
+                    }
+                ]
+            },
         };
         let mut cursor = sessions
             .find(filter)
@@ -1981,6 +2012,8 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
     let host = doc.get_str("host").ok().map(|s| s.to_string());
     let user = doc.get_str("user").ok().map(|s| s.to_string());
     let origin_agent = doc.get_str("origin_agent").ok().map(|s| s.to_string());
+    let person_id = doc.get_str("person_id").ok().map(|s| s.to_string());
+    let principal_id = doc.get_str("principal_id").ok().map(|s| s.to_string());
     Ok(SessionRow {
         id,
         project_id,
@@ -1994,6 +2027,8 @@ fn doc_to_session_row(doc: &Document) -> Result<SessionRow> {
         host,
         user,
         origin_agent,
+        person_id,
+        principal_id,
     })
 }
 

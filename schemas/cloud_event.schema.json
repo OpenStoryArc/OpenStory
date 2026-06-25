@@ -858,6 +858,20 @@
     "id": {
       "type": "string"
     },
+    "person_id": {
+      "description": "Person who owns this event in OpenStory's identity model — a stable UUID from the `[person]` config section, distinct from the OS-level `user` field. The person represents a sovereign human who owns a fleet of principals (devices, agents). Stamped at event creation via [`CloudEvent::with_person_id`] by the source-aware caller (watcher or hook handler) after consulting the principal resolver. CloudEvent extension attribute.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "principal_id": {
+      "description": "Principal that produced this event — a stable UUID identifying which device or agent in the person's fleet did the work (e.g. \"MacBook running Claude Code\", \"Hetzner running Bobby\"). Stamped at event creation via [`CloudEvent::with_principal_id`] alongside `person_id`. CloudEvent extension attribute.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "source": {
       "type": "string"
     },

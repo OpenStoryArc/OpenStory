@@ -37,6 +37,81 @@ pub struct SessionListQuery {
     pub sort: Option<String>,
 }
 
+/// Aggregate node health — the detailed read companion to the dumb `/health`
+/// liveness probe. One view over store / bus / projection state, so the failure
+/// modes the architecture review surfaced (disconnected bus, stale projections
+/// after restart, etc.) become observable instead of silent. Pure observation.
+/// See `docs/research/node-and-network-health.md`. Detailed watcher state lives
+/// at `/api/watchers`.
+pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    let sessions = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let projections = s.store.projections.len();
+
+    Json(json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "store": {
+            "backend": s.config.data_backend.to_string(),
+            "sessions": sessions,
+        },
+        "bus": { "connected": s.bus.is_active() },
+        "projections": {
+            "count": projections,
+            "sessions": sessions,
+            // count covers every session ⇒ the read model is rehydrated.
+            // Goes false when a restart leaves projections un-rebuilt for
+            // source-less sessions (run `reproject`).
+            "fresh": projections >= sessions,
+        },
+        "watchers": s.watcher_diagnostics.snapshots().len(),
+    }))
+}
+
+/// Per-session convergence digests — the shared primitive for network health
+/// (`/api/fleet`) and the `verify` action. Each entry is `(session_id, count,
+/// stable event-id hash)`; a peer fetches this and diffs it against its own
+/// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
+/// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
+pub async fn session_digests(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, StatusCode> {
+    let s = state.read().await;
+    let sessions = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .unwrap_or_default();
+
+    let mut digests = Vec::with_capacity(sessions.len());
+    for row in &sessions {
+        let events = s
+            .store
+            .event_store
+            .session_events(&row.id)
+            .await
+            .unwrap_or_default();
+        let ids: Vec<String> = events
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        digests.push(crate::fleet::SessionDigest {
+            count: ids.len(),
+            digest: crate::fleet::digest_event_ids(&ids),
+            session_id: row.id.clone(),
+        });
+    }
+
+    Ok(Json(json!({ "sessions": digests })))
+}
+
 pub async fn list_sessions(
     State(state): State<SharedState>,
     Query(query): Query<SessionListQuery>,
@@ -191,6 +266,8 @@ pub async fn list_sessions(
             "host": row.host,
             "user": row.user,
             "origin_agent": row.origin_agent,
+            "person_id": row.person_id,
+            "principal_id": row.principal_id,
         }));
     }
     Json(json!({
@@ -228,6 +305,46 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
         "host": open_story_core::host::host(),
         "user": open_story_core::user::user(),
     }))
+}
+
+/// `GET /api/fleet` — return the configured Person + their principals.
+///
+/// Source of truth for the UI's "your fleet" sidebar: provides the
+/// display_name for each `principal_id` referenced by sessions, plus
+/// the person who owns them. Returns 404 when no `[person]` section is
+/// configured (the bootstrap should have populated this on first boot;
+/// 404 here means the bootstrap was skipped, e.g. in tests with a
+/// hand-rolled Config::default()).
+pub async fn get_fleet(State(state): State<SharedState>) -> impl IntoResponse {
+    log_event("api", "GET /api/fleet");
+    let s = state.read().await;
+    match &s.config.person {
+        Some(person) => {
+            let body = json!({
+                "person": {
+                    "id": person.id,
+                    "display_name": person.display_name,
+                    "email": person.email,
+                },
+                "principals": person.principals.iter().map(|p| json!({
+                    "id": p.id,
+                    "display_name": p.display_name,
+                    "matchers": {
+                        "agent": p.matchers.agent,
+                        "host": p.matchers.host,
+                        "user": p.matchers.user,
+                        "watch_dir_pattern": p.matchers.watch_dir_pattern,
+                    },
+                })).collect::<Vec<_>>(),
+            });
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no [person] section configured" })),
+        )
+            .into_response(),
+    }
 }
 
 /// `GET /api/users` — aggregate `SessionRow` rows by the `user` field.
@@ -428,10 +545,13 @@ pub async fn list_users(State(state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `GET /api/sessions/{session_id}/events` — full event stream for a session.
+///
+/// Unknown sessions return `200` with an empty array.
 pub async fn get_events(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
-) -> Json<Value> {
+) -> Result<Json<Value>, StatusCode> {
     let s = state.read().await;
     let events = s
         .store
@@ -447,7 +567,7 @@ pub async fn get_events(
             events.len()
         ),
     );
-    Json(Value::Array(events))
+    Ok(Json(Value::Array(events)))
 }
 
 pub async fn get_summary(

@@ -6,8 +6,14 @@
 //!
 //! Default implementation: `NatsBus` (NATS JetStream).
 
+pub mod accounts;
 pub mod nats_bus;
 pub mod noop_bus;
+
+// Re-export the async-nats JetStream context so server-side code
+// (admin module) can hold a typed reference without depending on
+// async-nats directly. Keeps the dependency graph clean.
+pub use async_nats::jetstream::Context as JetstreamContext;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -62,6 +68,19 @@ pub trait Bus: Send + Sync + 'static {
     fn is_active(&self) -> bool {
         true
     }
+
+    /// Optional JetStream context handle for admin/introspection use.
+    ///
+    /// `Some(ctx)` when this bus is backed by NATS JetStream (the only
+    /// implementation today). `None` for NoopBus and any future non-
+    /// NATS backend. Callers use it for read-only stream-info queries —
+    /// the admin module's live fleet view depends on this.
+    ///
+    /// The default `None` means a feature that needs JetStream
+    /// gracefully degrades on a NoopBus rather than failing.
+    fn jetstream(&self) -> Option<&async_nats::jetstream::Context> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -89,6 +108,25 @@ mod tests {
         let bus = noop_bus::NoopBus;
         let result = bus.publish_bytes("changes.store.test", b"{}").await;
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn noop_bus_jetstream_is_none() {
+        // Admin v0.2: features that need JetStream introspection must
+        // gracefully degrade on a non-NATS bus. NoopBus says "no, I have
+        // no JetStream" so the admin handler can return live_sources: null
+        // rather than 500-ing.
+        let bus = noop_bus::NoopBus;
+        assert!(bus.jetstream().is_none());
+    }
+
+    #[test]
+    fn noop_bus_is_not_active() {
+        // Sanity: paired-default behavior — NoopBus is neither active
+        // nor has a JetStream handle. Together these gate every
+        // JetStream-aware path.
+        let bus = noop_bus::NoopBus;
+        assert!(!bus.is_active());
     }
 
     // ── NoopBus contract tests (audit walk #6) ────────────────────────

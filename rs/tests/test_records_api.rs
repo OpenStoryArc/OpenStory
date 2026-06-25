@@ -10,13 +10,11 @@ mod helpers;
 use axum::body::Body;
 use axum::http::Request;
 use helpers::{
-    body_json, make_assistant_text, make_tool_result, make_tool_use, make_user_prompt,
-    send_request, test_state,
+    body_json, make_assistant_text, make_tool_result, make_tool_use,
+    make_user_prompt, send_request, test_state,
 };
-use serde_json::json;
-use tempfile::TempDir;
-
 use open_story::server::ingest_events;
+use tempfile::TempDir;
 
 // describe("GET /api/sessions/{id}/records")
 mod records_endpoint {
@@ -31,10 +29,10 @@ mod records_endpoint {
             .body(Body::empty())
             .unwrap();
         let resp = send_request(state, req).await;
+        // Unknown session → 200 with an empty array (no existence oracle, no gate).
         assert_eq!(resp.status(), 200);
-
         let body = body_json(resp).await;
-        assert_eq!(body, json!([]));
+        assert_eq!(body, serde_json::json!([]));
     }
 
     #[tokio::test]

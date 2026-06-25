@@ -25,6 +25,8 @@ fn seeded_row(id: &str, project: &str, last: &str, events: u64) -> SessionRow {
         host: None,
         user: None,
         origin_agent: None,
+        person_id: None,
+        principal_id: None,
     }
 }
 
