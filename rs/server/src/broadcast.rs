@@ -60,6 +60,24 @@ pub enum BroadcastMessage {
     },
     #[serde(rename = "plan_saved")]
     PlanSaved { session_id: String },
+    /// Agent-directed watch focus: emitted when `POST /api/watch/{session_id}`
+    /// is called. An already-live UI reacts context-aware — instant focus
+    /// switch on the Live tab, a dismissible "Follow" banner elsewhere. This
+    /// rides the existing broadcast channel; no new transport. Enrichment
+    /// fields are looked up from the session row so the UI can render a
+    /// human-readable banner without a follow-up fetch.
+    #[serde(rename = "focus")]
+    Focus {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        user: Option<String>,
+    },
     /// Admin v0.2: the full topology snapshot is pushed whenever the
     /// admin_broadcaster actor's `compute_topology` produces a different
     /// frame from the cached one. The UI's `admin$` BehaviorSubject
@@ -92,6 +110,29 @@ mod tests {
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["kind"], "enriched");
         assert_eq!(json["session_id"], "test-123");
+    }
+
+    #[test]
+    fn focus_serializes_with_kind_tag_and_omits_none() {
+        // The UI's WsMessage union keys on `kind` and reads snake_case
+        // enrichment fields; absent enrichment must be omitted, not null.
+        let msg = BroadcastMessage::Focus {
+            session_id: "sess-abc".to_string(),
+            label: Some("Where are we at?".to_string()),
+            project_name: Some("agent-harness".to_string()),
+            host: Some("a1".to_string()),
+            user: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "focus");
+        assert_eq!(json["session_id"], "sess-abc");
+        assert_eq!(json["label"], "Where are we at?");
+        assert_eq!(json["project_name"], "agent-harness");
+        assert_eq!(json["host"], "a1");
+        assert!(
+            json.get("user").is_none(),
+            "None enrichment must be omitted, not serialized as null"
+        );
     }
 
     #[test]

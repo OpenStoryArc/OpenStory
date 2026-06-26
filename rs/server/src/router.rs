@@ -98,6 +98,12 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
         .route("/api/digests", axum::routing::get(crate::api::session_digests))
+        // Agent-directed watch focus: emits a Focus message over /ws so an
+        // already-live UI switches to this session. POST — it's an action.
+        .route(
+            "/api/watch/{session_id}",
+            axum::routing::post(crate::api::watch_session),
+        )
         .route(
             "/api/watchers",
             axum::routing::get(crate::api::list_watchers),

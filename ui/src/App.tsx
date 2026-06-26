@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { connect, wsMessages$ } from "@/streams/connection";
+import { WatchBanner } from "@/components/WatchBanner";
+import { decideWatchAction, isFocusMessage } from "@/lib/watch-focus";
+import type { FocusMessage } from "@/types/websocket";
 import { buildSessionState$ } from "@/streams/sessions";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { useObservable } from "@/hooks/use-observable";
@@ -35,6 +38,7 @@ export function App() {
 
   const [route, navigate] = useHashRoute();
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
+  const [watchBanner, setWatchBanner] = useState<FocusMessage | null>(null);
   const localInfo = useLocalInfo();
 
   // Derive view state from route
@@ -85,6 +89,34 @@ export function App() {
     navigate({ view: "explore", sessionId: link.sessionId, ...(link.eventId ? { eventId: link.eventId } : {}) });
   }, [navigate]);
 
+  // Agent-directed watch focus: the server pushes a `focus` message (from
+  // POST /api/watch/{id}) over the same /ws the UI already consumes. React
+  // context-aware — instant focus on the Live tab, a Follow banner elsewhere.
+  // A ref carries the latest view so the single subscription always reads the
+  // current tab without resubscribing.
+  const viewRef = useRef(viewMode);
+  viewRef.current = viewMode;
+  useEffect(() => {
+    const sub = wsMessages$().subscribe((msg) => {
+      if (!isFocusMessage(msg)) return;
+      const action = decideWatchAction(viewRef.current, msg);
+      if (action.type === "navigate") {
+        setWatchBanner(null);
+        navigate({ view: "live", sessionId: action.sessionId });
+      } else {
+        setWatchBanner(action.message);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [navigate]);
+
+  const handleFollowWatch = useCallback(() => {
+    if (!watchBanner) return;
+    const sid = watchBanner.session_id;
+    setWatchBanner(null);
+    navigate({ view: "live", sessionId: sid });
+  }, [navigate, watchBanner]);
+
   return (
     <div className="h-screen flex flex-col bg-[#1a1b26] text-[#c0caf5]">
       {/* Header */}
@@ -98,6 +130,15 @@ export function App() {
           {label}
         </div>
       </header>
+
+      {/* Agent-directed watch focus banner (shown only off the Live tab) */}
+      {watchBanner && (
+        <WatchBanner
+          message={watchBanner}
+          onFollow={handleFollowWatch}
+          onDismiss={() => setWatchBanner(null)}
+        />
+      )}
 
       {/* Live tab */}
       {viewMode === "live" && (
