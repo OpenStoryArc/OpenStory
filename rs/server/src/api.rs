@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
+use crate::broadcast::BroadcastMessage;
 use crate::logging::{log_event, short_id};
 use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
@@ -568,6 +569,62 @@ pub async fn get_events(
         ),
     );
     Ok(Json(Value::Array(events)))
+}
+
+/// `POST /api/watch/{session_id}` — agent-directed watch focus.
+///
+/// Emits a `BroadcastMessage::Focus` over the existing broadcast channel so an
+/// already-live UI can switch focus to this session (instant on the Live tab,
+/// a dismissible "Follow" banner elsewhere). This is the agent aiming the UI
+/// that is already live — it adds no write path to any agent or transcript.
+///
+/// Returns `404` for an unknown session (federated sessions are in the store,
+/// so this is real validation). `delivered_to` is the number of connected
+/// WebSocket subscribers, so the caller can honestly report reach: `0` means
+/// no UI is open.
+pub async fn watch_session(
+    State(state): State<SharedState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let s = state.read().await;
+
+    // Look up the session row for existence + enrichment. Unknown -> 404.
+    let row = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == session_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let msg = BroadcastMessage::Focus {
+        session_id: session_id.clone(),
+        label: row.label.clone(),
+        project_name: row.project_name.clone(),
+        host: row.host.clone(),
+        user: row.user.clone(),
+    };
+
+    // `send` returns the receiver count on success, or Err when there are no
+    // receivers — either way, report the honest reach.
+    let delivered_to = s.broadcast_tx.send(msg).unwrap_or(0);
+
+    log_event(
+        "api",
+        &format!(
+            "POST /api/watch/{} -> focus broadcast to {} subscriber(s)",
+            short_id(&session_id),
+            delivered_to
+        ),
+    );
+
+    Ok(Json(json!({
+        "status": "focusing",
+        "session_id": session_id,
+        "delivered_to": delivered_to,
+    })))
 }
 
 pub async fn get_summary(

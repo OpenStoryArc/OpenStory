@@ -2381,6 +2381,49 @@
       "type": "object"
     },
     {
+      "description": "Agent-directed watch focus: emitted when `POST /api/watch/{session_id}` is called. An already-live UI reacts context-aware — instant focus switch on the Live tab, a dismissible \"Follow\" banner elsewhere. This rides the existing broadcast channel; no new transport. Enrichment fields are looked up from the session row so the UI can render a human-readable banner without a follow-up fetch.",
+      "properties": {
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "focus"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "user": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "session_id"
+      ],
+      "type": "object"
+    },
+    {
       "description": "Admin v0.2: the full topology snapshot is pushed whenever the admin_broadcaster actor's `compute_topology` produces a different frame from the cached one. The UI's `admin$` BehaviorSubject emits each frame as it arrives — UI is a pure sink.",
       "properties": {
         "kind": {
