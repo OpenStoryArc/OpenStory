@@ -11,7 +11,21 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | FocusMessage;
+
+/** Agent-directed watch focus. Emitted when `POST /api/watch/{id}` is called
+ *  so an already-live UI can switch focus to a session. Enrichment fields
+ *  (label/project/host/user) let the UI render a "Follow" banner without a
+ *  follow-up fetch. Mirrors the Rust `BroadcastMessage::Focus` wire shape;
+ *  `None` enrichment is omitted server-side, so these are optional here. */
+export interface FocusMessage {
+  readonly kind: "focus";
+  readonly session_id: string;
+  readonly label?: string;
+  readonly project_name?: string;
+  readonly host?: string;
+  readonly user?: string;
+}
 
 /** Session label data from server. */
 export interface SessionLabel {
