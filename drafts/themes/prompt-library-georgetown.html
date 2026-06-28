@@ -152,9 +152,11 @@
     body { background:var(--bg); }
     .wrap { max-width:none; padding:0; }
     .copy, .draftnote { display:none !important; }
-    .toc { break-after:page; page-break-after:always; box-shadow:none; }
+    /* Chrome's print renderer turns large-blur shadows into hard grey blocks — drop them all */
+    * { box-shadow:none !important; }
+    .toc { break-after:page; page-break-after:always; }
     .sechead { break-after:avoid; }            /* keep a heading with its first prompt */
-    .prompt { break-inside:avoid; box-shadow:none; }
+    .prompt { break-inside:avoid; }
     details.ex { display:block; }              /* force every report open in print */
     details.ex > summary { list-style:none; }
     a { color:inherit; text-decoration:none; }
