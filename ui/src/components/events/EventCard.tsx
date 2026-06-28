@@ -95,14 +95,18 @@ function FilePath({ path }: { path: string }) {
 // ---------------------------------------------------------------------------
 
 /** Get full text from a ViewRecord payload, bypassing truncated row.summary.
- *  Handles both flat `text` field and `content: ContentBlock[]` (user/assistant messages). */
-function fullText(record: ViewRecord): string | null {
+ *  Handles flat `text` field, `content` as a plain string (user prompts), and
+ *  `content: ContentBlock[]` (user/assistant messages). */
+export function fullText(record: ViewRecord): string | null {
   const payload = record.payload as Record<string, unknown>;
   // Flat text field (thinking, system events)
   const text = payload.text as string | undefined;
   if (text) return text;
-  // Content blocks (user_message, assistant_message)
-  const content = payload.content as { type: string; text: string }[] | undefined;
+  // Plain-string content (user prompts are serialized this way by the BFF).
+  // Without this, fullText() returns null for prompts and the expanded card
+  // falls back to the 500-char truncated row.summary.
+  const content = payload.content as string | { type: string; text: string }[] | undefined;
+  if (typeof content === "string") return content || null;
   if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === "text" && block.text) return block.text;
