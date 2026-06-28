@@ -12,13 +12,22 @@ or "illustrative" (representative — clearly labelled).
 
     --html PATH   the public page: prompt + copy button + collapsible chart
     --md   PATH   the reusable templates reference
+    --pdf  PATH   a print-ready PDF: contents (TOC) page + every report expanded
+                  inline (rendered via headless Chrome)
+    --marp PATH   a Marp slide deck (markdown): contents agenda + one slide per
+                  prompt with its example below (render with the Marp CLI)
     --test        self-checks (counts, escaping, leakage guard)
 """
 
 import argparse
 import html
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -415,14 +424,32 @@ def _block(b: dict) -> str:
 
 # -- Page renderer ----------------------------------------------------
 
-def _prompt_html(p: dict) -> str:
+def _prompt_html(p: dict, pid: str = "", num: int = 0, expand: bool = False) -> str:
     hint = f'<span class="hint">{_e(p["hint"])}</span>' if p.get("hint") else ""
     cls = "real" if p["kind"] == "real" else "illus"
     txt = "real · live data" if p["kind"] == "real" else "illustrative"
     viz = "".join(_block(b) for b in p["viz"])
-    return (f'<div class="prompt"><p>{_e(p["text"])}</p>{hint}'
-            f'<details class="ex"><summary>open report <span class="extag {cls}">{txt}</span></summary>'
+    idattr = f' id="{pid}"' if pid else ""
+    tag = f'<span class="pnum">{num:02d}</span>' if num else ""
+    openattr = " open" if expand else ""  # PDF/print variant ships every report expanded
+    return (f'<div class="prompt"{idattr}>{tag}<p>{_e(p["text"])}</p>{hint}'
+            f'<details class="ex"{openattr}><summary>open report <span class="extag {cls}">{txt}</span></summary>'
             f'<div class="viz">{viz}<div class="src">{_e(p["source"])}</div></div></details></div>')
+
+
+def render_toc() -> str:
+    """A printable contents block: every prompt, grouped by section, linking to its card."""
+    out, n = [], 0
+    for s in SECTIONS:
+        items = []
+        for p in s["prompts"]:
+            n += 1
+            items.append(f'<li><a href="#p{n}"><span class="tn">{n:02d}</span>'
+                         f'<span class="tt">{_e(p["text"])}</span></a></li>')
+        out.append(f'<div class="tocsec {s["color"]}"><div class="toch">'
+                   f'<span class="ix">{s["ix"]}</span><h3>{_e(s["title"])}</h3></div>'
+                   f'<ol class="toclist">{"".join(items)}</ol></div>')
+    return f'<nav class="toc"><h2>Contents — 20 prompts</h2>{"".join(out)}</nav>'
 
 
 # Each theme sets the design tokens; the rest of the CSS derives from them
@@ -473,17 +500,21 @@ def root_css(theme: str) -> str:
     return f":root{{{decls}}}"
 
 
-def render_html(theme: str = "aistack") -> str:
+def render_html(theme: str = "aistack", expand: bool = False) -> str:
     if theme not in THEMES:
         raise ValueError(f"unknown theme {theme!r}; choose from {list(THEMES)}")
-    secs = []
+    secs, n = [], 0
     for s in SECTIONS:
-        cards = "\n".join(_prompt_html(p) for p in s["prompts"])
+        cards = []
+        for p in s["prompts"]:
+            n += 1
+            cards.append(_prompt_html(p, pid=f"p{n}", num=n, expand=expand))
+        cards_html = "\n".join(cards)
         secs.append(f'<section class="{s["color"]}"><div class="sechead"><span class="ix">{s["ix"]}</span>'
                     f'<h2>{_e(s["title"])}</h2></div><p class="why">{_e(s["why"])}</p>'
-                    f'<div class="prompts">{cards}</div></section>')
-    return _PAGE.format(css=root_css(theme) + _CSS, intro=_e(INTRO), body="\n".join(secs),
-                        js=_COPY_JS, fontlink=THEMES[theme]["link"])
+                    f'<div class="prompts">{cards_html}</div></section>')
+    return _PAGE.format(css=root_css(theme) + _CSS, intro=_e(INTRO), toc=render_toc(),
+                        body="\n".join(secs), js=_COPY_JS, fontlink=THEMES[theme]["link"])
 
 
 def render_md() -> str:
@@ -498,6 +529,179 @@ def render_md() -> str:
             out.append("```\n" + p["template"] + "\n```")
             out.append(f"**Source:** `{p['source']}` · _{p['kind']}_\n")
     return "\n".join(out)
+
+
+def _chart_css() -> str:
+    """The chart/viz CSS, sliced live from the page `_CSS` so the deck and the web
+    page share one source of truth (no duplication, no drift). Pulls the
+    per-section accent classes plus the whole report-canvas block."""
+    accents = _CSS[_CSS.index("/* per-section accent"):_CSS.index("  .prompts {")]
+    charts = _CSS[_CSS.index("/* report canvas */"):_CSS.index("  footer {")]
+    return accents + charts
+
+
+# Deck-only layout (uses the same --tokens as the page; no Python interpolation
+# needed, so braces stay literal). Brand colours come from root_css(theme).
+_DECK_CSS = """
+  section { background:radial-gradient(1200px 640px at 84% -14%, var(--glow), transparent), var(--bg);
+    color:var(--ink); font-family:var(--fsans); font-size:21px; padding:40px 60px; --ac:var(--blue);
+    justify-content:flex-start !important; }   /* top-align (beat theme's centering) */
+  section .viz { padding:16px 20px; }            /* slightly tighter canvas on slides */
+  section .vtl .ev { padding-bottom:10px; }      /* fit the densest 7-event timeline */
+  section h1, section h2, section h3 { font-family:var(--fdisplay); color:var(--ink); letter-spacing:-.02em; font-weight:700; }
+  section code { font-family:"JetBrains Mono",monospace; background:var(--bg2); border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:.8em; color:var(--ink2); }
+  section::after { color:var(--dim); font-family:"JetBrains Mono",monospace; font-size:13px; }
+  /* breadcrumb */
+  .crumb { display:flex; align-items:center; gap:10px; font:600 12.5px/1 "JetBrains Mono",monospace; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin-bottom:14px; }
+  .crumb .ix { color:var(--ac); }
+  .crumb .tag { margin-left:auto; font-size:10px; padding:4px 10px; border:1px solid var(--line); border-radius:20px; color:var(--dim); letter-spacing:.1em; }
+  .crumb .tag.real { color:var(--green); border-color:color-mix(in srgb,var(--green) 45%,var(--line)); }
+  .crumb .tag.illus { color:var(--orange); border-color:color-mix(in srgb,var(--orange) 45%,var(--line)); }
+  /* prompt headline */
+  .q { font-family:var(--fdisplay); font-size:29px; line-height:1.16; color:var(--ink); margin:0 0 18px; font-weight:700; }
+  .q .qn { color:var(--ac); margin-right:12px; font-variant-numeric:tabular-nums; }
+  /* block flow (not flex) so a <table> child resolves width:100% to full width */
+  section .viz { margin-top:0; display:block; }
+  section .viz > * + * { margin-top:18px; }
+  section .viz .vstats .st .n { font-size:28px; }
+  /* Marp's default theme styles raw section table/ul/code at ID specificity;
+     !important reclaims our clean chart styling regardless of that. */
+  section .vtable { display:table !important; width:100% !important; overflow:visible !important; table-layout:fixed; border-collapse:collapse; }
+  section .vtable tr { background:transparent !important; border:0 !important; }
+  section .vtable th, section .vtable td { border:0 !important; border-bottom:1px solid var(--line) !important; padding:9px 0 !important; }
+  section .vtable th { padding-bottom:11px !important; }
+  section .vtable th + th, section .vtable td + td { padding-left:18px !important; }
+  section .vtable td.r, section .vtable th.r { text-align:right !important; white-space:nowrap; }
+  section .vtable tr:last-child td { border-bottom:0 !important; }
+  section .vgroup ul, section .vgroup li { margin:0 !important; }
+  section .vgroup ul { padding-left:16px !important; }
+  section .vstep code { background:none !important; border:0 !important; padding:0 !important; }
+  section h2 { border:0 !important; }
+  /* lead / title */
+  section.lead { background:linear-gradient(150deg, var(--grad1), var(--grad2)); color:#fff; justify-content:center; }
+  section.lead .eyebrow { font:600 14px/1 "JetBrains Mono",monospace; letter-spacing:.24em; text-transform:uppercase; color:rgba(255,255,255,.82); margin-bottom:22px; }
+  section.lead .hero { font-size:64px; line-height:1.04; color:#fff; margin:0 0 24px; max-width:18ch; }
+  section.lead .lead-sub { font-size:22px; line-height:1.5; color:rgba(255,255,255,.94); max-width:58ch; margin:0; }
+  section.lead .lead-foot { margin-top:32px; font:600 13px/1 "JetBrains Mono",monospace; letter-spacing:.12em; color:rgba(255,255,255,.78); }
+  section.lead::after { color:rgba(255,255,255,.6); }
+  /* contents — all 20 on one slide */
+  section.contents { padding:32px 56px; }
+  section.contents h2 { font-size:27px; margin:0 0 3px; }
+  section.contents .lede { color:var(--dim); font-size:13px; margin:0 0 14px; }
+  .agenda { columns:2; column-gap:44px; }
+  .ag-sec { break-inside:avoid; margin:0 0 12px; }
+  .ag-h { display:flex; align-items:baseline; gap:8px; margin:0 0 5px; padding-bottom:4px; border-bottom:1px solid var(--line); }
+  .ag-h .ix { font:700 11.5px/1 "JetBrains Mono",monospace; color:var(--ac); }
+  .ag-h .t { font:700 12px/1 var(--fsans); text-transform:uppercase; letter-spacing:.05em; color:var(--ink2); }
+  .ag-item { display:flex; gap:10px; align-items:baseline; padding:2.5px 0; font-size:12.5px; color:var(--ink2); line-height:1.32; text-decoration:none; break-inside:avoid; }
+  .ag-item:hover { color:var(--ac); }
+  .ag-item .n { flex:none; width:20px; font:700 11.5px/1.32 "JetBrains Mono",monospace; color:var(--ac); font-variant-numeric:tabular-nums; }
+  .lede strong { color:var(--ink); font-weight:700; }
+  /* skills grid (closing slide) */
+  .skills { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:8px; }
+  .skill { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--ac); border-radius:var(--r); padding:14px 16px; box-shadow:var(--shadow); }
+  .skill .cmd { display:block; font:700 18px/1 "JetBrains Mono",monospace; color:var(--ac); }
+  .skill .sd { display:block; margin-top:8px; font-size:13px; line-height:1.4; color:var(--ink2); }
+"""
+
+_DECK_FM = ("---\n"
+            "marp: true\n"
+            "theme: default\n"
+            "paginate: true\n"
+            "size: 16:9\n"
+            "---\n")
+
+# The same prompts ship as slash commands in the `openstory-skills` Claude Code
+# plugin. (cmd, section-colour, one-line gist) — gists condensed from each
+# skill's SKILL.md `description`; colour ties it to the matching deck section.
+SKILLS = [
+    ("/cost", "blue", "total spend, cache savings, tokens-per-day"),
+    ("/time", "blue", "where time goes — by project, by hour"),
+    ("/tools", "blue", "top tools & commands; read-vs-write ratio"),
+    ("/scan", "blue", "find secrets before you share your history"),
+    ("/team", "cyan", "who's active now & what each teammate's on"),
+    ("/arc", "purple", "a project's story as a deterministic timeline"),
+    ("/standup", "purple", "today's work → did · blocked · next"),
+    ("/coach", "green", "honest feedback on your prompting & patterns"),
+    ("/recall", "orange", "find how you solved it before — exact commands"),
+    ("/recap", "orange", "what you shipped lately, grouped by project"),
+    ("/prime", "red", "pick up where the last session left off"),
+    ("/watch", "red", "a live feed of a branch as it streams"),
+]
+
+
+def render_marp(theme: str = "georgetown") -> str:
+    """A Marp (https://marp.app) slide deck: every prompt on one contents slide,
+    then one click-through slide per prompt with its real chart.
+
+    Charts are the same HTML/CSS as the web page, so render with HTML enabled:
+        marp deck.md --html -o deck.pdf      # or .html / .pptx
+    """
+    if theme not in THEMES:
+        raise ValueError(f"unknown theme {theme!r}; choose from {list(THEMES)}")
+    t = THEMES[theme]
+    style = (f"<style>\n@import url('{t['link']}');\n{root_css(theme)}\n"
+             f"{_chart_css()}\n{_DECK_CSS}</style>")
+
+    slides = []
+    # title
+    slides.append(
+        "<!-- _class: lead -->\n<!-- _paginate: false -->\n\n"
+        '<div class="eyebrow">OpenStory · draft</div>\n'
+        '<div class="hero">Empower yourself with your own history</div>\n'
+        f'<div class="lead-sub">{_e(INTRO)}</div>\n'
+        '<div class="lead-foot">20 prompts · 6 ways to point it at your own work</div>'
+    )
+
+    # contents — all 20 prompts, one slide, two columns, grouped by section.
+    # Each item links to its prompt slide (title=1, contents=2, prompt n = n+2).
+    blocks = []
+    n = 0
+    for s in SECTIONS:
+        items = []
+        for p in s["prompts"]:
+            n += 1
+            items.append(f'<a class="ag-item" href="#{n + 2}"><span class="n">{n:02d}</span>'
+                         f'<span>{_e(p["text"])}</span></a>')
+        blocks.append(f'<div class="ag-sec {s["color"]}"><div class="ag-h">'
+                      f'<span class="ix">{s["ix"]}</span><span class="t">{_e(s["title"])}</span></div>'
+                      + "".join(items) + "</div>")
+    slides.append(
+        "<!-- _class: contents -->\n\n## Contents — 20 prompts\n\n"
+        '<p class="lede">Paste any of these to your coding agent — each runs against your own OpenStory and opens a real report.</p>\n'
+        f'<div class="agenda">{"".join(blocks)}</div>'
+    )
+
+    # one slide per prompt — breadcrumb, headline, the real chart
+    n = 0
+    for s in SECTIONS:
+        for i, p in enumerate(s["prompts"], 1):
+            n += 1
+            cls = "real" if p["kind"] == "real" else "illus"
+            tag = "real · live data" if p["kind"] == "real" else "illustrative"
+            viz = "".join(_block(b) for b in p["viz"])
+            slides.append(
+                f'<!-- _class: {s["color"]} -->\n\n'
+                f'<div class="crumb"><span class="ix">{s["ix"]}.{i}</span>'
+                f'<span>{_e(s["title"])}</span><span class="tag {cls}">{tag}</span></div>\n'
+                f'<div class="q"><span class="qn">{n:02d}</span>{_e(p["text"])}</div>\n'
+                f'<div class="viz">{viz}<div class="src">{_e(p["source"])}</div></div>'
+            )
+
+    # closing slide — the same prompts as one-keystroke slash commands
+    cards = "".join(
+        f'<div class="skill {color}"><span class="cmd">{_e(cmd)}</span>'
+        f'<span class="sd">{_e(desc)}</span></div>'
+        for cmd, color, desc in SKILLS
+    )
+    slides.append(
+        "<!-- _class: contents -->\n\n## Or skip the prompt — just type the command\n\n"
+        '<p class="lede">The same reports ship as <strong>openstory-skills</strong>, a Claude Code plugin. '
+        'Twelve slash commands, backed by the OpenStory MCP server.</p>\n'
+        f'<div class="skills">{cards}</div>'
+    )
+
+    return _DECK_FM + style + "\n\n" + "\n\n---\n\n".join(slides) + "\n"
 
 
 # -- CSS / shell ------------------------------------------------------
@@ -626,6 +830,38 @@ _CSS = """
   .draftnote { margin:30px 0 0; padding:12px 16px; border:1px dashed var(--line); border-radius:10px; color:var(--dim); font-size:12.5px; background:var(--bg2); }
   @media (max-width:680px){ header h1{font-size:30px} .prompt{padding-right:18px} .copy{position:static; margin-bottom:10px}
     .vgroups{grid-template-columns:1fr} .vbar{grid-template-columns:104px 1fr 42px} .viz{padding:15px} }
+  /* contents / table of contents */
+  .toc { margin:40px 0 0; padding:26px 28px; border:1px solid var(--line); border-radius:var(--r); background:var(--bg2); box-shadow:var(--shadow); }
+  .toc > h2 { font-family:var(--fdisplay); font-size:20px; font-weight:700; margin:0 0 18px; letter-spacing:-.01em; }
+  .tocsec { margin-top:18px; }
+  .tocsec:first-of-type { margin-top:0; }
+  .tocsec .toch { display:flex; align-items:baseline; gap:10px; margin-bottom:8px; padding-bottom:7px; border-bottom:1px solid var(--line); }
+  .tocsec .toch .ix { font:700 12px/1 "JetBrains Mono",monospace; color:var(--ac); }
+  .tocsec .toch h3 { font-size:13px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; margin:0; color:var(--ink2); }
+  .toclist { list-style:none; margin:0; padding:0; }
+  .toclist li { margin:0; }
+  .toclist a { display:flex; gap:12px; align-items:baseline; padding:5px 0; text-decoration:none; color:var(--ink2); font-size:13.5px; line-height:1.4; border-bottom:1px dotted color-mix(in srgb, var(--line) 70%, transparent); }
+  .toclist li:last-child a { border-bottom:none; }
+  .toclist a:hover .tt { color:var(--ac); }
+  .toclist .tn { flex:none; width:24px; font:600 11px/1.4 "JetBrains Mono",monospace; color:var(--ac); font-variant-numeric:tabular-nums; }
+  /* prompt number badge */
+  .prompt .pnum { position:absolute; top:14px; left:-1px; transform:translateX(-50%); width:26px; height:22px;
+    background:var(--ac); color:#fff; border-radius:6px; font:700 11px/22px "JetBrains Mono",monospace; text-align:center; font-variant-numeric:tabular-nums; box-shadow:var(--shadow); }
+  /* print → PDF: open every report, no copy buttons, sane page breaks */
+  @page { size:A4; margin:14mm 12mm; }
+  @media print {
+    body { background:var(--bg); }
+    .wrap { max-width:none; padding:0; }
+    .copy, .draftnote { display:none !important; }
+    /* Chrome's print renderer turns large-blur shadows into hard grey blocks — drop them all */
+    * { box-shadow:none !important; }
+    .toc { break-after:page; page-break-after:always; }
+    .sechead { break-after:avoid; }            /* keep a heading with its first prompt */
+    .prompt { break-inside:avoid; }
+    details.ex { display:block; }              /* force every report open in print */
+    details.ex > summary { list-style:none; }
+    a { color:inherit; text-decoration:none; }
+  }
 """
 
 _COPY_JS = """
@@ -658,11 +894,81 @@ _PAGE = """<!doctype html>
     <p class="sub">{intro}</p>
     <div class="howto"><strong>How to use:</strong> paste any of these to your coding agent. They run against <em>your</em> OpenStory instance — via the MCP server or the REST API at <code>localhost:3002</code>. Swap anything in <code>&lt;angle brackets&gt;</code> for your specifics. Open <em>the report</em> under any prompt to see what it returns.</div>
   </header>
+{toc}
 {body}
   <div class="draftnote">Draft · incubating for openstory.work — not yet live. Reports charted from a real OpenStory store and anonymized (people → roles, projects → a-project, no secrets). <span class="mono">real</span> = queried live; <span class="mono">illustrative</span> = representative.</div>
   <footer>OpenStory · a mirror, not a leash.</footer>
   <script>{js}</script>
 </div></body></html>"""
+
+
+# -- PDF --------------------------------------------------------------
+
+def _find_chrome() -> str | None:
+    """Locate a headless-capable Chromium binary across platforms."""
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"):
+        if found := shutil.which(name):
+            return found
+    for path in (
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    ):
+        if Path(path).exists():
+            return path
+    return None
+
+
+def render_pdf(pdf_path: str, theme: str = "aistack", deadline: float = 60.0) -> None:
+    """Render the expanded (every-report-open) page to PDF via headless Chrome.
+
+    Chrome writes the PDF and then, on macOS with the user's own Chrome already
+    running, often fails to self-exit. So we don't wait for a clean exit: we poll
+    for the output file to appear and stop growing, then terminate the process.
+    """
+    chrome = _find_chrome()
+    if not chrome:
+        raise RuntimeError("no Chrome/Chromium found — install one, or use --html and print to PDF from a browser")
+    html_text = render_html(theme, expand=True)
+    out = Path(pdf_path).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        out.unlink()
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "prompt-library.html"
+        src.write_text(html_text, encoding="utf-8")
+        # Classic --headless (not =new, which hangs here). Dedicated --user-data-dir
+        # so it never collides with the user's already-open Chrome. No
+        # --virtual-time-budget: with the page's CSS transitions it never advances.
+        proc = subprocess.Popen(
+            [chrome, "--headless", "--disable-gpu", "--no-sandbox",
+             f"--user-data-dir={Path(tmp) / 'chrome'}",
+             "--no-pdf-header-footer",
+             f"--print-to-pdf={out}", src.resolve().as_uri()],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            start, last_size, stable = time.monotonic(), -1, 0
+            while time.monotonic() - start < deadline:
+                if proc.poll() is not None:    # Chrome exited on its own
+                    break
+                size = out.stat().st_size if out.exists() else 0
+                stable = stable + 1 if size > 0 and size == last_size else 0
+                last_size = size
+                if stable >= 2:                # file present and unchanged twice → done
+                    break
+                time.sleep(0.5)
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+    if not out.exists() or out.stat().st_size < 1024:
+        raise RuntimeError(f"Chrome did not produce a valid PDF at {out}")
+    print(f"Wrote {pdf_path} [{theme}]")
 
 
 # -- Tests ------------------------------------------------------------
@@ -687,6 +993,18 @@ def run_tests() -> None:
         assert klass in h, f"missing chart class: {klass}"
     print("  OK: HTML renders with all chart primitives")
 
+    # TOC: one entry per prompt, each linking to an existing anchor on the page
+    assert h.count('<nav class="toc"') == 1, "exactly one TOC"
+    assert h.count('class="tocsec') == len(SECTIONS), "one TOC group per section"
+    for i in range(1, total + 1):
+        assert f'href="#p{i}"' in h, f"TOC link #p{i} missing"
+        assert f'id="p{i}"' in h, f"prompt anchor p{i} missing"
+    assert h.index('<nav class="toc"') < h.index('id="p1"'), "TOC must come before the prompt list"
+    assert '<details class="ex" open>' not in h, "default page keeps reports collapsed"
+    he = render_html(expand=True)
+    assert he.count('<details class="ex" open>') == total, "expanded variant opens every report"
+    print(f"  OK: TOC links all {total} prompts before the list · expand opens every report")
+
     # escaping: literal angle brackets in content must be entity-encoded
     body = h.split("</style>")[1]
     assert "&lt;id&gt;" in h and "<id>" not in body, "placeholders must be escaped"
@@ -705,6 +1023,34 @@ def run_tests() -> None:
         assert f"--bg:{THEMES[th]['bg']};" in hh, f"theme tokens missing for {th}"
         assert not leakage(hh)
     print(f"  OK: {len(THEMES)} themes render cleanly ({', '.join(THEMES)})")
+
+    # Marp deck: front matter, ONE contents slide + one slide per prompt
+    deck = render_marp()
+    assert deck.startswith("---\nmarp: true\n"), "Marp front matter required"
+    n_slides = deck.count("\n---\n\n") + 1
+    assert n_slides == 23, f"expected 23 slides (title + contents + 20 + skills), got {n_slides}"
+    assert deck.count('class="agenda"') == 1 and deck.count('class="ag-item"') == 20, "20 agenda items on one slide"
+    # closing skills slide carries every slash command
+    assert deck.count('class="skills"') == 1 and deck.count('class="skill ') == len(SKILLS), "one card per skill"
+    for cmd, _, _ in SKILLS:
+        assert f'class="cmd">{cmd}<' in deck, f"skill command missing from deck: {cmd}"
+    # contents items link to their prompt slides (title=1, contents=2, prompt n = n+2)
+    assert deck.count('class="ag-item" href="#3"') == 1 and f'href="#{20 + 2}"' in deck, "agenda items link to slides"
+    # one real HTML chart canvas per prompt slide (same charts as the web page)
+    assert deck.count('<div class="viz">') == 20, "every prompt slide carries a chart"
+    assert deck.count('<div class="q">') == 20, "every prompt slide has a headline"
+    for klass in ("vstats", "vbars", "vtable", "vtl", "vgroups", "vsteps", "vchips"):
+        assert klass in deck, f"deck missing chart primitive: {klass}"
+    # the shared chart CSS was sliced in (page + deck, one source of truth)
+    cc = _chart_css()
+    assert ".viz {" in cc and ".vbar " in cc and ".blue{--ac" in cc, "chart css slice incomplete"
+    # full prompt text present; angle-bracket placeholders are HTML-escaped
+    for s in SECTIONS:
+        for p in s["prompts"]:
+            assert _e(p["text"]) in deck, f"prompt missing from deck: {p['text'][:40]}"
+    assert "<topic>" not in deck and "&lt;topic&gt;" in deck, "placeholders must be escaped"
+    assert not leakage(deck), f"LEAKAGE in deck: {leakage(deck)}"
+    print(f"  OK: Marp deck — {n_slides} slides (1 contents + 20 charts), shared chart CSS, no leakage")
     print("\nAll tests passed.")
 
 
@@ -712,14 +1058,23 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--html", metavar="PATH")
     ap.add_argument("--md", metavar="PATH")
-    ap.add_argument("--theme", default="aistack", choices=list(THEMES), help="palette for --html (default: midnight)")
+    ap.add_argument("--pdf", metavar="PATH", help="print-ready PDF (TOC + every report expanded; needs Chrome)")
+    ap.add_argument("--marp", metavar="PATH", help="Marp slide deck (markdown): contents agenda + one slide per prompt")
+    ap.add_argument("--theme", default="aistack", choices=list(THEMES), help="palette for --html/--pdf/--marp (default: midnight)")
+    ap.add_argument("--expand", action="store_true", help="emit every report expanded (implied by --pdf)")
     ap.add_argument("--test", action="store_true")
     args = ap.parse_args()
     if args.test:
         run_tests(); sys.exit(0)
-    if not args.html and not args.md:
-        ap.error("pass --html PATH and/or --md PATH (or --test)")
+    if not (args.html or args.md or args.pdf or args.marp):
+        ap.error("pass --html PATH, --md PATH, --pdf PATH, and/or --marp PATH (or --test)")
     if args.html:
-        Path(args.html).write_text(render_html(args.theme), encoding="utf-8"); print(f"Wrote {args.html} [{args.theme}]")
+        Path(args.html).write_text(render_html(args.theme, expand=args.expand), encoding="utf-8")
+        print(f"Wrote {args.html} [{args.theme}]")
     if args.md:
         Path(args.md).write_text(render_md(), encoding="utf-8"); print(f"Wrote {args.md}")
+    if args.pdf:
+        render_pdf(args.pdf, args.theme)
+    if args.marp:
+        Path(args.marp).write_text(render_marp(args.theme), encoding="utf-8")
+        print(f"Wrote {args.marp} [{args.theme}] — render: marp {args.marp} --html -o deck.pdf")
