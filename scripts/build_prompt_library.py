@@ -938,9 +938,11 @@ def chrome_pdf(html_text: str, out_path: str, deadline: float = 60.0) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "page.html"
         src.write_text(html_text, encoding="utf-8")
-        # Classic --headless (not =new, which hangs here). Dedicated --user-data-dir
-        # so it never collides with the user's already-open Chrome. No
-        # --virtual-time-budget: with the page's CSS transitions it never advances.
+        # Classic --headless: honours CSS page breaks and prints fast, but then
+        # lingers (doesn't self-exit) and --headless=new hangs on the webfont fetch.
+        # So we poll until the PDF stops growing for a solid window, then terminate.
+        # The window must be generous: Chrome writes multi-page PDFs incrementally,
+        # and too short a window truncates long documents mid-write.
         proc = subprocess.Popen(
             [chrome, "--headless", "--disable-gpu", "--no-sandbox",
              f"--user-data-dir={Path(tmp) / 'chrome'}",
@@ -951,12 +953,12 @@ def chrome_pdf(html_text: str, out_path: str, deadline: float = 60.0) -> None:
         try:
             start, last_size, stable = time.monotonic(), -1, 0
             while time.monotonic() - start < deadline:
-                if proc.poll() is not None:    # Chrome exited on its own
+                if proc.poll() is not None:        # Chrome exited on its own
                     break
                 size = out.stat().st_size if out.exists() else 0
                 stable = stable + 1 if size > 0 and size == last_size else 0
                 last_size = size
-                if stable >= 2:                # file present and unchanged twice → done
+                if stable >= 6 and time.monotonic() - start > 3:  # unchanged ~3s → done
                     break
                 time.sleep(0.5)
         finally:
