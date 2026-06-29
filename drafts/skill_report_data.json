@@ -1,0 +1,799 @@
+{
+  "title": "Your work, in your own data",
+  "title_grad": "your own data",
+  "subtitle": "The twelve openstory-skills, run against your live store. The same reports as the prompt library \u2014 but every number here is yours.",
+  "window": "the last ~30 days (arc & recall reach across all history)",
+  "sections": [
+    {
+      "ix": "01",
+      "color": "blue",
+      "title": "/cost \u00b7 what your sessions cost",
+      "prompt": "What have my agent sessions cost me?",
+      "source": "daily_token_usage (days=30)",
+      "viz": [
+        {
+          "type": "stats",
+          "items": [
+            {
+              "num": "6.46B",
+              "label": "total tokens (30d)"
+            },
+            {
+              "num": "~$3.2K",
+              "label": "est. cost (Sonnet pricing)",
+              "accent": true
+            },
+            {
+              "num": "96%",
+              "label": "cache hit rate"
+            },
+            {
+              "num": "$16.5K",
+              "label": "saved vs. no-cache"
+            }
+          ]
+        },
+        {
+          "type": "bars",
+          "title": "Tokens per day",
+          "items": [
+            {
+              "label": "Jun 13",
+              "bar": 81,
+              "val": "687M"
+            },
+            {
+              "label": "Jun 14",
+              "bar": 87,
+              "val": "736M"
+            },
+            {
+              "label": "Jun 16",
+              "bar": 8,
+              "val": "67M"
+            },
+            {
+              "label": "Jun 17",
+              "bar": 21,
+              "val": "179M"
+            },
+            {
+              "label": "Jun 18",
+              "bar": 1,
+              "val": "12M"
+            },
+            {
+              "label": "Jun 19",
+              "bar": 40,
+              "val": "335M"
+            },
+            {
+              "label": "Jun 20",
+              "bar": 25,
+              "val": "210M"
+            },
+            {
+              "label": "Jun 21",
+              "bar": 22,
+              "val": "188M"
+            },
+            {
+              "label": "Jun 22",
+              "bar": 100,
+              "val": "843M"
+            },
+            {
+              "label": "Jun 23",
+              "bar": 47,
+              "val": "395M"
+            },
+            {
+              "label": "Jun 24",
+              "bar": 74,
+              "val": "620M"
+            },
+            {
+              "label": "Jun 25",
+              "bar": 36,
+              "val": "307M"
+            },
+            {
+              "label": "Jun 26",
+              "bar": 12,
+              "val": "102M"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "A 96% cache hit rate turned a potential **$19.8K** bill into **$3.2K** \u2014 prompt caching saved ~$16.5K over 30 days. (Sonnet pricing: $3/M in, $0.30/M cache read, $15/M out.)"
+        }
+      ]
+    },
+    {
+      "ix": "02",
+      "color": "blue",
+      "title": "/time \u00b7 where your time goes",
+      "prompt": "Where does my time actually go?",
+      "source": "productivity (days=30) \u2014 hourly event density",
+      "viz": [
+        {
+          "type": "bars",
+          "title": "Activity by hour (UTC, 4-hour buckets)",
+          "items": [
+            {
+              "label": "00\u201303",
+              "bar": 97,
+              "val": "16.4K"
+            },
+            {
+              "label": "04\u201307",
+              "bar": 1,
+              "val": "40"
+            },
+            {
+              "label": "08\u201311",
+              "bar": 42,
+              "val": "7.0K"
+            },
+            {
+              "label": "12\u201315",
+              "bar": 100,
+              "val": "16.9K"
+            },
+            {
+              "label": "16\u201319",
+              "bar": 73,
+              "val": "12.2K"
+            },
+            {
+              "label": "20\u201323",
+              "bar": 93,
+              "val": "15.7K"
+            }
+          ]
+        },
+        {
+          "type": "stats",
+          "items": [
+            {
+              "num": "1 AM UTC",
+              "label": "peak hour (8,706 events)",
+              "accent": true
+            },
+            {
+              "num": "27%",
+              "label": "top-3 hours share"
+            },
+            {
+              "num": "68.2K",
+              "label": "total events (30d)"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "The dead zone is **UTC 04\u201307** (near-zero) \u2014 consistent with sleep. Three active windows: UTC 12\u201315, 20\u201323, and 00\u201303. Not a 9-to-5 pattern \u2014 work clusters into morning, afternoon, and a late-evening push."
+        }
+      ]
+    },
+    {
+      "ix": "03",
+      "color": "blue",
+      "title": "/tools \u00b7 what you reach for",
+      "prompt": "Which tools and commands do I rely on most?",
+      "source": "list_sessions(days=14) + session_synopsis on the 8 largest sessions",
+      "viz": [
+        {
+          "type": "bars",
+          "title": "Top tools (8 sessions, ~14 days)",
+          "items": [
+            {
+              "label": "Bash / exec",
+              "bar": 100,
+              "val": "2,100"
+            },
+            {
+              "label": "Edit",
+              "bar": 35,
+              "val": "732"
+            },
+            {
+              "label": "Read",
+              "bar": 15,
+              "val": "321"
+            },
+            {
+              "label": "Write",
+              "bar": 11,
+              "val": "230"
+            },
+            {
+              "label": "TaskUpdate",
+              "bar": 5,
+              "val": "101"
+            },
+            {
+              "label": "Web Search",
+              "bar": 2,
+              "val": "40"
+            },
+            {
+              "label": "Agent",
+              "bar": 1,
+              "val": "26"
+            }
+          ]
+        },
+        {
+          "type": "stats",
+          "items": [
+            {
+              "num": "3,893",
+              "label": "total tool calls",
+              "accent": true
+            },
+            {
+              "num": "2.3:1",
+              "label": "Edit : Read ratio"
+            },
+            {
+              "num": "59%",
+              "label": "Bash share"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "**Bash dominates** at 59% of visible calls \u2014 shell execution is the primary agent action. Edit outpaces Read 2.3:1: a write-heavy pattern, the agent codes more than it explores."
+        }
+      ]
+    },
+    {
+      "ix": "04",
+      "color": "green",
+      "title": "/coach \u00b7 how you work",
+      "prompt": "Honest feedback on how I work with coding agents.",
+      "source": "4 recent OpenStory sessions Jun 17\u201326 \u2014 1130 tool calls total",
+      "viz": [
+        {
+          "type": "table",
+          "cols": [
+            "Signal",
+            "Rate",
+            "Meaning"
+          ],
+          "align": [
+            "l",
+            "r",
+            "l"
+          ],
+          "rows": [
+            [
+              "Multi-day sessions",
+              {
+                "chip": "High"
+              },
+              "Sessions run 4\u20137 days each; context degrades and errors concentrate late in the run"
+            ],
+            [
+              "Bash dominance",
+              "50% of tools",
+              "Execution-first: ops, greps, curls dominate structured reads and edits"
+            ],
+            [
+              "Edit-before-Read ratio",
+              {
+                "chip": "Medium"
+              },
+              "1.85:1 \u2014 editing nearly 2x as often as reading; risk of edits without full context"
+            ],
+            [
+              "Error events",
+              {
+                "chip": "Medium"
+              },
+              "23 errors in one 7-day session; the other 3 were clean \u2014 pattern is session-age correlated"
+            ],
+            [
+              "Agent delegation",
+              "2% of tools",
+              "Subagents used rarely \u2014 research and exploration stay serial"
+            ],
+            [
+              "Compaction hits",
+              {
+                "chip": "Low"
+              },
+              "1 compact across ~7 days; context rarely hits the hard limit"
+            ]
+          ]
+        },
+        {
+          "type": "note",
+          "tone": "warn",
+          "text": "#1 pattern: **sessions run multi-day** (4\u20137 days each). That is where errors appear and context quality silently drifts. Fix: close and restart a session when a concrete phase ends \u2014 don't carry one thread across days of varied work."
+        }
+      ]
+    },
+    {
+      "ix": "05",
+      "color": "purple",
+      "title": "/arc \u00b7 the story so far",
+      "prompt": "Trace the story of how this project came to be.",
+      "source": "list_sessions(project=OpenStory) \u2014 200 sessions, Jun 14 \u2192 Jun 26",
+      "viz": [
+        {
+          "type": "timeline",
+          "items": [
+            {
+              "date": "2026-06-14",
+              "title": "CI/CD deployment pipeline",
+              "note": "Enable automatic CI/CD \u2014 1,194 events, Bash-heavy; infra pipeline hardening"
+            },
+            {
+              "date": "2026-06-16",
+              "title": "Strategic reflection",
+              "note": "Deep reflection on where the work stands \u2014 direction-setting, 2,112 events"
+            },
+            {
+              "date": "2026-06-17",
+              "title": "Prompt-library generators",
+              "note": "Analysed most-common prompts \u2192 built the generators + 5-palette theme system; 2,752 events"
+            },
+            {
+              "date": "2026-06-20",
+              "title": "Developer-archetype research",
+              "note": "Multi-agent adversarial fact-checking \u2014 extractor + verifier subagents; archetype charts built"
+            },
+            {
+              "date": "2026-06-21",
+              "title": "Architectural audit + hub connection",
+              "note": "Full architectural assessment (1,694 events) + NATS hub connectivity in parallel"
+            },
+            {
+              "date": "2026-06-22",
+              "title": "Cross-agent integration debug",
+              "note": "Getting remote-agent events into OpenStory; install troubleshooting; CLAUDE.md audit"
+            },
+            {
+              "date": "2026-06-26",
+              "title": "Team skill + UI wireframes",
+              "note": "openstory:team automation run; UI review; wireframe design; codebase scan"
+            }
+          ],
+          "arc": "Two weeks of parallel construction \u2014 CI/CD hardening, strategic reflection, prompt-library and archetype research, a deep architectural audit, cross-agent integration, and team-skill automation: OpenStory building itself while building the tooling to observe everything else."
+        }
+      ]
+    },
+    {
+      "ix": "06",
+      "color": "purple",
+      "title": "/recap \u00b7 what shipped lately",
+      "prompt": "What have I worked on lately, grouped by project?",
+      "source": "project_pulse(days=14) merged by display name + list_sessions(days=14)",
+      "viz": [
+        {
+          "type": "table",
+          "cols": [
+            "Project",
+            "Sessions",
+            "Activity",
+            "Focus"
+          ],
+          "align": [
+            "l",
+            "r",
+            "l",
+            "l"
+          ],
+          "rows": [
+            [
+              "OpenStory",
+              "243",
+              {
+                "bar": 100,
+                "text": "15,694 events"
+              },
+              "Prompt-library generators, archetype research, UI review, NATS federation, team-skill automation"
+            ],
+            [
+              "workspace",
+              "3",
+              {
+                "bar": 44,
+                "text": "6,848 events"
+              },
+              "Remote agent hub sessions (OpenClaw check-ins + hub connectivity)"
+            ],
+            [
+              "agent-harness",
+              "4",
+              {
+                "bar": 34,
+                "text": "5,399 events"
+              },
+              "OpenActor architecture, reactive event-driven system planning"
+            ],
+            [
+              "financial-research",
+              "1",
+              {
+                "bar": 20,
+                "text": "3,146 events"
+              },
+              "Financial / economic research and policy analysis"
+            ],
+            [
+              "openstory-deploy",
+              "1",
+              {
+                "bar": 8,
+                "text": "1,194 events"
+              },
+              "CI/CD deployment pipeline automation"
+            ],
+            [
+              "openstory-website",
+              "1",
+              {
+                "bar": 1,
+                "text": "206 events"
+              },
+              "Website updates"
+            ]
+          ]
+        },
+        {
+          "type": "note",
+          "text": "OpenStory leads at **15k+ events across 243 sessions** \u2014 including ~200 short script-layer agent sessions spawned by the prompt-library and archetype generators. Three parallel fronts: OpenStory feature work, remote agent sessions via OpenClaw (workspace), and OpenActor reactive design (agent-harness)."
+        }
+      ]
+    },
+    {
+      "ix": "07",
+      "color": "purple",
+      "title": "/standup \u00b7 today",
+      "prompt": "Write my standup: what I did, what's blocked, what's next.",
+      "source": "list_sessions(days=7) + session_synopsis for the top sessions on Jun 25\u201326",
+      "viz": [
+        {
+          "type": "groups",
+          "cols": [
+            {
+              "title": "Did",
+              "items": [
+                "Ran `/openstory:team` skill \u2014 583 events, ~3.3h; heavy Bash + Task automation (Jun 26)",
+                "Ran `/openstory:scan` \u2014 codebase scan, 41 events (Jun 26)",
+                "UI review + design discussion \u2014 assessed UI quality and direction (Jun 26)",
+                "Wireframe exploration for a new feature \u2014 subagent design session (Jun 26)",
+                "Two PR-review sessions \u2014 code walkthrough + review (Jun 25)"
+              ]
+            },
+            {
+              "title": "Blocked",
+              "tone": "warn",
+              "items": [
+                "NATS leaf federation \u2014 122-event investigation (Jun 25) into why the leaf node isn't reaching the hub; no resolution recorded"
+              ]
+            },
+            {
+              "title": "Next",
+              "items": [
+                "Resolve NATS leaf federation \u2014 continue from the Jun 25 investigation",
+                "Iterate on UI design from the wireframe exploration + review feedback",
+                "Follow up on openstory:team skill findings"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Last active **Jun 26**. 4 sessions / 672 events that day; 3 more (294 events) on Jun 25. Top tools: Bash, TaskUpdate, Edit \u2014 a mix of skill automation, UI review, design, and PR analysis."
+        }
+      ]
+    },
+    {
+      "ix": "08",
+      "color": "orange",
+      "title": "/recall \u00b7 find it again",
+      "prompt": "Find the last time I solved this \u2014 and exactly how.",
+      "source": "agent_search 'federation nats leaf deploy' \u2014 5 matches; tool_journey on the top session (Jun 21\u201325)",
+      "viz": [
+        {
+          "type": "list",
+          "items": [
+            {
+              "date": "Jun 25",
+              "label": "Make sure we are connected to the hub",
+              "meta": "OpenStory (remote)"
+            },
+            {
+              "date": "Jun 21",
+              "label": "Architectural assessment \u2014 touched federation config",
+              "meta": "OpenStory"
+            },
+            {
+              "date": "older",
+              "label": "NATS leaf bootstrap + deploy/ script",
+              "meta": "OpenStory"
+            },
+            {
+              "date": "older",
+              "label": "Tailnet federation spike \u2014 hub config",
+              "meta": "OpenStory"
+            },
+            {
+              "date": "older",
+              "label": "NATS leaf secrets + .env.federation authoring",
+              "meta": "OpenStory"
+            }
+          ]
+        },
+        {
+          "type": "steps",
+          "items": [
+            "curl -s http://localhost:8222/varz | python3 -c \"import sys,json; d=json.load(sys.stdin); print('leafnodes:', d.get('leafnodes'))\"",
+            "grep -inE 'leaf|remotes|7422|url|hub' nats.conf",
+            "cat .env.federation   # NATS_LEAF_URL=nats://<redacted>@<redacted>:7422",
+            "pkill -f 'nats-server -c nats.conf'   # free :4222 so the leaf node can bind it",
+            "nohup just up-federation > /tmp/openstory-federation-boot.log 2>&1 &",
+            "curl -s http://localhost:8222/leafz   # out->hub / in<-hub message counts confirm the link",
+            "curl -s http://localhost:3002/api/sessions   # both hosts' sessions should now appear"
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Topic recalled: **NATS leaf federation** \u2014 connecting local OpenStory to the distributed hub over Tailscale. Last solved Jun 25, 2026. Key insight: a standalone `nats.conf` occupies `:4222` and blocks the leaf node; `up-federation` sources `.env.federation` and starts the leaf instead."
+        }
+      ]
+    },
+    {
+      "ix": "09",
+      "color": "red",
+      "title": "/prime \u00b7 pick up where you left off",
+      "prompt": "Where did we leave off on this project?",
+      "source": "project_context for OpenStory (last 5 sessions Jun 25\u201326) + git status on the active branch",
+      "viz": [
+        {
+          "type": "meta",
+          "rows": [
+            [
+              "Last session",
+              "Jun 26, 2026 04:06 UTC (openstory:team)"
+            ],
+            [
+              "Last goal",
+              "Team-day planning + UI wireframe design for a new feature"
+            ],
+            [
+              "Open threads",
+              "prompt-library-generators branch; UI redesign + watch-command-center research; developer-archetype profiling"
+            ],
+            [
+              "Top tools",
+              "Bash 69 \u00b7 TaskUpdate 13 \u00b7 Edit 10 \u00b7 TaskCreate 9"
+            ]
+          ]
+        },
+        {
+          "type": "cards",
+          "items": [
+            {
+              "title": "Prompt-library generators",
+              "sub": "branch: tooling/prompt-library-generators",
+              "text": "Theme system (5 palettes) + session-usage analysis built. Several scripts still untracked \u2014 stage and PR."
+            },
+            {
+              "title": "Developer-archetype research",
+              "sub": "docs/research/developer-archetypes/",
+              "text": "Citation-traceable archetype profiling with viz scripts. Style axis refined to process-locus. Docs and scripts untracked."
+            },
+            {
+              "title": "UI redesign + watch command center",
+              "sub": "docs/research/ui-redesign/",
+              "text": "Wireframe session ran Jun 26; UI review completed same day. Feature research docs untracked."
+            },
+            {
+              "title": "Boot skill",
+              "sub": ".claude/skills/boot/",
+              "text": "New boot skill formalizing the full boot flow (Docker / native SQLite / split dev) \u2014 untracked."
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Suggested next step: **stage and open a PR for the prompt-library-generators branch** \u2014 most new work (scripts/, docs/research/, the boot skill) is still untracked."
+        }
+      ]
+    },
+    {
+      "ix": "10",
+      "color": "red",
+      "title": "/watch \u00b7 live work",
+      "prompt": "Watch the work happening right now and summarise it.",
+      "source": "tool_journey for most recent session d58d3d03 (last_event 2026-06-26T04:06 UTC, 583 events)",
+      "viz": [
+        {
+          "type": "feed",
+          "items": [
+            {
+              "time": "04:06",
+              "tool": "Bash",
+              "text": "Check UI build log \u2014 dist dir present after background npm run build"
+            },
+            {
+              "time": "03:47",
+              "tool": "Read",
+              "text": "Read rs/cli/src/main.rs \u2014 inspect --static-dir serve flag"
+            },
+            {
+              "time": "03:46",
+              "tool": "Bash",
+              "text": "Search build_router + static serve wiring across rs/ crates"
+            },
+            {
+              "time": "03:46",
+              "tool": "Bash",
+              "text": "Launch UI production build in background, check vite proxy config"
+            },
+            {
+              "time": "03:45",
+              "tool": "Bash",
+              "text": "Inspect CLI serve subcommand args and vite.config.ts proxy settings"
+            },
+            {
+              "time": "03:41",
+              "tool": "AskUserQuestion",
+              "text": "Ask: serve new WatchBanner build via --static-dir or keep Vite proxy?"
+            },
+            {
+              "time": "03:41",
+              "tool": "Bash",
+              "text": "Verify open-story serve + Vite processes on :3002 / :5173"
+            },
+            {
+              "time": "03:40",
+              "tool": "Bash",
+              "text": "Test /api/sessions response count + WS upgrade path live"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "Static snapshot of session **d58d3d03** (started 00:46 UTC, Jun 26). In the live deck this feed streams in real time from the `/ws` WebSocket. This session built the watch-focus feature \u2014 `POST /api/watch/{id}` + `WatchBanner` UI \u2014 the same mechanism `/watch` uses to aim the UI at a session."
+        }
+      ]
+    },
+    {
+      "ix": "11",
+      "color": "cyan",
+      "title": "/team \u00b7 who's working",
+      "prompt": "Who on my team is active, and on what?",
+      "source": "list_sessions days=7 (56 sessions); project_id path prefixes identify 4 distinct host/agent segments",
+      "viz": [
+        {
+          "type": "cards",
+          "items": [
+            {
+              "title": "You \u00b7 local",
+              "sub": "29 sessions",
+              "text": "OpenStory core work: agent-directed watch-focus endpoint (POST /api/watch + WatchBanner UI), PR reviews, CI/CD deploy automation, prompt-library generators, openstory:team/scan/coach skills, CLAUDE.md audit, NATS federation debugging"
+            },
+            {
+              "title": "You \u00b7 remote",
+              "sub": "9 sessions",
+              "text": "Remote Linux box: NATS leaf node federation, OpenActor/agent-harness development, cross-machine OpenStory connectivity, economic research one-off"
+            },
+            {
+              "title": "OpenClaw agent",
+              "sub": "3 sessions",
+              "text": "Automated workspace reads (HEARTBEAT.md context pattern on startup); long-running session spanning months with periodic activation from the VPS"
+            },
+            {
+              "title": "OpenActor (automated)",
+              "sub": "1 session",
+              "text": "Single automated benchmark run (coding QA task, short-lived)"
+            }
+          ]
+        },
+        {
+          "type": "note",
+          "text": "This is a **single-operator store** \u2014 all sessions belong to you across two machines plus two agents. `/team` lights up with real multi-user data when a teammate's NATS leaf node federates in: their sessions arrive with a distinct host prefix and appear as a separate card here automatically."
+        }
+      ]
+    },
+    {
+      "ix": "12",
+      "color": "blue",
+      "title": "/scan \u00b7 before you share",
+      "prompt": "Is there anything sensitive in my history?",
+      "source": "FTS5 search across live event store for 7 sensitive-pattern categories; baseline confirmed by dedicated /scan session (80b66f5f) which ran grep against the transcript tree",
+      "viz": [
+        {
+          "type": "table",
+          "cols": [
+            "Category",
+            "Hits",
+            "Status"
+          ],
+          "align": [
+            "l",
+            "r",
+            "l"
+          ],
+          "rows": [
+            [
+              "`sk-` API key prefix",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ],
+            [
+              "`ghp_` GitHub token prefix",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ],
+            [
+              "`AKIA` AWS key prefix",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ],
+            [
+              "`BEGIN PRIVATE KEY`",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ],
+            [
+              "`xoxb` / `xoxp` Slack token",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ],
+            [
+              "`password` keyword",
+              "10",
+              {
+                "chip": "Medium"
+              }
+            ],
+            [
+              "`Bearer` / `api_token`",
+              "0",
+              {
+                "chip": "Low"
+              }
+            ]
+          ]
+        },
+        {
+          "type": "chips",
+          "label": "Patterns scanned",
+          "items": [
+            "sk-",
+            "ghp_",
+            "AKIA",
+            "BEGIN PRIVATE KEY",
+            "xoxb",
+            "xoxp",
+            "password",
+            "Bearer",
+            "api_token"
+          ]
+        },
+        {
+          "type": "note",
+          "text": "All high-signal key prefixes are **zero** \u2014 confirmed clean. The 10 `password` hits are session-transcript context only: SSH login prompts from a server setup and dummy test-fixture credentials in a NATS multi-account test config \u2014 no real credentials. `Bearer`/`api_token` hits are Rust middleware source snippets read during code review, not live token values."
+        }
+      ]
+    }
+  ]
+}
