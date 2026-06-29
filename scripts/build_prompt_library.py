@@ -814,7 +814,7 @@ _CSS = """
   .vlist .li .lm { font:600 11px/1 "JetBrains Mono",monospace; color:var(--dim); }
   /* feed */
   .vfeed { display:flex; flex-direction:column; }
-  .vfeed .fr { display:grid; grid-template-columns:66px 56px 1fr; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:12px; align-items:baseline; }
+  .vfeed .fr { display:grid; grid-template-columns:54px 92px 1fr; gap:12px; padding:7px 0; border-bottom:1px solid var(--line); font-size:12px; align-items:baseline; }
   .vfeed .fr:last-child { border-bottom:none; }
   .vfeed .ft { font:600 11px/1.4 "JetBrains Mono",monospace; color:var(--dim); }
   .vfeed .fk { font:600 11px/1.4 "JetBrains Mono",monospace; color:var(--ac); }
@@ -920,8 +920,9 @@ def _find_chrome() -> str | None:
     return None
 
 
-def render_pdf(pdf_path: str, theme: str = "aistack", deadline: float = 60.0) -> None:
-    """Render the expanded (every-report-open) page to PDF via headless Chrome.
+def chrome_pdf(html_text: str, out_path: str, deadline: float = 60.0) -> None:
+    """Render an HTML string to PDF via headless Chrome. Generic — reused by other
+    generators (e.g. build_skill_report.py).
 
     Chrome writes the PDF and then, on macOS with the user's own Chrome already
     running, often fails to self-exit. So we don't wait for a clean exit: we poll
@@ -929,14 +930,13 @@ def render_pdf(pdf_path: str, theme: str = "aistack", deadline: float = 60.0) ->
     """
     chrome = _find_chrome()
     if not chrome:
-        raise RuntimeError("no Chrome/Chromium found — install one, or use --html and print to PDF from a browser")
-    html_text = render_html(theme, expand=True)
-    out = Path(pdf_path).resolve()
+        raise RuntimeError("no Chrome/Chromium found — install one, or print to PDF from a browser")
+    out = Path(out_path).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
         out.unlink()
     with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / "prompt-library.html"
+        src = Path(tmp) / "page.html"
         src.write_text(html_text, encoding="utf-8")
         # Classic --headless (not =new, which hangs here). Dedicated --user-data-dir
         # so it never collides with the user's already-open Chrome. No
@@ -968,6 +968,11 @@ def render_pdf(pdf_path: str, theme: str = "aistack", deadline: float = 60.0) ->
                     proc.kill()
     if not out.exists() or out.stat().st_size < 1024:
         raise RuntimeError(f"Chrome did not produce a valid PDF at {out}")
+
+
+def render_pdf(pdf_path: str, theme: str = "aistack", deadline: float = 60.0) -> None:
+    """Render the expanded (every-report-open) prompt-library page to PDF."""
+    chrome_pdf(render_html(theme, expand=True), pdf_path, deadline)
     print(f"Wrote {pdf_path} [{theme}]")
 
 
