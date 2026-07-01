@@ -39,18 +39,40 @@ export function ToolFlowView({ sessions, width, height }: Props) {
 
   const [sequences, setSequences] = useState<string[][]>([]);
   const [loading, setLoading] = useState(true);
+  const [timedOut, setTimedOut] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all(sample.map((s) =>
-      fetch(`/api/sessions/${s.session_id}/records`).then((r) => r.json()).catch(() => [] as WireRecord[])))
-      .then((all) => {
-        if (cancelled) return;
-        const seqs = all.map((recs: WireRecord[]) =>
-          (Array.isArray(recs) ? recs : []).filter((r) => r.record_type === "tool_call").map((r) => (r.payload as ToolCall)?.name || "?"));
-        setSequences(seqs.filter((s) => s.length > 1));
-        setLoading(false);
-      });
+    setTimedOut(0);
+
+    // Each records fetch is raced against an 8s AbortController timeout so a
+    // single huge session (e.g. a live one with thousands of events) can't hang
+    // the whole view — the P0 "perpetual loading…" bug. allSettled means one
+    // slow/failed fetch degrades gracefully instead of blocking the rest.
+    const fetchRecords = async (id: string): Promise<WireRecord[] | null> => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const r = await fetch(`/api/sessions/${id}/records`, { signal: ctrl.signal });
+        const j = await r.json();
+        return Array.isArray(j) ? (j as WireRecord[]) : [];
+      } catch {
+        return null; // aborted or errored
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    Promise.all(sample.map((s) => fetchRecords(s.session_id))).then((all) => {
+      if (cancelled) return;
+      const dropped = all.filter((r) => r === null).length;
+      const seqs = all
+        .map((recs) => (recs ?? []).filter((r) => r.record_type === "tool_call").map((r) => (r.payload as ToolCall)?.name || "?"))
+        .filter((s) => s.length > 1);
+      setSequences(seqs);
+      setTimedOut(dropped);
+      setLoading(false);
+    });
     return () => { cancelled = true; };
   }, [sample]);
 
@@ -68,7 +90,7 @@ export function ToolFlowView({ sessions, width, height }: Props) {
         {agents.slice(0, 6).map((a) => (
           <button key={a} onClick={() => setAgent(a)} className={`rounded px-1.5 py-0.5 text-[11px] ${agent === a ? "text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]"}`} style={agent === a ? { background: agentColor(a) } : undefined}>{a}</button>
         ))}
-        <span className="ml-2">{loading ? "loading…" : `${sequences.length} sessions · ${flow.total} transitions`}</span>
+        <span className="ml-2">{loading ? "sampling recent sessions…" : `${sequences.length} sessions · ${flow.total} transitions${timedOut ? ` · ${timedOut} skipped (too large)` : ""}`}</span>
       </div>
       {!loading && flow.total === 0 ? (
         <div className="flex h-40 items-center justify-center text-[12px] text-[#565f89]">No tool transitions for {agent} (may not log tool calls).</div>
