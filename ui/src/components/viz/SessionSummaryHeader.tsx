@@ -1,0 +1,67 @@
+/** SessionSummaryHeader — the shared at-a-glance header for a session.
+ *
+ *  One consistent strip of stats (model · turns · tools · duration · tokens ·
+ *  errors · top file) rendered from the pure buildSessionSummary fold, reused
+ *  across Explore / Overview so every session view reads as the same product.
+ *  Errors are first-class: a distinct red stat you can't miss.
+ */
+
+import { useMemo } from "react";
+import type { WireRecord } from "@/types/wire-record";
+import { buildSessionSummary } from "@/lib/session-summary";
+import { formatDuration } from "@/lib/time";
+import { cn } from "@/lib/cn";
+
+interface Props {
+  records: readonly WireRecord[];
+  className?: string;
+}
+
+function kfmt(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function shortModel(model: string): string {
+  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
+function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <span className="flex items-baseline gap-1">
+      <span className="tabular-nums" style={color ? { color } : undefined}>{value}</span>
+      {label && <span className="text-[#565f89]">{" "}{label}</span>}
+    </span>
+  );
+}
+
+export function SessionSummaryHeader({ records, className }: Props) {
+  const s = useMemo(() => buildSessionSummary(records), [records]);
+  const topFile = s.topFiles[0];
+
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-[#c0caf5]", className)}>
+      {s.model && (
+        <span className="rounded bg-[#7aa2f7]/15 px-1.5 py-0.5 font-mono text-[10px] text-[#7aa2f7]">{shortModel(s.model)}</span>
+      )}
+      {s.durationMs > 0 && <Stat label="" value={formatDuration(s.durationMs)} />}
+      {s.turnCount > 0 && <Stat label={s.turnCount === 1 ? "turn" : "turns"} value={String(s.turnCount)} />}
+      <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} color="#7dcfff" />
+      {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} color="#e0af68" />}
+      {s.errorCount > 0 && (
+        <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
+          <span className="tabular-nums">{s.errorCount}</span>
+          <span>{" "}error{s.errorCount === 1 ? "" : "s"}</span>
+        </span>
+      )}
+      {topFile && (
+        <span className="flex items-baseline gap-1 truncate text-[#565f89]">
+          <span className="text-[#565f89]">·</span>
+          <span className="truncate text-[#a9b1d6]" title={topFile.path}>{topFile.path.split("/").pop()}</span>
+          {topFile.count > 1 && <span className="text-[#565f89]">×{topFile.count}</span>}
+        </span>
+      )}
+    </div>
+  );
+}
