@@ -110,7 +110,7 @@ describe("OverviewView (integration)", () => {
 
     // Enter opens the highlighted session's drill-in
     fireEvent.keyDown(list, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText(/open in explore/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Explore/ })).toBeInTheDocument());
   });
 
   it("shows an honest error state (not 'no sessions') when the fetch fails", async () => {

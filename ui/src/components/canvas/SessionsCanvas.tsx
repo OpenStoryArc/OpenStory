@@ -31,6 +31,16 @@ interface Props {
   onNavigate: (route: HashRoute) => void;
 }
 
+/** What-am-I-looking-at caption per mode (labels the chart + its encoding). */
+const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
+  board: (g) => `Sessions grouped by ${g}, then project — click a circle to expand into sessions, click a session for details.`,
+  sunburst: (g, m) => `Ring = ${g} → project → session · angle = ${m}. Click a wedge to zoom in; the center to zoom out.`,
+  treemap: (g, m) => `Area = ${m}, nested ${g} → project → session. Click a cell to zoom; use the breadcrumb to ascend.`,
+  gantt: (g) => `Each bar = a session over time, lane-packed by ${g} · length = duration, color = agent, ongoing pulses. Drag the overview strip to window.`,
+  scatter: () => `Each dot = a session · x = events, y = output-tokens (log-log) · the line is expected output — dots above it are more productive · size = duration, color = agent.`,
+  flow: () => `How often one tool follows another for the chosen agent · ribbon width = number of transitions · left = the tool used, right = what came next.`,
+};
+
 const DIMS: { key: GroupDim; label: string }[] = [
   { key: "day", label: "Day (latest)" },
   { key: "user", label: "User" },
@@ -119,6 +129,9 @@ export function SessionsCanvas({ onNavigate }: Props) {
 
   const groupColor = (n: HNode) => (n.status === "ongoing" ? "#9ece6a" : sessionColor(n.sessionId ?? n.label));
 
+  const usesGroupBy = viewMode === "board" || viewMode === "sunburst" || viewMode === "treemap" || viewMode === "gantt";
+  const caption = MODE_CAPTION[viewMode](groupBy, metric);
+
   return (
     <div className="flex min-h-0 flex-1 bg-[#16171f] text-[#c0caf5]" data-testid="sessions-canvas">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -136,23 +149,32 @@ export function SessionsCanvas({ onNavigate }: Props) {
               ))}
             </div>
           )}
-          <span className="ml-1 text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
-          <div className="flex flex-wrap gap-1">
-            {DIMS.map((d) => (
-              <button
-                key={d.key}
-                onClick={() => { setGroupBy(d.key); setExpanded(new Set()); setSelected(null); }}
-                className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", groupBy === d.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]")}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
+          {usesGroupBy && (
+            <>
+              <span className="ml-1 text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
+              <div className="flex flex-wrap gap-1">
+                {DIMS.map((d) => (
+                  <button
+                    key={d.key}
+                    onClick={() => { setGroupBy(d.key); setExpanded(new Set()); setSelected(null); }}
+                    className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", groupBy === d.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]")}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="ml-2 w-40 rounded border border-[#2f3348] bg-[#24283b] px-2 py-1 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none" />
-          <button onClick={() => setExpanded(new Set())} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Collapse all</button>
-          <button onClick={fit} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Fit</button>
-          <span className="ml-auto text-[10px] text-[#565f89]">click a group to drill · click a session for details</span>
+          {viewMode === "board" && (
+            <>
+              <button onClick={() => setExpanded(new Set())} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Collapse all</button>
+              <button onClick={fit} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Fit</button>
+            </>
+          )}
         </div>
+        {/* per-mode caption — what am I looking at + the encoding */}
+        <div className="border-b border-[#2f3348]/60 bg-[#1a1b26] px-3 py-1 text-[10px] text-[#565f89]">{caption}</div>
 
         <div ref={wrapRef} className="relative min-h-0 flex-1">
           {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[#565f89]">Loading canvas…</div>}
@@ -213,7 +235,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
           <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
             <span className="truncate text-[12px] text-[#c0caf5]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Open in Explore →</button>
+              <button onClick={() => onNavigate({ view: "story", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#bb9af7] hover:bg-[#2f3348]">Story →</button>
+              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Explore →</button>
               <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">✕</button>
             </div>
           </div>

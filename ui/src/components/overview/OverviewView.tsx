@@ -193,14 +193,15 @@ function SessionRow({
 
 // ── drill-in panel ──────────────────────────────────────────────────────────
 
-function DrillIn({ sessionId, onClose, onOpenExplore, onOpenSubagent }: { sessionId: string; onClose: () => void; onOpenExplore: () => void; onOpenSubagent: (id: string) => void }) {
+function DrillIn({ sessionId, onClose, onOpenExplore, onOpenStory, onOpenSubagent }: { sessionId: string; onClose: () => void; onOpenExplore: () => void; onOpenStory: () => void; onOpenSubagent: (id: string) => void }) {
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]">
       <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
         <span className="truncate font-mono text-[11px] text-[#565f89]">{sessionId.slice(0, 12)}…</span>
         <div className="flex items-center gap-2">
+          <button onClick={onOpenStory} className="rounded px-2 py-0.5 text-[11px] text-[#bb9af7] hover:bg-[#2f3348]">Story →</button>
           <button onClick={onOpenExplore} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">
-            Open in Explore →
+            Explore →
           </button>
           <button onClick={onClose} className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">✕</button>
         </div>
@@ -478,6 +479,7 @@ export function OverviewView({ route, onNavigate }: Props) {
               sessionId={selectedId}
               onClose={() => setSelectedId(null)}
               onOpenExplore={() => onNavigate({ view: "explore", sessionId: selectedId })}
+              onOpenStory={() => onNavigate({ view: "story", sessionId: selectedId })}
               onOpenSubagent={openSession}
             />
           )}
