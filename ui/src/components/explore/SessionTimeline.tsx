@@ -9,6 +9,7 @@ import { buildEventGraph, applyFacets, fileFacets, toolFacets, planFacets, type 
 import { TurnOutline } from "./TurnOutline";
 import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
+import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 
 interface SessionTimelineProps {
@@ -158,6 +159,19 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
     return () => el.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Jump from a ribbon mark to its event card: expand + select + scroll.
+  const selectEvent = useCallback((id: string) => {
+    setExpandedIds((prev) => new Set([...prev, id]));
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx >= 0) setSelectedIndex(idx);
+    requestAnimationFrame(() => {
+      const el = scrollContainerRef.current?.querySelector(`[data-event-id="${CSS.escape(id)}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [rows]);
+
+  const selectedEventId = selectedIndex != null ? rows[selectedIndex]?.id ?? null : null;
+
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -228,6 +242,15 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
       {/* Event cards */}
       <div className="flex-1 min-w-0 overflow-y-auto outline-none" ref={scrollContainerRef} tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
+        {/* Activity ribbon — temporal shape of the whole session */}
+        <div className="border-b border-[#2f3348] bg-[#1a1b26]">
+          <SessionActivityRibbon
+            records={records}
+            selectedEventId={selectedEventId}
+            onSelectEvent={selectEvent}
+          />
+        </div>
+
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#2f3348] text-[10px] text-[#565f89]">
           <span>
