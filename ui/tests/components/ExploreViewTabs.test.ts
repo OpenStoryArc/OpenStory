@@ -38,11 +38,14 @@ describe("ExploreView detail tabs", () => {
     );
   });
 
-  it("has exactly 4 tabs", () => {
+  it("has exactly 5 tabs including Graph", () => {
     scenario(
       () => VIEW_TABS,
-      (tabs) => tabs.length,
-      (count) => expect(count).toBe(4),
+      (tabs) => ({ count: tabs.length, keys: tabs.map((t) => t.key) }),
+      (r) => {
+        expect(r.count).toBe(5);
+        expect(r.keys).toContain("graph");
+      },
     );
   });
 

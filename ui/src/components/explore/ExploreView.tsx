@@ -7,14 +7,16 @@ import { SessionTimeline } from "./SessionTimeline";
 import { ConversationView } from "./ConversationView";
 import { SemanticSearch } from "./SemanticSearch";
 import { PlanViewer } from "@/components/plans/PlanViewer";
+import { ConstellationView } from "@/components/viz/ConstellationView";
 import type { HashRoute } from "@/lib/hash-route";
 
-export type DetailView = "events" | "conversation" | "plans" | "search";
+export type DetailView = "events" | "conversation" | "plans" | "graph" | "search";
 
 export const VIEW_TABS: { key: DetailView; label: string }[] = [
   { key: "events", label: "Events" },
   { key: "conversation", label: "Conversation" },
   { key: "plans", label: "Plans" },
+  { key: "graph", label: "Graph" },
   { key: "search", label: "Search" },
 ];
 
@@ -99,6 +101,12 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
             )}
             {detailView === "plans" && (
               <PlanViewer sessionId={selectedSessionId} />
+            )}
+            {detailView === "graph" && (
+              <ConstellationView
+                rootId={selectedSessionId}
+                onOpen={(id) => onNavigate({ view: "explore", sessionId: id, detailView: "graph" })}
+              />
             )}
           </div>
         )}

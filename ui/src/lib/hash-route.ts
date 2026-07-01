@@ -37,7 +37,7 @@ export interface HashRoute {
 }
 
 const VALID_VIEWS = new Set(["live", "explore", "story", "overview", "users", "admin"]);
-const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "search"]);
+const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Parse Overview query params into an OverviewRoute, or null if none set. */
 function parseOverviewQuery(params: URLSearchParams | null): OverviewRoute | null {
