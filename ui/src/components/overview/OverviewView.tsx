@@ -26,7 +26,7 @@ import {
   type SortKey,
 } from "@/lib/sessions-overview";
 import { SessionCalendar } from "@/components/viz/SessionCalendar";
-import { SessionRibbonLoader } from "@/components/viz/SessionRibbonLoader";
+import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
 import { sessionColor } from "@/lib/session-colors";
 import { formatDuration, relativeTime } from "@/lib/time";
@@ -173,7 +173,7 @@ function DrillIn({ sessionId, onClose, onOpenExplore }: { sessionId: string; onC
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-[#2f3348]">
-          <SessionRibbonLoader sessionId={sessionId} />
+          <SessionVizLoader sessionId={sessionId} />
         </div>
         <SessionDetailPanel sessionId={sessionId} />
       </div>

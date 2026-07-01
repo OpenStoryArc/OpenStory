@@ -1,11 +1,13 @@
-/** Fetches a session's records and renders its activity ribbon.
- *  Used where only a session id is in hand (e.g. the Overview drill-in). */
+/** Fetches a session's records once and renders its visual summary:
+ *  the activity ribbon (temporal shape) + the tool-call trace (durations).
+ *  Used in the Overview drill-in where only a session id is in hand. */
 
 import { useEffect, useState } from "react";
 import type { WireRecord } from "@/types/wire-record";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
+import { TurnTraceView } from "./TurnTraceView";
 
-export function SessionRibbonLoader({ sessionId }: { sessionId: string }) {
+export function SessionVizLoader({ sessionId }: { sessionId: string }) {
   const [records, setRecords] = useState<WireRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,5 +28,14 @@ export function SessionRibbonLoader({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   if (loading) return <div className="px-3 py-3 text-[11px] text-[#565f89]">Loading activity…</div>;
-  return <SessionActivityRibbon records={records} />;
+
+  return (
+    <div>
+      <SessionActivityRibbon records={records} />
+      <div className="mt-1 border-t border-[#2f3348] pt-1">
+        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tool trace</div>
+        <TurnTraceView records={records} />
+      </div>
+    </div>
+  );
 }

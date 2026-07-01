@@ -10,6 +10,7 @@ import { TurnOutline } from "./TurnOutline";
 import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
+import { TurnTraceView } from "@/components/viz/TurnTraceView";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 
 interface SessionTimelineProps {
@@ -172,6 +173,20 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
   const selectedEventId = selectedIndex != null ? rows[selectedIndex]?.id ?? null : null;
 
+  // Jump from a trace span (call_id) to its tool_call event card.
+  const selectSpan = useCallback((callId: string) => {
+    const target = records.find(
+      (r) => r.record_type === "tool_call" && (r.payload as { call_id?: string })?.call_id === callId,
+    );
+    if (target) selectEvent(target.id);
+  }, [records, selectEvent]);
+
+  const selectedCallId = useMemo(() => {
+    if (selectedEventId == null) return null;
+    const r = records.find((rec) => rec.id === selectedEventId);
+    return r && r.record_type === "tool_call" ? (r.payload as { call_id?: string })?.call_id ?? null : null;
+  }, [selectedEventId, records]);
+
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -249,6 +264,9 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
             selectedEventId={selectedEventId}
             onSelectEvent={selectEvent}
           />
+          <div className="border-t border-[#2f3348]">
+            <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
+          </div>
         </div>
 
         {/* Toolbar */}
