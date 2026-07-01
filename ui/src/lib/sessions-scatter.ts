@@ -56,6 +56,32 @@ export function fitLogLog(points: readonly ScatterPoint[]): ScatterFit | null {
   return { slope, intercept, sigma, n };
 }
 
+/** A rectangular selection expressed in DATA space (not pixels), so the filter
+ *  is scale-independent and unit-testable. `includeZero` admits uninstrumented
+ *  (0-token) points when the brush covers the gutter column. */
+export interface BrushExtent {
+  readonly ev0: number;
+  readonly ev1: number;
+  readonly tok0: number;
+  readonly tok1: number;
+  readonly includeZero: boolean;
+}
+
+/** Points falling inside a brushed data window, most-productive (highest output
+ *  tokens) first. Zero-token points only qualify when `includeZero` is set AND
+ *  they fall in the events window. Pure — the linked-list panel renders this. */
+export function pointsInBrush(points: readonly ScatterPoint[], b: BrushExtent): ScatterPoint[] {
+  const [ev0, ev1] = b.ev0 <= b.ev1 ? [b.ev0, b.ev1] : [b.ev1, b.ev0];
+  const [tok0, tok1] = b.tok0 <= b.tok1 ? [b.tok0, b.tok1] : [b.tok1, b.tok0];
+  return points
+    .filter((p) => {
+      if (p.events < ev0 || p.events > ev1) return false;
+      if (p.zero) return b.includeZero;
+      return p.tokens >= tok0 && p.tokens <= tok1;
+    })
+    .sort((a, z) => z.tokens - a.tokens || z.events - a.events || (a.id < z.id ? -1 : 1));
+}
+
 export function buildScatter(sessions: readonly StorySession[]): ScatterModel {
   const points: ScatterPoint[] = sessions.map((s) => {
     const tokens = s.total_output_tokens ?? 0;

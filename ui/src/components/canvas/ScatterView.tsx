@@ -4,10 +4,12 @@
  *  (uninstrumented agents) sit in a labeled gutter rather than being dropped.
  *  Click a point → open its session. Pure model + fit in lib/sessions-scatter. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { scaleLog, scaleSqrt } from "d3-scale";
+import { brush as d3brush } from "d3-brush";
+import { select } from "d3-selection";
 import type { StorySession } from "@/lib/story-api";
-import { buildScatter, type ScatterPoint } from "@/lib/sessions-scatter";
+import { buildScatter, pointsInBrush, type ScatterPoint } from "@/lib/sessions-scatter";
 import { agentColor } from "@/lib/agent-color";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 import { formatDuration } from "@/lib/time";
@@ -30,6 +32,8 @@ function quantile(sorted: number[], p: number): number {
 export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
   const model = useMemo(() => buildScatter(sessions), [sessions]);
   const [hover, setHover] = useState<{ p: ScatterPoint; x: number; y: number } | null>(null);
+  const [brushed, setBrushed] = useState<ScatterPoint[] | null>(null);
+  const [selecting, setSelecting] = useState(false);
 
   const plotLeft = M.left + GUTTER_W;
   const plotRight = width - M.right;
@@ -40,6 +44,31 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
   const maxTok = Math.max(10, ...model.points.map((p) => p.tokens));
   const x = useMemo(() => scaleLog().domain([1, maxEv]).range([plotLeft, plotRight]).clamp(true), [maxEv, plotLeft, plotRight]);
   const y = useMemo(() => scaleLog().domain([1, maxTok]).range([plotBottom, plotTop]).clamp(true), [maxTok, plotBottom, plotTop]);
+
+  // 2-D brush over the log-log cloud → linked list of the selected sessions.
+  // Selection is in pixels; convert to a DATA-space extent so the tested pure
+  // filter (pointsInBrush) decides membership. Gutter/zero points stay out.
+  const brushRef = useRef<SVGGElement | null>(null);
+  useEffect(() => {
+    const g = brushRef.current;
+    if (!g || !selecting) return;
+    const b = d3brush<unknown>()
+      .extent([[plotLeft, plotTop], [plotRight, plotBottom]])
+      .on("brush end", (ev) => {
+        const sel = ev.selection as [[number, number], [number, number]] | null;
+        if (!sel) { setBrushed(null); return; }
+        const [[x0, y0], [x1, y1]] = sel;
+        const hits = pointsInBrush(model.points, {
+          ev0: x.invert(x0), ev1: x.invert(x1),
+          tok0: y.invert(y1), tok1: y.invert(y0), // y is inverted (top = high)
+          includeZero: false,
+        });
+        setBrushed(hits);
+      });
+    const sel = select(g);
+    sel.call(b);
+    return () => { sel.on(".brush", null); sel.selectAll("*").remove(); };
+  }, [model, x, y, plotLeft, plotRight, plotTop, plotBottom, selecting]);
 
   // winsorize duration at p99 for sizing
   const rSize = useMemo(() => {
@@ -98,18 +127,60 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
         {model.points.map((p) => {
           const px = p.zero ? M.left + GUTTER_W / 2 : x(Math.max(1, p.events));
           const py = p.zero ? plotTop + ((hashJitter(p.id) * (plotBottom - plotTop))) : y(Math.max(1, p.tokens));
+          const inBrush = brushed?.some((b) => b.id === p.id);
+          const dim = selecting && brushed != null && !inBrush;
           return (
             <circle
               key={p.id} data-scatter-point={p.id}
-              cx={px} cy={py} r={rSize(p.durationMs)} fill={agentColor(p.agent)} fillOpacity={0.62}
-              className="cursor-pointer"
-              onMouseEnter={() => setHover({ p, x: px, y: py })}
-              onMouseLeave={() => setHover((h) => (h?.p.id === p.id ? null : h))}
-              onClick={() => onOpenSession(p.id)}
+              cx={px} cy={py} r={rSize(p.durationMs)} fill={agentColor(p.agent)} fillOpacity={dim ? 0.12 : 0.62}
+              stroke={inBrush ? "#c0caf5" : "none"} strokeWidth={inBrush ? 1 : 0}
+              className={selecting ? "" : "cursor-pointer"}
+              onMouseEnter={selecting ? undefined : () => setHover({ p, x: px, y: py })}
+              onMouseLeave={selecting ? undefined : () => setHover((h) => (h?.p.id === p.id ? null : h))}
+              onClick={selecting ? undefined : () => onOpenSession(p.id)}
             />
           );
         })}
+
+        {/* marquee brush layer — only mounted in Select mode so it doesn't steal
+            clicks from points otherwise. */}
+        {selecting && <g ref={brushRef} data-testid="scatter-brush" />}
       </svg>
+
+      {/* Select-mode toggle */}
+      <button
+        onClick={() => { setSelecting((s) => !s); setBrushed(null); setHover(null); }}
+        className={`absolute right-3 top-3 z-10 rounded border px-2 py-1 text-[10px] transition-colors ${
+          selecting ? "border-[#7aa2f7] bg-[#7aa2f7] text-[#1a1b26]" : "border-[#2f3348] bg-[#1a1b26] text-[#a9b1d6] hover:border-[#7aa2f7]"
+        }`}
+        title="Drag a box over the cloud to list those sessions"
+      >
+        {selecting ? "Selecting — drag a box" : "Select"}
+      </button>
+
+      {/* linked list of brushed sessions */}
+      {selecting && brushed && brushed.length > 0 && (
+        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[#2f3348] bg-[#1a1b26]/95 p-2 shadow-xl">
+          <div className="mb-1 flex items-center justify-between text-[10px] text-[#565f89]">
+            <span>{brushed.length} session{brushed.length === 1 ? "" : "s"} selected</span>
+            <span>out tok</span>
+          </div>
+          <div className="flex flex-col divide-y divide-[#2f3348]/60">
+            {brushed.slice(0, 40).map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onOpenSession(p.id)}
+                className="flex items-center gap-2 py-1 text-left hover:bg-[#24283b]"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: agentColor(p.agent) }} />
+                <span className="min-w-0 flex-1 truncate text-[11px] text-[#c0caf5]">{cleanHarnessPreview(p.label)}</span>
+                <span className="shrink-0 text-[10px] tabular-nums text-[#7aa2f7]">{kfmt(p.tokens)}</span>
+              </button>
+            ))}
+            {brushed.length > 40 && <div className="pt-1 text-[9px] text-[#565f89]">+{brushed.length - 40} more…</div>}
+          </div>
+        </div>
+      )}
 
       {hover && (
         <div className="pointer-events-none absolute z-10 rounded border border-[#2f3348] bg-[#1a1b26] px-2 py-1 text-[10px] text-[#c0caf5] shadow-lg" style={{ left: Math.min(hover.x + 10, width - 160), top: hover.y - 8 }}>
