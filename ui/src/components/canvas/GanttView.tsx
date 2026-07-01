@@ -12,6 +12,7 @@ import { timeFormat } from "d3-time-format";
 import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
 import { buildGantt } from "@/lib/sessions-gantt";
+import { agentColor } from "@/lib/agent-color";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 
 interface Props {
@@ -22,11 +23,6 @@ interface Props {
   nowMs: number;
   onOpenSession: (id: string) => void;
 }
-
-const AGENT_COLORS: Record<string, string> = {
-  "claude-code": "#7aa2f7", openactor: "#bb9af7", "pi-mono": "#9ece6a", codex: "#e0af68", pi: "#2ac3de", hermes: "#ff9e64",
-};
-const agentColor = (a: string) => AGENT_COLORS[a] ?? "#565f89";
 
 const GUTTER = 96;
 const LANE_H = 14;
