@@ -41,12 +41,18 @@ const SESSIONS = [
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => ({
-      ok: true,
-      statusText: "OK",
-      status: 200,
-      json: async () => (String(url).includes("/api/sessions") && !String(url).includes("/records") ? { sessions: SESSIONS } : []),
-    })),
+    vi.fn(async (url: string) => {
+      const u = String(url);
+      const body = () => {
+        // the session list (no id-scoped suffix)
+        if (/\/api\/sessions(\?|$)/.test(u)) return { sessions: SESSIONS };
+        // drill-in detail endpoints — object for synopsis, arrays for the rest
+        if (u.includes("/synopsis")) return null;
+        // records + file-impact / errors / tool-journey
+        return [];
+      };
+      return { ok: true, statusText: "OK", status: 200, json: async () => body() };
+    }),
   );
 });
 
@@ -85,6 +91,26 @@ describe("OverviewView (integration)", () => {
     // recovering clears filters and the sessions come back
     fireEvent.click(screen.getByText("Reset filters"));
     await waitFor(() => expect(document.querySelectorAll("[data-session-row]").length).toBeGreaterThan(0));
+  });
+
+  it("navigates the list with j/k and opens the highlighted session on Enter", async () => {
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
+    await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(2));
+
+    const list = screen.getByLabelText(/session list/i);
+    fireEvent.keyDown(list, { key: "j" }); // → row 0
+    fireEvent.keyDown(list, { key: "j" }); // → row 1
+    const rows = document.querySelectorAll("[data-session-row]");
+    expect(rows[1]?.getAttribute("data-highlighted")).toBe("true");
+    expect(rows[0]?.getAttribute("data-highlighted")).toBeNull();
+
+    // k moves back up to row 0
+    fireEvent.keyDown(list, { key: "k" });
+    expect(document.querySelectorAll("[data-session-row]")[0]?.getAttribute("data-highlighted")).toBe("true");
+
+    // Enter opens the highlighted session's drill-in
+    fireEvent.keyDown(list, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText(/open in explore/i)).toBeInTheDocument());
   });
 
   it("shows a Recent strip of previously-opened sessions", async () => {

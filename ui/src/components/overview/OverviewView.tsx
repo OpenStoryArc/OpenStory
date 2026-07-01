@@ -7,8 +7,9 @@
  *  session's activity ribbon + full stats summary.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { nextRowIndex } from "@/lib/keyboard-nav";
 import type { StorySession } from "@/lib/story-api";
 import { buildHash, type HashRoute, type OverviewRoute } from "@/lib/hash-route";
 import {
@@ -134,11 +135,13 @@ function FacetGroup({
 function SessionRow({
   s,
   selected,
+  highlighted,
   isBusiest,
   onClick,
 }: {
   s: StorySession;
   selected: boolean;
+  highlighted: boolean;
   isBusiest: boolean;
   onClick: () => void;
 }) {
@@ -149,9 +152,11 @@ function SessionRow({
     <button
       onClick={onClick}
       data-session-row={s.session_id}
+      data-highlighted={highlighted ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-3 border-b border-[#2f3348]/60 px-3 py-2 text-left transition-colors",
         selected ? "bg-[#2f3348]" : "hover:bg-[#24283b]",
+        highlighted && "ring-1 ring-inset ring-[#7aa2f7]",
       )}
     >
       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
@@ -244,6 +249,39 @@ export function OverviewView({ route, onNavigate }: Props) {
   const openSession = (id: string) => {
     setSelectedId(id);
     record(id);
+  };
+
+  // Keyboard navigation for the session list (j/k or arrows, Enter to open).
+  const [highlight, setHighlight] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setHighlight(null); }, [sorted]);
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    const key = e.key;
+    if (key === "ArrowDown" || key === "j") {
+      e.preventDefault();
+      setHighlight((h) => {
+        const next = nextRowIndex(sorted.length, h, "down");
+        if (next != null) scrollRowIntoView(next);
+        return next;
+      });
+    } else if (key === "ArrowUp" || key === "k") {
+      e.preventDefault();
+      setHighlight((h) => {
+        const next = nextRowIndex(sorted.length, h, "up");
+        if (next != null) scrollRowIntoView(next);
+        return next;
+      });
+    } else if (key === "Enter" && highlight != null) {
+      e.preventDefault();
+      const s = sorted[highlight];
+      if (s) openSession(s.session_id);
+    }
+  };
+  const scrollRowIntoView = (i: number) => {
+    requestAnimationFrame(() => {
+      const el = listRef.current?.querySelectorAll("[data-session-row]")[i] as HTMLElement | undefined;
+      el?.scrollIntoView?.({ block: "nearest" });
+    });
   };
 
   const setFacet = (k: keyof OverviewFilters) => (val: string | undefined) =>
@@ -348,7 +386,13 @@ export function OverviewView({ route, onNavigate }: Props) {
 
         {/* Session list + drill-in */}
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <div
+            ref={listRef}
+            className="min-w-0 flex-1 overflow-y-auto outline-none"
+            tabIndex={0}
+            onKeyDown={onListKeyDown}
+            aria-label="Session list (j/k to navigate, Enter to open)"
+          >
             {/* Recent strip — frecency where the eye already is */}
             {!loading && recentSessions.length > 0 && !active && (
               <div className="flex items-center gap-2 overflow-x-auto border-b border-[#2f3348] bg-[#1a1b26] px-3 py-1.5" data-testid="recent-strip">
@@ -385,11 +429,12 @@ export function OverviewView({ route, onNavigate }: Props) {
                 )}
               </div>
             ) : (
-              sorted.map((s) => (
+              sorted.map((s, i) => (
                 <SessionRow
                   key={s.session_id}
                   s={s}
                   selected={selectedId === s.session_id}
+                  highlighted={highlight === i}
                   isBusiest={s.session_id === busiestId}
                   onClick={() => openSession(s.session_id)}
                 />

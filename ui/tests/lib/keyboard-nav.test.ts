@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { nextCardIndex } from "@/lib/keyboard-nav";
+import { nextCardIndex, nextRowIndex } from "@/lib/keyboard-nav";
+
+describe("nextRowIndex (flat list, clamped)", () => {
+  const CASES: [string, number, number | null, "up" | "down", number | null][] = [
+    ["empty list → null", 0, null, "down", null],
+    ["null down → first", 5, null, "down", 0],
+    ["null up → last", 5, null, "up", 4],
+    ["down moves forward", 5, 1, "down", 2],
+    ["up moves back", 5, 3, "up", 2],
+    ["down at end stays", 5, 4, "down", 4],
+    ["up at start stays", 5, 0, "up", 0],
+  ];
+  it.each(CASES)("%s", (_d, len, current, dir, expected) => {
+    expect(nextRowIndex(len, current, dir)).toBe(expected);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Helper: row factory

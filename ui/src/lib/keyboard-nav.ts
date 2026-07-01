@@ -5,6 +5,21 @@
  * skipping turn divider rows.
  */
 
+/** Next index for a flat list (no dividers). Clamps at the ends — no wrap.
+ *  A null current starts at the first (down) or last (up) row. */
+export function nextRowIndex(
+  length: number,
+  current: number | null,
+  direction: "up" | "down",
+): number | null {
+  if (length === 0) return null;
+  if (current === null) return direction === "down" ? 0 : length - 1;
+  const next = current + (direction === "down" ? 1 : -1);
+  if (next < 0) return 0;
+  if (next >= length) return length - 1;
+  return next;
+}
+
 export function nextCardIndex(
   rows: readonly { category: string }[],
   currentIndex: number | null,
