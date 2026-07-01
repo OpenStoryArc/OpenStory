@@ -22,9 +22,10 @@ import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SpaceFillingView } from "./SpaceFillingView";
 import { GanttView } from "./GanttView";
 import { ScatterView } from "./ScatterView";
+import { ToolFlowView } from "./ToolFlowView";
 import { cn } from "@/lib/cn";
 
-type ViewMode = "board" | "sunburst" | "treemap" | "gantt" | "scatter";
+type ViewMode = "board" | "sunburst" | "treemap" | "gantt" | "scatter" | "flow";
 
 interface Props {
   onNavigate: (route: HashRoute) => void;
@@ -124,7 +125,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
         {/* toolbar */}
         <div className="flex items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
           <div className="flex rounded border border-[#3b4261] p-0.5">
-            {(["board", "sunburst", "treemap", "gantt", "scatter"] as ViewMode[]).map((m) => (
+            {(["board", "sunburst", "treemap", "gantt", "scatter", "flow"] as ViewMode[]).map((m) => (
               <button key={m} onClick={() => setViewMode(m)} className={cn("rounded px-2 py-0.5 text-[11px] capitalize transition-colors", viewMode === m ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{m}</button>
             ))}
           </div>
@@ -159,6 +160,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
             <GanttView sessions={universe} groupBy={groupBy} width={size.w} height={size.h} nowMs={nowMs} onOpenSession={openSessionPanel} />
           ) : viewMode === "scatter" ? (
             <ScatterView sessions={universe} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
+          ) : viewMode === "flow" ? (
+            <ToolFlowView sessions={universe} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : viewMode !== "board" ? (
             <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : (
