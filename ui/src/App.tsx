@@ -21,7 +21,8 @@ import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
-import { controlToRoute } from "@/lib/ui-control";
+import { interpretControl } from "@/lib/ui-control";
+import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
 const STATUS_INDICATOR = {
@@ -44,17 +45,24 @@ export function App() {
   const [route, navigate] = useHashRoute();
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
+  const [present, setPresent] = useState<Presentation | null>(null);
 
   // Agent-in-UI WRITE seam: react to `control` view-intents broadcast over the
   // WebSocket (an MCP/operator posts to /api/control). The UI is a sink — it
-  // navigates in response; it never drives itself. Every drive is made visible
-  // ("driven by X") so the mirror stays seizable, not a leash.
+  // reacts; it never drives itself. Every drive is made visible ("driven by X"
+  // + a dismissible present banner) so the mirror stays seizable, not a leash.
   useEffect(() => {
     const sub = wsMessages$().subscribe((msg) => {
       if (msg.kind !== "control") return;
-      const target = controlToRoute(msg.action, msg.params);
-      if (target) navigate(target);
-      setDrivenBy(typeof msg.issuer === "string" && msg.issuer ? msg.issuer : "an agent");
+      const issuer = typeof msg.issuer === "string" && msg.issuer ? msg.issuer : "an agent";
+      const action = interpretControl(msg.action, msg.params);
+      if (action?.type === "navigate") {
+        navigate(action.route);
+      } else if (action?.type === "present") {
+        if (action.route) navigate(action.route);
+        setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
+      }
+      setDrivenBy(issuer);
     });
     return () => sub.unsubscribe();
   }, [navigate]);
@@ -153,6 +161,11 @@ export function App() {
           </div>
         </div>
       </header>
+
+      {/* Agent "present" banner — the write seam's message-to-you surface */}
+      {present && (
+        <PresentBanner present={present} onNavigate={navigate} onDismiss={() => setPresent(null)} />
+      )}
 
       {/* Live tab */}
       {viewMode === "live" && (

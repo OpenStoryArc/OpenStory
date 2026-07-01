@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { controlToRoute } from "@/lib/ui-control";
+import { controlToRoute, interpretControl } from "@/lib/ui-control";
 
 describe("controlToRoute", () => {
   it("resolves open_view with a hash route to a parsed route", () => {
@@ -46,6 +46,60 @@ describe("controlToRoute", () => {
       () => controlToRoute("open_view", { foo: "bar" }),
       (r) => r,
       (r) => expect(r).toBeNull(),
+    );
+  });
+});
+
+describe("interpretControl (control vocabulary)", () => {
+  it("maps open_view to a navigate action", () => {
+    scenario(
+      () => interpretControl("open_view", { route: "#/story/s1" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") expect(a.route.sessionId).toBe("s1");
+      },
+    );
+  });
+
+  it("maps present (message + sessionIds + route) to a present action", () => {
+    scenario(
+      () => interpretControl("present", { message: "look at these failures", sessionIds: ["a", 3, "b"], route: "#/overview" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("present");
+        if (a?.type === "present") {
+          expect(a.message).toBe("look at these failures");
+          expect(a.sessionIds).toEqual(["a", "b"]); // non-strings filtered
+          expect(a.route?.view).toBe("overview");
+        }
+      },
+    );
+  });
+
+  it("treats highlight/announce as present aliases", () => {
+    scenario(
+      () => ({
+        hi: interpretControl("highlight", { sessionIds: ["x"] }),
+        an: interpretControl("announce", { note: "heads up" }),
+      }),
+      (r) => r,
+      (r) => {
+        expect(r.hi?.type).toBe("present");
+        expect(r.an?.type).toBe("present");
+        if (r.an?.type === "present") expect(r.an.message).toBe("heads up");
+      },
+    );
+  });
+
+  it("returns null for an empty present and unknown actions", () => {
+    scenario(
+      () => ({ empty: interpretControl("present", {}), unknown: interpretControl("frobnicate", { x: 1 }) }),
+      (r) => r,
+      (r) => {
+        expect(r.empty).toBeNull();
+        expect(r.unknown).toBeNull();
+      },
     );
   });
 });

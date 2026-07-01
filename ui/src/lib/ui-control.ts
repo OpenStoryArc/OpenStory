@@ -1,9 +1,10 @@
-/** Pure mapping from an agent "view intent" (control message) to a UI action.
- *  The write side of the agent-in-UI seam: an MCP/operator posts to
+/** Pure interpreter for agent "view intents" (control messages) → typed UI
+ *  actions. The write side of the agent-in-UI seam: an MCP/operator posts to
  *  /api/control, the server broadcasts a `control` message, and the UI reacts.
- *  This module decides WHAT to do — kept pure so the vocabulary is tested
- *  independently of the React/WS boundary. Only steers what the dashboard shows,
- *  never the observed sources ("drive the mirror, never the watched"). */
+ *  This module owns the CONTROL VOCABULARY — what an agent can ask the dashboard
+ *  to do — kept pure so coverage of the problem space is tested independently of
+ *  the React/WS boundary. It only steers what the dashboard shows, never the
+ *  observed sources ("drive the mirror, never the watched"). */
 
 import { parseHash, type HashRoute } from "@/lib/hash-route";
 
@@ -12,25 +13,66 @@ export interface ControlParams {
   view?: string;
   sessionId?: string;
   detailView?: string;
+  message?: string;
+  note?: string;
+  sessionIds?: unknown;
   [k: string]: unknown;
 }
 
-/** For `open_view`, resolve the navigation route (or null if the intent isn't a
- *  navigation or is malformed). Accepts either a hash `route` string
- *  ("#/explore/abc" or "/explore/abc") or structured `{ view, sessionId, … }`. */
+/** A typed UI action, ready to apply. The discriminated union grows as the
+ *  control vocabulary covers more of the UI's surface. */
+export type UIControlAction =
+  | { readonly type: "navigate"; readonly route: HashRoute }
+  | {
+      readonly type: "present";
+      readonly message: string;
+      readonly sessionIds: readonly string[];
+      /** optional deep-link the human can jump to from the banner. */
+      readonly route: HashRoute | null;
+    };
+
+/** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
+ *  to a HashRoute, tolerating a missing leading # or /. */
+function resolveRoute(route: string): HashRoute {
+  const hash = route.startsWith("#") ? route : `#${route.startsWith("/") ? "" : "/"}${route}`;
+  return parseHash(hash);
+}
+
+/** For `open_view`, the navigation route (or null if malformed). Accepts a hash
+ *  `route` string or structured `{ view, sessionId, detailView }`. */
 export function controlToRoute(action: string, params: unknown): HashRoute | null {
   if (action !== "open_view") return null;
   const p = (params ?? {}) as ControlParams;
-
-  if (typeof p.route === "string" && p.route.trim()) {
-    const hash = p.route.startsWith("#") ? p.route : `#${p.route.startsWith("/") ? "" : "/"}${p.route}`;
-    return parseHash(hash);
-  }
+  if (typeof p.route === "string" && p.route.trim()) return resolveRoute(p.route);
   if (typeof p.view === "string" && p.view.trim()) {
     const r: HashRoute = { view: p.view as HashRoute["view"] };
     if (typeof p.sessionId === "string") r.sessionId = p.sessionId;
     if (typeof p.detailView === "string") r.detailView = p.detailView as HashRoute["detailView"];
     return r;
+  }
+  return null;
+}
+
+/** Interpret a control intent into a typed UI action, or null if unrecognized /
+ *  malformed. This is the dispatch table for the whole control vocabulary. */
+export function interpretControl(action: string, params: unknown): UIControlAction | null {
+  if (action === "open_view") {
+    const route = controlToRoute(action, params);
+    return route ? { type: "navigate", route } : null;
+  }
+  // The "present" class: an agent shows the human something — a message and/or a
+  // spotlight on sessions, optionally with a jump. `announce`/`highlight` are
+  // aliases so callers can use whichever verb reads best.
+  if (action === "present" || action === "announce" || action === "highlight") {
+    const p = (params ?? {}) as ControlParams;
+    const message =
+      typeof p.message === "string" ? p.message : typeof p.note === "string" ? p.note : "";
+    const sessionIds = Array.isArray(p.sessionIds)
+      ? p.sessionIds.filter((x): x is string => typeof x === "string")
+      : [];
+    const route = typeof p.route === "string" && p.route.trim() ? resolveRoute(p.route) : null;
+    if (!message.trim() && sessionIds.length === 0 && !route) return null;
+    return { type: "present", message, sessionIds, route };
   }
   return null;
 }
