@@ -399,3 +399,55 @@ Take **task #14 — the Story summary spine**. A small `SessionSummaryLoader`
 `SessionSummaryHeader`) mounted atop the Story main pane, so all three session
 views share one header. Safe, reuses existing tested components; verify via the
 build + a focused loader test (mocked fetch → header renders).
+
+---
+
+## Review #9 — After the Story summary spine
+
+**Shipped this iteration:** `SessionSummaryLoader` → the shared spine now sits
+atop Explore, the Overview drill-in, AND Story. The three session views cohere.
+
+### State of the round
+
+Twelve iterations in, the session-visibility mandate is substantially met:
+
+- **See a session's shape** — activity ribbon (D3 swimlanes + token burn).
+- **See where time went** — tool trace waterfall with durations.
+- **See it at a glance** — the shared, actionable SessionSummary spine (errors
+  and files are clickable).
+- **See the whole corpus** — Overview dashboard (calendar heatmap + facets +
+  sortable list), shareable via URL.
+- **Find/return to sessions** — ⌘K palette with frecency recents, Story find.
+- **Read it honestly** — harness-message untruncation, skeletons, warm empties.
+
+### UX critique — remaining work is polish and reach, not capability
+
+1. **Recents live only in ⌘K.** Surface a quiet "Recent" strip atop the Overview
+   list so frecency shows where the eye already is. Small, safe. → next (task #15).
+2. **Overview stat-bar numbers still inert** (Review #7). Cheap: events → sort by
+   events, sessions → clear filters.
+3. **Motion** — the one unshipped design-review ask (Apple). A single shared
+   transition token remains the highest-leverage pure-polish item.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **Apple / Airbnb** — coherence achieved (same spine everywhere); the product
+  now reads as designed. The next tier of "considered" is *motion* — but it's
+  hard to verify without a screenshot here, so it's a supervised-friendly item.
+- **Design debt — token pass (task #12)** — still the biggest deliberate
+  omission, still supervised-only for the stated reason (visual-regression risk
+  vs. no-screenshot env). It is documented and ready.
+
+### Loop status
+
+The big gaps are closed. Remaining items are small polish (recents strip,
+clickable stats) plus two supervised-only iterations (color tokens, motion). A
+PR off this branch is ready whenever wanted. The loop continues on low-risk
+polish until redirected or stopped.
+
+### Next iteration
+
+Take **task #15 — an Overview "Recent" strip**. Reuse `useRecents` + the session
+list to render up to 5 frecency-ranked recent sessions as a quiet row above the
+list, click-to-drill-in. Verify via a focused test (given recent ids + sessions,
+the strip renders those sessions in order).
