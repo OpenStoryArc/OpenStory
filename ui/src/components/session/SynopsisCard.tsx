@@ -3,6 +3,7 @@
 import type { SessionSynopsis } from "@/lib/session-detail";
 import { deriveSynopsisMetrics } from "@/lib/session-detail";
 import { toolColor } from "@/lib/tool-colors";
+import { cleanHarnessPreview } from "@/lib/harness-message";
 
 interface SynopsisCardProps {
   synopsis: SessionSynopsis;
@@ -41,7 +42,7 @@ export function SynopsisCard({ synopsis }: SynopsisCardProps) {
         <div className="flex items-center gap-2 text-[11px] text-[#565f89]">
           {synopsis.project_name && <span>{synopsis.project_name}</span>}
           {synopsis.label && synopsis.project_name && <span>·</span>}
-          {synopsis.label && <span className="text-[#c0caf5]">{synopsis.label}</span>}
+          {synopsis.label && <span className="text-[#c0caf5]">{cleanHarnessPreview(synopsis.label)}</span>}
         </div>
       )}
     </div>

@@ -32,7 +32,9 @@ describe("SessionSummaryHeader", () => {
   it("surfaces errors as a distinct, first-class stat", () => {
     render(<SessionSummaryHeader records={RECORDS} />);
     const err = screen.getByTestId("summary-errors");
-    expect(err).toHaveTextContent(/1 error/i);
+    // labeled "failed" to match the trace's terminology and avoid clashing with
+    // the synopsis "Errors" (system errors) shown on the same Explore screen
+    expect(err).toHaveTextContent(/1 failed/i);
   });
 
   it("hides the error stat when there are none", () => {

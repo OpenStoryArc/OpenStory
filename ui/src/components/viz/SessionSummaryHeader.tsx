@@ -63,12 +63,12 @@ export function SessionSummaryHeader({ records, className, onJumpToError, onFilt
             title="Jump to the first failure"
           >
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}error{s.errorCount === 1 ? "" : "s"} →</span>
+            <span>{" "}failed →</span>
           </button>
         ) : (
           <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}error{s.errorCount === 1 ? "" : "s"}</span>
+            <span>{" "}failed</span>
           </span>
         )
       )}
