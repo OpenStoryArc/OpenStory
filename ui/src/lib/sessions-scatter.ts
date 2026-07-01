@@ -82,6 +82,26 @@ export function pointsInBrush(points: readonly ScatterPoint[], b: BrushExtent): 
     .sort((a, z) => z.tokens - a.tokens || z.events - a.events || (a.id < z.id ? -1 : 1));
 }
 
+/** Deterministic jitter offset within a disk of `radius` px, derived from the
+ *  session id. Used to declutter overplotted points — dozens of 1-event sessions
+ *  otherwise stack on the y-axis at x=1 and read as a rendering glitch. Uniform
+ *  over the disk (sqrt on the radius) so the spread looks even, not clumped at
+ *  the center. Pure → tested. */
+export function pointJitter(id: string, radius: number): { dx: number; dy: number } {
+  if (radius <= 0) return { dx: 0, dy: 0 };
+  // Two independent hashes (different seeds/multipliers) so angle and radius
+  // don't correlate for short, similar ids like "s0".."s49".
+  let h1 = 2166136261, h2 = 5381;
+  for (let i = 0; i < id.length; i++) {
+    const c = id.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 16777619);
+    h2 = (h2 * 33 + c) | 0;
+  }
+  const angle = ((h1 >>> 0) / 4294967296) * 2 * Math.PI;
+  const r = radius * Math.sqrt(((h2 >>> 0) / 4294967296));
+  return { dx: Math.cos(angle) * r, dy: Math.sin(angle) * r };
+}
+
 export function buildScatter(sessions: readonly StorySession[]): ScatterModel {
   const points: ScatterPoint[] = sessions.map((s) => {
     const tokens = s.total_output_tokens ?? 0;

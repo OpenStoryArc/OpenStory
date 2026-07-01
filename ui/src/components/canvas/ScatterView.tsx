@@ -9,7 +9,7 @@ import { scaleLog, scaleSqrt } from "d3-scale";
 import { brush as d3brush } from "d3-brush";
 import { select } from "d3-selection";
 import type { StorySession } from "@/lib/story-api";
-import { buildScatter, pointsInBrush, type ScatterPoint } from "@/lib/sessions-scatter";
+import { buildScatter, pointsInBrush, pointJitter, type ScatterPoint } from "@/lib/sessions-scatter";
 import { agentColor } from "@/lib/agent-color";
 import { AgentLegend } from "./AgentLegend";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -127,8 +127,16 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
 
         {/* points */}
         {model.points.map((p) => {
-          const px = p.zero ? M.left + GUTTER_W / 2 : x(Math.max(1, p.events));
-          const py = p.zero ? plotTop + ((hashJitter(p.id) * (plotBottom - plotTop))) : y(Math.max(1, p.tokens));
+          // Non-zero points get a small deterministic jitter so the ~73 1-event
+          // sessions don't stack on the y-axis; clamp so jitter never pushes a
+          // point into the gutter or off-plot.
+          const j = pointJitter(p.id, p.zero ? GUTTER_W / 2 - 4 : 5);
+          const px = p.zero
+            ? M.left + GUTTER_W / 2 + j.dx // spread across the gutter width, not one line
+            : Math.min(plotRight, Math.max(plotLeft, x(Math.max(1, p.events)) + j.dx));
+          const py = p.zero
+            ? plotTop + hashJitter(p.id) * (plotBottom - plotTop)
+            : Math.min(plotBottom, Math.max(plotTop, y(Math.max(1, p.tokens)) + j.dy));
           const inBrush = brushed?.some((b) => b.id === p.id);
           const dim = selecting && brushed != null && !inBrush;
           return (
