@@ -115,3 +115,54 @@ from `tool_call`→`tool_result` timestamps, subagents nested. Build the pure
 `tool_call`/`tool_result` pairing + duration model **test-first** (discovery:
 the timestamp-pairing edge cases — missing results, interleaved calls,
 out-of-order seq — are exactly what tests should surface), then the D3 view.
+
+---
+
+## Review #3 — After the turn trace / duration waterfall
+
+**Shipped this iteration:** `TurnTraceView` — tool calls as a duration
+waterfall (slowest ringed, failures flagged, unresolved calls hatched), mounted
+in Explore (click-linked to event cards) and the Overview drill-in. Built
+model-first; the pairing edge cases were discovered by the specs, not guessed.
+
+### UX critique
+
+Durations are finally visible (Reviews #1/#2 #1 → done). What's now exposed:
+
+1. **The three session views don't share a spine.** Explore has ribbon+trace,
+   Overview drill-in has ribbon+trace+stats, Story has sentences. A senior dev
+   mentally re-orients each time. A single **SessionSummary** header (duration,
+   tokens, tool count, error count, top files) reused across all three would
+   make the app feel like one product.
+2. **Nothing is deep-linkable except the session id.** Overview filters and the
+   trace's selected span vanish on reload; you can't send a teammate "the failed
+   Bash at 10:04." → shareable, URL-encoded state (Review #1 #3, still open).
+3. **Errors still aren't first-class.** The trace flags them, but you must open
+   a session to see it. Sidebar/list rows should carry a red error dot so you
+   can triage failures without drilling in.
+4. **No frecency.** ⌘K and the lists order by recency-of-event, not
+   recency-of-*your-attention*. Track recently-viewed sessions client-side.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **GitHub Actions** — our waterfall is close to their job-timing view; adopt
+  their "N% of total" per-span hint so a bar's share of the turn is legible at a
+  glance, not just its absolute ms.
+- **Apple** — still no motion. The trace bars and ribbon marks should ease in;
+  the drill-in should slide. One shared 120–160ms transition token, applied
+  consistently, is the highest-leverage polish left.
+- **Claude / Airbnb** — the trace's left label column (tool + detail) competes
+  with the bar for attention; Airbnb would quiet the detail to a hover and let
+  the bars carry the eye. Tighten the type scale (still 6 body sizes app-wide).
+- **Cross-cutting** — the color-token pass (vars exist, components use inline
+  hex) is now blocking the "one accent" discipline three reviews running. Worth
+  a dedicated iteration.
+
+### Next iteration
+
+Take **shareable session views + a shared SessionSummary header** (critique #1 &
+#2). Encode Overview/Story filters and the selected session/span into the hash
+(extend `lib/hash-route.ts`) so any view is a link, and extract a
+`SessionSummary` model (pure, test-first — it's a fold over records) rendered as
+one header across Explore / Overview / Story. Highest "feels like one product"
+leverage, and directly serves telling-the-story-to-a-teammate.
