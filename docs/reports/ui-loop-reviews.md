@@ -645,3 +645,43 @@ iteration are marked ✓.
 Overview drill-in ribbon+token panel, Story's eval-apply narrative (single best
 feature), Admin's endpoint-honesty dots, Sunburst/Treemap, Board radial bloom,
 Explore Graph constellation, the Live feed with type filters, Users cards.
+
+---
+
+## Review #13 — Canvas polish sprint (post-audit, self-paced loop)
+
+**Date:** 2026-07-01 · **Branch:** `feat/ui-session-visibility`
+
+Worked the queued findings from Review #12's hands-on audit, one tested +
+screenshot-verified increment per loop firing. Each is a pure model + BDD specs,
+then the component. Commits `b303c61`…`b4c53ed`.
+
+**Shipped (in order):**
+1. **Board auto-fit on first load** (P1 #8) — data arrives async after the
+   viewport is measured, so the fit effect fired on an empty model; added a
+   fit-once-when-ready effect. Extracted pure `lib/canvas-fit.ts::fitTransform`
+   (4 specs). Verified 0/4 group nodes clipped on load.
+2. **Flow ribbon/node hover-highlight** — pure `linkActive(link, hover)` (4
+   specs); hovering a ribbon/from-node/to-node lights its path, dims the rest.
+   Verified 47/52 ribbons dimmed on hover.
+3. **Scatter overplotting jitter** (P1 #10) — pure `pointJitter(id, radius)`
+   deterministic disk offset (4 specs); non-zero points ±5px, zero-token gutter
+   spread across its column. Verified gutter 1→222 distinct x.
+4. **Sunburst inline radial labels** — pure `lib/sunburst-label.ts` fit/
+   orientation (5 specs); non-leaf wedges labeled + upright-flipped on the left.
+   Verified 28 labels render.
+5. **Mode-tab icons + per-mode group-by note** — `lib/canvas-modes.ts` (MODE_META
+   + modeUsesGroupBy, 3 specs); tabs get icon+label+tooltip, Scatter/Flow show a
+   note explaining the group-by row's absence.
+6. **Gantt taller concurrency-histogram overview** — pure `overviewDensity(bars,
+   domain, buckets)` (3 specs); 46→68px strip showing active-sessions-over-time
+   instead of folded-lane dot-soup.
+
+**Loop-prompt checklist now:** empty-band collapse ✓, taller overview ✓, sunburst
+labels ✓, Flow faster-load ✓ + hover-highlight ✓, mode icons/group-by clarity ✓,
+scatter brush→list ✓ + jitter ✓, board auto-fit ✓. **Remaining:** sunburst/
+treemap click-zoom *animation* (transitions) — the last unaddressed item.
+
+**Still queued (non-Canvas, from #12):** P1 #2 session-count reconciliation,
+#5 Story empty-subagent landing, #7 palette match-highlight, #9 Conversation
+markdown rendering. UI test count ~1561.
