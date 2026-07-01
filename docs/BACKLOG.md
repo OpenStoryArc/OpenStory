@@ -753,6 +753,56 @@ The current formula declares `depends_on "nats-server"` — homebrew-core forbid
 
 ---
 
+## UI — follow-ups from the session-visibility loop (branch `feat/ui-session-visibility`)
+
+That loop shipped the D3 activity ribbon, Sessions Overview dashboard (calendar +
+facets + shareable URLs), tool-trace duration waterfall, the shared clickable
+SessionSummary spine (across Explore/Overview/Story), ⌘K palette with frecency
+recents, harness-message untruncation, and a shadcn Skeleton polish pass. Per-
+iteration UX+design reviews live in `docs/reports/ui-loop-reviews.md`. The items
+below were deliberately deferred because they need a human in the loop (their
+failure mode is *visual*, which the logic-only test suite can't catch and the
+loop's environment couldn't screenshot).
+
+### Color-token pass — inline hex → CSS variables, enforce one accent
+Components hardcode Tokyonight hex (`bg-[#1a1b26]`, `text-[#c0caf5]`, …) while
+`ui/src/index.css` already defines the matching CSS variables (`--bg`,
+`--bg-surface`, `--accent`, …) that almost nothing references. Migrate the inline
+hex to the tokens, then enforce a single primary accent (blue `#7aa2f7`) with the
+rest demoted to data-encoding only (session/tool/person colors). Unlocks real
+theming and the "one accent" discipline the design reviews kept asking for.
+Flagged in five consecutive reviews; do it as one deliberate, visually-verified
+pass (~30+ components, high churn, regressions are cosmetic so lean on manual QA
+plus the full suite).
+
+### Motion primitive — one shared transition token
+The app has no motion: the ⌘K palette hard-appears, the Overview drill-in pops
+in, ribbon/trace marks don't ease in. Define one shared 120–160ms
+scale/opacity/slide token (Apple's "motion that explains") and apply it
+consistently to the palette, drill-in, and viz mark entrances. Verify visually.
+
+### ⌘K palette actions (not just navigation)
+The palette only navigates. Extend it to run commands the way GitHub/Linear do —
+"copy link to this view", "clear filters", "toggle theme", per-session actions —
+surfaced alongside the session/tab results. Pure command registry + the existing
+fuzzy ranker; low risk once the action model is defined.
+
+### Subagent visibility within a session
+Records already carry `is_sidechain` / `agent_id` / `depth`. The activity ribbon
+and tool-trace could render subagent lanes (indented/nested) so a session's
+delegated work is legible, not flattened. Genuinely new session-visibility value;
+needs a visual pass to get the nesting readable.
+
+### Server-side session label skips harness wrappers
+`rs/store/src/projection.rs:302` sets the label to the first user prompt
+truncated to 50 chars — for `/loop`-style sessions that's harness plumbing
+(`<command-message>…`), so the stored label is noise. The UI now cleans this at
+render (`ui/src/lib/harness-message.ts`), but the source-of-truth label is still
+lossy (affects API consumers, search, exports). Fix: derive the label from the
+first *human* prompt, skipping harness-wrapper content, at ingest.
+
+---
+
 ## Done (not tracked here)
 
 Completed work lives in git history. For reference, major completed features include: pattern detection pipeline (5 detectors), SQLite event store, pub/sub via NATS, live timeline, explore view split, subagent enrichment, stateful BFF projection, enriched event envelopes, view model crate, testcontainers E2E, configurable projects dir, syntax highlighting, and open-source licensing cleanup.

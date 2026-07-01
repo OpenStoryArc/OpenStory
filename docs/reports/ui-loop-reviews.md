@@ -451,3 +451,54 @@ Take **task #15 — an Overview "Recent" strip**. Reuse `useRecents` + the sessi
 list to render up to 5 frecency-ranked recent sessions as a quiet row above the
 list, click-to-drill-in. Verify via a focused test (given recent ids + sessions,
 the strip renders those sessions in order).
+
+---
+
+## Review #10 — Round retrospective (after the Overview Recent strip)
+
+**Shipped this iteration:** Overview "Recent" strip (frecency where the eye is) +
+clickable stat-bar numbers. That closes the last of the small, autonomously-
+verifiable polish items.
+
+### The round, end to end (13 feature iterations, ~1458 UI tests, all TDD-first)
+
+The mandate — *give visibility into sessions* — is met across every axis:
+
+| Question a senior dev asks | Answer shipped |
+|---|---|
+| What did this session *do*, and when? | D3 activity ribbon (swimlanes + token burn) |
+| Where did the *time* go? | Tool-trace duration waterfall |
+| Can I see it *at a glance*? | Shared, clickable SessionSummary spine (all 3 views) |
+| What's the *whole picture*? | Overview dashboard: calendar heatmap + facets + sorts |
+| Can I *share* a view? | URL-encoded Overview filters + Copy link |
+| How do I *find / return* to a session? | ⌘K palette + frecency recents; Story find |
+| Is what I'm reading *honest*? | Harness-message untruncation; skeletons; warm empties |
+
+Process held throughout: every feature = pure model + failing spec first, then
+component; a UX + brand-design review each iteration; nothing merged red.
+
+### What's deliberately NOT done, and why
+
+Three items are in `docs/BACKLOG.md` under "UI — follow-ups", not skipped by
+oversight: the **color-token pass**, a **motion primitive**, and **⌘K actions**
+/ **subagent lanes**. Each shares one property — its failure mode is *visual*
+regression, which the logic-only suite can't catch and this loop's environment
+can't screenshot. Running them blind would trade the round's most valuable
+asset (a green, trustworthy suite) for unverifiable churn. They're specced and
+ready for a supervised pass. This is the honest engineering call.
+
+### Design review — closing note (GitHub · Airbnb · Claude · Apple)
+
+The app now reads as *designed, not assembled*: one spine on every session
+surface (Apple/Airbnb coherence), keyboard-first navigation with memory
+(Linear), shape-matched skeletons (GitHub), calm restraint in type and motion
+(Claude). The single largest remaining lift to "brand-leader" polish is motion —
+and it's a supervised item.
+
+### Status & recommendation
+
+The round has reached a natural completion point. Branch `feat/ui-session-
+visibility` is green (tsc + 1458 tests + build) and PR-ready. Recommended next
+action is **human review / open a PR**, then tackle the BACKLOG UI items with a
+visual pass. Absent direction, the loop slows its cadence rather than manufacture
+marginal features.
