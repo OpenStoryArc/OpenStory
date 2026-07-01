@@ -63,18 +63,21 @@ describe("buildSessionSummary", () => {
     );
   });
 
-  it("sums turn-scoped token usage, ignoring session_total snapshots", () => {
+  it("sums turn-scoped token usage incl. cache, ignoring session_total snapshots", () => {
     scenario(
       () => [
-        rec("token_usage", T(1), 1, { input_tokens: 1000, output_tokens: 200, scope: "turn" }),
-        rec("token_usage", T(2), 2, { input_tokens: 9999, output_tokens: 9999, scope: "session_total" }),
-        rec("token_usage", T(3), 3, { input_tokens: 500, output_tokens: 50, scope: "turn" }),
+        rec("token_usage", T(1), 1, { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: 300, cache_read_input_tokens: 50000, scope: "turn" }),
+        rec("token_usage", T(2), 2, { input_tokens: 9999, output_tokens: 9999, cache_read_input_tokens: 9999, scope: "session_total" }),
+        rec("token_usage", T(3), 3, { input_tokens: 500, output_tokens: 50, cache_read_input_tokens: 20000, scope: "turn" }),
       ],
       (records) => buildSessionSummary(records),
       (s) => {
         expect(s.inputTokens).toBe(1500);
         expect(s.outputTokens).toBe(250);
-        expect(s.totalTokens).toBe(1750);
+        expect(s.cacheCreationTokens).toBe(300);
+        expect(s.cacheReadTokens).toBe(70000);
+        // total now includes cache — the whole point (was 1750, undercounting ~40×)
+        expect(s.totalTokens).toBe(1500 + 250 + 300 + 70000);
       },
     );
   });

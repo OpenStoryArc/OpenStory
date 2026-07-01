@@ -36,6 +36,9 @@ export interface SessionSummary {
   readonly durationMs: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly cacheCreationTokens: number;
+  readonly cacheReadTokens: number;
+  /** All categories summed — input + output + cache write + cache read. */
   readonly totalTokens: number;
   readonly model: string | null;
   readonly topFiles: FileTouch[];
@@ -63,6 +66,8 @@ export function buildSessionSummary(records: readonly WireRecord[]): SessionSumm
   let turnCount = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheCreationTokens = 0;
+  let cacheReadTokens = 0;
   let model: string | null = null;
   let minMs = Infinity;
   let maxMs = -Infinity;
@@ -96,6 +101,8 @@ export function buildSessionSummary(records: readonly WireRecord[]): SessionSumm
         if (u?.scope === "turn") {
           inputTokens += u.input_tokens ?? 0;
           outputTokens += u.output_tokens ?? 0;
+          cacheCreationTokens += u.cache_creation_input_tokens ?? 0;
+          cacheReadTokens += u.cache_read_input_tokens ?? 0;
         }
         break;
       }
@@ -126,7 +133,9 @@ export function buildSessionSummary(records: readonly WireRecord[]): SessionSumm
     durationMs: startMs !== null && endMs !== null ? endMs - startMs : 0,
     inputTokens,
     outputTokens,
-    totalTokens: inputTokens + outputTokens,
+    cacheCreationTokens,
+    cacheReadTokens,
+    totalTokens: inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
     model,
     topFiles,
   };

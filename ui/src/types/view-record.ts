@@ -115,6 +115,11 @@ export interface ToolResult {
 export interface TokenUsage {
   readonly input_tokens?: number;
   readonly output_tokens?: number;
+  /** Tokens written to the prompt cache (cache-creation). */
+  readonly cache_creation_input_tokens?: number;
+  /** Tokens read from the prompt cache — for Claude sessions this dominates,
+   *  often 100-200× the fresh input, so excluding it wildly undercounts usage. */
+  readonly cache_read_input_tokens?: number;
   readonly total_tokens?: number;
   readonly scope: "turn" | "session_total";
 }

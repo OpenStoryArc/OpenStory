@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { WireRecord } from "@/types/wire-record";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
 import { TurnTraceView } from "./TurnTraceView";
+import { TokenReport } from "./TokenReport";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
 
@@ -40,6 +41,10 @@ export function SessionVizLoader({ sessionId }: { sessionId: string }) {
       <div className="mt-1 border-t border-[#2f3348] pt-1">
         <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tool trace</div>
         <TurnTraceView records={records} />
+      </div>
+      <div className="mt-1 border-t border-[#2f3348] pt-1">
+        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tokens</div>
+        <TokenReport records={records} />
       </div>
     </div>
   );
