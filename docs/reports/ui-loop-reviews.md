@@ -265,3 +265,50 @@ skeleton.tsx` (uses the dormant `cn` foundation), then replace the bare loading
 text across Overview / drill-in / ribbon / trace / Story with layout-matched
 skeletons, and give empty states an inline recovery action. Design-led, visible,
 and it finally exercises the shadcn base the round asked for.
+
+---
+
+## Review #6 — After the Skeleton polish pass
+
+**Shipped this iteration:** first shadcn `ui/` primitive (`Skeleton`, calm
+shimmer + reduced-motion), layout-matched skeletons across Overview / drill-in /
+Explore, and a warm empty state with an inline "Reset filters" recovery. Loading
+no longer jars; the shadcn base is finally live.
+
+### UX critique
+
+The surfaces look finished; now make the *numbers do something*:
+
+1. **Stats are still passive.** The SessionSummary header shows "3 errors" and a
+   top file but you can't act on them. Make each stat a verb: click errors →
+   jump to the first failure; click the top file → filter events to it. GitHub
+   makes every count a link; this is the cheapest way to turn *visibility* into
+   *navigation*. → next iteration (task #11).
+2. **Story still lacks the summary spine.** Once the header can take a session
+   id (not just records), Story should carry it too (Review #4 #3, still open).
+3. **No frecency / recents** — carried; ⌘K and lists still order by event
+   recency, not attention recency.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **GitHub** — clickable counts are the pattern to copy: a hover underline + a
+  cursor change tells the eye a number is a link. Apply to the summary stats.
+- **Apple** — with skeletons in, the last jank is the *transition* skeleton →
+  content (a hard swap). One shared fade token would finish the perceived-
+  performance story. Still worth a small motion iteration.
+- **Claude / Airbnb** — restraint holding; the empty state's new warmth is the
+  right direction — extend it to the ⌘K "No matches" state next time we touch it.
+- **Design debt — 5th mention, now escalated to a scheduled iteration.** The
+  color-token pass (CSS vars exist; components hardcode inline hex) blocks the
+  "one accent" discipline and taxes every new component. Filing task #12 to do
+  it deliberately: migrate inline hex to the `--bg/--accent/...` tokens, then
+  enforce one primary accent with the rest demoted to data-encoding.
+
+### Next iteration
+
+Take **task #11 — actionable summary stats**. Extract a pure helper
+(`firstErrorEventId(records)` / file-jump target — test-first, a fold over
+records) and wire the SessionSummary header stats to jump/filter in Explore
+(errors → first failure card, top file → file facet). Turns the one-product
+spine from a readout into a control surface. Then schedule the token-pass
+(task #12).
