@@ -33,7 +33,7 @@ import {
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
 import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
-import { cleanHarnessPreview } from "@/lib/harness-message";
+import { sessionTitle } from "@/lib/session-title";
 import { SessionSummaryLoader } from "@/components/viz/SessionSummaryLoader";
 
 import type { PatternView } from "@/types/wire-record";
@@ -464,7 +464,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
         {visibleSessions.map(s => {
           const isActive = selectedSession === s.session_id;
           const color = sessionColor(s.session_id);
-          const cleaned = s.label && s.label !== s.session_id ? cleanHarnessPreview(s.label) : s.session_id;
+          const cleaned = sessionTitle(s);
           const label = cleaned.length > 40 ? cleaned.slice(0, 37) + "..." : cleaned;
           const cachedCount = sentenceCache.get(s.session_id)?.length;
           const recency = s.last_event ? formatRecency(s.last_event) : null;

@@ -90,6 +90,9 @@ export function cleanHarnessPreview(text: string): string {
     case "system_reminder":
       return "system reminder";
     case "plain":
-      return m.text;
+      // Upstream truncation can leave a dangling harness tag fragment (e.g. a
+      // bare "</command-message>") on an otherwise-plain label. Strip only the
+      // known harness tags so real "<" / ">" in prose survive.
+      return m.text.replace(/<\/?(?:command-(?:message|name|args)|local-command-stdout|system-reminder|task-notification|status|summary|task-id)>/g, "").trim();
   }
 }

@@ -14,6 +14,7 @@ import {
   type ParentSession,
 } from "@/lib/explore";
 import { compactTime, formatDuration } from "@/lib/time";
+import { sessionTitle } from "@/lib/session-title";
 
 // ---------------------------------------------------------------------------
 // Session colors — same palette + hash as Live sidebar
@@ -238,12 +239,15 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
         }`}
         style={isSelected ? { borderLeftColor: color } : undefined}
       >
-        {/* Label / prompt */}
-        {s.first_prompt && (
-          <div className="text-[11px] text-[#c0caf5] truncate leading-tight mb-0.5">
-            {s.first_prompt.length > 60 ? s.first_prompt.slice(0, 60) + "..." : s.first_prompt}
-          </div>
-        )}
+        {/* Human title — label → first_prompt → humanized command, shared with
+            Overview so the same session reads the same everywhere. Hidden when it
+            would just repeat the id chip below. */}
+        {(() => {
+          const title = sessionTitle(s);
+          return title !== s.session_id.slice(0, 8) ? (
+            <div className="text-[11px] text-[#c0caf5] truncate leading-tight mb-0.5">{title}</div>
+          ) : null;
+        })()}
 
         {/* Metadata row */}
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -308,11 +312,7 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
                     style={agentSelected ? { borderLeftColor: agentColor } : undefined}
                   >
                     <div className="text-[10px] text-[#a9b1d6] truncate">
-                      {a.first_prompt
-                        ? a.first_prompt.length > 45
-                          ? a.first_prompt.slice(0, 45) + "..."
-                          : a.first_prompt
-                        : a.session_id.slice(0, 16)}
+                      {sessionTitle(a)}
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span

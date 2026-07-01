@@ -35,7 +35,7 @@ import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
 import { SessionListSkeleton } from "./OverviewSkeletons";
 import { sessionColor } from "@/lib/session-colors";
 import { formatDuration, relativeTime } from "@/lib/time";
-import { cleanHarnessPreview } from "@/lib/harness-message";
+import { sessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -73,12 +73,6 @@ function CopyLinkButton() {
   );
 }
 
-function sessionTitle(s: StorySession): string {
-  const raw = (s.label || s.first_prompt || "").trim();
-  if (!raw) return s.session_id.slice(0, 8);
-  // Humanize harness-wrapper labels (e.g. "/loop …") so the list stays readable.
-  return cleanHarnessPreview(raw).trim() || s.session_id.slice(0, 8);
-}
 
 // ── filter sidebar ──────────────────────────────────────────────────────────
 

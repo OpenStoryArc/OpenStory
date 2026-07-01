@@ -75,3 +75,19 @@ describe("cleanHarnessPreview", () => {
     );
   });
 });
+
+describe("cleanHarnessPreview — stray tag fragments", () => {
+  it("strips a dangling closing command tag left by upstream truncation", () => {
+    // Real data: the leading <command-message> was stripped upstream, leaving a
+    // bare close tag that classify() treats as plain text.
+    expect(cleanHarnessPreview("/openstory:recall</command-message>")).toBe("/openstory:recall");
+  });
+
+  it("strips a trailing stray close-tag fragment from plain text", () => {
+    expect(cleanHarnessPreview("resume the session</command-message>")).toBe("resume the session");
+  });
+
+  it("leaves ordinary text (and its < and >) untouched", () => {
+    expect(cleanHarnessPreview("if a < b and b > c then done")).toBe("if a < b and b > c then done");
+  });
+});

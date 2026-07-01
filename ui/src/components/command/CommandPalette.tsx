@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import type { StorySession } from "@/lib/story-api";
 import { rankItems } from "@/lib/command-palette";
-import { cleanHarnessPreview } from "@/lib/harness-message";
+import { sessionTitle } from "@/lib/session-title";
 import { projectKey } from "@/lib/sessions-overview";
 import { sessionColor } from "@/lib/session-colors";
 import { cn } from "@/lib/cn";
@@ -28,6 +28,8 @@ export interface PaletteItem {
 const TAB_ITEMS: PaletteItem[] = [
   { id: "tab-live", title: "Live", icon: "◉", group: "Navigate", searchText: "live stream realtime", route: { view: "live" } },
   { id: "tab-overview", title: "Overview", icon: "▦", group: "Navigate", searchText: "overview dashboard calendar heatmap sessions", route: { view: "overview" } },
+  { id: "tab-canvas", title: "Canvas", icon: "◇", group: "Navigate", searchText: "canvas board sunburst treemap gantt scatter flow visualize", route: { view: "canvas" } },
+  { id: "tab-ask", title: "Ask", icon: "?", group: "Navigate", searchText: "ask questions insights answers", route: { view: "ask" } },
   { id: "tab-explore", title: "Explore", icon: "⊞", group: "Navigate", searchText: "explore events conversation", route: { view: "explore" } },
   { id: "tab-story", title: "Story", icon: "❧", group: "Navigate", searchText: "story narrative sentences turns", route: { view: "story" } },
   { id: "tab-users", title: "Users", icon: "☺", group: "Navigate", searchText: "users people fleet", route: { view: "users" } },
@@ -39,7 +41,7 @@ export function buildPaletteItems(sessions: readonly StorySession[]): PaletteIte
   const sessionItems: PaletteItem[] = sessions
     .filter((s) => !s.session_id.startsWith("agent-"))
     .map((s) => {
-      const title = s.label && s.label !== s.session_id ? cleanHarnessPreview(s.label) : s.session_id.slice(0, 8);
+      const title = sessionTitle(s);
       const proj = projectKey(s);
       const subtitle = [proj, s.branch, s.user].filter(Boolean).join(" · ");
       return {
