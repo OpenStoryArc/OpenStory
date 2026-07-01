@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
+import { OverviewView } from "@/components/overview/OverviewView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
@@ -145,6 +146,9 @@ export function App() {
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
         />
       )}
+
+      {/* Overview tab */}
+      {viewMode === "overview" && <OverviewView onNavigate={navigate} />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}
