@@ -11,7 +11,7 @@ import { scaleTime } from "d3-scale";
 import { timeFormat } from "d3-time-format";
 import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
-import { buildGantt } from "@/lib/sessions-gantt";
+import { buildGantt, visibleGantt } from "@/lib/sessions-gantt";
 import { agentColor } from "@/lib/agent-color";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 
@@ -62,15 +62,18 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
   }, [xOv, plotW]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ticks = x.ticks(Math.max(3, Math.floor(plotW / 130)));
-  const visibleBars = model.bars.filter((bar) => bar.endMs >= view[0] && bar.startMs <= view[1]);
+  // Collapse to the visible window: bands with no bar in-window are dropped and
+  // lanes re-based, so empty bands don't reserve vertical space as you narrow.
+  const vis = useMemo(() => visibleGantt(model, view), [model, view]);
+  const visibleBars = vis.bars;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#16171f]">
       {/* scrollable lane plot */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <svg width={width} height={Math.max(topH, model.laneCount * LANE_H + 8)} className="block">
+        <svg width={width} height={Math.max(topH, vis.laneCount * LANE_H + 8)} className="block">
           {/* band labels + separators */}
-          {model.bands.map((band) => (
+          {vis.bands.map((band) => (
             <g key={band.name}>
               <line x1={0} x2={width} y1={band.laneStart * LANE_H} y2={band.laneStart * LANE_H} stroke="#2f3348" strokeWidth={0.5} />
               <text x={6} y={band.laneStart * LANE_H + 11} fontSize={10} fill="#a9b1d6">{cleanHarnessPreview(band.name).split(/[/]/).pop()?.slice(0, 12)}</text>

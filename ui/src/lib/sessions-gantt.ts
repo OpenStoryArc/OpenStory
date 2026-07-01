@@ -33,6 +33,36 @@ export interface GanttModel {
   readonly domain: [number, number];
 }
 
+/** Collapse a Gantt model to a time window: drop bands with no bar overlapping
+ *  [v0,v1] and re-base lanes so the surviving bands pack from row 0 with no
+ *  empty gaps left by dropped bands. Pure — the view calls this per brush move
+ *  so empty bands don't reserve vertical space. Band order is preserved. */
+export function visibleGantt(model: GanttModel, [v0, v1]: [number, number]): GanttModel {
+  const inWindow = (b: GanttBar) => b.endMs >= v0 && b.startMs <= v1;
+  const liveBandNames = new Set(model.bars.filter(inWindow).map((b) => b.band));
+  const oldBands = new Map(model.bands.map((b) => [b.name, b]));
+
+  const bands: GanttBand[] = [];
+  const remap = new Map<string, number>(); // band name → new laneStart
+  let cursor = 0;
+  for (const band of model.bands) {
+    if (!liveBandNames.has(band.name)) continue;
+    bands.push({ name: band.name, laneStart: cursor, laneCount: band.laneCount });
+    remap.set(band.name, cursor);
+    cursor += band.laneCount;
+  }
+
+  const bars = model.bars
+    .filter((b) => liveBandNames.has(b.band))
+    .map((b) => {
+      const oldStart = oldBands.get(b.band)!.laneStart;
+      const newStart = remap.get(b.band)!;
+      return { ...b, lane: b.lane - oldStart + newStart };
+    });
+
+  return { bars, bands, laneCount: cursor, domain: model.domain };
+}
+
 function bandValue(s: StorySession, dim: GroupDim): string {
   switch (dim) {
     case "user": return s.user || "unknown";

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { buildGantt } from "@/lib/sessions-gantt";
+import { buildGantt, visibleGantt } from "@/lib/sessions-gantt";
 import type { StorySession } from "@/lib/story-api";
 
 function sess(id: string, start: string, end: string | null, over: Partial<StorySession> = {}): StorySession {
@@ -66,6 +66,51 @@ describe("buildGantt", () => {
       (d) => {
         expect(d[0]).toBe(Date.parse(T(9)));
         expect(d[1]).toBe(Date.parse(T(13)));
+      },
+    );
+  });
+});
+
+describe("visibleGantt", () => {
+  // three bands (by user): recent max sessions, an old katie session far in the past.
+  const model = () => buildGantt([
+    sess("m1", T(9), T(10), { user: "max" }),
+    sess("m2", T(9, 30), T(11), { user: "max" }), // overlaps m1 → 2 lanes
+    sess("k_old", "2026-06-01T09:00:00.000Z", "2026-06-01T10:00:00.000Z", { user: "katie" }),
+  ], "user", NOW);
+
+  it("drops bands whose bars all fall outside the window", () => {
+    scenario(
+      () => visibleGantt(model(), [Date.parse(T(8)), Date.parse(T(12))]),
+      (v) => v.bands.map((b) => b.name),
+      (names) => {
+        expect(names).toContain("max");
+        expect(names).not.toContain("katie"); // katie's only bar is weeks earlier
+      },
+    );
+  });
+
+  it("re-bases lanes so the kept bands start at row 0 with no gap", () => {
+    scenario(
+      // window that includes ONLY katie (the later-ordered band)
+      () => visibleGantt(model(), [Date.parse("2026-06-01T08:00:00.000Z"), Date.parse("2026-06-01T11:00:00.000Z")]),
+      (v) => v,
+      (v) => {
+        expect(v.bands.map((b) => b.name)).toEqual(["katie"]);
+        expect(v.bands[0]!.laneStart).toBe(0); // gap from dropped 'max' band removed
+        expect(v.laneCount).toBe(v.bands[0]!.laneCount);
+        expect(v.bars.every((b) => b.lane >= 0 && b.lane < v.laneCount)).toBe(true);
+      },
+    );
+  });
+
+  it("keeps all bands when the window spans everything", () => {
+    scenario(
+      () => visibleGantt(model(), model().domain),
+      (v) => ({ bands: v.bands.length, bars: v.bars.length }),
+      (r) => {
+        expect(r.bands).toBe(2); // max + katie
+        expect(r.bars).toBe(3);
       },
     );
   });
