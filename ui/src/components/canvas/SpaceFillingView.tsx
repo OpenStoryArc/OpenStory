@@ -12,7 +12,6 @@ import { arc as d3arc } from "d3-shape";
 import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
 import { buildHierarchyTree, type Metric, type TreeNode } from "@/lib/session-hierarchy-tree";
-import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 
 interface Props {
@@ -27,10 +26,19 @@ interface Props {
 
 type HN = HierarchyNode<TreeNode>;
 
-function colorOf(n: HN): string {
-  const groupAncestor = n.ancestors().reverse()[1] ?? n; // depth-1 node = the group/project family
-  const base = sessionColor(groupAncestor.data.name || groupAncestor.data.key);
-  return base;
+// Categorical palette (Tokyonight hues) — distinct top-level families, not a hash.
+const PALETTE = ["#7aa2f7", "#bb9af7", "#9ece6a", "#e0af68", "#f7768e", "#2ac3de", "#ff9e64", "#7dcfff", "#73daca", "#c0caf5"];
+
+/** Color descendants by which of the CURRENT root's top-level segments they
+ *  belong to, so visible siblings are always maximally distinct (regardless of
+ *  drill depth). "other" stays muted grey. */
+function makeColor(laidRoot: HN): (n: HN) => string {
+  const topIdx = new Map((laidRoot.children ?? []).map((c, i) => [c.data.key, i]));
+  return (n: HN) => {
+    if (n.data.kind === "other") return "#565f89";
+    const top = n.ancestors().reverse()[1] ?? n; // depth-1 within the laid root
+    return PALETTE[(topIdx.get(top.data.key) ?? 0) % PALETTE.length]!;
+  };
 }
 
 export function SpaceFillingView({ sessions, groupBy, metric, mode, width, height, onOpenSession }: Props) {
@@ -96,13 +104,14 @@ function Sunburst({ focus, width, height, onDrill }: { focus: HN; width: number;
   const arc = d3arc<HN>().startAngle((d) => (d as unknown as { x0: number }).x0).endAngle((d) => (d as unknown as { x1: number }).x1)
     .innerRadius((d) => (d as unknown as { y0: number }).y0).outerRadius((d) => (d as unknown as { y1: number }).y1).padAngle(0.004).padRadius(radius / 3);
   const nodes = laid.descendants().filter((d) => d.depth > 0 && d.depth <= 3);
+  const color = makeColor(laid);
   return (
     <svg width={width} height={height} className="block">
       <g transform={`translate(${width / 2},${height / 2})`}>
         {nodes.map((n) => {
           return (
             <g key={n.data.key} className="cursor-pointer" onClick={() => onDrill(n)}>
-              <path d={arc(n) ?? undefined} fill={colorOf(n)} fillOpacity={n.data.kind === "session" ? 0.62 : 0.9} stroke="#16171f" strokeWidth={0.75}>
+              <path d={arc(n) ?? undefined} fill={color(n)} fillOpacity={n.data.kind === "session" ? 0.62 : 0.9} stroke="#16171f" strokeWidth={0.75}>
                 <title>{`${cleanHarnessPreview(n.data.name)} · ${Math.round((n.value ?? 0) ** 2)}`}</title>
               </path>
             </g>
@@ -123,6 +132,7 @@ function Treemap({ focus, width, height, onDrill }: { focus: HN; width: number; 
     return r;
   }, [focus, width, height]);
   const cells = laid.descendants().filter((d) => d.depth > 0);
+  const color = makeColor(laid);
   return (
     <svg width={width} height={height} className="block">
       {cells.map((n) => {
@@ -132,7 +142,7 @@ function Treemap({ focus, width, height, onDrill }: { focus: HN; width: number; 
         const leaf = n.data.kind === "session";
         return (
           <g key={n.data.key} data-tm-node={n.data.key} transform={`translate(${b.x0},${b.y0})`} className="cursor-pointer" onClick={() => onDrill(n)}>
-            <rect width={w} height={h} fill={colorOf(n)} fillOpacity={leaf ? 0.55 : 0.22} stroke="#16171f" strokeWidth={leaf ? 0.5 : 1}>
+            <rect width={w} height={h} fill={color(n)} fillOpacity={leaf ? 0.62 : 0.22} stroke="#16171f" strokeWidth={leaf ? 0.5 : 1}>
               <title>{`${cleanHarnessPreview(n.data.name)} · ${Math.round((n.value ?? 0) ** 2)}`}</title>
             </rect>
             {!leaf && w > 44 && h > 14 && (
