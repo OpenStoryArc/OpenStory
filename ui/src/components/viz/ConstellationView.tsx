@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { select } from "d3-selection";
-import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
+import { zoom as d3zoom, zoomIdentity, type ZoomBehavior } from "d3-zoom";
 import { scaleSqrt } from "d3-scale";
 import type { WireRecord } from "@/types/wire-record";
 import { useSessionsList } from "@/hooks/use-sessions-list";
@@ -22,7 +22,7 @@ interface Props {
   className?: string;
 }
 
-const PAD = 60;
+const PAD = 70;
 
 function statusColor(n: ConstellationNode): string {
   if (n.isError || n.status === "error") return "#f7768e";
@@ -37,6 +37,7 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
   const [loading, setLoading] = useState(true);
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [width, setWidth] = useState(800);
   const [t, setT] = useState({ k: 1, x: 0, y: 0 });
 
@@ -66,23 +67,45 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
 
   const rScale = useMemo(() => {
     const maxEv = Math.max(1, ...graph.nodes.map((n) => n.events));
-    return scaleSqrt().domain([0, maxEv]).range([10, 34]).clamp(true);
+    return scaleSqrt().domain([0, maxEv]).range([12, 38]).clamp(true);
   }, [graph]);
 
-  // pan/zoom
+  const px = useMemo(
+    () => (n: ConstellationNode) => ({ x: PAD + n.x * (width - 2 * PAD), y: PAD + n.y * (height - 2 * PAD) }),
+    [width, height],
+  );
+
+  // zoom/pan behavior (created once)
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const sel = select(svg);
     const z = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.35, 4])
+      .scaleExtent([0.2, 4])
       .on("zoom", (e) => setT({ k: e.transform.k, x: e.transform.x, y: e.transform.y }));
+    zoomRef.current = z;
     sel.call(z);
-    sel.call(z.transform, zoomIdentity);
     return () => { sel.on(".zoom", null); };
-  }, [rootId]);
+  }, []);
 
-  const px = (n: ConstellationNode) => ({ x: PAD + n.x * (width - 2 * PAD), y: PAD + n.y * (height - 2 * PAD) });
+  // auto-fit: frame the whole graph with padding whenever it (or the size) changes
+  useEffect(() => {
+    const svg = svgRef.current;
+    const z = zoomRef.current;
+    if (!svg || !z || graph.nodes.length === 0) return;
+    const pts = graph.nodes.map(px);
+    const rMax = Math.max(...graph.nodes.map((n) => rScale(n.events))) + 30;
+    const minX = Math.min(...pts.map((p) => p.x)) - rMax;
+    const maxX = Math.max(...pts.map((p) => p.x)) + rMax;
+    const minY = Math.min(...pts.map((p) => p.y)) - rMax;
+    const maxY = Math.max(...pts.map((p) => p.y)) + rMax;
+    const bw = Math.max(maxX - minX, 1);
+    const bh = Math.max(maxY - minY, 1);
+    const scale = Math.min(width / bw, height / bh, 1.6);
+    const tx = width / 2 - scale * (minX + maxX) / 2;
+    const ty = height / 2 - scale * (minY + maxY) / 2;
+    select(svg).call(z.transform, zoomIdentity.translate(tx, ty).scale(scale));
+  }, [graph, width, height, px, rScale]);
 
   if (loading) return <div className={cn("px-3 py-6 text-[11px] text-[#565f89]", className)}>Loading graph…</div>;
   if (graph.edges.length === 0) {
@@ -96,14 +119,35 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
       <div className="pointer-events-none absolute left-2 top-2 z-10 text-[10px] text-[#565f89]">
         {graph.nodes.length - 1} subagents · scroll to zoom · drag to pan
       </div>
-      <svg ref={svgRef} width={width} height={height} className="block cursor-grab active:cursor-grabbing" style={{ touchAction: "none" }}>
+      <svg ref={svgRef} width={width} height={height} className="block cursor-grab bg-[#16171f] active:cursor-grabbing" style={{ touchAction: "none" }}>
+        <defs>
+          {/* Figma-style dot grid backdrop */}
+          <pattern id="con-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill="#2f3348" fillOpacity="0.5" />
+          </pattern>
+          {/* soft glow for nodes */}
+          <filter id="con-glow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect width={width} height={height} fill="url(#con-dots)" />
         <g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
-          {/* edges */}
+          {/* curved edges */}
           {graph.edges.map((e) => {
             const a = nodeById.get(e.from)!;
             const b = nodeById.get(e.to)!;
             const pa = px(a); const pb = px(b);
-            return <line key={`${e.from}-${e.to}`} x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y} stroke="#3b4261" strokeWidth={1.5} strokeOpacity={0.7} />;
+            const dx = pb.x - pa.x, dy = pb.y - pa.y;
+            const cx = (pa.x + pb.x) / 2 - dy * 0.14;
+            const cy = (pa.y + pb.y) / 2 + dx * 0.14;
+            const color = statusColor(b);
+            return (
+              <path key={`${e.from}-${e.to}`} d={`M${pa.x},${pa.y} Q${cx},${cy} ${pb.x},${pb.y}`} fill="none" stroke={color} strokeOpacity={0.4} strokeWidth={1.5} />
+            );
           })}
           {/* nodes */}
           {graph.nodes.map((n) => {
@@ -113,16 +157,16 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
             const clickable = Boolean(onOpen && n.linked);
             return (
               <g key={n.id} data-con-node={n.id} transform={`translate(${p.x},${p.y})`} className={clickable ? "cursor-pointer" : undefined} onClick={clickable ? () => onOpen!(n.id) : undefined}>
-                <circle r={r + 4} fill={color} fillOpacity={0.12} />
-                <circle r={r} fill={color} fillOpacity={n.kind === "root" ? 0.9 : 0.7} stroke={n.kind === "root" ? "#c0caf5" : color} strokeWidth={n.kind === "root" ? 2 : 1} />
-                <text y={r + 12} textAnchor="middle" fontSize={n.kind === "root" ? 11 : 10} fill={n.kind === "root" ? "#c0caf5" : "#a9b1d6"}>
+                <circle r={r + 8} fill={color} fillOpacity={0.12} />
+                <circle r={r} fill={color} fillOpacity={n.kind === "root" ? 0.92 : 0.72} stroke={n.kind === "root" ? "#c0caf5" : color} strokeWidth={n.kind === "root" ? 2 : 1} filter="url(#con-glow)" />
+                <text y={r + 13} textAnchor="middle" fontSize={n.kind === "root" ? 11 : 10} fill={n.kind === "root" ? "#c0caf5" : "#a9b1d6"}>
                   {cleanHarnessPreview(n.label).slice(0, 28)}
                 </text>
                 {n.kind === "subagent" && n.subagentType && (
-                  <text y={r + 24} textAnchor="middle" fontSize={8} fill="#565f89">{n.subagentType}</text>
+                  <text y={r + 25} textAnchor="middle" fontSize={8} fill="#565f89">{n.subagentType}</text>
                 )}
                 {n.events > 0 && (
-                  <text y={3} textAnchor="middle" fontSize={9} fill="#1a1b26" fontWeight={600}>{n.events}</text>
+                  <text y={3.5} textAnchor="middle" fontSize={9} fill="#1a1b26" fontWeight={700}>{n.events}</text>
                 )}
               </g>
             );
