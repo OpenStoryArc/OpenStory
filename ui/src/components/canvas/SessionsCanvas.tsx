@@ -1,10 +1,11 @@
-/** SessionsCanvas — a Figma-like infinite board of session activity.
+/** SessionsCanvas — a Figma-like infinite board of session activity as a
+ *  COLLAPSIBLE HIERARCHY (Group → Project → Session).
  *
- *  Sessions cluster by project into collapsible super-nodes (inspired by the
- *  religious-freedom concept graph's bounded contexts). Click a project to bloom
- *  it into its sessions; pan/zoom the dot-grid canvas; click a session to open
- *  it. Deterministic phyllotaxis layout (lib/sessions-canvas) + persistent
- *  D3-zoom'd nodes — no per-frame rebuild, no random layout. */
+ *  Starts at a handful of top-level groups (chosen via the group-by selector:
+ *  day / user / agent / status / host / project) so it's not overwhelming; click
+ *  a group or project to drill deeper; click a session to open a details side
+ *  panel. Pan/zoom dot-grid canvas, persistent nodes, deterministic phyllotaxis
+ *  layout (lib/sessions-canvas). */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { select } from "d3-selection";
@@ -13,37 +14,50 @@ import { scaleSqrt } from "d3-scale";
 import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
-import { buildCanvas } from "@/lib/sessions-canvas";
-import { projectColor } from "@/lib/project-color";
+import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
+import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
+import { cn } from "@/lib/cn";
 
 interface Props {
   onNavigate: (route: HashRoute) => void;
 }
 
+const DIMS: { key: GroupDim; label: string }[] = [
+  { key: "day", label: "Day (latest)" },
+  { key: "user", label: "User" },
+  { key: "agent", label: "Agent" },
+  { key: "status", label: "Status" },
+  { key: "host", label: "Host" },
+  { key: "project", label: "Project" },
+];
+
 export function SessionsCanvas({ onNavigate }: Props) {
   const { sessions, loading } = useSessionsList();
+  const [groupBy, setGroupBy] = useState<GroupDim>("user");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<HNode | null>(null);
   const [query, setQuery] = useState("");
+
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [size, setSize] = useState({ w: 1000, h: 700 });
   const [t, setT] = useState({ k: 1, x: 0, y: 0 });
-  const didFit = useRef(false);
 
   const universe = useMemo(() => sessions.filter((s) => !isSubagentSession(s.session_id)), [sessions]);
-  const model = useMemo(() => buildCanvas(universe, expanded), [universe, expanded]);
+  const model = useMemo(() => buildHierarchy(universe, groupBy, expanded), [universe, groupBy, expanded]);
+  const nodeByKey = useMemo(() => new Map(model.nodes.map((n) => [n.key, n])), [model]);
 
-  const clusterR = useMemo(() => {
-    const maxC = Math.max(1, ...model.clusters.map((c) => c.count));
-    return scaleSqrt().domain([1, maxC]).range([16, 66]).clamp(true);
+  const rScale = useMemo(() => {
+    const mk = (kind: HNode["kind"], range: [number, number]) => {
+      const vals = model.nodes.filter((n) => n.kind === kind).map((n) => (kind === "session" ? n.events : n.count));
+      return scaleSqrt().domain([kind === "session" ? 0 : 1, Math.max(1, ...vals)]).range(range).clamp(true);
+    };
+    return { group: mk("group", [22, 74]), project: mk("project", [12, 42]), session: mk("session", [5, 18]) };
   }, [model]);
-  const nodeR = useMemo(() => {
-    const maxE = Math.max(1, ...model.nodes.map((n) => n.events));
-    return scaleSqrt().domain([0, maxE]).range([6, 22]).clamp(true);
-  }, [model]);
+  const radius = (n: HNode) => rScale[n.kind](n.kind === "session" ? n.events : n.count);
 
   // measure
   useEffect(() => {
@@ -62,9 +76,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
     const svg = svgRef.current;
     if (!svg) return;
     const sel = select(svg);
-    const z = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 4])
-      .on("zoom", (e) => setT({ k: e.transform.k, x: e.transform.x, y: e.transform.y }));
+    const z = d3zoom<SVGSVGElement, unknown>().scaleExtent([0.08, 4]).on("zoom", (e) => setT({ k: e.transform.k, x: e.transform.x, y: e.transform.y }));
     zoomRef.current = z;
     sel.call(z);
     return () => { sel.on(".zoom", null); };
@@ -73,95 +85,107 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const fit = () => {
     const svg = svgRef.current, z = zoomRef.current;
     if (!svg || !z) return;
-    const b = model.bounds;
-    const pad = 90;
-    const bw = Math.max(b.maxX - b.minX + pad * 2, 1);
-    const bh = Math.max(b.maxY - b.minY + pad * 2, 1);
+    const b = model.bounds, pad = 110;
+    const bw = Math.max(b.maxX - b.minX + pad * 2, 1), bh = Math.max(b.maxY - b.minY + pad * 2, 1);
     const scale = Math.min(size.w / bw, size.h / bh, 1.4);
     const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
     select(svg).transition().duration(400).call(z.transform, zoomIdentity.translate(size.w / 2, size.h / 2).scale(scale).translate(-cx, -cy));
   };
-  // fit once on first data + on size
-  useEffect(() => {
-    if (!didFit.current && model.clusters.length > 0 && size.w > 100) { didFit.current = true; fit(); }
-  }, [model, size]); // eslint-disable-line react-hooks/exhaustive-deps
+  // fit on group-by change (not on every expand — keep the viewport stable while drilling)
+  useEffect(() => { if (model.nodes.length && size.w > 100) fit(); }, [groupBy, size.w]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggle = (project: string) =>
-    setExpanded((prev) => { const n = new Set(prev); n.has(project) ? n.delete(project) : n.add(project); return n; });
+  const toggle = (key: string) => setExpanded((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const onNodeClick = (n: HNode) => {
+    if (n.kind === "session") setSelected(n);
+    else toggle(n.key);
+  };
 
   const q = query.trim().toLowerCase();
-  const clusterDim = (project: string) => Boolean(q) && !project.toLowerCase().includes(q);
-  const nodeDim = (label: string, project: string) => Boolean(q) && !(`${label} ${project}`.toLowerCase().includes(q));
+  const dim = (n: HNode) => Boolean(q) && !`${n.label} ${n.sessionId ?? ""}`.toLowerCase().includes(q);
+
+  const groupColor = (n: HNode) => (n.status === "ongoing" ? "#9ece6a" : sessionColor(n.sessionId ?? n.label));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#16171f] text-[#c0caf5]" data-testid="sessions-canvas">
-      <div className="flex items-center gap-3 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
-        <span className="text-[11px] text-[#565f89]">{model.clusters.length} projects · {universe.length} sessions · {expanded.size} expanded</span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search projects / sessions…"
-          className="ml-2 w-56 rounded border border-[#2f3348] bg-[#24283b] px-2 py-1 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none"
-        />
-        <button onClick={() => setExpanded(new Set())} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Collapse all</button>
-        <button onClick={fit} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Fit</button>
-        <span className="ml-auto text-[10px] text-[#565f89]">scroll to zoom · drag to pan · click a project to expand</span>
+    <div className="flex min-h-0 flex-1 bg-[#16171f] text-[#c0caf5]" data-testid="sessions-canvas">
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* toolbar */}
+        <div className="flex items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
+          <span className="text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
+          <div className="flex flex-wrap gap-1">
+            {DIMS.map((d) => (
+              <button
+                key={d.key}
+                onClick={() => { setGroupBy(d.key); setExpanded(new Set()); setSelected(null); }}
+                className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", groupBy === d.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]")}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="ml-2 w-40 rounded border border-[#2f3348] bg-[#24283b] px-2 py-1 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none" />
+          <button onClick={() => setExpanded(new Set())} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Collapse all</button>
+          <button onClick={fit} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Fit</button>
+          <span className="ml-auto text-[10px] text-[#565f89]">click a group to drill · click a session for details</span>
+        </div>
+
+        <div ref={wrapRef} className="relative min-h-0 flex-1">
+          {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[#565f89]">Loading canvas…</div>}
+          <svg ref={svgRef} width={size.w} height={size.h} className="block cursor-grab active:cursor-grabbing" style={{ touchAction: "none" }}>
+            <defs>
+              <pattern id="canvas-dots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#2f3348" fillOpacity="0.45" /></pattern>
+            </defs>
+            <rect width={size.w} height={size.h} fill="url(#canvas-dots)" />
+            <g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
+              {/* edges */}
+              {model.edges.map((e) => {
+                const a = nodeByKey.get(e.from), b = nodeByKey.get(e.to);
+                if (!a || !b) return null;
+                const dx = b.x - a.x, dy = b.y - a.y;
+                const cx = (a.x + b.x) / 2 - dy * 0.12, cy = (a.y + b.y) / 2 + dx * 0.12;
+                return <path key={`${e.from}-${e.to}`} d={`M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`} fill="none" stroke="#3b4261" strokeOpacity={0.5} strokeWidth={1.2} />;
+              })}
+              {/* nodes */}
+              {model.nodes.map((n) => {
+                const r = radius(n);
+                const col = groupColor(n);
+                const isSel = selected?.key === n.key;
+                const faded = dim(n);
+                const drillable = n.kind !== "session" && n.collapsed;
+                return (
+                  <g key={n.key} data-canvas-node={n.key} data-kind={n.kind} transform={`translate(${n.x},${n.y})`} opacity={faded ? 0.15 : 1} className="cursor-pointer" onClick={() => onNodeClick(n)}>
+                    <circle r={r + 4} fill={col} fillOpacity={0.12} />
+                    <circle r={r} fill={col} fillOpacity={n.kind === "session" ? 0.8 : 0.9} stroke={isSel ? "#c0caf5" : "#16171f"} strokeWidth={isSel ? 2.5 : n.kind === "session" ? 1 : 2} />
+                    {n.kind !== "session" && (
+                      <text y={r < 16 ? 3 : 2} textAnchor="middle" fontSize={Math.min(13, Math.max(8, r / 1.7))} fontWeight={700} fill="#16171f">{n.count}</text>
+                    )}
+                    {n.kind !== "session" && (
+                      <text y={r + 13} textAnchor="middle" fontSize={n.kind === "group" ? 12 : 10} fontWeight={n.kind === "group" ? 600 : 400} fill="#c0caf5">
+                        {cleanHarnessPreview(String(n.label)).replace(/^-/, "").split(/[/]/).pop()?.slice(0, 22)}{drillable ? " +" : ""}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          </svg>
+        </div>
       </div>
 
-      <div ref={wrapRef} className="relative min-h-0 flex-1">
-        {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[#565f89]">Loading canvas…</div>}
-        <svg ref={svgRef} width={size.w} height={size.h} className="block cursor-grab active:cursor-grabbing" style={{ touchAction: "none" }}>
-          <defs>
-            <pattern id="canvas-dots" width="26" height="26" patternUnits="userSpaceOnUse">
-              <circle cx="1" cy="1" r="1" fill="#2f3348" fillOpacity="0.45" />
-            </pattern>
-          </defs>
-          <rect width={size.w} height={size.h} fill="url(#canvas-dots)" />
-          <g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
-            {/* expanded project hulls */}
-            {model.clusters.filter((c) => !c.collapsed).map((c) => {
-              const ns = model.nodes.filter((n) => n.project === c.project);
-              let r = 44;
-              ns.forEach((n) => { r = Math.max(r, Math.hypot(n.x - c.x, n.y - c.y) + 30); });
-              const col = projectColor(c.project);
-              return (
-                <g key={`hull-${c.project}`}>
-                  <circle cx={c.x} cy={c.y} r={r} fill={col} fillOpacity={0.05} stroke={col} strokeOpacity={0.4} strokeDasharray="4 5" />
-                  <text x={c.x} y={c.y - r + 14} textAnchor="middle" fontSize={12} fontWeight={600} fill={col} className="cursor-pointer" onClick={() => toggle(c.project)}>
-                    {c.project} ⊖
-                  </text>
-                </g>
-              );
-            })}
-            {/* session nodes (bloomed) */}
-            {model.nodes.map((n) => {
-              const r = nodeR(n.events);
-              const col = n.status === "ongoing" ? "#9ece6a" : sessionColor(n.id);
-              const dim = nodeDim(n.label, n.project);
-              return (
-                <g key={n.id} data-canvas-node={n.id} transform={`translate(${n.x},${n.y})`} opacity={dim ? 0.15 : 1} className="cursor-pointer" onClick={() => onNavigate({ view: "explore", sessionId: n.id })}>
-                  <circle r={r} fill={col} fillOpacity={0.8} stroke={col} strokeWidth={1} />
-                  <title>{`${cleanHarnessPreview(n.label)} · ${n.events} events`}</title>
-                </g>
-              );
-            })}
-            {/* collapsed project super-nodes */}
-            {model.clusters.filter((c) => c.collapsed).map((c) => {
-              const r = clusterR(c.count);
-              const col = projectColor(c.project);
-              const dim = clusterDim(c.project);
-              return (
-                <g key={`c-${c.project}`} data-canvas-cluster={c.project} transform={`translate(${c.x},${c.y})`} opacity={dim ? 0.15 : 1} className="cursor-pointer" onClick={() => toggle(c.project)}>
-                  <circle r={r + 5} fill={col} fillOpacity={0.12} />
-                  <circle r={r} fill={col} fillOpacity={0.85} stroke="#16171f" strokeWidth={2} />
-                  <text y={2} textAnchor="middle" fontSize={Math.min(13, r / 1.8)} fontWeight={700} fill="#16171f">{c.count}</text>
-                  <text y={r + 13} textAnchor="middle" fontSize={10} fill="#a9b1d6">{c.project.replace(/^-/, "").split(/[-/]/).pop()?.slice(0, 18)}</text>
-                </g>
-              );
-            })}
-          </g>
-        </svg>
-      </div>
+      {/* details side panel */}
+      {selected?.kind === "session" && selected.sessionId && (
+        <aside className="flex w-[420px] shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]">
+          <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
+            <span className="truncate text-[12px] text-[#c0caf5]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId! })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Open in Explore →</button>
+              <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">✕</button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SessionVizLoader sessionId={selected.sessionId} onOpenSubagent={(id) => onNavigate({ view: "explore", sessionId: id })} />
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
