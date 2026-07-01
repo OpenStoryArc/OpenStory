@@ -166,3 +166,51 @@ Take **shareable session views + a shared SessionSummary header** (critique #1 &
 `SessionSummary` model (pure, test-first — it's a fold over records) rendered as
 one header across Explore / Overview / Story. Highest "feels like one product"
 leverage, and directly serves telling-the-story-to-a-teammate.
+
+---
+
+## Review #4 — After the shared SessionSummary header
+
+**Shipped this iteration:** `SessionSummary` fold + `SessionSummaryHeader` — one
+consistent stat strip (model · duration · turns · tools · tokens · errors · top
+file) atop both Explore and the Overview drill-in. Errors are now a first-class
+red stat (Review #3 #3 → done). Built model-first (8 specs).
+
+### UX critique
+
+The spine exists; now make it *carry weight*:
+
+1. **Half of task #8 remains: nothing is deep-linkable.** The header proves the
+   views share data; the URL should too. Encode Overview/Story filters so a
+   filtered view is a link. This is the single biggest "tell a teammate" lever
+   still open. → next iteration (task #9).
+2. **The header is present but passive.** Each stat should be a filter/jump:
+   click "3 errors" → filter the trace to failures; click the top file → filter
+   events to that file. GitHub makes every count a link.
+3. **Story still lacks the header.** It shows sentences, not the summary spine.
+   Add the header there too once it reads from a session id, not just records.
+4. **Tokens need context.** "1.75k tokens" means little alone; a subtle
+   in-vs-out split (we compute both) or a cost estimate would ground it.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **Apple** — the header is dense; a hair more vertical breathing room and a
+  single hairline separator (not the current heavier border) would feel more
+  considered. Consistency: the header uses `bg-[#24283b]` while the ribbon uses
+  `bg-[#1a1b26]` right below — pick one surface color for the stacked block.
+- **GitHub** — the model chip is the right idea; give the whole header the same
+  "sub-nav" treatment GitHub uses under a repo title (quiet, monospace numbers,
+  clickable counts).
+- **Claude** — restraint is holding; the stat strip resists the urge to chart
+  everything. Keep it. Retire one more font size (the header introduced 10/11px
+  side by side — pick one).
+- **Airbnb** — warmth: when a session has zero errors, a tiny green "clean" tick
+  would reward the eye rather than simply omitting the stat.
+
+### Next iteration
+
+Take **task #9 — shareable URL-encoded Overview/Story filters**. Extend
+`lib/hash-route.ts` test-first (parse⇄build round-trip is a pure function —
+tests-as-discovery for the encoding edge cases: empty filters, special
+characters in search, unknown params), then wire OverviewView to read initial
+state from the route and push filter changes back to the hash.
