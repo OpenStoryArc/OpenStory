@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { buildGantt, visibleGantt } from "@/lib/sessions-gantt";
+import { buildGantt, visibleGantt, overviewDensity } from "@/lib/sessions-gantt";
 import type { StorySession } from "@/lib/story-api";
 
 function sess(id: string, start: string, end: string | null, over: Partial<StorySession> = {}): StorySession {
@@ -112,6 +112,42 @@ describe("visibleGantt", () => {
         expect(r.bands).toBe(2); // max + katie
         expect(r.bars).toBe(3);
       },
+    );
+  });
+});
+
+describe("overviewDensity", () => {
+  it("counts concurrent bars per time bucket", () => {
+    scenario(
+      // two bars fully overlapping in the first half, one in the second half
+      () => overviewDensity(
+        [{ startMs: 0, endMs: 40 }, { startMs: 0, endMs: 40 }, { startMs: 60, endMs: 100 }],
+        [0, 100], 10,
+      ),
+      (d) => ({ first: d[0], last: d[9] }),
+      (r) => {
+        expect(r.first).toBe(2); // two overlap at the start
+        expect(r.last).toBe(1);  // one at the end
+      },
+    );
+  });
+
+  it("clamps bars that extend past the domain and never goes out of bounds", () => {
+    scenario(
+      () => overviewDensity([{ startMs: -50, endMs: 500 }], [0, 100], 5),
+      (d) => d,
+      (d) => {
+        expect(d).toHaveLength(5);
+        expect(d.every((c) => c === 1)).toBe(true); // spans the whole domain
+      },
+    );
+  });
+
+  it("returns a single bucket safely when buckets<=0", () => {
+    scenario(
+      () => overviewDensity([{ startMs: 0, endMs: 10 }], [0, 10], 0),
+      (d) => d,
+      (d) => expect(d).toEqual([1]),
     );
   });
 });

@@ -11,7 +11,7 @@ import { scaleTime } from "d3-scale";
 import { timeFormat } from "d3-time-format";
 import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
-import { buildGantt, visibleGantt } from "@/lib/sessions-gantt";
+import { buildGantt, visibleGantt, overviewDensity } from "@/lib/sessions-gantt";
 import { agentColor } from "@/lib/agent-color";
 import { AgentLegend } from "./AgentLegend";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -27,7 +27,7 @@ interface Props {
 
 const GUTTER = 96;
 const LANE_H = 14;
-const OV_H = 46;
+const OV_H = 68;
 const AXIS_H = 18;
 const fmt = timeFormat("%b %-d, %H:%M");
 
@@ -67,6 +67,16 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
   // lanes re-based, so empty bands don't reserve vertical space as you narrow.
   const vis = useMemo(() => visibleGantt(model, view), [model, view]);
   const visibleBars = vis.bars;
+
+  // Overview concurrency histogram — how many sessions were active over time, so
+  // you can see WHERE the activity is before brushing a window.
+  const density = useMemo(
+    () => overviewDensity(model.bars, model.domain, Math.max(20, Math.floor(plotW / 4))),
+    [model.bars, model.domain, plotW],
+  );
+  const maxD = Math.max(1, ...density);
+  const OV_TOP = 16, OV_BOT = OV_H - 14; // brush area = [0, OV_BOT]
+  const dBarW = plotW / density.length;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-[#16171f]">
@@ -112,10 +122,12 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
 
       {/* overview + brush */}
       <svg width={width} height={OV_H} className="block shrink-0 border-t border-[#2f3348]">
-        <text x={6} y={12} fontSize={9} fill="#565f89">overview · drag to window</text>
-        {model.bars.map((bar) => (
-          <rect key={bar.id} x={xOv(new Date(bar.startMs))} y={16 + (bar.lane % 6) * 3} width={Math.max(xOv(new Date(bar.endMs)) - xOv(new Date(bar.startMs)), 1)} height={2} fill={agentColor(bar.agent)} fillOpacity={0.6} />
-        ))}
+        <text x={6} y={12} fontSize={9} fill="#565f89">overview · concurrent sessions · drag to window</text>
+        {density.map((c, i) => {
+          const bh = (c / maxD) * (OV_BOT - OV_TOP);
+          return <rect key={i} x={GUTTER + i * dBarW} y={OV_BOT - bh} width={Math.max(dBarW - 0.4, 0.6)} height={bh} fill="#7aa2f7" fillOpacity={0.55} />;
+        })}
+        <line x1={GUTTER} x2={GUTTER + plotW} y1={OV_BOT} y2={OV_BOT} stroke="#2f3348" strokeWidth={0.5} />
         <g ref={brushRef} />
       </svg>
     </div>

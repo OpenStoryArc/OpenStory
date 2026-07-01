@@ -33,6 +33,26 @@ export interface GanttModel {
   readonly domain: [number, number];
 }
 
+/** Concurrency density for the overview strip: split the domain into `buckets`
+ *  equal time slots and count how many bars are active (overlap) in each. A more
+ *  honest "where's the activity" summary than folding lanes into a few rows.
+ *  Pure → unit-tested. */
+export function overviewDensity(
+  bars: readonly { startMs: number; endMs: number }[],
+  [d0, d1]: readonly [number, number],
+  buckets: number,
+): number[] {
+  const out = new Array(Math.max(1, buckets)).fill(0);
+  const span = Math.max(d1 - d0, 1);
+  const n = out.length;
+  for (const b of bars) {
+    const s = Math.max(0, Math.min(n - 1, Math.floor(((b.startMs - d0) / span) * n)));
+    const e = Math.max(0, Math.min(n - 1, Math.floor(((b.endMs - d0) / span) * n)));
+    for (let i = s; i <= e; i++) out[i]++;
+  }
+  return out;
+}
+
 /** Collapse a Gantt model to a time window: drop bands with no bar overlapping
  *  [v0,v1] and re-base lanes so the surviving bands pack from row 0 with no
  *  empty gaps left by dropped bands. Pure — the view calls this per brush move
