@@ -103,3 +103,44 @@ describe("interpretControl (control vocabulary)", () => {
     );
   });
 });
+
+describe("interpretControl — query class", () => {
+  it("maps query facets to a filtered Overview route", () => {
+    scenario(
+      () => interpretControl("query", { agent: "openactor", status: "errored", day: "2026-06-30" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.view).toBe("overview");
+          expect(a.route.overview?.filters).toEqual({ agent: "openactor", status: "errored", day: "2026-06-30" });
+        }
+      },
+    );
+  });
+
+  it("accepts a free-text search (q alias) and a sort", () => {
+    scenario(
+      () => interpretControl("filter", { q: "baleen", sort: "tokens" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.overview?.filters.search).toBe("baleen");
+          expect(a.route.overview?.sort).toBe("tokens");
+        }
+      },
+    );
+  });
+
+  it("ignores unknown keys / bad sort and returns null when nothing narrows", () => {
+    scenario(
+      () => ({ empty: interpretControl("query", { nonsense: "x", sort: "bogus" }), none: interpretControl("query", {}) }),
+      (r) => r,
+      (r) => {
+        expect(r.empty).toBeNull();
+        expect(r.none).toBeNull();
+      },
+    );
+  });
+});

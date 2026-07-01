@@ -7,6 +7,11 @@
  *  observed sources ("drive the mirror, never the watched"). */
 
 import { parseHash, type HashRoute } from "@/lib/hash-route";
+import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
+
+/** Facet keys an agent can filter by (Query class). */
+const QUERY_KEYS = ["project", "agent", "user", "status", "host", "branch", "day"] as const;
+const SORTS: readonly SortKey[] = ["recent", "events", "tokens", "duration"];
 
 export interface ControlParams {
   route?: string;
@@ -73,6 +78,23 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const route = typeof p.route === "string" && p.route.trim() ? resolveRoute(p.route) : null;
     if (!message.trim() && sessionIds.length === 0 && !route) return null;
     return { type: "present", message, sessionIds, route };
+  }
+  // The "query" class: narrow the data. Resolves to a filtered Overview route
+  // (Overview hydrates filters + sort straight from the route, so no extra UI
+  // handler is needed). `filter`/`set_filter` are aliases.
+  if (action === "query" || action === "filter" || action === "set_filter") {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const filters: OverviewFilters = {};
+    for (const k of QUERY_KEYS) {
+      const v = p[k];
+      if (typeof v === "string" && v.trim()) filters[k] = v.trim();
+    }
+    const search = typeof p.search === "string" ? p.search : typeof p.q === "string" ? p.q : "";
+    if (search.trim()) filters.search = search.trim();
+    if (Object.keys(filters).length === 0) return null;
+    const overview: HashRoute["overview"] = { filters };
+    if (typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)) overview.sort = p.sort as SortKey;
+    return { type: "navigate", route: { view: "overview", overview } };
   }
   return null;
 }
