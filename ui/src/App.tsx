@@ -161,7 +161,7 @@ export function App() {
       )}
 
       {/* Overview tab */}
-      {viewMode === "overview" && <OverviewView onNavigate={navigate} />}
+      {viewMode === "overview" && <OverviewView route={route} onNavigate={navigate} />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}

@@ -7,10 +7,10 @@
  *  session's activity ribbon + full stats summary.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import type { StorySession } from "@/lib/story-api";
-import type { HashRoute } from "@/lib/hash-route";
+import { buildHash, type HashRoute, type OverviewRoute } from "@/lib/hash-route";
 import {
   applyFilters,
   computeFacets,
@@ -34,6 +34,7 @@ import { cleanHarnessPreview } from "@/lib/harness-message";
 import { cn } from "@/lib/cn";
 
 interface Props {
+  route: HashRoute;
   onNavigate: (route: HashRoute) => void;
 }
 
@@ -41,6 +42,30 @@ function kfmt(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function CopyLinkButton() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard
+          ?.writeText(window.location.href)
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          })
+          .catch(() => {});
+      }}
+      className={cn(
+        "rounded border px-2 py-1 text-[11px] transition-colors",
+        copied ? "border-[#9ece6a] text-[#9ece6a]" : "border-[#3b4261] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5]",
+      )}
+      title="Copy a link to this filtered view"
+    >
+      {copied ? "✓ Copied" : "🔗 Copy link"}
+    </button>
+  );
 }
 
 function sessionTitle(s: StorySession): string {
@@ -183,11 +208,26 @@ function DrillIn({ sessionId, onClose, onOpenExplore }: { sessionId: string; onC
 
 // ── main view ───────────────────────────────────────────────────────────────
 
-export function OverviewView({ onNavigate }: Props) {
+export function OverviewView({ route, onNavigate }: Props) {
   const { sessions, loading } = useSessionsList();
-  const [filters, setFilters] = useState<OverviewFilters>({});
-  const [sortKey, setSortKey] = useState<SortKey>("recent");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Hydrate initial state from the URL so a pasted/bookmarked link restores the
+  // exact filtered view. (Read once on mount; local state is the interactive
+  // truth thereafter, mirrored back into the URL below.)
+  const [filters, setFilters] = useState<OverviewFilters>(() => route.overview?.filters ?? {});
+  const [sortKey, setSortKey] = useState<SortKey>(() => route.overview?.sort ?? "recent");
+  const [selectedId, setSelectedId] = useState<string | null>(() => route.overview?.sessionId ?? null);
+
+  // Mirror state → URL (replaceState, so it stays copyable without spamming
+  // browser history on every keystroke or filter toggle).
+  useEffect(() => {
+    const overview: OverviewRoute = { filters };
+    if (sortKey !== "recent") overview.sort = sortKey;
+    if (selectedId) overview.sessionId = selectedId;
+    const hash = buildHash({ view: "overview", overview });
+    if (hash !== window.location.hash) {
+      window.history.replaceState(null, "", hash);
+    }
+  }, [filters, sortKey, selectedId]);
 
   const facets = useMemo(() => computeFacets(sessions), [sessions]);
   const filtered = useMemo(() => applyFilters(sessions, filters), [sessions, filters]);
@@ -270,17 +310,20 @@ export function OverviewView({ onNavigate }: Props) {
             <div className="text-[18px] font-semibold tabular-nums text-[#e0af68]">{kfmt(stats.tokens)}</div>
             <div className="text-[10px] text-[#565f89]">tokens</div>
           </div>
-          {stats.busiest && (
-            <button
-              onClick={() => setSelectedId(stats.busiest!.session_id)}
-              className="ml-auto text-right hover:opacity-80"
-            >
-              <div className="text-[11px] text-[#565f89]">busiest session</div>
-              <div className="max-w-[280px] truncate text-[12px] text-[#c0caf5]">
-                {sessionTitle(stats.busiest)} · <span className="text-[#7aa2f7]">{(stats.busiest.event_count ?? 0).toLocaleString()} ev</span>
-              </div>
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-4">
+            <CopyLinkButton />
+            {stats.busiest && (
+              <button
+                onClick={() => setSelectedId(stats.busiest!.session_id)}
+                className="text-right hover:opacity-80"
+              >
+                <div className="text-[11px] text-[#565f89]">busiest session</div>
+                <div className="max-w-[280px] truncate text-[12px] text-[#c0caf5]">
+                  {sessionTitle(stats.busiest)} · <span className="text-[#7aa2f7]">{(stats.busiest.event_count ?? 0).toLocaleString()} ev</span>
+                </div>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Calendar (always over the full, unfiltered universe) */}

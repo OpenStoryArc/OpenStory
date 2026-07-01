@@ -72,6 +72,12 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "live", timeFilter: "week" },
     { view: "live", userFilter: "katie", timeFilter: "today" },
     { view: "live", sessionId: "sess-1", userFilter: "katie", timeFilter: "week" },
+    { view: "overview" },
+    { view: "overview", overview: { filters: { project: "OpenStory" } } },
+    { view: "overview", overview: { filters: { user: "max", status: "ongoing" }, sort: "events" } },
+    { view: "overview", overview: { filters: { search: "fix auth" } } },
+    { view: "overview", overview: { filters: { day: "2026-06-30" }, sessionId: "sess-9" } },
+    { view: "overview", overview: { filters: {}, sort: "tokens", sessionId: "abc-1" } },
   ];
 
   it.each(routes)("roundtrip: %o", (route) => {
@@ -80,6 +86,34 @@ describe("parseHash ∘ buildHash roundtrip", () => {
       (r) => parseHash(buildHash(r)),
       (result) => expect(result).toEqual(route),
     );
+  });
+});
+
+describe("overview — bookmarkable filter state", () => {
+  it("builds a query tail from filters, sort, and drill-in session", () => {
+    expect(buildHash({ view: "overview", overview: { filters: { project: "OpenStory", user: "max" }, sort: "events", sessionId: "s1" } }))
+      .toBe("#/overview?project=OpenStory&user=max&sort=events&sid=s1");
+  });
+
+  it("maps free-text search to the q param", () => {
+    expect(buildHash({ view: "overview", overview: { filters: { search: "fix auth" } } }))
+      .toBe("#/overview?q=fix+auth");
+  });
+
+  it("returns bare #/overview when there is no state", () => {
+    expect(buildHash({ view: "overview" })).toBe("#/overview");
+    expect(parseHash("#/overview")).toEqual({ view: "overview" });
+  });
+
+  it("ignores an unknown sort value on parse", () => {
+    expect(parseHash("#/overview?sort=bogus")).toEqual({ view: "overview" });
+  });
+
+  it("recovers filters from the query", () => {
+    expect(parseHash("#/overview?status=ongoing&day=2026-06-30")).toEqual({
+      view: "overview",
+      overview: { filters: { status: "ongoing", day: "2026-06-30" } },
+    });
   });
 });
 

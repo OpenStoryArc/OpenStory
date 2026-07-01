@@ -54,7 +54,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("OverviewView (integration)", () => {
   it("renders stats, facets, and a row per session", async () => {
-    render(<OverviewView onNavigate={() => {}} />);
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
 
     // stats bar: 2 sessions, 512 events total
     await waitFor(() => expect(screen.getByText("512")).toBeInTheDocument());
@@ -68,8 +68,15 @@ describe("OverviewView (integration)", () => {
     expect(screen.getByText("katie")).toBeInTheDocument();
   });
 
+  it("hydrates its filters from the URL route so a shared link restores the view", async () => {
+    render(<OverviewView route={{ view: "overview", overview: { filters: { agent: "codex" } } }} onNavigate={() => {}} />);
+    // only the codex session survives the URL-supplied filter
+    await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(1));
+    expect(document.querySelector('[data-session-row="small-one"]')).toBeInTheDocument();
+  });
+
   it("filters the list when a facet is clicked", async () => {
-    render(<OverviewView onNavigate={() => {}} />);
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
     await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(2));
 
     fireEvent.click(screen.getByText("codex"));
@@ -78,7 +85,7 @@ describe("OverviewView (integration)", () => {
   });
 
   it("re-sorts to put the busiest session first under 'Most events'", async () => {
-    render(<OverviewView onNavigate={() => {}} />);
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
     await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(2));
 
     fireEvent.click(screen.getByText("Most events"));

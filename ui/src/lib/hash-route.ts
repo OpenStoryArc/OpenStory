@@ -1,6 +1,19 @@
 /** Pure hash-route parser and builder for deep-link navigation. */
 
 import type { DetailView } from "@/components/explore/ExploreView";
+import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
+
+/** Bookmarkable state for the Overview dashboard — filters + sort + drill-in. */
+export interface OverviewRoute {
+  filters: OverviewFilters;
+  sort?: SortKey;
+  /** Selected drill-in session id. */
+  sessionId?: string;
+}
+
+const VALID_SORTS = new Set<SortKey>(["recent", "events", "tokens", "duration"]);
+/** Facet filter keys carried 1:1 as query params (search uses `q`). */
+const OVERVIEW_FACET_KEYS = ["project", "host", "user", "branch", "status", "agent", "day"] as const;
 
 export interface HashRoute {
   view: "live" | "explore" | "story" | "overview" | "users" | "admin";
@@ -14,6 +27,8 @@ export interface HashRoute {
    *  appended to the hash). When set, the Live sidebar narrows to
    *  sessions stamped with this user. */
   userFilter?: string;
+  /** Bookmarkable Overview dashboard state (filters/sort/drill-in). */
+  overview?: OverviewRoute;
   /** Optional time-window filter for the Live tab. Same query-tail
    *  pattern as `userFilter`: `#/live?time=today`. Composes with the
    *  user filter (logical AND). Valid values: "1h", "today", "week",
@@ -23,6 +38,39 @@ export interface HashRoute {
 
 const VALID_VIEWS = new Set(["live", "explore", "story", "overview", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "search"]);
+
+/** Parse Overview query params into an OverviewRoute, or null if none set. */
+function parseOverviewQuery(params: URLSearchParams | null): OverviewRoute | null {
+  if (!params) return null;
+  const filters: OverviewFilters = {};
+  for (const key of OVERVIEW_FACET_KEYS) {
+    const v = params.get(key);
+    if (v) filters[key] = v;
+  }
+  const q = params.get("q");
+  if (q) filters.search = q;
+
+  const rawSort = params.get("sort");
+  const sort = rawSort && VALID_SORTS.has(rawSort as SortKey) ? (rawSort as SortKey) : undefined;
+  const sessionId = params.get("sid") || undefined;
+
+  const hasFilters = Object.keys(filters).length > 0;
+  if (!hasFilters && !sort && !sessionId) return null;
+  return { filters, ...(sort ? { sort } : {}), ...(sessionId ? { sessionId } : {}) };
+}
+
+/** Serialize an OverviewRoute into URLSearchParams (stable key order). */
+function buildOverviewQuery(o: OverviewRoute): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const key of OVERVIEW_FACET_KEYS) {
+    const v = o.filters[key];
+    if (v) params.set(key, v);
+  }
+  if (o.filters.search) params.set("q", o.filters.search);
+  if (o.sort) params.set("sort", o.sort);
+  if (o.sessionId) params.set("sid", o.sessionId);
+  return params;
+}
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
 function splitQuery(hash: string): [string, URLSearchParams | null] {
@@ -58,8 +106,13 @@ export function parseHash(hash: string): HashRoute {
     ? (parts[0] as "live" | "explore" | "story" | "overview" | "users" | "admin")
     : "live";
 
-  if (view === "users" || view === "admin" || view === "overview") {
+  if (view === "users" || view === "admin") {
     return { view };
+  }
+
+  if (view === "overview") {
+    const overview = parseOverviewQuery(queryParams);
+    return overview ? { view, overview } : { view };
   }
 
   if (view === "live" || view === "story") {
@@ -100,6 +153,12 @@ export function buildHash(route: HashRoute): string {
   // Search shortcut with query
   if (route.detailView === "search" && route.searchQuery) {
     return `#/search?q=${route.searchQuery.replace(/ /g, "+")}`;
+  }
+
+  // Overview dashboard with bookmarkable filter state.
+  if (route.view === "overview" && route.overview) {
+    const query = buildOverviewQuery(route.overview).toString();
+    return query ? `#/overview?${query}` : "#/overview";
   }
 
   const parts: string[] = [route.view];
