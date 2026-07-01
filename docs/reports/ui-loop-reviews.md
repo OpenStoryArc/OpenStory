@@ -357,3 +357,45 @@ decay/ordering is exactly what specs should pin down), persisted at the edge
 (localStorage), surfaced in the ⌘K empty state and optionally an Overview
 "Recent" strip. Addresses the most-repeated open critique with a low-risk,
 well-tested change.
+
+---
+
+## Review #8 — After frecency / recently-viewed sessions
+
+**Shipped this iteration:** `lib/recents.ts` frecency ranking + `useRecents`;
+the ⌘K palette now leads with your 5 most-recent sessions on an empty query.
+The app finally has attention memory.
+
+### UX critique
+
+The session-visibility feature set is now mature (ribbon, calendar, trace,
+actionable summary, deep links, palette + recents, skeletons). Remaining gaps
+are about *reach and consistency*, not new capability:
+
+1. **Story is the odd one out.** Explore and Overview share the SessionSummary
+   spine; Story still opens to sentences with no at-a-glance header. Closing
+   this makes the three views feel like one product. → next iteration (task #14).
+2. **Recents live only in ⌘K.** A quiet "Recent" strip atop the Overview list
+   (or its empty state) would surface them where the eye already is. Small.
+3. **Overview stat-bar numbers still aren't clickable** (Review #7 GitHub note).
+   Cheap follow-on: events → sort by events, etc.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **Apple / Airbnb** — consistency is the theme now: the *same* summary spine on
+  every session surface is exactly the kind of coherence that makes a tool feel
+  designed rather than assembled. Prioritize reach over new widgets.
+- **Claude** — recents in ⌘K are appropriately quiet (max 5, labeled). Keep any
+  new "Recent" strip equally restrained.
+- **Design debt — token pass (task #12)** still queued for a supervised pass;
+  unchanged. Every new surface added on inline hex raises its eventual cost, but
+  the honest tradeoff (visual regression risk vs. this env's no-screenshot
+  limit) still says: not autonomously.
+
+### Next iteration
+
+Take **task #14 — the Story summary spine**. A small `SessionSummaryLoader`
+(fetch records for the selected session → render the shared
+`SessionSummaryHeader`) mounted atop the Story main pane, so all three session
+views share one header. Safe, reuses existing tested components; verify via the
+build + a focused loader test (mocked fetch → header renders).
