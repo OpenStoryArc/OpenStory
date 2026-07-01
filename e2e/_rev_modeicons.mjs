@@ -1,0 +1,18 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message));
+await p.goto("http://127.0.0.1:5173/#/canvas",{waitUntil:"networkidle"}); await p.waitForTimeout(1500);
+const tabs = await p.$$eval('div.flex.rounded.border button', bs=>bs.map(b=>b.textContent.trim()));
+console.log("mode tabs:", JSON.stringify(tabs.slice(0,6)));
+await p.screenshot({path:`${S}/rev-modeicons-board.png`});
+await p.getByRole("button",{name:/Scatter/}).first().click(); await p.waitForTimeout(1200);
+const note = await p.$$eval('span.italic', ss=>ss.map(s=>s.textContent.trim()));
+console.log("scatter group-by note:", JSON.stringify(note));
+await p.screenshot({path:`${S}/rev-modeicons-scatter.png`});
+await p.getByRole("button",{name:/Flow/}).first().click(); await p.waitForTimeout(1200);
+const noteF = await p.$$eval('span.italic', ss=>ss.map(s=>s.textContent.trim()));
+console.log("flow group-by note:", JSON.stringify(noteF));
+console.log("saved");
+await b.close();

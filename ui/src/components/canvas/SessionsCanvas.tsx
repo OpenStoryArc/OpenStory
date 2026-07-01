@@ -16,6 +16,7 @@ import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
 import { fitTransform } from "@/lib/canvas-fit";
+import { CANVAS_MODES, MODE_META, modeUsesGroupBy } from "@/lib/canvas-modes";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -136,7 +137,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
 
   const groupColor = (n: HNode) => (n.status === "ongoing" ? "#9ece6a" : sessionColor(n.sessionId ?? n.label));
 
-  const usesGroupBy = viewMode === "board" || viewMode === "sunburst" || viewMode === "treemap" || viewMode === "gantt";
+  const usesGroupBy = modeUsesGroupBy(viewMode);
   const caption = MODE_CAPTION[viewMode](groupBy, metric);
 
   return (
@@ -145,8 +146,15 @@ export function SessionsCanvas({ onNavigate }: Props) {
         {/* toolbar */}
         <div className="flex items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
           <div className="flex rounded border border-[#3b4261] p-0.5">
-            {(["board", "sunburst", "treemap", "gantt", "scatter", "flow"] as ViewMode[]).map((m) => (
-              <button key={m} onClick={() => setViewMode(m)} className={cn("rounded px-2 py-0.5 text-[11px] capitalize transition-colors", viewMode === m ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{m}</button>
+            {CANVAS_MODES.map((m) => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                title={MODE_META[m].blurb}
+                className={cn("flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors", viewMode === m ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}
+              >
+                <span aria-hidden className="text-[10px] opacity-80">{MODE_META[m].icon}</span>{MODE_META[m].label}
+              </button>
             ))}
           </div>
           {(viewMode === "sunburst" || viewMode === "treemap") && (
@@ -171,6 +179,9 @@ export function SessionsCanvas({ onNavigate }: Props) {
                 ))}
               </div>
             </>
+          )}
+          {!usesGroupBy && MODE_META[viewMode].groupByNote && (
+            <span className="ml-1 text-[10px] italic text-[#565f89]">{MODE_META[viewMode].groupByNote}</span>
           )}
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="ml-2 w-40 rounded border border-[#2f3348] bg-[#24283b] px-2 py-1 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none" />
           {viewMode === "board" && (
