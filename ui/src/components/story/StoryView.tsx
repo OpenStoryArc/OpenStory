@@ -32,6 +32,8 @@ import {
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
+import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
+import { cleanHarnessPreview } from "@/lib/harness-message";
 
 import type { PatternView } from "@/types/wire-record";
 
@@ -279,9 +281,32 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
   // Sidebar toggle
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Client-side find: free-text search + facet filters over the loaded sessions.
+  const [search, setSearch] = useState("");
+  const [sidebarFilters, setSidebarFilters] = useState<OverviewFilters>({});
+
   // Load more sessions
   const handleLoadMore = useCallback(() => {
     setSessionLimit(prev => prev + 10);
+  }, []);
+
+  const baseSessions = useMemo(
+    () => sessions.filter(s => !s.session_id.startsWith("agent-")),
+    [sessions],
+  );
+  const facets = useMemo(() => computeFacets(baseSessions), [baseSessions]);
+  const visibleSessions = useMemo(
+    () => applyFilters(baseSessions, { ...sidebarFilters, search }),
+    [baseSessions, sidebarFilters, search],
+  );
+  const findActive = search.trim().length > 0 || Object.keys(sidebarFilters).length > 0;
+  const toggleFacet = useCallback((key: keyof OverviewFilters, val: string) => {
+    setSidebarFilters(f => {
+      const next = { ...f };
+      if (next[key] === val) delete next[key];
+      else next[key] = val;
+      return next;
+    });
   }, []);
 
   return (
@@ -310,6 +335,66 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           >
             ×
           </button>
+        </div>
+        {/* Find bar — free-text search + facet filters over loaded sessions. */}
+        <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
+          <div className="relative">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Find a session…"
+              className="w-full rounded border border-[#3b4261] bg-[#24283b] px-2 py-1 pr-6 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#565f89] hover:text-[#c0caf5]"
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {(facets.projects.length > 1 || facets.users.length > 1) && (
+            <div className="flex flex-wrap gap-1">
+              {facets.projects.slice(0, 3).map((p) => (
+                <button
+                  key={`proj-${p.key}`}
+                  onClick={() => toggleFacet("project", p.key)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
+                    sidebarFilters.project === p.key
+                      ? "border-[#7dcfff] text-[#7dcfff] bg-[#7dcfff18]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                  title={`${p.count} sessions`}
+                >
+                  {p.key.replace(/^-/, "").split(/[-/]/).pop()} · {p.count}
+                </button>
+              ))}
+              {facets.users.slice(0, 3).map((u) => (
+                <button
+                  key={`user-${u.key}`}
+                  onClick={() => toggleFacet("user", u.key)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
+                    sidebarFilters.user === u.key
+                      ? "border-[#9ece6a] text-[#9ece6a] bg-[#9ece6a18]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                  title={`${u.count} sessions`}
+                >
+                  @{u.key}
+                </button>
+              ))}
+              {findActive && (
+                <button
+                  onClick={() => { setSearch(""); setSidebarFilters({}); }}
+                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#f7768e]/40 text-[#f7768e] hover:bg-[#f7768e]/10"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {/* Filter strip — sort + time window. Changing either resets paging. */}
         <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
@@ -369,13 +454,17 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           <div className="text-center text-[#565f89] text-sm py-4">Loading sessions...</div>
         )}
 
+        {/* Empty find result */}
+        {!sessionsLoading && findActive && visibleSessions.length === 0 && (
+          <div className="text-center text-[#565f89] text-xs py-4">No loaded sessions match. Try “Load more”.</div>
+        )}
+
         {/* Session list */}
-        {sessions.filter(s => !s.session_id.startsWith("agent-")).map(s => {
+        {visibleSessions.map(s => {
           const isActive = selectedSession === s.session_id;
           const color = sessionColor(s.session_id);
-          const label = s.label && s.label !== s.session_id
-            ? (s.label.length > 40 ? s.label.slice(0, 37) + "..." : s.label)
-            : s.session_id;
+          const cleaned = s.label && s.label !== s.session_id ? cleanHarnessPreview(s.label) : s.session_id;
+          const label = cleaned.length > 40 ? cleaned.slice(0, 37) + "..." : cleaned;
           const cachedCount = sentenceCache.get(s.session_id)?.length;
           const recency = s.last_event ? formatRecency(s.last_event) : null;
           return (
