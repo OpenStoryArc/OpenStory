@@ -589,3 +589,59 @@ builds directly on this iteration's linkage. Runner-up: a session **flame graph*
 3. **The agent constellation graph** (the wowser canvas) — the flagship next build.
 4. Backlog (backend/supervised): materialize `parent_session_id`; cache tokens in
    the projection aggregate; `/records` pagination; full-`<App>` smoke test.
+
+---
+
+## Review #12 — Hands-on UX audit (subagent) + Ask panel + Canvas polish
+
+**Date:** 2026-07-01 · **Branch:** `feat/ui-session-visibility`
+
+This iteration paired a build round with a **hands-on UX review subagent** that
+drove every surface with stock Chromium, screenshotted each state, and returned a
+prioritized P0→P2 findings report. Highlights below; the fixes shipped this
+iteration are marked ✓.
+
+### New this iteration (built)
+- **Ask panel** (`#/ask`) — the first agent-in-UI step, done sovereignty-safe
+  (Pattern 3): a read-only "ask your fleet" surface answering 7 curated questions
+  purely from the sessions list (latest / today / running / token burners /
+  longest / active projects / **agents & efficiency**). No writes, no LLM,
+  nothing leaves the machine. Honest "no token telemetry" for uninstrumented
+  agents. Verified: claude-code 220 vs pi-mono 36 out-tok/event.
+- **Scatter marquee-select** — drag a box over the efficiency cloud → linked list
+  of those sessions ranked by output tokens, click-through to Explore. Pure,
+  tested `pointsInBrush` (data-space filter). Gated behind a "Select" toggle so
+  the overlay doesn't steal point clicks.
+- **Gantt empty-band collapse** — `visibleGantt(model, window)` drops bands with
+  no bar in-window and re-bases lanes, so narrowing no longer leaves labeled
+  empty strips. Tested.
+
+### UX-review findings — addressed this iteration ✓
+- **P0 #1 Flow perpetual "loading…" on the default agent** ✓ — `Promise.all`
+  blocked on the live 2833-event session's records fetch. Fixed with per-fetch
+  8s AbortController timeout + graceful drop ("N skipped (too large)").
+- **P1 #3/#4/#15 Session titled 4 different ways per tab** ✓ — promoted Overview's
+  private title logic to shared `lib/session-title.ts::sessionTitle()`; Overview,
+  Explore (parent+subagent), Story, and ⌘K now agree. Explore went from raw
+  `<command-message>` XML / bare hex → readable prompts.
+- **Truncation artifact** ✓ — `cleanHarnessPreview` now strips dangling harness
+  tag fragments (`…</command-message>`) from plain labels.
+- **P1 #6 ⌘K couldn't reach Canvas/Ask** ✓ — added both to TAB_ITEMS (all 8 nav
+  routes reachable).
+
+### UX-review findings — queued (next iterations)
+- **P1 #2** Session totals disagree across surfaces (807 / 1028 / 1436 / 1000) —
+  need one canonical count or a consistent "main · subagents" qualifier.
+- **P1 #5** Story lands on an empty subagent — default-select the top session
+  that actually has sentences.
+- **P1 #7** Palette match highlighting; **#8** Board auto-fit on entry;
+  **#9** Conversation renders raw markdown/command wrappers;
+  **#10** Scatter 1-event pile-up on the y-axis (jitter/annotate);
+  **#11** Gantt/Scatter agent-color legend.
+- **P2** Board/Gantt/Ask vertical dead space; empty-state copy; facet counts vs
+  active search; console `net::ERR_ABORTED`/404 noise.
+
+### What the review said is genuinely good (keep)
+Overview drill-in ribbon+token panel, Story's eval-apply narrative (single best
+feature), Admin's endpoint-honesty dots, Sunburst/Treemap, Board radial bloom,
+Explore Graph constellation, the Live feed with type filters, Users cards.

@@ -11,6 +11,7 @@ import { select } from "d3-selection";
 import type { StorySession } from "@/lib/story-api";
 import { buildScatter, pointsInBrush, type ScatterPoint } from "@/lib/sessions-scatter";
 import { agentColor } from "@/lib/agent-color";
+import { AgentLegend } from "./AgentLegend";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 import { formatDuration } from "@/lib/time";
 
@@ -91,6 +92,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
 
   return (
     <div className="relative min-h-0 flex-1 bg-[#16171f]">
+      <AgentLegend agents={model.points.map((p) => p.agent)} className="absolute left-3 top-2 z-10" />
       <svg width={width} height={height} className="block">
         {/* axes */}
         <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} stroke="#2f3348" />
