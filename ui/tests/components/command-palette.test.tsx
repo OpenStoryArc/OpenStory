@@ -45,6 +45,19 @@ describe("CommandPalette", () => {
     expect(screen.queryByTestId("command-palette")).toBeNull();
   });
 
+  it("surfaces recently-viewed sessions first on an empty query", () => {
+    render(<CommandPalette sessions={SESSIONS} onNavigate={() => {}} recentIds={["abc-123"]} />);
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    // recent session appears before typing anything
+    const recent = document.querySelector('[data-palette-item="session-abc-123"]');
+    expect(recent).toBeInTheDocument();
+    expect(recent).toHaveTextContent(/recent/i);
+    // pressing Enter opens the top (recent) result
+    // (first item is the recent session, not a tab)
+    const items = document.querySelectorAll("[data-palette-item]");
+    expect(items[0]?.getAttribute("data-palette-item")).toBe("session-abc-123");
+  });
+
   it("navigates to a tab when a Navigate item is chosen", () => {
     const onNavigate = vi.fn();
     render(<CommandPalette sessions={SESSIONS} onNavigate={onNavigate} />);

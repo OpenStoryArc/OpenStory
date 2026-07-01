@@ -15,6 +15,7 @@ import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
 import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
@@ -40,6 +41,13 @@ export function App() {
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const localInfo = useLocalInfo();
   const { sessions: allSessions } = useSessionsList();
+  const { recentIds, record: recordRecent } = useRecents();
+
+  // Record a session visit whenever it's opened in Explore (covers palette
+  // jumps, cross-links, and "Open in Explore" from the Overview drill-in).
+  useEffect(() => {
+    if (route.view === "explore" && route.sessionId) recordRecent(route.sessionId);
+  }, [route.view, route.sessionId, recordRecent]);
 
   // Derive view state from route
   const viewMode = route.view;
@@ -170,7 +178,7 @@ export function App() {
       {viewMode === "admin" && <AdminView />}
 
       {/* Global ⌘K command palette */}
-      <CommandPalette sessions={allSessions} onNavigate={navigate} />
+      <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />
     </div>
   );
 }

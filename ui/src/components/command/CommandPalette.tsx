@@ -19,7 +19,7 @@ export interface PaletteItem {
   readonly title: string;
   readonly subtitle?: string;
   readonly icon: string;
-  readonly group: "Navigate" | "Sessions";
+  readonly group: "Navigate" | "Sessions" | "Recent";
   readonly color?: string;
   readonly searchText: string;
   readonly route: HashRoute;
@@ -59,16 +59,35 @@ export function buildPaletteItems(sessions: readonly StorySession[]): PaletteIte
 interface Props {
   sessions: readonly StorySession[];
   onNavigate: (route: HashRoute) => void;
+  /** Frecency-ranked recently-viewed session ids (best first). */
+  recentIds?: readonly string[];
 }
 
-export function CommandPalette({ sessions, onNavigate }: Props) {
+export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const items = useMemo(() => buildPaletteItems(sessions), [sessions]);
-  const results = useMemo(() => rankItems(query, items, (i) => i.searchText, 40), [query, items]);
+
+  // Empty-query view: recently-viewed sessions first, then the tabs — so the
+  // palette is useful before you type a character.
+  const recentItems = useMemo<PaletteItem[]>(() => {
+    if (!recentIds?.length) return [];
+    return recentIds
+      .map((id) => items.find((i) => i.id === `session-${id}`))
+      .filter((i): i is PaletteItem => Boolean(i))
+      .slice(0, 5)
+      .map((i) => ({ ...i, group: "Recent" as const }));
+  }, [recentIds, items]);
+
+  const tabItems = useMemo(() => items.filter((i) => i.group === "Navigate"), [items]);
+
+  const results = useMemo(
+    () => (query.trim() ? rankItems(query, items, (i) => i.searchText, 40) : [...recentItems, ...tabItems]),
+    [query, items, recentItems, tabItems],
+  );
 
   // Global ⌘K / Ctrl-K toggle.
   useEffect(() => {
