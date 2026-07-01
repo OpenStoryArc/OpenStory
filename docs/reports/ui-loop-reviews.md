@@ -69,3 +69,49 @@ enforceable. Filed, not yet fixed.
 Take **#2 (command palette)** — highest navigation leverage, keyboard-first, the
 signature dev-tool pattern the brand leaders all share. Build the fuzzy matcher
 test-first (it's a pure function — ideal for tests-as-discovery), then the UI.
+
+---
+
+## Review #2 — After the ⌘K command palette
+
+**Shipped this iteration:** global command palette (⌘K) — fuzzy jump to any
+session or tab, keyboard-first, with a visible "Jump to… ⌘K" header hint.
+Built matcher-first (10 discovery specs shaped the scoring before any UI).
+
+### UX critique
+
+What the palette *closes:* finding 1 session among 1400, and mouse-bound tab
+switching (critique #2 → done). What it *opens next:*
+
+1. **Palette is nav-only; it should also act.** GitHub's palette runs commands
+   ("copy permalink", "clear filters", "toggle theme"), not just navigation.
+   Once we have per-session actions, surface them here.
+2. **Still no durations / trace.** Unchanged from Review #1 and still the #1
+   story gap. Promote to this-iteration work. → trace view (task #7).
+3. **Recents/frecency.** An empty-query palette should show *recently viewed*
+   sessions, not the first N by list order — Linear/VS Code rank by frecency.
+4. **The header now has two nav affordances** (TabBar + palette hint) — good,
+   but the tab bar could show a subtle count badge (e.g. Overview → 1.4k) so
+   the numbers live where you navigate (Apple: information where the eye lands).
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **GitHub** — palette overlay matches the quiet, dense idiom; good. Add
+  result-group headers ("Navigate" / "Sessions") as sticky mini-labels rather
+  than the per-row right-aligned group tag (less repetition, more GitHub-like).
+- **Apple** — the overlay appears instantly; it should *animate in* (a 120ms
+  scale/opacity) so it feels physical. One motion primitive, reused, would lift
+  the whole app (drill-in slide, palette pop, ribbon fade).
+- **Claude** — the palette's type scale is calm; extend that restraint by
+  retiring one or two of the six body font-sizes app-wide.
+- **Airbnb** — friendly empty state: "No matches" is terse; offer "Try a project
+  or branch name" — guide, don't dead-end.
+
+### Next iteration
+
+Take **the trace view (task #7)** — the persistent #1 story gap. A turn rendered
+as an observability waterfall: tool calls as spans with **durations** computed
+from `tool_call`→`tool_result` timestamps, subagents nested. Build the pure
+`tool_call`/`tool_result` pairing + duration model **test-first** (discovery:
+the timestamp-pairing edge cases — missing results, interleaved calls,
+out-of-order seq — are exactly what tests should surface), then the D3 view.
