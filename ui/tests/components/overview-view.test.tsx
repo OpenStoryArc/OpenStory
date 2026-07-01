@@ -129,6 +129,29 @@ describe("OverviewView (integration)", () => {
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before));
   });
 
+  it("hides agent-* subagent sessions by default and reveals them on toggle", async () => {
+    const withAgent = [
+      ...SESSIONS,
+      { session_id: "agent-xyz", start_time: "2026-06-10T09:00:00.000Z", last_event: "2026-06-10T09:05:00.000Z", event_count: 5, status: "completed", project_name: "OpenStory", user: "max" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () => (/\/api\/sessions(\?|$)/.test(String(url)) ? { sessions: withAgent } : []),
+      })),
+    );
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
+    // subagent hidden → only the 2 top-level sessions
+    await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(2));
+    expect(document.querySelector('[data-session-row="agent-xyz"]')).toBeNull();
+
+    // toggle reveals it
+    fireEvent.click(screen.getByText(/show subagents/i));
+    await waitFor(() => expect(document.querySelectorAll("[data-session-row]")).toHaveLength(3));
+    expect(document.querySelector('[data-session-row="agent-xyz"]')).toBeInTheDocument();
+  });
+
   it("shows a Recent strip of previously-opened sessions", async () => {
     // seed frecency: 'small-one' was recently viewed
     window.localStorage.setItem(

@@ -28,6 +28,7 @@ import {
   type SortKey,
 } from "@/lib/sessions-overview";
 import { useRecents } from "@/hooks/use-recents";
+import { isSubagentSession } from "@/lib/subagents";
 import { SessionCalendar } from "@/components/viz/SessionCalendar";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
@@ -192,7 +193,7 @@ function SessionRow({
 
 // ── drill-in panel ──────────────────────────────────────────────────────────
 
-function DrillIn({ sessionId, onClose, onOpenExplore }: { sessionId: string; onClose: () => void; onOpenExplore: () => void }) {
+function DrillIn({ sessionId, onClose, onOpenExplore, onOpenSubagent }: { sessionId: string; onClose: () => void; onOpenExplore: () => void; onOpenSubagent: (id: string) => void }) {
   return (
     <aside className="flex w-[420px] shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]">
       <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
@@ -206,7 +207,7 @@ function DrillIn({ sessionId, onClose, onOpenExplore }: { sessionId: string; onC
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="border-b border-[#2f3348]">
-          <SessionVizLoader sessionId={sessionId} />
+          <SessionVizLoader sessionId={sessionId} onOpenSubagent={onOpenSubagent} />
         </div>
         <SessionDetailPanel sessionId={sessionId} />
       </div>
@@ -238,12 +239,21 @@ export function OverviewView({ route, onNavigate }: Props) {
   }, [filters, sortKey, selectedId]);
 
   const { recentIds, record } = useRecents();
-  const facets = useMemo(() => computeFacets(sessions), [sessions]);
-  const filtered = useMemo(() => applyFilters(sessions, filters), [sessions, filters]);
+  // Subagents are stored as separate agent-* sessions (~44% of the list). Hide
+  // them from the top-level universe by default; a toggle brings them back.
+  const [showSubagents, setShowSubagents] = useState(false);
+  const subagentCount = useMemo(() => sessions.filter((s) => isSubagentSession(s.session_id)).length, [sessions]);
+  const universe = useMemo(
+    () => (showSubagents ? sessions : sessions.filter((s) => !isSubagentSession(s.session_id))),
+    [sessions, showSubagents],
+  );
+
+  const facets = useMemo(() => computeFacets(universe), [universe]);
+  const filtered = useMemo(() => applyFilters(universe, filters), [universe, filters]);
   const sorted = useMemo(() => sortSessions(filtered, sortKey), [filtered, sortKey]);
   const stats = useMemo(() => computeStats(filtered), [filtered]);
   const busiestId = stats.busiest?.session_id;
-  const recentSessions = useMemo(() => pickRecentSessions(sessions, recentIds, 5), [sessions, recentIds]);
+  const recentSessions = useMemo(() => pickRecentSessions(universe, recentIds, 5), [universe, recentIds]);
 
   // Open a session in the drill-in and remember the visit (feeds frecency).
   const openSession = (id: string) => {
@@ -314,6 +324,16 @@ export function OverviewView({ route, onNavigate }: Props) {
               </button>
             ))}
           </div>
+          {subagentCount > 0 && (
+            <button
+              onClick={() => setShowSubagents((v) => !v)}
+              className="mt-2 flex w-full items-center gap-1.5 text-[10px] text-[#565f89] hover:text-[#c0caf5]"
+              title="Subagents are stored as separate agent-* sessions"
+            >
+              <span className={cn("inline-block h-3 w-3 rounded-sm border", showSubagents ? "border-[#7aa2f7] bg-[#7aa2f7]" : "border-[#3b4261]")} />
+              Show subagents ({subagentCount.toLocaleString()})
+            </button>
+          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -378,7 +398,7 @@ export function OverviewView({ route, onNavigate }: Props) {
         {/* Calendar (always over the full, unfiltered universe) */}
         <div className="overflow-x-auto border-b border-[#2f3348] px-4 py-3">
           <SessionCalendar
-            sessions={sessions}
+            sessions={universe}
             selectedDay={filters.day ?? null}
             onSelectDay={(day) => setFilters((f) => ({ ...f, day: day ?? undefined }))}
           />
@@ -428,7 +448,7 @@ export function OverviewView({ route, onNavigate }: Props) {
               <div className="flex flex-col items-center gap-2 p-8 text-center">
                 <div className="text-[13px] text-[#c0caf5]">No sessions match these filters</div>
                 <div className="text-[11px] text-[#565f89]">
-                  {sessions.length.toLocaleString()} sessions total · try widening your search
+                  {universe.length.toLocaleString()} sessions · try widening your search
                 </div>
                 {active && (
                   <button
@@ -458,6 +478,7 @@ export function OverviewView({ route, onNavigate }: Props) {
               sessionId={selectedId}
               onClose={() => setSelectedId(null)}
               onOpenExplore={() => onNavigate({ view: "explore", sessionId: selectedId })}
+              onOpenSubagent={openSession}
             />
           )}
         </div>
