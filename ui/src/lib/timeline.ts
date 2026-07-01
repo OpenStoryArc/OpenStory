@@ -20,6 +20,7 @@ import type {
 import { toolInputSummary } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
 import { stripAnsi } from "@/lib/strip-ansi";
+import { cleanHarnessPreview } from "@/lib/harness-message";
 
 export type TimelineCategory =
   | "prompt"
@@ -73,7 +74,10 @@ function recordToRow(r: ViewRecord): TimelineRow | null {
       const text = typeof p.content === "string"
         ? p.content
         : extractTextFromBlocks(p.content);
-      return { ...base, category: "prompt", summary: truncate(text || "User message", MAX_SUMMARY) };
+      // Humanize harness-wrapper prompts (slash commands, task notifications,
+      // system reminders) so the row shows "/loop …" not raw truncated XML.
+      const preview = cleanHarnessPreview(text || "User message");
+      return { ...base, category: "prompt", summary: truncate(preview, MAX_SUMMARY) };
     }
     case "assistant_message": {
       const p = r.payload as AssistantMessage;

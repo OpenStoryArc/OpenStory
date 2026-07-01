@@ -30,6 +30,7 @@ import { SessionRibbonLoader } from "@/components/viz/SessionRibbonLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
 import { sessionColor } from "@/lib/session-colors";
 import { formatDuration, relativeTime } from "@/lib/time";
+import { cleanHarnessPreview } from "@/lib/harness-message";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -45,8 +46,8 @@ function kfmt(n: number): string {
 function sessionTitle(s: StorySession): string {
   const raw = (s.label || s.first_prompt || "").trim();
   if (!raw) return s.session_id.slice(0, 8);
-  // Collapse harness-wrapper noise so the list stays readable.
-  return raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || s.session_id.slice(0, 8);
+  // Humanize harness-wrapper labels (e.g. "/loop …") so the list stays readable.
+  return cleanHarnessPreview(raw).trim() || s.session_id.slice(0, 8);
 }
 
 // ── filter sidebar ──────────────────────────────────────────────────────────

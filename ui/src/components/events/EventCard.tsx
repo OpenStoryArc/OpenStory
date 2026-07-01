@@ -14,6 +14,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { isHarnessMessage } from "@/lib/harness-message";
+import { HarnessMessageBlock } from "./HarnessMessageBlock";
 import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 // ---------------------------------------------------------------------------
@@ -378,6 +380,13 @@ export function CardBody({ row }: { row: TimelineRow }) {
 
   // ── Prompts + responses: render as markdown — prefer full text from payload ──
   const content = fullText(vr) ?? row.summary;
+
+  // Harness-wrapper prompts (slash commands, task notifications, system
+  // reminders) render as a clean structured block, full content preserved.
+  if (row.category === "prompt" && isHarnessMessage(content)) {
+    return <HarnessMessageBlock text={content} />;
+  }
+
   const textColor = row.category === "prompt" ? "text-[#c0caf5]" : "text-[#a9b1d6]";
   return (
     <div className={`text-sm ${textColor} leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere]`}>
