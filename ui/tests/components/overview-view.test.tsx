@@ -87,6 +87,18 @@ describe("OverviewView (integration)", () => {
     await waitFor(() => expect(document.querySelectorAll("[data-session-row]").length).toBeGreaterThan(0));
   });
 
+  it("shows a Recent strip of previously-opened sessions", async () => {
+    // seed frecency: 'small-one' was recently viewed
+    window.localStorage.setItem(
+      "openstory.recents.v1",
+      JSON.stringify({ entries: [{ id: "small-one", count: 1, lastVisit: 1_000_000 }] }),
+    );
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("recent-strip")).toBeInTheDocument());
+    expect(document.querySelector('[data-recent-session="small-one"]')).toBeInTheDocument();
+    window.localStorage.clear();
+  });
+
   it("hydrates its filters from the URL route so a shared link restores the view", async () => {
     render(<OverviewView route={{ view: "overview", overview: { filters: { agent: "codex" } } }} onNavigate={() => {}} />);
     // only the codex session survives the URL-supplied filter

@@ -14,6 +14,7 @@ import {
   hasActiveFilters,
   sortSessions,
   computeStats,
+  pickRecentSessions,
 } from "@/lib/sessions-overview";
 
 function sess(p: Partial<StorySession> & { session_id: string }): StorySession {
@@ -182,6 +183,30 @@ describe("applyFilters", () => {
     expect(hasActiveFilters({ search: "  " })).toBe(false);
     expect(hasActiveFilters({ host: "a1" })).toBe(true);
     expect(hasActiveFilters({ day: "2026-06-10" })).toBe(true);
+  });
+});
+
+describe("pickRecentSessions", () => {
+  const SESSIONS = [
+    sess({ session_id: "a" }),
+    sess({ session_id: "b" }),
+    sess({ session_id: "c" }),
+  ];
+
+  it("returns sessions in recent-id order, dropping unknown ids", () => {
+    scenario(
+      () => pickRecentSessions(SESSIONS, ["c", "zzz", "a"]),
+      (r) => r.map((s) => s.session_id),
+      (ids) => expect(ids).toEqual(["c", "a"]),
+    );
+  });
+
+  it("caps the result at the limit", () => {
+    scenario(
+      () => pickRecentSessions(SESSIONS, ["a", "b", "c"], 2),
+      (r) => r.map((s) => s.session_id),
+      (ids) => expect(ids).toEqual(["a", "b"]),
+    );
   });
 });
 

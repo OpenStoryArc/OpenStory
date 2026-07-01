@@ -16,6 +16,7 @@ import {
   computeFacets,
   computeStats,
   hasActiveFilters,
+  pickRecentSessions,
   projectKey,
   sessionDurationMs,
   sessionTokens,
@@ -25,6 +26,7 @@ import {
   type OverviewFilters,
   type SortKey,
 } from "@/lib/sessions-overview";
+import { useRecents } from "@/hooks/use-recents";
 import { SessionCalendar } from "@/components/viz/SessionCalendar";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
@@ -230,11 +232,19 @@ export function OverviewView({ route, onNavigate }: Props) {
     }
   }, [filters, sortKey, selectedId]);
 
+  const { recentIds, record } = useRecents();
   const facets = useMemo(() => computeFacets(sessions), [sessions]);
   const filtered = useMemo(() => applyFilters(sessions, filters), [sessions, filters]);
   const sorted = useMemo(() => sortSessions(filtered, sortKey), [filtered, sortKey]);
   const stats = useMemo(() => computeStats(filtered), [filtered]);
   const busiestId = stats.busiest?.session_id;
+  const recentSessions = useMemo(() => pickRecentSessions(sessions, recentIds, 5), [sessions, recentIds]);
+
+  // Open a session in the drill-in and remember the visit (feeds frecency).
+  const openSession = (id: string) => {
+    setSelectedId(id);
+    record(id);
+  };
 
   const setFacet = (k: keyof OverviewFilters) => (val: string | undefined) =>
     setFilters((f) => ({ ...f, [k]: val }));
@@ -303,19 +313,19 @@ export function OverviewView({ route, onNavigate }: Props) {
             <div className="text-[18px] font-semibold tabular-nums text-[#c0caf5]">{stats.sessionCount.toLocaleString()}</div>
             <div className="text-[10px] text-[#565f89]">sessions{active ? " (filtered)" : ""}</div>
           </div>
-          <div>
+          <button onClick={() => setSortKey("events")} className="text-left hover:opacity-80" title="Sort by most events">
             <div className="text-[18px] font-semibold tabular-nums text-[#7aa2f7]">{stats.eventCount.toLocaleString()}</div>
-            <div className="text-[10px] text-[#565f89]">events</div>
-          </div>
-          <div>
+            <div className="text-[10px] text-[#565f89]">events{sortKey === "events" ? " ↓" : ""}</div>
+          </button>
+          <button onClick={() => setSortKey("tokens")} className="text-left hover:opacity-80" title="Sort by most tokens">
             <div className="text-[18px] font-semibold tabular-nums text-[#e0af68]">{kfmt(stats.tokens)}</div>
-            <div className="text-[10px] text-[#565f89]">tokens</div>
-          </div>
+            <div className="text-[10px] text-[#565f89]">tokens{sortKey === "tokens" ? " ↓" : ""}</div>
+          </button>
           <div className="ml-auto flex items-center gap-4">
             <CopyLinkButton />
             {stats.busiest && (
               <button
-                onClick={() => setSelectedId(stats.busiest!.session_id)}
+                onClick={() => openSession(stats.busiest!.session_id)}
                 className="text-right hover:opacity-80"
               >
                 <div className="text-[11px] text-[#565f89]">busiest session</div>
@@ -339,6 +349,24 @@ export function OverviewView({ route, onNavigate }: Props) {
         {/* Session list + drill-in */}
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1 overflow-y-auto">
+            {/* Recent strip — frecency where the eye already is */}
+            {!loading && recentSessions.length > 0 && !active && (
+              <div className="flex items-center gap-2 overflow-x-auto border-b border-[#2f3348] bg-[#1a1b26] px-3 py-1.5" data-testid="recent-strip">
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-[#565f89]">Recent</span>
+                {recentSessions.map((s) => (
+                  <button
+                    key={s.session_id}
+                    data-recent-session={s.session_id}
+                    onClick={() => openSession(s.session_id)}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-[#2f3348] px-2 py-0.5 text-[11px] text-[#c0caf5] hover:border-[#7aa2f7] hover:bg-[#24283b]"
+                    title={sessionTitle(s)}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ background: sessionColor(s.session_id) }} />
+                    <span className="max-w-[160px] truncate">{sessionTitle(s)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {loading ? (
               <SessionListSkeleton />
             ) : sorted.length === 0 ? (
@@ -363,7 +391,7 @@ export function OverviewView({ route, onNavigate }: Props) {
                   s={s}
                   selected={selectedId === s.session_id}
                   isBusiest={s.session_id === busiestId}
-                  onClick={() => setSelectedId(s.session_id)}
+                  onClick={() => openSession(s.session_id)}
                 />
               ))
             )}

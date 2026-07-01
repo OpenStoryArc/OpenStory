@@ -316,6 +316,23 @@ export interface OverviewStats {
   readonly busiest: StorySession | null; // most events
 }
 
+/** Map frecency-ranked ids to their sessions, preserving order, capped.
+ *  Ids with no matching session (e.g. deleted/agent) are dropped. */
+export function pickRecentSessions(
+  sessions: readonly StorySession[],
+  recentIds: readonly string[],
+  limit = 5,
+): StorySession[] {
+  const byId = new Map(sessions.map((s) => [s.session_id, s]));
+  const out: StorySession[] = [];
+  for (const id of recentIds) {
+    const s = byId.get(id);
+    if (s) out.push(s);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function computeStats(sessions: readonly StorySession[]): OverviewStats {
   let eventCount = 0;
   let tokens = 0;
