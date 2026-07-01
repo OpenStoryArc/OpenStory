@@ -113,6 +113,22 @@ describe("OverviewView (integration)", () => {
     await waitFor(() => expect(screen.getByText(/open in explore/i)).toBeInTheDocument());
   });
 
+  it("shows an honest error state (not 'no sessions') when the fetch fails", async () => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error("network down")));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("overview-error")).toBeInTheDocument());
+    // must NOT masquerade as an empty result
+    expect(screen.queryByText(/no sessions match/i)).toBeNull();
+    expect(screen.getByText(/network down/i)).toBeInTheDocument();
+
+    // Retry re-fetches
+    const before = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByText(/retry/i));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(before));
+  });
+
   it("shows a Recent strip of previously-opened sessions", async () => {
     // seed frecency: 'small-one' was recently viewed
     window.localStorage.setItem(

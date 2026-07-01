@@ -217,7 +217,7 @@ function DrillIn({ sessionId, onClose, onOpenExplore }: { sessionId: string; onC
 // ── main view ───────────────────────────────────────────────────────────────
 
 export function OverviewView({ route, onNavigate }: Props) {
-  const { sessions, loading } = useSessionsList();
+  const { sessions, loading, error, refresh } = useSessionsList();
   // Hydrate initial state from the URL so a pasted/bookmarked link restores the
   // exact filtered view. (Read once on mount; local state is the interactive
   // truth thereafter, mirrored back into the URL below.)
@@ -413,6 +413,17 @@ export function OverviewView({ route, onNavigate }: Props) {
             )}
             {loading ? (
               <SessionListSkeleton />
+            ) : error && sessions.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 p-8 text-center" data-testid="overview-error">
+                <div className="text-[13px] text-[#f7768e]">Couldn't load sessions</div>
+                <div className="max-w-[420px] break-words text-[11px] text-[#565f89]">{error}</div>
+                <button
+                  onClick={refresh}
+                  className="mt-1 rounded border border-[#7aa2f7] px-3 py-1 text-[11px] text-[#7aa2f7] hover:bg-[#7aa2f7]/10"
+                >
+                  Retry
+                </button>
+              </div>
             ) : sorted.length === 0 ? (
               <div className="flex flex-col items-center gap-2 p-8 text-center">
                 <div className="text-[13px] text-[#c0caf5]">No sessions match these filters</div>
