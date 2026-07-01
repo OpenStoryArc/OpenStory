@@ -4,13 +4,16 @@
  *  both keep a lot of data legible. 3D stacks + hover/click land in later
  *  increments. Pure model in lib/heatmap.ts. */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, lazy, Suspense } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHeatmap, heatLevel } from "@/lib/heatmap";
 import { computeFacets, applyFilters, type OverviewFilters, type Facets } from "@/lib/sessions-overview";
 import { cn } from "@/lib/cn";
+
+// three.js only loads when you toggle into 3D — keeps the 2D default lightweight.
+const Heatmap3D = lazy(() => import("./Heatmap3D"));
 
 const CELL = 13, GAP = 3, LEFT = 30, TOP = 18;
 const STEP = CELL + GAP;
@@ -35,6 +38,7 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
   const nowMs = useMemo(() => Date.now(), []);
   const [weeks, setWeeks] = useState(26);
   const [filters, setFilters] = useState<OverviewFilters>({});
+  const [is3D, setIs3D] = useState(false); // default 2D
 
   const facets = useMemo(() => computeFacets(universe), [universe]);
   const filtered = useMemo(() => applyFilters(universe, filters), [universe, filters]);
@@ -66,11 +70,19 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
           <span className="text-[15px] font-semibold">Contributions</span>
           <span className="text-[11px] text-[#565f89]">{grid.totalSessions.toLocaleString()} sessions · {activeDays} active days · last {weeks} weeks</span>
         </div>
-        <div className="ml-auto flex items-center gap-1 rounded border border-[#3b4261] p-0.5">
-          {RANGES.map((r) => (
-            <button key={r.weeks} onClick={() => setWeeks(r.weeks)}
-              className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", weeks === r.weeks ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{r.label}</button>
-          ))}
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded border border-[#3b4261] p-0.5">
+            {RANGES.map((r) => (
+              <button key={r.weeks} onClick={() => setWeeks(r.weeks)}
+                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", weeks === r.weeks ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{r.label}</button>
+            ))}
+          </div>
+          <div className="flex items-center gap-0.5 rounded border border-[#3b4261] p-0.5">
+            {([["2D", false], ["3D", true]] as const).map(([lbl, on]) => (
+              <button key={lbl} onClick={() => setIs3D(on)}
+                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", is3D === on ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{lbl}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -96,7 +108,20 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
         )}
       </div>
 
-      {/* grid */}
+      {/* 3D stacks */}
+      {is3D && (
+        <div className="relative min-h-0 flex-1">
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-[12px] text-[#565f89]">Loading 3D…</div>}>
+            <Heatmap3D grid={grid} onNavigate={onNavigate} />
+          </Suspense>
+          <div className="pointer-events-none absolute bottom-3 left-4 text-[10px] text-[#565f89]">
+            height = sessions · warm (largest) → cool (smallest) · drag to orbit · click a stack → filter Overview
+          </div>
+        </div>
+      )}
+
+      {/* 2D grid */}
+      {!is3D && (
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading ? (
           <div className="text-[12px] text-[#565f89]">Loading…</div>
@@ -134,6 +159,7 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
           <span className="ml-3">Click a day → filter Overview to it.</span>
         </div>
       </div>
+      )}
     </div>
   );
 }
