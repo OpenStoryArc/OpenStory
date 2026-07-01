@@ -22,6 +22,7 @@ import {
   verbDistribution,
   envGrowthSeries,
   scopeDepthProfile,
+  sentenceHeadline,
   type StoryCategory,
 } from "@/lib/story";
 import {
@@ -466,11 +467,12 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           const color = sessionColor(s.session_id);
           const cleaned = sessionTitle(s);
           const label = cleaned.length > 40 ? cleaned.slice(0, 37) + "..." : cleaned;
-          const cachedCount = sentenceCache.get(s.session_id)?.length;
+          const cached = sentenceCache.get(s.session_id);
+          const cachedCount = cached?.length;
           const recency = s.last_event ? formatRecency(s.last_event) : null;
           return (
+            <div key={s.session_id}>
             <button
-              key={s.session_id}
               type="button"
               onClick={() => onSelectSession(isActive ? null : s.session_id)}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
@@ -534,6 +536,27 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                 </div>
               </div>
             </button>
+            {/* The story, unfurled: the session's key sentences as a scannable
+                narrative spine — what it did, and (muted) why. */}
+            {isActive && cached && cached.length > 0 && (
+              <div className="ml-3 mt-1 mb-1.5 border-l border-[#2f3348] pl-2.5">
+                {cached.slice(0, 8).map((p, i) => {
+                  const h = sentenceHeadline(p);
+                  return (
+                    <div key={i} className="py-0.5">
+                      <div className="text-[11px] leading-snug text-[#a9b1d6]">
+                        <span className="text-[#565f89]">{i + 1}.</span> {h.text}
+                      </div>
+                      {h.because && (
+                        <div className="text-[10px] italic leading-snug text-[#565f89] truncate">“{h.because}”</div>
+                      )}
+                    </div>
+                  );
+                })}
+                {cached.length > 8 && <div className="py-0.5 text-[10px] text-[#565f89]">+{cached.length - 8} more turns ↓</div>}
+              </div>
+            )}
+            </div>
           );
         })}
 

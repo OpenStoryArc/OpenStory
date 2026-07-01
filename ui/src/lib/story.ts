@@ -183,3 +183,20 @@ export function turnEventMap(pattern: PatternView): ApplyEventEntry[] {
     fact: a.tool_outcome ? extractDomainFact(a.tool_outcome) : null,
   }));
 }
+
+/** A short human headline for a turn.sentence — the verb + object of what the
+ *  agent did that turn (e.g. "edited 5 source files"). Falls back to the
+ *  pattern label. The verbatim rationale (the "because …" quote) is returned
+ *  separately so the sidebar can lead with the action and whisper the why. */
+export function sentenceHeadline(p: PatternView): { text: string; because: string | null } {
+  const m = p.metadata ?? {};
+  const verb = typeof m.verb === "string" ? m.verb.trim() : "";
+  const object = typeof m.object === "string" ? m.object.trim() : "";
+  const text = [verb, object].filter(Boolean).join(" ").trim() || p.label || "…";
+  let because: string | null = null;
+  if (typeof m.adverbial === "string" && m.adverbial.trim()) {
+    const raw = m.adverbial.trim().replace(/^"|"$/g, "");
+    because = raw.split("\n")[0]!.slice(0, 90).trim() || null;
+  }
+  return { text, because };
+}
