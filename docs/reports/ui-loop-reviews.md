@@ -214,3 +214,54 @@ Take **task #9 — shareable URL-encoded Overview/Story filters**. Extend
 tests-as-discovery for the encoding edge cases: empty filters, special
 characters in search, unknown params), then wire OverviewView to read initial
 state from the route and push filter changes back to the hash.
+
+---
+
+## Review #5 — After shareable URL-encoded Overview filters
+
+**Shipped this iteration:** Overview filters/sort/drill-in now encode into the
+hash (`#/overview?project=…&sort=events&sid=…`), hydrate from a pasted link, and
+mirror back via `replaceState`; a "Copy link" button in the stats bar. Built
+round-trip-first (12 discovery specs).
+
+### UX critique
+
+Feature coverage for session visibility is now broad (ribbon, calendar, trace,
+summary, palette, deep links). The compounding backlog is shifting from
+*features* to *fit-and-finish* — which is where a senior dev's trust is won or
+lost:
+
+1. **Loading states still lie / jar.** "Loading sessions…" / "Loading activity…"
+   are bare text; the drill-in pops in. The prior senior-dev UX review
+   (`ux-review-senior-dev.md`) already flagged the app "tells falsehoods" on
+   boot. Content-shaped **skeletons** are the fix — perceived performance +
+   polish. → next iteration (task #10).
+2. **The shadcn foundation is unused.** We added `cn` + clsx + tailwind-merge +
+   cva three iterations ago and never built a single `ui/` primitive. A
+   `Skeleton` (and `Badge`) primitive pays that down and gives a reusable base.
+3. **Empty states dead-end.** "No sessions match these filters." offers no way
+   out; Airbnb would pair it with a "Clear filters" action inline.
+4. **Still no clickable stats / motion** — carried forward.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **Apple / Airbnb** — the highest-leverage polish now is *perceived
+  performance*: skeletons that match the final layout so nothing shifts (Apple's
+  "no jank" bar), and empty states that feel considered, not broken (Airbnb's
+  warmth). This is a whole iteration and worth it.
+- **Claude** — a `Skeleton` with a calm, slow shimmer (not a frenetic pulse)
+  matches the product's restraint.
+- **GitHub** — their skeletons mirror the exact row shape they replace; ours
+  should too (a session-row skeleton, a stat-bar skeleton), so the transition is
+  invisible.
+- **Design debt, 4th mention** — the color-token pass (vars vs inline hex) still
+  blocks "one accent." Escalating: schedule it as its own iteration soon; it now
+  costs more each feature we add on inline hex.
+
+### Next iteration
+
+Take **task #10 — the polish pass**. Build a shadcn-style `components/ui/
+skeleton.tsx` (uses the dormant `cn` foundation), then replace the bare loading
+text across Overview / drill-in / ribbon / trace / Story with layout-matched
+skeletons, and give empty states an inline recovery action. Design-led, visible,
+and it finally exercises the shadcn base the round asked for.
