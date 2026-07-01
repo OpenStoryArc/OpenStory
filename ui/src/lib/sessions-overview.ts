@@ -113,14 +113,31 @@ function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function levelFor(count: number, max: number): 0 | 1 | 2 | 3 | 4 {
+/** Quantile value from a pre-sorted ascending array. */
+function quantile(sortedAsc: readonly number[], p: number): number {
+  if (sortedAsc.length === 0) return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length));
+  return sortedAsc[idx]!;
+}
+
+/**
+ * Quartile breakpoints of the *positive* daily counts — the GitHub approach.
+ * A linear ratio-to-max scale is swamped by outliers (one 100-session day
+ * crushes every 1–2 session day to the faintest level, so low-activity months
+ * look empty). Quantiles spread activity across levels regardless of outliers.
+ */
+export function levelThresholds(counts: readonly number[]): [number, number, number] {
+  const pos = counts.filter((c) => c > 0).sort((a, b) => a - b);
+  if (pos.length === 0) return [1, 1, 1];
+  return [quantile(pos, 0.25), quantile(pos, 0.5), quantile(pos, 0.75)];
+}
+
+export function levelForCount(count: number, [t1, t2, t3]: readonly [number, number, number]): 0 | 1 | 2 | 3 | 4 {
   if (count <= 0) return 0;
-  if (max <= 0) return 1;
-  const ratio = count / max;
-  if (ratio > 0.66) return 4;
-  if (ratio > 0.33) return 3;
-  if (ratio > 0.1) return 2;
-  return 1;
+  if (count <= t1) return 1;
+  if (count <= t2) return 2;
+  if (count <= t3) return 3;
+  return 4;
 }
 
 export interface CalendarOptions {
@@ -160,7 +177,9 @@ export function buildCalendar(
   const gridStart = new Date(endSaturday);
   gridStart.setDate(gridStart.getDate() - (weeks * 7 - 1));
 
-  const maxSessionCount = Math.max(0, ...[...buckets.values()].map((b) => b.sessionCount));
+  const dailyCounts = [...buckets.values()].map((b) => b.sessionCount);
+  const maxSessionCount = Math.max(0, ...dailyCounts);
+  const thresholds = levelThresholds(dailyCounts);
 
   const cells: CalendarCell[] = [];
   const monthLabels: { weekIndex: number; label: string }[] = [];
@@ -192,7 +211,7 @@ export function buildCalendar(
         sessionCount,
         eventCount: bucket?.eventCount ?? 0,
         tokens: bucket?.tokens ?? 0,
-        level: inRange ? levelFor(sessionCount, maxSessionCount) : 0,
+        level: inRange ? levelForCount(sessionCount, thresholds) : 0,
         inRange,
       });
     }

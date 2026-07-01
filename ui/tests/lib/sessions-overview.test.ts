@@ -15,6 +15,8 @@ import {
   sortSessions,
   computeStats,
   pickRecentSessions,
+  levelThresholds,
+  levelForCount,
 } from "@/lib/sessions-overview";
 
 function sess(p: Partial<StorySession> & { session_id: string }): StorySession {
@@ -112,10 +114,38 @@ describe("buildCalendar", () => {
       },
       (r) => {
         expect(r.busyLevel).toBeGreaterThan(r.quietLevel);
-        expect(r.busyLevel).toBe(4);
         expect(r.quietLevel).toBeGreaterThanOrEqual(1);
       },
     );
+  });
+});
+
+describe("quantile intensity leveling (outlier-robust)", () => {
+  it("keeps low-but-nonzero days visible (level >= 1) despite a huge outlier day", () => {
+    scenario(
+      // heavy-tailed like the real data: lots of 1-2 session days + one 100 day
+      () => levelThresholds([1, 1, 1, 2, 2, 3, 5, 8, 100]),
+      (thresholds) => ({
+        thresholds,
+        low: levelForCount(1, thresholds),
+        mid: levelForCount(5, thresholds),
+        huge: levelForCount(100, thresholds),
+      }),
+      (r) => {
+        // a single-session day is still a visible level 1 (old linear scale
+        // would crush it toward 0 against a max of 100)
+        expect(r.low).toBeGreaterThanOrEqual(1);
+        expect(r.huge).toBe(4);
+        expect(r.mid).toBeGreaterThan(r.low);
+        expect(r.mid).toBeLessThan(r.huge);
+      },
+    );
+  });
+
+  it("returns 0 for empty days and handles a uniform distribution", () => {
+    const t = levelThresholds([4, 4, 4]);
+    expect(levelForCount(0, t)).toBe(0);
+    expect(levelForCount(4, t)).toBe(1);
   });
 });
 

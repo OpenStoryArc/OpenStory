@@ -26,10 +26,11 @@ const STEP = CELL + GAP;
 const TOP = 16; // month-label band
 const LEFT = 24; // weekday-label gutter
 
-// Tokyonight green ramp: empty → busiest.
+// Tokyonight green ramp: empty → busiest. Level 1 is deliberately well clear of
+// the empty cell so a single-session day is unmistakably "there".
 const LEVEL_FILL = scaleOrdinal<string, string>()
   .domain(["0", "1", "2", "3", "4"])
-  .range(["#20222e", "#2a4d3a", "#3d7d54", "#5aa66f", "#9ece6a"]);
+  .range(["#1b1d29", "#375e43", "#4f9560", "#6dbd78", "#b9e88a"]);
 
 const WEEKDAY_LABELS: [number, string][] = [
   [1, "Mon"],
