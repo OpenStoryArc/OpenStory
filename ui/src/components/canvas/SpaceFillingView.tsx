@@ -13,6 +13,7 @@ import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
 import { buildHierarchyTree, type Metric, type TreeNode } from "@/lib/session-hierarchy-tree";
 import { cleanHarnessPreview } from "@/lib/harness-message";
+import { sunburstLabelLayout } from "@/lib/sunburst-label";
 
 interface Props {
   sessions: readonly StorySession[];
@@ -109,11 +110,27 @@ function Sunburst({ focus, width, height, onDrill }: { focus: HN; width: number;
     <svg width={width} height={height} className="block">
       <g transform={`translate(${width / 2},${height / 2})`}>
         {nodes.map((n) => {
+          const b = n as unknown as { x0: number; x1: number; y0: number; y1: number };
+          // Non-session wedges (groups/projects) get an inline radial label when
+          // they're big enough; leaves stay hover-only to avoid clutter.
+          const lbl = n.data.kind === "session" ? null : sunburstLabelLayout(b);
+          const name = cleanHarnessPreview(n.data.name).split(/[/]/).pop() ?? "";
           return (
             <g key={n.data.key} className="cursor-pointer" onClick={() => onDrill(n)}>
               <path d={arc(n) ?? undefined} fill={color(n)} fillOpacity={n.data.kind === "session" ? 0.62 : 0.9} stroke="#16171f" strokeWidth={0.75}>
                 <title>{`${cleanHarnessPreview(n.data.name)} · ${Math.round((n.value ?? 0) ** 2)}`}</title>
               </path>
+              {lbl?.show && name && (
+                <text
+                  transform={`rotate(${lbl.angleDeg}) translate(${lbl.innerR},0)${lbl.flip ? " rotate(180)" : ""}`}
+                  textAnchor={lbl.flip ? "end" : "start"}
+                  dominantBaseline="central"
+                  fontSize={9.5} fill="#1a1b26" fontWeight={600}
+                  className="pointer-events-none select-none"
+                >
+                  {name.slice(0, lbl.maxChars)}
+                </text>
+              )}
             </g>
           );
         })}
