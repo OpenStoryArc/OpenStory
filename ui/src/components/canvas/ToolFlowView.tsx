@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { StorySession } from "@/lib/story-api";
 import type { WireRecord } from "@/types/wire-record";
 import type { ToolCall } from "@/types/view-record";
-import { buildToolFlow } from "@/lib/tool-flow";
+import { buildToolFlow, linkActive, type FlowHover } from "@/lib/tool-flow";
 import { toolColor } from "@/lib/tool-colors";
 import { agentColor } from "@/lib/agent-color";
 
@@ -83,6 +83,10 @@ export function ToolFlowView({ sessions, width, height }: Props) {
   const leftX = 150, rightX = width - 150, midX = (leftX + rightX) / 2;
   const yOff = M.top;
 
+  const [hover, setHover] = useState<FlowHover | null>(null);
+  const nodeActive = (side: "from" | "to", tool: string) =>
+    !hover || flow.links.some((l) => linkActive(l, hover) && (side === "from" ? l.from : l.to) === tool);
+
   return (
     <div className="relative min-h-0 flex-1 bg-[#16171f]">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-[#565f89]">
@@ -91,6 +95,7 @@ export function ToolFlowView({ sessions, width, height }: Props) {
           <button key={a} onClick={() => setAgent(a)} className={`rounded px-1.5 py-0.5 text-[11px] ${agent === a ? "text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]"}`} style={agent === a ? { background: agentColor(a) } : undefined}>{a}</button>
         ))}
         <span className="ml-2">{loading ? "sampling recent sessions…" : `${sequences.length} sessions · ${flow.total} transitions${timedOut ? ` · ${timedOut} skipped (too large)` : ""}`}</span>
+        {!loading && flow.total > 0 && <span className="text-[#3b4261]">· hover a ribbon or tool to trace its path</span>}
       </div>
       {!loading && flow.total === 0 ? (
         <div className="flex h-40 items-center justify-center text-[12px] text-[#565f89]">No tool transitions for {agent} (may not log tool calls).</div>
@@ -101,24 +106,38 @@ export function ToolFlowView({ sessions, width, height }: Props) {
             const sy = yOff + l.sy, ty = yOff + l.ty, w = l.width;
             const d = `M${leftX},${sy - w / 2} C${midX},${sy - w / 2} ${midX},${ty - w / 2} ${rightX},${ty - w / 2}`
               + ` L${rightX},${ty + w / 2} C${midX},${ty + w / 2} ${midX},${sy + w / 2} ${leftX},${sy + w / 2} Z`;
-            return <path key={`${l.from}-${l.to}`} d={d} fill={toolColor(l.from)} fillOpacity={l.from === l.to ? 0.25 : 0.32} stroke="none">
+            const active = linkActive(l, hover);
+            const base = l.from === l.to ? 0.25 : 0.32;
+            return <path
+              key={`${l.from}-${l.to}`} d={d} fill={toolColor(l.from)}
+              fillOpacity={hover ? (active ? 0.7 : 0.05) : base}
+              stroke="none" className="cursor-pointer transition-opacity"
+              onMouseEnter={() => setHover({ type: "link", from: l.from, to: l.to })}
+              onMouseLeave={() => setHover(null)}
+            >
               <title>{`${l.from} → ${l.to} · ${l.value}`}</title>
             </path>;
           })}
           {/* from nodes (left) */}
-          {flow.fromNodes.map((n) => (
-            <g key={`f-${n.tool}`}>
+          {flow.fromNodes.map((n) => {
+            const on = nodeActive("from", n.tool);
+            return (
+            <g key={`f-${n.tool}`} opacity={on ? 1 : 0.25} className="cursor-pointer"
+               onMouseEnter={() => setHover({ type: "from", tool: n.tool })} onMouseLeave={() => setHover(null)}>
               <rect x={leftX - 8} y={yOff + n.y0} width={8} height={Math.max(n.y1 - n.y0, 1)} fill={toolColor(n.tool)} />
               <text x={leftX - 12} y={yOff + (n.y0 + n.y1) / 2 + 3} textAnchor="end" fontSize={10} fill="#c0caf5">{n.tool}</text>
             </g>
-          ))}
+          );})}
           {/* to nodes (right) */}
-          {flow.toNodes.map((n) => (
-            <g key={`t-${n.tool}`}>
+          {flow.toNodes.map((n) => {
+            const on = nodeActive("to", n.tool);
+            return (
+            <g key={`t-${n.tool}`} opacity={on ? 1 : 0.25} className="cursor-pointer"
+               onMouseEnter={() => setHover({ type: "to", tool: n.tool })} onMouseLeave={() => setHover(null)}>
               <rect x={rightX} y={yOff + n.y0} width={8} height={Math.max(n.y1 - n.y0, 1)} fill={toolColor(n.tool)} />
               <text x={rightX + 12} y={yOff + (n.y0 + n.y1) / 2 + 3} textAnchor="start" fontSize={10} fill="#c0caf5">{n.tool}</text>
             </g>
-          ))}
+          );})}
           <text x={leftX - 8} y={18} textAnchor="end" fontSize={9} fill="#565f89">from</text>
           <text x={rightX + 8} y={18} textAnchor="start" fontSize={9} fill="#565f89">to</text>
         </svg>

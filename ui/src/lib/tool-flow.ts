@@ -112,3 +112,21 @@ export function buildToolFlow(sequences: readonly (readonly string[])[], opts: F
 
   return { fromNodes: fromStack.nodes, toNodes: toStack.nodes, links, total };
 }
+
+/** What the pointer is hovering in the flow, driving path highlight. `null` =
+ *  nothing hovered (everything shown at full strength). */
+export type FlowHover =
+  | { readonly type: "link"; readonly from: string; readonly to: string }
+  | { readonly type: "from"; readonly tool: string }
+  | { readonly type: "to"; readonly tool: string };
+
+/** Is this ribbon part of the hovered path? Hovering a ribbon lights just that
+ *  ribbon; hovering a from-node lights every ribbon leaving it; a to-node lights
+ *  every ribbon entering it. Node highlight is derived from this in the view (a
+ *  node is lit iff an active ribbon touches it on its side). Pure → tested. */
+export function linkActive(l: { from: string; to: string }, h: FlowHover | null): boolean {
+  if (!h) return true;
+  if (h.type === "link") return l.from === h.from && l.to === h.to;
+  if (h.type === "from") return l.from === h.tool;
+  return l.to === h.tool;
+}
