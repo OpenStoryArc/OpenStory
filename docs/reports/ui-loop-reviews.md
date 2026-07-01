@@ -349,7 +349,7 @@ control surface (Review #6 #1 → done).
   environment can't screenshot. It's documented and ready for a supervised pass
   rather than an autonomous one. This is the honest call, not avoidance.
 
-### Next iteration
+### (later iterations continue below)
 
 Take **task #13 — frecency / recently-viewed sessions**. A pure ranking module
 (`lib/recents.ts`: record a visit, rank by recency×frequency — test-first, the
@@ -502,3 +502,90 @@ visibility` is green (tsc + 1458 tests + build) and PR-ready. Recommended next
 action is **human review / open a PR**, then tackle the BACKLOG UI items with a
 visual pass. Absent direction, the loop slows its cadence rather than manufacture
 marginal features.
+
+---
+
+## Review #11 — Deep review: Explore, Story, architecture friction, subagents, wowser viz
+
+Prompted by Max for a full design/UX + architect pass, with special attention to
+the Explore page, Story usability, whether session reports include subagents, and
+"wowser" interactive-canvas ideas. Grounded in the live data (dogfooded via the
+REST API) — 1428 sessions, of which **623 (44%) are orphaned `agent-*` subagent
+sessions**.
+
+### Subagents — the headline finding (partially shipped this iteration)
+A session report did **not** include its subagents. Subagents run as separate
+`agent-<id>` sessions with **no parent link materialized** in the data model, so
+they were invisible from their parent AND flooded every list (44% noise).
+- **Shipped:** `lib/subagents.ts` reconstructs the edge (parent `Agent`
+  tool_result echoes `agentId:<hex>` → child `agent-<hex>`); a Subagents section
+  in the drill-in; Overview hides `agent-*` by default with a toggle.
+- **Still open (backend, architect hat):** the link should be *materialized at
+  ingest* (`parent_session_id` on the child session), not reconstructed in the
+  client each time. Same for surfacing subagents in the **Explore** view (only
+  the Overview drill-in has them so far).
+
+### Architecture / backend friction (architect hat)
+1. **Subagent orphaning** (above) — no parent edge in the store.
+2. **Token totals exclude the prompt cache at the SOURCE.** The session-list
+   `total_input_tokens` omits `cache_read`/`cache_creation`; on a real session
+   that under-reported ~224× (4.2M shown vs 949M true). Fixed the per-session
+   records-derived view (`TokenReport`), but the *list aggregate* is still wrong
+   until the projection includes cache — a `projection.rs` change.
+3. **Unpaginated `/records`.** Ribbon, trace, summary, token report, and
+   subagents all fetch the *full* record set per session; a 12k-event session
+   ships everything each open. Fine now, a wall at scale (matches the known
+   read-path ceiling). Wants keyset pagination or a lightweight summary endpoint.
+4. **Lossy label at source** (`projection.rs:302`, 50-char first-prompt) — the UI
+   cleans harness noise at render, but search/exports still see the raw label.
+
+### Explore page — movement & clickability
+Layout: left nav (turn outline + file/tool/plan facets) → right event cards, now
+topped by summary spine + ribbon + trace. What works: ribbon mark → scrolls to
+event; trace span → scrolls to event; summary "errors →" / top-file → jump/filter;
+arrow-key sidebar↔cards. Friction:
+- **Inconsistent session-finding.** Overview and Story have search + facets;
+  Explore's session picker (`ExploreSidebar`) does not. Finding a session differs
+  per tab — should be unified (ideally the ⌘K palette is the one true finder).
+- **Active-filter state is invisible + not deep-linkable.** Multiple facets read
+  only as "N of M events"; the active facets aren't shown as removable chips, and
+  (unlike Overview) they aren't encoded in the URL.
+- **No subagents in Explore** (only the Overview drill-in) — inconsistent.
+- **No "next error / next turn" intra-session jumps** despite having the data.
+
+### Story page — usability
+Flat virtualized turn list (`estimateSize 140`). Good ideas from Max, all viable:
+- **Compress turns into groups of ~10** — collapsible "Turns 1–10" decade headers
+  (pure grouping over the sentence list; a natural test-first lib fn), so long
+  sessions are scannable and you can collapse the boring stretches.
+- **Sticky turn/decade header** while scrolling; a **jump-to (top / next
+  terminal turn / next error)** control; a thin **minimap** of turn categories.
+
+### Pain points in the test-driven process (asked directly)
+- **jsdom lacks `scrollIntoView`/`scrollTo`** → scroll-aware components threw
+  unhandled errors mid-test. **Fixed this iteration** with a global stub in
+  `tests/setup.ts` (removes a recurring footgun).
+- **No full `<App>` mount test** → App-level runtime crashes (e.g. the blank-page
+  regression) aren't caught by the suite; a mocked-connection smoke test would.
+- **Split value/label spans** make `getByText('N tool')` fail (must use
+  `toHaveTextContent`) — a documented testing convention/helper would save churn.
+- **Per-file fetch re-mocking** is brittle; a shared API-mock helper would reduce
+  friction and the "wrong shape" surprises (hit once with `/synopsis`).
+
+### Wowser visual — the standout idea
+Now that parent→subagent edges are recoverable, the natural "Figma-like"
+interactive screen is a **session constellation / agent graph**: a pan-zoom
+canvas where a session is a node and its subagents fan out as linked child nodes
+(recursively), sized by event/token volume, colored by status, edges = spawn
+relationships. Click a node → its report; drag to explore; the recent multi-agent
+*audit* (dozens of `agent-*` children) would render as a striking tree. This is
+genuinely novel visibility (no tool shows your agent *delegation graph*) and
+builds directly on this iteration's linkage. Runner-up: a session **flame graph**
+(turns × depth × time) and a **live fleet canvas** of active sessions.
+
+### Next iterations (proposed)
+1. **Add the Subagents section + summary spine to Explore** (consistency; small).
+2. **Story decade-grouping** (collapsible groups of 10 + jump control) — test-first.
+3. **The agent constellation graph** (the wowser canvas) — the flagship next build.
+4. Backlog (backend/supervised): materialize `parent_session_id`; cache tokens in
+   the projection aggregate; `/records` pagination; full-`<App>` smoke test.
