@@ -11,6 +11,7 @@ import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { OverviewView } from "@/components/overview/OverviewView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
+import { AskView } from "@/components/ask/AskView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
@@ -174,6 +175,9 @@ export function App() {
 
       {/* Canvas tab */}
       {viewMode === "canvas" && <SessionsCanvas onNavigate={navigate} />}
+
+      {/* Ask tab */}
+      {viewMode === "ask" && <AskView onNavigate={navigate} />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}
