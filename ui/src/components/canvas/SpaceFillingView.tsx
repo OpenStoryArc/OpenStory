@@ -165,6 +165,11 @@ function Treemap({ focus, width, height, onDrill }: { focus: HN; width: number; 
             {!leaf && w > 44 && h > 14 && (
               <text x={3} y={10} fontSize={9} fill="#c0caf5">{cleanHarnessPreview(n.data.name).split(/[/]/).pop()?.slice(0, Math.floor(w / 6))}</text>
             )}
+            {leaf && w > 54 && h > 24 && (
+              <text x={4} y={12} fontSize={8.5} fontWeight={500} fill="#16171f" className="pointer-events-none">
+                {cleanHarnessPreview(n.data.name).split(/[/]/).pop()?.slice(0, Math.floor(w / 5.5))}
+              </text>
+            )}
           </g>
         );
       })}

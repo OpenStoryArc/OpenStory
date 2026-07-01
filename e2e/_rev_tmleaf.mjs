@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message.slice(0,120)));
+await p.goto("http://127.0.0.1:5173/#/canvas",{waitUntil:"networkidle"}); await p.waitForTimeout(1500);
+await p.getByRole("button",{name:/Treemap/}).first().click(); await p.waitForTimeout(1800);
+const texts = await p.$$eval('svg g[data-tm-node] text', els => els.map(e=>e.textContent.trim()).filter(Boolean).length);
+console.log("treemap labels rendered:", texts);
+await p.screenshot({path:`${S}/rev-treemap-leaf.png`});
+console.log("saved");
+await b.close();
