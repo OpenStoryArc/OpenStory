@@ -13,6 +13,8 @@ import { OverviewView } from "@/components/overview/OverviewView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
+import { CommandPalette } from "@/components/command/CommandPalette";
+import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
@@ -37,6 +39,7 @@ export function App() {
   const [route, navigate] = useHashRoute();
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const localInfo = useLocalInfo();
+  const { sessions: allSessions } = useSessionsList();
 
   // Derive view state from route
   const viewMode = route.view;
@@ -94,9 +97,19 @@ export function App() {
           <h1 className="text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
-        <div className="flex items-center gap-2 text-xs text-[#565f89]" data-testid="connection-status">
-          <span className={`w-2 h-2 rounded-full ${color}`} />
-          {label}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+            className="flex items-center gap-1.5 rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5] transition-colors"
+            title="Command palette"
+          >
+            <span>Jump to…</span>
+            <kbd className="rounded bg-[#1a1b26] px-1 text-[10px]">⌘K</kbd>
+          </button>
+          <div className="flex items-center gap-2 text-xs text-[#565f89]" data-testid="connection-status">
+            <span className={`w-2 h-2 rounded-full ${color}`} />
+            {label}
+          </div>
         </div>
       </header>
 
@@ -155,6 +168,9 @@ export function App() {
 
       {/* Admin tab */}
       {viewMode === "admin" && <AdminView />}
+
+      {/* Global ⌘K command palette */}
+      <CommandPalette sessions={allSessions} onNavigate={navigate} />
     </div>
   );
 }
