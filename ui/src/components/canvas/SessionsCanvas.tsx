@@ -15,10 +15,14 @@ import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
+import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
+import { SpaceFillingView } from "./SpaceFillingView";
 import { cn } from "@/lib/cn";
+
+type ViewMode = "board" | "sunburst" | "treemap";
 
 interface Props {
   onNavigate: (route: HashRoute) => void;
@@ -36,8 +40,10 @@ const DIMS: { key: GroupDim; label: string }[] = [
 export function SessionsCanvas({ onNavigate }: Props) {
   const { sessions, loading } = useSessionsList();
   const [groupBy, setGroupBy] = useState<GroupDim>("user");
+  const [viewMode, setViewMode] = useState<ViewMode>("board");
+  const [metric, setMetric] = useState<Metric>("events");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<HNode | null>(null);
+  const [selected, setSelected] = useState<{ sessionId: string; label: string } | null>(null);
   const [query, setQuery] = useState("");
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -96,8 +102,12 @@ export function SessionsCanvas({ onNavigate }: Props) {
 
   const toggle = (key: string) => setExpanded((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const onNodeClick = (n: HNode) => {
-    if (n.kind === "session") setSelected(n);
+    if (n.kind === "session" && n.sessionId) setSelected({ sessionId: n.sessionId, label: n.label });
     else toggle(n.key);
+  };
+  const openSessionPanel = (id: string) => {
+    const s = universe.find((x) => x.session_id === id);
+    setSelected({ sessionId: id, label: s?.label || id.slice(0, 8) });
   };
 
   const q = query.trim().toLowerCase();
@@ -110,7 +120,19 @@ export function SessionsCanvas({ onNavigate }: Props) {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
         <div className="flex items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
-          <span className="text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
+          <div className="flex rounded border border-[#3b4261] p-0.5">
+            {(["board", "sunburst", "treemap"] as ViewMode[]).map((m) => (
+              <button key={m} onClick={() => setViewMode(m)} className={cn("rounded px-2 py-0.5 text-[11px] capitalize transition-colors", viewMode === m ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{m}</button>
+            ))}
+          </div>
+          {viewMode !== "board" && (
+            <div className="flex rounded border border-[#3b4261] p-0.5">
+              {(["events", "tokens"] as Metric[]).map((mt) => (
+                <button key={mt} onClick={() => setMetric(mt)} className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", metric === mt ? "bg-[#e0af68] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{mt}</button>
+              ))}
+            </div>
+          )}
+          <span className="ml-1 text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
           <div className="flex flex-wrap gap-1">
             {DIMS.map((d) => (
               <button
@@ -130,6 +152,9 @@ export function SessionsCanvas({ onNavigate }: Props) {
 
         <div ref={wrapRef} className="relative min-h-0 flex-1">
           {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[#565f89]">Loading canvas…</div>}
+          {viewMode !== "board" ? (
+            <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
+          ) : (
           <svg ref={svgRef} width={size.w} height={size.h} className="block cursor-grab active:cursor-grabbing" style={{ touchAction: "none" }}>
             <defs>
               <pattern id="canvas-dots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#2f3348" fillOpacity="0.45" /></pattern>
@@ -148,7 +173,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
               {model.nodes.map((n) => {
                 const r = radius(n);
                 const col = groupColor(n);
-                const isSel = selected?.key === n.key;
+                const isSel = n.kind === "session" && selected?.sessionId === n.sessionId;
                 const faded = dim(n);
                 const drillable = n.kind !== "session" && n.collapsed;
                 return (
@@ -168,16 +193,17 @@ export function SessionsCanvas({ onNavigate }: Props) {
               })}
             </g>
           </svg>
+          )}
         </div>
       </div>
 
       {/* details side panel */}
-      {selected?.kind === "session" && selected.sessionId && (
+      {selected && (
         <aside className="flex w-[420px] shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]">
           <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
             <span className="truncate text-[12px] text-[#c0caf5]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId! })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Open in Explore →</button>
+              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Open in Explore →</button>
               <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">✕</button>
             </div>
           </div>
