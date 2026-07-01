@@ -10,6 +10,7 @@ import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { OverviewView } from "@/components/overview/OverviewView";
+import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
@@ -170,6 +171,9 @@ export function App() {
 
       {/* Overview tab */}
       {viewMode === "overview" && <OverviewView route={route} onNavigate={navigate} />}
+
+      {/* Canvas tab */}
+      {viewMode === "canvas" && <SessionsCanvas onNavigate={navigate} />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}

@@ -16,7 +16,7 @@ const VALID_SORTS = new Set<SortKey>(["recent", "events", "tokens", "duration"])
 const OVERVIEW_FACET_KEYS = ["project", "host", "user", "branch", "status", "agent", "day"] as const;
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "overview" | "users" | "admin";
+  view: "live" | "explore" | "story" | "overview" | "canvas" | "users" | "admin";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -36,7 +36,7 @@ export interface HashRoute {
   timeFilter?: "1h" | "today" | "week" | "all";
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "overview", "users", "admin"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "overview", "canvas", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Parse Overview query params into an OverviewRoute, or null if none set. */
@@ -103,10 +103,10 @@ export function parseHash(hash: string): HashRoute {
 
   const parts = path.split("/").filter(Boolean);
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "overview" | "users" | "admin")
+    ? (parts[0] as "live" | "explore" | "story" | "overview" | "canvas" | "users" | "admin")
     : "live";
 
-  if (view === "users" || view === "admin") {
+  if (view === "users" || view === "admin" || view === "canvas") {
     return { view };
   }
 
