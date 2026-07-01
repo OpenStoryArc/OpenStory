@@ -15,6 +15,10 @@ import { cn } from "@/lib/cn";
 interface Props {
   records: readonly WireRecord[];
   className?: string;
+  /** When set, the errors stat becomes a button that jumps to the first failure. */
+  onJumpToError?: () => void;
+  /** When set, the top-file stat becomes a button that filters events to it. */
+  onFilterFile?: (path: string) => void;
 }
 
 function kfmt(n: number): string {
@@ -36,7 +40,7 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
-export function SessionSummaryHeader({ records, className }: Props) {
+export function SessionSummaryHeader({ records, className, onJumpToError, onFilterFile }: Props) {
   const s = useMemo(() => buildSessionSummary(records), [records]);
   const topFile = s.topFiles[0];
 
@@ -50,15 +54,40 @@ export function SessionSummaryHeader({ records, className }: Props) {
       <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} color="#7dcfff" />
       {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} color="#e0af68" />}
       {s.errorCount > 0 && (
-        <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
-          <span className="tabular-nums">{s.errorCount}</span>
-          <span>{" "}error{s.errorCount === 1 ? "" : "s"}</span>
-        </span>
+        onJumpToError ? (
+          <button
+            type="button"
+            data-testid="summary-errors"
+            onClick={onJumpToError}
+            className="flex items-baseline gap-1 text-[#f7768e] hover:underline"
+            title="Jump to the first failure"
+          >
+            <span className="tabular-nums">{s.errorCount}</span>
+            <span>{" "}error{s.errorCount === 1 ? "" : "s"} →</span>
+          </button>
+        ) : (
+          <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
+            <span className="tabular-nums">{s.errorCount}</span>
+            <span>{" "}error{s.errorCount === 1 ? "" : "s"}</span>
+          </span>
+        )
       )}
       {topFile && (
         <span className="flex items-baseline gap-1 truncate text-[#565f89]">
           <span className="text-[#565f89]">·</span>
-          <span className="truncate text-[#a9b1d6]" title={topFile.path}>{topFile.path.split("/").pop()}</span>
+          {onFilterFile ? (
+            <button
+              type="button"
+              data-testid="summary-top-file"
+              onClick={() => onFilterFile(topFile.path)}
+              className="truncate text-[#a9b1d6] hover:text-[#7dcfff] hover:underline"
+              title={`Filter events to ${topFile.path}`}
+            >
+              {topFile.path.split("/").pop()}
+            </button>
+          ) : (
+            <span className="truncate text-[#a9b1d6]" title={topFile.path}>{topFile.path.split("/").pop()}</span>
+          )}
           {topFile.count > 1 && <span className="text-[#565f89]">×{topFile.count}</span>}
         </span>
       )}

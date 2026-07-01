@@ -9,6 +9,18 @@
 import type { WireRecord } from "@/types/wire-record";
 import type { AssistantMessage, SessionMeta, ToolCall, ToolResult, TokenUsage } from "@/types/view-record";
 
+/** Id of the earliest failure (error record or errored tool_result), by seq.
+ *  Null when the session had no failures. Used to jump-to-first-error. */
+export function firstErrorEventId(records: readonly WireRecord[]): string | null {
+  let best: WireRecord | null = null;
+  for (const r of records) {
+    const isError = r.record_type === "error" || (r.record_type === "tool_result" && (r.payload as ToolResult)?.is_error);
+    if (!isError) continue;
+    if (!best || r.seq < best.seq) best = r;
+  }
+  return best?.id ?? null;
+}
+
 export interface FileTouch {
   readonly path: string;
   readonly count: number;

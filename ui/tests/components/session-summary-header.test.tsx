@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
 import type { WireRecord } from "@/types/wire-record";
 import type { RecordType } from "@/types/view-record";
@@ -38,5 +38,25 @@ describe("SessionSummaryHeader", () => {
   it("hides the error stat when there are none", () => {
     render(<SessionSummaryHeader records={[rec("user_message", T(0), 1)]} />);
     expect(screen.queryByTestId("summary-errors")).toBeNull();
+  });
+
+  it("makes the errors stat a button that jumps to the first failure", () => {
+    const onJump = vi.fn();
+    render(<SessionSummaryHeader records={RECORDS} onJumpToError={onJump} />);
+    const btn = screen.getByTestId("summary-errors");
+    expect(btn.tagName).toBe("BUTTON");
+    fireEvent.click(btn);
+    expect(onJump).toHaveBeenCalledOnce();
+  });
+
+  it("makes the top file a button that filters events to it", () => {
+    const onFilter = vi.fn();
+    const withFile = [
+      ...RECORDS,
+      rec("tool_call", T(3), 5, { call_id: "c2", name: "Edit", typed_input: { tool: "edit", file_path: "/src/auth.ts" } }),
+    ];
+    render(<SessionSummaryHeader records={withFile} onFilterFile={onFilter} />);
+    fireEvent.click(screen.getByTestId("summary-top-file"));
+    expect(onFilter).toHaveBeenCalledWith("/src/auth.ts");
   });
 });

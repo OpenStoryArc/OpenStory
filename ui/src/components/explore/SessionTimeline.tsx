@@ -13,6 +13,7 @@ import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
+import { firstErrorEventId } from "@/lib/session-summary";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 
 interface SessionTimelineProps {
@@ -266,9 +267,16 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
       {/* Event cards */}
       <div className="flex-1 min-w-0 overflow-y-auto outline-none" ref={scrollContainerRef} tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
-        {/* Shared summary header — the one-product spine */}
+        {/* Shared summary header — the one-product spine (clickable stats) */}
         <div className="border-b border-[#2f3348] bg-[#24283b]">
-          <SessionSummaryHeader records={records} />
+          <SessionSummaryHeader
+            records={records}
+            onJumpToError={() => {
+              const id = firstErrorEventId(records);
+              if (id) selectEvent(id);
+            }}
+            onFilterFile={(path) => setSelectedFile(path)}
+          />
         </div>
 
         {/* Activity ribbon — temporal shape of the whole session */}
