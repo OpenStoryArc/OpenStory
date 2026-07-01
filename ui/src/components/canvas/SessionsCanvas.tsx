@@ -15,6 +15,7 @@ import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
+import { fitTransform } from "@/lib/canvas-fit";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -105,14 +106,20 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const fit = () => {
     const svg = svgRef.current, z = zoomRef.current;
     if (!svg || !z) return;
-    const b = model.bounds, pad = 110;
-    const bw = Math.max(b.maxX - b.minX + pad * 2, 1), bh = Math.max(b.maxY - b.minY + pad * 2, 1);
-    const scale = Math.min(size.w / bw, size.h / bh, 1.4);
-    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
-    select(svg).transition().duration(400).call(z.transform, zoomIdentity.translate(size.w / 2, size.h / 2).scale(scale).translate(-cx, -cy));
+    const { k, x, y } = fitTransform(model.bounds, size);
+    select(svg).transition().duration(400).call(z.transform, zoomIdentity.translate(x, y).scale(k));
   };
   // fit on group-by change (not on every expand — keep the viewport stable while drilling)
   useEffect(() => { if (model.nodes.length && size.w > 100) fit(); }, [groupBy, size.w]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Initial fit once the data has actually arrived. Sessions load async, often
+  // AFTER the viewport is measured, so the group-by/size effect above fires with
+  // an empty model and never re-fits — the board loaded clipped. Fit exactly
+  // once when both size and nodes are ready.
+  const didInitialFit = useRef(false);
+  useEffect(() => {
+    if (didInitialFit.current) return;
+    if (model.nodes.length && size.w > 100) { fit(); didInitialFit.current = true; }
+  }, [model.nodes.length, size.w]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (key: string) => setExpanded((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const onNodeClick = (n: HNode) => {
