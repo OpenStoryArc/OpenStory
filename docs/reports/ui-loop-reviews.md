@@ -312,3 +312,48 @@ records) and wire the SessionSummary header stats to jump/filter in Explore
 (errors → first failure card, top file → file facet). Turns the one-product
 spine from a readout into a control surface. Then schedule the token-pass
 (task #12).
+
+---
+
+## Review #7 — After actionable summary stats
+
+**Shipped this iteration:** `firstErrorEventId` helper + clickable header stats
+(errors → jump to first failure, top file → filter events). The spine is now a
+control surface (Review #6 #1 → done).
+
+### UX critique
+
+1. **Attention has no memory.** Five reviews have flagged it: ⌘K and every list
+   order by *event* recency, never by what *you* just looked at. A senior dev
+   revisiting work wants "the three sessions I was just in" at the top. Frecency
+   is pure, testable, and low-risk. → next iteration (task #13).
+2. **Story still has no summary spine.** Needs a records fetch for the selected
+   session (the SessionVizLoader pattern) — safe, deferred again only for
+   sequencing. Task #14.
+3. **⌘K is still nav-only, empty state is bare.** Once recents exist, the empty
+   palette should show them; and palette should eventually run actions.
+
+### Design review (GitHub · Airbnb · Claude · Apple)
+
+- **Apple / Linear** — "recently viewed" at rest is a hallmark of a tool that
+  respects your flow; pair it with the ⌘K empty state so the palette is useful
+  before you type a character.
+- **GitHub** — the clickable-count pattern from this iteration should propagate:
+  make the Overview stat-bar numbers (sessions/events) clickable too (e.g.
+  events → sort by events).
+- **Claude** — hold the line on restraint; recents should be a short, quiet list
+  (max 5), not a second feed.
+- **Design debt — color-token pass (task #12).** Deliberately NOT auto-run in
+  this loop: it's a wide inline-hex→CSS-var refactor whose failure mode is
+  *visual* regression, which the (logic-only) test suite can't catch and this
+  environment can't screenshot. It's documented and ready for a supervised pass
+  rather than an autonomous one. This is the honest call, not avoidance.
+
+### Next iteration
+
+Take **task #13 — frecency / recently-viewed sessions**. A pure ranking module
+(`lib/recents.ts`: record a visit, rank by recency×frequency — test-first, the
+decay/ordering is exactly what specs should pin down), persisted at the edge
+(localStorage), surfaced in the ⌘K empty state and optionally an Overview
+"Recent" strip. Addresses the most-repeated open critique with a low-risk,
+well-tested change.
