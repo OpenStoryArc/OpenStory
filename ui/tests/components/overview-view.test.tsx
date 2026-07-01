@@ -68,6 +68,25 @@ describe("OverviewView (integration)", () => {
     expect(screen.getByText("katie")).toBeInTheDocument();
   });
 
+  it("shows a layout-matched skeleton while the session list is loading", () => {
+    // fetch that never resolves → stays in the loading state
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    render(<OverviewView route={{ view: "overview" }} onNavigate={() => {}} />);
+    expect(screen.getByTestId("session-list-skeleton")).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-session-row]")).toHaveLength(0);
+  });
+
+  it("offers an inline recovery action when filters match nothing", async () => {
+    render(
+      <OverviewView route={{ view: "overview", overview: { filters: { user: "nobody-here" } } }} onNavigate={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByText(/no sessions match/i)).toBeInTheDocument());
+    expect(document.querySelectorAll("[data-session-row]")).toHaveLength(0);
+    // recovering clears filters and the sessions come back
+    fireEvent.click(screen.getByText("Reset filters"));
+    await waitFor(() => expect(document.querySelectorAll("[data-session-row]").length).toBeGreaterThan(0));
+  });
+
   it("hydrates its filters from the URL route so a shared link restores the view", async () => {
     render(<OverviewView route={{ view: "overview", overview: { filters: { agent: "codex" } } }} onNavigate={() => {}} />);
     // only the codex session survives the URL-supplied filter

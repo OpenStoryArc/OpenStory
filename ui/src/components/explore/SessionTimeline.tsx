@@ -12,6 +12,7 @@ import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
+import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 
 interface SessionTimelineProps {
@@ -231,7 +232,14 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   }, [scrollToEventId, rows]);
 
   if (loading) {
-    return <div className="p-4 text-xs text-[#565f89]">Loading events...</div>;
+    return (
+      <div className="flex min-h-0 flex-1" data-testid="session-timeline">
+        <div className="w-52 shrink-0 border-r border-[#2f3348] bg-[#1a1b26]" />
+        <div className="min-w-0 flex-1">
+          <SessionVizSkeleton />
+        </div>
+      </div>
+    );
   }
 
   return (

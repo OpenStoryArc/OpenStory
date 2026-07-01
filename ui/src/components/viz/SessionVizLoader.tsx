@@ -7,6 +7,7 @@ import type { WireRecord } from "@/types/wire-record";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
 import { TurnTraceView } from "./TurnTraceView";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
+import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
 
 export function SessionVizLoader({ sessionId }: { sessionId: string }) {
   const [records, setRecords] = useState<WireRecord[]>([]);
@@ -28,7 +29,7 @@ export function SessionVizLoader({ sessionId }: { sessionId: string }) {
     return () => { cancelled = true; };
   }, [sessionId]);
 
-  if (loading) return <div className="px-3 py-3 text-[11px] text-[#565f89]">Loading activity…</div>;
+  if (loading) return <SessionVizSkeleton />;
 
   return (
     <div>

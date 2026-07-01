@@ -28,6 +28,7 @@ import {
 import { SessionCalendar } from "@/components/viz/SessionCalendar";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
+import { SessionListSkeleton } from "./OverviewSkeletons";
 import { sessionColor } from "@/lib/session-colors";
 import { formatDuration, relativeTime } from "@/lib/time";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -339,9 +340,22 @@ export function OverviewView({ route, onNavigate }: Props) {
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1 overflow-y-auto">
             {loading ? (
-              <div className="p-6 text-center text-[12px] text-[#565f89]">Loading sessions…</div>
+              <SessionListSkeleton />
             ) : sorted.length === 0 ? (
-              <div className="p-6 text-center text-[12px] text-[#565f89]">No sessions match these filters.</div>
+              <div className="flex flex-col items-center gap-2 p-8 text-center">
+                <div className="text-[13px] text-[#c0caf5]">No sessions match these filters</div>
+                <div className="text-[11px] text-[#565f89]">
+                  {sessions.length.toLocaleString()} sessions total · try widening your search
+                </div>
+                {active && (
+                  <button
+                    onClick={() => setFilters({})}
+                    className="mt-1 rounded border border-[#7aa2f7] px-3 py-1 text-[11px] text-[#7aa2f7] hover:bg-[#7aa2f7]/10"
+                  >
+                    Reset filters
+                  </button>
+                )}
+              </div>
             ) : (
               sorted.map((s) => (
                 <SessionRow
