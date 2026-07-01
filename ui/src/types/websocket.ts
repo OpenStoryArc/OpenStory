@@ -11,7 +11,7 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | ControlMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -83,4 +83,15 @@ export interface PlanSavedMessage {
 export interface AdminTopologyChangedMessage {
   readonly kind: "admin_topology_changed";
   readonly topology: import("@/lib/admin-api").Topology;
+}
+
+/** Agent/operator "view intent" — the write side of the agent-in-UI seam. An
+ *  MCP or operator posts to /api/control; the server broadcasts this; the UI (a
+ *  sink) reacts (navigate/highlight/present). It only steers what the dashboard
+ *  shows — never the observed sources. */
+export interface ControlMessage {
+  readonly kind: "control";
+  readonly action: string;
+  readonly params?: unknown;
+  readonly issuer?: string | null;
 }

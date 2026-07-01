@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
+use crate::broadcast::BroadcastMessage;
 use crate::logging::{log_event, short_id};
 use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
@@ -43,6 +44,47 @@ pub struct SessionListQuery {
 /// after restart, etc.) become observable instead of silent. Pure observation.
 /// See `docs/research/node-and-network-health.md`. Detailed watcher state lives
 /// at `/api/watchers`.
+/// `POST /api/control` — the agent-in-UI WRITE seam. Accepts a view intent
+/// (`{ action, params?, issuer? }`) and broadcasts it to connected dashboards
+/// over the existing WebSocket as a `control` message. The UI (a sink) reacts.
+///
+/// Sovereignty: this only steers what the dashboard *shows* — it can't touch the
+/// observed sources. "Drive the mirror, never the watched." Returns how many
+/// dashboards received it (`delivered`).
+pub async fn post_control(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let action = body
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if action.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "missing 'action'" })),
+        );
+    }
+    let params = body.get("params").cloned().unwrap_or(Value::Null);
+    let issuer = body
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    log_event("control", &format!("POST /api/control action={action}"));
+    let msg = BroadcastMessage::Control {
+        action: action.clone(),
+        params,
+        issuer,
+    };
+    // send() errs only when there are no subscribers → 0 delivered.
+    let delivered = state.read().await.broadcast_tx.send(msg).unwrap_or(0);
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "action": action, "delivered": delivered })),
+    )
+}
+
 pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let sessions = s

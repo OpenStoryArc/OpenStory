@@ -21,6 +21,7 @@ import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
+import { controlToRoute } from "@/lib/ui-control";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
 const STATUS_INDICATOR = {
@@ -42,6 +43,26 @@ export function App() {
 
   const [route, navigate] = useHashRoute();
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
+  const [drivenBy, setDrivenBy] = useState<string | null>(null);
+
+  // Agent-in-UI WRITE seam: react to `control` view-intents broadcast over the
+  // WebSocket (an MCP/operator posts to /api/control). The UI is a sink — it
+  // navigates in response; it never drives itself. Every drive is made visible
+  // ("driven by X") so the mirror stays seizable, not a leash.
+  useEffect(() => {
+    const sub = wsMessages$().subscribe((msg) => {
+      if (msg.kind !== "control") return;
+      const target = controlToRoute(msg.action, msg.params);
+      if (target) navigate(target);
+      setDrivenBy(typeof msg.issuer === "string" && msg.issuer ? msg.issuer : "an agent");
+    });
+    return () => sub.unsubscribe();
+  }, [navigate]);
+  useEffect(() => {
+    if (!drivenBy) return;
+    const t = setTimeout(() => setDrivenBy(null), 4000);
+    return () => clearTimeout(t);
+  }, [drivenBy]);
   const localInfo = useLocalInfo();
   const { sessions: allSessions } = useSessionsList();
   const { recentIds, record: recordRecent } = useRecents();
@@ -117,6 +138,15 @@ export function App() {
             <span>Jump to…</span>
             <kbd className="rounded bg-[#1a1b26] px-1 text-[10px]">⌘K</kbd>
           </button>
+          {drivenBy && (
+            <div
+              className="flex items-center gap-1.5 rounded border border-[#7aa2f7]/50 bg-[#7aa2f7]/10 px-2 py-1 text-[11px] text-[#7aa2f7] animate-pulse"
+              data-testid="driven-by"
+              title="An agent is driving this view. Click anywhere or navigate to take back the wheel."
+            >
+              <span>▸</span> driven by {drivenBy}
+            </div>
+          )}
           <div className="flex items-center gap-2 text-xs text-[#565f89]" data-testid="connection-status">
             <span className={`w-2 h-2 rounded-full ${color}`} />
             {label}
