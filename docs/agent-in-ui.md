@@ -67,9 +67,24 @@ and exposes the latest.
 
 **HTTP:**
 - **Poll:** `GET /api/ui-state` → `{ ui_state: { at, kind, view, session_id? } }`.
-- **Follow (live):** the `ui_state` WebSocket broadcast (same fields) — no
-  polling. The `subscribe_ui_state` streaming MCP tool wraps this; documented
-  when it lands (Phase 1c).
+- **Follow (live, MCP):** `subscribe_ui_state` (no args) — a streaming tool that
+  emits a `notifications/openstory/ui_state` frame each time the user moves:
+
+  ```jsonc
+  { "jsonrpc": "2.0", "method": "notifications/openstory/ui_state",
+    "params": { "stream_id": "…", "seq": 3,
+                "ui_state": { "present": true, "view": "canvas",
+                              "session_id": null, "summary": "the user is on 'canvas'" } } }
+  ```
+
+  Pair it with `ui_control` to **follow → act**: read where the user landed,
+  then drive from there.
+
+  Under the hood this is fully on the bus: the server publishes each interaction
+  to the authored `ui.*` JetStream stream (`ui_events::ui_subject`, strictly
+  separate from the observed read-only `events.*`); the MCP consumes `ui.>` as
+  raw frames (`bus::subscribe_raw`) and shapes each with `ui_state_notification`.
+  One bus, one source→sink graph, sovereignty partition intact.
 
 ## The symmetry
 

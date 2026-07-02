@@ -45,6 +45,15 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: control::ui_control_schema,
     },
     ToolDef {
+        name: "subscribe_ui_state",
+        description: "STREAMING. Live-follow WHERE THE USER IS in the dashboard (the READ half of the \
+                      agent-in-UI seam): emits a ui_state notification each time the user navigates/clicks, \
+                      shaped like where_is_user ({present, view, session_id?, summary}). No args. Subscribes \
+                      to the authored ui.* stream — never the observed sources. Pair with ui_control to drive \
+                      FROM where the user just moved (follow → act in their context).",
+        input_schema: control::where_is_user_schema,
+    },
+    ToolDef {
         name: "where_is_user",
         description: "Read where the user is right now in the dashboard (the agent-in-UI READ seam): \
                       returns their latest interaction as {present, view, kind, session_id?, at, summary}. \
