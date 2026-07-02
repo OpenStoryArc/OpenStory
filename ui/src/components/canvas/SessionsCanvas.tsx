@@ -17,6 +17,7 @@ import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
 import { fitTransform } from "@/lib/canvas-fit";
 import { CANVAS_MODES, MODE_META, modeUsesGroupBy } from "@/lib/canvas-modes";
+import { controlActions$ } from "@/streams/control";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -61,6 +62,23 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const [selected, setSelected] = useState<{ sessionId: string; label: string } | null>(null);
   const [query, setQuery] = useState("");
   const nowMs = useMemo(() => Date.now(), []);
+
+  // Agent-in-UI: apply `canvas.*` toggle intents (component-local state that
+  // isn't in the URL). The Canvas is a sink — it reacts to control$, validating
+  // each value before applying so the vocabulary stays open but safe.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "canvas.mode" && (CANVAS_MODES as readonly string[]).includes(a.value)) {
+        setViewMode(a.value as ViewMode);
+      } else if (a.target === "canvas.groupBy" && DIMS.some((d) => d.key === a.value)) {
+        setGroupBy(a.value as GroupDim);
+      } else if (a.target === "canvas.metric" && (a.value === "events" || a.value === "tokens")) {
+        setMetric(a.value as Metric);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);

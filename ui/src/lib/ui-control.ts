@@ -34,6 +34,14 @@ export type UIControlAction =
       readonly sessionIds: readonly string[];
       /** optional deep-link the human can jump to from the banner. */
       readonly route: HashRoute | null;
+    }
+  | {
+      /** Toggle a component-local view control (Canvas mode, Heatmap 2D/3D, …).
+       *  `target` is a "view.control" key (e.g. "canvas.mode"); the owning view
+       *  subscribes to control$ and validates/applies the value. */
+      readonly type: "toggle";
+      readonly target: string;
+      readonly value: string;
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -95,6 +103,17 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const overview: HashRoute["overview"] = { filters };
     if (typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)) overview.sort = p.sort as SortKey;
     return { type: "navigate", route: { view: "overview", overview } };
+  }
+  // The "toggle" class: set a component-local view control. `target` names the
+  // control ("canvas.mode", "heatmap.dim", "story.sort"); the owning view
+  // validates + applies. Value validation lives in the view, not here, so the
+  // vocabulary stays open. `set` is an alias.
+  if (action === "toggle" || action === "set") {
+    const p = (params ?? {}) as { target?: unknown; value?: unknown };
+    if (typeof p.target === "string" && p.target.trim() && p.value != null && p.value !== "") {
+      return { type: "toggle", target: p.target.trim(), value: String(p.value) };
+    }
+    return null;
   }
   return null;
 }

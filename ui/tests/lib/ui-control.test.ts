@@ -144,3 +144,32 @@ describe("interpretControl — query class", () => {
     );
   });
 });
+
+describe("interpretControl — toggle class", () => {
+  it("maps toggle{target,value} to a toggle action (value coerced to string)", () => {
+    scenario(
+      () => interpretControl("toggle", { target: "canvas.mode", value: "sunburst" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("toggle");
+        if (a?.type === "toggle") { expect(a.target).toBe("canvas.mode"); expect(a.value).toBe("sunburst"); }
+      },
+    );
+  });
+
+  it("coerces a numeric value and treats 'set' as an alias", () => {
+    scenario(
+      () => interpretControl("set", { target: "heatmap.weeks", value: 52 }),
+      (a) => a,
+      (a) => { if (a?.type === "toggle") { expect(a.target).toBe("heatmap.weeks"); expect(a.value).toBe("52"); } else expect.fail("not toggle"); },
+    );
+  });
+
+  it("returns null without a target or value", () => {
+    scenario(
+      () => ({ noTarget: interpretControl("toggle", { value: "x" }), noValue: interpretControl("toggle", { target: "canvas.mode" }) }),
+      (r) => r,
+      (r) => { expect(r.noTarget).toBeNull(); expect(r.noValue).toBeNull(); },
+    );
+  });
+});

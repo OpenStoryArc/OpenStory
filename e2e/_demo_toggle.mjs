@@ -1,0 +1,17 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message.slice(0,140)));
+const drive = async (target,value) => { const r=await p.request.post("http://127.0.0.1:3002/api/control",{headers:{"content-type":"application/json"},data:{action:"toggle",params:{target,value},issuer:"claude"}}); return (await r.json()); };
+const activeMode = () => p.$$eval('div.flex.rounded.border button', bs => bs.filter(b=>b.className.includes("7aa2f7")).map(b=>b.textContent.trim())[0] || "?");
+await p.goto("http://127.0.0.1:5173/#/canvas",{waitUntil:"networkidle"}); await p.waitForTimeout(2500);
+console.log("start mode:", await activeMode());
+console.log("toggle mode→sunburst:", JSON.stringify(await drive("canvas.mode","sunburst")));
+await p.waitForTimeout(1500);
+console.log("mode now:", await activeMode(), "· has svg wedges:", !!(await p.$('svg g path')));
+await drive("canvas.groupBy","project"); await p.waitForTimeout(1500);
+console.log("after groupBy→project, active groupby chip:", await p.$$eval('button', bs=>bs.filter(b=>b.className.includes("7aa2f7")&&/project/i.test(b.textContent)).length));
+await p.screenshot({path:`${S}/rev-toggle.png`});
+console.log("saved");
+await b.close();
