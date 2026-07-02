@@ -42,6 +42,15 @@ export type UIControlAction =
       readonly type: "toggle";
       readonly target: string;
       readonly value: string;
+    }
+  | {
+      /** Set a STRUCTURED view control — the multi-field sibling of `toggle`,
+       *  for targets a string can't express (a brush box, a camera pose, a
+       *  drill path). `target` names the control; `params` carries the object.
+       *  This is the type-driven substrate for composing view shapes. */
+      readonly type: "set";
+      readonly target: string;
+      readonly params: Record<string, unknown>;
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -108,12 +117,22 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   // control ("canvas.mode", "heatmap.dim", "story.sort"); the owning view
   // validates + applies. Value validation lives in the view, not here, so the
   // vocabulary stays open. `set` is an alias.
-  if (action === "toggle" || action === "set") {
+  if (action === "toggle") {
     const p = (params ?? {}) as { target?: unknown; value?: unknown };
     if (typeof p.target === "string" && p.target.trim() && p.value != null && p.value !== "") {
       return { type: "toggle", target: p.target.trim(), value: String(p.value) };
     }
     return null;
+  }
+  // Structured control: { target, ...fields } → set(target, params). The
+  // remaining fields (minus target) become the typed object payload.
+  if (action === "set") {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const target = typeof p.target === "string" ? p.target.trim() : "";
+    if (!target) return null;
+    const { target: _t, ...rest } = p;
+    void _t;
+    return { type: "set", target, params: rest };
   }
   return null;
 }

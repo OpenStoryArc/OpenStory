@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message.slice(0,140)));
+const ctl = async (data) => { const r=await p.request.post("http://127.0.0.1:3002/api/control",{headers:{"content-type":"application/json"},data}); return (await r.json()); };
+await p.goto("http://127.0.0.1:5173/#/canvas",{waitUntil:"networkidle"}); await p.waitForTimeout(1800);
+console.log("mode→scatter:", JSON.stringify(await ctl({action:"toggle",params:{target:"canvas.mode",value:"scatter"},issuer:"claude"}))); await p.waitForTimeout(1500);
+console.log("set scatter.brush:", JSON.stringify(await ctl({action:"set",params:{target:"scatter.brush",ev0:50,ev1:2000,tok0:50000,tok1:5000000},issuer:"claude · brushing outliers"}))); await p.waitForTimeout(1500);
+const listItems = await p.$$eval('div.absolute.bottom-3 button', bs=>bs.length).catch(()=>0);
+const hdr = await p.$eval('div.absolute.bottom-3', e=>e.textContent.slice(0,60)).catch(()=>"(none)");
+console.log("brushed list items:", listItems, "· header:", hdr);
+await p.screenshot({path:`${S}/rev-brush-ctl.png`});
+console.log("saved");
+await b.close();

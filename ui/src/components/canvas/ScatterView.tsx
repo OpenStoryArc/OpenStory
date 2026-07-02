@@ -5,6 +5,7 @@
  *  Click a point → open its session. Pure model + fit in lib/sessions-scatter. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { controlActions$ } from "@/streams/control";
 import { scaleLog, scaleSqrt } from "d3-scale";
 import { brush as d3brush } from "d3-brush";
 import { select } from "d3-selection";
@@ -35,6 +36,23 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
   const [hover, setHover] = useState<{ p: ScatterPoint; x: number; y: number } | null>(null);
   const [brushed, setBrushed] = useState<ScatterPoint[] | null>(null);
   const [selecting, setSelecting] = useState(false);
+
+  // Agent-in-UI: programmatic brush via the structured `set` action — no
+  // gesture, reuses the tested pure pointsInBrush. Selects an outlier region.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "set" || a.target !== "scatter.brush") return;
+      const p = a.params as Record<string, unknown>;
+      const num = (v: unknown, d: number) => (Number.isFinite(Number(v)) ? Number(v) : d);
+      setSelecting(true);
+      setBrushed(pointsInBrush(model.points, {
+        ev0: num(p.ev0, 1), ev1: num(p.ev1, Number.MAX_SAFE_INTEGER),
+        tok0: num(p.tok0, 0), tok1: num(p.tok1, Number.MAX_SAFE_INTEGER),
+        includeZero: p.includeZero === true,
+      }));
+    });
+    return () => sub.unsubscribe();
+  }, [model]);
 
   const plotLeft = M.left + GUTTER_W;
   const plotRight = width - M.right;

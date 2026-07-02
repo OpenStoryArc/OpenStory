@@ -157,9 +157,9 @@ describe("interpretControl — toggle class", () => {
     );
   });
 
-  it("coerces a numeric value and treats 'set' as an alias", () => {
+  it("coerces a numeric toggle value to a string", () => {
     scenario(
-      () => interpretControl("set", { target: "heatmap.weeks", value: 52 }),
+      () => interpretControl("toggle", { target: "heatmap.weeks", value: 52 }),
       (a) => a,
       (a) => { if (a?.type === "toggle") { expect(a.target).toBe("heatmap.weeks"); expect(a.value).toBe("52"); } else expect.fail("not toggle"); },
     );
@@ -170,6 +170,30 @@ describe("interpretControl — toggle class", () => {
       () => ({ noTarget: interpretControl("toggle", { value: "x" }), noValue: interpretControl("toggle", { target: "canvas.mode" }) }),
       (r) => r,
       (r) => { expect(r.noTarget).toBeNull(); expect(r.noValue).toBeNull(); },
+    );
+  });
+});
+
+describe("interpretControl — set (structured) action", () => {
+  it("maps set{target, ...fields} to a set action with the object payload", () => {
+    scenario(
+      () => interpretControl("set", { target: "scatter.brush", ev0: 10, ev1: 100, tok0: 1000, tok1: 50000 }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("set");
+        if (a?.type === "set") {
+          expect(a.target).toBe("scatter.brush");
+          expect(a.params).toEqual({ ev0: 10, ev1: 100, tok0: 1000, tok1: 50000 });
+        }
+      },
+    );
+  });
+
+  it("returns null without a target", () => {
+    scenario(
+      () => interpretControl("set", { ev0: 1 }),
+      (a) => a,
+      (a) => expect(a).toBeNull(),
     );
   });
 });
