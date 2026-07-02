@@ -17,6 +17,7 @@ export interface ControlParams {
   route?: string;
   view?: string;
   sessionId?: string;
+  eventId?: string;
   detailView?: string;
   message?: string;
   note?: string;
@@ -81,6 +82,17 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   if (action === "open_view") {
     const route = controlToRoute(action, params);
     return route ? { type: "navigate", route } : null;
+  }
+  // The "focus_event" class: navigate-to-THING — open exactly one event in a
+  // detail view (Explore or Story), which both consume `route.eventId` to scroll
+  // to + reveal it. The finest grain of the map principle, driveable by an agent.
+  if (action === "focus_event") {
+    const p = (params ?? {}) as ControlParams;
+    const sessionId = typeof p.sessionId === "string" ? p.sessionId.trim() : "";
+    const eventId = typeof p.eventId === "string" ? p.eventId.trim() : "";
+    if (!sessionId || !eventId) return null;
+    const view: HashRoute["view"] = p.view === "story" ? "story" : "explore";
+    return { type: "navigate", route: { view, sessionId, eventId } };
   }
   // The "present" class: an agent shows the human something — a message and/or a
   // spotlight on sessions, optionally with a jump. `announce`/`highlight` are

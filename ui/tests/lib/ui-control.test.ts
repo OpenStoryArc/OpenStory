@@ -197,3 +197,36 @@ describe("interpretControl — set (structured) action", () => {
     );
   });
 });
+
+describe("interpretControl — focus_event (navigate-to-thing)", () => {
+  it("focuses an event in Explore by default", () => {
+    scenario(
+      () => interpretControl("focus_event", { sessionId: "s1", eventId: "e9" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.view).toBe("explore");
+          expect(a.route.sessionId).toBe("s1");
+          expect(a.route.eventId).toBe("e9");
+        }
+      },
+    );
+  });
+
+  it("targets Story when view:'story'", () => {
+    scenario(
+      () => interpretControl("focus_event", { sessionId: "s1", eventId: "e9", view: "story" }),
+      (a) => (a?.type === "navigate" ? a.route.view : null),
+      (v) => expect(v).toBe("story"),
+    );
+  });
+
+  it("returns null without both sessionId and eventId", () => {
+    scenario(
+      () => [interpretControl("focus_event", { sessionId: "s1" }), interpretControl("focus_event", { eventId: "e9" })],
+      (r) => r,
+      ([a, b]) => { expect(a).toBeNull(); expect(b).toBeNull(); },
+    );
+  });
+});
