@@ -245,7 +245,7 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
         {(() => {
           const title = sessionTitle(s);
           return title !== s.session_id.slice(0, 8) ? (
-            <div className="text-[11px] text-[#c0caf5] truncate leading-tight mb-0.5">{title}</div>
+            <div className="text-[11px] text-[#c0caf5] truncate leading-tight mb-0.5" title={title}>{title}</div>
           ) : null;
         })()}
 
@@ -272,7 +272,7 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
         {/* Project + agent count */}
         <div className="flex items-center gap-2 mt-0.5">
           {s.project_name && (
-            <span className="text-[9px] text-[#7dcfff] truncate">{s.project_name}</span>
+            <span className="text-[9px] text-[#7dcfff] truncate" title={s.project_name}>{s.project_name}</span>
           )}
           {hasAgents && (
             <span className="text-[9px] text-[#bb9af7] ml-auto shrink-0">
@@ -311,7 +311,7 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
                     }`}
                     style={agentSelected ? { borderLeftColor: agentColor } : undefined}
                   >
-                    <div className="text-[10px] text-[#a9b1d6] truncate">
+                    <div className="text-[10px] text-[#a9b1d6] truncate" title={sessionTitle(a)}>
                       {sessionTitle(a)}
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">

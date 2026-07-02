@@ -622,7 +622,7 @@ export const Sidebar = memo(function Sidebar({
             data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
           >
             <div className="px-3 py-1.5 text-[9px] font-semibold text-[#7aa2f7] bg-[#1a1b26] border-b border-[#2f3348] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
-              <span className="truncate" data-testid="fleet-group-name">
+              <span className="truncate" data-testid="fleet-group-name" title={group.principalName}>
                 {group.principalName}
               </span>
               <span className="text-[#565f89] normal-case font-normal text-[9px]">
@@ -688,7 +688,7 @@ export const Sidebar = memo(function Sidebar({
                       </div>
                     ) : null;
                   })()}
-                  <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4">
+                  <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4" title={s.label}>
                     {s.label}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -699,7 +699,7 @@ export const Sidebar = memo(function Sidebar({
                       {s.id.slice(0, 8)}
                     </span>
                     {s.branch && (
-                      <span className="text-[9px] text-[#7dcfff] truncate">{s.branch}</span>
+                      <span className="text-[9px] text-[#7dcfff] truncate" title={s.branch}>{s.branch}</span>
                     )}
                     <span className="text-[9px] text-[#565f89]">
                       {s.eventCount} · {compactTime(s.latestTimestamp)}
@@ -867,7 +867,7 @@ export const Sidebar = memo(function Sidebar({
                 >
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-[#565f89]">└</span>
-                    <span className="text-[11px] text-[#bb9af7] truncate">
+                    <span className="text-[11px] text-[#bb9af7] truncate" title={sub.description ?? sub.agentId}>
                       {sub.description ?? sub.agentId.slice(0, 16)}
                     </span>
                   </div>
