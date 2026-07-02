@@ -7,6 +7,7 @@
 
 pub mod account_config;
 pub mod admin;
+pub mod annotations;
 pub mod api;
 pub mod auth;
 pub mod broadcast;

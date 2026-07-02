@@ -74,6 +74,12 @@ pub enum BroadcastMessage {
     /// dashboard is *showing*, never the observed sources ("drive the mirror,
     /// never the watched"). `params` is free-form so the control vocabulary can
     /// grow without a server change; the UI branches on `action`.
+    /// A durable overlay annotation was pinned — pushed to every dashboard so
+    /// the note appears live. Overlay namespace only; never an observed event.
+    #[serde(rename = "annotation_added")]
+    AnnotationAdded {
+        annotation: crate::annotations::Annotation,
+    },
     #[serde(rename = "control")]
     Control {
         /// The view action, e.g. "open_view" | "highlight" | "present".

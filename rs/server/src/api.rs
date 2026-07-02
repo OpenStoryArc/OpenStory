@@ -85,6 +85,54 @@ pub async fn post_control(
     )
 }
 
+/// `POST /api/annotations` — pin a durable overlay note to a session. Persists
+/// to `{data_dir}/annotations.jsonl` (overlay namespace, never the event
+/// stream) and broadcasts `annotation_added` so it appears on every dashboard
+/// live. Body: `{ session_id, body, issuer? }`.
+pub async fn post_annotation(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let session_id = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if session_id.is_empty() || text.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "session_id and body are required" })),
+        );
+    }
+    let issuer = body.get("issuer").and_then(|v| v.as_str()).unwrap_or("anon").to_string();
+    let ann = crate::annotations::Annotation {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id,
+        body: text,
+        issuer,
+        created_at: Utc::now().to_rfc3339(),
+    };
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    if let Err(e) = crate::annotations::append_annotation(dir, &ann) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
+    }
+    log_event("annotation", &format!("pinned to {}", short_id(&ann.session_id)));
+    let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
+    (StatusCode::OK, Json(json!({ "ok": true, "annotation": ann })))
+}
+
+/// `GET /api/annotations[?session_id=…]` — list overlay annotations.
+pub async fn list_annotations(
+    State(state): State<SharedState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    let mut anns = crate::annotations::read_annotations(dir);
+    if let Some(sid) = q.get("session_id") {
+        anns.retain(|a| &a.session_id == sid);
+    }
+    Json(json!({ "annotations": anns }))
+}
+
 pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let sessions = s

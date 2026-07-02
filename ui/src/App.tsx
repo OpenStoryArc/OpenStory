@@ -23,6 +23,8 @@ import { useLocalInfo } from "@/hooks/use-local-info";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
+import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
+import { fetchAnnotations, mergeAnnotation, type Annotation } from "@/lib/annotations";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
 const STATUS_INDICATOR = {
@@ -46,6 +48,16 @@ export function App() {
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+
+  // Durable overlay annotations: load existing on mount, append live ones.
+  useEffect(() => { fetchAnnotations().then(setAnnotations); }, []);
+  useEffect(() => {
+    const sub = wsMessages$().subscribe((msg) => {
+      if (msg.kind === "annotation_added") setAnnotations((prev) => mergeAnnotation(prev, msg.annotation));
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   // Agent-in-UI WRITE seam: react to `control` view-intents broadcast over the
   // WebSocket (an MCP/operator posts to /api/control). The UI is a sink — it
@@ -231,6 +243,9 @@ export function App() {
 
       {/* Admin tab */}
       {viewMode === "admin" && <AdminView />}
+
+      {/* Durable overlay annotations (agent/person notes) */}
+      <AnnotationsOverlay annotations={annotations} onNavigate={navigate} />
 
       {/* Global ⌘K command palette */}
       <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />

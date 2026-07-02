@@ -11,7 +11,7 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | ControlMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | ControlMessage | AnnotationAddedMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -83,6 +83,19 @@ export interface PlanSavedMessage {
 export interface AdminTopologyChangedMessage {
   readonly kind: "admin_topology_changed";
   readonly topology: import("@/lib/admin-api").Topology;
+}
+
+/** A durable overlay annotation was pinned (agent/operator authored). Overlay
+ *  namespace only — not an observed event. UI accumulates + renders these. */
+export interface AnnotationAddedMessage {
+  readonly kind: "annotation_added";
+  readonly annotation: {
+    readonly id: string;
+    readonly session_id: string;
+    readonly body: string;
+    readonly issuer: string;
+    readonly created_at: string;
+  };
 }
 
 /** Agent/operator "view intent" — the write side of the agent-in-UI seam. An
