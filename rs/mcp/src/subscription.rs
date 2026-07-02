@@ -119,28 +119,3 @@ pub async fn pump_subscription(
     }
 }
 
-/// Raw variant of `pump_subscription` for the `ui.*` stream: frames arrive as
-/// raw JSON bytes (an interaction CloudEvent, NOT an IngestBatch — see
-/// bus::subscribe_raw), so parse each into a `Value` and forward. Unparseable
-/// frames are skipped rather than killing the stream.
-pub async fn pump_raw_subscription(
-    mut source: mpsc::Receiver<Vec<u8>>,
-    sink: mpsc::Sender<StreamEvent>,
-    session_id: String,
-) {
-    let mut seq: u64 = 1;
-    while let Some(bytes) = source.recv().await {
-        let Ok(data) = serde_json::from_slice::<Value>(&bytes) else {
-            continue; // skip a malformed frame, keep the stream alive
-        };
-        let event = StreamEvent {
-            seq,
-            session_id: session_id.clone(),
-            data,
-        };
-        seq += 1;
-        if sink.send(event).await.is_err() {
-            break;
-        }
-    }
-}

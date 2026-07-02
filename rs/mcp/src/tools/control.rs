@@ -88,16 +88,25 @@ pub fn summarize_ui_state(state: Value) -> Value {
 }
 
 /// Pure: build the `subscribe_ui_state` stream notification payload from a
-/// published `ui.*` event. The event is a proper CloudEvent whose `data` is an
-/// EventData envelope — the interaction (`{kind, view, session_id?, at}`) rides
-/// in `data.raw`. We reach the innermost body and reuse `summarize_ui_state` so a
-/// streamed frame matches `where_is_user`. Tolerant of the legacy flat shape
-/// (`data` IS the body) and the bare inner shape (event IS the body).
+/// streamed `ui.*` frame. The frame is an `IngestBatch` value — `{ events:
+/// [CloudEvent] }` — whose first event's `data` is an EventData envelope; the
+/// interaction (`{kind, view, session_id?, at}`) rides in `data.raw`. We reach
+/// the innermost body and reuse `summarize_ui_state` so a streamed frame matches
+/// `where_is_user`. Tolerant of the earlier shapes: a bare CloudEvent (`data` =
+/// EventData), a legacy flat `data`, and the bare inner body.
 pub fn ui_state_notification(event: &Value) -> Value {
-    let data = event.get("data").unwrap_or(event);
-    let inner = match data.get("raw") {
+    // IngestBatch → first event's data; else a bare CloudEvent's data; else the
+    // event itself (already the inner shape).
+    let ce_data = event
+        .get("events")
+        .and_then(|e| e.get(0))
+        .and_then(|ce| ce.get("data"))
+        .or_else(|| event.get("data"))
+        .unwrap_or(event);
+    // EventData → unwrap `.raw` (the authored body); tolerate a flat shape.
+    let inner = match ce_data.get("raw") {
         Some(raw) if !raw.is_null() => raw.clone(),
-        _ => data.clone(),
+        _ => ce_data.clone(),
     };
     summarize_ui_state(inner)
 }
@@ -192,6 +201,29 @@ mod tests {
         assert_eq!(n["present"], true);
         assert_eq!(n["view"], "canvas");
         assert_eq!(n["session_id"], "s1");
+    }
+
+    #[test]
+    fn notification_unwraps_ingestbatch_events_data_raw() {
+        // Phase 1g-ii: the streamed frame is an IngestBatch (typed pump), so the
+        // body is at events[0].data.raw.
+        let batch = json!({
+            "session_id": "openstory-ui",
+            "project_id": "openstory-ui",
+            "events": [{
+                "specversion": "1.0", "type": "io.arc.event", "subtype": "interaction.navigate",
+                "agent": "openstory-ui", "time": "t",
+                "data": {
+                    "raw": { "kind": "navigate", "view": "canvas", "session_id": "s7", "at": "t" },
+                    "seq": 0, "session_id": "openstory-ui"
+                }
+            }]
+        });
+        let n = ui_state_notification(&batch);
+        assert_eq!(n["present"], true);
+        assert_eq!(n["view"], "canvas");
+        assert_eq!(n["session_id"], "s7");
+        assert_eq!(n["kind"], "navigate");
     }
 
     #[test]

@@ -82,9 +82,7 @@ pub async fn post_control(
     let subject = crate::ui_events::ui_subject("control", &action, issuer.as_deref());
     let raw = json!({ "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at });
     let ce = crate::ui_events::ui_cloud_event("control", &action, VIEWING_SESSION, raw);
-    if let Ok(bytes) = serde_json::to_vec(&ce) {
-        let _ = s.bus.publish_bytes(&subject, &bytes).await;
-    }
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
 
     let msg = BroadcastMessage::Control {
         action: action.clone(),
@@ -158,13 +156,12 @@ pub async fn post_interaction(
     let s = state.read().await;
     let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
     // Publish onto the bus in the AUTHORED `ui.*` namespace (NEVER `events.*` —
-    // that's the observed, read-only source), so the interaction stream is a
-    // first-class event source: the MCP can subscribe natively, and it's
-    // replayable like any other event. Best-effort — never blocks the response.
+    // that's the observed, read-only source) as a TYPED IngestBatch, so the
+    // interaction stream is a first-class event source: the MCP subscribes
+    // through the same typed pump as observed events, and it's replayable like
+    // any other event. Best-effort — never blocks the response.
     let subject = crate::ui_events::ui_subject("interaction", kind, issuer.as_deref());
-    if let Ok(bytes) = serde_json::to_vec(&event) {
-        let _ = s.bus.publish_bytes(&subject, &bytes).await;
-    }
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
     let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
         interaction: kind.to_string(),
         view,
@@ -256,9 +253,7 @@ pub async fn post_annotation(
     let subject = crate::ui_events::ui_subject("annotation", "add", Some(&ann.issuer));
     let raw = serde_json::to_value(&ann).unwrap_or(Value::Null);
     let ce = crate::ui_events::ui_cloud_event("annotation", "add", VIEWING_SESSION, raw);
-    if let Ok(bytes) = serde_json::to_vec(&ce) {
-        let _ = s.bus.publish_bytes(&subject, &bytes).await;
-    }
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
     let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
     (StatusCode::OK, Json(json!({ "ok": true, "annotation": ann })))
 }
@@ -298,9 +293,7 @@ pub async fn delete_annotation(
                 VIEWING_SESSION,
                 json!({ "id": id.clone() }),
             );
-            if let Ok(bytes) = serde_json::to_vec(&ce) {
-                let _ = s.bus.publish_bytes(&subject, &bytes).await;
-            }
+            let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
             let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
             (StatusCode::OK, Json(json!({ "ok": true, "removed": id })))
         }

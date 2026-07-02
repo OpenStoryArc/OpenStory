@@ -19,27 +19,6 @@ This principle unifies the object-navigation work (`focus_event`, `route.eventId
 consumption in Explore/Story, click-granular interaction capture), viz drill-in
 (sunburst/treemap labels + drill), and clickable stats.
 
-## Make interactions proper CloudEvents (drop the raw-bytes special-case)
-
-Correction to a shortcut taken 2026-07-02: the agent-in-UI READ path currently
-publishes interactions to `ui.*` as RAW CloudEvent-shaped JSON and consumes them
-via a bespoke `bus::subscribe_raw` + `pump_raw_subscription`, because the
-hand-built interaction Value wasn't a valid `CloudEvent` instance. That was
-framed as "an interaction can't be a CloudEvent" — which is FALSE. `EventData`
-is not a closed enum; it's a struct with a free-form `raw: Value` (plus `seq`,
-`session_id`, optional `agent_payload`). So an interaction IS expressible as a
-real CloudEvent: `EventData::new(interaction_json, 0, session_id)` +
-`datacontenttype: "application/json"` + `subtype: "interaction.<kind>"`.
-Refactor: build interactions as proper CloudEvents, wrap in `IngestBatch`,
-publish via `bus.publish` (not `publish_bytes`), and consume them through the
-SAME consumer/pump as observed events — then DELETE `subscribe_raw` /
-`pump_raw_subscription` / the bespoke path. Benefits: one event model
-everywhere; interactions are stored/replayed/patternable exactly like observed
-events (just on the `ui.*` namespace, so the sovereignty partition still holds
-at the subject layer); and — serving the map principle above — an interaction
-becomes a first-class, navigable-to-source event in the store. Keep the `ui`
-JetStream stream + the subject partition; only the payload shape + consume path
-change.
 
 ## Unify the interaction/control seam onto NATS (one bus, one source→sink graph)
 

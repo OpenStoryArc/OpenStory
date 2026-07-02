@@ -7,6 +7,7 @@
 //! construction: a ui subject ALWAYS starts with `ui.` and NEVER `events.`.
 //! Nothing here can write to the observed stream — it only names ui subjects.
 
+use open_story_bus::IngestBatch;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::event_data::EventData;
 use serde_json::Value;
@@ -33,6 +34,17 @@ pub fn ui_cloud_event(class: &str, kind: &str, session_id: &str, raw: Value) -> 
         None,
         Some(UI_SOURCE.to_string()),
     )
+}
+
+/// Wrap an authored CloudEvent in a single-event IngestBatch for TYPED publish
+/// on the `ui` stream — the same envelope observed events use, so the MCP
+/// consumes `ui.*` through the identical typed pump (no raw-bytes special-case).
+pub fn ui_batch(ce: CloudEvent) -> IngestBatch {
+    IngestBatch {
+        session_id: UI_SOURCE.to_string(),
+        project_id: UI_SOURCE.to_string(),
+        events: vec![ce],
+    }
 }
 
 /// The authored body carried by a ui event's `data`. Tolerant of both the proper
