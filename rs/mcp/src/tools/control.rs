@@ -88,12 +88,17 @@ pub fn summarize_ui_state(state: Value) -> Value {
 }
 
 /// Pure: build the `subscribe_ui_state` stream notification payload from a
-/// published `ui.*` event. The event is a CloudEvent value whose `data` field
-/// holds the interaction (`{kind, view, session_id?, at}`); we unwrap `data`
-/// and reuse `summarize_ui_state` so a streamed frame matches `where_is_user`.
-/// If there's no `data` wrapper (already the inner shape), summarize directly.
+/// published `ui.*` event. The event is a proper CloudEvent whose `data` is an
+/// EventData envelope — the interaction (`{kind, view, session_id?, at}`) rides
+/// in `data.raw`. We reach the innermost body and reuse `summarize_ui_state` so a
+/// streamed frame matches `where_is_user`. Tolerant of the legacy flat shape
+/// (`data` IS the body) and the bare inner shape (event IS the body).
 pub fn ui_state_notification(event: &Value) -> Value {
-    let inner = event.get("data").cloned().unwrap_or_else(|| event.clone());
+    let data = event.get("data").unwrap_or(event);
+    let inner = match data.get("raw") {
+        Some(raw) if !raw.is_null() => raw.clone(),
+        _ => data.clone(),
+    };
     summarize_ui_state(inner)
 }
 
@@ -187,6 +192,24 @@ mod tests {
         assert_eq!(n["present"], true);
         assert_eq!(n["view"], "canvas");
         assert_eq!(n["session_id"], "s1");
+    }
+
+    #[test]
+    fn notification_unwraps_proper_cloudevent_eventdata_raw() {
+        // Phase 1g: a proper CloudEvent — the body rides in data.raw (EventData).
+        let event = json!({
+            "specversion": "1.0", "type": "io.arc.event", "subtype": "interaction.select",
+            "agent": "openstory-ui", "time": "t",
+            "data": {
+                "raw": { "kind": "select", "view": "explore", "session_id": "s9", "at": "t" },
+                "seq": 0, "session_id": "openstory-ui"
+            }
+        });
+        let n = ui_state_notification(&event);
+        assert_eq!(n["present"], true);
+        assert_eq!(n["view"], "explore");
+        assert_eq!(n["session_id"], "s9");
+        assert_eq!(n["kind"], "select");
     }
 
     #[test]

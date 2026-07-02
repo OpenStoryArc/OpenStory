@@ -80,17 +80,9 @@ pub async fn post_control(
     // the write half of the seam, symmetric with the interaction (read) half.
     let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let subject = crate::ui_events::ui_subject("control", &action, issuer.as_deref());
-    let event = json!({
-        "specversion": "1.0",
-        "id": uuid::Uuid::new_v4().to_string(),
-        "source": VIEWING_SESSION,
-        "type": "io.arc.event",
-        "subtype": format!("control.{action}"),
-        "agent": "openstory-ui",
-        "time": at.clone(),
-        "data": { "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at },
-    });
-    if let Ok(bytes) = serde_json::to_vec(&event) {
+    let raw = json!({ "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at });
+    let ce = crate::ui_events::ui_cloud_event("control", &action, VIEWING_SESSION, raw);
+    if let Ok(bytes) = serde_json::to_vec(&ce) {
         let _ = s.bus.publish_bytes(&subject, &bytes).await;
     }
 
@@ -152,22 +144,16 @@ pub async fn post_interaction(
     let issuer = body.get("issuer").and_then(|v| v.as_str()).map(|s| s.to_string());
     let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-    // Store the full interaction payload as data (high-fidelity), stamped with
-    // the server time. Overlay-of-self: agent = "openstory-ui".
-    let mut data = body.clone();
-    if let Some(obj) = data.as_object_mut() {
+    // The full interaction payload is the authored body (high-fidelity), stamped
+    // with the server time — richer fields (scroll anchor, selected event, canvas
+    // zoom/pan) ride along for free as views send them. It becomes a proper
+    // CloudEvent: the body lives in EventData.raw, subtype interaction.{kind}.
+    let mut raw = body.clone();
+    if let Some(obj) = raw.as_object_mut() {
         obj.insert("at".to_string(), json!(at));
     }
-    let event = json!({
-        "specversion": "1.0",
-        "id": uuid::Uuid::new_v4().to_string(),
-        "source": VIEWING_SESSION,
-        "type": "io.arc.event",
-        "subtype": format!("interaction.{kind}"),
-        "agent": "openstory-ui",
-        "time": at,
-        "data": data,
-    });
+    let ce = crate::ui_events::ui_cloud_event("interaction", kind, VIEWING_SESSION, raw);
+    let event = serde_json::to_value(&ce).unwrap_or(Value::Null);
 
     let s = state.read().await;
     let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
@@ -195,7 +181,13 @@ pub async fn post_interaction(
 pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
-    let latest = events.last().and_then(|e| e.get("data").cloned()).unwrap_or(Value::Null);
+    // Unwrap the authored body from the CloudEvent's EventData.raw (tolerant of
+    // legacy flat events too), so `where_is_user` sees {view, kind, at, …}.
+    let latest = events
+        .last()
+        .and_then(|e| e.get("data"))
+        .map(crate::ui_events::ui_body)
+        .unwrap_or(Value::Null);
     Json(json!({ "ui_state": latest }))
 }
 
@@ -222,7 +214,7 @@ pub async fn get_ui_journey(
     let start = events.len().saturating_sub(n);
     let journey: Vec<Value> = events[start..]
         .iter()
-        .filter_map(|e| e.get("data").cloned())
+        .filter_map(|e| e.get("data").map(crate::ui_events::ui_body))
         .collect();
     Json(json!({ "journey": journey }))
 }
@@ -262,16 +254,9 @@ pub async fn post_annotation(
     // it's a first-class ui event like control + interaction — subscribable and
     // replayable, and the whole authored surface now flows on one sovereign bus.
     let subject = crate::ui_events::ui_subject("annotation", "add", Some(&ann.issuer));
-    if let Ok(bytes) = serde_json::to_vec(&json!({
-        "specversion": "1.0",
-        "id": ann.id.clone(),
-        "source": VIEWING_SESSION,
-        "type": "io.arc.event",
-        "subtype": "annotation.add",
-        "agent": "openstory-ui",
-        "time": ann.created_at.clone(),
-        "data": &ann,
-    })) {
+    let raw = serde_json::to_value(&ann).unwrap_or(Value::Null);
+    let ce = crate::ui_events::ui_cloud_event("annotation", "add", VIEWING_SESSION, raw);
+    if let Ok(bytes) = serde_json::to_vec(&ce) {
         let _ = s.bus.publish_bytes(&subject, &bytes).await;
     }
     let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
@@ -307,15 +292,13 @@ pub async fn delete_annotation(
             log_event("annotation", &format!("removed {}", short_id(&id)));
             // Mirror the removal onto the authored `ui.*` bus (never events.*).
             let subject = crate::ui_events::ui_subject("annotation", "remove", None);
-            if let Ok(bytes) = serde_json::to_vec(&json!({
-                "specversion": "1.0",
-                "id": uuid::Uuid::new_v4().to_string(),
-                "source": VIEWING_SESSION,
-                "type": "io.arc.event",
-                "subtype": "annotation.remove",
-                "agent": "openstory-ui",
-                "data": { "id": id.clone() },
-            })) {
+            let ce = crate::ui_events::ui_cloud_event(
+                "annotation",
+                "remove",
+                VIEWING_SESSION,
+                json!({ "id": id.clone() }),
+            );
+            if let Ok(bytes) = serde_json::to_vec(&ce) {
                 let _ = s.bus.publish_bytes(&subject, &bytes).await;
             }
             let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
