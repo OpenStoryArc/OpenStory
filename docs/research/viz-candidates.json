@@ -107,7 +107,8 @@
     "notes": "stack.offset(wiggle). Reads the rhythm of work; complements the calendar heatmap with a flow view.",
     "hypothesis": "Event volume varies across days with shifting agent composition, producing a flowing stacked band that reveals work rhythm.",
     "falsifier": "If activity spans too few days, or a single agent supplies ~all events, the streamgraph is one flat lump indistinguishable from a bar.",
-    "witness": "GET /api/sessions \u2192 bucket start_time by day; needs \u2265 ~7 active days and \u22652 agents contributing meaningfully per day."
+    "witness": "GET /api/sessions \u2192 bucket start_time by day; needs \u2265 ~7 active days and \u22652 agents contributing meaningfully per day.",
+    "status": "built"
   },
   {
     "id": "agent-project-chord",
