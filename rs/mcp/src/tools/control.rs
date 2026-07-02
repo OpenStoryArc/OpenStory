@@ -87,6 +87,16 @@ pub fn summarize_ui_state(state: Value) -> Value {
     json!({ "present": true, "view": view, "kind": kind, "session_id": session_id, "at": at, "summary": summary })
 }
 
+/// Pure: build the `subscribe_ui_state` stream notification payload from a
+/// published `ui.*` event. The event is a CloudEvent value whose `data` field
+/// holds the interaction (`{kind, view, session_id?, at}`); we unwrap `data`
+/// and reuse `summarize_ui_state` so a streamed frame matches `where_is_user`.
+/// If there's no `data` wrapper (already the inner shape), summarize directly.
+pub fn ui_state_notification(event: &Value) -> Value {
+    let inner = event.get("data").cloned().unwrap_or_else(|| event.clone());
+    summarize_ui_state(inner)
+}
+
 /// GET `{api_base}/api/ui-state` → the current position (READ half of the seam).
 pub async fn where_is_user(api_base: &str, _args: Value) -> Result<Value, String> {
     if api_base.trim().is_empty() {
@@ -163,5 +173,31 @@ mod tests {
     fn summarize_treats_empty_session_id_as_none() {
         let s = summarize_ui_state(json!({ "view": "overview", "session_id": "" }));
         assert_eq!(s["session_id"], Value::Null);
+    }
+
+    #[test]
+    fn notification_unwraps_a_cloudevent_data_field() {
+        // as published on ui.* by 1c-1: a CloudEvent wrapping the interaction
+        let event = json!({
+            "specversion": "1.0", "type": "io.arc.event", "subtype": "interaction.navigate",
+            "agent": "openstory-ui", "time": "t",
+            "data": { "kind": "navigate", "view": "canvas", "session_id": "s1", "at": "t" }
+        });
+        let n = ui_state_notification(&event);
+        assert_eq!(n["present"], true);
+        assert_eq!(n["view"], "canvas");
+        assert_eq!(n["session_id"], "s1");
+    }
+
+    #[test]
+    fn notification_accepts_the_bare_inner_shape_too() {
+        let n = ui_state_notification(&json!({ "kind": "navigate", "view": "story" }));
+        assert_eq!(n["present"], true);
+        assert_eq!(n["view"], "story");
+    }
+
+    #[test]
+    fn notification_null_event_is_not_present() {
+        assert_eq!(ui_state_notification(&Value::Null)["present"], false);
     }
 }
