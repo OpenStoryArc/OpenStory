@@ -65,6 +65,25 @@ export function isHarnessMessage(text: string): boolean {
   return classifyHarnessMessage(text).kind !== "plain";
 }
 
+/** How a user message should render: a slash-command becomes a clean `command`
+ *  chip (no raw <command-*> tags); everything else becomes a markdown `body`.
+ *  Pure view-decision so the message component stays a thin renderer. */
+export function userMessageView(text: string): { command: string | null; body: string } {
+  const m = classifyHarnessMessage(text);
+  switch (m.kind) {
+    case "slash_command":
+      return { command: m.args ? `/${m.command} ${m.args}` : `/${m.command}`, body: "" };
+    case "system_reminder":
+      return { command: null, body: m.body };
+    case "task_notification":
+      return { command: null, body: m.summary ?? "" };
+    case "local_stdout":
+      return { command: null, body: m.body };
+    case "plain":
+      return { command: null, body: m.text };
+  }
+}
+
 function firstLine(s: string, max = 80): string {
   const line = s.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
   return line.length > max ? line.slice(0, max - 1) + "…" : line;

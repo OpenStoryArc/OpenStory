@@ -1,7 +1,6 @@
 import { memo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { compactTime } from "@/lib/time";
+import { Markdown } from "@/components/ui/Markdown";
 
 interface AssistantMessageProps {
   text: string;
@@ -51,7 +50,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             !expanded ? "max-h-24 overflow-hidden relative" : ""
           }`}
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          <Markdown>{text}</Markdown>
           {!expanded && (
             <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#1a1b26]" />
           )}
