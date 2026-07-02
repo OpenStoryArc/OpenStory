@@ -24,6 +24,7 @@ import {
   envGrowthSeries,
   scopeDepthProfile,
   sentenceHeadline,
+  findSentenceIndexByEvent,
   type StoryCategory,
 } from "@/lib/story";
 import {
@@ -47,6 +48,9 @@ interface StoryViewProps {
   livePatterns: readonly PatternView[];
   selectedSession: string | null;
   onSelectSession: (sid: string | null) => void;
+  /** Deep-link target: scroll to + highlight the turn whose events include this
+   *  id (`#/story/SES/event/ID`). The map principle for the Story view. */
+  eventId?: string;
 }
 
 const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = [
@@ -111,7 +115,7 @@ function formatRecency(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function StoryView({ livePatterns, selectedSession, onSelectSession }: StoryViewProps) {
+export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [activeFilters, setActiveFilters] = useState<Set<StoryCategory>>(new Set());
@@ -255,6 +259,18 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
     }
     prevCountRef.current = sentences.length;
   }, [sentences.length, autoScroll, virtualizer]);
+
+  // Deep-link (map principle): when `#/story/SES/event/ID` carries an eventId,
+  // scroll the Story to the turn that produced it. Turn off auto-scroll so the
+  // deep-link isn't yanked to the bottom by a live append.
+  useEffect(() => {
+    if (!eventId || sentences.length === 0) return;
+    const idx = findSentenceIndexByEvent(sentences, eventId);
+    if (idx >= 0) {
+      setAutoScroll(false);
+      virtualizer.scrollToIndex(idx, { align: "center" });
+    }
+  }, [eventId, sentences, virtualizer]);
 
   // Toggle filter
   const toggleFilter = useCallback((cat: StoryCategory) => {

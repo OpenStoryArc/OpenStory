@@ -184,6 +184,17 @@ export function turnEventMap(pattern: PatternView): ApplyEventEntry[] {
   }));
 }
 
+/** Index of the sentence/turn whose events include `eventId` (for deep-linking
+ *  Story to a specific event — `#/story/SES/event/ID`). -1 when not found or no
+ *  eventId. Pure → the scroll-to-turn effect is testable. */
+export function findSentenceIndexByEvent(
+  sentences: readonly PatternView[],
+  eventId: string | undefined,
+): number {
+  if (!eventId) return -1;
+  return sentences.findIndex((s) => (s.events ?? []).includes(eventId));
+}
+
 /** A short human headline for a turn.sentence — the verb + object of what the
  *  agent did that turn (e.g. "edited 5 source files"). Falls back to the
  *  pattern label. The verbatim rationale (the "because …" quote) is returned

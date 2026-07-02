@@ -233,6 +233,7 @@ export function App() {
           livePatterns={state.patterns}
           selectedSession={storySession}
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
+          eventId={route.eventId}
         />
       )}
 
