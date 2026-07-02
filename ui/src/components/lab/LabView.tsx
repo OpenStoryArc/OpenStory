@@ -7,7 +7,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import { fetchVizCandidates, sortByScore, type VizCandidate } from "@/lib/viz-candidates";
+import { useSessionsList } from "@/hooks/use-sessions-list";
+import { runWitness, type WitnessResult } from "@/lib/witnesses";
 import { cn } from "@/lib/cn";
+
+/** A verdict for a card: not-run, no-runner (needs records), or a result. */
+type Verdict = { ran: true; result: WitnessResult | null };
 
 const STATUS_STYLE: Record<string, string> = {
   built: "bg-[#9ece6a]/20 text-[#9ece6a] border-[#9ece6a]/40",
@@ -25,8 +30,25 @@ function scoreColor(s: number): string {
 export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
   const [candidates, setCandidates] = useState<VizCandidate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
+  const { sessions } = useSessionsList();
   useEffect(() => { fetchVizCandidates().then((c) => { setCandidates(c); setLoading(false); }); }, []);
   const sorted = useMemo(() => sortByScore(candidates), [candidates]);
+
+  // The lab method, live: run a candidate's witness against the real sessions.
+  const run = (id: string) => setVerdicts((v) => ({ ...v, [id]: { ran: true, result: runWitness(id, sessions) } }));
+  const runAll = () => {
+    const next: Record<string, Verdict> = {};
+    for (const c of candidates) next[c.id] = { ran: true, result: runWitness(c.id, sessions) };
+    setVerdicts(next);
+  };
+  /** effective status: a fired witness overrides the catalog status. */
+  const statusOf = (c: VizCandidate): string => {
+    const v = verdicts[c.id];
+    if (!v) return c.status ?? "idea";
+    if (v.result === null) return c.status ?? "idea"; // no runner → unchanged
+    return v.result.grounded ? "witnessed" : "refuted";
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[#16171f] text-[#c0caf5]" data-testid="lab-view">
@@ -35,6 +57,14 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
         <span className="text-[11px] text-[#565f89]">
           the viz design-space — {candidates.length} candidate shapes, each a falsifiable claim (hypothesis · falsifier · witness). Score = novelty×insight ÷ cost.
         </span>
+        <button
+          onClick={runAll}
+          disabled={!sessions.length}
+          className="ml-auto rounded border border-[#e0af68]/50 bg-[#e0af68]/10 px-2 py-1 text-[11px] text-[#e0af68] hover:bg-[#e0af68]/20 disabled:opacity-40"
+          title="Run every witness against the live session data"
+        >
+          ⚗ run all witnesses ({sessions.length})
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -51,8 +81,8 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
                     {c.score.toFixed(1)}
                   </span>
                   <span className="min-w-0 flex-1 text-[13px] font-semibold leading-tight text-[#c0caf5]">{c.name}</span>
-                  <span className={cn("shrink-0 rounded border px-1.5 py-0.5 text-[9px] uppercase", STATUS_STYLE[c.status ?? "idea"] ?? STATUS_STYLE.idea)}>
-                    {c.status ?? "idea"}
+                  <span className={cn("shrink-0 rounded border px-1.5 py-0.5 text-[9px] uppercase", STATUS_STYLE[statusOf(c)] ?? STATUS_STYLE.idea)}>
+                    {statusOf(c)}
                   </span>
                 </div>
                 <div className="mb-1.5 text-[10px] text-[#565f89]">{c.d3_shape} · {c.data_shape}</div>
@@ -61,6 +91,25 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
                   <div><span className="text-[#7aa2f7]">hypothesis</span> <span className="text-[#a9b1d6]">{c.hypothesis}</span></div>
                   <div><span className="text-[#f7768e]">falsifier</span> <span className="text-[#565f89]">{c.falsifier}</span></div>
                   <div><span className="text-[#e0af68]">witness</span> <span className="text-[#565f89]">{c.witness}</span></div>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    data-run-witness={c.id}
+                    onClick={() => run(c.id)}
+                    disabled={!sessions.length}
+                    className="rounded border border-[#3b4261] px-2 py-0.5 text-[10px] text-[#a9b1d6] hover:border-[#e0af68] hover:text-[#e0af68] disabled:opacity-40"
+                  >
+                    ⚗ run witness
+                  </button>
+                  {verdicts[c.id] && (() => {
+                    const r = verdicts[c.id]!.result;
+                    if (r === null) return <span className="text-[10px] text-[#565f89]">needs records — no runner yet</span>;
+                    return (
+                      <span className={cn("text-[10px] font-medium", r.grounded ? "text-[#9ece6a]" : "text-[#f7768e]")} data-verdict={c.id}>
+                        {r.grounded ? "✓ grounded" : "✗ refuted"} · {r.detail}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             ))}
