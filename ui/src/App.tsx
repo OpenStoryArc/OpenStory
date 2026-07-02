@@ -13,6 +13,7 @@ import { OverviewView } from "@/components/overview/OverviewView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
 import { AskView } from "@/components/ask/AskView";
 import { HeatmapView } from "@/components/heatmap/HeatmapView";
+import { LabView } from "@/components/lab/LabView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
@@ -245,6 +246,9 @@ export function App() {
 
       {/* Heatmap tab */}
       {viewMode === "heatmap" && <HeatmapView onNavigate={navigate} />}
+
+      {/* Lab tab */}
+      {viewMode === "lab" && <LabView onNavigate={navigate} />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}

@@ -104,6 +104,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         )
         .route("/api/interactions", axum::routing::post(crate::api::post_interaction))
         .route("/api/ui-state", axum::routing::get(crate::api::get_ui_state))
+        .route("/api/viz-candidates", axum::routing::get(crate::api::get_viz_candidates))
         .route("/api/digests", axum::routing::get(crate::api::session_digests))
         .route(
             "/api/watchers",
