@@ -28,6 +28,7 @@ import { ScatterView } from "./ScatterView";
 import { ToolFlowView } from "./ToolFlowView";
 import { ToolAdjacencyHeatmap } from "@/components/lab/ToolAdjacencyHeatmap";
 import { DelegationGraphView } from "@/components/lab/DelegationGraphView";
+import { AgentProjectMatrix } from "@/components/lab/AgentProjectMatrix";
 import { cn } from "@/lib/cn";
 
 /** Canvas view modes are exactly the shared CANVAS_MODES — binding the local
@@ -48,6 +49,7 @@ const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
   flow: () => `How often one tool follows another for the chosen agent · ribbon width = number of transitions · left = the tool used, right = what came next.`,
   "tool-adjacency": () => `From × to heatmap of tool transitions across sampled sessions · brighter = that pair fires more often · the diagonal is a tool repeating itself.`,
   delegation: () => `Force-directed spawn graph · each node a session, each edge a parent delegating to an agent-* subagent · drag to explore, hubs are heavy delegators.`,
+  "agent-project": () => `Rows = agents, columns = projects · brighter cell = more events there · the block structure shows which agent owns which project.`,
 };
 
 const DIMS: { key: GroupDim; label: string }[] = [
@@ -233,6 +235,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
             // parent→child edges against real subagent session ids, which
             // `universe` filters out.
             <div className="absolute inset-0 overflow-auto"><DelegationGraphView sessions={sessions} /></div>
+          ) : viewMode === "agent-project" ? (
+            <div className="absolute inset-0 overflow-auto"><AgentProjectMatrix sessions={universe} /></div>
           ) : viewMode !== "board" ? (
             <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : (
