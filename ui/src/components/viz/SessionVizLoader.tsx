@@ -10,10 +10,17 @@ import { TokenReport } from "./TokenReport";
 import { SubagentsSection } from "./SubagentsSection";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
+import { ConversationView } from "@/components/conversation/ConversationView";
+import { cn } from "@/lib/cn";
+
+/** The panel leads with the CONVERSATION (the story), with the tool trace a
+ *  click away — "show me the conversation, not the numbers." */
+type Lens = "conversation" | "trace";
 
 export function SessionVizLoader({ sessionId, onOpenSubagent }: { sessionId: string; onOpenSubagent?: (id: string) => void }) {
   const [records, setRecords] = useState<WireRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lens, setLens] = useState<Lens>("conversation");
 
   useEffect(() => {
     let cancelled = false;
@@ -40,8 +47,32 @@ export function SessionVizLoader({ sessionId, onOpenSubagent }: { sessionId: str
       </div>
       <SessionActivityRibbon records={records} />
       <div className="mt-1 border-t border-[#2f3348] pt-1">
-        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tool trace</div>
-        <TurnTraceView records={records} />
+        {/* Conversation-first: the transcript leads, the tool trace is a click away. */}
+        <div className="flex items-center gap-1 px-3 pt-1">
+          {([
+            { key: "conversation", label: "Conversation" },
+            { key: "trace", label: "Tool trace" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setLens(t.key)}
+              aria-pressed={lens === t.key}
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors",
+                lens === t.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {lens === "conversation" ? (
+          <div className="flex h-[58vh] max-h-[560px] min-h-[240px] flex-col">
+            <ConversationView sessionId={sessionId} />
+          </div>
+        ) : (
+          <TurnTraceView records={records} />
+        )}
       </div>
       <div className="mt-1 border-t border-[#2f3348] pt-1">
         <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tokens</div>
