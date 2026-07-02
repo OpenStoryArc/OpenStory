@@ -13,6 +13,7 @@ import { zoom as d3zoom, zoomIdentity, type ZoomBehavior } from "d3-zoom";
 import { scaleSqrt } from "d3-scale";
 import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
 import { fitTransform } from "@/lib/canvas-fit";
@@ -71,6 +72,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const [metric, setMetric] = useState<Metric>("events");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<{ sessionId: string; label: string } | null>(null);
+  const panel = useResizablePanel("canvas.detail.width", 420, 320, 760);
   const [query, setQuery] = useState("");
   const nowMs = useMemo(() => Date.now(), []);
 
@@ -290,9 +292,21 @@ export function SessionsCanvas({ onNavigate }: Props) {
         </div>
       </div>
 
-      {/* details side panel */}
+      {/* details side panel — user-resizable via the left-edge grip */}
       {selected && (
-        <aside className="flex w-[420px] shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]">
+        <aside
+          className="relative flex shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]"
+          style={{ width: panel.width }}
+        >
+          {/* drag handle: a hit-target straddling the left border */}
+          <div
+            onPointerDown={panel.onHandlePointerDown}
+            className={`absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${panel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            title="Drag to resize"
+          />
           <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
             <span className="truncate text-[12px] text-[#c0caf5]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
             <div className="flex items-center gap-2">
