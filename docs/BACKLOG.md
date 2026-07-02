@@ -4,6 +4,43 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Guiding principle — the UI is a map: every datum drills to its source
+
+Open Story's UI should be an *interface to the session data* — a map you can
+navigate down to the source of anything shown. **No visual is a terminal.**
+Every displayed datum links down the tree to what produced it: a sunburst wedge
+→ its sessions → its events → the raw transcript line; a token count → the
+events that generated it; a sentence → its turn → its tool calls; a file name →
+the reads/writes that touched it. This is the data-sovereignty twin of the
+no-dead-end-truncation rule (you can always reach the full thing) applied to
+navigation (you can always reach the source). Acceptance test for every view:
+*can I click this element down to its source event/record?* If not, it's a gap.
+This principle unifies the object-navigation work (`focus_event`, `route.eventId`
+consumption in Explore/Story, click-granular interaction capture), viz drill-in
+(sunburst/treemap labels + drill), and clickable stats.
+
+## Make interactions proper CloudEvents (drop the raw-bytes special-case)
+
+Correction to a shortcut taken 2026-07-02: the agent-in-UI READ path currently
+publishes interactions to `ui.*` as RAW CloudEvent-shaped JSON and consumes them
+via a bespoke `bus::subscribe_raw` + `pump_raw_subscription`, because the
+hand-built interaction Value wasn't a valid `CloudEvent` instance. That was
+framed as "an interaction can't be a CloudEvent" — which is FALSE. `EventData`
+is not a closed enum; it's a struct with a free-form `raw: Value` (plus `seq`,
+`session_id`, optional `agent_payload`). So an interaction IS expressible as a
+real CloudEvent: `EventData::new(interaction_json, 0, session_id)` +
+`datacontenttype: "application/json"` + `subtype: "interaction.<kind>"`.
+Refactor: build interactions as proper CloudEvents, wrap in `IngestBatch`,
+publish via `bus.publish` (not `publish_bytes`), and consume them through the
+SAME consumer/pump as observed events — then DELETE `subscribe_raw` /
+`pump_raw_subscription` / the bespoke path. Benefits: one event model
+everywhere; interactions are stored/replayed/patternable exactly like observed
+events (just on the `ui.*` namespace, so the sovereignty partition still holds
+at the subject layer); and — serving the map principle above — an interaction
+becomes a first-class, navigable-to-source event in the store. Keep the `ui`
+JetStream stream + the subject partition; only the payload shape + consume path
+change.
+
 ## Unify the interaction/control seam onto NATS (one bus, one source→sink graph)
 
 Today there are **two fan-out layers that don't overlap**: (1) NATS JetStream —
