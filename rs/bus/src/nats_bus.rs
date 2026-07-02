@@ -373,6 +373,67 @@ impl NatsBus {
         });
         Ok(())
     }
+
+    /// Like `spawn_consumer`, but yields the RAW message payload bytes with no
+    /// `IngestBatch` decode. Used for the AUTHORED `ui.*` stream, whose frames
+    /// are free-form JSON (interactions/control/annotations) — NOT IngestBatches
+    /// (an interaction can't be a valid CloudEvent: EventData is typed and
+    /// `datacontenttype` is required). Sovereignty note: this only ever consumes
+    /// the `ui` stream; the observed read-only `events.*` path is untouched.
+    async fn spawn_raw_consumer(
+        &self,
+        tx: mpsc::Sender<Vec<u8>>,
+        stream_name: &str,
+        pattern: &str,
+    ) -> Result<()> {
+        let stream = self
+            .jetstream
+            .get_stream(stream_name)
+            .await
+            .with_context(|| format!("failed to get '{stream_name}' stream"))?;
+
+        let consumer = stream
+            .create_consumer(jetstream::consumer::push::Config {
+                filter_subject: pattern.to_string(),
+                deliver_subject: format!("_deliver.{}", uuid_short()),
+                deliver_policy: jetstream::consumer::DeliverPolicy::All,
+                ..Default::default()
+            })
+            .await
+            .with_context(|| format!("failed to create raw push consumer on '{stream_name}'"))?;
+
+        let mut messages = consumer
+            .messages()
+            .await
+            .with_context(|| format!("failed to get raw message stream on '{stream_name}'"))?;
+
+        let label = stream_name.to_string();
+        tokio::spawn(async move {
+            while let Some(Ok(msg)) = messages.next().await {
+                if tx.send(msg.payload.to_vec()).await.is_err() {
+                    break; // receiver dropped
+                }
+                if let Err(e) = msg.ack().await {
+                    eprintln!("bus[{label}]: failed to ack raw message: {e}");
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Subscribe to a named stream filtered by `pattern`, yielding RAW payload
+    /// bytes (each frame as published). For the authored `ui` stream
+    /// (`subscribe_raw("ui", "ui.>")`). Inherent method — distinct from the
+    /// IngestBatch-typed `Bus::subscribe`.
+    pub async fn subscribe_raw(
+        &self,
+        stream_name: &str,
+        pattern: &str,
+    ) -> Result<mpsc::Receiver<Vec<u8>>> {
+        let (tx, rx) = mpsc::channel(256);
+        self.spawn_raw_consumer(tx, stream_name, pattern).await?;
+        Ok(rx)
+    }
 }
 
 #[async_trait]
