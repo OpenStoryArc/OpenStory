@@ -8,13 +8,18 @@ import { ConversationView } from "./ConversationView";
 import { SemanticSearch } from "./SemanticSearch";
 import { PlanViewer } from "@/components/plans/PlanViewer";
 import { ConstellationView } from "@/components/viz/ConstellationView";
+import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import type { HashRoute } from "@/lib/hash-route";
 
-export type DetailView = "events" | "conversation" | "plans" | "graph" | "search";
+export type DetailView = "session" | "events" | "conversation" | "plans" | "graph" | "search";
+
+/** The default detail view — conversation-forward (summary + tokens + transcript),
+ *  not the busy Events/Tool-Journey/Files wall. */
+export const DEFAULT_DETAIL_VIEW: DetailView = "session";
 
 export const VIEW_TABS: { key: DetailView; label: string }[] = [
+  { key: "session", label: "Session" },
   { key: "events", label: "Events" },
-  { key: "conversation", label: "Conversation" },
   { key: "plans", label: "Plans" },
   { key: "graph", label: "Graph" },
   { key: "search", label: "Search" },
@@ -27,7 +32,7 @@ interface ExploreViewProps {
 
 export function ExploreView({ route, onNavigate }: ExploreViewProps) {
   const selectedSessionId = route.sessionId ?? null;
-  const detailView: DetailView = route.detailView ?? "events";
+  const detailView: DetailView = route.detailView ?? DEFAULT_DETAIL_VIEW;
   const cameFromSearch = useRef(false);
 
   const handleSelectSession = useCallback((id: string) => {
@@ -36,7 +41,7 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
 
   const handleSearchSelect = useCallback((id: string) => {
     cameFromSearch.current = true;
-    onNavigate({ view: "explore", sessionId: id, detailView: "events" });
+    onNavigate({ view: "explore", sessionId: id, detailView: "session" });
   }, [onNavigate]);
 
   const handleBackToSearch = useCallback(() => {
@@ -87,14 +92,26 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
       <div className="flex-1 min-w-0 overflow-y-auto">
         {selectedSessionId && (
           <div style={{ display: detailView === "search" ? "none" : undefined }}>
-            <ExploreDetail sessionId={selectedSessionId} />
             {tabBar}
-            {detailView === "events" && (
-              <SessionTimeline
+            {/* Default: conversation-forward — summary card + tokens on top +
+                transcript & writes. The busy Events/Tool-Journey/Files wall is
+                demoted behind the Events tab. */}
+            {detailView === "session" && (
+              <SessionVizLoader
                 sessionId={selectedSessionId}
-                scrollToEventId={route.eventId}
-                initialFilePath={route.filePath}
+                onOpenStory={() => onNavigate({ view: "story", sessionId: selectedSessionId })}
+                onOpenSubagent={(id) => onNavigate({ view: "explore", sessionId: id })}
               />
+            )}
+            {detailView === "events" && (
+              <>
+                <ExploreDetail sessionId={selectedSessionId} />
+                <SessionTimeline
+                  sessionId={selectedSessionId}
+                  scrollToEventId={route.eventId}
+                  initialFilePath={route.filePath}
+                />
+              </>
             )}
             {detailView === "conversation" && (
               <ConversationView sessionId={selectedSessionId} />

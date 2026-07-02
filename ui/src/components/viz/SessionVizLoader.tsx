@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
  *  click away — "show me the conversation, not the numbers." */
 type Lens = "conversation" | "trace";
 
-export function SessionVizLoader({ sessionId, onOpenSubagent }: { sessionId: string; onOpenSubagent?: (id: string) => void }) {
+export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { sessionId: string; onOpenSubagent?: (id: string) => void; onOpenStory?: () => void }) {
   const [records, setRecords] = useState<WireRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [lens, setLens] = useState<Lens>("conversation");
@@ -42,8 +42,23 @@ export function SessionVizLoader({ sessionId, onOpenSubagent }: { sessionId: str
 
   return (
     <div>
-      <div className="border-b border-[#2f3348] bg-[#24283b]">
-        <SessionSummaryHeader records={records} />
+      {/* Header: the session summary card + an optional jump to its Story. */}
+      <div className="flex items-start justify-between gap-2 border-b border-[#2f3348] bg-[#24283b]">
+        <div className="min-w-0 flex-1"><SessionSummaryHeader records={records} /></div>
+        {onOpenStory && (
+          <button
+            onClick={onOpenStory}
+            className="shrink-0 whitespace-nowrap px-3 py-2 text-[11px] text-[#bb9af7] hover:bg-[#2f3348]"
+            title="Open this session's Story"
+          >
+            Story →
+          </button>
+        )}
+      </div>
+      {/* Key data on top: the token summary, before the conversation. */}
+      <div className="border-b border-[#2f3348]">
+        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tokens</div>
+        <TokenReport records={records} />
       </div>
       <SessionActivityRibbon records={records} />
       <div className="mt-1 border-t border-[#2f3348] pt-1">
@@ -73,10 +88,6 @@ export function SessionVizLoader({ sessionId, onOpenSubagent }: { sessionId: str
         ) : (
           <TurnTraceView records={records} />
         )}
-      </div>
-      <div className="mt-1 border-t border-[#2f3348] pt-1">
-        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">Tokens</div>
-        <TokenReport records={records} />
       </div>
       <div className="mt-1 border-t border-[#2f3348] pt-1">
         <SubagentsSection records={records} onOpen={onOpenSubagent} />
