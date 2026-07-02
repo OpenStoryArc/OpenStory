@@ -9,7 +9,7 @@ import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
 import type { StorySession, Fleet } from "@/lib/story-api";
-import { compactTime } from "@/lib/time";
+import { Timestamp } from "@/components/ui/Timestamp";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
@@ -702,7 +702,7 @@ export const Sidebar = memo(function Sidebar({
                       <span className="text-[9px] text-[#7dcfff] truncate" title={s.branch}>{s.branch}</span>
                     )}
                     <span className="text-[9px] text-[#565f89]">
-                      {s.eventCount} · {compactTime(s.latestTimestamp)}
+                      {s.eventCount} · <Timestamp iso={s.latestTimestamp} />
                     </span>
                     {s.totalTokens > 0 && (
                       <span className="text-[9px] text-[#e0af68]" title="Total tokens used">
@@ -783,7 +783,7 @@ export const Sidebar = memo(function Sidebar({
                     </span>
                   </div>
                   <div className="text-[10px] text-[#565f89] mt-0.5">
-                    {compactTime(s.latestTimestamp)}
+                    <Timestamp iso={s.latestTimestamp} />
                     {s.subagents.length > 0 && (
                       <span className="ml-2 text-[#bb9af7]">
                         {s.subagents.length} subagent{s.subagents.length !== 1 ? "s" : ""}
@@ -872,7 +872,7 @@ export const Sidebar = memo(function Sidebar({
                     </span>
                   </div>
                   <div className="text-[10px] text-[#565f89] pl-4">
-                    {sub.eventCount} events · {compactTime(sub.firstTimestamp)}
+                    {sub.eventCount} events · <Timestamp iso={sub.firstTimestamp} />
                   </div>
                 </button>
               );

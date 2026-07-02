@@ -35,3 +35,11 @@ export function formatTime(iso: string): string {
 export function compactTime(iso: string): string {
   return new Date(iso).toTimeString().slice(0, 8);
 }
+
+/** Full local date + time — the WHEN in absolute form, for a hover title next
+ *  to a relative time ("43d ago" ⟶ hover ⟶ "Jul 2, 2026, 8:38:25 AM"). Falls
+ *  back to the raw input if unparseable so a card never renders "Invalid Date".*/
+export function absoluteTime(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString();
+}

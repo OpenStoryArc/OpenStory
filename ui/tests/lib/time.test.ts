@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { scenario } from "../bdd";
-import { formatDuration, relativeTime, relativeTimeFrom, compactTime } from "@/lib/time";
+import { formatDuration, relativeTime, relativeTimeFrom, compactTime, absoluteTime } from "@/lib/time";
 
 describe("formatDuration", () => {
   it("should format sub-second durations as milliseconds", () => {
@@ -165,6 +165,27 @@ describe("compactTime", () => {
       () => "2026-01-01T14:30:45Z",
       (iso) => compactTime(iso),
       (result) => expect(result).toMatch(/^\d{2}:\d{2}:\d{2}$/),
+    );
+  });
+});
+
+describe("absoluteTime — the full when, for a hover title", () => {
+  it("includes the date (year), unlike compactTime which is time-only", () => {
+    scenario(
+      () => "2026-07-02T08:38:25Z",
+      (iso) => absoluteTime(iso),
+      (result) => {
+        expect(result).toContain("2026");
+        expect(result.length).toBeGreaterThan(8); // more than just HH:MM:SS
+      },
+    );
+  });
+
+  it("returns the raw input for an unparseable timestamp (no crash)", () => {
+    scenario(
+      () => "not-a-date",
+      (iso) => absoluteTime(iso),
+      (result) => expect(result).toBe("not-a-date"),
     );
   });
 });
