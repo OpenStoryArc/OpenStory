@@ -4,6 +4,41 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Unify the interaction/control seam onto NATS (one bus, one source→sink graph)
+
+Today there are **two fan-out layers that don't overlap**: (1) NATS JetStream —
+the durable event spine the four consumer-actors (persist / patterns /
+projections / broadcast) drink from; and (2) a tokio `broadcast` channel → the
+`/ws` WebSocket — the ephemeral live-push to browsers. The **agent-in-UI seam**
+(interactions, control, annotations) rides *only* the second layer + REST +
+SQLite; it **never hits NATS**. Consequences: the MCP (a NATS subscriber) can't
+natively `subscribe_ui_state` (it's why 1c needs a bridge); user interactions
+aren't replayable/patternable the way agent events are; and the ephemeral
+broadcast channel **silently drops** for lagged receivers (perf pressure-point
+#2) with no resume.
+
+**Fix:** publish interactions/control/annotations onto NATS too (their own
+subjects, e.g. `ui.{principal}.interaction.*`, `ui.control.*`), so there is ONE
+bus and one set of sinks. The browser fan-out becomes just another actor
+relaying NATS → clients. Then: the MCP subscribes to ui-state natively; the
+metronome/attention-pacing work reads the user's rhythm off the same spine the
+agent events are on; "the user's attention" becomes a first-class, replayable
+event source, not a side channel.
+
+**Transport — SSE is a strong fit (Max's instinct).** The UI is a pure *sink*
+(it only receives on the socket; its writes go via REST POST). SSE is a
+one-way server→browser stream over plain HTTP — exactly that shape — and it's
+simpler than WS (no upgrade handshake, built-in auto-reconnect, HTTP/2
+multiplexing). Bonus that directly fixes pressure-point #2: an SSE stream backed
+by NATS can be **resumable** — a client reconnecting sends `Last-Event-ID`, the
+server replays from that NATS sequence, so a lagged/dropped client *heals*
+instead of silently losing messages (the tokio broadcast can't do this). Caveat:
+SSE is server→client only, but that's fine here — upstream already goes via REST;
+and per-client filtering (this session/project) rides the connection URL. Keep
+WS if a future feature needs true bidirectionality, but for the fan-out, NATS→SSE
+is cleaner and drop-free. Evaluate NATS→SSE relay vs the current tokio-broadcast
+→WS as part of this unification.
+
 ## Overlay annotations (the pin-a-note layer)
 
 Annotations are user/agent-authored notes pinned to sessions — the overlay
