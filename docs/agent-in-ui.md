@@ -48,19 +48,28 @@ curl -s -X POST http://localhost:3002/api/control \
 # → {"ok":true,"action":"open_view","delivered":2}
 ```
 
-## READ — follow the user (coming: `where_is_user`, `subscribe_ui_state`)
+## READ — follow the user
 
 When the user navigates, the UI emits a typed `Interaction`
 (`navigate | filter | select | zoom | view`) to `POST /api/interactions`; the
 server stores it as a CloudEvent in the synthetic `openstory-ui` viewing session
 and exposes the latest.
 
-- **Poll:** `GET /api/ui-state` → `{ ui_state: { at, kind, view, session_id? } }`
-  — where the user is right now.
-- **Follow:** the `ui_state` WebSocket broadcast (same fields) — live, no polling.
+**MCP:** `where_is_user {}` (no args) → an agent-friendly shape:
 
-MCP tools `where_is_user` (poll) and `subscribe_ui_state` (stream) wrap these;
-documented here as they land.
+```jsonc
+{ "present": true, "view": "overview", "kind": "navigate",
+  "session_id": null, "at": "2026-07-02T12:42:27.507Z",
+  "summary": "the user is on 'overview'" }
+```
+
+`present: false` means no interaction has been recorded yet (position unknown).
+
+**HTTP:**
+- **Poll:** `GET /api/ui-state` → `{ ui_state: { at, kind, view, session_id? } }`.
+- **Follow (live):** the `ui_state` WebSocket broadcast (same fields) — no
+  polling. The `subscribe_ui_state` streaming MCP tool wraps this; documented
+  when it lands (Phase 1c).
 
 ## The symmetry
 

@@ -60,6 +60,48 @@ pub async fn ui_control(api_base: &str, args: Value) -> Result<Value, String> {
         .map_err(|e| format!("control response parse failed: {e}"))
 }
 
+// ── READ half: where_is_user (GET /api/ui-state) ───────────────────────────
+
+pub fn where_is_user_schema() -> Value {
+    json!({ "type": "object", "properties": {}, "additionalProperties": false })
+}
+
+/// Pure: turn the raw `ui_state` projection into an agent-friendly shape with a
+/// one-line summary, so an agent can reason about "where is the user" without
+/// digging. `Null` (no interaction recorded) → `present: false`.
+pub fn summarize_ui_state(state: Value) -> Value {
+    if state.is_null() {
+        return json!({
+            "present": false,
+            "summary": "no interaction recorded yet — the user's position is unknown"
+        });
+    }
+    let view = state.get("view").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let kind = state.get("kind").and_then(|v| v.as_str()).unwrap_or("view");
+    let session_id = state.get("session_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+    let at = state.get("at").and_then(|v| v.as_str()).unwrap_or("");
+    let summary = match session_id {
+        Some(sid) => format!("the user is on '{view}' viewing session {sid}"),
+        None => format!("the user is on '{view}'"),
+    };
+    json!({ "present": true, "view": view, "kind": kind, "session_id": session_id, "at": at, "summary": summary })
+}
+
+/// GET `{api_base}/api/ui-state` → the current position (READ half of the seam).
+pub async fn where_is_user(api_base: &str, _args: Value) -> Result<Value, String> {
+    if api_base.trim().is_empty() {
+        return Err("where_is_user unavailable: the MCP has no API base configured (set OPENSTORY_API_URL)".to_string());
+    }
+    let url = format!("{}/api/ui-state", api_base.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("ui-state GET failed: {e}"))?;
+    let body = resp.json::<Value>().await.map_err(|e| format!("ui-state parse failed: {e}"))?;
+    Ok(summarize_ui_state(body.get("ui_state").cloned().unwrap_or(Value::Null)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +134,34 @@ mod tests {
     fn build_body_defaults_params_to_empty_object() {
         let body = build_control_body(&json!({ "action": "open_view" })).unwrap();
         assert_eq!(body["params"], json!({}));
+    }
+
+    #[test]
+    fn summarize_null_state_is_not_present() {
+        let s = summarize_ui_state(Value::Null);
+        assert_eq!(s["present"], false);
+        assert!(s["summary"].as_str().unwrap().contains("unknown"));
+    }
+
+    #[test]
+    fn summarize_view_only_position() {
+        let s = summarize_ui_state(json!({ "view": "overview", "kind": "navigate", "at": "2026-07-02T12:42:27Z" }));
+        assert_eq!(s["present"], true);
+        assert_eq!(s["view"], "overview");
+        assert_eq!(s["session_id"], Value::Null);
+        assert!(s["summary"].as_str().unwrap().contains("overview"));
+    }
+
+    #[test]
+    fn summarize_names_the_session_when_present() {
+        let s = summarize_ui_state(json!({ "view": "story", "kind": "navigate", "session_id": "abc123", "at": "t" }));
+        assert_eq!(s["session_id"], "abc123");
+        assert!(s["summary"].as_str().unwrap().contains("abc123"));
+    }
+
+    #[test]
+    fn summarize_treats_empty_session_id_as_none() {
+        let s = summarize_ui_state(json!({ "view": "overview", "session_id": "" }));
+        assert_eq!(s["session_id"], Value::Null);
     }
 }

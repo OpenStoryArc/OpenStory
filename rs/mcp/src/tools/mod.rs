@@ -44,6 +44,14 @@ pub const TOOLS: &[ToolDef] = &[
                       Returns {ok, delivered} (how many dashboards received it). Pair with where_is_user to drive from where the user is.",
         input_schema: control::ui_control_schema,
     },
+    ToolDef {
+        name: "where_is_user",
+        description: "Read where the user is right now in the dashboard (the agent-in-UI READ seam): \
+                      returns their latest interaction as {present, view, kind, session_id?, at, summary}. \
+                      No args. Pair with ui_control to drive FROM where the user is (e.g. see they're on a \
+                      session, then open_view its Story). For a live feed, use subscribe_ui_state.",
+        input_schema: control::where_is_user_schema,
+    },
     // Query tools (routed through dispatch_query_tool).
     ToolDef {
         name: "list_sessions",
@@ -235,6 +243,7 @@ pub async fn dispatch_query_tool<S: Subscribe>(
 ) -> Value {
     let result: Result<Value, String> = match name {
         "ui_control" => control::ui_control(&server.api_base, args).await,
+        "where_is_user" => control::where_is_user(&server.api_base, args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,
