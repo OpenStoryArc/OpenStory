@@ -63,7 +63,8 @@
     "notes": "Cross-tab already exists in analytics; just needs a rect grid. Sortable rows/cols reveal clusters (Cuthill-McKee optional).",
     "hypothesis": "Agents specialize across projects, so the (agent x project) grid shows an uneven, block-structured fill rather than uniform coverage.",
     "falsifier": "If there is effectively one agent, or every agent touches every project evenly, the matrix is a single row or a flat block and carries no signal.",
-    "witness": "GET /api/sessions \u2192 count distinct origin_agent and distinct project_id; needs \u22652 agents and \u22653 projects with an uneven cell distribution to be informative."
+    "witness": "GET /api/sessions \u2192 count distinct origin_agent and distinct project_id; needs \u22652 agents and \u22653 projects with an uneven cell distribution to be informative.",
+    "status": "built"
   },
   {
     "id": "duration-beeswarm",

@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message.slice(0,140)));
+await p.goto("http://127.0.0.1:5173/#/lab",{waitUntil:"networkidle"}); await p.waitForTimeout(2500);
+await p.$('[data-open-viz="agent-project-matrix"]').then(x=>x.click());
+await p.waitForSelector('[data-testid="lab-viewer"]',{timeout:5000});
+await p.waitForTimeout(1500);
+const cells = await p.$$eval('[data-testid="lab-viewer"] svg rect', r=>r.length).catch(()=>0);
+const cap = await p.$eval('[data-testid="lab-viewer"] div.text-\\[11px\\]', e=>e.textContent.trim()).catch(()=>"?");
+console.log("matrix cells:", cells, "· caption:", cap);
+await p.screenshot({path:`${S}/rev-apmatrix.png`});
+console.log("saved");
+await b.close();

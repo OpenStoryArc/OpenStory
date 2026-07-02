@@ -14,6 +14,7 @@ import { postInteraction } from "@/lib/interaction";
 import type { StorySession } from "@/lib/story-api";
 import { ToolAdjacencyHeatmap } from "./ToolAdjacencyHeatmap";
 import { DelegationGraphView } from "./DelegationGraphView";
+import { AgentProjectMatrix } from "./AgentProjectMatrix";
 import { cn } from "@/lib/cn";
 
 /** A verdict for a card: not-run, no-runner (needs records), or a result. */
@@ -24,6 +25,7 @@ type Verdict = { ran: true; result: WitnessResult | null };
 const BUILT_VIZ: Record<string, (sessions: readonly StorySession[]) => ReactNode> = {
   "tool-adjacency-heatmap": (sessions) => <ToolAdjacencyHeatmap sessions={sessions} />,
   "delegation-graph": (sessions) => <DelegationGraphView sessions={sessions} />,
+  "agent-project-matrix": (sessions) => <AgentProjectMatrix sessions={sessions} />,
 };
 
 const STATUS_STYLE: Record<string, string> = {
