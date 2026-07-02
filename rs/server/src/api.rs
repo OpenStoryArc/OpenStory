@@ -72,13 +72,35 @@ pub async fn post_control(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     log_event("control", &format!("POST /api/control action={action}"));
+
+    let s = state.read().await;
+    // Publish the authored control intent onto the AUTHORED `ui.*` namespace
+    // (NEVER `events.*` — that's the observed read-only source), so the drive
+    // stream is first-class on the bus: subscribable, federatable, replayable —
+    // the write half of the seam, symmetric with the interaction (read) half.
+    let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let subject = crate::ui_events::ui_subject("control", &action, issuer.as_deref());
+    let event = json!({
+        "specversion": "1.0",
+        "id": uuid::Uuid::new_v4().to_string(),
+        "source": VIEWING_SESSION,
+        "type": "io.arc.event",
+        "subtype": format!("control.{action}"),
+        "agent": "openstory-ui",
+        "time": at.clone(),
+        "data": { "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at },
+    });
+    if let Ok(bytes) = serde_json::to_vec(&event) {
+        let _ = s.bus.publish_bytes(&subject, &bytes).await;
+    }
+
     let msg = BroadcastMessage::Control {
         action: action.clone(),
         params,
         issuer,
     };
     // send() errs only when there are no subscribers → 0 delivered.
-    let delivered = state.read().await.broadcast_tx.send(msg).unwrap_or(0);
+    let delivered = s.broadcast_tx.send(msg).unwrap_or(0);
     (
         StatusCode::OK,
         Json(json!({ "ok": true, "action": action, "delivered": delivered })),
@@ -235,6 +257,23 @@ pub async fn post_annotation(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
     }
     log_event("annotation", &format!("pinned to {}", short_id(&ann.session_id)));
+    // Publish the authored annotation onto the `ui.*` namespace (overlay class,
+    // NEVER `events.*`). The annotation is user/agent-authored overlay data, so
+    // it's a first-class ui event like control + interaction — subscribable and
+    // replayable, and the whole authored surface now flows on one sovereign bus.
+    let subject = crate::ui_events::ui_subject("annotation", "add", Some(&ann.issuer));
+    if let Ok(bytes) = serde_json::to_vec(&json!({
+        "specversion": "1.0",
+        "id": ann.id.clone(),
+        "source": VIEWING_SESSION,
+        "type": "io.arc.event",
+        "subtype": "annotation.add",
+        "agent": "openstory-ui",
+        "time": ann.created_at.clone(),
+        "data": &ann,
+    })) {
+        let _ = s.bus.publish_bytes(&subject, &bytes).await;
+    }
     let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
     (StatusCode::OK, Json(json!({ "ok": true, "annotation": ann })))
 }
@@ -266,6 +305,19 @@ pub async fn delete_annotation(
     match crate::annotations::remove_annotation(dir, &id) {
         Ok(true) => {
             log_event("annotation", &format!("removed {}", short_id(&id)));
+            // Mirror the removal onto the authored `ui.*` bus (never events.*).
+            let subject = crate::ui_events::ui_subject("annotation", "remove", None);
+            if let Ok(bytes) = serde_json::to_vec(&json!({
+                "specversion": "1.0",
+                "id": uuid::Uuid::new_v4().to_string(),
+                "source": VIEWING_SESSION,
+                "type": "io.arc.event",
+                "subtype": "annotation.remove",
+                "agent": "openstory-ui",
+                "data": { "id": id.clone() },
+            })) {
+                let _ = s.bus.publish_bytes(&subject, &bytes).await;
+            }
             let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
             (StatusCode::OK, Json(json!({ "ok": true, "removed": id })))
         }

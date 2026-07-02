@@ -64,4 +64,18 @@ mod tests {
             assert!(!s.starts_with("events."), "{s} must never be in the observed namespace");
         }
     }
+
+    // Phase 1f wiring contracts: control + annotation authored surfaces publish on
+    // exactly these subjects. Lock the shape so a rename can't silently drift.
+    #[test]
+    fn control_subject_is_keyed_by_action() {
+        assert_eq!(ui_subject("control", "open_view", Some("max")), "ui.max.control.open_view");
+        assert_eq!(ui_subject("control", "focus_event", None), "ui.anon.control.focus_event");
+    }
+
+    #[test]
+    fn annotation_subject_is_keyed_by_add_or_remove() {
+        assert_eq!(ui_subject("annotation", "add", Some("max")), "ui.max.annotation.add");
+        assert_eq!(ui_subject("annotation", "remove", Some("max")), "ui.max.annotation.remove");
+    }
 }
