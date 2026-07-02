@@ -1,0 +1,80 @@
+[
+  {"view": "overview", "affordance": "hover", "target": "metric card", "effect": "reveal detail tooltip", "maps_to_control_action": "none-yet"},
+  {"view": "overview", "affordance": "click", "target": "metric card", "effect": "open filtered session list", "maps_to_control_action": "navigate"},
+  {"view": "overview", "affordance": "click", "target": "session row", "effect": "drill into that session", "maps_to_control_action": "drill"},
+  {"view": "overview", "affordance": "sort", "target": "session list column", "effect": "reorder rows by field", "maps_to_control_action": "sort"},
+  {"view": "overview", "affordance": "filter", "target": "agent/project chip", "effect": "restrict to matching sessions", "maps_to_control_action": "filter"},
+  {"view": "overview", "affordance": "toggle", "target": "time-window selector", "effect": "change aggregation window", "maps_to_control_action": "set"},
+
+  {"view": "canvas", "affordance": "toggle", "target": "mode switch (board/sunburst/treemap/gantt/scatter/flow)", "effect": "swap the active visualization", "maps_to_control_action": "toggle"},
+  {"view": "canvas", "affordance": "toggle", "target": "group-by control", "effect": "regroup by project/agent/user/host", "maps_to_control_action": "set"},
+  {"view": "canvas", "affordance": "toggle", "target": "size-metric control", "effect": "size nodes by events vs tokens", "maps_to_control_action": "set"},
+  {"view": "canvas", "affordance": "zoom", "target": "stage", "effect": "scale the view in/out", "maps_to_control_action": "none-yet"},
+  {"view": "canvas", "affordance": "pan", "target": "stage", "effect": "translate the viewport", "maps_to_control_action": "none-yet"},
+  {"view": "canvas", "affordance": "click", "target": "node", "effect": "drill to the session", "maps_to_control_action": "drill"},
+  {"view": "canvas", "affordance": "hover", "target": "node", "effect": "show summary tooltip", "maps_to_control_action": "none-yet"},
+
+  {"view": "canvas.board", "affordance": "expand", "target": "group bubble", "effect": "descend group -> project -> session", "maps_to_control_action": "drill"},
+  {"view": "canvas.board", "affordance": "drag", "target": "bubble", "effect": "reposition against force layout", "maps_to_control_action": "none-yet"},
+  {"view": "canvas.board", "affordance": "zoom", "target": "bubble cluster", "effect": "zoom into a group", "maps_to_control_action": "drill"},
+
+  {"view": "canvas.sunburst", "affordance": "click", "target": "ring segment", "effect": "re-root/zoom to that node", "maps_to_control_action": "drill"},
+  {"view": "canvas.sunburst", "affordance": "click", "target": "center", "effect": "zoom back out one level", "maps_to_control_action": "navigate"},
+  {"view": "canvas.sunburst", "affordance": "hover", "target": "segment", "effect": "show breadcrumb + value", "maps_to_control_action": "none-yet"},
+
+  {"view": "canvas.treemap", "affordance": "click", "target": "cell", "effect": "drill/re-root into node", "maps_to_control_action": "drill"},
+  {"view": "canvas.treemap", "affordance": "hover", "target": "cell", "effect": "show path + value", "maps_to_control_action": "none-yet"},
+
+  {"view": "canvas.gantt", "affordance": "brush", "target": "time axis", "effect": "filter to a time window", "maps_to_control_action": "query"},
+  {"view": "canvas.gantt", "affordance": "pan", "target": "timeline", "effect": "scroll through time", "maps_to_control_action": "none-yet"},
+  {"view": "canvas.gantt", "affordance": "hover", "target": "session bar", "effect": "show session summary", "maps_to_control_action": "none-yet"},
+  {"view": "canvas.gantt", "affordance": "click", "target": "session bar", "effect": "drill to session", "maps_to_control_action": "drill"},
+
+  {"view": "canvas.scatter", "affordance": "brush", "target": "region", "effect": "select a set of sessions", "maps_to_control_action": "select"},
+  {"view": "canvas.scatter", "affordance": "toggle", "target": "axis scale", "effect": "switch log/linear", "maps_to_control_action": "set"},
+  {"view": "canvas.scatter", "affordance": "click", "target": "dot", "effect": "drill to session", "maps_to_control_action": "drill"},
+  {"view": "canvas.scatter", "affordance": "hover", "target": "dot", "effect": "show session tooltip", "maps_to_control_action": "none-yet"},
+
+  {"view": "canvas.flow", "affordance": "select", "target": "agent selector", "effect": "choose which agent's tool grammar to show", "maps_to_control_action": "select"},
+  {"view": "canvas.flow", "affordance": "hover", "target": "link", "effect": "show transition count", "maps_to_control_action": "none-yet"},
+  {"view": "canvas.flow", "affordance": "hover", "target": "node", "effect": "show tool totals", "maps_to_control_action": "none-yet"},
+  {"view": "canvas.flow", "affordance": "drag", "target": "node", "effect": "reorder to reduce crossings", "maps_to_control_action": "none-yet"},
+
+  {"view": "heatmap", "affordance": "hover", "target": "day cell", "effect": "show date + count", "maps_to_control_action": "none-yet"},
+  {"view": "heatmap", "affordance": "click", "target": "day cell", "effect": "drill to that day's sessions", "maps_to_control_action": "drill"},
+  {"view": "heatmap", "affordance": "toggle", "target": "2D/3D switch", "effect": "change dimensionality of the surface", "maps_to_control_action": "toggle"},
+  {"view": "heatmap", "affordance": "drag", "target": "3D camera", "effect": "orbit the surface", "maps_to_control_action": "none-yet"},
+  {"view": "heatmap", "affordance": "zoom", "target": "3D scene", "effect": "dolly the camera", "maps_to_control_action": "none-yet"},
+  {"view": "heatmap", "affordance": "toggle", "target": "metric selector", "effect": "color by events/tokens/sessions", "maps_to_control_action": "set"},
+  {"view": "heatmap", "affordance": "filter", "target": "agent/user chip", "effect": "restrict the surface to a principal", "maps_to_control_action": "filter"},
+
+  {"view": "story", "affordance": "select", "target": "session picker", "effect": "load a session's story", "maps_to_control_action": "select"},
+  {"view": "story", "affordance": "navigate", "target": "turn stepper", "effect": "move turn to turn", "maps_to_control_action": "navigate"},
+  {"view": "story", "affordance": "expand", "target": "tool_use / tool_result block", "effect": "reveal full payload", "maps_to_control_action": "toggle"},
+  {"view": "story", "affordance": "toggle", "target": "raw/rendered switch", "effect": "swap raw JSON vs rendered", "maps_to_control_action": "toggle"},
+  {"view": "story", "affordance": "click", "target": "file/tool reference", "effect": "drill to referenced record", "maps_to_control_action": "drill"},
+  {"view": "story", "affordance": "filter", "target": "event-subtype chips", "effect": "hide/show subtypes", "maps_to_control_action": "filter"},
+
+  {"view": "explore", "affordance": "filter", "target": "project/agent/user/status filters", "effect": "narrow the session set", "maps_to_control_action": "filter"},
+  {"view": "explore", "affordance": "sort", "target": "column header", "effect": "reorder sessions", "maps_to_control_action": "sort"},
+  {"view": "explore", "affordance": "select", "target": "session row", "effect": "open conversation view", "maps_to_control_action": "select"},
+  {"view": "explore", "affordance": "click", "target": "event", "effect": "drill to record detail", "maps_to_control_action": "drill"},
+  {"view": "explore", "affordance": "query", "target": "search-in-view box", "effect": "filter by text match", "maps_to_control_action": "query"},
+  {"view": "explore", "affordance": "toggle", "target": "grouping control", "effect": "group/ungroup rows", "maps_to_control_action": "toggle"},
+
+  {"view": "users", "affordance": "select", "target": "user/principal", "effect": "focus one member of the fleet", "maps_to_control_action": "select"},
+  {"view": "users", "affordance": "hover", "target": "user card", "effect": "show fleet stats", "maps_to_control_action": "none-yet"},
+  {"view": "users", "affordance": "click", "target": "user", "effect": "filter sessions to that principal", "maps_to_control_action": "filter"},
+  {"view": "users", "affordance": "toggle", "target": "person/principal grouping", "effect": "switch grouping level", "maps_to_control_action": "set"},
+  {"view": "users", "affordance": "sort", "target": "activity column", "effect": "rank users by activity", "maps_to_control_action": "sort"},
+
+  {"view": "admin", "affordance": "toggle", "target": "person-cluster assignment", "effect": "accept/reject a cluster", "maps_to_control_action": "set"},
+  {"view": "admin", "affordance": "select", "target": "principal", "effect": "focus a principal for editing", "maps_to_control_action": "select"},
+  {"view": "admin", "affordance": "drag", "target": "event/cluster", "effect": "reassign to a principal", "maps_to_control_action": "set"},
+  {"view": "admin", "affordance": "filter", "target": "unassigned filter", "effect": "show only unassigned events", "maps_to_control_action": "filter"},
+
+  {"view": "ask", "affordance": "query", "target": "question input", "effect": "run a natural-language query", "maps_to_control_action": "query"},
+  {"view": "ask", "affordance": "click", "target": "cited session", "effect": "drill to Story/Explore", "maps_to_control_action": "drill"},
+  {"view": "ask", "affordance": "toggle", "target": "result grouping", "effect": "regroup answer results", "maps_to_control_action": "set"},
+  {"view": "ask", "affordance": "select", "target": "suggested follow-up", "effect": "issue the follow-up query", "maps_to_control_action": "query"}
+]
