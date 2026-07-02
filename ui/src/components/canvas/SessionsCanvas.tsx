@@ -18,6 +18,7 @@ import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas
 import { fitTransform } from "@/lib/canvas-fit";
 import { CANVAS_MODES, MODE_META, modeUsesGroupBy, type CanvasMode } from "@/lib/canvas-modes";
 import { controlActions$ } from "@/streams/control";
+import { postInteraction, selectInteraction } from "@/lib/interaction";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -158,6 +159,9 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const openSessionPanel = (id: string) => {
     const s = universe.find((x) => x.session_id === id);
     setSelected({ sessionId: id, label: s?.label || id.slice(0, 8) });
+    // click-granular capture: record WHICH session the user clicked into on the
+    // Canvas (every mode routes through here), so the journey is replayable.
+    postInteraction(selectInteraction("canvas", id));
   };
 
   const q = query.trim().toLowerCase();

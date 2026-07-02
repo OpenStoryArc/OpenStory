@@ -35,6 +35,30 @@ export function interactionFromRoute(route: HashRoute): Extract<Interaction, { k
   return p;
 }
 
+/** A "select" interaction — the user clicked INTO a thing (a session, an event,
+ *  a wedge). eventId is omitted when the whole session is the target. Pure so
+ *  the capture shape is testable + the same builder feeds replay. */
+export function selectInteraction(view: string, sessionId: string, eventId?: string): Extract<Interaction, { kind: "select" }> {
+  const i: Extract<Interaction, { kind: "select" }> = { kind: "select", view, session_id: sessionId };
+  if (eventId) i.eventId = eventId;
+  return i;
+}
+
+/** A "filter" interaction — the user narrowed a view (facets, search). */
+export function filterInteraction(view: string, filters: unknown, sessionId?: string): Extract<Interaction, { kind: "filter" }> {
+  const i: Extract<Interaction, { kind: "filter" }> = { kind: "filter", view, filters };
+  if (sessionId) i.session_id = sessionId;
+  return i;
+}
+
+/** A "zoom" interaction — the user changed a view's zoom/mode (drill, tempo). */
+export function zoomInteraction(view: string, opts?: { mode?: string; zoom?: number }): Extract<Interaction, { kind: "zoom" }> {
+  const i: Extract<Interaction, { kind: "zoom" }> = { kind: "zoom", view };
+  if (opts?.mode) i.mode = opts.mode;
+  if (opts?.zoom != null) i.zoom = opts.zoom;
+  return i;
+}
+
 /** Fire-and-forget POST of a typed interaction. Never throws (best-effort
  *  telemetry of your own use — must never break the UI). */
 export function postInteraction(i: Interaction, baseUrl = ""): void {
