@@ -17,10 +17,11 @@
     "insight_value": 5,
     "build_cost": 3,
     "score": 8.3,
-    "notes": "Genuinely novel; no other tool shows your agent's delegation topology. Nodes sized by event_count, edges = parent->child spawn. Sovereignty story: see who acted on your behalf.",
+    "notes": "Genuinely novel; no other tool shows your agent's delegation topology. Nodes sized by event_count, edges = parent->child spawn. Sovereignty story: see who acted on your behalf. [built] resolution works reliably (~12-14 children per parent via tool_result agentId echoes, phantom-filtered); the view samples the top-10 delegators so shows a subset \u2014 resolving all 631 needs sampling all parents or a server-side parent index.",
     "hypothesis": "Parent sessions fan out to multiple subagents in recognizable delegation shapes (wide fan-outs, deep chains) that expose how work is decomposed.",
     "falsifier": "If almost every session_id starting with 'agent-' has no resolvable parent (flat, orphaned subagents), the graph degenerates into disconnected dots and reveals no topology.",
-    "witness": "GET /api/sessions \u2192 count session_id LIKE 'agent-%' vs those that resolve to a parent session; needs a substantial share (>~30%) with a linkable parent, else no edges to draw."
+    "witness": "GET /api/sessions \u2192 count session_id LIKE 'agent-%' vs those that resolve to a parent session; needs a substantial share (>~30%) with a linkable parent, else no edges to draw.",
+    "status": "built"
   },
   {
     "id": "delegation-tree",
