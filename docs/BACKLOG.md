@@ -64,6 +64,36 @@ WS if a future feature needs true bidirectionality, but for the fan-out, NATS→
 is cleaner and drop-free. Evaluate NATS→SSE relay vs the current tokio-broadcast
 →WS as part of this unification.
 
+## MCP discoverability & self-documentation
+
+An agent connecting to `open-story-mcp` should learn what it can do — and the
+right tool for each question — WITHOUT reading source. Today `tools/list`
+returns per-tool descriptions (good), but there's no server-level guidance and
+no docs surface. Make the MCP self-documenting across its whole surface:
+
+- **`instructions` in the `initialize` response** (protocol.rs `handle_initialize`):
+  a concise "what OpenStory is + when to use which tool," covering ALL
+  categories, not just one — discovery (`list_sessions`, `session_synopsis`,
+  `project_pulse`), per-session (`tool_journey`, `file_impact`, `session_errors`,
+  `session_patterns`, `session_sentences`, `session_plans`, `session_transcript`,
+  `session_activity`), search (`search`, `agent_search`), analytics
+  (`token_usage`, `daily_token_usage`, `productivity`), story (`session_story`),
+  and the agent-in-UI seam (`ui_control` drive, `where_is_user` read,
+  `subscribe_ui_state` follow). Lands in the model's context at handshake.
+  (Phase 1e of the current loop does this first slice.)
+- **Resources** (`resources/list` + `resources/read`): expose the docs as
+  readable resources — `docs/agent-in-ui.md` to start, then a general
+  "how to investigate a session" guide. First-class, on-demand, discoverable.
+- **Prompts** (`prompts/list` + `prompts/get`): reusable templates the server
+  offers — e.g. "investigate this session", "drive the dashboard to X",
+  "follow the user" — so common workflows are one call, not hand-assembled.
+- Optional HTTP convenience: a `/api/mcp-docs` (or fold a docs pointer into
+  `/health`) for humans/curl — secondary to the protocol-native hooks above,
+  which is where an agent actually looks.
+
+Goal: the MCP teaches itself. A fresh agent reads `instructions`, sees the tool
+map + when-to-use, and can pull deeper docs as resources — no source-diving.
+
 ## Overlay annotations (the pin-a-note layer)
 
 Annotations are user/agent-authored notes pinned to sessions — the overlay
