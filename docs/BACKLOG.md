@@ -13,6 +13,33 @@ NATS server — pre-existing, identical on master, surfaced once NATS became
 a hard boot dependency. Fix the test image to manage/bundle NATS so the
 Dockerized data path can be verified end-to-end.
 
+### Federated sessions have records but no turn.sentence patterns (blank Story)
+`turn.sentence` patterns are derived by the patterns-consumer actor as events
+flow through the *live local* NATS pipeline (eval-apply → sentence detectors).
+When a session streams in from another node, the raw CloudEvents replicate but
+the receiving node never re-runs the detectors, so remote-host sessions have
+records but **zero patterns** — and the Story view (which renders sentences,
+not raw records) is blank for them. Confirmed 2026-07-02: a local session had
+106 `turn.sentence` patterns; a `Katies-Mac-mini` session had 36 records / 0
+patterns. Diagnose with `GET /api/sessions/{id}/patterns?type=turn.sentence`
+returning empty while `/records` is populated. Given the fleet's host spread
+(a1, Maxs-Air, Katies-Mac-mini, …) this blanks the Story for a large fraction
+of federated sessions. Three fixes, roughly increasing cost:
+1. **Client-side fold fallback (quick win):** when the patterns fetch is empty,
+   the Story view fetches records and runs `ui/src/lib/eval-apply.ts::extractCycles(records)`
+   to render turns locally. No backend change; works for any records-bearing
+   session, federated or not. Renders structural turns but not the full
+   sentence grammar (verb/adverbial) — that still needs the detectors.
+2. **Consume patterns from other hosts:** federate the `patterns` stream too
+   (mirror/source it like `events`), so a peer's derived sentences replicate
+   alongside its raw events.
+3. **Run sentences locally on federated events:** re-run the pattern detectors
+   on inbound federated/backfilled events at ingest so patterns materialize for
+   remote sessions on the receiving node. Correct long-term; touches the
+   federation + patterns-consumer path.
+Surfaced 2026-07-02 while giving a UI tour — navigated to a federated session's
+Story and it looked empty.
+
 ### Federated catch-up re-injects to a host-less subject (silent no-op)
 `rs/server/src/catch_up.rs:110` publishes healed events to
 `events.{sid}` (flat, pre-host form, with `project_id = ""`). In federated
