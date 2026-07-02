@@ -102,6 +102,28 @@ export function pointJitter(id: string, radius: number): { dx: number; dy: numbe
   return { dx: Math.cos(angle) * r, dy: Math.sin(angle) * r };
 }
 
+export interface ScatterOutlier {
+  readonly point: ScatterPoint;
+  /** residual in log10 space: actual − expected. >0 = above the line. */
+  readonly residual: number;
+}
+
+/** The N points furthest ABOVE the fit line — the most output per event, i.e.
+ *  "punching above their weight". Non-zero points only, most-productive first.
+ *  Pure → the plot LABELS these so the chart's story is named, not just implied. */
+export function scatterOutliers(
+  points: readonly ScatterPoint[],
+  fit: ScatterFit | null,
+  n: number,
+): ScatterOutlier[] {
+  if (!fit || n <= 0) return [];
+  return points
+    .filter((p) => p.events > 0 && p.tokens > 0)
+    .map((p) => ({ point: p, residual: Math.log10(p.tokens) - (fit.slope * Math.log10(p.events) + fit.intercept) }))
+    .sort((a, b) => b.residual - a.residual)
+    .slice(0, n);
+}
+
 export function buildScatter(sessions: readonly StorySession[]): ScatterModel {
   const points: ScatterPoint[] = sessions.map((s) => {
     const tokens = s.total_output_tokens ?? 0;

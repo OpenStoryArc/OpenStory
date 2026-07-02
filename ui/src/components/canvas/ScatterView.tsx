@@ -10,7 +10,7 @@ import { scaleLog, scaleSqrt } from "d3-scale";
 import { brush as d3brush } from "d3-brush";
 import { select } from "d3-selection";
 import type { StorySession } from "@/lib/story-api";
-import { buildScatter, pointsInBrush, pointJitter, type ScatterPoint } from "@/lib/sessions-scatter";
+import { buildScatter, pointsInBrush, pointJitter, scatterOutliers, type ScatterPoint } from "@/lib/sessions-scatter";
 import { agentColor } from "@/lib/agent-color";
 import { AgentLegend } from "./AgentLegend";
 import { cleanHarnessPreview } from "@/lib/harness-message";
@@ -104,6 +104,11 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
     return { mid: `M${line(1)}`, hi: `M${line(Math.pow(10, fit.sigma))}`, lo: `M${line(Math.pow(10, -fit.sigma))}` };
   }, [fit, x, y, maxEv]);
 
+  // Name the sessions punching furthest above the line (the story) + count the
+  // uninstrumented gutter so it reads as "no telemetry", not noise.
+  const outliers = useMemo(() => scatterOutliers(model.points, fit, 4), [model, fit]);
+  const zeroCount = useMemo(() => model.points.filter((p) => p.zero).length, [model]);
+
   const xTicks = x.ticks(4);
   const yTicks = y.ticks(4);
   const kfmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(0)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n));
@@ -130,16 +135,25 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
         <text x={(plotLeft + plotRight) / 2} y={height - 6} textAnchor="middle" fontSize={10} fill="#a9b1d6">events (log)</text>
         <text transform={`translate(12,${(plotTop + plotBottom) / 2}) rotate(-90)`} textAnchor="middle" fontSize={10} fill="#a9b1d6">output tokens (log)</text>
 
-        {/* zero / uninstrumented gutter */}
+        {/* zero / uninstrumented gutter — explained, so the wall reads as "no
+            telemetry" rather than noise. */}
         <rect x={M.left} y={plotTop} width={GUTTER_W} height={plotBottom - plotTop} fill="#565f89" fillOpacity={0.05} />
         <text x={M.left + GUTTER_W / 2} y={plotBottom + 15} textAnchor="middle" fontSize={8} fill="#565f89">0 tok</text>
+        {zeroCount > 0 && (
+          <text transform={`translate(${M.left + GUTTER_W / 2},${(plotTop + plotBottom) / 2}) rotate(-90)`} textAnchor="middle" fontSize={8} fill="#565f89" className="pointer-events-none select-none">
+            {zeroCount} sessions · no token telemetry
+          </text>
+        )}
 
-        {/* fit line + ±1σ band */}
+        {/* fit line + ±1σ band + the ON-PLOT STORY: what the line means. */}
         {fitPath && (
           <g>
             <path d={fitPath.hi} fill="none" stroke="#565f89" strokeOpacity={0.35} strokeDasharray="3 3" />
             <path d={fitPath.lo} fill="none" stroke="#565f89" strokeOpacity={0.35} strokeDasharray="3 3" />
             <path d={fitPath.mid} fill="none" stroke="#c0caf5" strokeOpacity={0.5} strokeWidth={1.4} />
+            <text x={(plotLeft + plotRight) / 2} y={plotTop + 11} textAnchor="middle" fontSize={10} fill="#a9b1d6" className="pointer-events-none select-none">
+              the line = expected output · dots above it produce more per event ↑
+            </text>
           </g>
         )}
 
@@ -167,6 +181,21 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
               onMouseLeave={selecting ? undefined : () => setHover((h) => (h?.p.id === p.id ? null : h))}
               onClick={selecting ? undefined : () => onOpenSession(p.id)}
             />
+          );
+        })}
+
+        {/* name the most-productive outliers (furthest above the line) so the
+            story is told, not just implied. Gold + haloed for legibility. */}
+        {!selecting && outliers.map(({ point: p }) => {
+          const px = Math.min(plotRight - 4, Math.max(plotLeft, x(Math.max(1, p.events))));
+          const py = Math.min(plotBottom, Math.max(plotTop, y(Math.max(1, p.tokens))));
+          return (
+            <text
+              key={`ol-${p.id}`} x={px + 7} y={py + 3} fontSize={9} fontWeight={600} fill="#e0af68"
+              className="pointer-events-none select-none" style={{ paintOrder: "stroke" }} stroke="#16171f" strokeWidth={2.5}
+            >
+              {cleanHarnessPreview(p.label).slice(0, 16)}
+            </text>
           );
         })}
 

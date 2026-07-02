@@ -50,3 +50,24 @@ describe("buildScatter", () => {
     );
   });
 });
+
+import { scatterOutliers, type ScatterPoint as SP2, type ScatterFit as SF2 } from "@/lib/sessions-scatter";
+
+describe("scatterOutliers — naming who punches above the line", () => {
+  const pt = (id: string, events: number, tokens: number): SP2 =>
+    ({ id, label: id, events, tokens, durationMs: 0, agent: "a", zero: tokens <= 0 });
+  // fit: log10(tokens) = 1*log10(events) + 0  → expected tokens == events
+  const fit: SF2 = { slope: 1, intercept: 0, sigma: 0.2, n: 5 };
+
+  it("returns the N points most ABOVE the line, most-productive first", () => {
+    const pts = [pt("on-par", 100, 100), pt("above", 100, 1000), pt("way-above", 100, 5000), pt("below", 100, 10)];
+    const out = scatterOutliers(pts, fit, 2);
+    expect(out.map((o) => o.point.id)).toEqual(["way-above", "above"]);
+    expect(out[0]!.residual).toBeGreaterThan(out[1]!.residual);
+  });
+
+  it("excludes zero/no-event points and returns [] when there's no fit", () => {
+    expect(scatterOutliers([pt("z", 100, 0)], fit, 3)).toEqual([]);
+    expect(scatterOutliers([pt("x", 100, 100)], null, 3)).toEqual([]);
+  });
+});
