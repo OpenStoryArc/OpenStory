@@ -189,7 +189,8 @@
     "notes": "Brushable axes = filter. Reveals e.g. 'many events, few tokens' sessions. Color by agent.",
     "hypothesis": "The four axes are not perfectly correlated, so polylines cross and reveal off-diagonal sessions (e.g. high events, low tokens).",
     "falsifier": "If events/tokens/duration are near-perfectly correlated, every line is parallel and the plot degenerates into one thick band.",
-    "witness": "GET /api/sessions \u2192 compute pairwise correlation among event_count, total_output_tokens, duration; needs at least one pair with |r| < ~0.8 to show crossings."
+    "witness": "GET /api/sessions \u2192 compute pairwise correlation among event_count, total_output_tokens, duration; needs at least one pair with |r| < ~0.8 to show crossings.",
+    "status": "built"
   },
   {
     "id": "project-bump-chart",

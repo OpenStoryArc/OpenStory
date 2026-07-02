@@ -17,6 +17,7 @@ import { DelegationGraphView } from "./DelegationGraphView";
 import { AgentProjectMatrix } from "./AgentProjectMatrix";
 import { DurationBeeswarm } from "./DurationBeeswarm";
 import { EventsStreamgraph } from "./EventsStreamgraph";
+import { ParallelCoords } from "./ParallelCoords";
 import { cn } from "@/lib/cn";
 
 /** A verdict for a card: not-run, no-runner (needs records), or a result. */
@@ -30,6 +31,7 @@ const BUILT_VIZ: Record<string, (sessions: readonly StorySession[]) => ReactNode
   "agent-project-matrix": (sessions) => <AgentProjectMatrix sessions={sessions} />,
   "duration-beeswarm": (sessions) => <DurationBeeswarm sessions={sessions} />,
   "events-streamgraph": (sessions) => <EventsStreamgraph sessions={sessions} />,
+  "session-parallel-coords": (sessions) => <ParallelCoords sessions={sessions} />,
 };
 
 const STATUS_STYLE: Record<string, string> = {
