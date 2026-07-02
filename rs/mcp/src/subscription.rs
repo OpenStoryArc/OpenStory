@@ -82,6 +82,14 @@ impl Subscription {
 #[async_trait]
 pub trait Subscribe: Clone + Send + Sync + 'static {
     async fn subscribe(&self, session_id: &str) -> Result<Subscription>;
+
+    /// Subscribe to the AUTHORED `ui.*` stream — live-follow of the user's
+    /// interactions (the READ half of the agent-in-UI seam). Default:
+    /// unsupported, so test subscribers don't have to implement it;
+    /// production `NatsBus` overrides with a real `ui` JetStream subscription.
+    async fn subscribe_ui(&self) -> Result<Subscription> {
+        anyhow::bail!("this subscriber does not support ui.* streaming")
+    }
 }
 
 /// Pure transform: read `IngestBatch`es from a source channel, wrap each
@@ -99,6 +107,32 @@ pub async fn pump_subscription(
     let mut seq: u64 = 1;
     while let Some(batch) = source.recv().await {
         let data = serde_json::to_value(&batch).unwrap_or(Value::Null);
+        let event = StreamEvent {
+            seq,
+            session_id: session_id.clone(),
+            data,
+        };
+        seq += 1;
+        if sink.send(event).await.is_err() {
+            break;
+        }
+    }
+}
+
+/// Raw variant of `pump_subscription` for the `ui.*` stream: frames arrive as
+/// raw JSON bytes (an interaction CloudEvent, NOT an IngestBatch — see
+/// bus::subscribe_raw), so parse each into a `Value` and forward. Unparseable
+/// frames are skipped rather than killing the stream.
+pub async fn pump_raw_subscription(
+    mut source: mpsc::Receiver<Vec<u8>>,
+    sink: mpsc::Sender<StreamEvent>,
+    session_id: String,
+) {
+    let mut seq: u64 = 1;
+    while let Some(bytes) = source.recv().await {
+        let Ok(data) = serde_json::from_slice::<Value>(&bytes) else {
+            continue; // skip a malformed frame, keep the stream alive
+        };
         let event = StreamEvent {
             seq,
             session_id: session_id.clone(),

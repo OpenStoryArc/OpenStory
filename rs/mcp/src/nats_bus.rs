@@ -4,7 +4,7 @@
 //! the same JetStream the rest of OpenStory publishes to. This wrapper
 //! adapts the workspace's bus into MCP's `Subscribe` trait — that's it.
 
-use crate::subscription::{pump_subscription, CancelGuard, Subscribe, Subscription};
+use crate::subscription::{pump_raw_subscription, pump_subscription, CancelGuard, Subscribe, Subscription};
 use anyhow::Result;
 use async_trait::async_trait;
 use open_story_bus::nats_bus::NatsBus as InnerNatsBus;
@@ -66,5 +66,24 @@ impl Subscribe for NatsBus {
             rx,
             cancel,
         ))
+    }
+
+    /// Live-follow the AUTHORED `ui.*` stream (interactions/control/annotations)
+    /// — the READ half of the agent-in-UI seam. Consumes the `ui` JetStream
+    /// stream filtered `ui.>` as RAW frames (not IngestBatch) and pumps each
+    /// parsed frame through. Strictly the authored namespace; never `events.*`.
+    async fn subscribe_ui(&self) -> Result<Subscription> {
+        let raw_rx = self.inner.subscribe_raw("ui", "ui.>").await?;
+
+        let sub_id = uuid::Uuid::new_v4();
+        let session_id = "openstory-ui".to_string();
+        let (tx, rx) = mpsc::channel(256);
+        let pump = tokio::spawn(pump_raw_subscription(raw_rx, tx, session_id.clone()));
+
+        let cancel = CancelGuard::from_fn(move || {
+            pump.abort();
+        });
+
+        Ok(Subscription::from_parts(sub_id, session_id, rx, cancel))
     }
 }
