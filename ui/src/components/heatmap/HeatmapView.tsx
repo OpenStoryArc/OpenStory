@@ -4,9 +4,10 @@
  *  both keep a lot of data legible. 3D stacks + hover/click land in later
  *  increments. Pure model in lib/heatmap.ts. */
 
-import { useMemo, useState, lazy, Suspense } from "react";
+import { useMemo, useState, useEffect, lazy, Suspense } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
+import { controlActions$ } from "@/streams/control";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHeatmap, heatLevel } from "@/lib/heatmap";
 import { computeFacets, applyFilters, type OverviewFilters, type Facets } from "@/lib/sessions-overview";
@@ -39,6 +40,21 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
   const [weeks, setWeeks] = useState(26);
   const [filters, setFilters] = useState<OverviewFilters>({});
   const [is3D, setIs3D] = useState(false); // default 2D
+
+  // Agent-in-UI: apply `heatmap.*` toggle intents (component-local). Sink only.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "heatmap.dim") {
+        if (a.value === "3d") setIs3D(true);
+        else if (a.value === "2d") setIs3D(false);
+      } else if (a.target === "heatmap.weeks") {
+        const w = Number(a.value);
+        if (RANGES.some((r) => r.weeks === w)) setWeeks(w);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   const facets = useMemo(() => computeFacets(universe), [universe]);
   const filtered = useMemo(() => applyFilters(universe, filters), [universe, filters]);

@@ -33,6 +33,7 @@ import {
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
+import { controlActions$ } from "@/streams/control";
 import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
 import { sessionTitle } from "@/lib/session-title";
 import { SessionSummaryLoader } from "@/components/viz/SessionSummaryLoader";
@@ -120,6 +121,16 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
   const [sessionLimit, setSessionLimit] = useState(DEFAULT_SESSION_LIMIT);
   const [sortMode, setSortMode] = useState<SessionSort>("latest");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("all");
+
+  // Agent-in-UI: apply `story.sort` toggle intents (component-local). Sink only.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "story.sort" && SORT_OPTIONS.some((o) => o.key === a.value)) {
+        setSortMode(a.value as SessionSort);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
   const [sentenceCache, setSentenceCache] = useState<Map<string, PatternView[]>>(new Map());
   const sentenceCacheRef = useRef(sentenceCache);
   sentenceCacheRef.current = sentenceCache;
