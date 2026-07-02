@@ -25,6 +25,31 @@ export interface SunburstLabel {
   readonly maxChars: number;
 }
 
+export interface CenterText {
+  readonly primary: string;
+  readonly secondary: string;
+}
+
+/** Text for the sunburst's center hole: the hovered wedge's name + metric value
+ *  when hovering, else the current focus (the drill root). Pure so the readout
+ *  is unit-tested independently of the SVG hover wiring. */
+export function sunburstCenterText(
+  hovered: { name: string; value: number } | null,
+  focus: { name: string; depth: number },
+  metric: string,
+): CenterText {
+  if (hovered) {
+    return {
+      primary: hovered.name.slice(0, 18),
+      secondary: `${Math.round(hovered.value).toLocaleString()} ${metric}`,
+    };
+  }
+  return {
+    primary: focus.depth === 0 ? "all" : focus.name.slice(0, 18),
+    secondary: "hover a wedge",
+  };
+}
+
 export function sunburstLabelLayout(a: Arc): SunburstLabel {
   const angular = a.x1 - a.x0;
   const thickness = a.y1 - a.y0;

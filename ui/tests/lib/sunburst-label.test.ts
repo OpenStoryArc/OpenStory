@@ -1,6 +1,33 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { sunburstLabelLayout } from "@/lib/sunburst-label";
+import { sunburstLabelLayout, sunburstCenterText } from "@/lib/sunburst-label";
+
+describe("sunburstCenterText", () => {
+  it("shows the hovered wedge's name + metric value when hovering", () => {
+    scenario(
+      () => sunburstCenterText({ name: "OpenStory", value: 3480 }, { name: "all", depth: 0 }, "events"),
+      (c) => c,
+      (c) => { expect(c.primary).toBe("OpenStory"); expect(c.secondary).toBe("3,480 events"); },
+    );
+  });
+
+  it("falls back to the focus name (or 'all' at the root) when nothing is hovered", () => {
+    scenario(
+      () => ({ root: sunburstCenterText(null, { name: "x", depth: 0 }, "events"),
+               deep: sunburstCenterText(null, { name: "workspace", depth: 2 }, "events") }),
+      (r) => r,
+      ({ root, deep }) => { expect(root.primary).toBe("all"); expect(deep.primary).toBe("workspace"); },
+    );
+  });
+
+  it("truncates a long hovered name to fit the center hole", () => {
+    scenario(
+      () => sunburstCenterText({ name: "a-really-long-session-title-that-wont-fit", value: 1 }, { name: "all", depth: 0 }, "events"),
+      (c) => c.primary.length,
+      (len) => expect(len).toBeLessThanOrEqual(18),
+    );
+  });
+});
 
 describe("sunburstLabelLayout", () => {
   it("shows a label on a big, thick wedge", () => {

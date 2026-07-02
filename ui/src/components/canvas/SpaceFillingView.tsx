@@ -13,7 +13,7 @@ import type { StorySession } from "@/lib/story-api";
 import type { GroupDim } from "@/lib/sessions-canvas";
 import { buildHierarchyTree, type Metric, type TreeNode } from "@/lib/session-hierarchy-tree";
 import { cleanHarnessPreview } from "@/lib/harness-message";
-import { sunburstLabelLayout } from "@/lib/sunburst-label";
+import { sunburstLabelLayout, sunburstCenterText } from "@/lib/sunburst-label";
 import { controlActions$ } from "@/streams/control";
 
 interface Props {
@@ -108,7 +108,7 @@ export function SpaceFillingView({ sessions, groupBy, metric, mode, width, heigh
       </div>
       <div className="relative min-h-0 flex-1 bg-[#16171f]">
         {mode === "sunburst"
-          ? <Sunburst focus={focus} width={width} height={height - 30} onDrill={drill} />
+          ? <Sunburst focus={focus} width={width} height={height - 30} onDrill={drill} metric={metric} />
           : <Treemap focus={focus} width={width} height={height - 30} onDrill={drill} />}
       </div>
     </div>
@@ -116,7 +116,8 @@ export function SpaceFillingView({ sessions, groupBy, metric, mode, width, heigh
 }
 
 // ── sunburst ────────────────────────────────────────────────────────────────
-function Sunburst({ focus, width, height, onDrill }: { focus: HN; width: number; height: number; onDrill: (n: HN) => void }) {
+function Sunburst({ focus, width, height, onDrill, metric }: { focus: HN; width: number; height: number; onDrill: (n: HN) => void; metric: string }) {
+  const [hovered, setHovered] = useState<HN | null>(null);
   const radius = Math.max(60, Math.min(width, height) / 2 - 10);
   const laid = useMemo(() => {
     const r = focus.copy().sum((d) => (d.value != null ? Math.sqrt(d.value + 1) : 0)).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
@@ -132,16 +133,31 @@ function Sunburst({ focus, width, height, onDrill }: { focus: HN; width: number;
       <g transform={`translate(${width / 2},${height / 2})`}>
         {nodes.map((n) => {
           const b = n as unknown as { x0: number; x1: number; y0: number; y1: number };
-          // Non-session wedges (groups/projects) get an inline radial label when
-          // they're big enough; leaves stay hover-only to avoid clutter.
-          const lbl = n.data.kind === "session" ? null : sunburstLabelLayout(b);
+          // Every wedge (sessions included) gets an inline radial label when it's
+          // big enough to hold text; the rest stay reachable via the hover title
+          // + the center readout (no wedge is anonymous — the map principle).
+          const lbl = sunburstLabelLayout(b);
           const name = cleanHarnessPreview(n.data.name).split(/[/]/).pop() ?? "";
+          const isHovered = hovered?.data.key === n.data.key;
+          const baseOpacity = n.data.kind === "session" ? 0.62 : 0.9;
           return (
-            <g key={n.data.key} className="cursor-pointer" onClick={() => onDrill(n)}>
-              <path d={arc(n) ?? undefined} fill={color(n)} fillOpacity={n.data.kind === "session" ? 0.62 : 0.9} stroke="#16171f" strokeWidth={0.75}>
-                <title>{`${cleanHarnessPreview(n.data.name)} · ${Math.round((n.value ?? 0) ** 2)}`}</title>
+            <g
+              key={n.data.key}
+              className="cursor-pointer"
+              onClick={() => onDrill(n)}
+              onMouseEnter={() => setHovered(n)}
+              onMouseLeave={() => setHovered((h) => (h?.data.key === n.data.key ? null : h))}
+            >
+              <path
+                d={arc(n) ?? undefined}
+                fill={color(n)}
+                fillOpacity={isHovered ? 1 : baseOpacity}
+                stroke={isHovered ? "#c0caf5" : "#16171f"}
+                strokeWidth={isHovered ? 1.5 : 0.75}
+              >
+                <title>{`${cleanHarnessPreview(n.data.name)} · ${Math.round((n.value ?? 0) ** 2).toLocaleString()} ${metric}`}</title>
               </path>
-              {lbl?.show && name && (
+              {lbl.show && name && (
                 <text
                   transform={`rotate(${lbl.angleDeg}) translate(${lbl.innerR},0)${lbl.flip ? " rotate(180)" : ""}`}
                   textAnchor={lbl.flip ? "end" : "start"}
@@ -156,7 +172,19 @@ function Sunburst({ focus, width, height, onDrill }: { focus: HN; width: number;
           );
         })}
         <circle r={40} fill="#1a1b26" className="cursor-pointer" onClick={() => onDrill(focus.parent ?? focus)} />
-        <text textAnchor="middle" y={4} fontSize={11} fill="#c0caf5">{focus.depth === 0 ? "all" : cleanHarnessPreview(focus.data.name).slice(0, 10)}</text>
+        {(() => {
+          const c = sunburstCenterText(
+            hovered ? { name: cleanHarnessPreview(hovered.data.name).split(/[/]/).pop() ?? hovered.data.name, value: (hovered.value ?? 0) ** 2 } : null,
+            { name: cleanHarnessPreview(focus.data.name), depth: focus.depth },
+            metric,
+          );
+          return (
+            <g className="pointer-events-none select-none">
+              <text textAnchor="middle" y={-2} fontSize={11} fontWeight={600} fill="#c0caf5">{c.primary}</text>
+              <text textAnchor="middle" y={13} fontSize={9} fill="#565f89">{c.secondary}</text>
+            </g>
+          );
+        })()}
       </g>
     </svg>
   );
