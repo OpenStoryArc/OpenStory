@@ -34,14 +34,17 @@ export interface CenterText {
  *  when hovering, else the current focus (the drill root). Pure so the readout
  *  is unit-tested independently of the SVG hover wiring. */
 export function sunburstCenterText(
-  hovered: { name: string; value: number } | null,
+  hovered: { name: string; value: number; kind?: string } | null,
   focus: { name: string; depth: number },
   metric: string,
 ): CenterText {
   if (hovered) {
+    // Teach the interaction: a session opens; a group/project zooms in. This is
+    // the "map principle" made discoverable — the readout says what a click does.
+    const action = hovered.kind === "session" ? "click to open →" : "click to zoom in";
     return {
       primary: hovered.name.slice(0, 18),
-      secondary: `${Math.round(hovered.value).toLocaleString()} ${metric}`,
+      secondary: `${Math.round(hovered.value).toLocaleString()} ${metric} · ${action}`,
     };
   }
   return {

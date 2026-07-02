@@ -174,7 +174,7 @@ function Sunburst({ focus, width, height, onDrill, metric }: { focus: HN; width:
         <circle r={40} fill="#1a1b26" className="cursor-pointer" onClick={() => onDrill(focus.parent ?? focus)} />
         {(() => {
           const c = sunburstCenterText(
-            hovered ? { name: cleanHarnessPreview(hovered.data.name).split(/[/]/).pop() ?? hovered.data.name, value: (hovered.value ?? 0) ** 2 } : null,
+            hovered ? { name: cleanHarnessPreview(hovered.data.name).split(/[/]/).pop() ?? hovered.data.name, value: (hovered.value ?? 0) ** 2, kind: hovered.data.kind } : null,
             { name: cleanHarnessPreview(focus.data.name), depth: focus.depth },
             metric,
           );

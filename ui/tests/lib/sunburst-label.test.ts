@@ -3,11 +3,25 @@ import { scenario } from "../bdd";
 import { sunburstLabelLayout, sunburstCenterText } from "@/lib/sunburst-label";
 
 describe("sunburstCenterText", () => {
-  it("shows the hovered wedge's name + metric value when hovering", () => {
+  it("shows the hovered wedge's name + metric value + a click hint", () => {
     scenario(
-      () => sunburstCenterText({ name: "OpenStory", value: 3480 }, { name: "all", depth: 0 }, "events"),
+      () => sunburstCenterText({ name: "OpenStory", value: 3480, kind: "project" }, { name: "all", depth: 0 }, "events"),
       (c) => c,
-      (c) => { expect(c.primary).toBe("OpenStory"); expect(c.secondary).toBe("3,480 events"); },
+      (c) => { expect(c.primary).toBe("OpenStory"); expect(c.secondary).toContain("3,480 events"); expect(c.secondary).toContain("zoom in"); },
+    );
+  });
+
+  it("teaches the interaction — a session says 'open', a group says 'zoom in'", () => {
+    scenario(
+      () => ({
+        session: sunburstCenterText({ name: "s", value: 1, kind: "session" }, { name: "all", depth: 0 }, "events"),
+        group: sunburstCenterText({ name: "g", value: 1, kind: "project" }, { name: "all", depth: 0 }, "events"),
+      }),
+      (r) => r,
+      ({ session, group }) => {
+        expect(session.secondary).toContain("open");
+        expect(group.secondary).toContain("zoom");
+      },
     );
   });
 
