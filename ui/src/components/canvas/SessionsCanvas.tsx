@@ -29,6 +29,7 @@ import { ToolFlowView } from "./ToolFlowView";
 import { ToolAdjacencyHeatmap } from "@/components/lab/ToolAdjacencyHeatmap";
 import { DelegationGraphView } from "@/components/lab/DelegationGraphView";
 import { AgentProjectMatrix } from "@/components/lab/AgentProjectMatrix";
+import { DurationBeeswarm } from "@/components/lab/DurationBeeswarm";
 import { cn } from "@/lib/cn";
 
 /** Canvas view modes are exactly the shared CANVAS_MODES — binding the local
@@ -50,6 +51,7 @@ const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
   "tool-adjacency": () => `From × to heatmap of tool transitions across sampled sessions · brighter = that pair fires more often · the diagonal is a tool repeating itself.`,
   delegation: () => `Force-directed spawn graph · each node a session, each edge a parent delegating to an agent-* subagent · drag to explore, hubs are heavy delegators.`,
   "agent-project": () => `Rows = agents, columns = projects · brighter cell = more events there · the block structure shows which agent owns which project.`,
+  durations: () => `One dot = a session · x = duration on a log scale · lane + color = agent · the swarm shows each agent's spread of session lengths and its outliers.`,
 };
 
 const DIMS: { key: GroupDim; label: string }[] = [
@@ -237,6 +239,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
             <div className="absolute inset-0 overflow-auto"><DelegationGraphView sessions={sessions} /></div>
           ) : viewMode === "agent-project" ? (
             <div className="absolute inset-0 overflow-auto"><AgentProjectMatrix sessions={universe} /></div>
+          ) : viewMode === "durations" ? (
+            <div className="absolute inset-0 overflow-auto"><DurationBeeswarm sessions={universe} /></div>
           ) : viewMode !== "board" ? (
             <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : (
