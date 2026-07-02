@@ -13,7 +13,7 @@ import {
   type SessionStatusFilter,
   type ParentSession,
 } from "@/lib/explore";
-import { compactTime, formatDuration } from "@/lib/time";
+import { fullTimestamp, formatDuration } from "@/lib/time";
 import { sessionTitle } from "@/lib/session-title";
 
 // ---------------------------------------------------------------------------
@@ -266,7 +266,9 @@ function ParentCard({ parent, isSelected, isExpanded, selectedSessionId, onSelec
           {s.duration_ms != null && s.duration_ms > 0 && (
             <span className="text-[9px] text-[#565f89]">{formatDuration(s.duration_ms)}</span>
           )}
-          <span className="text-[9px] text-[#565f89] ml-auto">{compactTime(s.start_time)}</span>
+          <span className="text-[9px] text-[#565f89] ml-auto tabular-nums" title="latest activity">
+            {fullTimestamp(s.last_event ?? s.start_time)}
+          </span>
         </div>
 
         {/* Project + agent count */}
