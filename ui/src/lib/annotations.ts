@@ -16,6 +16,23 @@ export function mergeAnnotation(list: readonly Annotation[], a: Annotation): Ann
   return [a, ...without];
 }
 
+/** Drop the annotation with `id` from a list. Pure — used for optimistic
+ *  removal and for the `annotation_removed` live message. */
+export function removeAnnotation(list: readonly Annotation[], id: string): Annotation[] {
+  return list.filter((x) => x.id !== id);
+}
+
+/** Delete a durable annotation server-side (overlay is user-owned, so it can be
+ *  removed). Best-effort; resolves true on success. */
+export async function deleteAnnotation(id: string, baseUrl = ""): Promise<boolean> {
+  try {
+    const r = await fetch(`${baseUrl}/api/annotations/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchAnnotations(baseUrl = ""): Promise<Annotation[]> {
   try {
     const r = await fetch(`${baseUrl}/api/annotations`);

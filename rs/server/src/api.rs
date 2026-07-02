@@ -217,6 +217,27 @@ pub async fn list_annotations(
     Json(json!({ "annotations": anns }))
 }
 
+/// `DELETE /api/annotations/{id}` — remove a durable overlay note. The overlay
+/// is user-owned authored data, so it can be deleted (unlike the append-only
+/// observed event stream). Broadcasts `annotation_removed` so every dashboard
+/// drops it live.
+pub async fn delete_annotation(
+    State(state): State<SharedState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    match crate::annotations::remove_annotation(dir, &id) {
+        Ok(true) => {
+            log_event("annotation", &format!("removed {}", short_id(&id)));
+            let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
+            (StatusCode::OK, Json(json!({ "ok": true, "removed": id })))
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({ "ok": false, "error": "not found" }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
 pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let sessions = s

@@ -25,7 +25,7 @@ import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
-import { fetchAnnotations, mergeAnnotation, type Annotation } from "@/lib/annotations";
+import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
@@ -57,6 +57,7 @@ export function App() {
   useEffect(() => {
     const sub = wsMessages$().subscribe((msg) => {
       if (msg.kind === "annotation_added") setAnnotations((prev) => mergeAnnotation(prev, msg.annotation));
+      else if (msg.kind === "annotation_removed") setAnnotations((prev) => removeAnnotation(prev, msg.id));
     });
     return () => sub.unsubscribe();
   }, []);
@@ -257,7 +258,11 @@ export function App() {
       {viewMode === "admin" && <AdminView />}
 
       {/* Durable overlay annotations (agent/person notes) */}
-      <AnnotationsOverlay annotations={annotations} onNavigate={navigate} />
+      <AnnotationsOverlay
+        annotations={annotations}
+        onNavigate={navigate}
+        onRemove={(id) => { setAnnotations((prev) => removeAnnotation(prev, id)); void deleteAnnotation(id); }}
+      />
 
       {/* Global ⌘K command palette */}
       <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />

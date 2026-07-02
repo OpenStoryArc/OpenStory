@@ -80,6 +80,11 @@ pub enum BroadcastMessage {
     AnnotationAdded {
         annotation: crate::annotations::Annotation,
     },
+    /// A durable overlay annotation was removed — pushed so every dashboard
+    /// drops it live. The overlay is user-owned authored data, so unlike the
+    /// append-only event stream it can be deleted.
+    #[serde(rename = "annotation_removed")]
+    AnnotationRemoved { id: String },
     /// The user's current view state (the READ half of the agent-in-UI seam):
     /// a projection over the interaction event stream, pushed live so agents
     /// (and other dashboards) can see where the human is. It's the mirror-image

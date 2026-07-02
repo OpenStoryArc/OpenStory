@@ -38,6 +38,30 @@ pub fn append_annotation(dir: &Path, a: &Annotation) -> std::io::Result<()> {
     writeln!(f, "{line}")
 }
 
+/// Remove the annotation with `id` by rewriting the file without it. Returns
+/// `true` if one was removed. The overlay is authored data the user owns, so
+/// deletion is a first-class operation (unlike the observed event stream, which
+/// is append-only). Missing file → `false`.
+pub fn remove_annotation(dir: &Path, id: &str) -> std::io::Result<bool> {
+    let path = annotations_path(dir);
+    let existing = read_annotations(dir);
+    let before = existing.len();
+    let kept: Vec<Annotation> = existing.into_iter().filter(|a| a.id != id).collect();
+    if kept.len() == before {
+        return Ok(false); // nothing matched
+    }
+    // Rewrite atomically-ish: truncate + write the survivors.
+    let mut f = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)?;
+    for a in &kept {
+        writeln!(f, "{}", serde_json::to_string(a).unwrap_or_default())?;
+    }
+    Ok(true)
+}
+
 /// Read all annotations, skipping malformed lines. Missing file → empty.
 pub fn read_annotations(dir: &Path) -> Vec<Annotation> {
     let Ok(f) = std::fs::File::open(annotations_path(dir)) else {
@@ -79,6 +103,49 @@ mod tests {
         assert_eq!(read[0].id, "1");
         assert_eq!(read[0].body, "look here");
         assert_eq!(read[1].session_id, "sess-b");
+    }
+
+    #[test]
+    fn remove_deletes_only_the_matching_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |id: &str, s: &str| Annotation {
+            id: id.into(),
+            session_id: s.into(),
+            body: "b".into(),
+            issuer: "i".into(),
+            created_at: "t".into(),
+        };
+        append_annotation(dir.path(), &mk("1", "sess-a")).unwrap();
+        append_annotation(dir.path(), &mk("2", "sess-b")).unwrap();
+        append_annotation(dir.path(), &mk("3", "sess-c")).unwrap();
+
+        let removed = remove_annotation(dir.path(), "2").unwrap();
+        assert!(removed, "should report a removal");
+
+        let read = read_annotations(dir.path());
+        assert_eq!(read.len(), 2);
+        assert_eq!(read.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["1", "3"]);
+    }
+
+    #[test]
+    fn remove_unknown_id_is_false_and_keeps_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Annotation {
+            id: "1".into(),
+            session_id: "s".into(),
+            body: "b".into(),
+            issuer: "i".into(),
+            created_at: "t".into(),
+        };
+        append_annotation(dir.path(), &a).unwrap();
+        assert!(!remove_annotation(dir.path(), "nope").unwrap());
+        assert_eq!(read_annotations(dir.path()).len(), 1);
+    }
+
+    #[test]
+    fn remove_from_missing_file_is_false() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!remove_annotation(dir.path(), "x").unwrap());
     }
 
     #[test]

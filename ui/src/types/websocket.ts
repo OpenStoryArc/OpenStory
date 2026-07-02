@@ -11,7 +11,7 @@ import type { SessionSummary } from "./session";
  *  session_labels and recent patterns — records are fetched per-session
  *  via REST. The legacy `view_records` shape and the records-bearing
  *  `EnrichedInitialStateMessage` are gone. */
-export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | ControlMessage | AnnotationAddedMessage;
+export type WsMessage = InitialStateMessage | SessionListMessage | ViewRecordsMessage | EnrichedMessage | PlanSavedMessage | AdminTopologyChangedMessage | ControlMessage | AnnotationAddedMessage | AnnotationRemovedMessage;
 
 /** Session label data from server. */
 export interface SessionLabel {
@@ -96,6 +96,13 @@ export interface AnnotationAddedMessage {
     readonly issuer: string;
     readonly created_at: string;
   };
+}
+
+/** A durable overlay annotation was removed — the UI drops it live. Overlay is
+ *  user-owned authored data, so unlike observed events it can be deleted. */
+export interface AnnotationRemovedMessage {
+  readonly kind: "annotation_removed";
+  readonly id: string;
 }
 
 /** Agent/operator "view intent" — the write side of the agent-in-UI seam. An
