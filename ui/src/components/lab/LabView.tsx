@@ -4,15 +4,25 @@
  *  falsifier, and the witness that could kill it. Phase 0: the catalog. Phase 1
  *  adds a live "run witness" per card; Phase 2 renders the built shapes here. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import { fetchVizCandidates, sortByScore, type VizCandidate } from "@/lib/viz-candidates";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { runWitness, type WitnessResult } from "@/lib/witnesses";
+import { controlActions$ } from "@/streams/control";
+import { postInteraction } from "@/lib/interaction";
+import type { StorySession } from "@/lib/story-api";
+import { ToolAdjacencyHeatmap } from "./ToolAdjacencyHeatmap";
 import { cn } from "@/lib/cn";
 
 /** A verdict for a card: not-run, no-runner (needs records), or a result. */
 type Verdict = { ran: true; result: WitnessResult | null };
+
+/** Built shapes, keyed by candidate id. A candidate is "built" iff it has an
+ *  entry here — the registry is the source of truth for what's implemented. */
+const BUILT_VIZ: Record<string, (sessions: readonly StorySession[]) => ReactNode> = {
+  "tool-adjacency-heatmap": (sessions) => <ToolAdjacencyHeatmap sessions={sessions} />,
+};
 
 const STATUS_STYLE: Record<string, string> = {
   built: "bg-[#9ece6a]/20 text-[#9ece6a] border-[#9ece6a]/40",
@@ -31,9 +41,20 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
   const [candidates, setCandidates] = useState<VizCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
+  const [openId, setOpenId] = useState<string | null>(null);
   const { sessions } = useSessionsList();
   useEffect(() => { fetchVizCandidates().then((c) => { setCandidates(c); setLoading(false); }); }, []);
   const sorted = useMemo(() => sortByScore(candidates), [candidates]);
+
+  // Open a built shape (records a typed interaction so an agent can see it).
+  const open = (id: string) => { setOpenId(id); postInteraction({ kind: "select", view: "lab", session_id: id }); };
+  // Agent-in-UI: `lab.open`=<candidate id> opens a built shape remotely.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "lab.open" && BUILT_VIZ[a.value]) setOpenId(a.value);
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   // The lab method, live: run a candidate's witness against the real sessions.
   const run = (id: string) => setVerdicts((v) => ({ ...v, [id]: { ran: true, result: runWitness(id, sessions) } }));
@@ -44,6 +65,7 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
   };
   /** effective status: a fired witness overrides the catalog status. */
   const statusOf = (c: VizCandidate): string => {
+    if (BUILT_VIZ[c.id]) return "built"; // registry is the source of truth
     const v = verdicts[c.id];
     if (!v) return c.status ?? "idea";
     if (v.result === null) return c.status ?? "idea"; // no runner → unchanged
@@ -101,6 +123,12 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
                   >
                     ⚗ run witness
                   </button>
+                  {BUILT_VIZ[c.id] && (
+                    <button data-open-viz={c.id} onClick={() => open(c.id)}
+                      className="rounded border border-[#9ece6a]/50 bg-[#9ece6a]/10 px-2 py-0.5 text-[10px] text-[#9ece6a] hover:bg-[#9ece6a]/20">
+                      open ▸
+                    </button>
+                  )}
                   {verdicts[c.id] && (() => {
                     const r = verdicts[c.id]!.result;
                     if (r === null) return <span className="text-[10px] text-[#565f89]">needs records — no runner yet</span>;
@@ -116,6 +144,19 @@ export function LabView(_props: { onNavigate: (route: HashRoute) => void }) {
           </div>
         )}
       </div>
+
+      {/* built-shape viewer */}
+      {openId && BUILT_VIZ[openId] && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={() => setOpenId(null)} data-testid="lab-viewer">
+          <div className="max-h-[88vh] max-w-[92vw] overflow-auto rounded-xl border border-[#2f3348] bg-[#1a1b26] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 border-b border-[#2f3348] px-4 py-2">
+              <span className="text-[13px] font-semibold text-[#9ece6a]">🧪 {sorted.find((c) => c.id === openId)?.name ?? openId}</span>
+              <button onClick={() => setOpenId(null)} className="ml-auto rounded px-2 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">×</button>
+            </div>
+            {BUILT_VIZ[openId]!(sessions)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
