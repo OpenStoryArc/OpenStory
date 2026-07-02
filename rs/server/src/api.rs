@@ -185,7 +185,16 @@ pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
         .and_then(|e| e.get("data"))
         .map(crate::ui_events::ui_body)
         .unwrap_or(Value::Null);
-    Json(json!({ "ui_state": latest }))
+    // Attention-aware pacing: the rhythm of the human's recent interactions, so
+    // an agent can act in their RESTS (drive only when `tempo.active_now` false).
+    let times: Vec<i64> = events
+        .iter()
+        .filter_map(|e| e.get("time").and_then(|v| v.as_str()))
+        .filter_map(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp_millis())
+        .collect();
+    let tempo = crate::ui_events::tempo_profile(times, Utc::now().timestamp_millis());
+    Json(json!({ "ui_state": latest, "tempo": tempo }))
 }
 
 #[derive(Deserialize)]

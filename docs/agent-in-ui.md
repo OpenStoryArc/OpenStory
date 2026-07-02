@@ -81,10 +81,30 @@ and exposes the latest.
   then drive from there.
 
   Under the hood this is fully on the bus: the server publishes each interaction
-  to the authored `ui.*` JetStream stream (`ui_events::ui_subject`, strictly
-  separate from the observed read-only `events.*`); the MCP consumes `ui.>` as
-  raw frames (`bus::subscribe_raw`) and shapes each with `ui_state_notification`.
-  One bus, one source→sink graph, sovereignty partition intact.
+  as a proper CloudEvent (IngestBatch) to the authored `ui.*` JetStream stream
+  (`ui_events::ui_subject`, strictly separate from the observed read-only
+  `events.*`); the MCP consumes `ui.>` through the SAME typed pump as observed
+  events (`bus::subscribe_typed` + `pump_subscription`) and shapes each with
+  `ui_state_notification`. One bus, one source→sink graph, sovereignty intact.
+
+## PACING — act in the user's rests
+
+Don't drive over the user's shoulder. `GET /api/ui-state` also returns a `tempo`
+block — the rhythm of their recent interactions — so an agent can act in the
+**rests** (idle gaps) and hold during activity:
+
+```jsonc
+{ "ui_state": { … },
+  "tempo": { "active_now": true,      // last interaction within 8s
+             "rest_ms": 389,          // how long they've been idle
+             "last_activity_ms": 1783027831091,
+             "cadence_ms": 750 } }    // median gap between interactions (their beat)
+```
+
+**Rule of thumb:** poll `tempo`; drive/annotate only when `active_now` is
+`false` (they've paused). `cadence_ms` is their beat — match it, don't outrun it.
+The pure logic is `ui/src/lib/tempo-profile.ts` (client) and
+`ui_events::tempo_profile` (server); both use an 8s idle threshold.
 
 ## The symmetry
 

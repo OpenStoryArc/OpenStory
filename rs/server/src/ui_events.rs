@@ -47,6 +47,43 @@ pub fn ui_batch(ce: CloudEvent) -> IngestBatch {
     }
 }
 
+/// Below this idle gap (ms) the user is considered actively engaged.
+pub const IDLE_THRESHOLD_MS: i64 = 8_000;
+
+/// Attention-aware pacing rollup — mirrors ui/src/lib/tempo-profile.ts. So an
+/// agent can act in the user's RESTS: poll this, drive only when `active_now` is
+/// false. Serialized under `tempo` on GET /api/ui-state.
+#[derive(Debug, serde::Serialize)]
+pub struct Tempo {
+    /// True when the last interaction is within IDLE_THRESHOLD_MS of now.
+    pub active_now: bool,
+    /// Epoch ms of the most recent interaction (None if none).
+    pub last_activity_ms: Option<i64>,
+    /// How long the user has rested (now - last); None if no activity.
+    pub rest_ms: Option<i64>,
+    /// Median inter-interaction gap (the rhythm); None if fewer than two.
+    pub cadence_ms: Option<i64>,
+}
+
+/// Build the tempo profile from interaction event times (epoch ms) at `now_ms`.
+/// Pure + order-independent so it's tested without a store.
+pub fn tempo_profile(mut times_ms: Vec<i64>, now_ms: i64) -> Tempo {
+    times_ms.sort_unstable();
+    let Some(&last) = times_ms.last() else {
+        return Tempo { active_now: false, last_activity_ms: None, rest_ms: None, cadence_ms: None };
+    };
+    let rest = now_ms - last;
+    let cadence = if times_ms.len() >= 2 {
+        let mut gaps: Vec<i64> = times_ms.windows(2).map(|w| w[1] - w[0]).collect();
+        gaps.sort_unstable();
+        let mid = gaps.len() / 2;
+        Some(if gaps.len() % 2 == 1 { gaps[mid] } else { (gaps[mid - 1] + gaps[mid]) / 2 })
+    } else {
+        None
+    };
+    Tempo { active_now: rest < IDLE_THRESHOLD_MS, last_activity_ms: Some(last), rest_ms: Some(rest), cadence_ms: cadence }
+}
+
 /// The authored body carried by a ui event's `data`. Tolerant of both the proper
 /// CloudEvent shape (`data.raw` = the body) and the legacy flat shape (`data` IS
 /// the body), so reads survive the CloudEvent migration on mixed data.
@@ -127,6 +164,41 @@ mod tests {
     fn annotation_subject_is_keyed_by_add_or_remove() {
         assert_eq!(ui_subject("annotation", "add", Some("max")), "ui.max.annotation.add");
         assert_eq!(ui_subject("annotation", "remove", Some("max")), "ui.max.annotation.remove");
+    }
+
+    // Phase 3: attention-aware pacing rollup.
+    #[test]
+    fn tempo_empty_is_inactive_with_no_activity() {
+        let t = tempo_profile(vec![], 1_000_000);
+        assert!(!t.active_now);
+        assert_eq!(t.last_activity_ms, None);
+        assert_eq!(t.rest_ms, None);
+        assert_eq!(t.cadence_ms, None);
+    }
+
+    #[test]
+    fn tempo_recent_activity_is_active() {
+        let now = 1_000_000;
+        let t = tempo_profile(vec![now - 30_000, now - 2_000], now);
+        assert!(t.active_now); // 2s < 8s threshold
+        assert_eq!(t.rest_ms, Some(2_000));
+        assert_eq!(t.last_activity_ms, Some(now - 2_000));
+    }
+
+    #[test]
+    fn tempo_long_gap_is_resting() {
+        let now = 1_000_000;
+        let t = tempo_profile(vec![now - 20_000], now);
+        assert!(!t.active_now); // 20s > 8s threshold
+        assert_eq!(t.rest_ms, Some(20_000));
+    }
+
+    #[test]
+    fn tempo_cadence_is_median_gap() {
+        let now = 1_000_000;
+        // times with gaps 1000, 3000, 1000 → median 1000
+        let t = tempo_profile(vec![now - 6_000, now - 5_000, now - 2_000, now - 1_000], now);
+        assert_eq!(t.cadence_ms, Some(1_000));
     }
 
     // Phase 1g: authored events are proper CloudEvents (typed EventData envelope).
