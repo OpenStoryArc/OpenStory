@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Open Story · Archetype Report</title>
+<style>
+  :root {
+    --bg:#0b0d10; --panel:#12161c; --line:#222a33; --ink:#e8edf2; --muted:#7d8a99;
+    --accent:#5ad1c5; --warn:#f2b15a; --bad:#e0667a;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:860px;margin:0 auto;padding:40px 24px 90px;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:16px;gap:16px;flex-wrap:wrap;}
+  .brand{letter-spacing:.18em;font-size:12px;color:var(--muted);text-transform:uppercase;}
+  .local{font-size:11px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:3px 10px;white-space:nowrap;}
+  .sub{color:var(--muted);font-size:13px;margin-top:14px;}
+
+  h2{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 14px;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;margin-top:24px;}
+
+  /* connecting map */
+  .mapsvg{width:100%;height:auto;display:block;margin:6px 0;}
+  .mt{fill:var(--ink);font-family:var(--mono);font-size:12px;}
+  .mt.sm{fill:var(--muted);font-size:9.5px;}
+  .mt.big{font-size:15px;font-weight:700;}
+  .mt.theory{fill:var(--muted);font-size:10px;font-style:italic;}
+  .medge{stroke:var(--line);stroke-width:1.4;fill:none;}
+  .mnode{cursor:pointer;}
+  .mnode:hover rect{stroke-width:2.2;}
+
+  /* narrative spine */
+  .step{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:10px;}
+  .connector{color:var(--accent);font-size:13px;margin:-8px 0 14px;opacity:.9;}
+  .meaning{font-size:18px;line-height:1.5;margin:6px 0 18px;color:var(--ink);}
+  .meaning b{color:var(--accent);}
+  .drv{display:grid;grid-template-columns:150px 40px 1fr 124px;align-items:center;gap:10px;margin:9px 0;font-size:13px;}
+  .drv .dn{color:var(--ink);} .drv .draw{color:var(--muted);text-align:right;}
+  .drv .dbar{height:10px;background:#0a0c0f;border:1px solid var(--line);border-radius:5px;overflow:hidden;}
+  .drv .dfill{display:block;height:100%;}
+  .drv .dfill.spo{background:linear-gradient(90deg,var(--warn),#c98a3a);}
+  .drv .dfill.del{background:linear-gradient(90deg,var(--accent),#3fa99f);}
+  .drv .dpush{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;text-align:right;}
+  .dpush.spo{color:var(--warn);} .dpush.del{color:var(--accent);}
+
+  /* gauge */
+  .axis-label{font-size:30px;font-weight:700;letter-spacing:-.01em;margin:2px 0 4px;}
+  .axis-meta{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  .gauge{position:relative;height:46px;margin:8px 0 6px;}
+  .gauge-track{position:absolute;top:20px;left:0;right:0;height:6px;border-radius:3px;
+    background:linear-gradient(90deg,#3a2a18,#1a2a2e,#103a36);border:1px solid var(--line);}
+  .gauge-mid{position:absolute;top:12px;left:50%;width:1px;height:22px;background:var(--muted);opacity:.5;}
+  .gauge-dot{position:absolute;top:13px;width:16px;height:16px;border-radius:50%;background:var(--warn);
+    box-shadow:0 0 12px var(--warn);transform:translateX(-50%);transition:left .7s cubic-bezier(.2,.8,.2,1);}
+  .gauge-ends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:2px;}
+
+  /* signal bars */
+  .sig{display:grid;grid-template-columns:170px 1fr 44px 84px;align-items:center;gap:10px;margin:9px 0;font-size:13px;}
+  .sig .nm{color:var(--ink);}
+  .sig .track{height:10px;background:#0a0c0f;border:1px solid var(--line);border-radius:5px;overflow:hidden;}
+  .sig .fill{display:block;height:100%;border-radius:5px;}
+  .sig .fill.del{background:linear-gradient(90deg,var(--accent),#3fa99f);}
+  .sig .fill.spo{background:linear-gradient(90deg,var(--warn),#c98a3a);}
+  .sig .v{text-align:right;color:var(--muted);}
+  .sig .pole{font-size:10px;text-transform:uppercase;letter-spacing:.06em;text-align:right;}
+  .pole.del{color:var(--accent);} .pole.spo{color:var(--warn);}
+
+  /* warrant chain */
+  .chain{border-left:2px solid var(--line);padding-left:18px;margin-top:6px;}
+  .chain .row{margin:12px 0;}
+  .chain .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+  .chain .t{font-size:13.5px;margin-top:3px;}
+  .badge{display:inline-block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;border-radius:999px;padding:2px 9px;border:1px solid;}
+  .badge.analogical{color:var(--warn);border-color:var(--warn);}
+
+  .callout{border:1px solid var(--warn);background:rgba(242,177,90,.06);border-radius:12px;padding:16px 20px;margin-top:14px;}
+  .callout .k{color:var(--warn);font-size:10px;letter-spacing:.14em;text-transform:uppercase;}
+  .callout li{font-size:13px;margin-top:6px;}
+
+  .refuse{border:1px solid var(--bad);background:rgba(224,102,122,.05);}
+  .refuse h2{color:var(--bad);}
+  .refuse .item{margin:12px 0;font-size:13.5px;}
+  .refuse .item b{color:var(--ink);}
+  .refuse .why{color:var(--muted);}
+
+  .flow-stat{display:inline-block;margin-right:18px;font-size:17px;}
+  .flow-stat span{color:var(--muted);font-size:13px;}
+
+  .prov{font-size:12.5px;color:var(--muted);}
+  .prov .row{margin:10px 0;}
+  .prov .meas{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;border:1px solid var(--line);border-radius:4px;padding:1px 6px;margin-left:4px;color:var(--muted);}
+  .prov .ref{color:var(--bad);}
+
+  /* procedural trace */
+  .deriv{border-top:1px solid var(--line);padding:14px 0;}
+  .deriv:first-of-type{border-top:0;}
+  .dhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .dhead .nm{font-size:14px;color:var(--ink);}
+  .dhead .pl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;}
+  .dhead .pl.deliberate{color:var(--accent);} .dhead .pl.spontaneous{color:var(--warn);}
+  .dhead .val{margin-left:auto;font-size:13px;color:var(--muted);}
+  .dhead .val b{color:var(--ink);}
+  .dproc{font-size:12.5px;color:var(--muted);margin:4px 0 6px;}
+  details summary{cursor:pointer;font-size:12px;color:var(--accent);outline:none;}
+  details summary::-webkit-details-marker{color:var(--muted);}
+  .evlist{margin:8px 0 2px;border-left:2px solid var(--line);padding-left:12px;}
+  .ev{font-size:11.5px;color:var(--muted);margin:3px 0;font-variant-numeric:tabular-nums;}
+  .ev .sq{color:var(--ink);} .ev .eid{color:#4b5563;} .ev .yes{color:var(--accent);} .ev .no{color:var(--warn);}
+  .ev .exp{color:var(--accent);cursor:pointer;margin-left:6px;font-size:11px;}
+  .ev .exp:hover{text-decoration:underline;}
+  .chg{margin:4px 0 8px 14px;border-left:2px solid var(--line);padding-left:10px;display:none;}
+  .chg.open{display:block;}
+  .diff{font-size:11px;line-height:1.45;overflow-x:auto;}
+  .dl{white-space:pre;font-variant-numeric:tabular-nums;}
+  .dl.add{color:#7ee0a8;background:rgba(90,209,150,.06);}
+  .dl.del{color:#f0889a;background:rgba(224,102,122,.06);}
+  .dl.ctx{color:var(--muted);} .dl.hunk{color:#6a86c9;}
+  .chg .stat{font-size:11px;color:var(--muted);margin-bottom:3px;}
+  .chg pre{font-size:11px;white-space:pre-wrap;word-break:break-word;color:var(--ink);
+    background:#0a0c0f;border:1px solid var(--line);border-radius:6px;padding:8px;margin:4px 0;max-height:280px;overflow:auto;}
+  .chg pre.cmd{color:var(--accent);}
+  .dlossy{font-size:12px;color:var(--warn);margin-top:8px;}
+  .traceroot{font-size:12px;color:var(--muted);margin-top:4px;}
+  .traceroot code{color:var(--ink);}
+  .cite{color:var(--muted);font-size:12px;margin-top:10px;}
+  .toolbar{display:flex;gap:14px;align-items:center;margin-top:34px;flex-wrap:wrap;color:var(--muted);font-size:12px;}
+  .toolbar input{width:62px;background:#0a0c0f;border:1px solid var(--line);color:var(--ink);font-family:var(--mono);border-radius:6px;padding:6px 8px;}
+  .toolbar button{background:var(--accent);color:#04201d;border:0;border-radius:6px;padding:7px 14px;font-family:var(--mono);font-weight:600;cursor:pointer;}
+  .toolbar button:disabled{opacity:.5;cursor:default;}
+  .live{margin-left:auto;display:inline-flex;align-items:center;gap:7px;}
+  .dot{width:8px;height:8px;border-radius:999px;background:var(--accent);box-shadow:0 0 8px var(--accent);}
+  .dot.off{background:var(--muted);box-shadow:none;}
+  .loading{color:var(--muted);} .err{color:var(--bad);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="brand">Open Story · Developer Profile — first draft</span>
+    <span class="local">local-only · nothing leaves this machine</span>
+  </header>
+
+  <div id="content"><p class="loading sub">Computing your profile from the event store…</p></div>
+
+  <div class="toolbar">
+    <label>days <input id="days" type="number" value="30" min="1" /></label>
+    <label>sample <input id="sample" type="number" value="50" min="5" /></label>
+    <button id="recompute">Recompute</button>
+    <span class="live"><span id="livedot" class="dot"></span><span id="livetext">live reload on</span></span>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const pct = (x) => Math.max(0, Math.min(100, x * 100));
+
+function sigRow(name, val, pole) {
+  return `<div class="sig">
+    <span class="nm">${name}</span>
+    <span class="track"><span class="fill ${pole}" style="width:${pct(val)}%"></span></span>
+    <span class="v">${val.toFixed(2)}</span>
+    <span class="pole ${pole}">${pole === "del" ? "deliberate" : "spontaneous"}</span>
+  </div>`;
+}
+
+function citeLink(c) {
+  return `<a href="${c.primary_source}" target="_blank" rel="noopener">${c.scholar} (${c.year})</a>, ${c.primary_work}`;
+}
+
+const SHORT = { read_before_edit: "reads first", test_cadence: "runs tests", plan_density: "plans",
+  search_fanout: "searches", context_switch: "switches files", churn: "re-edits", seq_entropy: "varied tools" };
+
+function mdBold(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>"); }
+
+function renderMap(p) {
+  const s = p.style;
+  const spon = s.drivers.filter((d) => d.pole === "spontaneous").slice(0, 3);
+  const del = [...s.drivers].filter((d) => d.pole === "deliberate").sort((a, b) => b.contribution - a.contribution).slice(0, 1);
+  const nodes = [...spon, ...del], ys = [22, 80, 138, 196];
+  const cx = 525 + ((50 + s.net_lean * 50) / 100) * 120;
+  let sig = "";
+  nodes.forEach((d, i) => {
+    const y = ys[i], col = d.pole === "spontaneous" ? "var(--warn)" : "var(--accent)";
+    sig += `<g class="mnode" data-scroll="sec-signals">
+      <rect x="250" y="${y}" width="200" height="42" rx="8" fill="#12161c" stroke="${col}"/>
+      <text x="262" y="${y + 18}" class="mt">${SHORT[d.signal]}</text>
+      <text x="262" y="${y + 33}" class="mt sm">${d.raw} · ${d.pole === "spontaneous" ? "→ spontaneous" : "→ deliberate"}</text></g>
+      <path class="medge" d="M150 130 C 210 130, 200 ${y + 21}, 250 ${y + 21}"/>
+      <path class="medge" d="M450 ${y + 21} C 490 ${y + 21}, 480 145, 520 145"/>`;
+  });
+  return `<svg viewBox="0 0 950 240" class="mapsvg">
+    <g class="mnode" data-scroll="sec-proof">
+      <rect x="20" y="108" width="130" height="44" rx="8" fill="#12161c" stroke="var(--line)"/>
+      <text x="85" y="128" class="mt" text-anchor="middle">your events</text>
+      <text x="85" y="143" class="mt sm" text-anchor="middle">tool_call · proof ▸</text></g>
+    ${sig}
+    <g class="mnode" data-scroll="sec-claim">
+      <rect x="520" y="112" width="150" height="66" rx="8" fill="#12161c" stroke="var(--line)"/>
+      <text x="595" y="131" class="mt" text-anchor="middle">processing mode</text>
+      <rect x="530" y="143" width="120" height="6" rx="3" fill="#0a0c0f" stroke="var(--line)"/>
+      <line x1="590" y1="139" x2="590" y2="153" stroke="var(--muted)" opacity="0.5"/>
+      <circle cx="${cx}" cy="146" r="6" fill="var(--warn)"/>
+      <text x="532" y="170" class="mt sm">spont.</text><text x="648" y="170" class="mt sm" text-anchor="end">delib.</text></g>
+    <path class="medge" d="M670 145 H 712"/>
+    <g class="mnode" data-scroll="sec-claim">
+      <rect x="712" y="116" width="220" height="58" rx="10" fill="rgba(242,177,90,.08)" stroke="var(--warn)"/>
+      <text x="822" y="141" class="mt big" text-anchor="middle">${esc(s.claim)}</text>
+      <text x="822" y="161" class="mt sm" text-anchor="middle">archetype · what it means ▸</text></g>
+    <text x="760" y="200" class="mt theory" text-anchor="middle">via Dietrich (analogical) · trust: soft, 1 of 2 axes</text>
+  </svg>`;
+}
+
+function driverRow(d) {
+  const mag = Math.min(100, Math.abs(d.contribution) / 0.22 * 100);
+  const col = d.pole === "spontaneous" ? "spo" : "del";
+  return `<div class="drv"><span class="dn">${SHORT[d.signal]}</span><span class="draw">${d.raw}</span>
+    <span class="dbar"><span class="dfill ${col}" style="width:${mag}%"></span></span>
+    <span class="dpush ${col}">${d.pole === "spontaneous" ? "→ spontaneous" : "→ deliberate"}</span></div>`;
+}
+
+function render(p) {
+  if (p.empty) {
+    $("#content").innerHTML = `<p class="err">No sessions in the last ${p.days} days${p.error ? " — " + p.error : ""}.</p>`;
+    return;
+  }
+  const s = p.style, back = s.backing[0];
+  const dotLeft = 50 + s.net_lean * 50;
+  const spon = s.drivers.filter((d) => d.pole === "spontaneous");
+  const del = [...s.drivers].filter((d) => d.pole === "deliberate").sort((a, b) => b.contribution - a.contribution);
+
+  $("#content").innerHTML = `
+    <div class="sub">Computed from <b>${p.session_count}</b> sessions over the last ${p.days} days (deep-read top ${p.sampled}).</div>
+
+    <div class="panel">
+      <h2>The whole chain, at a glance</h2>
+      ${renderMap(p)}
+      <div class="sub">Read left → right: your <b>events</b> feed a few <b>signals</b>, which place you on an
+        <b>axis</b>, which names an <b>archetype</b> — licensed by a theory, held to a level of trust.
+        Click any node to jump to it. Everything below is this one chain, expanded.</div>
+    </div>
+
+    <div class="panel" id="sec-claim">
+      <div class="step">1 · the claim</div>
+      <div class="axis-label">${s.claim}</div>
+      <div class="meaning">Which means — ${mdBold(s.meaning)}</div>
+      <div class="gauge"><div class="gauge-track"></div><div class="gauge-mid"></div>
+        <div class="gauge-dot" style="left:${dotLeft}%"></div></div>
+      <div class="gauge-ends"><span>spontaneous (associative)</span><span>deliberate (controlled)</span></div>
+    </div>
+
+    <div class="panel" id="sec-signals">
+      <div class="connector">↓ because, across your sessions —</div>
+      <div class="step">2 · the signals that drove it</div>
+      <p class="sub" style="margin-top:-4px">Each signal is a number from your events; bar length = how hard it pushed the verdict.</p>
+      <div>${spon.map(driverRow).join("")}${del.map(driverRow).join("")}</div>
+      ${p.caveats.length ? `<div class="callout"><div class="k">but two signals are under-measured</div><ul style="margin:6px 0 0;padding-left:18px">
+        ${p.caveats.map((c) => `<li>${c}</li>`).join("")}</ul></div>` : ""}
+    </div>
+
+    <div class="panel" id="sec-proof">
+      <div class="connector">↓ and you can check every one of those numbers —</div>
+      <div class="step">3 · the proof · each signal is a count of real events</div>
+      <div id="trace"><p class="loading sub">loading the procedural trace…</p></div>
+    </div>
+
+    <div class="panel" id="sec-theory">
+      <div class="connector">↓ and calling that pattern “${s.claim}” is licensed by —</div>
+      <div class="step">4 · the theory</div>
+      <div class="chain">
+        <div class="row"><div class="k">Warrant</div><div class="t">${s.warrant}</div></div>
+        <div class="row"><div class="k">Backing</div><div class="t">${citeLink(back.citation)}
+          &nbsp;<span class="badge ${back.warrant_strength}">${back.warrant_strength}</span></div></div>
+        <div class="row"><div class="k">Qualifier</div><div class="t">${s.qualifier}</div></div>
+        <div class="row"><div class="k">Rebuttal</div><div class="t">${s.rebuttal}</div></div>
+      </div>
+    </div>
+
+    <div class="panel refuse" id="sec-trust">
+      <div class="connector" style="color:var(--bad)">↓ so trust it exactly this much —</div>
+      <div class="step" style="color:var(--bad)">5 · what this refuses to claim</div>
+      ${p.refusals.map((r) => `<div class="item"><b>${r.title}</b> <span class="why">— ${r.why}</span></div>`).join("")}
+      <div class="prov" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+        ${p.provenance.map((r) => `<div class="row"><code>${r.id}</code> — ${citeLink(r)}
+          <span class="meas">${r.measures}</span> · <span class="${r.note.includes("REFUTES") ? "ref" : ""}">${r.note}</span></div>`).join("")}
+      </div>
+    </div>
+
+    <div class="panel" id="sec-delivery">
+      <div class="step">a second, independent axis · delivery flow</div>
+      <p class="sub" style="margin-top:-4px">Separate from style — how change flows. Session-observable signals only.</p>
+      <div>${Object.entries(p.flow).sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<span class="flow-stat">${v} <span>${k}</span></span>`).join("") || "<span class='sub'>no git signatures in sample</span>"}</div>
+      <div class="cite">Backing — ${citeLink(p.flow_backing[0])}; framed per ${citeLink(p.flow_backing[1])}
+        (“cannot be measured by a single metric”).</div>
+    </div>`;
+  loadTrace();
+}
+
+function esc(s) { return (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function contribLine(d, c) {
+  const id8 = c.id ? `<span class="eid">${c.id.slice(0, 8)}</span>` : "";
+  if (c.bigram !== undefined) return `<div class="ev">${c.bigram} ×${c.n}</div>`;
+  let label = c.rel || c.cmd || c.tool || "";
+  if (d.signal === "read_before_edit")
+    label = `<span class="${c.read_first ? "yes" : "no"}">${c.read_first ? "↑read-first" : "✗not-read"}</span> ${c.tool} ${c.rel}`;
+  else if (d.signal === "context_switch") label = `${c.rel}`;
+  else if (d.signal === "churn") label = `re-edit ${c.rel} <span class="eid">(first @seq ${c.prior_seq})</span>`;
+  else if (d.signal === "test_cadence") label = `<span class="eid">${(c.cmd || "").slice(0, 60)}</span>`;
+  const key = `${d.signal}-${c.seq}`;
+  const expandable = c.seq !== undefined && c.id;
+  const exp = expandable ? `<span class="exp" data-key="${key}" data-seq="${c.seq}">▸ change</span>` : "";
+  return `<div class="ev"><span class="sq">seq ${c.seq}</span> ${id8} · ${label}${exp}</div>`
+    + (expandable ? `<div class="chg" id="chg-${key}"></div>` : "");
+}
+
+function renderDetail(box, d) {
+  if (d.error) { box.innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+  if (d.kind === "diff" || d.kind === "write") {
+    const s = d.stats || {};
+    box.innerHTML =
+      `<div class="stat">${d.tool} ${esc(d.target)} · <span style="color:#7ee0a8">+${s.added || 0}</span> / <span style="color:#f0889a">−${s.removed || 0}</span>${d.replace_all ? " · replace_all" : ""}</div>`
+      + `<div class="diff">${(d.diff || []).map((l) => `<div class="dl ${l.k}">${esc(l.text) || " "}</div>`).join("")}</div>`
+      + (d.truncated ? `<div class="stat">… truncated</div>` : "");
+  } else if (d.kind === "bash") {
+    box.innerHTML = `<pre class="cmd">$ ${esc(d.command)}</pre>`
+      + (d.output ? `<pre>${esc(d.output)}</pre>` : "")
+      + (d.output_truncated ? `<div class="stat">… output truncated</div>` : "");
+  } else {
+    box.innerHTML = `<pre>${esc(d.input || "")}</pre>` + (d.output ? `<pre>${esc(d.output)}</pre>` : "");
+  }
+}
+
+document.addEventListener("click", (e) => {
+  const node = e.target.closest(".mnode");
+  if (!node) return;
+  const t = document.getElementById(node.dataset.scroll);
+  if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+document.addEventListener("click", async (e) => {
+  const exp = e.target.closest(".exp");
+  if (!exp) return;
+  const box = document.getElementById("chg-" + exp.dataset.key);
+  if (!box) return;
+  if (box.classList.contains("open")) { box.classList.remove("open"); exp.textContent = "▸ change"; return; }
+  if (!box.dataset.loaded) {
+    box.innerHTML = `<div class="stat">loading the exact change…</div>`;
+    try {
+      const r = await fetch(`/api/event.json?session=${encodeURIComponent(window.__sid || "")}&seq=${exp.dataset.seq}`);
+      renderDetail(box, await r.json());
+      box.dataset.loaded = "1";
+    } catch (err) { box.innerHTML = `<div class="err">${err}</div>`; }
+  }
+  box.classList.add("open"); exp.textContent = "▾ change";
+});
+
+function renderTrace(t) {
+  if (t.error) { $("#trace").innerHTML = `<h2>Procedural trace</h2><p class="err">${t.error}</p>`; return; }
+  window.__sid = t.session_id;
+  const derivs = t.derivations.map((d) => `
+    <div class="deriv">
+      <div class="dhead">
+        <span class="nm">${d.signal}</span>
+        <span class="pl ${d.pole}">${d.pole}</span>
+        <span class="val"><b>${d.numerator}</b> / <b>${d.denominator}</b> = <b>${d.value}</b></span>
+      </div>
+      <div class="dproc">${d.procedure}</div>
+      ${d.contributors.length ? `<details><summary>${d.contributors.length} contributing event${d.contributors.length === 1 ? "" : "s"}</summary>
+        <div class="evlist">${d.contributors.slice(0, 40).map((c) => contribLine(d, c)).join("")}
+        ${d.contributors.length > 40 ? `<div class="ev">… +${d.contributors.length - 40} more</div>` : ""}</div></details>` : `<div class="ev">— no events matched —</div>`}
+      ${d.lossy ? `<div class="dlossy">⚠ ${d.lossy}</div>` : ""}
+    </div>`).join("");
+  $("#trace").innerHTML = `
+    <div class="sub" style="margin-top:-4px">Worked on one real session — <code>${t.session_id.slice(0, 8)}</code>,
+      <b>${t.tool_call_events}</b> <code>tool_call</code> events (seq ${t.first_seq}–${t.last_seq}).
+      Expand a metric to see which events it counted; expand an event to see the exact diff.</div>
+    <div style="margin-top:14px">${derivs}</div>
+    <div class="traceroot">net lean = deliberate <b>${t.lean.deliberate_index}</b> − spontaneous
+      <b>${t.lean.spontaneous_index}</b> = <b>${t.lean.net_lean}</b><br>
+      <code>value ← procedure ← the tool_call events above ← the raw JSONL transcript</code></div>`;
+}
+
+async function loadTrace() {
+  try {
+    const r = await fetch("/api/trace.json");
+    renderTrace(await r.json());
+  } catch (e) {
+    if ($("#trace")) $("#trace").innerHTML = `<h2>Procedural trace</h2><p class="err">trace failed: ${e}</p>`;
+  }
+}
+
+async function load(refresh) {
+  const btn = $("#recompute");
+  btn.disabled = true; btn.textContent = refresh ? "Computing…" : "Loading…";
+  const days = $("#days").value, sample = $("#sample").value;
+  try {
+    const r = await fetch(`/api/archetype.json?days=${days}&sample=${sample}&refresh=${refresh ? 1 : 0}`);
+    render(await r.json());
+  } catch (e) {
+    $("#content").innerHTML = `<p class="err">Failed to load: ${e}. Is the view server running?</p>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Recompute";
+  }
+}
+$("#recompute").addEventListener("click", () => load(true));
+
+try {
+  const es = new EventSource("/events");
+  es.onmessage = (e) => { if (e.data === "reload") location.reload(); };
+  es.onerror = () => { $("#livedot").classList.add("off"); $("#livetext").textContent = "live reload off"; };
+} catch (_) {}
+
+load(false);
+</script>
+</body>
+</html>

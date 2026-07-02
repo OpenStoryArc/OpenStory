@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openstory://archetype/session-reading",
+  "title": "SessionReading",
+  "description": "One session's deliberate↔spontaneous reading, fully cited.",
+  "type": "object",
+  "x-citation": {
+    "theory_id": "rhodes-1961",
+    "warrant_strength": "validated",
+    "warrant": "reading the PROCESS strand from tool_call events is a legitimate Rhodes locus",
+    "primary_source": "Mel Rhodes (1961). An Analysis of Creativity, Phi Delta Kappan 42(7):305-310. https://www.jstor.org/stable/20342603"
+  },
+  "required": [
+    "net_lean",
+    "deliberate_index",
+    "spontaneous_index",
+    "signals"
+  ],
+  "properties": {
+    "net_lean": {
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1,
+      "x-citation": {
+        "theory_id": "dietrich-2004",
+        "warrant_strength": "validated-frame",
+        "warrant": "net_lean = deliberate_index − spontaneous_index; deliberate↔spontaneous is a real construct; our operationalization of it is analogical",
+        "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731"
+      }
+    },
+    "deliberate_index": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "x-citation": {
+        "theory_id": null,
+        "warrant_strength": "none",
+        "warrant": "mean of 3 deliberate signals — 0.4, 0.2, equal weights, ±0.08/±0.25 thresholds, 3-vs-4 split: hand-picked, unvalidated; the 3-vs-4 split + always-zero plan_density tilts the axis toward spontaneous",
+        "primary_source": null
+      }
+    },
+    "spontaneous_index": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "x-citation": {
+        "theory_id": null,
+        "warrant_strength": "none",
+        "warrant": "mean of 4 spontaneous signals — 0.4, 0.2, equal weights, ±0.08/±0.25 thresholds, 3-vs-4 split: hand-picked, unvalidated; the 3-vs-4 split + always-zero plan_density tilts the axis toward spontaneous",
+        "primary_source": null
+      }
+    },
+    "n_events": {
+      "type": "integer",
+      "minimum": 0,
+      "x-citation": {
+        "theory_id": "rhodes-1961",
+        "warrant_strength": "validated",
+        "warrant": "count of tool_call CloudEvents (the Process locus)",
+        "primary_source": "Mel Rhodes (1961). An Analysis of Creativity, Phi Delta Kappan 42(7):305-310. https://www.jstor.org/stable/20342603"
+      }
+    },
+    "signals": {
+      "type": "object",
+      "required": [
+        "read_before_edit",
+        "test_cadence",
+        "search_fanout",
+        "context_switch",
+        "churn",
+        "seq_entropy"
+      ],
+      "properties": {
+        "read_before_edit": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "dietrich-2004",
+            "warrant_strength": "analogical",
+            "warrant": "examine-then-act ≈ controlled, top-down (deliberate) processing",
+            "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731",
+            "pole": "deliberate",
+            "flaw": "harness tracks file state: Write-then-Edit of an authored file undercounts",
+            "scope": "session"
+          }
+        },
+        "test_cadence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "dietrich-2004",
+            "warrant_strength": "metaphorical",
+            "warrant": "interleaved verification ≈ analytic loop — BUT testing is a delivery discipline (dora-2018), not clearly a processing mode; arguably on the wrong axis",
+            "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731",
+            "pole": "deliberate",
+            "flaw": "hint-list misses `python x.py --test`; false-positives on text containing 'cargo test'",
+            "scope": "session"
+          }
+        },
+        "plan_density": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "dietrich-2004",
+            "warrant_strength": "analogical",
+            "warrant": "goal-first planning ≈ deliberate, goal-guided processing",
+            "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731",
+            "pole": "deliberate",
+            "flaw": "NON-FUNCTIONAL: /plans returns 0; and it is WINDOW-scope (plans ÷ sessions), so it is undefined per-session — including it in the per-session deliberate mean (÷3) is the structural tilt bug",
+            "scope": "window"
+          }
+        },
+        "search_fanout": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "boden-1990",
+            "warrant_strength": "analogical",
+            "warrant": "broad search ≈ exploratory / associative (defocused attention)",
+            "primary_source": "Margaret A. Boden (1990). The Creative Mind: Myths and Mechanisms (rev. 2004); concise statement in 'Creativity in a Nutshell'. https://plato.stanford.edu/entries/creativity/",
+            "pole": "spontaneous",
+            "flaw": "search via Bash rg/grep is uncounted → reads ≈0",
+            "scope": "session"
+          }
+        },
+        "context_switch": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "dietrich-2004",
+            "warrant_strength": "analogical",
+            "warrant": "file-jumping ≈ defocused, associative attention",
+            "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731",
+            "pole": "spontaneous",
+            "flaw": "contested: could be deliberate multi-file coordination",
+            "scope": "session"
+          }
+        },
+        "churn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": null,
+            "warrant_strength": "metaphorical",
+            "warrant": "re-editing ≈ trial-and-error (closer to BVSR/Campbell-Simonton than Dietrich)",
+            "primary_source": null,
+            "pole": "spontaneous",
+            "flaw": "iterative refinement is often DELIBERATE — the weakest mapping",
+            "scope": "session"
+          }
+        },
+        "seq_entropy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": null,
+            "warrant_strength": "metaphorical",
+            "warrant": "varied tool sequences ≈ less-structured/associative (information-theoretic heuristic)",
+            "primary_source": null,
+            "pole": "spontaneous",
+            "flaw": "no cited construct; 'structured chains = deliberate' is an untested assumption",
+            "scope": "session"
+          }
+        }
+      },
+      "x-citation": {
+        "theory_id": "dietrich-2004",
+        "warrant_strength": "analogical",
+        "warrant": "each signal is an analogical proxy for one processing-mode pole",
+        "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731"
+      }
+    }
+  }
+}

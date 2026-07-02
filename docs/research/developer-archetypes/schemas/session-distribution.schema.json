@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openstory://archetype/session-distribution",
+  "title": "SessionDistribution",
+  "description": "Per-session readings across a window — the honest unit, not a pooled number.",
+  "type": "object",
+  "x-citation": {
+    "theory_id": "dietrich-2004",
+    "warrant_strength": "validated-frame",
+    "warrant": "mode is task/episode-dependent (Dietrich); not a single metric (space-2021) → show the spread",
+    "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731"
+  },
+  "required": [
+    "sessions",
+    "summary"
+  ],
+  "properties": {
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "sid",
+          "net_lean"
+        ],
+        "x-citation": {
+          "theory_id": "rhodes-1961",
+          "warrant_strength": "validated",
+          "warrant": "one session's process reading + metadata",
+          "primary_source": "Mel Rhodes (1961). An Analysis of Creativity, Phi Delta Kappan 42(7):305-310. https://www.jstor.org/stable/20342603"
+        },
+        "properties": {
+          "sid": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "events": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "net_lean": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          },
+          "signals": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "median",
+        "spread"
+      ],
+      "properties": {
+        "median": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": "space-2021",
+            "warrant_strength": "validated-frame",
+            "warrant": "the honest summary — median session, not the volume-weighted pool",
+            "primary_source": "Forsgren, Storey, Maddila, Zimmermann, Houck, Butler (2021). The SPACE of Developer Productivity: There's more to it than you think, ACM Queue 19(1):20-48, DOI 10.1145/3454122.3454124. https://www.microsoft.com/en-us/research/publication/the-space-of-developer-productivity-theres-more-to-it-than-you-think/"
+          }
+        },
+        "mean": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "spread": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "event_weighted": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "x-citation": {
+            "theory_id": null,
+            "warrant_strength": "none",
+            "warrant": "the MISLEADING pooled number — kept only for contrast; dominated by the biggest sessions",
+            "primary_source": null
+          }
+        }
+      }
+    }
+  }
+}
