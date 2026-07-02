@@ -16,7 +16,7 @@ import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
 import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas";
 import { fitTransform } from "@/lib/canvas-fit";
-import { CANVAS_MODES, MODE_META, modeUsesGroupBy } from "@/lib/canvas-modes";
+import { CANVAS_MODES, MODE_META, modeUsesGroupBy, type CanvasMode } from "@/lib/canvas-modes";
 import { controlActions$ } from "@/streams/control";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
@@ -26,9 +26,12 @@ import { SpaceFillingView } from "./SpaceFillingView";
 import { GanttView } from "./GanttView";
 import { ScatterView } from "./ScatterView";
 import { ToolFlowView } from "./ToolFlowView";
+import { ToolAdjacencyHeatmap } from "@/components/lab/ToolAdjacencyHeatmap";
 import { cn } from "@/lib/cn";
 
-type ViewMode = "board" | "sunburst" | "treemap" | "gantt" | "scatter" | "flow";
+/** Canvas view modes are exactly the shared CANVAS_MODES — binding the local
+ *  alias to the exported union keeps MODE_CAPTION completeness tsc-enforced. */
+type ViewMode = CanvasMode;
 
 interface Props {
   onNavigate: (route: HashRoute) => void;
@@ -42,6 +45,7 @@ const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
   gantt: (g) => `Each bar = a session over time, lane-packed by ${g} · length = duration, color = agent, ongoing pulses. Drag the overview strip to window.`,
   scatter: () => `Each dot = a session · x = events, y = output-tokens (log-log) · the line is expected output — dots above it are more productive · size = duration, color = agent.`,
   flow: () => `How often one tool follows another for the chosen agent · ribbon width = number of transitions · left = the tool used, right = what came next.`,
+  "tool-adjacency": () => `From × to heatmap of tool transitions across sampled sessions · brighter = that pair fires more often · the diagonal is a tool repeating itself.`,
 };
 
 const DIMS: { key: GroupDim; label: string }[] = [
@@ -220,6 +224,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
             <ScatterView sessions={universe} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : viewMode === "flow" ? (
             <ToolFlowView sessions={universe} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
+          ) : viewMode === "tool-adjacency" ? (
+            <div className="absolute inset-0 overflow-auto"><ToolAdjacencyHeatmap sessions={universe} /></div>
           ) : viewMode !== "board" ? (
             <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : (
