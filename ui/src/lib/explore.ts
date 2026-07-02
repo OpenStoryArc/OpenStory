@@ -20,6 +20,69 @@ export function filterSessionsByStatus(
   return sessions.filter((s) => s.status === status);
 }
 
+/** A date-range filter over a session's latest activity. Rolling windows plus a
+ *  custom {from,to} (YYYY-MM-DD, inclusive). */
+export type DateRange = "all" | "today" | "7d" | "30d" | { from: string; to: string };
+
+const DAY = 86_400_000;
+
+/** True if `iso` (a session's last_event) falls within `range` relative to `nowMs`.
+ *  Invalid input → false (never throws). Pure so the sidebar filter is testable. */
+export function inRange(iso: string, range: DateRange, nowMs: number): boolean {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  if (range === "all") return true;
+  if (typeof range === "object") {
+    const from = new Date(range.from).getTime();
+    const to = new Date(range.to).getTime() + DAY - 1; // inclusive of the whole `to` day
+    return t >= from && t <= to;
+  }
+  if (range === "7d") return t >= nowMs - 7 * DAY;
+  if (range === "30d") return t >= nowMs - 30 * DAY;
+  // "today" — since local midnight.
+  const midnight = new Date(nowMs);
+  midnight.setHours(0, 0, 0, 0);
+  return t >= midnight.getTime();
+}
+
+/** Filter sessions to those whose latest activity (last_event, else start_time)
+ *  falls in `range`. */
+export function filterSessionsByDateRange(
+  sessions: readonly SessionSummary[],
+  range: DateRange,
+  nowMs: number,
+): SessionSummary[] {
+  if (range === "all") return [...sessions];
+  return sessions.filter((s) => inRange(s.last_event ?? s.start_time, range, nowMs));
+}
+
+/** A project group with its sessions and most-recent activity. */
+export interface ProjectGroup {
+  readonly project: string;
+  readonly sessions: SessionSummary[];
+  readonly latest: string;
+}
+
+/** Group sessions by project, each group's sessions newest-first, and the groups
+ *  ordered by their most-recent session's last_event (most-recently-touched
+ *  project first). */
+export function sortProjectsByRecency(sessions: readonly SessionSummary[]): ProjectGroup[] {
+  const key = (s: SessionSummary) => s.project_name || s.project_id || "(no project)";
+  const at = (s: SessionSummary) => s.last_event ?? s.start_time ?? "";
+  const groups = new Map<string, SessionSummary[]>();
+  for (const s of sessions) {
+    const k = key(s);
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(s);
+  }
+  const out: ProjectGroup[] = [];
+  for (const [project, list] of groups) {
+    list.sort((a, b) => at(b).localeCompare(at(a))); // newest-first within group
+    out.push({ project, sessions: list, latest: at(list[0]!) });
+  }
+  out.sort((a, b) => b.latest.localeCompare(a.latest)); // most-recent project first
+  return out;
+}
+
 /** Filter sessions by project. Empty string = all projects. */
 export function filterSessionsByProject(
   sessions: readonly SessionSummary[],

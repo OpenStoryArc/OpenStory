@@ -7,10 +7,13 @@ import {
   filterSessionsByQuery,
   filterSessionsByStatus,
   filterSessionsByProject,
+  filterSessionsByDateRange,
+  sortProjectsByRecency,
   extractProjects,
   computeStatusCounts,
   buildSessionHierarchy,
   type SessionStatusFilter,
+  type DateRange,
   type ParentSession,
 } from "@/lib/explore";
 import { fullTimestamp, formatDuration } from "@/lib/time";
@@ -69,6 +72,8 @@ export function ExploreSidebar({ selectedSessionId, onSelectSession }: ExploreSi
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<SessionStatusFilter>(DEFAULT_STATUS);
   const [projectFilter, setProjectFilter] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [sortMode, setSortMode] = useState<"latest" | "project">("latest");
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -99,11 +104,16 @@ export function ExploreSidebar({ selectedSessionId, onSelectSession }: ExploreSi
 
   // Apply filters to all sessions, then build hierarchy
   const hierarchy = useMemo(() => {
+    const now = Date.now();
     let filtered = filterSessionsByStatus(sessions, statusFilter);
     filtered = filterSessionsByProject(filtered, projectFilter);
+    filtered = filterSessionsByDateRange(filtered, dateRange, now);
     filtered = filterSessionsByQuery(filtered, query);
+    // "Project" sort clusters same-project sessions adjacently, projects ordered
+    // by their most-recent activity. "Latest" keeps the API's last_event DESC.
+    if (sortMode === "project") filtered = sortProjectsByRecency(filtered).flatMap((g) => g.sessions);
     return buildSessionHierarchy(filtered);
-  }, [sessions, statusFilter, projectFilter, query]);
+  }, [sessions, statusFilter, projectFilter, dateRange, query, sortMode]);
 
   const toggleExpand = (parentId: string) => {
     setExpandedParents((prev) => {
@@ -132,6 +142,35 @@ export function ExploreSidebar({ selectedSessionId, onSelectSession }: ExploreSi
           className="w-full bg-[#24283b] text-[#c0caf5] text-[11px] rounded px-2 py-1 border border-[#2f3348] focus:border-[#7aa2f7] focus:outline-none placeholder-[#565f89]"
           data-testid="explore-search"
         />
+      </div>
+
+      {/* Date-range chips + sort toggle */}
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-[#2f3348] text-[10px]">
+        {([
+          { key: "today", label: "Today" },
+          { key: "7d", label: "7d" },
+          { key: "30d", label: "30d" },
+          { key: "all", label: "All" },
+        ] as const).map((r) => (
+          <button
+            key={r.key}
+            onClick={() => setDateRange(r.key)}
+            data-testid={`date-range-${r.key}`}
+            className={`px-1.5 py-0.5 rounded transition-colors ${
+              dateRange === r.key ? "bg-[#7aa2f7] text-[#1a1b26] font-medium" : "text-[#565f89] hover:text-[#c0caf5]"
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setSortMode((m) => (m === "latest" ? "project" : "latest"))}
+          data-testid="sort-toggle"
+          title="Toggle sort: latest activity ↔ by project"
+          className="ml-auto px-1.5 py-0.5 rounded text-[#7dcfff] hover:bg-[#7dcfff10]"
+        >
+          {sortMode === "latest" ? "↧ Latest" : "▤ Project"}
+        </button>
       </div>
 
       {/* Status filter chips */}
