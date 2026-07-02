@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type {
   PairedConversation,
@@ -7,6 +7,8 @@ import type {
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { FilterPills } from "@/components/ui/FilterPills";
+import { CONVERSATION_FACETS, conversationEntryMatches, facetCounts, type ConversationFacet } from "@/lib/conversation-facets";
 
 interface ConversationViewProps {
   sessionId: string;
@@ -15,7 +17,15 @@ interface ConversationViewProps {
 export function ConversationView({ sessionId }: ConversationViewProps) {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [facet, setFacet] = useState<ConversationFacet>("all");
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Live-tab facet filtering over the paired entries (same experience as Live).
+  const counts = useMemo(() => facetCounts(entries), [entries]);
+  const visible = useMemo(
+    () => (facet === "all" ? entries : entries.filter((e) => conversationEntryMatches(e, facet))),
+    [entries, facet],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +47,7 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   }, [sessionId]);
 
   const virtualizer = useVirtualizer({
-    count: entries.length,
+    count: visible.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 100,
     overscan: 10,
@@ -117,7 +127,9 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   }
 
   return (
-    <div ref={parentRef} className="flex-1 overflow-y-auto">
+    <div className="flex flex-col h-full min-h-0">
+      <FilterPills facets={CONVERSATION_FACETS} active={facet} counts={counts} onSelect={setFacet} />
+      <div ref={parentRef} className="flex-1 overflow-y-auto">
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
@@ -126,7 +138,7 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
         }}
       >
         {virtualizer.getVirtualItems().map((vItem) => {
-          const item = entries[vItem.index]!;
+          const item = visible[vItem.index]!;
           return (
             <div
               key={vItem.key}
@@ -144,6 +156,7 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );
