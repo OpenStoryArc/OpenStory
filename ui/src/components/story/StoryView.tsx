@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { TurnCard } from "./TurnCard";
+import { Clamp } from "@/components/ui/Clamp";
 import {
   filterSentences,
   categorizeTurn,
@@ -560,7 +561,10 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                         <span className="text-[#565f89]">{i + 1}.</span> {h.text}
                       </div>
                       {h.because && (
-                        <div className="text-[10px] italic leading-snug text-[#565f89] truncate">“{h.because}”</div>
+                        <Clamp
+                          text={`“${((p.metadata?.human as { content?: string } | undefined)?.content ?? "").trim() || h.because}”`}
+                          className="block text-[10px] italic leading-snug text-[#565f89]"
+                        />
                       )}
                     </div>
                   );
