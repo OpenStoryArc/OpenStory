@@ -3,7 +3,7 @@
  *  here (not inline in the component) lets the completeness + group-by rules be
  *  unit-tested. */
 
-export const CANVAS_MODES = ["board", "sunburst", "treemap", "gantt", "scatter", "flow", "tool-adjacency"] as const;
+export const CANVAS_MODES = ["board", "sunburst", "treemap", "gantt", "scatter", "flow", "tool-adjacency", "delegation"] as const;
 export type CanvasMode = (typeof CANVAS_MODES)[number];
 
 export interface ModeMeta {
@@ -26,6 +26,7 @@ export const MODE_META: Record<CanvasMode, ModeMeta> = {
   scatter: { icon: "∴", label: "Scatter", blurb: "Each session a dot: events × output tokens.", usesGroupBy: false, groupByNote: "grouping n/a — every session is one point" },
   flow: { icon: "⇄", label: "Flow", blurb: "Tool→tool grammar for one agent.", usesGroupBy: false, groupByNote: "pick an agent in the view below" },
   "tool-adjacency": { icon: "▤", label: "Adjacency", blurb: "Which tool follows which, as a from×to heatmap across all sessions.", usesGroupBy: false, groupByNote: "aggregated across every session — no grouping" },
+  delegation: { icon: "⇲", label: "Delegation", blurb: "The spawn topology: which parent sessions delegate to which agent-* subagents.", usesGroupBy: false, groupByNote: "spawn topology — parents and their subagents, not group-by" },
 };
 
 export function modeUsesGroupBy(m: CanvasMode): boolean {

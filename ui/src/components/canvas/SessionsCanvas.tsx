@@ -27,6 +27,7 @@ import { GanttView } from "./GanttView";
 import { ScatterView } from "./ScatterView";
 import { ToolFlowView } from "./ToolFlowView";
 import { ToolAdjacencyHeatmap } from "@/components/lab/ToolAdjacencyHeatmap";
+import { DelegationGraphView } from "@/components/lab/DelegationGraphView";
 import { cn } from "@/lib/cn";
 
 /** Canvas view modes are exactly the shared CANVAS_MODES — binding the local
@@ -46,6 +47,7 @@ const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
   scatter: () => `Each dot = a session · x = events, y = output-tokens (log-log) · the line is expected output — dots above it are more productive · size = duration, color = agent.`,
   flow: () => `How often one tool follows another for the chosen agent · ribbon width = number of transitions · left = the tool used, right = what came next.`,
   "tool-adjacency": () => `From × to heatmap of tool transitions across sampled sessions · brighter = that pair fires more often · the diagonal is a tool repeating itself.`,
+  delegation: () => `Force-directed spawn graph · each node a session, each edge a parent delegating to an agent-* subagent · drag to explore, hubs are heavy delegators.`,
 };
 
 const DIMS: { key: GroupDim; label: string }[] = [
@@ -226,6 +228,11 @@ export function SessionsCanvas({ onNavigate }: Props) {
             <ToolFlowView sessions={universe} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : viewMode === "tool-adjacency" ? (
             <div className="absolute inset-0 overflow-auto"><ToolAdjacencyHeatmap sessions={universe} /></div>
+          ) : viewMode === "delegation" ? (
+            // full list (incl. agent-* subagents) — the graph cross-validates
+            // parent→child edges against real subagent session ids, which
+            // `universe` filters out.
+            <div className="absolute inset-0 overflow-auto"><DelegationGraphView sessions={sessions} /></div>
           ) : viewMode !== "board" ? (
             <SpaceFillingView sessions={universe} groupBy={groupBy} metric={metric} mode={viewMode} width={size.w} height={size.h} onOpenSession={openSessionPanel} />
           ) : (
