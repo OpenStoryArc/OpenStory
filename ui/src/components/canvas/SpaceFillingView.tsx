@@ -14,6 +14,7 @@ import type { GroupDim } from "@/lib/sessions-canvas";
 import { buildHierarchyTree, type Metric, type TreeNode } from "@/lib/session-hierarchy-tree";
 import { cleanHarnessPreview } from "@/lib/harness-message";
 import { sunburstLabelLayout } from "@/lib/sunburst-label";
+import { controlActions$ } from "@/streams/control";
 
 interface Props {
   sessions: readonly StorySession[];
@@ -70,6 +71,26 @@ export function SpaceFillingView({ sessions, groupBy, metric, mode, width, heigh
     if (n.data.kind === "session" && n.data.sessionId) { onOpenSession(n.data.sessionId); return; }
     if (n.children) setFocusKeys(n.ancestors().reverse().slice(1).map((a) => a.data.key));
   };
+
+  // Agent-in-UI: drive drill-in (reshape the viz) via control$. `canvas.drill`
+  // matches a wedge/cell by key or name (case-insensitive) and zooms into it —
+  // the same effect as a user click, from outside. `canvas.ascend` pops up.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "canvas.drill" && a.value) {
+        const t = a.value.toLowerCase();
+        const node = root.descendants().find(
+          (n) => n.depth > 0 && n.data.kind !== "session" &&
+            (n.data.key.toLowerCase() === t || (n.data.name ?? "").toLowerCase().includes(t)),
+        );
+        if (node) setFocusKeys(node.ancestors().reverse().slice(1).map((x) => x.data.key));
+      } else if (a.target === "canvas.ascend") {
+        setFocusKeys((prev) => prev.slice(0, -1));
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [root]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
