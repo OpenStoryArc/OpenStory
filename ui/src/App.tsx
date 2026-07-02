@@ -25,6 +25,7 @@ import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { fetchAnnotations, mergeAnnotation, type Annotation } from "@/lib/annotations";
+import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 
 const STATUS_INDICATOR = {
@@ -92,6 +93,13 @@ export function App() {
   useEffect(() => {
     if (route.view === "explore" && route.sessionId) recordRecent(route.sessionId);
   }, [route.view, route.sessionId, recordRecent]);
+
+  // Read half of the agent-in-UI seam: report where the human goes. Each route
+  // change becomes a first-class interaction event in OpenStory (the viewing
+  // session) — projectable to ui_state, replayable. Best-effort; never blocks.
+  useEffect(() => {
+    postInteraction(interactionFromRoute(route));
+  }, [route]);
 
   // Derive view state from route
   const viewMode = route.view;

@@ -80,6 +80,24 @@ pub enum BroadcastMessage {
     AnnotationAdded {
         annotation: crate::annotations::Annotation,
     },
+    /// The user's current view state (the READ half of the agent-in-UI seam):
+    /// a projection over the interaction event stream, pushed live so agents
+    /// (and other dashboards) can see where the human is. It's the mirror-image
+    /// of Control — commands flow in, interactions flow back out.
+    #[serde(rename = "ui_state")]
+    UiState {
+        /// interaction kind (navigate|filter|select|zoom|view). Named
+        /// `interaction` to avoid clashing with the enum's "kind" serde tag.
+        interaction: String,
+        view: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filters: Option<serde_json::Value>,
+        at: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issuer: Option<String>,
+    },
     #[serde(rename = "control")]
     Control {
         /// The view action, e.g. "open_view" | "highlight" | "present".
@@ -115,6 +133,24 @@ mod tests {
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["kind"], "enriched");
         assert_eq!(json["session_id"], "test-123");
+    }
+
+    #[test]
+    fn ui_state_serializes_with_kind_tag() {
+        let msg = BroadcastMessage::UiState {
+            interaction: "navigate".into(),
+            view: "story".into(),
+            session_id: Some("s1".into()),
+            filters: None,
+            at: "2026-07-02T00:00:00Z".into(),
+            issuer: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "ui_state"); // enum tag
+        assert_eq!(json["interaction"], "navigate");
+        assert_eq!(json["view"], "story");
+        assert_eq!(json["session_id"], "s1");
+        assert!(json.get("filters").is_none()); // None skipped
     }
 
     #[test]

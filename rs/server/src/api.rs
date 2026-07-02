@@ -85,6 +85,78 @@ pub async fn post_control(
     )
 }
 
+/// The synthetic session that holds the human's own interaction stream — their
+/// dashboard use, observed as first-class events (the read half of the seam).
+const VIEWING_SESSION: &str = "openstory-ui";
+
+/// The interaction kinds we record as distinct subtypes, for high-fidelity
+/// replay later. `view` is the coarse fallback.
+const INTERACTION_KINDS: [&str; 5] = ["navigate", "filter", "select", "zoom", "view"];
+
+/// `POST /api/interactions` — the UI reports an interaction. We record it as a
+/// real CloudEvent in the VIEWING_SESSION so the user's own activity "ends up in
+/// OpenStory" (queryable, part of the record, watchable + REPLAYABLE like any
+/// session), update the `ui_state` projection, and broadcast it live.
+///
+/// Body: `{ kind, view, session_id?, filters?, issuer?, …anything }`. `kind`
+/// picks the subtype (`interaction.navigate|filter|select|zoom|view`); the WHOLE
+/// body is stored as `data` so richer fields (scroll anchor, selected event,
+/// canvas zoom/pan) ride along for free as views start sending them — replay
+/// fidelity grows without a schema change.
+pub async fn post_interaction(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let view = body.get("view").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if view.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "view required" })));
+    }
+    let raw_kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("view");
+    let kind = if INTERACTION_KINDS.contains(&raw_kind) { raw_kind } else { "view" };
+    let target = body.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let filters = body.get("filters").cloned().filter(|v| !v.is_null());
+    let issuer = body.get("issuer").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    // Store the full interaction payload as data (high-fidelity), stamped with
+    // the server time. Overlay-of-self: agent = "openstory-ui".
+    let mut data = body.clone();
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("at".to_string(), json!(at));
+    }
+    let event = json!({
+        "specversion": "1.0",
+        "id": uuid::Uuid::new_v4().to_string(),
+        "source": VIEWING_SESSION,
+        "type": "io.arc.event",
+        "subtype": format!("interaction.{kind}"),
+        "agent": "openstory-ui",
+        "time": at,
+        "data": data,
+    });
+
+    let s = state.read().await;
+    let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
+    let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
+        interaction: kind.to_string(),
+        view,
+        session_id: target,
+        filters,
+        at,
+        issuer,
+    });
+    (StatusCode::OK, Json(json!({ "ok": true, "kind": kind })))
+}
+
+/// `GET /api/ui-state` — the current view state, projected from the latest
+/// interaction event. This is what an agent reads to know "where the user is."
+pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    let latest = events.last().and_then(|e| e.get("data").cloned()).unwrap_or(Value::Null);
+    Json(json!({ "ui_state": latest }))
+}
+
 /// `POST /api/annotations` — pin a durable overlay note to a session. Persists
 /// to `{data_dir}/annotations.jsonl` (overlay namespace, never the event
 /// stream) and broadcasts `annotation_added` so it appears on every dashboard
