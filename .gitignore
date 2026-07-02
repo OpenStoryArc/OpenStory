@@ -16,6 +16,11 @@ rs/data/
 # Screenshots
 screenshots/
 
+# Generated report/view outputs in scripts/ (dot-prefixed intermediates —
+# the .py generator is the source; these regenerate from live data)
+scripts/.*.html
+scripts/.*.json
+
 # Local-only content (mirrors public paths, never committed)
 personal/
 captures/
