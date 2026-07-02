@@ -4,6 +4,41 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Overlay annotations (the pin-a-note layer)
+
+Annotations are user/agent-authored notes pinned to sessions — the overlay
+namespace (`annotations.jsonl`, never the observed event stream). Add/list/
+remove exist (`POST`/`GET`/`DELETE /api/annotations`) + a corner overlay with a
+× remove. Follow-ups to make them first-class:
+
+### Show annotations in context, not just the corner overlay
+A note pinned to a session only appears in the global bottom-right overlay. It
+should render *on that session* — inline in Explore/Story (e.g. a margin note
+on the turn/event it targets) and as a badge on the session's cards — so the
+note lives where the thing it annotates lives.
+
+### Anchor annotations to a target finer than a session
+Today `session_id` is the only anchor. Let a note target a specific event/turn,
+a file, or even a viz element (a Canvas node, a heatmap day), carrying an
+optional `anchor` (event_id / turn / file / selector). The interaction schema
+already captures selections — reuse it so "annotate what I'm looking at" works.
+
+### Provenance & ownership on delete
+`DELETE /api/annotations/{id}` currently lets anyone remove any note. With the
+person/principal model, deletion (and edit) should respect authorship — you can
+remove your own notes; an agent's notes are labeled and removable by their
+principal. Also add EDIT (`PATCH`) so a note can be reworded without delete+re-add.
+
+### Surface created_at + issuer richly
+Notes store `created_at` and `issuer` but the overlay only shows issuer + a
+short id. Show a relative timestamp (with absolute on hover — see the
+timestamps-everywhere sweep) and make provenance legible (person vs agent).
+
+### Annotation threads / replies
+A single body per note is thin for a real conversation-in-the-margin. Consider
+threading (reply to a note) so a human and an agent can discuss a session
+inline — the overlay becomes a lightweight review surface.
+
 ## Federation & transport — follow-ups from the host-in-subject work
 
 ### Container/e2e tests: NATS-at-boot
