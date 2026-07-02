@@ -33,6 +33,18 @@ describe("controlToRoute", () => {
     );
   });
 
+  it("carries eventId into the route so replay retraces to the exact event", () => {
+    scenario(
+      () => controlToRoute("open_view", { view: "explore", sessionId: "s-9", eventId: "e-42" }),
+      (r) => r,
+      (r) => {
+        expect(r?.view).toBe("explore");
+        expect(r?.sessionId).toBe("s-9");
+        expect(r?.eventId).toBe("e-42");
+      },
+    );
+  });
+
   it("returns null for non-navigation actions", () => {
     scenario(
       () => controlToRoute("highlight", { sessionIds: ["a"] }),

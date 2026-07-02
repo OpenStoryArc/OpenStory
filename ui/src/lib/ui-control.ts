@@ -71,6 +71,9 @@ export function controlToRoute(action: string, params: unknown): HashRoute | nul
     const r: HashRoute = { view: p.view as HashRoute["view"] };
     if (typeof p.sessionId === "string") r.sessionId = p.sessionId;
     if (typeof p.detailView === "string") r.detailView = p.detailView as HashRoute["detailView"];
+    // Carry eventId so an open_view can deep-link to a single event — replay
+    // retraces to the EXACT event the human was on, not just the session.
+    if (typeof p.eventId === "string" && p.eventId.trim()) r.eventId = p.eventId;
     return r;
   }
   return null;

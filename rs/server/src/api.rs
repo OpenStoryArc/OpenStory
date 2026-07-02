@@ -177,6 +177,34 @@ pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
     Json(json!({ "ui_state": latest }))
 }
 
+#[derive(Deserialize)]
+pub struct JourneyQuery {
+    /// How many recent interactions to return (newest last). Default 20, cap 500.
+    pub n: Option<usize>,
+}
+
+/// `GET /api/ui-state/journey?n=N` — the recent slice of the human's interaction
+/// stream (their PATH through the dashboard), oldest→newest. This is what the
+/// REPLAY driver reads: a captured journey fed back through the control seam
+/// retraces it (forward) or rewinds it (backward). Returns the raw interaction
+/// `data` payloads — each maps 1:1 to a typed Interaction on the client.
+pub async fn get_ui_journey(
+    State(state): State<SharedState>,
+    Query(q): Query<JourneyQuery>,
+) -> Json<Value> {
+    let n = q.n.unwrap_or(20).min(500);
+    let s = state.read().await;
+    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    // Take the last n events (chronological), preserving order — the journey is
+    // meaningful only in sequence.
+    let start = events.len().saturating_sub(n);
+    let journey: Vec<Value> = events[start..]
+        .iter()
+        .filter_map(|e| e.get("data").cloned())
+        .collect();
+    Json(json!({ "journey": journey }))
+}
+
 /// `POST /api/annotations` — pin a durable overlay note to a session. Persists
 /// to `{data_dir}/annotations.jsonl` (overlay namespace, never the event
 /// stream) and broadcasts `annotation_added` so it appears on every dashboard
