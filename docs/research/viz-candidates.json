@@ -85,7 +85,8 @@
     "notes": "Shows spread and outliers Scatter hides. forceX + collide dodge. Click dot -> Story.",
     "hypothesis": "Session durations are broadly spread with agent-specific modes and long-tail outliers that a beeswarm surfaces per agent.",
     "falsifier": "If duration is missing/near-constant for most rows, or one agent dominates all points, the swarm is a single tight clump with nothing to compare.",
-    "witness": "GET /api/sessions \u2192 derive duration = last_event - start_time; needs a spread of \u22652 decades and \u22652 agents with enough sessions each to form distinct swarms."
+    "witness": "GET /api/sessions \u2192 derive duration = last_event - start_time; needs a spread of \u22652 decades and \u22652 agents with enough sessions each to form distinct swarms.",
+    "status": "built"
   },
   {
     "id": "events-streamgraph",

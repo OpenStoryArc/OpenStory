@@ -15,6 +15,7 @@ import type { StorySession } from "@/lib/story-api";
 import { ToolAdjacencyHeatmap } from "./ToolAdjacencyHeatmap";
 import { DelegationGraphView } from "./DelegationGraphView";
 import { AgentProjectMatrix } from "./AgentProjectMatrix";
+import { DurationBeeswarm } from "./DurationBeeswarm";
 import { cn } from "@/lib/cn";
 
 /** A verdict for a card: not-run, no-runner (needs records), or a result. */
@@ -26,6 +27,7 @@ const BUILT_VIZ: Record<string, (sessions: readonly StorySession[]) => ReactNode
   "tool-adjacency-heatmap": (sessions) => <ToolAdjacencyHeatmap sessions={sessions} />,
   "delegation-graph": (sessions) => <DelegationGraphView sessions={sessions} />,
   "agent-project-matrix": (sessions) => <AgentProjectMatrix sessions={sessions} />,
+  "duration-beeswarm": (sessions) => <DurationBeeswarm sessions={sessions} />,
 };
 
 const STATUS_STYLE: Record<string, string> = {
