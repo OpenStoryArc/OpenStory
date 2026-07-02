@@ -25,6 +25,31 @@ metronome/attention-pacing work reads the user's rhythm off the same spine the
 agent events are on; "the user's attention" becomes a first-class, replayable
 event source, not a side channel.
 
+**Sovereignty invariant (NON-NEGOTIABLE — do not break the soul).** Sharing the
+*transport* must not commingle the *data domains*. Two strictly-partitioned
+namespaces on the one bus:
+- `events.*` = **OBSERVED** agent activity — watcher-sourced, **read-only**.
+  Only the translate step (watched file → CloudEvent) ever publishes here.
+- `ui.*` / `overlay.*` = **AUTHORED** — interactions, control, annotations
+  (the user/agent acting *on the mirror*, never on the watched source).
+
+The invariant: **no code path in the authored namespace may ever write into,
+mutate, or masquerade as the observed namespace.** Publishers are partitioned by
+construction (interaction path → `ui.*` only; observe path → `events.*` only);
+sinks stay separate (observed → EventStore agent tables; authored → the
+`openstory-ui` viewing session + `annotations.jsonl`), and the JSONL escape
+hatch stays partitioned too. This is exactly how annotations already work (a
+separate overlay namespace) — extend that discipline to interactions/control.
+
+**Absolute data federation.** Across the fleet the two domains federate
+*separately*: a peer's observed agent data mirrors in as read-only (as today);
+authored/interaction data is the user's own — federated under the existing
+share/consent policy, never injected into anyone's observed stream. "Observe,
+never interfere" is a statement about the observed SOURCE; putting interactions
+on the bus is a NEW parallel stream in a separate namespace, so the read-only-on-
+agent-data soul is preserved by construction. Any design that can't guarantee
+this partition is rejected.
+
 **Transport — SSE is a strong fit (Max's instinct).** The UI is a pure *sink*
 (it only receives on the socket; its writes go via REST POST). SSE is a
 one-way server→browser stream over plain HTTP — exactly that shape — and it's
