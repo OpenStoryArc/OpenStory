@@ -3,7 +3,8 @@
  *  LLM). Answers drill through to Explore. Free-text natural language would need
  *  an LLM proxy (a later step, still read-only). */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { controlActions$ } from "@/streams/control";
 import type { HashRoute } from "@/lib/hash-route";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { isSubagentSession } from "@/lib/subagents";
@@ -17,6 +18,16 @@ export function AskView({ onNavigate }: { onNavigate: (route: HashRoute) => void
   const nowMs = useMemo(() => Date.now(), []);
   const [qid, setQid] = useState<string>("latest");
   const ans = useMemo(() => answer(universe, qid, nowMs), [universe, qid, nowMs]);
+
+  // Agent-in-UI: apply `ask.question` toggle intents (component-local). Sink only.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "ask.question" && QUESTIONS.some((q) => q.id === a.value)) {
+        setQid(a.value);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 bg-[#1a1b26] text-[#c0caf5]" data-testid="ask-view">
