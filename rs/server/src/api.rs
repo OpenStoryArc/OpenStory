@@ -149,6 +149,14 @@ pub async fn post_interaction(
 
     let s = state.read().await;
     let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
+    // Publish onto the bus in the AUTHORED `ui.*` namespace (NEVER `events.*` —
+    // that's the observed, read-only source), so the interaction stream is a
+    // first-class event source: the MCP can subscribe natively, and it's
+    // replayable like any other event. Best-effort — never blocks the response.
+    let subject = crate::ui_events::ui_subject("interaction", kind, issuer.as_deref());
+    if let Ok(bytes) = serde_json::to_vec(&event) {
+        let _ = s.bus.publish_bytes(&subject, &bytes).await;
+    }
     let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
         interaction: kind.to_string(),
         view,
