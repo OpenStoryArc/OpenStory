@@ -34,6 +34,7 @@ import {
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
 import { controlActions$ } from "@/streams/control";
+import { postInteraction } from "@/lib/interaction";
 import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
 import { sessionTitle } from "@/lib/session-title";
 import { SessionSummaryLoader } from "@/components/viz/SessionSummaryLoader";
@@ -729,6 +730,20 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                     data-index={virtualRow.index}
                     data-turn-card
                     className={focusIndex === virtualRow.index ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
+                    onClick={() => {
+                      // Emit a typed `select` interaction: which turn/eval you
+                      // touched, so an agent can read exactly what you clicked.
+                      const m = (p.metadata ?? {}) as Record<string, unknown>;
+                      const evalObj = m.eval as { content?: string } | undefined;
+                      postInteraction({
+                        kind: "select",
+                        view: "story",
+                        session_id: p.session_id,
+                        turn: typeof m.turn === "number" ? m.turn : undefined,
+                        eventId: p.events[p.events.length - 1],
+                        eval: typeof evalObj?.content === "string" ? evalObj.content.slice(0, 500) : undefined,
+                      });
+                    }}
                   >
                     <TurnCard
                       pattern={p}
