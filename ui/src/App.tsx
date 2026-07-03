@@ -14,6 +14,7 @@ import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
 import { AskView } from "@/components/ask/AskView";
 import { HeatmapView } from "@/components/heatmap/HeatmapView";
 import { LabView } from "@/components/lab/LabView";
+import { EventStormBoard } from "@/components/storm/EventStormBoard";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
@@ -252,6 +253,9 @@ export function App() {
 
       {/* Lab tab */}
       {viewMode === "lab" && <LabView onNavigate={navigate} />}
+
+      {/* Storm tab — Event Storming board (OpenStory explaining itself) */}
+      {viewMode === "storm" && <EventStormBoard />}
 
       {/* Users tab */}
       {viewMode === "users" && <UsersView onNavigate={navigate} />}

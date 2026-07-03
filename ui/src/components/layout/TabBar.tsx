@@ -13,6 +13,7 @@ const TABS: { mode: ViewMode; label: string }[] = [
   { mode: "canvas", label: "Canvas" },
   { mode: "heatmap", label: "Heatmap" },
   { mode: "lab", label: "Lab" },
+  { mode: "storm", label: "Storm" },
   { mode: "ask", label: "Ask" },
   { mode: "explore", label: "Explore" },
   { mode: "story", label: "Story" },
