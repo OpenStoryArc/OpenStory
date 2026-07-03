@@ -234,6 +234,7 @@ export function App() {
           selectedSession={storySession}
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
           eventId={route.eventId}
+          onOpenEvent={(sid, eid) => navigate({ view: "explore", sessionId: sid, eventId: eid })}
         />
       )}
 

@@ -51,6 +51,9 @@ interface StoryViewProps {
   /** Deep-link target: scroll to + highlight the turn whose events include this
    *  id (`#/story/SES/event/ID`). The map principle for the Story view. */
   eventId?: string;
+  /** Drill a turn to its SOURCE — open the event in Explore. Closes the Story
+   *  dead end (the map principle: every turn navigates to where it came from). */
+  onOpenEvent?: (sessionId: string, eventId: string) => void;
 }
 
 const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = [
@@ -115,7 +118,7 @@ function formatRecency(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId }: StoryViewProps) {
+export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId, onOpenEvent }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [activeFilters, setActiveFilters] = useState<Set<StoryCategory>>(new Set());
@@ -769,6 +772,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                       pattern={p}
                       onSelectSession={onSelectSession}
                       isSelectedSession={selectedSession === p.session_id}
+                      onOpenEvent={onOpenEvent ? (eid) => onOpenEvent(p.session_id, eid) : undefined}
                     />
                   </div>
                 );

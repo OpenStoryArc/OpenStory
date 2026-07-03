@@ -109,6 +109,14 @@ export function turnEventIds(pattern: PatternView): readonly string[] {
   return pattern.events;
 }
 
+/** The turn's SOURCE event — where "click all the way into the turn" lands. The
+ *  culminating (last) event is the turn's payoff; null when the turn has no
+ *  events. The map principle: a Story turn is never a dead end. */
+export function turnDrillTarget(pattern: PatternView): string | null {
+  const ev = pattern.events;
+  return ev.length > 0 ? ev[ev.length - 1]! : null;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Turn-in-progress detection
 // ═══════════════════════════════════════════════════════════════════
