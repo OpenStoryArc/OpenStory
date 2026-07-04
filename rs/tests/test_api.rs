@@ -492,6 +492,53 @@ async fn test_summary_exposes_the_parent_of_a_subagent_session() {
 }
 
 #[tokio::test]
+async fn test_summary_names_the_first_error_event() {
+    // The error→event edge: "3 failed" is not a number, it's a place —
+    // /summary carries the earliest failure's event id so every surface
+    // can land on it.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let mut payload = open_story::event_data::ClaudeCodePayload::new();
+        payload.text = None;
+        let data = open_story::event_data::EventData::with_payload(
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": "boom", "is_error": true}
+            ]}}),
+            1,
+            "sess-err".to_string(),
+            open_story::event_data::AgentPayload::ClaudeCode(payload),
+        );
+        let event = open_story_core::cloud_event::CloudEvent::new(
+            "arc://transcript/sess-err".to_string(),
+            "io.arc.event".to_string(),
+            data,
+            Some("message.user.tool_result".to_string()),
+            Some("evt-boom".to_string()),
+            Some("2026-01-01T00:00:01Z".to_string()),
+            None,
+            None,
+            None,
+        );
+        seed_and_ingest(&mut s, "sess-err", &[event], None).await;
+    }
+
+    let summary = body_json(
+        send_request(
+            state,
+            Request::get("/api/sessions/sess-err/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(summary["first_error_event_id"], "evt-boom");
+}
+
+#[tokio::test]
 async fn test_get_tool_schemas() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);

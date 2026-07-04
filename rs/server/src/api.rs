@@ -869,9 +869,10 @@ pub async fn get_summary(
                 .into_iter()
                 .map(|(path, count)| json!({"path": path, "count": count}))
                 .collect();
+            let first_error = p.first_error_event_id().map(|s| s.to_string());
             (
                 p.summary(&session_id, Some(Utc::now())),
-                Some((p.turn_count(), tokens, top_files)),
+                Some((p.turn_count(), tokens, top_files, first_error)),
             )
         }
         None => {
@@ -938,11 +939,14 @@ pub async fn get_summary(
         "response_count": summary.response_count,
         "project_id": project_id,
     });
-    if let Some((turn_count, tokens, top_files)) = extras {
+    if let Some((turn_count, tokens, top_files, first_error)) = extras {
         let obj = body.as_object_mut().expect("body is an object");
         obj.insert("turn_count".to_string(), json!(turn_count));
         obj.insert("tokens".to_string(), tokens);
         obj.insert("top_files".to_string(), json!(top_files));
+        if let Some(err_id) = first_error {
+            obj.insert("first_error_event_id".to_string(), json!(err_id));
+        }
     }
     if let Some(parent) = parent_session_id {
         let obj = body.as_object_mut().expect("body is an object");

@@ -73,6 +73,18 @@ describe("when the session is a spawned subagent", () => {
     ));
 });
 
+describe("when the session had failures", () => {
+  it("should name the first error's event and the session (the jump target)", () =>
+    scenario(
+      () => ({ ...API_PAYLOAD, first_error_event_id: "evt-boom" }),
+      (payload) => summaryFromApi(payload),
+      (s) => {
+        expect(s.firstErrorEventId).toBe("evt-boom");
+        expect(s.sessionId).toBe("sess-1");
+      },
+    ));
+});
+
 describe("when the payload has an explicit duration", () => {
   it("should prefer it over the timestamp span", () =>
     scenario(

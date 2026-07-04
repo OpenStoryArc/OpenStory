@@ -50,7 +50,7 @@ export const ENTITY_EDGES: readonly DataEdge[] = [
   { from: "toolcall", to: "result", label: "paired ⇄", via: "focus_event", note: "card ⇄ link jumps the round trip (tool-pair map)" },
   { from: "toolcall", to: "file", label: "writes", via: null },
   { from: "file", to: "session", label: "impact ↺", via: "query", note: "#/search?q=path — facet link + seam searchQuery" },
-  { from: "error", to: "event", label: "locus", via: null, note: "partial via summary jump-to-error" },
+  { from: "error", to: "event", label: "locus", via: "focus_event", note: "summary \"failed →\" deep-links the first-error event everywhere" },
   { from: "plan", to: "turn", label: "authored by", via: null },
 ];
 

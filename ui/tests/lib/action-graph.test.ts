@@ -55,20 +55,24 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("focus_event");
   });
 
+  it("includes the error→event edge — a failure count is a place (via focus_event)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "error" && x.to === "event");
+    expect(e?.via).toBe("focus_event");
+  });
+
   it("still has the known dead ends (data connected, UI isn't)", () => {
     const report = navigabilityReport(ENTITY_EDGES);
     const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
     // the branches that stop in mid-air, from the picture
     expect(deadLabels.has("plan->turn")).toBe(true);
     expect(deadLabels.has("toolcall->file")).toBe(true);
-    expect(deadLabels.has("error->event")).toBe(true);
   });
 
-  it("reports the canopy's growth — 12/15 realized, 3 branches left", () => {
+  it("reports the canopy's growth — 13/15 realized, 2 branches left", () => {
     const r = navigabilityReport(ENTITY_EDGES);
     expect(r.total).toBe(15);
-    expect(r.realized.length).toBe(12);
-    expect(r.deadEnds.length).toBe(3);
-    expect(r.coverage).toBeCloseTo(12 / 15);
+    expect(r.realized.length).toBe(13);
+    expect(r.deadEnds.length).toBe(2);
+    expect(r.coverage).toBeCloseTo(13 / 15);
   });
 });

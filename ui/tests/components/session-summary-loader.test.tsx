@@ -57,6 +57,21 @@ describe("SessionSummaryLoader", () => {
     expect(screen.queryByTestId("parent-session-link")).toBeNull();
   });
 
+  it("links '(n) failed' to the exact first-error event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ ...SUMMARY, error_count: 2, first_error_event_id: "evt-boom" }),
+      })),
+    );
+    render(<SessionSummaryLoader sessionId="s1" />);
+    await waitFor(() => expect(screen.getByTestId("summary-errors")).toBeInTheDocument());
+    expect(screen.getByTestId("summary-errors").getAttribute("href")).toBe(
+      "#/explore/s1/event/evt-boom",
+    );
+  });
+
   it("renders nothing when the session has no events", async () => {
     vi.stubGlobal(
       "fetch",

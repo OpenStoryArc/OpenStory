@@ -45,6 +45,10 @@ export interface SessionSummary {
   /** Spawner session when this is a subagent (null for root sessions).
    *  Only the API summary knows this — the records fold reports null. */
   readonly parentSessionId: string | null;
+  /** The session these stats describe — jump targets need it for hrefs. */
+  readonly sessionId: string | null;
+  /** Event id of the earliest failure — the error→event jump target. */
+  readonly firstErrorEventId: string | null;
 }
 
 /** File path from a file-touching tool input, else null. */
@@ -86,6 +90,7 @@ export interface ApiSessionSummary {
   };
   readonly top_files?: readonly { path: string; count: number }[];
   readonly parent_session_id?: string | null;
+  readonly first_error_event_id?: string | null;
 }
 
 /** Map the /summary payload into the same SessionSummary the records fold
@@ -112,6 +117,8 @@ export function summaryFromApi(api: ApiSessionSummary): SessionSummary {
     model: api.model ?? null,
     topFiles: (api.top_files ?? []).map(({ path, count }) => ({ path, count })),
     parentSessionId: api.parent_session_id ?? null,
+    sessionId: api.session_id ?? null,
+    firstErrorEventId: api.first_error_event_id ?? null,
   };
 }
 
@@ -194,5 +201,7 @@ export function buildSessionSummary(records: readonly WireRecord[]): SessionSumm
     model,
     topFiles,
     parentSessionId: null,
+    sessionId: records[0]?.session_id ?? null,
+    firstErrorEventId: firstErrorEventId(records),
   };
 }

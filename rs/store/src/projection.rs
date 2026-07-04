@@ -183,6 +183,8 @@ pub struct SessionProjection {
     file_touches: HashMap<String, usize>,
     /// Incremental `session_summary` fold — makes /summary O(1) to serve.
     summary_acc: SummaryAccumulator,
+    /// Event id of the earliest failure (error record or errored tool result).
+    first_error_event_id: Option<String>,
 }
 
 /// Result of appending a CloudEvent to the projection.
@@ -236,6 +238,7 @@ impl SessionProjection {
             turn_count: 0,
             file_touches: HashMap::new(),
             summary_acc: SummaryAccumulator::new(),
+            first_error_event_id: None,
         }
     }
 
@@ -305,6 +308,16 @@ impl SessionProjection {
                 }
                 RecordBody::TurnEnd(_) => {
                     self.turn_count += 1;
+                }
+                RecordBody::Error(_) => {
+                    if self.first_error_event_id.is_none() {
+                        self.first_error_event_id = Some(vr.id.clone());
+                    }
+                }
+                RecordBody::ToolResult(tr) if tr.is_error => {
+                    if self.first_error_event_id.is_none() {
+                        self.first_error_event_id = Some(vr.id.clone());
+                    }
                 }
                 RecordBody::ToolCall(tc) => {
                     let path = match &tc.typed_input {
@@ -462,6 +475,11 @@ impl SessionProjection {
     /// Completed turns so far.
     pub fn turn_count(&self) -> usize {
         self.turn_count
+    }
+
+    /// Event id of the earliest failure, if any — the error→event jump target.
+    pub fn first_error_event_id(&self) -> Option<&str> {
+        self.first_error_event_id.as_deref()
     }
 
     /// The `n` most-touched files: (path, touch count), most-touched first,
@@ -876,6 +894,35 @@ mod tests {
         assert_eq!(proj.total_input_tokens(), 100);
         assert_eq!(proj.total_output_tokens(), 50);
         assert_eq!(proj.top_files(5), vec![("/src/main.rs".to_string(), 2)]);
+    }
+
+    #[test]
+    fn projection_tracks_the_first_error_event() {
+        // The error→event edge: the summary names the exact event of the
+        // earliest failure so any surface can jump straight to it.
+        let mut proj = SessionProjection::new("sess-x");
+        assert_eq!(proj.first_error_event_id(), None);
+
+        proj.append(&raw_event(
+            "ok-1",
+            1,
+            "message.user.prompt",
+            json!({"raw": {"type": "user", "message": {"role": "user", "content": "hi"}}}),
+        ));
+        // Failures arrive as errored tool_results (claude-code shape) — the
+        // views layer never mints RecordBody::Error for this agent.
+        let errored = |id: &str, seq: u64| raw_event(
+            id,
+            seq,
+            "message.user.tool_result",
+            json!({"raw": {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": "boom", "is_error": true}
+            ]}}}),
+        );
+        proj.append(&errored("err-1", 2));
+        proj.append(&errored("err-2", 3));
+
+        assert_eq!(proj.first_error_event_id(), Some("err-1"));
     }
 
     #[test]

@@ -75,6 +75,18 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
             <span className="tabular-nums">{s.errorCount}</span>
             <span>{" "}failed →</span>
           </button>
+        ) : s.firstErrorEventId && s.sessionId ? (
+          // error→event: even without a scroll callback, "n failed" is a
+          // PLACE — deep-link to the exact first-failure event.
+          <a
+            href={`#/explore/${s.sessionId}/event/${s.firstErrorEventId}`}
+            data-testid="summary-errors"
+            className="flex items-baseline gap-1 text-[#f7768e] hover:underline"
+            title="Open the first failure"
+          >
+            <span className="tabular-nums">{s.errorCount}</span>
+            <span>{" "}failed →</span>
+          </a>
         ) : (
           <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
             <span className="tabular-nums">{s.errorCount}</span>
