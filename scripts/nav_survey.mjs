@@ -44,11 +44,12 @@ function drivableEdges(sid, eid) {
     { edge: "subagent→session", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid }], lands: new RegExp(`explore/${sid}`) },
     { edge: "toolcall→result", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "explore" }], lands: new RegExp(`event/${eid}`) },
     { edge: "error→event", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "explore" }], lands: new RegExp(`event/${eid}`) },
+    { edge: "plan→turn", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "story" }], lands: new RegExp(`story/${sid}/event/${eid}`) },
   ];
 }
 // structural dead ends (via:null) — no verb walks them yet.
 const DEAD_ENDS = [
-  "toolcall→file (writes)", "plan→turn (authored by)",
+  "toolcall→file (writes)",
 ];
 
 // Chromium: prefer OPEN_STORY_CHROME, else the legacy snapshot path, else

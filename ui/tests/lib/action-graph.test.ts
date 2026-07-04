@@ -60,19 +60,22 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("focus_event");
   });
 
-  it("still has the known dead ends (data connected, UI isn't)", () => {
-    const report = navigabilityReport(ENTITY_EDGES);
-    const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
-    // the branches that stop in mid-air, from the picture
-    expect(deadLabels.has("plan->turn")).toBe(true);
-    expect(deadLabels.has("toolcall->file")).toBe(true);
+  it("includes the plan→turn edge — a plan opens its authoring turn (via focus_event)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "plan" && x.to === "turn");
+    expect(e?.via).toBe("focus_event");
   });
 
-  it("reports the canopy's growth — 13/15 realized, 2 branches left", () => {
+  it("has ONE dead end left (data connected, UI isn't)", () => {
+    const report = navigabilityReport(ENTITY_EDGES);
+    const deadLabels = report.deadEnds.map((e) => `${e.from}->${e.to}`);
+    expect(deadLabels).toEqual(["toolcall->file"]);
+  });
+
+  it("reports the canopy's growth — 14/15 realized, one branch left", () => {
     const r = navigabilityReport(ENTITY_EDGES);
     expect(r.total).toBe(15);
-    expect(r.realized.length).toBe(13);
-    expect(r.deadEnds.length).toBe(2);
-    expect(r.coverage).toBeCloseTo(13 / 15);
+    expect(r.realized.length).toBe(14);
+    expect(r.deadEnds.length).toBe(1);
+    expect(r.coverage).toBeCloseTo(14 / 15);
   });
 });
