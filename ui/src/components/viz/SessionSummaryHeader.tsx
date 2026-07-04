@@ -9,7 +9,7 @@
 import { useMemo } from "react";
 import type { WireRecord } from "@/types/wire-record";
 import { buildSessionSummary, type SessionSummary } from "@/lib/session-summary";
-import { formatDuration } from "@/lib/time";
+import { formatDuration, fullTimestamp } from "@/lib/time";
 import { cn } from "@/lib/cn";
 
 interface StripProps {
@@ -59,7 +59,19 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
       {s.model && (
         <span className="rounded bg-[#7aa2f7]/15 px-1.5 py-0.5 font-mono text-[10px] text-[#7aa2f7]">{shortModel(s.model)}</span>
       )}
-      {s.durationMs > 0 && <Stat label="" value={formatDuration(s.durationMs)} />}
+      {s.durationMs > 0 && (
+        <span
+          data-testid="summary-duration"
+          className="tabular-nums"
+          title={
+            s.startMs !== null && s.endMs !== null
+              ? `${fullTimestamp(new Date(s.startMs).toISOString())} → ${fullTimestamp(new Date(s.endMs).toISOString())}`
+              : undefined
+          }
+        >
+          {formatDuration(s.durationMs)}
+        </span>
+      )}
       {s.turnCount > 0 && <Stat label={s.turnCount === 1 ? "turn" : "turns"} value={String(s.turnCount)} />}
       <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} color="#7dcfff" />
       {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} color="#e0af68" />}

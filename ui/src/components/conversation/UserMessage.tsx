@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { userMessageView } from "@/lib/harness-message";
 import { Markdown } from "@/components/ui/Markdown";
 
@@ -22,7 +22,7 @@ export const UserMessage = memo(function UserMessage({
           <span className="text-xs font-medium text-[#7aa2f7]">User</span>
           {timestamp && (
             <span className="text-xs text-[#565f89]">
-              {compactTime(timestamp)}
+              <span title={fullTimestamp(timestamp)}>{compactTime(timestamp)}</span>
             </span>
           )}
         </div>

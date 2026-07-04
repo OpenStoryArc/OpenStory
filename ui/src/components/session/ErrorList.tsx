@@ -1,6 +1,6 @@
 /** Timestamped error messages for a session. */
 
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { truncateError, type SessionError } from "@/lib/session-detail";
 
 interface ErrorListProps {
@@ -21,7 +21,7 @@ export function ErrorList({ errors }: ErrorListProps) {
             key={`${e.timestamp}-${i}`}
             className="text-xs bg-[#f7768e10] rounded px-2 py-1.5 font-mono"
           >
-            <span className="text-[#565f89] mr-2">{compactTime(e.timestamp)}</span>
+            <span className="text-[#565f89] mr-2" title={fullTimestamp(e.timestamp)}>{compactTime(e.timestamp)}</span>
             <span className="text-[#f7768e]">{truncateError(e.message)}</span>
           </div>
         ))}

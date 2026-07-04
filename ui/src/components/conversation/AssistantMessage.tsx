@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { Markdown } from "@/components/ui/Markdown";
 
 interface AssistantMessageProps {
@@ -38,7 +38,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           </span>
           {timestamp && (
             <span className="text-xs text-[#565f89]">
-              {compactTime(timestamp)}
+              <span title={fullTimestamp(timestamp)}>{compactTime(timestamp)}</span>
             </span>
           )}
           {model && (

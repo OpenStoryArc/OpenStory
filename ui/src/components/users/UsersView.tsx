@@ -18,7 +18,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchUsers, type UserSummary, type UsersResponse } from "@/lib/users-api";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { sessionColor } from "@/lib/session-colors";
 import { personColor } from "@/lib/person-color";
 import { projectColor } from "@/lib/project-color";
@@ -169,7 +169,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
           >
             @{user.user}
           </button>
-          <span className="text-[10px] text-[#565f89]">{lastActiveLabel}</span>
+          <span className="text-[10px] text-[#565f89]" title={user.last_active ? fullTimestamp(user.last_active) : undefined}>{lastActiveLabel}</span>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-[#565f89] flex-wrap">
           <span>
@@ -275,7 +275,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
                 <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#565f89]">
                   <span>{s.event_count} events</span>
                   {s.last_event && (
-                    <span>{compactTime(s.last_event)}</span>
+                    <span title={fullTimestamp(s.last_event)}>{compactTime(s.last_event)}</span>
                   )}
                   {s.project_name && (
                     <span className="text-[#73daca] truncate">

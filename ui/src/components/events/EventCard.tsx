@@ -8,7 +8,7 @@
 import type { TimelineRow } from "@/lib/timeline";
 import type { ViewRecord, ToolCall } from "@/types/view-record";
 import { detectLanguage } from "@/lib/detect-language";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { buildHash } from "@/lib/hash-route";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -481,7 +481,11 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
               {row.summary.length > 80 ? row.summary.slice(0, 80) + "..." : row.summary}
             </span>
           )}
-          <span className="ml-auto text-[10px] text-[#565f89] font-mono shrink-0">
+          <span
+            className="ml-auto text-[10px] text-[#565f89] font-mono shrink-0"
+            data-testid="event-time"
+            title={fullTimestamp(row.timestamp)}
+          >
             {compactTime(row.timestamp)}
           </span>
         </div>

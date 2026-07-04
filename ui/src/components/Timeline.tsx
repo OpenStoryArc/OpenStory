@@ -14,7 +14,7 @@ import { dispatchSessionRecordsLoaded } from "@/streams/sessions";
 import { streamSessionRecords } from "@/lib/session-records";
 import type { WireRecord } from "@/types/wire-record";
 import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/timeline";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { CardBody } from "@/components/events/EventCard";
 import { TIMELINE_FILTERS, FILTER_GROUPS } from "@/lib/timeline-filters";
 import { FILTER_LABELS, FILTER_TOOLTIPS, PATTERN_LABELS, PATTERN_TOOLTIPS } from "@/lib/ui-labels";
@@ -233,7 +233,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
               )}
               <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <span className="text-[10px] text-[#565f89] font-mono">
-                  {compactTime(row.timestamp)}
+                  <span title={fullTimestamp(row.timestamp)}>{compactTime(row.timestamp)}</span>
                 </span>
                 {onExploreLink && (
                   <button
