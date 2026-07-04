@@ -50,19 +50,25 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("open_view");
   });
 
+  it("includes the toolcall→result edge — the round-trip jump (via focus_event)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "toolcall" && x.to === "result");
+    expect(e?.via).toBe("focus_event");
+  });
+
   it("still has the known dead ends (data connected, UI isn't)", () => {
     const report = navigabilityReport(ENTITY_EDGES);
     const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
     // the branches that stop in mid-air, from the picture
     expect(deadLabels.has("plan->turn")).toBe(true);
-    expect(deadLabels.has("toolcall->result")).toBe(true);
+    expect(deadLabels.has("toolcall->file")).toBe(true);
     expect(deadLabels.has("error->event")).toBe(true);
   });
 
-  it("reports partial coverage — the canopy is half-grown", () => {
+  it("reports the canopy's growth — 12/15 realized, 3 branches left", () => {
     const r = navigabilityReport(ENTITY_EDGES);
-    expect(r.total).toBeGreaterThan(10);
-    expect(r.coverage).toBeGreaterThan(0.3);
-    expect(r.coverage).toBeLessThan(0.8);
+    expect(r.total).toBe(15);
+    expect(r.realized.length).toBe(12);
+    expect(r.deadEnds.length).toBe(3);
+    expect(r.coverage).toBeCloseTo(12 / 15);
   });
 });

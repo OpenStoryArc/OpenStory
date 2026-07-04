@@ -42,11 +42,11 @@ function drivableEdges(sid, eid) {
     { edge: "event→turn", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "story" }], lands: new RegExp(`story/${sid}/event/${eid}`) },
     { edge: "file→session", via: "query", ctrl: ["open_view", { view: "explore", detailView: "search", searchQuery: "App.tsx" }], lands: /search\?q=App/ },
     { edge: "subagent→session", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid }], lands: new RegExp(`explore/${sid}`) },
+    { edge: "toolcall→result", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "explore" }], lands: new RegExp(`event/${eid}`) },
   ];
 }
 // structural dead ends (via:null) — no verb walks them yet.
 const DEAD_ENDS = [
-  "toolcall→result (paired)",
   "toolcall→file (writes)", "error→event (locus)", "plan→turn (authored by)",
 ];
 

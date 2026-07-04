@@ -429,9 +429,11 @@ interface EventCardRowProps {
   selected?: boolean;
   /** Called when the row is clicked (for expand/collapse). */
   onClick?: () => void;
+  /** Event id of this record's tool round-trip partner (call↔result). */
+  pairedEventId?: string;
 }
 
-export function EventCardRow({ row, compact = false, selected = false, onClick }: EventCardRowProps) {
+export function EventCardRow({ row, compact = false, selected = false, onClick, pairedEventId }: EventCardRowProps) {
   if (row.category === "turn") {
     return (
       <div className="flex items-center px-4 py-2">
@@ -503,6 +505,22 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
             >
               ↑ Turn in Story
             </a>
+            {/* toolcall↔result: jump across the round trip. */}
+            {pairedEventId && (
+              <a
+                href={buildHash({
+                  view: "explore",
+                  sessionId: (row.record as ViewRecord).session_id,
+                  eventId: pairedEventId,
+                })}
+                data-testid="event-pair-link"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-3 mt-1 inline-block text-[10px] text-[#7dcfff] hover:underline"
+                title="Jump across the tool round trip"
+              >
+                ⇄ {row.record.record_type === "tool_call" ? "result" : "call"}
+              </a>
+            )}
           </div>
         )}
       </div>

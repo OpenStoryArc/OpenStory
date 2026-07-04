@@ -41,3 +41,16 @@ describe("when the card is compact", () => {
     expect(screen.queryByTestId("event-story-turn-link")).toBeNull();
   });
 });
+
+describe("when an expanded tool card knows its paired event", () => {
+  it("should link across the round trip (toolcall↔result)", () => {
+    render(<EventCardRow row={row()} pairedEventId="evt-result-7" />);
+    const link = screen.getByTestId("event-pair-link");
+    expect(link.getAttribute("href")).toBe("#/explore/sess-story/event/evt-result-7");
+  });
+
+  it("should offer no pair link without a partner", () => {
+    render(<EventCardRow row={row()} />);
+    expect(screen.queryByTestId("event-pair-link")).toBeNull();
+  });
+});

@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useSessionRecords } from "@/hooks/use-session-records";
+import { toolPairMap } from "@/lib/tool-pair";
 import { toTimelineRows } from "@/lib/timeline";
 import { filterNoise } from "@/lib/explore-filters";
 import { buildEventGraph, applyFacets, fileFacets, toolFacets, planFacets, type ActiveFacets } from "@/lib/event-graph";
@@ -28,6 +29,8 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   const { records: rawRecords, loading } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
+  // toolcall↔result: each record's round-trip partner, for the ⇄ jump.
+  const pairMap = useMemo(() => toolPairMap(rawRecords), [rawRecords]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Facet state
@@ -307,6 +310,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
                   compact={!expandedIds.has(row.id)}
                   selected={eventsFocused && selectedIndex === i}
                   onClick={() => { toggleExpand(row.id); setSelectedIndex(i); scrollContainerRef.current?.focus(); }}
+                  pairedEventId={pairMap.get(row.id)}
                 />
               </div>
             ))
