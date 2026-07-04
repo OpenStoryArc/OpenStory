@@ -489,7 +489,7 @@ fn uuid_short() -> String {
 // behavior is proven by the testcontainer lab. See
 // docs/research/jetstream-sources-federation.md.
 
-const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
+const EVENTS_MAX_BYTES: i64 = 2_147_483_648; // 2 GiB — see deploy/nats-leaf.conf max_file
 
 /// The local `events` stream this node publishes into.
 ///
@@ -1175,6 +1175,22 @@ mod federation_config_tests {
         let cfg = events_aggregate_config();
         assert_eq!(cfg.name, "events-agg");
         assert!(cfg.subjects.is_empty());
+    }
+
+    #[test]
+    fn events_family_streams_share_a_2gib_cap() {
+        // Every events-family stream draws its byte cap from EVENTS_MAX_BYTES.
+        // 2 GiB (up from 1 GiB) buys more headroom before the Limits discard
+        // policy can strand a lagging consumer behind the stream's first_seq —
+        // the wedge that silently stopped ingestion for a week. The NATS
+        // `max_file` budget in deploy/nats-leaf.conf must stay >= 3× this cap
+        // (events + local + events-mirror) + patterns (256 MB).
+        const TWO_GIB: i64 = 2 * 1024 * 1024 * 1024;
+        assert_eq!(EVENTS_MAX_BYTES, TWO_GIB);
+        assert_eq!(events_stream_config("maxs-air", true).max_bytes, TWO_GIB);
+        assert_eq!(local_stream_config().max_bytes, TWO_GIB);
+        assert_eq!(events_mirror_config("hub").max_bytes, TWO_GIB);
+        assert_eq!(events_aggregate_config().max_bytes, TWO_GIB);
     }
 
     // ── self-registration merge (decentralized enumeration, Option 3) ──────
