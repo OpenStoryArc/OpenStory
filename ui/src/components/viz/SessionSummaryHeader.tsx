@@ -8,17 +8,21 @@
 
 import { useMemo } from "react";
 import type { WireRecord } from "@/types/wire-record";
-import { buildSessionSummary } from "@/lib/session-summary";
+import { buildSessionSummary, type SessionSummary } from "@/lib/session-summary";
 import { formatDuration } from "@/lib/time";
 import { cn } from "@/lib/cn";
 
-interface Props {
-  records: readonly WireRecord[];
+interface StripProps {
+  summary: SessionSummary;
   className?: string;
   /** When set, the errors stat becomes a button that jumps to the first failure. */
   onJumpToError?: () => void;
   /** When set, the top-file stat becomes a button that filters events to it. */
   onFilterFile?: (path: string) => void;
+}
+
+interface Props extends Omit<StripProps, "summary"> {
+  records: readonly WireRecord[];
 }
 
 function kfmt(n: number): string {
@@ -40,8 +44,14 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   );
 }
 
-export function SessionSummaryHeader({ records, className, onJumpToError, onFilterFile }: Props) {
-  const s = useMemo(() => buildSessionSummary(records), [records]);
+/** Folds records into a summary, then renders the strip. Use SummaryStrip
+ *  directly when the summary is already in hand (e.g. from /summary). */
+export function SessionSummaryHeader({ records, ...rest }: Props) {
+  const summary = useMemo(() => buildSessionSummary(records), [records]);
+  return <SummaryStrip summary={summary} {...rest} />;
+}
+
+export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFile }: StripProps) {
   const topFile = s.topFiles[0];
 
   return (

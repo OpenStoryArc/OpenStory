@@ -1,12 +1,25 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { SessionSummaryLoader } from "@/components/viz/SessionSummaryLoader";
+import { SessionSummaryLoader, sessionSummaryCache } from "@/components/viz/SessionSummaryLoader";
 
-const RECORDS = [
-  { id: "e1", seq: 1, session_id: "s1", timestamp: "2026-06-30T10:00:00.000Z", record_type: "assistant_message", payload: { model: "claude-opus-4-8", content: [] }, origin_agent: "claude-code", agent_id: null, is_sidechain: false, depth: 0, parent_uuid: null, truncated: false, payload_bytes: 50 },
-  { id: "e2", seq: 2, session_id: "s1", timestamp: "2026-06-30T10:00:30.000Z", record_type: "tool_call", payload: { call_id: "c1", name: "Bash", typed_input: { tool: "bash", command: "x" } }, origin_agent: "claude-code", agent_id: null, is_sidechain: false, depth: 0, parent_uuid: null, truncated: false, payload_bytes: 50 },
-];
+/** The loader reads GET /api/sessions/{id}/summary (the ~600 B projection
+ *  read), never the whole-session records. */
+const SUMMARY = {
+  session_id: "s1",
+  status: "completed",
+  start_time: "2026-06-30T10:00:00.000Z",
+  last_event: "2026-06-30T10:00:30.000Z",
+  duration_ms: null,
+  event_count: 2,
+  error_count: 0,
+  tool_calls: 1,
+  turn_count: 1,
+  model: "claude-opus-4-8",
+  tokens: { input: 10, output: 5, cache_creation: 0, cache_read: 0, total: 15 },
+  top_files: [],
+};
 
+beforeEach(() => sessionSummaryCache.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("SessionSummaryLoader", () => {
@@ -17,13 +30,19 @@ describe("SessionSummaryLoader", () => {
     const { container } = render(<SessionSummaryLoader sessionId="s1" />);
     expect(screen.getByTestId("summary-loading")).toBeInTheDocument();
 
-    resolve({ ok: true, json: async () => RECORDS });
+    resolve({ ok: true, json: async () => SUMMARY });
     await waitFor(() => expect(screen.getByText(/opus-4-8/)).toBeInTheDocument());
     expect(container).toHaveTextContent(/1 tool/i);
   });
 
-  it("renders nothing when the session has no records", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => [] })));
+  it("renders nothing when the session has no events", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ ...SUMMARY, session_id: "empty", event_count: 0 }),
+      })),
+    );
     const { container } = render(<SessionSummaryLoader sessionId="empty" />);
     await waitFor(() => expect(screen.queryByTestId("summary-loading")).toBeNull());
     expect(container).toBeEmptyDOMElement();

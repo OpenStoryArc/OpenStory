@@ -60,6 +60,56 @@ function filePathOf(call: ToolCall): string | null {
   }
 }
 
+/** Shape of GET /api/sessions/{id}/summary. Extras (turn_count, tokens,
+ *  top_files) are present when the server serves from its projection;
+ *  absent on the fallback path — the mapper degrades to zeros. */
+export interface ApiSessionSummary {
+  readonly session_id: string;
+  readonly status: string;
+  readonly start_time?: string | null;
+  readonly last_event?: string | null;
+  readonly duration_ms?: number | null;
+  readonly event_count: number;
+  readonly error_count: number;
+  readonly tool_calls: number;
+  readonly model?: string | null;
+  readonly turn_count?: number;
+  readonly tokens?: {
+    readonly input: number;
+    readonly output: number;
+    readonly cache_creation: number;
+    readonly cache_read: number;
+    readonly total: number;
+  };
+  readonly top_files?: readonly { path: string; count: number }[];
+}
+
+/** Map the /summary payload into the same SessionSummary the records fold
+ *  produces, so one header component serves both sources. */
+export function summaryFromApi(api: ApiSessionSummary): SessionSummary {
+  const startMs = api.start_time ? Date.parse(api.start_time) : NaN;
+  const endMs = api.last_event ? Date.parse(api.last_event) : NaN;
+  const spanMs =
+    Number.isFinite(startMs) && Number.isFinite(endMs) ? endMs - startMs : 0;
+  const t = api.tokens;
+  return {
+    eventCount: api.event_count,
+    toolCount: api.tool_calls,
+    errorCount: api.error_count,
+    turnCount: api.turn_count ?? 0,
+    startMs: Number.isFinite(startMs) ? startMs : null,
+    endMs: Number.isFinite(endMs) ? endMs : null,
+    durationMs: api.duration_ms ?? spanMs,
+    inputTokens: t?.input ?? 0,
+    outputTokens: t?.output ?? 0,
+    cacheCreationTokens: t?.cache_creation ?? 0,
+    cacheReadTokens: t?.cache_read ?? 0,
+    totalTokens: t?.total ?? 0,
+    model: api.model ?? null,
+    topFiles: (api.top_files ?? []).map(({ path, count }) => ({ path, count })),
+  };
+}
+
 export function buildSessionSummary(records: readonly WireRecord[]): SessionSummary {
   let toolCount = 0;
   let errorCount = 0;
