@@ -57,6 +57,22 @@ describe("when the /summary payload carries the projection extras", () => {
     ));
 });
 
+describe("when the session is a spawned subagent", () => {
+  it("should carry the parent session id (the climb to the spawner)", () =>
+    scenario(
+      () => ({ ...API_PAYLOAD, parent_session_id: "parent-123" }),
+      (payload) => summaryFromApi(payload),
+      (s) => expect(s.parentSessionId).toBe("parent-123"),
+    ));
+
+  it("should be null for a root session", () =>
+    scenario(
+      () => API_PAYLOAD,
+      (payload) => summaryFromApi(payload),
+      (s) => expect(s.parentSessionId).toBeNull(),
+    ));
+});
+
 describe("when the payload has an explicit duration", () => {
   it("should prefer it over the timestamp span", () =>
     scenario(

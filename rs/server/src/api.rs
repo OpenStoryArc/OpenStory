@@ -915,6 +915,12 @@ pub async fn get_summary(
         .session_projects
         .get(&session_id)
         .map(|r| r.value().clone());
+    // The subagent→parent edge: a spawned agent's session names its spawner.
+    let parent_session_id = s
+        .store
+        .subagent_parents
+        .get(&session_id)
+        .map(|r| r.value().clone());
     let mut body = json!({
         "session_id": summary.session_id,
         "status": status,
@@ -937,6 +943,10 @@ pub async fn get_summary(
         obj.insert("turn_count".to_string(), json!(turn_count));
         obj.insert("tokens".to_string(), tokens);
         obj.insert("top_files".to_string(), json!(top_files));
+    }
+    if let Some(parent) = parent_session_id {
+        let obj = body.as_object_mut().expect("body is an object");
+        obj.insert("parent_session_id".to_string(), json!(parent));
     }
     Json(body)
 }

@@ -45,13 +45,18 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("query");
   });
 
+  it("includes the subagent→session edge — climb to the spawner (via open_view)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "subagent" && x.to === "session");
+    expect(e?.via).toBe("open_view");
+  });
+
   it("still has the known dead ends (data connected, UI isn't)", () => {
     const report = navigabilityReport(ENTITY_EDGES);
     const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
     // the branches that stop in mid-air, from the picture
-    expect(deadLabels.has("subagent->session")).toBe(true);
     expect(deadLabels.has("plan->turn")).toBe(true);
     expect(deadLabels.has("toolcall->result")).toBe(true);
+    expect(deadLabels.has("error->event")).toBe(true);
   });
 
   it("reports partial coverage — the canopy is half-grown", () => {

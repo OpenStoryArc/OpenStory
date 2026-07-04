@@ -46,7 +46,7 @@ export const ENTITY_EDGES: readonly DataEdge[] = [
   { from: "turn", to: "event", label: "source ↗", via: "focus_event", note: "just closed" },
   { from: "event", to: "turn", label: "its turn ↑", via: "focus_event", note: "#/story/SES/event/ID — card link + seam" },
   // ── the branches that stop in mid-air (data connected, UI isn't) ──
-  { from: "subagent", to: "session", label: "parent ↑", via: null },
+  { from: "subagent", to: "session", label: "parent ↑", via: "open_view", note: "summary strip ↑ parent (parent_session_id on /summary)" },
   { from: "toolcall", to: "result", label: "paired", via: null },
   { from: "toolcall", to: "file", label: "writes", via: null },
   { from: "file", to: "session", label: "impact ↺", via: "query", note: "#/search?q=path — facet link + seam searchQuery" },

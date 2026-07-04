@@ -42,6 +42,9 @@ export interface SessionSummary {
   readonly totalTokens: number;
   readonly model: string | null;
   readonly topFiles: FileTouch[];
+  /** Spawner session when this is a subagent (null for root sessions).
+   *  Only the API summary knows this — the records fold reports null. */
+  readonly parentSessionId: string | null;
 }
 
 /** File path from a file-touching tool input, else null. */
@@ -82,6 +85,7 @@ export interface ApiSessionSummary {
     readonly total: number;
   };
   readonly top_files?: readonly { path: string; count: number }[];
+  readonly parent_session_id?: string | null;
 }
 
 /** Map the /summary payload into the same SessionSummary the records fold
@@ -107,6 +111,7 @@ export function summaryFromApi(api: ApiSessionSummary): SessionSummary {
     totalTokens: t?.total ?? 0,
     model: api.model ?? null,
     topFiles: (api.top_files ?? []).map(({ path, count }) => ({ path, count })),
+    parentSessionId: api.parent_session_id ?? null,
   };
 }
 
@@ -188,5 +193,6 @@ export function buildSessionSummary(records: readonly WireRecord[]): SessionSumm
     totalTokens: inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
     model,
     topFiles,
+    parentSessionId: null,
   };
 }

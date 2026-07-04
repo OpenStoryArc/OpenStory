@@ -82,6 +82,16 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
           </span>
         )
       )}
+      {s.parentSessionId && (
+        <a
+          href={`#/explore/${s.parentSessionId}`}
+          data-testid="parent-session-link"
+          className="text-[#bb9af7] hover:underline"
+          title={`Spawned by session ${s.parentSessionId}`}
+        >
+          ↑ parent session
+        </a>
+      )}
       {topFile && (
         <span className="flex items-baseline gap-1 truncate text-[#565f89]">
           <span className="text-[#565f89]">·</span>

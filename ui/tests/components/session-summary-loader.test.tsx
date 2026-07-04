@@ -35,6 +35,28 @@ describe("SessionSummaryLoader", () => {
     expect(container).toHaveTextContent(/1 tool/i);
   });
 
+  it("offers the climb to the spawner when the session is a subagent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ ...SUMMARY, parent_session_id: "parent-123" }),
+      })),
+    );
+    render(<SessionSummaryLoader sessionId="s1" />);
+    await waitFor(() => expect(screen.getByTestId("parent-session-link")).toBeInTheDocument());
+    expect(screen.getByTestId("parent-session-link").getAttribute("href")).toBe(
+      "#/explore/parent-123",
+    );
+  });
+
+  it("stays calm for a root session — no parent link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => SUMMARY })));
+    render(<SessionSummaryLoader sessionId="s1" />);
+    await waitFor(() => expect(screen.queryByTestId("summary-loading")).toBeNull());
+    expect(screen.queryByTestId("parent-session-link")).toBeNull();
+  });
+
   it("renders nothing when the session has no events", async () => {
     vi.stubGlobal(
       "fetch",

@@ -448,6 +448,50 @@ async fn test_conversation_pagination_windows_and_exposes_a_cursor() {
 }
 
 #[tokio::test]
+async fn test_summary_exposes_the_parent_of_a_subagent_session() {
+    // The subagent→parent canopy edge: a spawned agent's session knows its
+    // spawner. The server has tracked subagent_parents all along — /summary
+    // now carries it so the UI can offer the climb.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events =
+            vec![make_event_at("io.arc.event", "agent-456", "2026-01-01T00:00:01Z", 1)];
+        seed_and_ingest(&mut s, "agent-456", &events, None).await;
+        s.store
+            .subagent_parents
+            .insert("agent-456".to_string(), "parent-123".to_string());
+    }
+
+    let summary = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/agent-456/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(summary["parent_session_id"], "parent-123");
+
+    // A root session has no parent — the field is absent, not null-noise.
+    let root = body_json(
+        send_request(
+            state,
+            Request::get("/api/sessions/parent-123/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert!(root.get("parent_session_id").is_none() || root["parent_session_id"].is_null());
+}
+
+#[tokio::test]
 async fn test_get_tool_schemas() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);
