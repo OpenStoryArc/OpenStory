@@ -49,7 +49,7 @@ export const ENTITY_EDGES: readonly DataEdge[] = [
   { from: "subagent", to: "session", label: "parent ↑", via: null },
   { from: "toolcall", to: "result", label: "paired", via: null },
   { from: "toolcall", to: "file", label: "writes", via: null },
-  { from: "file", to: "session", label: "impact ↺", via: null, note: "file_impact endpoint exists" },
+  { from: "file", to: "session", label: "impact ↺", via: "query", note: "#/search?q=path — facet link + seam searchQuery" },
   { from: "error", to: "event", label: "locus", via: null, note: "partial via summary jump-to-error" },
   { from: "plan", to: "turn", label: "authored by", via: null },
 ];

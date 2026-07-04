@@ -40,13 +40,18 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("focus_event");
   });
 
+  it("includes the file→session edge — impact across sessions (via query)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "file" && x.to === "session");
+    expect(e?.via).toBe("query");
+  });
+
   it("still has the known dead ends (data connected, UI isn't)", () => {
     const report = navigabilityReport(ENTITY_EDGES);
     const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
     // the branches that stop in mid-air, from the picture
-    expect(deadLabels.has("file->session")).toBe(true);
     expect(deadLabels.has("subagent->session")).toBe(true);
     expect(deadLabels.has("plan->turn")).toBe(true);
+    expect(deadLabels.has("toolcall->result")).toBe(true);
   });
 
   it("reports partial coverage — the canopy is half-grown", () => {

@@ -2,6 +2,7 @@
 
 import type { FileFacet, ToolFacet, PlanFacet } from "@/lib/event-graph";
 import { toolColor } from "@/lib/tool-colors";
+import { buildHash } from "@/lib/hash-route";
 
 interface FacetPanelProps {
   files: readonly FileFacet[];
@@ -47,6 +48,18 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                 </button>
               );
             })}
+            {/* file→session: the selected file's impact ACROSS sessions —
+                lands on the cross-session FTS search for the path. */}
+            {selectedFile && (
+              <a
+                href={buildHash({ view: "explore", detailView: "search", searchQuery: selectedFile })}
+                data-testid="file-impact-link"
+                className="block px-2 py-1 text-[10px] text-[#bb9af7] hover:underline"
+                title={`All sessions touching ${selectedFile}`}
+              >
+                ↺ Impact across sessions
+              </a>
+            )}
           </div>
         </div>
       )}

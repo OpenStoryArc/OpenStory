@@ -74,6 +74,11 @@ export function controlToRoute(action: string, params: unknown): HashRoute | nul
     // Carry eventId so an open_view can deep-link to a single event — replay
     // retraces to the EXACT event the human was on, not just the session.
     if (typeof p.eventId === "string" && p.eventId.trim()) r.eventId = p.eventId;
+    // Carry searchQuery so an agent can drive cross-session search — the
+    // file→session edge lands on #/search?q=<path>.
+    if (typeof p.searchQuery === "string" && p.searchQuery.trim()) {
+      r.searchQuery = p.searchQuery;
+    }
     return r;
   }
   return null;

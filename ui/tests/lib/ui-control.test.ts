@@ -33,6 +33,25 @@ describe("controlToRoute", () => {
     );
   });
 
+  it("carries searchQuery so an agent can drive cross-session search (file→session)", () => {
+    // The file→session canopy edge: impact-across-sessions is the FTS
+    // search surface; the seam reaches it via open_view + searchQuery.
+    scenario(
+      () =>
+        controlToRoute("open_view", {
+          view: "explore",
+          detailView: "search",
+          searchQuery: "src/auth.rs",
+        }),
+      (r) => r,
+      (r) => {
+        expect(r?.view).toBe("explore");
+        expect(r?.detailView).toBe("search");
+        expect(r?.searchQuery).toBe("src/auth.rs");
+      },
+    );
+  });
+
   it("carries eventId into the route so replay retraces to the exact event", () => {
     scenario(
       () => controlToRoute("open_view", { view: "explore", sessionId: "s-9", eventId: "e-42" }),
