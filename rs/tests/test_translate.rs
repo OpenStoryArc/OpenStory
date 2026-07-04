@@ -410,11 +410,24 @@ fn test_different_uuids_both_processed() {
 }
 
 #[test]
-fn test_no_uuid_always_processed() {
+fn test_no_uuid_identical_line_deduped() {
+    // Uuid-less lines get a deterministic UUIDv5 from (session, line), so the
+    // same line replayed on a restart dedups instead of storing again.
     let mut s = state();
     let line = base_entry(json!({"type": "user", "message": {"role": "user", "content": "hi"}}));
     let events1 = translate_line(&line, &mut s);
     let events2 = translate_line(&line, &mut s);
+    assert_eq!(events1.len(), 1);
+    assert_eq!(events2.len(), 0);
+}
+
+#[test]
+fn test_no_uuid_distinct_lines_both_processed() {
+    let mut s = state();
+    let line1 = base_entry(json!({"type": "user", "message": {"role": "user", "content": "a"}}));
+    let line2 = base_entry(json!({"type": "user", "message": {"role": "user", "content": "b"}}));
+    let events1 = translate_line(&line1, &mut s);
+    let events2 = translate_line(&line2, &mut s);
     assert_eq!(events1.len(), 1);
     assert_eq!(events2.len(), 1);
 }

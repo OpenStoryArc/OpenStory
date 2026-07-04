@@ -309,15 +309,11 @@ impl SessionProjection {
                 RecordBody::TurnEnd(_) => {
                     self.turn_count += 1;
                 }
-                RecordBody::Error(_) => {
-                    if self.first_error_event_id.is_none() {
-                        self.first_error_event_id = Some(vr.id.clone());
-                    }
+                RecordBody::Error(_) if self.first_error_event_id.is_none() => {
+                    self.first_error_event_id = Some(vr.id.clone());
                 }
-                RecordBody::ToolResult(tr) if tr.is_error => {
-                    if self.first_error_event_id.is_none() {
-                        self.first_error_event_id = Some(vr.id.clone());
-                    }
+                RecordBody::ToolResult(tr) if tr.is_error && self.first_error_event_id.is_none() => {
+                    self.first_error_event_id = Some(vr.id.clone());
                 }
                 RecordBody::ToolCall(tc) => {
                     let path = match &tc.typed_input {
