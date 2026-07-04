@@ -91,3 +91,68 @@ test.describe('journey: agent drives the mirror', () => {
     await expect(page.getByTestId('driven-by')).toBeHidden({ timeout: 8_000 });
   });
 });
+
+/** Journey 3 — "follow the user & act in rests":
+ *    The human moves → the mirror records the move (authored ui.* stream) →
+ *    an agent reading /api/ui-state SEES where they are and their tempo →
+ *    the agent waits for a REST (active_now false after ~8 s idle) →
+ *    and only then presents — the human sees the message without ever
+ *    being interrupted mid-flow.
+ */
+test.describe('journey: follow the user & act in rests', () => {
+  test('navigate → ui-state follows → rest detected → present lands', async ({ page, request }) => {
+    test.slow(); // deliberately waits out the 8 s idle threshold
+
+    // Tempo models ONE human: parallel test workers navigating their own
+    // pages feed the same viewing-session stream, so a "rest" may never
+    // come under full-suite load. Run this journey isolated
+    // (npx playwright test journeys) — in a shared run it politely skips.
+    test.skip(
+      process.env.PW_JOURNEYS_ISOLATED !== '1' && !!process.env.PW_PARALLEL_SUITE,
+      'tempo is a single-human model; run isolated',
+    );
+
+    // 1. The human navigates to a specific place.
+    await page.goto(`/#/story/${SESSION}`);
+    await expect(page.getByTestId('connection-status')).toContainText('Connected', {
+      timeout: 10_000,
+    });
+
+    // 2. An agent following along sees WHERE they are (ui_state freshness).
+    await expect
+      .poll(
+        async () => {
+          const s = await (await request.get(`${apiBaseUrl}/api/ui-state`)).json();
+          return s.ui_state?.view;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe('story');
+
+    // 3. …and their rhythm: they just moved, so they're ACTIVE.
+    const active = await (await request.get(`${apiBaseUrl}/api/ui-state`)).json();
+    expect(active.tempo.active_now).toBe(true);
+
+    // 4. The agent waits for a rest (idle > 8 s → active_now flips false).
+    await expect
+      .poll(
+        async () => {
+          const s = await (await request.get(`${apiBaseUrl}/api/ui-state`)).json();
+          return s.tempo.active_now;
+        },
+        { timeout: 15_000, intervals: [1000] },
+      )
+      .toBe(false);
+
+    // 5. Only in the rest does the agent speak — and the human sees it.
+    await request.post(`${apiBaseUrl}/api/control`, {
+      data: {
+        action: 'present',
+        params: { message: 'While you rested: the build is green.' },
+        issuer: 'e2e-agent',
+      },
+    });
+    await expect(page.getByTestId('present-banner')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('present-banner')).toContainText('the build is green');
+  });
+});
