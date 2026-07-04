@@ -71,6 +71,7 @@ export const STICKIES: readonly Sticky[] = [
   { id: "rm_projection", kind: "readmodel", label: "SessionProjection", context: "observed", note: "Tokens, status, metadata — materialized." },
   { id: "rm_uistate", kind: "readmodel", label: "ui_state + tempo", context: "authored", note: "Where you are + your rhythm." },
   { id: "rm_actiongraph", kind: "readmodel", label: "ActionGraph", context: "authored", note: "What's navigable — the command surface, testable." },
+  { id: "rm_recordcache", kind: "readmodel", label: "Record cache", context: "authored", note: "A session's records fetched ONCE, shared by every surface; live broadcasts invalidate it." },
 ];
 
 export const FLOWS: readonly Flow[] = [

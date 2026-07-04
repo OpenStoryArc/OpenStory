@@ -2,7 +2,7 @@
  *  Left: turn outline + file/tool facets. Right: event cards (compact, click to expand). */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import type { WireRecord } from "@/types/wire-record";
+import { useSessionRecords } from "@/hooks/use-session-records";
 import { toTimelineRows } from "@/lib/timeline";
 import { filterNoise } from "@/lib/explore-filters";
 import { buildEventGraph, applyFacets, fileFacets, toolFacets, planFacets, type ActiveFacets } from "@/lib/event-graph";
@@ -25,8 +25,9 @@ interface SessionTimelineProps {
 }
 
 export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }: SessionTimelineProps) {
-  const [records, setRecords] = useState<WireRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { records: rawRecords, loading } = useSessionRecords(sessionId);
+  // The shared cache holds the raw truth; noise-filtering is this view's own lens.
+  const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Facet state
@@ -42,27 +43,6 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
     setSelectedTool(null);
     setSelectedPlan(null);
     setExpandedIds(new Set());
-  }, [sessionId]);
-
-  // Fetch records
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setRecords([]);
-
-    fetch(`/api/sessions/${sessionId}/records`)
-      .then((r) => r.json())
-      .then((data: WireRecord[]) => {
-        if (!cancelled) {
-          setRecords(filterNoise(Array.isArray(data) ? data : []));
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => { cancelled = true; };
   }, [sessionId]);
 
   // Apply initial file path as facet filter once records are loaded

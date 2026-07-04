@@ -1,31 +1,14 @@
-/** Fetches a session's records and renders the shared SessionSummaryHeader.
+/** Renders the shared SessionSummaryHeader from the shared record cache.
  *  Lets surfaces that only hold a session id (e.g. Story) carry the same
- *  one-product spine as Explore and the Overview drill-in. */
+ *  one-product spine as Explore and the Overview drill-in — without paying
+ *  a second whole-session fetch when another surface already loaded it. */
 
-import { useEffect, useState } from "react";
-import type { WireRecord } from "@/types/wire-record";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSessionRecords } from "@/hooks/use-session-records";
 
 export function SessionSummaryLoader({ sessionId }: { sessionId: string }) {
-  const [records, setRecords] = useState<WireRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setRecords([]);
-    fetch(`/api/sessions/${sessionId}/records`)
-      .then((r) => r.json())
-      .then((data: WireRecord[]) => {
-        if (!cancelled) {
-          setRecords(Array.isArray(data) ? data : []);
-          setLoading(false);
-        }
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [sessionId]);
+  const { records, loading } = useSessionRecords(sessionId);
 
   if (loading) {
     return (

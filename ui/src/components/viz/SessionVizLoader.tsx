@@ -1,9 +1,9 @@
-/** Fetches a session's records once and renders its visual summary:
+/** Renders a session's visual summary from the shared record cache:
  *  the activity ribbon (temporal shape) + the tool-call trace (durations).
  *  Used in the Overview drill-in where only a session id is in hand. */
 
-import { useEffect, useState } from "react";
-import type { WireRecord } from "@/types/wire-record";
+import { useState } from "react";
+import { useSessionRecords } from "@/hooks/use-session-records";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
 import { TurnTraceView } from "./TurnTraceView";
 import { TokenReport } from "./TokenReport";
@@ -18,25 +18,8 @@ import { cn } from "@/lib/cn";
 type Lens = "conversation" | "trace";
 
 export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { sessionId: string; onOpenSubagent?: (id: string) => void; onOpenStory?: () => void }) {
-  const [records, setRecords] = useState<WireRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { records, loading } = useSessionRecords(sessionId);
   const [lens, setLens] = useState<Lens>("conversation");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setRecords([]);
-    fetch(`/api/sessions/${sessionId}/records`)
-      .then((r) => r.json())
-      .then((data: WireRecord[]) => {
-        if (!cancelled) {
-          setRecords(Array.isArray(data) ? data : []);
-          setLoading(false);
-        }
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [sessionId]);
 
   if (loading) return <SessionVizSkeleton />;
 
