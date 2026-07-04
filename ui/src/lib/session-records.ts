@@ -118,3 +118,36 @@ export async function fetchAllSessionRecords(
   for (let i = pages.length - 1; i >= 0; i--) out.push(...pages[i]!);
   return out;
 }
+
+/** The most-recent `cap` records for `sessionId`, oldest-first, plus an
+ *  honest `capped` flag when older history was left behind.
+ *
+ *  This is the memory guard for very large sessions: the whole-session
+ *  fetch is unbounded (100k events ≈ hundreds of MB parsed), so read
+ *  models cap what they hold and SAY so, instead of silently swallowing
+ *  the browser's heap. Pages stream newest-first and the walk stops the
+ *  moment the cap is covered. */
+export async function fetchRecentSessionRecords(
+  sessionId: string,
+  cap: number,
+  opts: { pageSize?: number; signal?: AbortSignal } = {},
+): Promise<{ records: WireRecord[]; capped: boolean }> {
+  const pages: WireRecord[][] = [];
+  let count = 0;
+  let sawMore = false;
+  for await (const page of streamSessionRecords(sessionId, opts)) {
+    pages.push(page);
+    count += page.length;
+    if (count >= cap) {
+      // The walk stopped early only because of the cap — unless this page
+      // also ended history exactly at the boundary.
+      sawMore = count > cap || page.length === (opts.pageSize ?? DEFAULT_PAGE_SIZE);
+      break;
+    }
+  }
+  // Pages came newest-window-first; flatten oldest-first, keep newest `cap`.
+  const out: WireRecord[] = [];
+  for (let i = pages.length - 1; i >= 0; i--) out.push(...pages[i]!);
+  const capped = out.length > cap || sawMore;
+  return { records: out.slice(Math.max(0, out.length - cap)), capped };
+}

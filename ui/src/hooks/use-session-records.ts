@@ -7,22 +7,26 @@
  *  The module-level cache means the first mounted consumer pays the fetch
  *  and the rest subscribe to the same promise.
  *
- *  Deliberately ONE unpaginated fetch, not the page walker: measured on a
- *  16.7k-event session (2026-07-04), every /records page pays a ~0.9 s
- *  fixed cost (the server scans the whole session then slices), so a
- *  500/page walk would take ~30 s vs 2.0 s for the single fetch. Until
- *  pagination is pushed into SQL, sharing the one big fetch is the win.
+ *  Bounded: the fetch walks SQL-paginated pages (90 ms each since 6755959)
+ *  newest-first and stops at RECORD_CAP — a 100k-event session must not
+ *  swallow the browser's heap (measured: unbounded fetch+render = 983 MB /
+ *  34 s). Views read `capped` and say "showing the latest N" honestly.
  */
 
 import { useEffect, useState } from "react";
 import type { WireRecord } from "@/types/wire-record";
 import { createKeyedPromiseCache, liveInvalidationKey } from "@/lib/record-cache";
-import { fetchSessionRecords } from "@/lib/session-records";
+import { fetchRecentSessionRecords } from "@/lib/session-records";
 import { wsMessages$ } from "@/streams/connection";
 
-export const sessionRecordsCache = createKeyedPromiseCache<WireRecord[]>((id) =>
-  fetchSessionRecords(id),
-);
+/** Most-recent records a whole-session read model holds. ~25k keeps even a
+ *  100k-event session's parsed JSON in the low hundreds of MB. */
+export const RECORD_CAP = 25_000;
+
+export const sessionRecordsCache = createKeyedPromiseCache<{
+  records: WireRecord[];
+  capped: boolean;
+}>((id) => fetchRecentSessionRecords(id, RECORD_CAP, { pageSize: 2000 }));
 
 // Live sessions grow: any view_records broadcast for a session drops its
 // cached snapshot, so the next consumer refetches fresh. Armed once, lazily,
@@ -41,6 +45,8 @@ export interface SessionRecordsState {
   readonly records: WireRecord[];
   readonly loading: boolean;
   readonly error: Error | null;
+  /** True when older history exists beyond RECORD_CAP — say so in the UI. */
+  readonly capped: boolean;
 }
 
 export function useSessionRecords(sessionId: string | null): SessionRecordsState {
@@ -48,22 +54,23 @@ export function useSessionRecords(sessionId: string | null): SessionRecordsState
     records: [],
     loading: sessionId !== null,
     error: null,
+    capped: false,
   });
 
   useEffect(() => {
     if (!sessionId) {
-      setState({ records: [], loading: false, error: null });
+      setState({ records: [], loading: false, error: null, capped: false });
       return;
     }
     armLiveInvalidation();
     let cancelled = false;
-    setState({ records: [], loading: true, error: null });
+    setState({ records: [], loading: true, error: null, capped: false });
     sessionRecordsCache.get(sessionId).then(
-      (records) => {
-        if (!cancelled) setState({ records, loading: false, error: null });
+      ({ records, capped }) => {
+        if (!cancelled) setState({ records, loading: false, error: null, capped });
       },
       (e: Error) => {
-        if (!cancelled) setState({ records: [], loading: false, error: e });
+        if (!cancelled) setState({ records: [], loading: false, error: e, capped: false });
       },
     );
     return () => {

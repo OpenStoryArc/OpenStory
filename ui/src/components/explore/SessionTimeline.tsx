@@ -2,6 +2,7 @@
  *  Left: turn outline + file/tool facets. Right: event cards (compact, click to expand). */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSessionRecords } from "@/hooks/use-session-records";
 import { toolPairMap } from "@/lib/tool-pair";
 import { toTimelineRows } from "@/lib/timeline";
@@ -26,7 +27,7 @@ interface SessionTimelineProps {
 }
 
 export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }: SessionTimelineProps) {
-  const { records: rawRecords, loading } = useSessionRecords(sessionId);
+  const { records: rawRecords, loading, capped } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
   // toolcall↔result: each record's round-trip partner, for the ⇄ jump.
@@ -90,6 +91,16 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
   const hasFacets = selectedTurn != null || selectedFile != null || selectedTool != null || selectedPlan != null;
 
+  // Virtualized event list: a 100k-event session must render a few dozen
+  // DOM rows, not 85k (measured pre-fix: 983 MB heap / 34 s). Dynamic
+  // heights via measureElement — cards expand and collapse.
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 44,
+    overscan: 12,
+  });
+
   // Keyboard navigation
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const selectedIndexRef = useRef(selectedIndex);
@@ -117,12 +128,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       const next = nextCardIndex(rows, selectedIndexRef.current, direction);
       if (next === null || next === selectedIndexRef.current) return;
       setSelectedIndex(next);
-      requestAnimationFrame(() => {
-        const row = rows[next];
-        if (!row) return;
-        const card = el.querySelector(`[data-event-id="${CSS.escape(row.id)}"]`);
-        card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
+      rowVirtualizer.scrollToIndex(next, { align: "auto" });
     };
 
     el.addEventListener("keydown", onKeyDown);
@@ -150,12 +156,11 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   const selectEvent = useCallback((id: string) => {
     setExpandedIds((prev) => new Set([...prev, id]));
     const idx = rows.findIndex((r) => r.id === id);
-    if (idx >= 0) setSelectedIndex(idx);
-    requestAnimationFrame(() => {
-      const el = scrollContainerRef.current?.querySelector(`[data-event-id="${CSS.escape(id)}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [rows]);
+    if (idx >= 0) {
+      setSelectedIndex(idx);
+      rowVirtualizer.scrollToIndex(idx, { align: "center" });
+    }
+  }, [rows, rowVirtualizer]);
 
   const selectedEventId = selectedIndex != null ? rows[selectedIndex]?.id ?? null : null;
 
@@ -204,16 +209,15 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
     // Expand the target event and select it
     setExpandedIds((prev) => new Set([...prev, scrollToEventId]));
     const targetIndex = rows.findIndex((r) => r.id === scrollToEventId);
-    if (targetIndex >= 0) setSelectedIndex(targetIndex);
-    // Double-rAF: first frame expands the card, second frame scrolls after layout
-    requestAnimationFrame(() => {
+    if (targetIndex >= 0) {
+      setSelectedIndex(targetIndex);
+      // The target may not be in the DOM yet (virtualized) — scroll by index.
       requestAnimationFrame(() => {
-        const el = scrollContainerRef.current?.querySelector(`[data-event-id="${CSS.escape(scrollToEventId)}"]`);
-        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        rowVirtualizer.scrollToIndex(targetIndex, { align: "center" });
         scrollContainerRef.current?.focus();
       });
-    });
-  }, [scrollToEventId, rows]);
+    }
+  }, [scrollToEventId, rows, rowVirtualizer]);
 
   if (loading) {
     return (
@@ -249,7 +253,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       </div>
 
       {/* Event cards */}
-      <div className="flex-1 min-w-0 overflow-y-auto outline-none" ref={scrollContainerRef} tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
+      <div className="flex min-h-0 flex-1 min-w-0 flex-col outline-none" tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
         {/* Shared summary header — the one-product spine (clickable stats) */}
         <div className="border-b border-[#2f3348] bg-[#24283b]">
           <SessionSummaryHeader
@@ -296,25 +300,46 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
           </span>
         </div>
 
-        {/* Event list */}
-        <div className="py-1">
+        {/* Event list — virtualized; only the viewport's rows exist in the DOM.
+            The scroll element wraps ONLY the sized list (same structure as
+            ConversationView) so the virtualizer's rect is the viewport, not
+            the content. Header/ribbon/toolbar pin above it. */}
+        {capped && (
+          <div className="border-b border-[#e0af68]/30 bg-[#e0af68]/10 px-3 py-1 text-[10px] text-[#e0af68]">
+            Large session — showing the most recent {rows.length.toLocaleString()} events; older history is not loaded.
+          </div>
+        )}
+        <div className="h-[70vh] min-h-[320px] overflow-y-auto" ref={scrollContainerRef}>
+        <div className="relative" style={{ height: rows.length === 0 ? undefined : rowVirtualizer.getTotalSize() }}>
           {rows.length === 0 ? (
             <div className="p-4 text-xs text-[#565f89] text-center">
               No events match the selected filters
             </div>
           ) : (
-            rows.map((row, i) => (
-              <div key={row.id} data-event-id={row.id}>
-                <EventCardRow
-                  row={row}
-                  compact={!expandedIds.has(row.id)}
-                  selected={eventsFocused && selectedIndex === i}
-                  onClick={() => { toggleExpand(row.id); setSelectedIndex(i); scrollContainerRef.current?.focus(); }}
-                  pairedEventId={pairMap.get(row.id)}
-                />
-              </div>
-            ))
+            rowVirtualizer.getVirtualItems().map((vi) => {
+              const row = rows[vi.index]!;
+              const i = vi.index;
+              return (
+                <div
+                  key={row.id}
+                  data-event-id={row.id}
+                  data-index={vi.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${vi.start}px)` }}
+                >
+                  <EventCardRow
+                    row={row}
+                    compact={!expandedIds.has(row.id)}
+                    selected={eventsFocused && selectedIndex === i}
+                    onClick={() => { toggleExpand(row.id); setSelectedIndex(i); scrollContainerRef.current?.focus(); }}
+                    pairedEventId={pairMap.get(row.id)}
+                  />
+                </div>
+              );
+            })
           )}
+        </div>
         </div>
       </div>
     </div>
