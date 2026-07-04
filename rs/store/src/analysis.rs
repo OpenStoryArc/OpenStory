@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionSummary {
     pub session_id: String,
     pub status: String,
@@ -457,29 +457,54 @@ pub fn extract_cwd_from_events(events: &[Value]) -> Option<String> {
 /// Staleness threshold: 5 minutes in seconds.
 const STALE_THRESHOLD_SECS: i64 = 300;
 
-/// Compute a summary from a list of CloudEvent dicts (serialized Value).
-/// `now` is used for staleness detection; pass None to skip staleness checks.
-pub fn session_summary(
-    session_id_hint: &str,
-    events: &[Value],
-    now: Option<DateTime<Utc>>,
-) -> SessionSummary {
-    let mut session_id = String::new();
-    let mut start_time: Option<String> = None;
-    let mut duration_ms: Option<f64> = None;
-    let mut exit_code: Option<i64> = None;
-    let mut model: Option<String> = None;
-    let mut error_count: usize = 0;
-    let mut tool_calls: usize = 0;
-    let mut files_edited: usize = 0;
-    let mut prompt_count: usize = 0;
-    let mut response_count: usize = 0;
-    let mut first_prompt: Option<String> = None;
-    let mut cwd: Option<String> = None;
-    let mut tools_seen: BTreeMap<String, usize> = BTreeMap::new();
-    let mut status = "ongoing".to_string();
+/// Incrementally absorbable form of the `session_summary` fold: one event at
+/// a time via `absorb`, final answer via `finish`. A live read model
+/// (SessionProjection) embeds this so `/summary` is O(1) per request instead
+/// of a whole-session rescan. `session_summary` delegates here — batch and
+/// incremental can never drift.
+#[derive(Debug, Clone, Default)]
+pub struct SummaryAccumulator {
+    session_id: String,
+    start_time: Option<String>,
+    duration_ms: Option<f64>,
+    exit_code: Option<i64>,
+    model: Option<String>,
+    error_count: usize,
+    tool_calls: usize,
+    files_edited: usize,
+    prompt_count: usize,
+    response_count: usize,
+    first_prompt: Option<String>,
+    cwd: Option<String>,
+    tools_seen: BTreeMap<String, usize>,
+    /// Status set by an explicit session.end event, if any.
+    end_status: Option<String>,
+    event_count: usize,
+    /// Subtype of the most recent event (turn-complete status heuristic).
+    last_subtype: Option<String>,
+    /// Time of the most recent event that carried one (staleness heuristic).
+    last_event_time: Option<DateTime<Utc>>,
+}
 
-    for e in events {
+impl SummaryAccumulator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn absorb(&mut self, e: &Value) {
+        self.event_count += 1;
+        self.last_subtype = e
+            .get("subtype")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        if let Some(t) = e
+            .get("time")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+        {
+            self.last_event_time = Some(t);
+        }
+
         let etype = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let data = e
             .get("data")
@@ -488,7 +513,7 @@ pub fn session_summary(
 
         match classify_event(etype, e) {
             EventKind::SessionStart => {
-                session_id = e
+                self.session_id = e
                     .get("source")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
@@ -496,85 +521,86 @@ pub fn session_summary(
                     .next()
                     .unwrap_or("")
                     .to_string();
-                start_time = e
+                self.start_time = e
                     .get("time")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 if let Some(m) = extract_model(e) {
-                    model = Some(m);
+                    self.model = Some(m);
                 }
-                if cwd.is_none() {
-                    cwd = extract_cwd(e);
+                if self.cwd.is_none() {
+                    self.cwd = extract_cwd(e);
                 }
             }
             EventKind::SessionEnd => {
-                exit_code = data.get("exit_code").and_then(|v| v.as_i64());
-                duration_ms = data
+                self.exit_code = data.get("exit_code").and_then(|v| v.as_i64());
+                self.duration_ms = data
                     .get("duration_ms")
                     .and_then(|v| v.as_f64())
                     .or_else(|| data.get("durationMs").and_then(|v| v.as_f64()));
                 let reason = data.get("reason");
-                if reason.is_some() && !reason.unwrap().is_null() {
-                    status = "completed".to_string();
-                } else if let Some(code) = exit_code {
-                    status = if code == 0 { "completed" } else { "error" }.to_string();
+                let status = if reason.is_some() && !reason.unwrap().is_null() {
+                    "completed".to_string()
+                } else if let Some(code) = self.exit_code {
+                    if code == 0 { "completed" } else { "error" }.to_string()
                 } else {
-                    status = "completed".to_string();
-                }
+                    "completed".to_string()
+                };
+                self.end_status = Some(status);
             }
             EventKind::Error => {
-                error_count += 1;
+                self.error_count += 1;
             }
             EventKind::ToolCall => {
                 let names = extract_tool_names(e);
                 if names.is_empty() {
-                    tool_calls += 1;
+                    self.tool_calls += 1;
                     let tool_name = data
                         .get("tool")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string();
-                    *tools_seen.entry(tool_name).or_insert(0) += 1;
+                    *self.tools_seen.entry(tool_name).or_insert(0) += 1;
                 } else {
-                    tool_calls += names.len();
+                    self.tool_calls += names.len();
                     for name in names {
-                        *tools_seen.entry(name).or_insert(0) += 1;
+                        *self.tools_seen.entry(name).or_insert(0) += 1;
                     }
                 }
                 // Pick up model from assistant tool_use events too
-                if model.is_none() {
+                if self.model.is_none() {
                     if let Some(m) = extract_model(e) {
-                        model = Some(m);
+                        self.model = Some(m);
                     }
                 }
             }
             EventKind::FileEdit => {
-                files_edited += 1;
+                self.files_edited += 1;
             }
             EventKind::PromptSubmit => {
-                prompt_count += 1;
-                if first_prompt.is_none() {
+                self.prompt_count += 1;
+                if self.first_prompt.is_none() {
                     if let Some(text) = extract_prompt_text(e) {
-                        first_prompt = Some(text.chars().take(100).collect());
+                        self.first_prompt = Some(text.chars().take(100).collect());
                     }
                 }
                 // Pick up start_time from first user event if no session.start
-                if start_time.is_none() {
-                    start_time = e
+                if self.start_time.is_none() {
+                    self.start_time = e
                         .get("time")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
                 }
-                if cwd.is_none() {
-                    cwd = extract_cwd(e);
+                if self.cwd.is_none() {
+                    self.cwd = extract_cwd(e);
                 }
             }
             EventKind::ResponseComplete => {
-                response_count += 1;
+                self.response_count += 1;
                 // Pick up model from first assistant response
-                if model.is_none() {
+                if self.model.is_none() {
                     if let Some(m) = extract_model(e) {
-                        model = Some(m);
+                        self.model = Some(m);
                     }
                 }
             }
@@ -587,33 +613,30 @@ pub fn session_summary(
                         .and_then(|v| v.as_f64())
                         .or_else(|| data.get("durationMs").and_then(|v| v.as_f64()))
                     {
-                        duration_ms = Some(d);
+                        self.duration_ms = Some(d);
                     }
                 }
             }
         }
     }
 
-    // --- Status heuristics (only if no explicit session.end set status) ---
-    if status == "ongoing" {
-        // Heuristic 1: last event is system.turn.complete → session completed
-        if let Some(last) = events.last() {
-            let last_subtype = last.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+    pub fn finish(&self, session_id_hint: &str, now: Option<DateTime<Utc>>) -> SessionSummary {
+        let mut status = self
+            .end_status
+            .clone()
+            .unwrap_or_else(|| "ongoing".to_string());
+
+        // --- Status heuristics (only if no explicit session.end set status) ---
+        if status == "ongoing" {
+            // Heuristic 1: last event is system.turn.complete → session completed
+            let last_subtype = self.last_subtype.as_deref().unwrap_or("");
             if last_subtype == "system.turn.complete" || last_subtype == "turn_duration" {
                 status = "completed".to_string();
             }
-        }
 
-        // Heuristic 2: staleness — last event >5 minutes ago
-        if status == "ongoing" {
-            if let Some(now) = now {
-                // Find the last event time
-                let last_event_time = events.iter().rev().find_map(|e| {
-                    e.get("time")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| s.parse::<DateTime<Utc>>().ok())
-                });
-                if let Some(last_time) = last_event_time {
+            // Heuristic 2: staleness — last event >5 minutes ago
+            if status == "ongoing" {
+                if let (Some(now), Some(last_time)) = (now, self.last_event_time) {
                     let elapsed = now.signed_duration_since(last_time).num_seconds();
                     if elapsed > STALE_THRESHOLD_SECS {
                         status = "stale".to_string();
@@ -621,30 +644,46 @@ pub fn session_summary(
                 }
             }
         }
-    }
 
-    if session_id.is_empty() {
-        session_id = session_id_hint.to_string();
-    }
+        let session_id = if self.session_id.is_empty() {
+            session_id_hint.to_string()
+        } else {
+            self.session_id.clone()
+        };
 
-    SessionSummary {
-        session_id,
-        status,
-        start_time,
-        duration_ms,
-        event_count: events.len(),
-        error_count,
-        tool_calls,
-        files_edited,
-        unique_tools: tools_seen.keys().cloned().collect(),
-        exit_code,
-        model,
-        prompt_count,
-        response_count,
-        first_prompt,
-        cwd,
-        project_id: None,
+        SessionSummary {
+            session_id,
+            status,
+            start_time: self.start_time.clone(),
+            duration_ms: self.duration_ms,
+            event_count: self.event_count,
+            error_count: self.error_count,
+            tool_calls: self.tool_calls,
+            files_edited: self.files_edited,
+            unique_tools: self.tools_seen.keys().cloned().collect(),
+            exit_code: self.exit_code,
+            model: self.model.clone(),
+            prompt_count: self.prompt_count,
+            response_count: self.response_count,
+            first_prompt: self.first_prompt.clone(),
+            cwd: self.cwd.clone(),
+            project_id: None,
+        }
     }
+}
+
+/// Compute a summary from a list of CloudEvent dicts (serialized Value).
+/// `now` is used for staleness detection; pass None to skip staleness checks.
+pub fn session_summary(
+    session_id_hint: &str,
+    events: &[Value],
+    now: Option<DateTime<Utc>>,
+) -> SessionSummary {
+    let mut acc = SummaryAccumulator::new();
+    for e in events {
+        acc.absorb(e);
+    }
+    acc.finish(session_id_hint, now)
 }
 
 /// Tool name → call count.

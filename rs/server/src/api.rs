@@ -503,21 +503,7 @@ pub async fn list_sessions(
                 ),
                 None => (None, None, 0, 0),
             };
-        // Derive status from last_event timestamp (stale if >5min old)
-        let status = match row.last_event.as_deref() {
-            Some(ts) => {
-                if let Ok(t) = chrono::DateTime::parse_from_rfc3339(ts) {
-                    if Utc::now().signed_duration_since(t).num_seconds() > 300 {
-                        "completed"
-                    } else {
-                        "ongoing"
-                    }
-                } else {
-                    "completed"
-                }
-            }
-            None => "completed",
-        };
+        let status = status_from_last_event(row.last_event.as_deref());
         result.push(json!({
             "session_id": sid,
             "status": status,
@@ -838,6 +824,19 @@ pub async fn get_events(
     Ok(Json(Value::Array(events)))
 }
 
+/// The ONE status rule every surface uses: an event within the last
+/// 5 minutes means ongoing, anything else completed. Derived from the
+/// store row's last_event so /api/sessions and /summary can't disagree.
+fn status_from_last_event(last_event: Option<&str>) -> &'static str {
+    match last_event {
+        Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
+            Ok(t) if Utc::now().signed_duration_since(t).num_seconds() <= 300 => "ongoing",
+            _ => "completed",
+        },
+        None => "completed",
+    }
+}
+
 pub async fn get_summary(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
@@ -847,24 +846,82 @@ pub async fn get_summary(
         &format!("GET /api/sessions/{}/summary", short_id(&session_id)),
     );
     let s = state.read().await;
-    let events = s
+
+    // Served from the in-memory projection (O(1), maintained incrementally by
+    // the projections consumer, rebuilt at boot). Falls back to the whole-
+    // session scan only when no projection exists — on a 16.7k-event session
+    // that scan costs ~0.9 s per request.
+    let (summary, extras) = match s.store.projections.get(&session_id) {
+        Some(proj) => {
+            let p = proj.value();
+            let tokens = json!({
+                "input": p.total_input_tokens(),
+                "output": p.total_output_tokens(),
+                "cache_creation": p.total_cache_creation_tokens(),
+                "cache_read": p.total_cache_read_tokens(),
+                "total": p.total_input_tokens()
+                    + p.total_output_tokens()
+                    + p.total_cache_creation_tokens()
+                    + p.total_cache_read_tokens(),
+            });
+            let top_files: Vec<Value> = p
+                .top_files(5)
+                .into_iter()
+                .map(|(path, count)| json!({"path": path, "count": count}))
+                .collect();
+            (
+                p.summary(&session_id, Some(Utc::now())),
+                Some((p.turn_count(), tokens, top_files)),
+            )
+        }
+        None => {
+            let events = s
+                .store
+                .event_store
+                .session_events(&session_id)
+                .await
+                .unwrap_or_default();
+            (
+                session_summary(&session_id, &events, Some(Utc::now())),
+                None,
+            )
+        }
+    };
+
+    // Status, event_count, and last_event come from the store's session row —
+    // the same source the sessions list reads — so the two surfaces can never
+    // disagree. (The projection can drift slightly from the store when boot
+    // backfill re-publishes events with fresh ids; the store row is the
+    // deduplicated truth.)
+    let row = s
         .store
         .event_store
-        .session_events(&session_id)
+        .list_sessions()
         .await
-        .unwrap_or_default();
-    let summary = session_summary(&session_id, &events, Some(Utc::now()));
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == session_id);
+    let (status, event_count, last_event) = match &row {
+        Some(r) => (
+            status_from_last_event(r.last_event.as_deref()).to_string(),
+            r.event_count as usize,
+            r.last_event.clone(),
+        ),
+        None => (summary.status.clone(), summary.event_count, None),
+    };
+
     let project_id = s
         .store
         .session_projects
         .get(&session_id)
         .map(|r| r.value().clone());
-    Json(json!({
+    let mut body = json!({
         "session_id": summary.session_id,
-        "status": summary.status,
+        "status": status,
         "start_time": summary.start_time,
+        "last_event": last_event,
         "duration_ms": summary.duration_ms,
-        "event_count": summary.event_count,
+        "event_count": event_count,
         "error_count": summary.error_count,
         "tool_calls": summary.tool_calls,
         "files_edited": summary.files_edited,
@@ -874,7 +931,14 @@ pub async fn get_summary(
         "prompt_count": summary.prompt_count,
         "response_count": summary.response_count,
         "project_id": project_id,
-    }))
+    });
+    if let Some((turn_count, tokens, top_files)) = extras {
+        let obj = body.as_object_mut().expect("body is an object");
+        obj.insert("turn_count".to_string(), json!(turn_count));
+        obj.insert("tokens".to_string(), tokens);
+        obj.insert("top_files".to_string(), json!(top_files));
+    }
+    Json(body)
 }
 
 pub async fn get_activity(

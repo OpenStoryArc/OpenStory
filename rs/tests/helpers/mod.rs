@@ -89,6 +89,29 @@ pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
     )
 }
 
+/// Like `make_event` but with an explicit timestamp — for staleness tests.
+pub fn make_event_with_time(event_type: &str, session_id: &str, time: &str) -> CloudEvent {
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test content".to_string());
+    let data = EventData::with_payload(
+        json!({}),
+        0,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
+    CloudEvent::new(
+        format!("arc://transcript/{session_id}"),
+        event_type.to_string(),
+        data,
+        None,
+        None, // auto-generates UUID
+        Some(time.to_string()),
+        None,
+        None,
+        None,
+    )
+}
+
 /// Create a CloudEvent with a specific ID (for dedup testing).
 pub fn make_event_with_id(event_type: &str, session_id: &str, id: &str) -> CloudEvent {
     let mut payload = ClaudeCodePayload::new();

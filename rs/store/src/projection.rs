@@ -8,11 +8,15 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use chrono::{DateTime, Utc};
 use open_story_core::cloud_event::CloudEvent;
 use open_story_views::from_cloud_event::from_cloud_event;
+use open_story_views::tool_input::ToolInput;
 use open_story_views::unified::{MessageContent, RecordBody};
 use open_story_views::view_record::ViewRecord;
 use open_story_views::wire_record::TRUNCATION_THRESHOLD;
+
+use crate::analysis::{SessionSummary, SummaryAccumulator};
 
 // ── Filter definitions ──────────────────────────────────────────────
 
@@ -169,6 +173,16 @@ pub struct SessionProjection {
     total_input_tokens: u64,
     /// Accumulated output token count across all turns.
     total_output_tokens: u64,
+    /// Accumulated prompt-cache write tokens across all turns.
+    total_cache_creation_tokens: u64,
+    /// Accumulated prompt-cache read tokens across all turns.
+    total_cache_read_tokens: u64,
+    /// Completed turns (TurnEnd records).
+    turn_count: usize,
+    /// File path → touch count, from file-operating tool calls.
+    file_touches: HashMap<String, usize>,
+    /// Incremental `session_summary` fold — makes /summary O(1) to serve.
+    summary_acc: SummaryAccumulator,
 }
 
 /// Result of appending a CloudEvent to the projection.
@@ -217,6 +231,11 @@ impl SessionProjection {
             branch: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            total_cache_creation_tokens: 0,
+            total_cache_read_tokens: 0,
+            turn_count: 0,
+            file_touches: HashMap::new(),
+            summary_acc: SummaryAccumulator::new(),
         }
     }
 
@@ -232,6 +251,10 @@ impl SessionProjection {
         if !event_id.is_empty() && !self.seen_ids.insert(event_id.clone()) {
             return AppendResult::empty();
         }
+
+        // Feed the incremental summary fold — every deduped event, including
+        // ones that produce no ViewRecords (the batch fold counts those too).
+        self.summary_acc.absorb(event);
 
         // 2. Extract parent_uuid (now under agent_payload), compute depth
         let parent_uuid = event
@@ -270,11 +293,32 @@ impl SessionProjection {
             }
         }
 
-        // 4b. Accumulate token usage
+        // 4b. Accumulate token usage, turns, and file touches
         for vr in &view_records {
-            if let RecordBody::TokenUsage(tu) = &vr.body {
-                self.total_input_tokens += tu.input_tokens.unwrap_or(0);
-                self.total_output_tokens += tu.output_tokens.unwrap_or(0);
+            match &vr.body {
+                RecordBody::TokenUsage(tu) => {
+                    self.total_input_tokens += tu.input_tokens.unwrap_or(0);
+                    self.total_output_tokens += tu.output_tokens.unwrap_or(0);
+                    self.total_cache_creation_tokens +=
+                        tu.cache_creation_input_tokens.unwrap_or(0);
+                    self.total_cache_read_tokens += tu.cache_read_input_tokens.unwrap_or(0);
+                }
+                RecordBody::TurnEnd(_) => {
+                    self.turn_count += 1;
+                }
+                RecordBody::ToolCall(tc) => {
+                    let path = match &tc.typed_input {
+                        Some(ToolInput::Read(i)) => Some(i.file_path.as_str()),
+                        Some(ToolInput::Edit(i)) => Some(i.file_path.as_str()),
+                        Some(ToolInput::Write(i)) => Some(i.file_path.as_str()),
+                        Some(ToolInput::NotebookEdit(i)) => Some(i.notebook_path.as_str()),
+                        _ => None,
+                    };
+                    if let Some(p) = path {
+                        *self.file_touches.entry(p.to_string()).or_insert(0) += 1;
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -403,6 +447,38 @@ impl SessionProjection {
     /// Accumulated output token count.
     pub fn total_output_tokens(&self) -> u64 {
         self.total_output_tokens
+    }
+
+    /// Accumulated prompt-cache write tokens.
+    pub fn total_cache_creation_tokens(&self) -> u64 {
+        self.total_cache_creation_tokens
+    }
+
+    /// Accumulated prompt-cache read tokens.
+    pub fn total_cache_read_tokens(&self) -> u64 {
+        self.total_cache_read_tokens
+    }
+
+    /// Completed turns so far.
+    pub fn turn_count(&self) -> usize {
+        self.turn_count
+    }
+
+    /// The `n` most-touched files: (path, touch count), most-touched first,
+    /// path as the tiebreak so the answer is deterministic.
+    pub fn top_files(&self, n: usize) -> Vec<(String, usize)> {
+        let mut files: Vec<(String, usize)> =
+            self.file_touches.iter().map(|(p, c)| (p.clone(), *c)).collect();
+        files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        files.truncate(n);
+        files
+    }
+
+    /// The session summary, served from the incremental fold — identical to
+    /// `analysis::session_summary` over this session's stored events, but
+    /// O(1) instead of a whole-session rescan.
+    pub fn summary(&self, session_id_hint: &str, now: Option<DateTime<Utc>>) -> SessionSummary {
+        self.summary_acc.finish(session_id_hint, now)
     }
 }
 
@@ -678,6 +754,129 @@ mod tests {
     }
 
     // ── SessionProjection: depth contract ─────────────────────────────
+
+    // ── SessionProjection: the /summary read model ────────────────────
+
+    fn raw_event(id: &str, seq: u64, subtype: &str, data: serde_json::Value) -> Value {
+        // Mirror the EventData shape from_cloud_event expects: seq/session_id/
+        // raw at the top, everything else inside a claude-code AgentPayload.
+        let mut obj = data.as_object().cloned().unwrap_or_default();
+        let raw = obj.remove("raw").unwrap_or(json!({}));
+        let mut payload = serde_json::Map::new();
+        payload.insert("_variant".to_string(), json!("claude-code"));
+        payload.insert("meta".to_string(), json!({"agent": "claude-code"}));
+        for (k, v) in obj {
+            payload.insert(k, v);
+        }
+        json!({
+            "specversion": "1.0",
+            "id": id,
+            "source": "arc://transcript/sess-x",
+            "type": "io.arc.event",
+            "time": format!("2026-07-04T10:00:{:02}Z", seq),
+            "datacontenttype": "application/json",
+            "subtype": subtype,
+            "data": {
+                "raw": raw,
+                "seq": seq,
+                "session_id": "sess-x",
+                "agent_payload": payload,
+            },
+        })
+    }
+
+    #[test]
+    fn projection_summary_matches_the_batch_fold() {
+        // The projection maintains the summary incrementally; the endpoint
+        // used to compute it by rescanning every stored event. Same events
+        // in, identical SessionSummary out — this is the parity contract
+        // that lets /summary read from the projection.
+        let events = vec![
+            raw_event(
+                "e1",
+                1,
+                "message.user.prompt",
+                json!({"raw": {"type": "user", "cwd": "/home/max/proj",
+                       "message": {"role": "user", "content": "do the thing"}}}),
+            ),
+            raw_event(
+                "e2",
+                2,
+                "message.assistant.tool_use",
+                json!({"raw": {"type": "assistant", "message": {"model": "claude-fable-5",
+                       "content": [{"type": "tool_use", "id": "c1", "name": "Bash",
+                                    "input": {"command": "ls"}}]}}}),
+            ),
+            raw_event("e3", 3, "system.error", json!({"message": "boom"})),
+            raw_event(
+                "e4",
+                4,
+                "system.turn.complete",
+                json!({"duration_ms": 1200.0}),
+            ),
+        ];
+
+        let mut proj = SessionProjection::new("sess-x");
+        for e in &events {
+            proj.append(e);
+        }
+
+        let now = "2026-07-04T10:01:00Z".parse().unwrap();
+        assert_eq!(
+            proj.summary("sess-x", Some(now)),
+            crate::analysis::session_summary("sess-x", &events, Some(now)),
+        );
+    }
+
+    #[test]
+    fn projection_tracks_turns_cache_tokens_and_file_touches() {
+        // The stats the UI's session header needs beyond the classic
+        // summary: turn count, cache-aware token totals, top touched files.
+        let mut proj = SessionProjection::new("sess-x");
+        proj.append(&raw_event(
+            "a1",
+            1,
+            "message.assistant.text",
+            json!({
+                "model": "claude-fable-5",
+                "token_usage": {"input_tokens": 100, "output_tokens": 50,
+                                "cache_creation_input_tokens": 1000,
+                                "cache_read_input_tokens": 5000},
+                "raw": {"type": "assistant", "message": {"model": "claude-fable-5",
+                        "content": [{"type": "text", "text": "hi"}]}}
+            }),
+        ));
+        proj.append(&raw_event(
+            "a2",
+            2,
+            "message.assistant.tool_use",
+            json!({"raw": {"type": "assistant", "message": {"model": "claude-fable-5",
+                   "content": [{"type": "tool_use", "id": "c1", "name": "Edit",
+                                "input": {"file_path": "/src/main.rs",
+                                          "old_string": "a", "new_string": "b"}}]}}}),
+        ));
+        proj.append(&raw_event(
+            "a3",
+            3,
+            "message.assistant.tool_use",
+            json!({"raw": {"type": "assistant", "message": {"model": "claude-fable-5",
+                   "content": [{"type": "tool_use", "id": "c2", "name": "Read",
+                                "input": {"file_path": "/src/main.rs"}}]}}}),
+        ));
+        proj.append(&raw_event(
+            "a4",
+            4,
+            "system.turn.complete",
+            json!({"duration_ms": 900.0}),
+        ));
+
+        assert_eq!(proj.turn_count(), 1);
+        assert_eq!(proj.total_cache_creation_tokens(), 1000);
+        assert_eq!(proj.total_cache_read_tokens(), 5000);
+        assert_eq!(proj.total_input_tokens(), 100);
+        assert_eq!(proj.total_output_tokens(), 50);
+        assert_eq!(proj.top_files(5), vec![("/src/main.rs".to_string(), 2)]);
+    }
 
     #[test]
     fn projection_depth_is_zero_for_orphan_events() {
