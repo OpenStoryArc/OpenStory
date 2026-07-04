@@ -702,7 +702,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                 ))}
             </div>
             {/* Category filters */}
-            <div className="flex gap-1.5 mt-1.5">
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
               {CATEGORY_CONFIG.map(({ key, label, color }) => {
                 const count = categoryCounts.get(key) ?? 0;
                 if (count === 0) return null;

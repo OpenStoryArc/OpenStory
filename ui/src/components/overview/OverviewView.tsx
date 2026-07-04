@@ -361,7 +361,7 @@ export function OverviewView({ route, onNavigate }: Props) {
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Stats bar */}
-        <div className="flex items-center gap-6 border-b border-[#2f3348] px-4 py-2">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-[#2f3348] px-4 py-2">
           <div>
             <div className="text-[18px] font-semibold tabular-nums text-[#c0caf5]">{stats.sessionCount.toLocaleString()}</div>
             <div className="text-[10px] text-[#565f89]">sessions{active ? " (filtered)" : ""}</div>
@@ -374,7 +374,7 @@ export function OverviewView({ route, onNavigate }: Props) {
             <div className="text-[18px] font-semibold tabular-nums text-[#e0af68]">{kfmt(stats.tokens)}</div>
             <div className="text-[10px] text-[#565f89]">tokens{sortKey === "tokens" ? " ↓" : ""}</div>
           </button>
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-4">
             <CopyLinkButton />
             {stats.busiest && (
               <button

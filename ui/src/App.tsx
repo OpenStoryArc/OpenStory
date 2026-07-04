@@ -158,11 +158,11 @@ export function App() {
     <div className="h-screen flex flex-col bg-[#1a1b26] text-[#c0caf5]">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 bg-[#24283b] border-b border-[#2f3348]">
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">Open Story</h1>
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <h1 className="shrink-0 text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
             className="flex items-center gap-1.5 rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5] transition-colors"

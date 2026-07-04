@@ -134,3 +134,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer { animation: none; opacity: 0.6; }
 }
+
+/* merge-prep overflow guards: wide content scrolls inside its own box,
+   never the page. SyntaxHighlighter emits inline-styled <pre>; this is the
+   safety net for any block that skips wrapLongLines. */
+pre { max-width: 100%; overflow-x: auto; }

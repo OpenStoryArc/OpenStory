@@ -64,7 +64,7 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
         </span>
       </div>
 
-      <svg width={width} height={height} className="block overflow-visible" role="img" aria-label="Sessions calendar heatmap">
+      <div className="min-w-0 max-w-full overflow-x-auto"><svg width={width} height={height} className="block overflow-visible" role="img" aria-label="Sessions calendar heatmap">
         {/* month labels */}
         {model.monthLabels.map((m, i) => (
           <text key={i} x={LEFT + m.weekIndex * STEP} y={11} fontSize={9} fill="#565f89">
@@ -109,7 +109,7 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
             </rect>
           );
         })}
-      </svg>
+      </svg></div>
 
       {hover && hover.c.sessionCount > 0 && (
         <div

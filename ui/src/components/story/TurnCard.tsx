@@ -104,7 +104,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
             type="button"
             onClick={handleChipClick}
             disabled={!chipClickable}
-            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 transition-all ${
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink min-w-0 max-w-[42vw] truncate transition-all ${
               chipClickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
             } ${isSelectedSession ? "ring-1 ring-offset-0" : ""}`}
             style={{
@@ -286,13 +286,13 @@ function DiagramInline({ subject, verb, object, adverbial, adverbialFull, subord
         <span className="text-[#3b4261]"> ──── </span>
         <span className="text-[#9ece6a] font-bold">{verb}</span>
         <span className="text-[#3b4261]"> ──── </span>
-        <span className="text-[#c0caf5]">{object}</span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{object}</span>
       </div>
       {subordinates.map((sub, i) => (
         <div key={i} className="pl-5 my-0.5">
           <span className="text-[#3b4261]">├──</span>{" "}
           <span style={{ color: ROLE_COLORS[sub.role] ?? "#565f89" }}>{sub.verb}</span>{" "}
-          <span className="text-[#c0caf5]">{sub.object}</span>{" "}
+          <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{sub.object}</span>{" "}
           <span className="text-[#565f89]">({sub.tool_calls})</span>
         </div>
       ))}
@@ -325,7 +325,7 @@ function AdverbialLine({ truncated, full }: { truncated: string; full: string | 
       <div className="pl-5 my-0.5">
         <span className="text-[#3b4261]">└──</span>{" "}
         <span className="text-[#f7768e]">because</span>{" "}
-        <span className="text-[#c0caf5]">{truncated}</span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{truncated}</span>
       </div>
     );
   }
@@ -531,7 +531,7 @@ function DomainStrip({ applies }: { applies: Apply[] }) {
           return (
             <span
               key={`${fact.kind}-${i}`}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px]"
+              className="inline-flex max-w-full min-w-0 items-center gap-0.5 truncate px-1.5 py-0.5 rounded text-[10px]"
               style={{ backgroundColor: style.bg, color: style.color }}
               title={fact.detail}
             >

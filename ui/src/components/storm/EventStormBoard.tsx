@@ -118,7 +118,7 @@ export function EventStormBoard() {
       <div className="flex items-center gap-3 border-b border-[#2a2c3d] px-4 py-2 text-[12px]">
         <span className="font-semibold text-[#c0caf5]">Event Storming</span>
         <span className="text-[#565f89]">OpenStory, explaining itself — drag to pan, scroll to zoom, click a sticky.</span>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto hidden items-center gap-3 md:flex">
           {Object.entries(KIND).map(([k, v]) => (
             <span key={k} className="flex items-center gap-1.5 text-[#a2acce]">
               <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: v.color }} />{v.label}
@@ -173,7 +173,7 @@ export function EventStormBoard() {
         </div>
 
         {/* side panel: journeys + selected detail */}
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-[#2a2c3d] bg-[#1a1b26] p-3">
+        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-[#2a2c3d] bg-[#1a1b26] p-3 md:block">
           <div className="mb-1 text-[10px] font-mono uppercase tracking-wide text-[#565f89]">User journeys · E2E requirements</div>
           <div className="mb-4 flex flex-col gap-1.5">
             {JOURNEYS.map((j) => (
