@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clampWidth } from "@/lib/resizable";
+import { clampWidth, dragWidth } from "@/lib/resizable";
 
 export interface ResizablePanel {
   /** Current width in px, always within [min, max]. */
@@ -20,6 +20,9 @@ export function useResizablePanel(
   defaultPx: number,
   min: number,
   max: number,
+  /** Which side of the screen the panel sits on — decides which way a drag
+   *  widens it. "right" (default): left-edge handle; "left": right-edge. */
+  side: "left" | "right" = "right",
 ): ResizablePanel {
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return defaultPx;
@@ -45,8 +48,7 @@ export function useResizablePanel(
     const onMove = (e: PointerEvent) => {
       const d = drag.current;
       if (!d) return;
-      // Left-edge handle: dragging left (smaller clientX) widens the panel.
-      setWidth(clampWidth(d.startWidth + (d.startX - e.clientX), min, max));
+      setWidth(clampWidth(dragWidth(d.startWidth, d.startX, e.clientX, side), min, max));
     };
     const onUp = () => {
       drag.current = null;
@@ -58,7 +60,7 @@ export function useResizablePanel(
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [dragging, min, max]);
+  }, [dragging, min, max, side]);
 
   return { width, dragging, onHandlePointerDown };
 }

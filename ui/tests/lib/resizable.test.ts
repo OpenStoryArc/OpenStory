@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { clampWidth } from "@/lib/resizable";
+import { clampWidth, dragWidth } from "@/lib/resizable";
+import { scenario } from "../bdd";
 
 /** The pure core of the resizable side panel: a width is always kept within
  *  [min, max] so a drag can never collapse the panel or push it off-screen. */
@@ -24,5 +25,23 @@ describe("clampWidth — keep a dragged panel width in bounds", () => {
   it("coerces a non-finite width to the minimum (drag glitch guard)", () => {
     expect(clampWidth(NaN, 320, 760)).toBe(320);
     expect(clampWidth(Infinity, 320, 760)).toBe(760);
+  });
+});
+
+describe("dragWidth — which way the panel grows", () => {
+  it("a right-side panel (left-edge handle) widens as the pointer moves LEFT", () => {
+    scenario(
+      () => ({ startWidth: 400, startX: 1000, currentX: 900 }),
+      ({ startWidth, startX, currentX }) => dragWidth(startWidth, startX, currentX, "right"),
+      (w) => expect(w).toBe(500),
+    );
+  });
+
+  it("a left-side sidebar (right-edge handle) widens as the pointer moves RIGHT", () => {
+    scenario(
+      () => ({ startWidth: 288, startX: 300, currentX: 380 }),
+      ({ startWidth, startX, currentX }) => dragWidth(startWidth, startX, currentX, "left"),
+      (w) => expect(w).toBe(368),
+    );
   });
 });

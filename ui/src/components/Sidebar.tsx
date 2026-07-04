@@ -469,7 +469,15 @@ export const Sidebar = memo(function Sidebar({
   }, [sessions, onSelectSession, onFocusAgent]);
 
   // --- Horizontal resize (sidebar width) ---
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [width, setWidth] = useState(() => {
+    // Persisted like the other resizable panels — a chosen width survives reloads.
+    if (typeof window === "undefined") return DEFAULT_WIDTH;
+    const saved = Number(window.localStorage.getItem("live.sidebar.width"));
+    return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+  }, [width]);
   const hDrag = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: 0 });
 
   const onHDragStart = useCallback((e: React.MouseEvent) => {

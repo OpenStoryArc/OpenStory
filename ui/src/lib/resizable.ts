@@ -6,3 +6,17 @@ export function clampWidth(px: number, min: number, max: number): number {
   if (!Number.isFinite(px)) return px > 0 ? max : min;
   return Math.min(max, Math.max(min, px));
 }
+
+/** The direction a drag changes width, by which SIDE of the screen the panel
+ *  sits on. A right-side panel is dragged by its LEFT edge (pointer left ⟶
+ *  wider); a left-side sidebar is dragged by its RIGHT edge (pointer right ⟶
+ *  wider). Pure; clamping is the caller's job. */
+export function dragWidth(
+  startWidth: number,
+  startX: number,
+  currentX: number,
+  side: "left" | "right",
+): number {
+  const delta = currentX - startX;
+  return side === "left" ? startWidth + delta : startWidth - delta;
+}

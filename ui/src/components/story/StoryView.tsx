@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { TurnCard } from "./TurnCard";
 import { Clamp } from "@/components/ui/Clamp";
 import {
@@ -120,6 +121,8 @@ function formatRecency(iso: string): string {
 
 export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId, onOpenEvent }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
+  // Left sidebar with a right-edge grip; width survives reloads.
+  const sidebarPanel = useResizablePanel("story.sidebar.width", 300, 200, 480, "left");
   const [autoScroll, setAutoScroll] = useState(true);
   const [activeFilters, setActiveFilters] = useState<Set<StoryCategory>>(new Set());
 
@@ -358,7 +361,19 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
 
       {/* Sidebar */}
       {sidebarOpen && (
-      <div className="relative w-72 md:w-80 bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col">
+      <div
+        className="relative bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col"
+        style={{ width: sidebarPanel.width }}
+      >
+        {/* drag handle: right-edge grip, persisted width */}
+        <div
+          onPointerDown={sidebarPanel.onHandlePointerDown}
+          className={`absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${sidebarPanel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          title="Drag to resize"
+        />
         {/* Header bar */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0">
           <span className="text-[11px] text-[#565f89] uppercase tracking-wider font-semibold">Sessions</span>
