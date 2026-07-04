@@ -115,6 +115,36 @@ pub trait EventStore: Send + Sync {
     /// Load all events for a session, ordered by timestamp.
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>>;
 
+    /// The most-recent `limit` events with `data.seq < before_seq` (all when
+    /// `before_seq` is None), returned oldest-first by seq. This is the
+    /// pagination window the /records endpoint walks backward.
+    ///
+    /// Default implementation loads the whole session and windows in memory —
+    /// correct for every backend; override with a native query where the
+    /// backend can push the window down (SQLite does).
+    async fn session_events_before(
+        &self,
+        session_id: &str,
+        before_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<Value>> {
+        let mut events = self.session_events(session_id).await?;
+        fn seq_of(e: &Value) -> u64 {
+            e.get("data")
+                .and_then(|d| d.get("seq"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+        }
+        if let Some(before) = before_seq {
+            events.retain(|e| seq_of(e) < before);
+        }
+        events.sort_by_key(seq_of);
+        if events.len() > limit {
+            events.drain(..events.len() - limit);
+        }
+        Ok(events)
+    }
+
     /// List all sessions with summary metadata.
     async fn list_sessions(&self) -> Result<Vec<SessionRow>>;
 

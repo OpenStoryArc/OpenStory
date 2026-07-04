@@ -4,7 +4,7 @@ mod helpers;
 
 use axum::body::Body;
 use axum::http::Request;
-use helpers::{body_json, make_event, make_event_with_time, send_request, test_state};
+use helpers::{body_json, make_event, make_event_at, make_event_with_time, send_request, test_state};
 use tempfile::TempDir;
 
 use helpers::seed_and_ingest;
@@ -288,6 +288,84 @@ async fn test_summary_status_and_count_agree_with_the_sessions_list() {
         "summary and list must agree on event_count"
     );
     assert_eq!(row["status"], "completed", "old session reads as completed");
+}
+
+#[tokio::test]
+async fn test_paginated_records_walk_reconstructs_the_unpaginated_response() {
+    // The pagination contract the Live tab's streamSessionRecords walks:
+    // each page is the most-recent `limit` records below the cursor,
+    // oldest-first; `before_seq = page[0].seq` fetches the next page up;
+    // a short page means history is exhausted. Walking every page and
+    // concatenating must reproduce the unpaginated response exactly —
+    // this pins the SQL-windowed path to the old full-scan semantics.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events: Vec<_> = (1..=9)
+            .map(|i| {
+                make_event_at(
+                    "io.arc.event",
+                    "sess-walk",
+                    &format!("2026-01-01T00:00:0{i}Z"),
+                    i,
+                )
+            })
+            .collect();
+        seed_and_ingest(&mut s, "sess-walk", &events, None).await;
+    }
+
+    let full = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-walk/records")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let full = full.as_array().expect("array").clone();
+    assert!(!full.is_empty(), "seeded session must produce records");
+
+    // Walk pages of 4 backward, prepending, until a short page.
+    let mut walked: Vec<serde_json::Value> = Vec::new();
+    let mut cursor: Option<u64> = None;
+    loop {
+        let url = match cursor {
+            Some(c) => format!("/api/sessions/sess-walk/records?limit=4&before_seq={c}"),
+            None => "/api/sessions/sess-walk/records?limit=4".to_string(),
+        };
+        let page = body_json(
+            send_request(
+                state.clone(),
+                Request::get(&url).body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        let page = page.as_array().expect("array").clone();
+        if page.is_empty() {
+            break;
+        }
+        cursor = page[0]["seq"].as_u64();
+        let short = page.len() < 4;
+        walked.splice(0..0, page);
+        if short {
+            break;
+        }
+    }
+
+    assert_eq!(
+        walked.len(),
+        full.len(),
+        "walking all pages must recover every record"
+    );
+    let ids = |v: &[serde_json::Value]| -> Vec<String> {
+        v.iter().map(|r| r["id"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(ids(&walked), ids(&full), "same records, same order");
 }
 
 #[tokio::test]

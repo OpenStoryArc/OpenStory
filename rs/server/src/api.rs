@@ -2110,12 +2110,60 @@ pub async fn get_session_records(
     );
     let s = state.read().await;
 
-    let events = s
-        .store
-        .event_store
-        .session_events(&session_id)
-        .await
-        .unwrap_or_default();
+    let events = if paginated {
+        // Chunk-walk backward from the cursor instead of loading the whole
+        // session (measured: full-load-then-slice cost ~0.9 s per page on a
+        // 19k-event session). Events fan out to ≥1 ViewRecords, so one
+        // chunk usually fills the page; events that translate to zero
+        // records trigger another round so a mid-history page is never
+        // accidentally short (the client reads a short page as
+        // end-of-history).
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_RECORDS_LIMIT)
+            .clamp(1, MAX_RECORDS_LIMIT);
+        let mut collected: Vec<Value> = Vec::new();
+        let mut record_estimate = 0usize;
+        let mut cursor = query.before_seq;
+        loop {
+            let chunk = s
+                .store
+                .event_store
+                .session_events_before(&session_id, cursor, limit)
+                .await
+                .unwrap_or_default();
+            if chunk.is_empty() {
+                break;
+            }
+            let exhausted = chunk.len() < limit;
+            cursor = chunk
+                .first()
+                .and_then(|e| e.get("data"))
+                .and_then(|d| d.get("seq"))
+                .and_then(|v| v.as_u64());
+            record_estimate += chunk
+                .iter()
+                .filter(|e| {
+                    serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(
+                        (*e).clone(),
+                    )
+                    .map(|ce| !from_cloud_event(&ce).is_empty())
+                    .unwrap_or(false)
+                })
+                .count();
+            collected.splice(0..0, chunk);
+            if record_estimate >= limit || exhausted {
+                break;
+            }
+        }
+        collected
+    } else {
+        s.store
+            .event_store
+            .session_events(&session_id)
+            .await
+            .unwrap_or_default()
+    };
 
     // Build parent_map from raw events — one entry per stored CloudEvent.
     // Fan-out ViewRecords (e.g., parallel tool_use blocks) inherit the
@@ -2134,6 +2182,17 @@ pub async fn get_session_records(
             .map(|s| s.to_string());
         parent_map.insert(id, parent);
     }
+
+    // A page may not contain a record's ancestors, so the local parent walk
+    // can under-count depth at page edges. The projection maintains global
+    // depths incrementally — prefer it, fall back to the local walk.
+    let projection_depth = |id: &str| -> Option<u16> {
+        let base_id = id.split(':').next().unwrap_or(id);
+        s.store
+            .projections
+            .get(&session_id)
+            .map(|p| p.node_depth(base_id))
+    };
 
     // Depth: walk the parent chain. Capped at 64 to bound cost on
     // pathological inputs (production trees are shallow).
@@ -2167,7 +2226,8 @@ pub async fn get_session_records(
             // Parent lookup uses base id (strip fan-out suffix).
             let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
             let parent_uuid = parent_map.get(&base_id).and_then(|p| p.clone());
-            let depth = depth_of(&vr.id, &parent_map);
+            let depth = projection_depth(&vr.id)
+                .unwrap_or_else(|| depth_of(&vr.id, &parent_map));
 
             // Truncation: same rule as the pre-refactor to_wire_record.
             let (truncated, payload_bytes) = match &vr.body {

@@ -103,6 +103,8 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_events_subtype ON events(subtype);
+            CREATE INDEX IF NOT EXISTS idx_events_session_seq
+                ON events(session_id, CAST(json_extract(payload, '$.data.seq') AS INTEGER));
 
             CREATE TABLE IF NOT EXISTS sessions (
                 id           TEXT PRIMARY KEY,
@@ -451,6 +453,50 @@ impl EventStore for SqliteStore {
                 events.push(val);
             }
         }
+        Ok(events)
+    }
+
+    async fn session_events_before(
+        &self,
+        session_id: &str,
+        before_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<Value>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        // The CAST(json_extract(...)) expression matches
+        // idx_events_session_seq exactly, so this is an index range scan —
+        // no whole-session load, no per-request JSON parse of every event.
+        let mut sql = String::from(
+            "SELECT payload FROM events WHERE session_id = ?1",
+        );
+        if before_seq.is_some() {
+            sql.push_str(" AND CAST(json_extract(payload, '$.data.seq') AS INTEGER) < ?3");
+        }
+        sql.push_str(
+            " ORDER BY CAST(json_extract(payload, '$.data.seq') AS INTEGER) DESC LIMIT ?2",
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            let payload: String = row.get(0)?;
+            Ok(payload)
+        };
+        let rows: Vec<String> = match before_seq {
+            Some(before) => stmt
+                .query_map(
+                    rusqlite::params![session_id, limit as i64, before as i64],
+                    map_row,
+                )?
+                .collect::<std::result::Result<_, _>>()?,
+            None => stmt
+                .query_map(rusqlite::params![session_id, limit as i64], map_row)?
+                .collect::<std::result::Result<_, _>>()?,
+        };
+        // Query returned newest-first; the contract is oldest-first.
+        let mut events: Vec<Value> = rows
+            .iter()
+            .filter_map(|p| serde_json::from_str(p).ok())
+            .collect();
+        events.reverse();
         Ok(events)
     }
 
@@ -1002,6 +1048,51 @@ mod tests {
         let event = test_event("evt-1", "2025-01-14T00:00:00Z");
         store.insert_event("sess-1", &event).await.unwrap();
         assert!(!store.insert_event("sess-1", &event).await.unwrap());
+    }
+
+    fn seq_event(id: &str, seq: u64) -> Value {
+        json!({
+            "id": id,
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "type": "io.arc.event",
+            "subtype": "message.user.prompt",
+            "time": format!("2025-01-14T00:00:{:02}Z", seq),
+            "source": "arc://test",
+            "data": { "seq": seq, "text": "hello" }
+        })
+    }
+
+    // describe("session_events_before — the /records pagination window")
+    #[tokio::test]
+    async fn events_before_windows_by_seq_oldest_first() {
+        let store = SqliteStore::in_memory().unwrap();
+        for seq in 1..=10u64 {
+            store
+                .insert_event("sess-p", &seq_event(&format!("e{seq}"), seq))
+                .await
+                .unwrap();
+        }
+
+        // No cursor: the most-recent 3, oldest-first.
+        let page = store.session_events_before("sess-p", None, 3).await.unwrap();
+        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![8, 9, 10]);
+
+        // Cursor: strictly below before_seq.
+        let page = store.session_events_before("sess-p", Some(8), 3).await.unwrap();
+        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![5, 6, 7]);
+
+        // Underfill: fewer events than limit returns what exists.
+        let page = store.session_events_before("sess-p", Some(3), 10).await.unwrap();
+        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        assert_eq!(seqs, vec![1, 2]);
+
+        // Other sessions never leak in.
+        store.insert_event("sess-other", &seq_event("other", 6)).await.unwrap();
+        let page = store.session_events_before("sess-p", Some(8), 100).await.unwrap();
+        assert_eq!(page.len(), 7);
     }
 
     #[tokio::test]
