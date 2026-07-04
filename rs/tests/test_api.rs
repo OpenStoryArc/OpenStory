@@ -369,6 +369,85 @@ async fn test_paginated_records_walk_reconstructs_the_unpaginated_response() {
 }
 
 #[tokio::test]
+async fn test_conversation_pagination_windows_and_exposes_a_cursor() {
+    // /conversation accepts limit/before_seq like /records: a window of the
+    // most-recent events, paired, plus next_before_seq so the UI can load
+    // older history on demand instead of the whole session up front.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events: Vec<_> = (1..=6)
+            .map(|i| {
+                make_event_at(
+                    "io.arc.event",
+                    "sess-conv",
+                    &format!("2026-01-01T00:00:0{i}Z"),
+                    i,
+                )
+            })
+            .collect();
+        seed_and_ingest(&mut s, "sess-conv", &events, None).await;
+    }
+
+    let full = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-conv/conversation")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let full_count = full["entries"].as_array().expect("entries").len();
+    assert!(full_count >= 6, "seeded prompts must all pair into entries");
+
+    // A window of 2 events returns fewer entries and a cursor.
+    let page = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-conv/conversation?limit=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let page_count = page["entries"].as_array().expect("entries").len();
+    assert!(
+        page_count < full_count,
+        "limit=2 must window the conversation ({page_count} vs {full_count})"
+    );
+    let cursor = page["next_before_seq"]
+        .as_u64()
+        .expect("a filled window exposes next_before_seq");
+
+    // Walking with the cursor reaches older entries; total entry count
+    // across the walk equals the unpaginated response.
+    let mut total = page_count;
+    let mut before = Some(cursor);
+    while let Some(b) = before {
+        let older = body_json(
+            send_request(
+                state.clone(),
+                Request::get(&format!(
+                    "/api/sessions/sess-conv/conversation?limit=2&before_seq={b}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        total += older["entries"].as_array().expect("entries").len();
+        before = older["next_before_seq"].as_u64();
+    }
+    assert_eq!(total, full_count, "walking all pages recovers every entry");
+}
+
+#[tokio::test]
 async fn test_get_tool_schemas() {
     let data_dir = TempDir::new().unwrap();
     let state = test_state(&data_dir);

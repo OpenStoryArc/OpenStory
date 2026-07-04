@@ -8,15 +8,26 @@ import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FilterPills } from "@/components/ui/FilterPills";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CONVERSATION_FACETS, conversationEntryMatches, facetCounts, type ConversationFacet } from "@/lib/conversation-facets";
 
 interface ConversationViewProps {
   sessionId: string;
 }
 
+/** Events per page — the window /conversation is asked for. One page is
+ *  plenty for reading the recent story; older history loads on demand. */
+const CONVERSATION_PAGE_EVENTS = 500;
+
+interface PagedConversation extends PairedConversation {
+  next_before_seq?: number;
+}
+
 export function ConversationView({ sessionId }: ConversationViewProps) {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
   const [facet, setFacet] = useState<ConversationFacet>("all");
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -30,11 +41,14 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`/api/sessions/${sessionId}/conversation`)
+    setEntries([]);
+    setNextBeforeSeq(null);
+    fetch(`/api/sessions/${sessionId}/conversation?limit=${CONVERSATION_PAGE_EVENTS}`)
       .then((r) => r.json())
-      .then((data: PairedConversation) => {
+      .then((data: PagedConversation) => {
         if (!cancelled) {
           setEntries(data.entries ?? []);
+          setNextBeforeSeq(data.next_before_seq ?? null);
           setLoading(false);
         }
       })
@@ -45,6 +59,21 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
       cancelled = true;
     };
   }, [sessionId]);
+
+  const loadOlder = useCallback(() => {
+    if (nextBeforeSeq === null || loadingOlder) return;
+    setLoadingOlder(true);
+    fetch(
+      `/api/sessions/${sessionId}/conversation?limit=${CONVERSATION_PAGE_EVENTS}&before_seq=${nextBeforeSeq}`,
+    )
+      .then((r) => r.json())
+      .then((data: PagedConversation) => {
+        setEntries((cur) => [...(data.entries ?? []), ...cur]);
+        setNextBeforeSeq(data.next_before_seq ?? null);
+        setLoadingOlder(false);
+      })
+      .catch(() => setLoadingOlder(false));
+  }, [sessionId, nextBeforeSeq, loadingOlder]);
 
   const virtualizer = useVirtualizer({
     count: visible.length,
@@ -111,9 +140,15 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   );
 
   if (loading) {
+    // Shaped skeleton: the silhouette of a conversation (alternating
+    // bubbles + a tool row), not a bare spinner line.
     return (
-      <div className="flex items-center justify-center h-full text-[#565f89] text-sm">
-        Loading transcript...
+      <div className="flex h-full flex-col gap-3 p-3" data-testid="conversation-loading">
+        <Skeleton className="h-10 w-3/5 self-end rounded-lg" />
+        <Skeleton className="h-16 w-4/5 rounded-lg" />
+        <Skeleton className="h-8 w-2/3 rounded" />
+        <Skeleton className="h-10 w-1/2 self-end rounded-lg" />
+        <Skeleton className="h-20 w-4/5 rounded-lg" />
       </div>
     );
   }
@@ -129,6 +164,17 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <FilterPills facets={CONVERSATION_FACETS} active={facet} counts={counts} onSelect={setFacet} />
+      {nextBeforeSeq !== null && (
+        <button
+          type="button"
+          data-testid="load-older"
+          onClick={loadOlder}
+          disabled={loadingOlder}
+          className="w-full border-b border-[#2f3348] px-3 py-1.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348] disabled:opacity-50"
+        >
+          {loadingOlder ? "Loading older…" : "↑ Load older history"}
+        </button>
+      )}
       <div ref={parentRef} className="flex-1 overflow-y-auto">
       <div
         style={{

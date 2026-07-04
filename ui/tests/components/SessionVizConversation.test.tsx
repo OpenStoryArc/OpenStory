@@ -13,7 +13,7 @@ beforeEach(() => {
     "fetch",
     vi.fn((url: string) =>
       Promise.resolve({
-        json: () => Promise.resolve(String(url).endsWith("/conversation") ? conversation : records),
+        json: () => Promise.resolve(String(url).includes("/conversation") ? conversation : records),
       }),
     ),
   );

@@ -1145,6 +1145,12 @@ pub struct ConversationQuery {
     /// Output format: json (default) or markdown
     #[serde(default)]
     pub format: Option<String>,
+    /// Max events to window (JSON format only). Absent = whole session.
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// Only events with seq < before_seq (walk older history).
+    #[serde(default)]
+    pub before_seq: Option<u64>,
 }
 
 pub async fn get_conversation(
@@ -1161,12 +1167,43 @@ pub async fn get_conversation(
         ),
     );
     let s = state.read().await;
-    let events = s
-        .store
-        .event_store
-        .session_events(&session_id)
-        .await
-        .unwrap_or_default();
+
+    // JSON format supports windowing: the most-recent `limit` events
+    // (below before_seq when walking), paired, plus a cursor. Markdown/HTML
+    // exports stay whole-session — an export is the whole story.
+    let paginated = fmt == "json" && (query.limit.is_some() || query.before_seq.is_some());
+    let (events, next_before_seq) = if paginated {
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_RECORDS_LIMIT)
+            .clamp(1, MAX_RECORDS_LIMIT);
+        let window = s
+            .store
+            .event_store
+            .session_events_before(&session_id, query.before_seq, limit)
+            .await
+            .unwrap_or_default();
+        // A full window means older history may exist; its oldest seq is
+        // the cursor for the next page up.
+        let cursor = (window.len() == limit)
+            .then(|| {
+                window
+                    .first()
+                    .and_then(|e| e.get("data"))
+                    .and_then(|d| d.get("seq"))
+                    .and_then(|v| v.as_u64())
+            })
+            .flatten();
+        (window, cursor)
+    } else {
+        let all = s
+            .store
+            .event_store
+            .session_events(&session_id)
+            .await
+            .unwrap_or_default();
+        (all, None)
+    };
 
     let view_records: Vec<_> = events
         .iter()
@@ -1195,8 +1232,13 @@ pub async fn get_conversation(
                 .body(axum::body::Body::from(html))
                 .unwrap()
         }
-        _ => axum::response::Json(serde_json::to_value(paired).unwrap_or(json!({"entries": []})))
-            .into_response(),
+        _ => {
+            let mut body = serde_json::to_value(paired).unwrap_or(json!({"entries": []}));
+            if let (Some(cursor), Some(obj)) = (next_before_seq, body.as_object_mut()) {
+                obj.insert("next_before_seq".to_string(), json!(cursor));
+            }
+            axum::response::Json(body).into_response()
+        }
     }
 }
 
