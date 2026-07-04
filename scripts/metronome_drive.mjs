@@ -123,7 +123,7 @@ async function runTempo({ bpm, burst }) {
 // ui-state freshness: POST a uniquely-marked interaction, poll GET /api/ui-state
 // until it reflects the marker, measure POST→visible lag.
 async function measureFreshness() {
-  const sid = `fresh-${Math.floor(performance.now())}-${Math.random().toString(36).slice(2, 8)}`;
+  const sid = `fresh-${crypto.randomUUID()}`;
   const t0 = performance.now();
   await fetch(BASE + "/api/interactions", {
     method: "POST", headers: { "content-type": "application/json" },
