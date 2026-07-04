@@ -39,15 +39,22 @@ function drivableEdges(sid, eid) {
     { edge: "session→plan", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid, detailView: "plans" }], lands: new RegExp(`explore/${sid}`) },
     { edge: "session→event", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid }], lands: new RegExp(`explore/${sid}`) },
     { edge: "turn→event", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "explore" }], lands: new RegExp(`event/${eid}`) },
+    { edge: "event→turn", via: "focus_event", ctrl: ["focus_event", { sessionId: sid, eventId: eid, view: "story" }], lands: new RegExp(`story/${sid}/event/${eid}`) },
   ];
 }
 // structural dead ends (via:null) — no verb walks them yet.
 const DEAD_ENDS = [
-  "subagent→session (parent ↑)", "event→turn (its turn ↑)", "toolcall→result (paired)",
+  "subagent→session (parent ↑)", "toolcall→result (paired)",
   "toolcall→file (writes)", "file→session (impact ↺)", "error→event (locus)", "plan→turn (authored by)",
 ];
 
-const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"] });
+// Chromium: prefer OPEN_STORY_CHROME, else the legacy snapshot path, else
+// Playwright's own installed browser (npx playwright install chromium).
+const launchOpts = { headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"] };
+const chromePath = process.env.OPEN_STORY_CHROME ?? `${S}/chrome-linux/chrome`;
+const b = await chromium
+  .launch({ ...launchOpts, executablePath: chromePath })
+  .catch(() => chromium.launch(launchOpts));
 const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
 p.on("pageerror", (e) => console.log("PAGEERR:", e.message.slice(0, 120)));
 

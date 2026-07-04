@@ -119,6 +119,11 @@ export function parseHash(hash: string): HashRoute {
     const sessionId = parts[1] || undefined;
     const route: HashRoute = { view };
     if (sessionId) route.sessionId = sessionId;
+    // Story deep-links to one event's turn (#/story/SES/event/ID) — the
+    // event→turn canopy edge. StoryView consumes route.eventId to scroll.
+    if (view === "story" && sessionId && parts[2] === "event" && parts[3]) {
+      route.eventId = parts[3];
+    }
     if (userFilter) route.userFilter = userFilter;
     if (timeFilter) route.timeFilter = timeFilter;
     return route;

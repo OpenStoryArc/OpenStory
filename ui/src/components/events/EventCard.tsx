@@ -9,6 +9,7 @@ import type { TimelineRow } from "@/lib/timeline";
 import type { ViewRecord, ToolCall } from "@/types/view-record";
 import { detectLanguage } from "@/lib/detect-language";
 import { compactTime } from "@/lib/time";
+import { buildHash } from "@/lib/hash-route";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
@@ -487,6 +488,21 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
         {!compact && (
           <div className="mt-1">
             <CardBody row={row} />
+            {/* The event→turn edge: climb from this event to its turn in
+                Story. Detail-on-click — only the expanded card offers it. */}
+            <a
+              href={buildHash({
+                view: "story",
+                sessionId: (row.record as ViewRecord).session_id,
+                eventId: (row.record as ViewRecord).id,
+              })}
+              data-testid="event-story-turn-link"
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1 inline-block text-[10px] text-[#bb9af7] hover:underline"
+              title="Open this event's turn in Story"
+            >
+              ↑ Turn in Story
+            </a>
           </div>
         )}
       </div>

@@ -33,13 +33,20 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("focus_event");
   });
 
+  it("includes the event→turn edge — the climb back up (via focus_event)", () => {
+    // Both directions now walk: a turn drills to its source event, and an
+    // event climbs to its turn in Story (#/story/SES/event/ID).
+    const e = ENTITY_EDGES.find((x) => x.from === "event" && x.to === "turn");
+    expect(e?.via).toBe("focus_event");
+  });
+
   it("still has the known dead ends (data connected, UI isn't)", () => {
     const report = navigabilityReport(ENTITY_EDGES);
     const deadLabels = new Set(report.deadEnds.map((e) => `${e.from}->${e.to}`));
     // the branches that stop in mid-air, from the picture
-    expect(deadLabels.has("event->turn")).toBe(true);
     expect(deadLabels.has("file->session")).toBe(true);
     expect(deadLabels.has("subagent->session")).toBe(true);
+    expect(deadLabels.has("plan->turn")).toBe(true);
   });
 
   it("reports partial coverage — the canopy is half-grown", () => {

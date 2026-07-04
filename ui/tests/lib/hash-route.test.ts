@@ -62,6 +62,9 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "explore", sessionId: "abc-123" },
     { view: "explore", sessionId: "abc", detailView: "conversation" },
     { view: "explore", sessionId: "abc", eventId: "evt-1" },
+    // The event→turn canopy edge: Story deep-links to the turn containing an
+    // event. StoryView already consumes route.eventId; the parse must keep it.
+    { view: "story", sessionId: "abc", eventId: "evt-1" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
     { view: "live", userFilter: "katie" },
