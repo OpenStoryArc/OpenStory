@@ -29,6 +29,7 @@ import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
+import { switchTabRoute } from "@/lib/navigation";
 
 const STATUS_INDICATOR = {
   connected: { color: "bg-green-400", label: "Connected" },
@@ -144,8 +145,9 @@ export function App() {
   }, [navigate, selectedSession, userFilter]);
 
   const handleSwitchTab = useCallback((mode: ViewMode) => {
-    navigate({ view: mode });
-  }, [navigate]);
+    // Carry the selected session across tabs (Live→Story keeps the session).
+    navigate(switchTabRoute(route, mode));
+  }, [navigate, route]);
 
   // Cross-link: Live → Explore
   const handleExploreLink = useCallback((link: CrossLink) => {
