@@ -5,11 +5,12 @@
  *  trace its path through the grammar. Everything is derived from the pure model
  *  in lib/event-storming.ts — the board IS the data. */
 
-import { useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   STICKIES, FLOWS, JOURNEYS, neighborsOf, journeyEdges, stickyById,
   type StickyKind, type StormContext,
 } from "@/lib/event-storming";
+import { parseHash, buildHash } from "@/lib/hash-route";
 
 // Event Storming's sticky grammar, harmonized to the app's palette.
 const KIND: Record<StickyKind, { color: string; label: string }> = {
@@ -29,10 +30,24 @@ const BAND_Y: Record<StormContext, number> = { observed: 70, authored: 470 };
 interface Pos { x: number; y: number }
 
 export function EventStormBoard() {
-  const [sel, setSel] = useState<string | null>(null);
+  // A sticky is a shareable PLACE: #/storm?sticky=id opens with it selected,
+  // and selecting writes the hash back (replaceState — same view, no nav loop).
+  const [sel, setSel] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const id = parseHash(window.location.hash).stickyId ?? null;
+    return id && stickyById(id) ? id : null;
+  });
   const [journey, setJourney] = useState<string | null>(null);
   const [view, setView] = useState({ tx: 0, ty: 0, s: 1 });
   const drag = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.location.hash.startsWith("#/storm")) return;
+    window.history.replaceState(
+      null,
+      "",
+      buildHash({ view: "storm", ...(sel ? { stickyId: sel } : {}) }),
+    );
+  }, [sel]);
 
   // ── layout: kind → column, context → band, stack within a cell ──
   const pos = useMemo(() => {
@@ -139,6 +154,7 @@ export function EventStormBoard() {
               const isSel = sel === s.id;
               return (
                 <button key={s.id} data-sticky data-testid={`sticky-${s.id}`}
+                  title={s.note ? `${s.label} — ${s.note}` : s.label}
                   onClick={() => { setJourney(null); setSel(isSel ? null : s.id); }}
                   className="absolute rounded-md border text-left transition-opacity"
                   style={{

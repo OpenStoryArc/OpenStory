@@ -65,6 +65,8 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     // The event→turn canopy edge: Story deep-links to the turn containing an
     // event. StoryView already consumes route.eventId; the parse must keep it.
     { view: "story", sessionId: "abc", eventId: "evt-1" },
+    // Storm deep-links a sticky — a shareable pointer at one architecture note.
+    { view: "storm", stickyId: "rm_recordcache" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
     { view: "live", userFilter: "katie" },

@@ -18,6 +18,8 @@ const OVERVIEW_FACET_KEYS = ["project", "host", "user", "branch", "status", "age
 export interface HashRoute {
   view: "live" | "explore" | "story" | "overview" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin";
   sessionId?: string;
+  /** Storm board: deep-link one sticky (#/storm?sticky=id). */
+  stickyId?: string;
   detailView?: DetailView;
   eventId?: string;
   filePath?: string;
@@ -107,7 +109,9 @@ export function parseHash(hash: string): HashRoute {
     : "live";
 
   if (view === "users" || view === "admin" || view === "canvas" || view === "ask" || view === "heatmap" || view === "lab" || view === "storm") {
-    return { view };
+    // Storm deep-links a sticky — a shareable pointer at one architecture note.
+    const sticky = view === "storm" ? queryParams?.get("sticky") : null;
+    return sticky ? { view, stickyId: sticky } : { view };
   }
 
   if (view === "overview") {
@@ -164,6 +168,10 @@ export function buildHash(route: HashRoute): string {
   if (route.view === "overview" && route.overview) {
     const query = buildOverviewQuery(route.overview).toString();
     return query ? `#/overview?${query}` : "#/overview";
+  }
+
+  if (route.view === "storm" && route.stickyId) {
+    return `#/storm?sticky=${encodeURIComponent(route.stickyId)}`;
   }
 
   const parts: string[] = [route.view];
