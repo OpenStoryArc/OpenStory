@@ -286,7 +286,7 @@ Subjects (hierarchical — encodes parent-child relationships):
 Subscribe to events.{project}.{session}.> → gets main + all subagents
 
 Streams:
-  events   — durable, limits-based (1GB)
+  events   — durable, limits-based (8GB)
   patterns — detected PatternEvents (durable)
   changes  — session metadata updates (interest-based)
 ```
