@@ -26,6 +26,7 @@ import {
   scopeDepthProfile,
   sentenceHeadline,
   findSentenceIndexByEvent,
+  findSentenceIndexByTurn,
   type StoryCategory,
 } from "@/lib/story";
 import {
@@ -293,6 +294,12 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
 
   // Keyboard nav
   const [focusIndex, setFocusIndex] = useState(-1);
+  // Sidebar spine: show all sentences past the first 8 (reset per session).
+  const [spineExpanded, setSpineExpanded] = useState(false);
+  useEffect(() => {
+    setSpineExpanded(false);
+  }, [selectedSession]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowDown" || e.key === "j") {
@@ -587,10 +594,26 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                 narrative spine — what it did, and (muted) why. */}
             {isActive && cached && cached.length > 0 && (
               <div className="ml-3 mt-1 mb-1.5 border-l border-[#2f3348] pl-2.5">
-                {cached.slice(0, 8).map((p, i) => {
+                {(spineExpanded ? cached : cached.slice(0, 8)).map((p, i) => {
                   const h = sentenceHeadline(p);
+                  const turn = p.metadata?.turn as number | undefined;
                   return (
-                    <div key={i} className="py-0.5">
+                    <button
+                      key={i}
+                      data-testid={`spine-sentence-${i}`}
+                      onClick={() => {
+                        // Jump the feed to this sentence's turn card.
+                        const idx = findSentenceIndexByTurn(sentences, turn);
+                        if (idx >= 0) {
+                          // Off auto-scroll first, or a live append yanks the
+                          // jump back to the bottom (same as the deep-link path).
+                          setAutoScroll(false);
+                          setFocusIndex(idx);
+                          virtualizer.scrollToIndex(idx, { align: "center" });
+                        }
+                      }}
+                      className="block w-full rounded py-0.5 text-left hover:bg-[#24283b]"
+                    >
                       <div className="text-[11px] leading-snug text-[#a9b1d6]">
                         <span className="text-[#565f89]">{i + 1}.</span> {h.text}
                       </div>
@@ -600,10 +623,18 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                           className="block text-[10px] italic leading-snug text-[#565f89]"
                         />
                       )}
-                    </div>
+                    </button>
                   );
                 })}
-                {cached.length > 8 && <div className="py-0.5 text-[10px] text-[#565f89]">+{cached.length - 8} more turns ↓</div>}
+                {cached.length > 8 && (
+                  <button
+                    data-testid="spine-show-all"
+                    onClick={() => setSpineExpanded((v) => !v)}
+                    className="py-0.5 text-[10px] text-[#7aa2f7] hover:text-[#89b4fa]"
+                  >
+                    {spineExpanded ? "show fewer ↑" : `+${cached.length - 8} more turns ↓`}
+                  </button>
+                )}
               </div>
             )}
             </div>

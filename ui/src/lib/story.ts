@@ -203,6 +203,17 @@ export function findSentenceIndexByEvent(
   return sentences.findIndex((s) => (s.events ?? []).includes(eventId));
 }
 
+/** Index of the sentence whose turn number is `turn` — the spine's click
+ *  target in the feed (both are the same session's sentences; the feed is
+ *  sorted by turn). -1 when missing. Pure → the click mapping is testable. */
+export function findSentenceIndexByTurn(
+  sentences: readonly PatternView[],
+  turn: number | undefined,
+): number {
+  if (turn == null) return -1;
+  return sentences.findIndex((s) => (s.metadata?.turn as number | undefined) === turn);
+}
+
 /** A short human headline for a turn.sentence — the verb + object of what the
  *  agent did that turn (e.g. "edited 5 source files"). Falls back to the
  *  pattern label. The verbatim rationale (the "because …" quote) is returned
