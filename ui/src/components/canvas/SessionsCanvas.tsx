@@ -178,8 +178,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
     <div className="flex min-h-0 flex-1 bg-[#16171f] text-[#c0caf5]" data-testid="sessions-canvas">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
-        <div className="flex items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
-          <div className="flex rounded border border-[#3b4261] p-0.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
+          <div className="flex flex-wrap rounded border border-[#3b4261] p-0.5">
             {CANVAS_MODES.map((m) => (
               <button
                 key={m}

@@ -56,6 +56,11 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
   const { sessions, loading, error, refresh } = useSessionsList();
   const { recentIds, record } = useRecents();
 
+  // Phones get a drawer, not a sliver: below md the sidebar starts closed
+  // behind a ☰ toggle and closes itself after a selection.
+  const isNarrow = () => typeof window !== "undefined" && window.innerWidth < 768;
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isNarrow());
+
   // ── URL-owned filter state ────────────────────────────────────────────────
   // Hydrated from the route; local state is the interactive truth, mirrored
   // back into the URL below (replaceState — no history spam per keystroke).
@@ -113,6 +118,7 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
 
   const handleSelectSession = useCallback((id: string) => {
     record(id);
+    if (isNarrow()) setSidebarOpen(false);
     onNavigate({ view: "explore", sessionId: id, explore: exploreQuery });
   }, [onNavigate, exploreQuery, record]);
 
@@ -161,17 +167,47 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
   );
 
   return (
-    <div className="flex flex-1 min-h-0" data-testid="explore-view">
-      <ExploreSidebar
-        sessions={sessions}
-        loading={loading}
-        filters={filters}
-        sortKey={sortKey}
-        onFiltersChange={setFilters}
-        onSortChange={setSortKey}
-        selectedSessionId={selectedSessionId}
-        onSelectSession={handleSelectSession}
-      />
+    <div className="relative flex flex-1 min-h-0" data-testid="explore-view">
+      {/* Mobile: the sessions drawer toggle (same idiom as Story's ☰) */}
+      {!sidebarOpen && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          data-testid="sidebar-toggle"
+          className="absolute bottom-3 left-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-[#3b4261] bg-[#24283b] text-sm text-[#7aa2f7] shadow-lg md:hidden"
+          title="Sessions"
+        >
+          ☰
+        </button>
+      )}
+      {/* Scrim behind the mobile drawer */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
+      {/* md:contents dissolves this wrapper on desktop — the sidebar stays a
+          normal flex child there; below md it's an off-canvas drawer. */}
+      <div
+        data-testid="explore-drawer"
+        data-state={sidebarOpen ? "open" : "closed"}
+        className={
+          "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-30 max-md:w-72 max-md:shadow-2xl max-md:transition-transform md:contents" +
+          (sidebarOpen ? "" : " max-md:-translate-x-full")
+        }
+      >
+        <ExploreSidebar
+          sessions={sessions}
+          loading={loading}
+          filters={filters}
+          sortKey={sortKey}
+          onFiltersChange={setFilters}
+          onSortChange={setSortKey}
+          selectedSessionId={selectedSessionId}
+          onSelectSession={handleSelectSession}
+        />
+      </div>
       <div className="flex-1 min-w-0 overflow-y-auto flex flex-col">
         {selectedSessionId && (
           <div style={{ display: detailView === "search" ? "none" : undefined }}>

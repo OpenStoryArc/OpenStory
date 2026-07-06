@@ -323,7 +323,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
   }, [sentences.length, virtualizer]);
 
   // Sidebar toggle
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Desktop: open. Phones: closed — the feed owns the screen, ☰ opens it.
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 768);
 
   // Client-side find: free-text search + facet filters over the loaded sessions.
   const [search, setSearch] = useState("");
