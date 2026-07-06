@@ -405,7 +405,9 @@ describe("buildSessionHierarchy", () => {
     );
   });
 
-  it("sorted by most recent first", () => {
+  it("preserves the caller's order of main sessions (the caller owns sorting)", () => {
+    // The merged Explore sorts with sortSessions() BEFORE building the
+    // hierarchy — the fold must not re-sort behind the caller's back.
     const sessions = [
       makeSession({ session_id: "old", start_time: "2025-01-14T10:00:00Z", project_id: "p1" }),
       makeSession({ session_id: "new", start_time: "2025-01-16T10:00:00Z", project_id: "p2" }),
@@ -414,8 +416,7 @@ describe("buildSessionHierarchy", () => {
       () => sessions,
       (s) => buildSessionHierarchy(s),
       (parents) => {
-        expect(parents[0]!.session.session_id).toBe("new");
-        expect(parents[1]!.session.session_id).toBe("old");
+        expect(parents.map((p) => p.session.session_id)).toEqual(["old", "new"]);
       },
     );
   });

@@ -151,8 +151,8 @@ export interface ParentSession<S extends HierarchySession = SessionSummary> {
 }
 
 /** Build a hierarchy: main sessions as parents, agent sessions grouped underneath by project.
- *  Orphan agents (no matching main session in same project) become top-level entries.
- *  Sorted by most recent first. */
+ *  Orphan agents (no matching main session in same project) become top-level entries
+ *  appended at the end. Parents keep the caller's order — sort before calling. */
 export function buildSessionHierarchy<S extends HierarchySession>(
   sessions: readonly S[],
 ): ParentSession<S>[] {
@@ -204,10 +204,8 @@ export function buildSessionHierarchy<S extends HierarchySession>(
     result.push({ session: o, agents: [], totalAgentEvents: 0 });
   }
 
-  // Sort by most recent first; sessions without a start_time sink to the end.
-  const at = (s: HierarchySession) => (s.start_time ? new Date(s.start_time).getTime() : 0);
-  result.sort((a, b) => at(b.session) - at(a.session));
-
+  // Parents keep the caller's order (the caller owns sorting — e.g. Explore
+  // runs sortSessions() first); orphan agents append at the end.
   return result;
 }
 

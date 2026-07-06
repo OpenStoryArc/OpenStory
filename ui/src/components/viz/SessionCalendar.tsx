@@ -101,6 +101,7 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
               strokeOpacity={selected ? 1 : active ? 0.15 : 0}
               strokeWidth={selected ? 1.5 : 1}
               className={active ? "cursor-pointer" : undefined}
+              data-day={c.date}
               onMouseEnter={() => setHover({ c, x, y })}
               onMouseLeave={() => setHover((h) => (h?.c.date === c.date ? null : h))}
               onClick={active ? () => onSelectDay(selected ? null : c.date) : undefined}
