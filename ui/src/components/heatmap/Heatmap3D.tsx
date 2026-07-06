@@ -114,7 +114,7 @@ export default function Heatmap3D({ grid, onNavigate }: { grid: HeatGrid; onNavi
       <ambientLight intensity={0.62} />
       <directionalLight position={[12, 22, 8]} intensity={0.85} />
       <directionalLight position={[-10, 8, -12]} intensity={0.25} />
-      <Stacks grid={grid} onDay={(date) => onNavigate({ view: "overview", overview: { filters: { day: date } } })} />
+      <Stacks grid={grid} onDay={(date) => onNavigate({ view: "explore", explore: { filters: { day: date } } })} />
       <OrbitControls enablePan={false} target={[0, 2, 0]} minZoom={3} maxZoom={40} />
     </Canvas>
   );

@@ -29,8 +29,8 @@ export function interactionFromRoute(route: HashRoute): Extract<Interaction, { k
   if (route.sessionId) p.session_id = route.sessionId;
   if (route.detailView) p.detailView = route.detailView;
   if (route.eventId) p.eventId = route.eventId;
-  if (route.overview?.filters && Object.keys(route.overview.filters).length > 0) {
-    p.filters = route.overview.filters;
+  if (route.explore?.filters && Object.keys(route.explore.filters).length > 0) {
+    p.filters = route.explore.filters;
   }
   return p;
 }

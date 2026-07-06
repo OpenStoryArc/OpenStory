@@ -27,10 +27,9 @@ export interface PaletteItem {
 
 const TAB_ITEMS: PaletteItem[] = [
   { id: "tab-live", title: "Live", icon: "◉", group: "Navigate", searchText: "live stream realtime", route: { view: "live" } },
-  { id: "tab-overview", title: "Overview", icon: "▦", group: "Navigate", searchText: "overview dashboard calendar heatmap sessions", route: { view: "overview" } },
   { id: "tab-canvas", title: "Canvas", icon: "◇", group: "Navigate", searchText: "canvas board sunburst treemap gantt scatter flow visualize", route: { view: "canvas" } },
   { id: "tab-ask", title: "Ask", icon: "?", group: "Navigate", searchText: "ask questions insights answers", route: { view: "ask" } },
-  { id: "tab-explore", title: "Explore", icon: "⊞", group: "Navigate", searchText: "explore events conversation", route: { view: "explore" } },
+  { id: "tab-explore", title: "Explore", icon: "⊞", group: "Navigate", searchText: "explore sessions browser dashboard calendar overview events conversation", route: { view: "explore" } },
   { id: "tab-story", title: "Story", icon: "❧", group: "Navigate", searchText: "story narrative sentences turns", route: { view: "story" } },
   { id: "tab-users", title: "Users", icon: "☺", group: "Navigate", searchText: "users people fleet", route: { view: "users" } },
   { id: "tab-admin", title: "Admin", icon: "⚙", group: "Navigate", searchText: "admin federation topology", route: { view: "admin" } },

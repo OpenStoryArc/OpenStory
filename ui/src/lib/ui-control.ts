@@ -129,9 +129,9 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const search = typeof p.search === "string" ? p.search : typeof p.q === "string" ? p.q : "";
     if (search.trim()) filters.search = search.trim();
     if (Object.keys(filters).length === 0) return null;
-    const overview: HashRoute["overview"] = { filters };
-    if (typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)) overview.sort = p.sort as SortKey;
-    return { type: "navigate", route: { view: "overview", overview } };
+    const explore: HashRoute["explore"] = { filters };
+    if (typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)) explore.sort = p.sort as SortKey;
+    return { type: "navigate", route: { view: "explore", explore } };
   }
   // The "toggle" class: set a component-local view control. `target` names the
   // control ("canvas.mode", "heatmap.dim", "story.sort"); the owning view

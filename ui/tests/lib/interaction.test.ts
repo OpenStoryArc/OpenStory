@@ -27,11 +27,11 @@ describe("interactionFromRoute", () => {
     );
   });
 
-  it("includes Overview filters when present, omits when empty", () => {
+  it("includes Explore filters when present, omits when empty", () => {
     scenario(
       () => ({
-        withF: interactionFromRoute({ view: "overview", overview: { filters: { agent: "pi-mono" } } }),
-        empty: interactionFromRoute({ view: "overview", overview: { filters: {} } }),
+        withF: interactionFromRoute({ view: "explore", explore: { filters: { agent: "pi-mono" } } }),
+        empty: interactionFromRoute({ view: "explore", explore: { filters: {} } }),
       }),
       (r) => r,
       (r) => {

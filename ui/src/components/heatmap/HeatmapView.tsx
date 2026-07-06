@@ -158,7 +158,7 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
                   x={LEFT + c.week * STEP} y={TOP + c.day * STEP} width={CELL} height={CELL} rx={2.5}
                   fill={SCALE[lvl]}
                   className={c.count ? "cursor-pointer" : ""}
-                  onClick={c.count ? () => onNavigate({ view: "overview", overview: { filters: { ...filters, day: c.date } } }) : undefined}
+                  onClick={c.count ? () => onNavigate({ view: "explore", explore: { filters: { ...filters, day: c.date } } }) : undefined}
                 >
                   <title>{c.count ? `${c.date} · ${c.count} session${c.count === 1 ? "" : "s"} · ${c.events.toLocaleString()} ev` : `${c.date} · no sessions`}</title>
                 </rect>

@@ -12,7 +12,9 @@ const SESSIONS: StorySession[] = [
 describe("buildPaletteItems", () => {
   it("includes tab items plus one item per non-subagent session, with cleaned titles", () => {
     const items = buildPaletteItems(SESSIONS);
-    expect(items.find((i) => i.id === "tab-overview")).toBeTruthy();
+    expect(items.find((i) => i.id === "tab-explore")).toBeTruthy();
+    // The Overview tab merged into Explore — no orphaned palette entry.
+    expect(items.find((i) => i.id === "tab-overview")).toBeUndefined();
     expect(items.filter((i) => i.group === "Sessions")).toHaveLength(2); // agent-999 excluded
     // harness-wrapper label humanized
     expect(items.find((i) => i.id === "session-def-456")?.title).toBe("/loop");
@@ -63,8 +65,9 @@ describe("CommandPalette", () => {
     render(<CommandPalette sessions={SESSIONS} onNavigate={onNavigate} />);
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     const input = screen.getByPlaceholderText(/jump to a session or view/i);
+    // "overview" still finds the sessions browser — it fuzzy-matches Explore.
     fireEvent.change(input, { target: { value: "overview" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onNavigate).toHaveBeenCalledWith({ view: "overview" });
+    expect(onNavigate).toHaveBeenCalledWith({ view: "explore" });
   });
 });

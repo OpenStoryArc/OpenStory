@@ -32,8 +32,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // each: how to drive it, and what "landed" looks like in the route.
 function drivableEdges(sid, eid) {
   return [
-    { edge: "person→session", via: "query", ctrl: ["query", { user: "max" }], lands: /overview/ },
-    { edge: "project→session", via: "query", ctrl: ["query", { project: "OpenStory" }], lands: /overview/ },
+    { edge: "person→session", via: "query", ctrl: ["query", { user: "max" }], lands: /explore/ },
+    { edge: "project→session", via: "query", ctrl: ["query", { project: "OpenStory" }], lands: /explore/ },
     { edge: "session→subagent", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid, detailView: "graph" }], lands: new RegExp(`explore/${sid}`) },
     { edge: "session→turn", via: "open_view", ctrl: ["open_view", { view: "story", sessionId: sid }], lands: new RegExp(`story/${sid}`) },
     { edge: "session→plan", via: "open_view", ctrl: ["open_view", { view: "explore", sessionId: sid, detailView: "plans" }], lands: new RegExp(`explore/${sid}`) },
@@ -62,7 +62,7 @@ const b = await chromium
 const p = await b.newPage({ viewport: { width: 1400, height: 900 } });
 p.on("pageerror", (e) => console.log("PAGEERR:", e.message.slice(0, 120)));
 
-await p.goto(`${UI}/#/overview`, { waitUntil: "networkidle" });
+await p.goto(`${UI}/#/explore`, { waitUntil: "networkidle" });
 await sleep(2500);
 
 // pick a real session + a real (non-:usage) event in it
@@ -82,7 +82,7 @@ const hash = () => p.evaluate(() => location.hash);
 
 const results = [];
 for (const e of drivableEdges(sid, eid)) {
-  await ctrl("open_view", { view: "overview" }); await sleep(500); // neutral reset
+  await ctrl("open_view", { view: "explore" }); await sleep(500); // neutral reset
   await ctrl(e.ctrl[0], e.ctrl[1]);
   await sleep(900);
   const h = await hash();

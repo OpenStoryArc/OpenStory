@@ -9,7 +9,6 @@ import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
-import { OverviewView } from "@/components/overview/OverviewView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
 import { AskView } from "@/components/ask/AskView";
 import { HeatmapView } from "@/components/heatmap/HeatmapView";
@@ -242,7 +241,6 @@ export function App() {
       )}
 
       {/* Overview tab */}
-      {viewMode === "overview" && <OverviewView route={route} onNavigate={navigate} />}
 
       {/* Canvas tab */}
       {viewMode === "canvas" && <SessionsCanvas onNavigate={navigate} />}

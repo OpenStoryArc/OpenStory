@@ -3,14 +3,6 @@
 import type { DetailView } from "@/components/explore/ExploreView";
 import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
 
-/** Bookmarkable state for the Overview dashboard — filters + sort + drill-in. */
-export interface OverviewRoute {
-  filters: OverviewFilters;
-  sort?: SortKey;
-  /** Selected drill-in session id. */
-  sessionId?: string;
-}
-
 const VALID_SORTS = new Set<SortKey>(["recent", "events", "tokens", "duration"]);
 const VALID_RANGES = new Set(["today", "7d", "30d"]);
 /** Facet filter keys carried 1:1 as query params (search uses `q`). */
@@ -59,7 +51,7 @@ function buildExploreQuery(e: ExploreQuery): URLSearchParams {
 }
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "overview" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin";
+  view: "live" | "explore" | "story" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin";
   sessionId?: string;
   /** Storm board: deep-link one sticky (#/storm?sticky=id). */
   stickyId?: string;
@@ -72,8 +64,6 @@ export interface HashRoute {
    *  appended to the hash). When set, the Live sidebar narrows to
    *  sessions stamped with this user. */
   userFilter?: string;
-  /** Bookmarkable Overview dashboard state (filters/sort/drill-in). */
-  overview?: OverviewRoute;
   /** Bookmarkable Explore filter state — query tail on any explore route. */
   explore?: ExploreQuery;
   /** Optional time-window filter for the Live tab. Same query-tail
@@ -83,41 +73,8 @@ export interface HashRoute {
   timeFilter?: "1h" | "today" | "week" | "all";
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "overview", "canvas", "ask", "heatmap", "lab", "storm", "users", "admin"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "heatmap", "lab", "storm", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
-
-/** Parse Overview query params into an OverviewRoute, or null if none set. */
-function parseOverviewQuery(params: URLSearchParams | null): OverviewRoute | null {
-  if (!params) return null;
-  const filters: OverviewFilters = {};
-  for (const key of OVERVIEW_FACET_KEYS) {
-    const v = params.get(key);
-    if (v) filters[key] = v;
-  }
-  const q = params.get("q");
-  if (q) filters.search = q;
-
-  const rawSort = params.get("sort");
-  const sort = rawSort && VALID_SORTS.has(rawSort as SortKey) ? (rawSort as SortKey) : undefined;
-  const sessionId = params.get("sid") || undefined;
-
-  const hasFilters = Object.keys(filters).length > 0;
-  if (!hasFilters && !sort && !sessionId) return null;
-  return { filters, ...(sort ? { sort } : {}), ...(sessionId ? { sessionId } : {}) };
-}
-
-/** Serialize an OverviewRoute into URLSearchParams (stable key order). */
-function buildOverviewQuery(o: OverviewRoute): URLSearchParams {
-  const params = new URLSearchParams();
-  for (const key of OVERVIEW_FACET_KEYS) {
-    const v = o.filters[key];
-    if (v) params.set(key, v);
-  }
-  if (o.filters.search) params.set("q", o.filters.search);
-  if (o.sort) params.set("sort", o.sort);
-  if (o.sessionId) params.set("sid", o.sessionId);
-  return params;
-}
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
 function splitQuery(hash: string): [string, URLSearchParams | null] {
@@ -149,19 +106,28 @@ export function parseHash(hash: string): HashRoute {
       : undefined;
 
   const parts = path.split("/").filter(Boolean);
+
+  // Legacy alias: the Overview tab merged into Explore. Old #/overview links
+  // (docs, bookmarks, agent open_view calls) land on Explore with their
+  // filters intact; the legacy sid= param becomes the path-style session id.
+  if (parts[0] === "overview") {
+    const explore = parseExploreQuery(queryParams);
+    const sid = queryParams?.get("sid") || undefined;
+    return {
+      view: "explore",
+      ...(sid ? { sessionId: sid } : {}),
+      ...(explore ? { explore } : {}),
+    };
+  }
+
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "overview" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin")
+    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin")
     : "live";
 
   if (view === "users" || view === "admin" || view === "canvas" || view === "ask" || view === "heatmap" || view === "lab" || view === "storm") {
     // Storm deep-links a sticky — a shareable pointer at one architecture note.
     const sticky = view === "storm" ? queryParams?.get("sticky") : null;
     return sticky ? { view, stickyId: sticky } : { view };
-  }
-
-  if (view === "overview") {
-    const overview = parseOverviewQuery(queryParams);
-    return overview ? { view, overview } : { view };
   }
 
   if (view === "live" || view === "story") {
@@ -210,12 +176,6 @@ export function buildHash(route: HashRoute): string {
   // Search shortcut with query
   if (route.detailView === "search" && route.searchQuery) {
     return `#/search?q=${route.searchQuery.replace(/ /g, "+")}`;
-  }
-
-  // Overview dashboard with bookmarkable filter state.
-  if (route.view === "overview" && route.overview) {
-    const query = buildOverviewQuery(route.overview).toString();
-    return query ? `#/overview?${query}` : "#/overview";
   }
 
   if (route.view === "storm" && route.stickyId) {

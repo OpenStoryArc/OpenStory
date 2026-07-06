@@ -27,12 +27,10 @@ describe("when switching tabs while a session is selected", () => {
     scenario(
       () => ({ view: "live", sessionId: "sess-1" }) as HashRoute,
       (route) => ({
-        overview: switchTabRoute(route, "overview"),
         storm: switchTabRoute(route, "storm"),
         admin: switchTabRoute(route, "admin"),
       }),
-      ({ overview, storm, admin }) => {
-        expect(overview).toEqual({ view: "overview" });
+      ({ storm, admin }) => {
         expect(storm).toEqual({ view: "storm" });
         expect(admin).toEqual({ view: "admin" });
       },

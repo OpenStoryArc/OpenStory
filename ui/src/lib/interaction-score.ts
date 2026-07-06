@@ -47,7 +47,7 @@ const RIFF: readonly Primitive[] = [
 
 /** Rotating, deterministic param pools so each fired primitive is valid and the
  *  targets vary across the loop (no randomness — the score is reproducible). */
-const VIEWS = ["overview", "canvas", "story", "explore", "heatmap", "lab"];
+const VIEWS = ["canvas", "story", "explore", "heatmap", "lab"];
 const MODES = ["board", "sunburst", "treemap", "scatter", "gantt", "flow"];
 const FACETS = ["project", "agent", "status", "host"];
 const SESSIONS = ["demo-a", "demo-b", "demo-c"];

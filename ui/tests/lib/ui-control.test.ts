@@ -102,7 +102,8 @@ describe("interpretControl (control vocabulary)", () => {
         if (a?.type === "present") {
           expect(a.message).toBe("look at these failures");
           expect(a.sessionIds).toEqual(["a", "b"]); // non-strings filtered
-          expect(a.route?.view).toBe("overview");
+          // "#/overview" is the living legacy-alias proof — it resolves to Explore.
+          expect(a.route?.view).toBe("explore");
         }
       },
     );
@@ -136,15 +137,15 @@ describe("interpretControl (control vocabulary)", () => {
 });
 
 describe("interpretControl — query class", () => {
-  it("maps query facets to a filtered Overview route", () => {
+  it("maps query facets to a filtered Explore route", () => {
     scenario(
       () => interpretControl("query", { agent: "openactor", status: "errored", day: "2026-06-30" }),
       (a) => a,
       (a) => {
         expect(a?.type).toBe("navigate");
         if (a?.type === "navigate") {
-          expect(a.route.view).toBe("overview");
-          expect(a.route.overview?.filters).toEqual({ agent: "openactor", status: "errored", day: "2026-06-30" });
+          expect(a.route.view).toBe("explore");
+          expect(a.route.explore?.filters).toEqual({ agent: "openactor", status: "errored", day: "2026-06-30" });
         }
       },
     );
@@ -157,8 +158,8 @@ describe("interpretControl — query class", () => {
       (a) => {
         expect(a?.type).toBe("navigate");
         if (a?.type === "navigate") {
-          expect(a.route.overview?.filters.search).toBe("baleen");
-          expect(a.route.overview?.sort).toBe("tokens");
+          expect(a.route.explore?.filters.search).toBe("baleen");
+          expect(a.route.explore?.sort).toBe("tokens");
         }
       },
     );
