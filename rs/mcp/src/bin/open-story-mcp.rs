@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
         }
     );
 
-    let server = Server::new(subscriber, store, plan_store);
+    let server = Server::new(subscriber, store, plan_store).with_api_base(api_url.clone());
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     open_story_mcp::stdio::run(stdin, stdout, server).await?;

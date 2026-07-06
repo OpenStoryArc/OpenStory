@@ -7,6 +7,7 @@
 
 pub mod account_config;
 pub mod admin;
+pub mod annotations;
 pub mod api;
 pub mod auth;
 pub mod broadcast;
@@ -26,5 +27,6 @@ pub mod router;
 pub mod state;
 pub mod tool_schemas;
 pub mod transcript;
+pub mod ui_events;
 pub mod watcher_diagnostics;
 pub mod ws;

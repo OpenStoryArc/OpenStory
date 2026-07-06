@@ -4,7 +4,7 @@ mod helpers;
 
 use axum::body::Body;
 use axum::http::Request;
-use helpers::{body_json, make_event, send_request, test_state};
+use helpers::{body_json, make_event, make_event_at, make_event_with_time, send_request, test_state};
 use tempfile::TempDir;
 
 use helpers::seed_and_ingest;
@@ -225,6 +225,317 @@ async fn test_get_summary() {
     let body = body_json(resp).await;
     assert_eq!(body["session_id"], "sess-summary");
     assert_eq!(body["event_count"], 3);
+}
+
+#[tokio::test]
+async fn test_summary_status_and_count_agree_with_the_sessions_list() {
+    // Truth-in-UI: /summary and the sessions list must never disagree about
+    // the same session. Both derive status from the store row's last_event
+    // (>5 min old → completed). Before this pin, /summary derived status
+    // from a different fold and reported "stale" for sessions the list
+    // showed as "completed".
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        // Events well past the 5-minute staleness window.
+        let events: Vec<_> = (0..3)
+            .map(|i| {
+                make_event_with_time(
+                    "io.arc.event",
+                    "sess-agree",
+                    &format!("2026-01-01T00:00:0{i}Z"),
+                )
+            })
+            .collect();
+        seed_and_ingest(&mut s, "sess-agree", &events, None).await;
+    }
+
+    let list = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions").body(Body::empty()).unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let row = list["sessions"]
+        .as_array()
+        .expect("sessions array")
+        .iter()
+        .find(|r| r["session_id"] == "sess-agree")
+        .expect("seeded session in list")
+        .clone();
+
+    let summary = body_json(
+        send_request(
+            state,
+            Request::get("/api/sessions/sess-agree/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(
+        summary["status"], row["status"],
+        "summary and list must agree on status"
+    );
+    assert_eq!(
+        summary["event_count"], row["event_count"],
+        "summary and list must agree on event_count"
+    );
+    assert_eq!(row["status"], "completed", "old session reads as completed");
+}
+
+#[tokio::test]
+async fn test_paginated_records_walk_reconstructs_the_unpaginated_response() {
+    // The pagination contract the Live tab's streamSessionRecords walks:
+    // each page is the most-recent `limit` records below the cursor,
+    // oldest-first; `before_seq = page[0].seq` fetches the next page up;
+    // a short page means history is exhausted. Walking every page and
+    // concatenating must reproduce the unpaginated response exactly —
+    // this pins the SQL-windowed path to the old full-scan semantics.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events: Vec<_> = (1..=9)
+            .map(|i| {
+                make_event_at(
+                    "io.arc.event",
+                    "sess-walk",
+                    &format!("2026-01-01T00:00:0{i}Z"),
+                    i,
+                )
+            })
+            .collect();
+        seed_and_ingest(&mut s, "sess-walk", &events, None).await;
+    }
+
+    let full = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-walk/records")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let full = full.as_array().expect("array").clone();
+    assert!(!full.is_empty(), "seeded session must produce records");
+
+    // Walk pages of 4 backward, prepending, until a short page.
+    let mut walked: Vec<serde_json::Value> = Vec::new();
+    let mut cursor: Option<u64> = None;
+    loop {
+        let url = match cursor {
+            Some(c) => format!("/api/sessions/sess-walk/records?limit=4&before_seq={c}"),
+            None => "/api/sessions/sess-walk/records?limit=4".to_string(),
+        };
+        let page = body_json(
+            send_request(
+                state.clone(),
+                Request::get(&url).body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        let page = page.as_array().expect("array").clone();
+        if page.is_empty() {
+            break;
+        }
+        cursor = page[0]["seq"].as_u64();
+        let short = page.len() < 4;
+        walked.splice(0..0, page);
+        if short {
+            break;
+        }
+    }
+
+    assert_eq!(
+        walked.len(),
+        full.len(),
+        "walking all pages must recover every record"
+    );
+    let ids = |v: &[serde_json::Value]| -> Vec<String> {
+        v.iter().map(|r| r["id"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(ids(&walked), ids(&full), "same records, same order");
+}
+
+#[tokio::test]
+async fn test_conversation_pagination_windows_and_exposes_a_cursor() {
+    // /conversation accepts limit/before_seq like /records: a window of the
+    // most-recent events, paired, plus next_before_seq so the UI can load
+    // older history on demand instead of the whole session up front.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events: Vec<_> = (1..=6)
+            .map(|i| {
+                make_event_at(
+                    "io.arc.event",
+                    "sess-conv",
+                    &format!("2026-01-01T00:00:0{i}Z"),
+                    i,
+                )
+            })
+            .collect();
+        seed_and_ingest(&mut s, "sess-conv", &events, None).await;
+    }
+
+    let full = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-conv/conversation")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let full_count = full["entries"].as_array().expect("entries").len();
+    assert!(full_count >= 6, "seeded prompts must all pair into entries");
+
+    // A window of 2 events returns fewer entries and a cursor.
+    let page = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/sess-conv/conversation?limit=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    let page_count = page["entries"].as_array().expect("entries").len();
+    assert!(
+        page_count < full_count,
+        "limit=2 must window the conversation ({page_count} vs {full_count})"
+    );
+    let cursor = page["next_before_seq"]
+        .as_u64()
+        .expect("a filled window exposes next_before_seq");
+
+    // Walking with the cursor reaches older entries; total entry count
+    // across the walk equals the unpaginated response.
+    let mut total = page_count;
+    let mut before = Some(cursor);
+    while let Some(b) = before {
+        let older = body_json(
+            send_request(
+                state.clone(),
+                Request::get(&format!(
+                    "/api/sessions/sess-conv/conversation?limit=2&before_seq={b}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await,
+        )
+        .await;
+        total += older["entries"].as_array().expect("entries").len();
+        before = older["next_before_seq"].as_u64();
+    }
+    assert_eq!(total, full_count, "walking all pages recovers every entry");
+}
+
+#[tokio::test]
+async fn test_summary_exposes_the_parent_of_a_subagent_session() {
+    // The subagent→parent canopy edge: a spawned agent's session knows its
+    // spawner. The server has tracked subagent_parents all along — /summary
+    // now carries it so the UI can offer the climb.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let events =
+            vec![make_event_at("io.arc.event", "agent-456", "2026-01-01T00:00:01Z", 1)];
+        seed_and_ingest(&mut s, "agent-456", &events, None).await;
+        s.store
+            .subagent_parents
+            .insert("agent-456".to_string(), "parent-123".to_string());
+    }
+
+    let summary = body_json(
+        send_request(
+            state.clone(),
+            Request::get("/api/sessions/agent-456/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(summary["parent_session_id"], "parent-123");
+
+    // A root session has no parent — the field is absent, not null-noise.
+    let root = body_json(
+        send_request(
+            state,
+            Request::get("/api/sessions/parent-123/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert!(root.get("parent_session_id").is_none() || root["parent_session_id"].is_null());
+}
+
+#[tokio::test]
+async fn test_summary_names_the_first_error_event() {
+    // The error→event edge: "3 failed" is not a number, it's a place —
+    // /summary carries the earliest failure's event id so every surface
+    // can land on it.
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+
+    {
+        let mut s = state.write().await;
+        let mut payload = open_story::event_data::ClaudeCodePayload::new();
+        payload.text = None;
+        let data = open_story::event_data::EventData::with_payload(
+            serde_json::json!({"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "c1", "content": "boom", "is_error": true}
+            ]}}),
+            1,
+            "sess-err".to_string(),
+            open_story::event_data::AgentPayload::ClaudeCode(payload),
+        );
+        let event = open_story_core::cloud_event::CloudEvent::new(
+            "arc://transcript/sess-err".to_string(),
+            "io.arc.event".to_string(),
+            data,
+            Some("message.user.tool_result".to_string()),
+            Some("evt-boom".to_string()),
+            Some("2026-01-01T00:00:01Z".to_string()),
+            None,
+            None,
+            None,
+        );
+        seed_and_ingest(&mut s, "sess-err", &[event], None).await;
+    }
+
+    let summary = body_json(
+        send_request(
+            state,
+            Request::get("/api/sessions/sess-err/summary")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(summary["first_error_event_id"], "evt-boom");
 }
 
 #[tokio::test]

@@ -24,6 +24,7 @@ import {
   fetchSessionRecords,
   fetchAllSessionRecords,
   streamSessionRecords,
+  fetchRecentSessionRecords,
   DEFAULT_PAGE_SIZE,
 } from "@/lib/session-records";
 import type { WireRecord } from "@/types/wire-record";
@@ -243,5 +244,47 @@ describe("streamSessionRecords — progressive dispatch", () => {
 
     // Tree index includes every record that came through.
     expect(final.treeIndex.size).toBe(TOTAL_RECORDS);
+  });
+});
+
+/** Merge-prep cap: on very large sessions the whole-session fetch is the
+ *  memory cliff (100k events ≈ hundreds of MB parsed). fetchRecentSessionRecords
+ *  walks pages newest-first and STOPS at the cap, telling the caller honestly
+ *  whether history was truncated. */
+describe("fetchRecentSessionRecords — bounded by a cap, honest about it", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function servePages(total: number) {
+    const all = makeRecords("s-cap", total);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+      const u = new URL(String(url), "http://x");
+      const limit = Number(u.searchParams.get("limit") ?? 500);
+      const before = u.searchParams.get("before_seq");
+      const upper = before ? Number(before) - 1 : total;
+      const lower = Math.max(1, upper - limit + 1);
+      const page = all.slice(lower - 1, upper);
+      return { ok: true, json: async () => page };
+    });
+  }
+
+  it("small session: returns everything, not capped", async () => {
+    servePages(300);
+    const { records, capped } = await fetchRecentSessionRecords("s-cap", 1000);
+    expect(records).toHaveLength(300);
+    expect(capped).toBe(false);
+    expect(records[0]!.seq).toBe(1);
+    expect(records[299]!.seq).toBe(300);
+  });
+
+  it("huge session: returns the MOST RECENT cap records, oldest-first, capped=true", async () => {
+    servePages(5000);
+    const { records, capped } = await fetchRecentSessionRecords("s-cap", 2000);
+    expect(records).toHaveLength(2000);
+    expect(capped).toBe(true);
+    expect(records[0]!.seq).toBe(3001);
+    expect(records[1999]!.seq).toBe(5000);
   });
 });

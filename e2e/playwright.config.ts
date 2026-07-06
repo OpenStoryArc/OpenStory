@@ -22,6 +22,17 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${UI_PORT}`,
     trace: 'on-first-retry',
+    // Playwright's browser CDN is unreachable from some dev boxes; point
+    // OPEN_STORY_CHROME at a stock Chromium (Google snapshot bucket) to run
+    // the suite there. CI installs browsers normally and leaves this unset.
+    ...(process.env.OPEN_STORY_CHROME
+      ? {
+          launchOptions: {
+            executablePath: process.env.OPEN_STORY_CHROME,
+            args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+          },
+        }
+      : {}),
   },
   webServer: [
     // 1. API server via Docker container.

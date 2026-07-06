@@ -89,6 +89,35 @@ pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
     )
 }
 
+/// Like `make_event` but with an explicit timestamp — for staleness tests.
+pub fn make_event_with_time(event_type: &str, session_id: &str, time: &str) -> CloudEvent {
+    make_event_at(event_type, session_id, time, 0)
+}
+
+/// Explicit timestamp AND seq — for pagination tests, where the cursor
+/// walks `data.seq` and ties would stall it.
+pub fn make_event_at(event_type: &str, session_id: &str, time: &str, seq: u64) -> CloudEvent {
+    let mut payload = ClaudeCodePayload::new();
+    payload.text = Some("test content".to_string());
+    let data = EventData::with_payload(
+        json!({}),
+        seq,
+        session_id.to_string(),
+        AgentPayload::ClaudeCode(payload),
+    );
+    CloudEvent::new(
+        format!("arc://transcript/{session_id}"),
+        event_type.to_string(),
+        data,
+        None,
+        None, // auto-generates UUID
+        Some(time.to_string()),
+        None,
+        None,
+        None,
+    )
+}
+
 /// Create a CloudEvent with a specific ID (for dedup testing).
 pub fn make_event_with_id(event_type: &str, session_id: &str, id: &str) -> CloudEvent {
     let mut payload = ClaudeCodePayload::new();

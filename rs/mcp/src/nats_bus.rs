@@ -67,4 +67,25 @@ impl Subscribe for NatsBus {
             cancel,
         ))
     }
+
+    /// Live-follow the AUTHORED `ui.*` stream (interactions/control/annotations)
+    /// — the READ half of the agent-in-UI seam. Now that authored events are
+    /// proper CloudEvents published as IngestBatches, this consumes the `ui`
+    /// JetStream stream filtered `ui.>` through the SAME typed pump as observed
+    /// events — no raw-bytes special-case. Strictly the authored namespace;
+    /// never `events.*`.
+    async fn subscribe_ui(&self) -> Result<Subscription> {
+        let bus_rx = self.inner.subscribe_typed("ui", "ui.>").await?;
+
+        let sub_id = uuid::Uuid::new_v4();
+        let session_id = "openstory-ui".to_string();
+        let (tx, rx) = mpsc::channel(256);
+        let pump = tokio::spawn(pump_subscription(bus_rx, tx, session_id.clone()));
+
+        let cancel = CancelGuard::from_fn(move || {
+            pump.abort();
+        });
+
+        Ok(Subscription::from_parts(sub_id, session_id, rx, cancel))
+    }
 }

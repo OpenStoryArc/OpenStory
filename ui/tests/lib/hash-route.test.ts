@@ -62,6 +62,9 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "explore", sessionId: "abc-123" },
     { view: "explore", sessionId: "abc", detailView: "conversation" },
     { view: "explore", sessionId: "abc", eventId: "evt-1" },
+    // The event→turn canopy edge: Story deep-links to the turn containing an
+    // event. StoryView already consumes route.eventId; the parse must keep it.
+    { view: "story", sessionId: "abc", eventId: "evt-1" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
     { view: "live", userFilter: "katie" },
@@ -80,6 +83,76 @@ describe("parseHash ∘ buildHash roundtrip", () => {
       (r) => parseHash(buildHash(r)),
       (result) => expect(result).toEqual(route),
     );
+  });
+});
+
+describe("explore — bookmarkable filter state (query tail on any explore route)", () => {
+  it("round-trips filters + sort on the bare explore route", () => {
+    const route = { view: "explore", explore: { filters: { project: "OpenStory", range: "7d" }, sort: "events" } } as const;
+    const hash = buildHash(route);
+    expect(hash).toBe("#/explore?project=OpenStory&range=7d&sort=events");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("keeps filters when a session and detail view are in the path", () => {
+    const route = { view: "explore", sessionId: "sess-9", detailView: "events", explore: { filters: { user: "max" } } } as const;
+    const hash = buildHash(route);
+    expect(hash).toBe("#/explore/sess-9/events?user=max");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("parses q as the sidebar search filter", () => {
+    expect(parseHash("#/explore?q=fix+auth")).toEqual({ view: "explore", explore: { filters: { search: "fix auth" } } });
+  });
+
+  it("drops an invalid range and an invalid sort silently", () => {
+    expect(parseHash("#/explore?range=90d&sort=bogus")).toEqual({ view: "explore" });
+  });
+
+  it("returns bare #/explore when there is no state", () => {
+    expect(buildHash({ view: "explore" })).toBe("#/explore");
+    expect(parseHash("#/explore")).toEqual({ view: "explore" });
+  });
+});
+
+describe("legacy #/overview links — parse-time alias onto Explore", () => {
+  it("lands a bare #/overview on the Explore tab", () => {
+    expect(parseHash("#/overview")).toEqual({ view: "explore" });
+  });
+
+  it("translates the full legacy query (facets, q, sort, sid→path sessionId)", () => {
+    expect(parseHash("#/overview?project=OpenStory&sort=events&day=2026-06-30&q=fix+auth&sid=sess-9")).toEqual({
+      view: "explore",
+      sessionId: "sess-9",
+      explore: { filters: { project: "OpenStory", day: "2026-06-30", search: "fix auth" }, sort: "events" },
+    });
+  });
+
+  it("drops an unknown legacy sort silently", () => {
+    expect(parseHash("#/overview?sort=bogus")).toEqual({ view: "explore" });
+  });
+
+  it("never builds #/overview again", () => {
+    // The alias is parse-only; buildHash knows no overview view.
+    expect(buildHash(parseHash("#/overview?status=ongoing"))).toBe("#/explore?status=ongoing");
+  });
+});
+
+describe("legacy #/heatmap links — alias onto Canvas (heatmap is a mode there now)", () => {
+  it("lands on the Canvas tab", () => {
+    expect(parseHash("#/heatmap")).toEqual({ view: "canvas" });
+    expect(buildHash(parseHash("#/heatmap"))).toBe("#/canvas");
+  });
+});
+
+describe("retired lab + storm tabs", () => {
+  it("aliases #/lab onto Canvas (its graduated shapes live there)", () => {
+    expect(parseHash("#/lab")).toEqual({ view: "canvas" });
+  });
+
+  it("lets #/storm fall back to Live like any unknown route", () => {
+    expect(parseHash("#/storm")).toEqual({ view: "live" });
+    expect(parseHash("#/storm?sticky=read-model")).toEqual({ view: "live" });
   });
 });
 

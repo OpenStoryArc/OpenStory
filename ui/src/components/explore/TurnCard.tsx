@@ -5,7 +5,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import type { ConversationTurn } from "@/lib/conversation";
 import type { ToolRoundtripEntry, ToolCall } from "@/types/view-record";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { toolColor } from "@/lib/tool-colors";
 import { toolInputSummary } from "@/types/view-record";
 import { detectLanguage, detectLanguageFromContent } from "@/lib/detect-language";
@@ -41,7 +41,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
             </span>
             {turn.promptTimestamp && (
               <span className="text-[10px] text-[#565f89] font-mono">
-                {compactTime(turn.promptTimestamp)}
+                <span title={fullTimestamp(turn.promptTimestamp)}>{compactTime(turn.promptTimestamp)}</span>
               </span>
             )}
           </div>
@@ -86,7 +86,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
         <div className="px-4 py-3">
           {turn.responseTimestamp && (
             <span className="text-[10px] text-[#565f89] font-mono mb-1 block">
-              {compactTime(turn.responseTimestamp)}
+              <span title={fullTimestamp(turn.responseTimestamp)}>{compactTime(turn.responseTimestamp)}</span>
             </span>
           )}
           <p className="text-sm text-[#a9b1d6] whitespace-pre-wrap">

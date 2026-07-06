@@ -23,6 +23,11 @@ pub struct Server<S: Subscribe> {
     pub subscriber: S,
     pub store: Arc<dyn EventStore>,
     pub plan_store: Arc<dyn PlanSource>,
+    /// REST origin (e.g. `http://localhost:3002`) for the agent-in-UI WRITE
+    /// seam — control tools POST here to drive the dashboard. Empty means "not
+    /// configured" (query/streaming tools don't need it; control tools error
+    /// clearly). Set via `with_api_base` so the 3-arg `new` stays churn-free.
+    pub api_base: String,
 }
 
 impl<S: Subscribe> Server<S> {
@@ -31,6 +36,12 @@ impl<S: Subscribe> Server<S> {
         store: Arc<dyn EventStore>,
         plan_store: Arc<dyn PlanSource>,
     ) -> Self {
-        Self { subscriber, store, plan_store }
+        Self { subscriber, store, plan_store, api_base: String::new() }
+    }
+
+    /// Set the REST origin control tools POST to. Chainable at the bin call site.
+    pub fn with_api_base(mut self, api_base: impl Into<String>) -> Self {
+        self.api_base = api_base.into();
+        self
     }
 }

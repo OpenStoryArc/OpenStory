@@ -15,13 +15,18 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useResizablePanel } from "@/hooks/use-resizable-panel";
 import { TurnCard } from "./TurnCard";
+import { Clamp } from "@/components/ui/Clamp";
 import {
   filterSentences,
   categorizeTurn,
   verbDistribution,
   envGrowthSeries,
   scopeDepthProfile,
+  sentenceHeadline,
+  findSentenceIndexByEvent,
+  findSentenceIndexByTurn,
   type StoryCategory,
 } from "@/lib/story";
 import {
@@ -32,6 +37,11 @@ import {
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
+import { controlActions$ } from "@/streams/control";
+import { postInteraction } from "@/lib/interaction";
+import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
+import { sessionTitle } from "@/lib/session-title";
+import { SessionSummaryLoader } from "@/components/viz/SessionSummaryLoader";
 
 import type { PatternView } from "@/types/wire-record";
 
@@ -40,6 +50,12 @@ interface StoryViewProps {
   livePatterns: readonly PatternView[];
   selectedSession: string | null;
   onSelectSession: (sid: string | null) => void;
+  /** Deep-link target: scroll to + highlight the turn whose events include this
+   *  id (`#/story/SES/event/ID`). The map principle for the Story view. */
+  eventId?: string;
+  /** Drill a turn to its SOURCE — open the event in Explore. Closes the Story
+   *  dead end (the map principle: every turn navigates to where it came from). */
+  onOpenEvent?: (sessionId: string, eventId: string) => void;
 }
 
 const CATEGORY_CONFIG: { key: StoryCategory; label: string; color: string }[] = [
@@ -104,8 +120,10 @@ function formatRecency(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function StoryView({ livePatterns, selectedSession, onSelectSession }: StoryViewProps) {
+export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId, onOpenEvent }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
+  // Left sidebar with a right-edge grip; width survives reloads.
+  const sidebarPanel = useResizablePanel("story.sidebar.width", 300, 200, 480, "left");
   const [autoScroll, setAutoScroll] = useState(true);
   const [activeFilters, setActiveFilters] = useState<Set<StoryCategory>>(new Set());
 
@@ -116,6 +134,16 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
   const [sessionLimit, setSessionLimit] = useState(DEFAULT_SESSION_LIMIT);
   const [sortMode, setSortMode] = useState<SessionSort>("latest");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("all");
+
+  // Agent-in-UI: apply `story.sort` toggle intents (component-local). Sink only.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "story.sort" && SORT_OPTIONS.some((o) => o.key === a.value)) {
+        setSortMode(a.value as SessionSort);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
   const [sentenceCache, setSentenceCache] = useState<Map<string, PatternView[]>>(new Map());
   const sentenceCacheRef = useRef(sentenceCache);
   sentenceCacheRef.current = sentenceCache;
@@ -239,6 +267,18 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
     prevCountRef.current = sentences.length;
   }, [sentences.length, autoScroll, virtualizer]);
 
+  // Deep-link (map principle): when `#/story/SES/event/ID` carries an eventId,
+  // scroll the Story to the turn that produced it. Turn off auto-scroll so the
+  // deep-link isn't yanked to the bottom by a live append.
+  useEffect(() => {
+    if (!eventId || sentences.length === 0) return;
+    const idx = findSentenceIndexByEvent(sentences, eventId);
+    if (idx >= 0) {
+      setAutoScroll(false);
+      virtualizer.scrollToIndex(idx, { align: "center" });
+    }
+  }, [eventId, sentences, virtualizer]);
+
   // Toggle filter
   const toggleFilter = useCallback((cat: StoryCategory) => {
     setActiveFilters(prev => {
@@ -254,6 +294,12 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
 
   // Keyboard nav
   const [focusIndex, setFocusIndex] = useState(-1);
+  // Sidebar spine: show all sentences past the first 8 (reset per session).
+  const [spineExpanded, setSpineExpanded] = useState(false);
+  useEffect(() => {
+    setSpineExpanded(false);
+  }, [selectedSession]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "ArrowDown" || e.key === "j") {
@@ -277,11 +323,35 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
   }, [sentences.length, virtualizer]);
 
   // Sidebar toggle
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Desktop: open. Phones: closed — the feed owns the screen, ☰ opens it.
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 768);
+
+  // Client-side find: free-text search + facet filters over the loaded sessions.
+  const [search, setSearch] = useState("");
+  const [sidebarFilters, setSidebarFilters] = useState<OverviewFilters>({});
 
   // Load more sessions
   const handleLoadMore = useCallback(() => {
     setSessionLimit(prev => prev + 10);
+  }, []);
+
+  const baseSessions = useMemo(
+    () => sessions.filter(s => !s.session_id.startsWith("agent-")),
+    [sessions],
+  );
+  const facets = useMemo(() => computeFacets(baseSessions), [baseSessions]);
+  const visibleSessions = useMemo(
+    () => applyFilters(baseSessions, { ...sidebarFilters, search }),
+    [baseSessions, sidebarFilters, search],
+  );
+  const findActive = search.trim().length > 0 || Object.keys(sidebarFilters).length > 0;
+  const toggleFacet = useCallback((key: keyof Omit<OverviewFilters, "range">, val: string) => {
+    setSidebarFilters(f => {
+      const next = { ...f };
+      if (next[key] === val) delete next[key];
+      else next[key] = val;
+      return next;
+    });
   }, []);
 
   return (
@@ -299,7 +369,19 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
 
       {/* Sidebar */}
       {sidebarOpen && (
-      <div className="relative w-72 md:w-80 bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col">
+      <div
+        className="relative bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col"
+        style={{ width: sidebarPanel.width }}
+      >
+        {/* drag handle: right-edge grip, persisted width */}
+        <div
+          onPointerDown={sidebarPanel.onHandlePointerDown}
+          className={`absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${sidebarPanel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          title="Drag to resize"
+        />
         {/* Header bar */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0">
           <span className="text-[11px] text-[#565f89] uppercase tracking-wider font-semibold">Sessions</span>
@@ -310,6 +392,66 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           >
             ×
           </button>
+        </div>
+        {/* Find bar — free-text search + facet filters over loaded sessions. */}
+        <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
+          <div className="relative">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Find a session…"
+              className="w-full rounded border border-[#3b4261] bg-[#24283b] px-2 py-1 pr-6 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#565f89] hover:text-[#c0caf5]"
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {(facets.projects.length > 1 || facets.users.length > 1) && (
+            <div className="flex flex-wrap gap-1">
+              {facets.projects.slice(0, 3).map((p) => (
+                <button
+                  key={`proj-${p.key}`}
+                  onClick={() => toggleFacet("project", p.key)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
+                    sidebarFilters.project === p.key
+                      ? "border-[#7dcfff] text-[#7dcfff] bg-[#7dcfff18]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                  title={`${p.count} sessions`}
+                >
+                  {p.key.replace(/^-/, "").split(/[-/]/).pop()} · {p.count}
+                </button>
+              ))}
+              {facets.users.slice(0, 3).map((u) => (
+                <button
+                  key={`user-${u.key}`}
+                  onClick={() => toggleFacet("user", u.key)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
+                    sidebarFilters.user === u.key
+                      ? "border-[#9ece6a] text-[#9ece6a] bg-[#9ece6a18]"
+                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                  }`}
+                  title={`${u.count} sessions`}
+                >
+                  @{u.key}
+                </button>
+              ))}
+              {findActive && (
+                <button
+                  onClick={() => { setSearch(""); setSidebarFilters({}); }}
+                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#f7768e]/40 text-[#f7768e] hover:bg-[#f7768e]/10"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {/* Filter strip — sort + time window. Changing either resets paging. */}
         <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
@@ -369,18 +511,23 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
           <div className="text-center text-[#565f89] text-sm py-4">Loading sessions...</div>
         )}
 
+        {/* Empty find result */}
+        {!sessionsLoading && findActive && visibleSessions.length === 0 && (
+          <div className="text-center text-[#565f89] text-xs py-4">No loaded sessions match. Try “Load more”.</div>
+        )}
+
         {/* Session list */}
-        {sessions.filter(s => !s.session_id.startsWith("agent-")).map(s => {
+        {visibleSessions.map(s => {
           const isActive = selectedSession === s.session_id;
           const color = sessionColor(s.session_id);
-          const label = s.label && s.label !== s.session_id
-            ? (s.label.length > 40 ? s.label.slice(0, 37) + "..." : s.label)
-            : s.session_id;
-          const cachedCount = sentenceCache.get(s.session_id)?.length;
+          const cleaned = sessionTitle(s);
+          const label = cleaned.length > 40 ? cleaned.slice(0, 37) + "..." : cleaned;
+          const cached = sentenceCache.get(s.session_id);
+          const cachedCount = cached?.length;
           const recency = s.last_event ? formatRecency(s.last_event) : null;
           return (
+            <div key={s.session_id}>
             <button
-              key={s.session_id}
               type="button"
               onClick={() => onSelectSession(isActive ? null : s.session_id)}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
@@ -444,6 +591,54 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                 </div>
               </div>
             </button>
+            {/* The story, unfurled: the session's key sentences as a scannable
+                narrative spine — what it did, and (muted) why. */}
+            {isActive && cached && cached.length > 0 && (
+              <div className="ml-3 mt-1 mb-1.5 border-l border-[#2f3348] pl-2.5">
+                {(spineExpanded ? cached : cached.slice(0, 8)).map((p, i) => {
+                  const h = sentenceHeadline(p);
+                  const turn = p.metadata?.turn as number | undefined;
+                  return (
+                    <button
+                      key={i}
+                      data-testid={`spine-sentence-${i}`}
+                      onClick={() => {
+                        // Jump the feed to this sentence's turn card.
+                        const idx = findSentenceIndexByTurn(sentences, turn);
+                        if (idx >= 0) {
+                          // Off auto-scroll first, or a live append yanks the
+                          // jump back to the bottom (same as the deep-link path).
+                          setAutoScroll(false);
+                          setFocusIndex(idx);
+                          virtualizer.scrollToIndex(idx, { align: "center" });
+                        }
+                      }}
+                      className="block w-full rounded py-0.5 text-left hover:bg-[#24283b]"
+                    >
+                      <div className="text-[11px] leading-snug text-[#a9b1d6]">
+                        <span className="text-[#565f89]">{i + 1}.</span> {h.text}
+                      </div>
+                      {h.because && (
+                        <Clamp
+                          text={`“${((p.metadata?.human as { content?: string } | undefined)?.content ?? "").trim() || h.because}”`}
+                          className="block text-[10px] italic leading-snug text-[#565f89]"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+                {cached.length > 8 && (
+                  <button
+                    data-testid="spine-show-all"
+                    onClick={() => setSpineExpanded((v) => !v)}
+                    className="py-0.5 text-[10px] text-[#7aa2f7] hover:text-[#89b4fa]"
+                  >
+                    {spineExpanded ? "show fewer ↑" : `+${cached.length - 8} more turns ↓`}
+                  </button>
+                )}
+              </div>
+            )}
+            </div>
           );
         })}
 
@@ -507,6 +702,13 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
 
       {/* Main feed */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Shared summary spine — same header as Explore / Overview */}
+        {selectedSession && (
+          <div className="bg-[#24283b] border-b border-[#2f3348] flex-shrink-0">
+            <SessionSummaryLoader sessionId={selectedSession} />
+          </div>
+        )}
+
         {/* Stats bar + filters */}
         {sentences.length > 0 && (
           <div className="px-4 py-2 bg-[#24283b] border-b border-[#2f3348] flex-shrink-0">
@@ -532,7 +734,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                 ))}
             </div>
             {/* Category filters */}
-            <div className="flex gap-1.5 mt-1.5">
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
               {CATEGORY_CONFIG.map(({ key, label, color }) => {
                 const count = categoryCounts.get(key) ?? 0;
                 if (count === 0) return null;
@@ -598,11 +800,26 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession }: St
                     data-index={virtualRow.index}
                     data-turn-card
                     className={focusIndex === virtualRow.index ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
+                    onClick={() => {
+                      // Emit a typed `select` interaction: which turn/eval you
+                      // touched, so an agent can read exactly what you clicked.
+                      const m = (p.metadata ?? {}) as Record<string, unknown>;
+                      const evalObj = m.eval as { content?: string } | undefined;
+                      postInteraction({
+                        kind: "select",
+                        view: "story",
+                        session_id: p.session_id,
+                        turn: typeof m.turn === "number" ? m.turn : undefined,
+                        eventId: p.events[p.events.length - 1],
+                        eval: typeof evalObj?.content === "string" ? evalObj.content.slice(0, 500) : undefined,
+                      });
+                    }}
                   >
                     <TurnCard
                       pattern={p}
                       onSelectSession={onSelectSession}
                       isSelectedSession={selectedSession === p.session_id}
+                      onOpenEvent={onOpenEvent ? (eid) => onOpenEvent(p.session_id, eid) : undefined}
                     />
                   </div>
                 );

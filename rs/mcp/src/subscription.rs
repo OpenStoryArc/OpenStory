@@ -82,6 +82,14 @@ impl Subscription {
 #[async_trait]
 pub trait Subscribe: Clone + Send + Sync + 'static {
     async fn subscribe(&self, session_id: &str) -> Result<Subscription>;
+
+    /// Subscribe to the AUTHORED `ui.*` stream — live-follow of the user's
+    /// interactions (the READ half of the agent-in-UI seam). Default:
+    /// unsupported, so test subscribers don't have to implement it;
+    /// production `NatsBus` overrides with a real `ui` JetStream subscription.
+    async fn subscribe_ui(&self) -> Result<Subscription> {
+        anyhow::bail!("this subscriber does not support ui.* streaming")
+    }
 }
 
 /// Pure transform: read `IngestBatch`es from a source channel, wrap each
@@ -110,3 +118,4 @@ pub async fn pump_subscription(
         }
     }
 }
+

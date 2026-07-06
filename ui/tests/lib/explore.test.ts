@@ -311,6 +311,26 @@ describe("isAgentSession — boundary table", () => {
 // ── buildSessionHierarchy ──────────────────────
 
 describe("buildSessionHierarchy", () => {
+  it("accepts loosely-typed sessions (StorySession shape): missing event_count sums as 0, missing start_time sorts last", () => {
+    // The merged Explore feeds the hierarchy from useSessionsList (StorySession),
+    // where event_count/start_time are optional — the fold must stay numeric.
+    const loose = [
+      { session_id: "parent-1", project_id: "p1", start_time: "2025-01-16T10:00:00Z" },
+      { session_id: "agent-x", project_id: "p1" }, // no event_count, no start_time
+      { session_id: "dateless" }, // orphan, no start_time at all
+    ];
+    scenario(
+      () => loose,
+      (s) => buildSessionHierarchy(s),
+      (parents) => {
+        const p1 = parents.find((p) => p.session.session_id === "parent-1")!;
+        expect(p1.agents.map((a) => a.session_id)).toEqual(["agent-x"]);
+        expect(p1.totalAgentEvents).toBe(0); // not NaN
+        expect(parents[parents.length - 1]!.session.session_id).toBe("dateless");
+      },
+    );
+  });
+
   it("returns empty for no sessions", () => {
     scenario(
       () => [] as SessionSummary[],
@@ -385,7 +405,9 @@ describe("buildSessionHierarchy", () => {
     );
   });
 
-  it("sorted by most recent first", () => {
+  it("preserves the caller's order of main sessions (the caller owns sorting)", () => {
+    // The merged Explore sorts with sortSessions() BEFORE building the
+    // hierarchy — the fold must not re-sort behind the caller's back.
     const sessions = [
       makeSession({ session_id: "old", start_time: "2025-01-14T10:00:00Z", project_id: "p1" }),
       makeSession({ session_id: "new", start_time: "2025-01-16T10:00:00Z", project_id: "p2" }),
@@ -394,8 +416,7 @@ describe("buildSessionHierarchy", () => {
       () => sessions,
       (s) => buildSessionHierarchy(s),
       (parents) => {
-        expect(parents[0]!.session.session_id).toBe("new");
-        expect(parents[1]!.session.session_id).toBe("old");
+        expect(parents.map((p) => p.session.session_id)).toEqual(["old", "new"]);
       },
     );
   });

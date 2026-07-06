@@ -1,0 +1,14 @@
+import { chromium } from "playwright";
+const S = "/tmp/claude-1000/-home-max-projects-OpenStory/0375729d-4f5f-4043-bf1e-71a8ad37a187/scratchpad";
+const b = await chromium.launch({ executablePath: `${S}/chrome-linux/chrome`, headless: true, args: ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu"] });
+const p = await b.newPage({ viewport: { width: 1500, height: 950 } });
+p.on("pageerror", e => console.log("PAGEERR:", e.message.slice(0,140)));
+await p.goto("http://127.0.0.1:5173/#/lab",{waitUntil:"networkidle"}); await p.waitForTimeout(2500);
+await p.getByRole("button",{name:/run all witnesses/}).click();
+await p.waitForTimeout(1000);
+const verdicts = await p.$$eval('[data-verdict]', els => els.map(e=>e.textContent.trim().slice(0,70)));
+console.log("verdicts fired:", verdicts.length);
+verdicts.slice(0,8).forEach(v=>console.log("  ", v));
+await p.screenshot({path:`${S}/rev-witness.png`});
+console.log("saved");
+await b.close();

@@ -68,6 +68,52 @@ pub enum BroadcastMessage {
     AdminTopologyChanged {
         topology: crate::admin::Topology,
     },
+    /// Agent/operator "view intent": a request to drive the OpenStory UI
+    /// (navigate, filter, highlight, present). This is the WRITE side of the
+    /// agent-in-UI seam, and it is scoped by design — it only changes what the
+    /// dashboard is *showing*, never the observed sources ("drive the mirror,
+    /// never the watched"). `params` is free-form so the control vocabulary can
+    /// grow without a server change; the UI branches on `action`.
+    /// A durable overlay annotation was pinned — pushed to every dashboard so
+    /// the note appears live. Overlay namespace only; never an observed event.
+    #[serde(rename = "annotation_added")]
+    AnnotationAdded {
+        annotation: crate::annotations::Annotation,
+    },
+    /// A durable overlay annotation was removed — pushed so every dashboard
+    /// drops it live. The overlay is user-owned authored data, so unlike the
+    /// append-only event stream it can be deleted.
+    #[serde(rename = "annotation_removed")]
+    AnnotationRemoved { id: String },
+    /// The user's current view state (the READ half of the agent-in-UI seam):
+    /// a projection over the interaction event stream, pushed live so agents
+    /// (and other dashboards) can see where the human is. It's the mirror-image
+    /// of Control — commands flow in, interactions flow back out.
+    #[serde(rename = "ui_state")]
+    UiState {
+        /// interaction kind (navigate|filter|select|zoom|view). Named
+        /// `interaction` to avoid clashing with the enum's "kind" serde tag.
+        interaction: String,
+        view: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filters: Option<serde_json::Value>,
+        at: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issuer: Option<String>,
+    },
+    #[serde(rename = "control")]
+    Control {
+        /// The view action, e.g. "open_view" | "highlight" | "present".
+        action: String,
+        /// Action parameters (route, session_id, filters, note, steps…).
+        #[serde(default)]
+        params: serde_json::Value,
+        /// Who issued this — surfaced in the UI's "driven by X" indicator.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        issuer: Option<String>,
+    },
 }
 
 #[cfg(test)]
@@ -92,6 +138,50 @@ mod tests {
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["kind"], "enriched");
         assert_eq!(json["session_id"], "test-123");
+    }
+
+    #[test]
+    fn ui_state_serializes_with_kind_tag() {
+        let msg = BroadcastMessage::UiState {
+            interaction: "navigate".into(),
+            view: "story".into(),
+            session_id: Some("s1".into()),
+            filters: None,
+            at: "2026-07-02T00:00:00Z".into(),
+            issuer: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "ui_state"); // enum tag
+        assert_eq!(json["interaction"], "navigate");
+        assert_eq!(json["view"], "story");
+        assert_eq!(json["session_id"], "s1");
+        assert!(json.get("filters").is_none()); // None skipped
+    }
+
+    #[test]
+    fn control_serializes_with_kind_tag_and_params() {
+        let msg = BroadcastMessage::Control {
+            action: "open_view".to_string(),
+            params: serde_json::json!({ "route": "#/explore/abc123" }),
+            issuer: Some("agent:claude".to_string()),
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "control");
+        assert_eq!(json["action"], "open_view");
+        assert_eq!(json["params"]["route"], "#/explore/abc123");
+        assert_eq!(json["issuer"], "agent:claude");
+    }
+
+    #[test]
+    fn control_omits_absent_issuer() {
+        let msg = BroadcastMessage::Control {
+            action: "highlight".to_string(),
+            params: serde_json::json!({ "sessionIds": ["a", "b"] }),
+            issuer: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["kind"], "control");
+        assert!(json.get("issuer").is_none());
     }
 
     #[test]

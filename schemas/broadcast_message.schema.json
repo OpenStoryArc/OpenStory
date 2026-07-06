@@ -1,6 +1,36 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "Annotation": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "created_at": {
+          "description": "RFC3339 creation timestamp.",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "issuer": {
+          "description": "Who authored it (person or agent), for the overlay's provenance.",
+          "type": "string"
+        },
+        "session_id": {
+          "description": "The session this note is pinned to.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "created_at",
+        "id",
+        "issuer",
+        "session_id"
+      ],
+      "type": "object"
+    },
     "AssistantMessage": {
       "properties": {
         "content": {
@@ -2396,6 +2426,115 @@
       "required": [
         "kind",
         "topology"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Agent/operator \"view intent\": a request to drive the OpenStory UI (navigate, filter, highlight, present). This is the WRITE side of the agent-in-UI seam, and it is scoped by design — it only changes what the dashboard is *showing*, never the observed sources (\"drive the mirror, never the watched\"). `params` is free-form so the control vocabulary can grow without a server change; the UI branches on `action`. A durable overlay annotation was pinned — pushed to every dashboard so the note appears live. Overlay namespace only; never an observed event.",
+      "properties": {
+        "annotation": {
+          "$ref": "#/definitions/Annotation"
+        },
+        "kind": {
+          "enum": [
+            "annotation_added"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "annotation",
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A durable overlay annotation was removed — pushed so every dashboard drops it live. The overlay is user-owned authored data, so unlike the append-only event stream it can be deleted.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "annotation_removed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The user's current view state (the READ half of the agent-in-UI seam): a projection over the interaction event stream, pushed live so agents (and other dashboards) can see where the human is. It's the mirror-image of Control — commands flow in, interactions flow back out.",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "filters": true,
+        "interaction": {
+          "description": "interaction kind (navigate|filter|select|zoom|view). Named `interaction` to avoid clashing with the enum's \"kind\" serde tag.",
+          "type": "string"
+        },
+        "issuer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "ui_state"
+          ],
+          "type": "string"
+        },
+        "session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "interaction",
+        "kind",
+        "view"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "description": "The view action, e.g. \"open_view\" | \"highlight\" | \"present\".",
+          "type": "string"
+        },
+        "issuer": {
+          "description": "Who issued this — surfaced in the UI's \"driven by X\" indicator.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "control"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "default": null,
+          "description": "Action parameters (route, session_id, filters, note, steps…)."
+        }
+      },
+      "required": [
+        "action",
+        "kind"
       ],
       "type": "object"
     }

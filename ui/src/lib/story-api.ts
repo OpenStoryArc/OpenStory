@@ -25,6 +25,8 @@ export interface StorySession {
    *  truth for the sidebar plan badge — the event stream can miss plans whose
    *  ExitPlanMode event isn't in the loaded records. */
   plan_count?: number;
+  /** Project identity (watch-dir-derived key). Present on the list endpoint. */
+  project_id?: string | null;
   /** Origin host (machine identity) — `null` for legacy sessions ingested before host stamping. */
   host?: string | null;
   /** Origin user (human identity) — `null` for legacy sessions ingested before user stamping. */

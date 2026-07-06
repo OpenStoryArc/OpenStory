@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
 
+use crate::broadcast::BroadcastMessage;
 use crate::logging::{log_event, short_id};
 use crate::state::SharedState;
 use crate::tool_schemas::schemas_to_json;
@@ -43,6 +44,261 @@ pub struct SessionListQuery {
 /// after restart, etc.) become observable instead of silent. Pure observation.
 /// See `docs/research/node-and-network-health.md`. Detailed watcher state lives
 /// at `/api/watchers`.
+/// `POST /api/control` — the agent-in-UI WRITE seam. Accepts a view intent
+/// (`{ action, params?, issuer? }`) and broadcasts it to connected dashboards
+/// over the existing WebSocket as a `control` message. The UI (a sink) reacts.
+///
+/// Sovereignty: this only steers what the dashboard *shows* — it can't touch the
+/// observed sources. "Drive the mirror, never the watched." Returns how many
+/// dashboards received it (`delivered`).
+pub async fn post_control(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let action = body
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if action.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "missing 'action'" })),
+        );
+    }
+    let params = body.get("params").cloned().unwrap_or(Value::Null);
+    let issuer = body
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    log_event("control", &format!("POST /api/control action={action}"));
+
+    let s = state.read().await;
+    // Publish the authored control intent onto the AUTHORED `ui.*` namespace
+    // (NEVER `events.*` — that's the observed read-only source), so the drive
+    // stream is first-class on the bus: subscribable, federatable, replayable —
+    // the write half of the seam, symmetric with the interaction (read) half.
+    let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let subject = crate::ui_events::ui_subject("control", &action, issuer.as_deref());
+    let raw = json!({ "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at });
+    let ce = crate::ui_events::ui_cloud_event("control", &action, VIEWING_SESSION, raw);
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+
+    let msg = BroadcastMessage::Control {
+        action: action.clone(),
+        params,
+        issuer,
+    };
+    // send() errs only when there are no subscribers → 0 delivered.
+    let delivered = s.broadcast_tx.send(msg).unwrap_or(0);
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "action": action, "delivered": delivered })),
+    )
+}
+
+/// The synthetic session that holds the human's own interaction stream — their
+/// dashboard use, observed as first-class events (the read half of the seam).
+const VIEWING_SESSION: &str = "openstory-ui";
+
+/// The interaction kinds we record as distinct subtypes, for high-fidelity
+/// replay later. `view` is the coarse fallback.
+const INTERACTION_KINDS: [&str; 5] = ["navigate", "filter", "select", "zoom", "view"];
+
+/// `POST /api/interactions` — the UI reports an interaction. We record it as a
+/// real CloudEvent in the VIEWING_SESSION so the user's own activity "ends up in
+/// OpenStory" (queryable, part of the record, watchable + REPLAYABLE like any
+/// session), update the `ui_state` projection, and broadcast it live.
+///
+/// Body: `{ kind, view, session_id?, filters?, issuer?, …anything }`. `kind`
+/// picks the subtype (`interaction.navigate|filter|select|zoom|view`); the WHOLE
+/// body is stored as `data` so richer fields (scroll anchor, selected event,
+/// canvas zoom/pan) ride along for free as views start sending them — replay
+/// fidelity grows without a schema change.
+pub async fn post_interaction(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let view = body.get("view").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if view.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "view required" })));
+    }
+    let raw_kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("view");
+    let kind = if INTERACTION_KINDS.contains(&raw_kind) { raw_kind } else { "view" };
+    let target = body.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let filters = body.get("filters").cloned().filter(|v| !v.is_null());
+    let issuer = body.get("issuer").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
+    // The full interaction payload is the authored body (high-fidelity), stamped
+    // with the server time — richer fields (scroll anchor, selected event, canvas
+    // zoom/pan) ride along for free as views send them. It becomes a proper
+    // CloudEvent: the body lives in EventData.raw, subtype interaction.{kind}.
+    let mut raw = body.clone();
+    if let Some(obj) = raw.as_object_mut() {
+        obj.insert("at".to_string(), json!(at));
+    }
+    let ce = crate::ui_events::ui_cloud_event("interaction", kind, VIEWING_SESSION, raw);
+    let event = serde_json::to_value(&ce).unwrap_or(Value::Null);
+
+    let s = state.read().await;
+    let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
+    // Publish onto the bus in the AUTHORED `ui.*` namespace (NEVER `events.*` —
+    // that's the observed, read-only source) as a TYPED IngestBatch, so the
+    // interaction stream is a first-class event source: the MCP subscribes
+    // through the same typed pump as observed events, and it's replayable like
+    // any other event. Best-effort — never blocks the response.
+    let subject = crate::ui_events::ui_subject("interaction", kind, issuer.as_deref());
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+    let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
+        interaction: kind.to_string(),
+        view,
+        session_id: target,
+        filters,
+        at,
+        issuer,
+    });
+    (StatusCode::OK, Json(json!({ "ok": true, "kind": kind })))
+}
+
+/// `GET /api/ui-state` — the current view state, projected from the latest
+/// interaction event. This is what an agent reads to know "where the user is."
+pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    // Unwrap the authored body from the CloudEvent's EventData.raw (tolerant of
+    // legacy flat events too), so `where_is_user` sees {view, kind, at, …}.
+    let latest = events
+        .last()
+        .and_then(|e| e.get("data"))
+        .map(crate::ui_events::ui_body)
+        .unwrap_or(Value::Null);
+    // Attention-aware pacing: the rhythm of the human's recent interactions, so
+    // an agent can act in their RESTS (drive only when `tempo.active_now` false).
+    let times: Vec<i64> = events
+        .iter()
+        .filter_map(|e| e.get("time").and_then(|v| v.as_str()))
+        .filter_map(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp_millis())
+        .collect();
+    let tempo = crate::ui_events::tempo_profile(times, Utc::now().timestamp_millis());
+    Json(json!({ "ui_state": latest, "tempo": tempo }))
+}
+
+#[derive(Deserialize)]
+pub struct JourneyQuery {
+    /// How many recent interactions to return (newest last). Default 20, cap 500.
+    pub n: Option<usize>,
+}
+
+/// `GET /api/ui-state/journey?n=N` — the recent slice of the human's interaction
+/// stream (their PATH through the dashboard), oldest→newest. This is what the
+/// REPLAY driver reads: a captured journey fed back through the control seam
+/// retraces it (forward) or rewinds it (backward). Returns the raw interaction
+/// `data` payloads — each maps 1:1 to a typed Interaction on the client.
+pub async fn get_ui_journey(
+    State(state): State<SharedState>,
+    Query(q): Query<JourneyQuery>,
+) -> Json<Value> {
+    let n = q.n.unwrap_or(20).min(500);
+    let s = state.read().await;
+    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    // Take the last n events (chronological), preserving order — the journey is
+    // meaningful only in sequence.
+    let start = events.len().saturating_sub(n);
+    let journey: Vec<Value> = events[start..]
+        .iter()
+        .filter_map(|e| e.get("data").map(crate::ui_events::ui_body))
+        .collect();
+    Json(json!({ "journey": journey }))
+}
+
+/// `POST /api/annotations` — pin a durable overlay note to a session. Persists
+/// to `{data_dir}/annotations.jsonl` (overlay namespace, never the event
+/// stream) and broadcasts `annotation_added` so it appears on every dashboard
+/// live. Body: `{ session_id, body, issuer? }`.
+pub async fn post_annotation(
+    State(state): State<SharedState>,
+    Json(body): Json<Value>,
+) -> impl IntoResponse {
+    let session_id = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if session_id.is_empty() || text.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "session_id and body are required" })),
+        );
+    }
+    let issuer = body.get("issuer").and_then(|v| v.as_str()).unwrap_or("anon").to_string();
+    let ann = crate::annotations::Annotation {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id,
+        body: text,
+        issuer,
+        created_at: Utc::now().to_rfc3339(),
+    };
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    if let Err(e) = crate::annotations::append_annotation(dir, &ann) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
+    }
+    log_event("annotation", &format!("pinned to {}", short_id(&ann.session_id)));
+    // Publish the authored annotation onto the `ui.*` namespace (overlay class,
+    // NEVER `events.*`). The annotation is user/agent-authored overlay data, so
+    // it's a first-class ui event like control + interaction — subscribable and
+    // replayable, and the whole authored surface now flows on one sovereign bus.
+    let subject = crate::ui_events::ui_subject("annotation", "add", Some(&ann.issuer));
+    let raw = serde_json::to_value(&ann).unwrap_or(Value::Null);
+    let ce = crate::ui_events::ui_cloud_event("annotation", "add", VIEWING_SESSION, raw);
+    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+    let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
+    (StatusCode::OK, Json(json!({ "ok": true, "annotation": ann })))
+}
+
+/// `GET /api/annotations[?session_id=…]` — list overlay annotations.
+pub async fn list_annotations(
+    State(state): State<SharedState>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    let mut anns = crate::annotations::read_annotations(dir);
+    if let Some(sid) = q.get("session_id") {
+        anns.retain(|a| &a.session_id == sid);
+    }
+    Json(json!({ "annotations": anns }))
+}
+
+/// `DELETE /api/annotations/{id}` — remove a durable overlay note. The overlay
+/// is user-owned authored data, so it can be deleted (unlike the append-only
+/// observed event stream). Broadcasts `annotation_removed` so every dashboard
+/// drops it live.
+pub async fn delete_annotation(
+    State(state): State<SharedState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let s = state.read().await;
+    let dir = Path::new(&s.config.data_dir);
+    match crate::annotations::remove_annotation(dir, &id) {
+        Ok(true) => {
+            log_event("annotation", &format!("removed {}", short_id(&id)));
+            // Mirror the removal onto the authored `ui.*` bus (never events.*).
+            let subject = crate::ui_events::ui_subject("annotation", "remove", None);
+            let ce = crate::ui_events::ui_cloud_event(
+                "annotation",
+                "remove",
+                VIEWING_SESSION,
+                json!({ "id": id.clone() }),
+            );
+            let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+            let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
+            (StatusCode::OK, Json(json!({ "ok": true, "removed": id })))
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({ "ok": false, "error": "not found" }))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
 pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
     let sessions = s
@@ -235,21 +491,7 @@ pub async fn list_sessions(
                 ),
                 None => (None, None, 0, 0),
             };
-        // Derive status from last_event timestamp (stale if >5min old)
-        let status = match row.last_event.as_deref() {
-            Some(ts) => {
-                if let Ok(t) = chrono::DateTime::parse_from_rfc3339(ts) {
-                    if Utc::now().signed_duration_since(t).num_seconds() > 300 {
-                        "completed"
-                    } else {
-                        "ongoing"
-                    }
-                } else {
-                    "completed"
-                }
-            }
-            None => "completed",
-        };
+        let status = status_from_last_event(row.last_event.as_deref());
         result.push(json!({
             "session_id": sid,
             "status": status,
@@ -570,6 +812,19 @@ pub async fn get_events(
     Ok(Json(Value::Array(events)))
 }
 
+/// The ONE status rule every surface uses: an event within the last
+/// 5 minutes means ongoing, anything else completed. Derived from the
+/// store row's last_event so /api/sessions and /summary can't disagree.
+fn status_from_last_event(last_event: Option<&str>) -> &'static str {
+    match last_event {
+        Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
+            Ok(t) if Utc::now().signed_duration_since(t).num_seconds() <= 300 => "ongoing",
+            _ => "completed",
+        },
+        None => "completed",
+    }
+}
+
 pub async fn get_summary(
     State(state): State<SharedState>,
     AxumPath(session_id): AxumPath<String>,
@@ -579,24 +834,89 @@ pub async fn get_summary(
         &format!("GET /api/sessions/{}/summary", short_id(&session_id)),
     );
     let s = state.read().await;
-    let events = s
+
+    // Served from the in-memory projection (O(1), maintained incrementally by
+    // the projections consumer, rebuilt at boot). Falls back to the whole-
+    // session scan only when no projection exists — on a 16.7k-event session
+    // that scan costs ~0.9 s per request.
+    let (summary, extras) = match s.store.projections.get(&session_id) {
+        Some(proj) => {
+            let p = proj.value();
+            let tokens = json!({
+                "input": p.total_input_tokens(),
+                "output": p.total_output_tokens(),
+                "cache_creation": p.total_cache_creation_tokens(),
+                "cache_read": p.total_cache_read_tokens(),
+                "total": p.total_input_tokens()
+                    + p.total_output_tokens()
+                    + p.total_cache_creation_tokens()
+                    + p.total_cache_read_tokens(),
+            });
+            let top_files: Vec<Value> = p
+                .top_files(5)
+                .into_iter()
+                .map(|(path, count)| json!({"path": path, "count": count}))
+                .collect();
+            let first_error = p.first_error_event_id().map(|s| s.to_string());
+            (
+                p.summary(&session_id, Some(Utc::now())),
+                Some((p.turn_count(), tokens, top_files, first_error)),
+            )
+        }
+        None => {
+            let events = s
+                .store
+                .event_store
+                .session_events(&session_id)
+                .await
+                .unwrap_or_default();
+            (
+                session_summary(&session_id, &events, Some(Utc::now())),
+                None,
+            )
+        }
+    };
+
+    // Status, event_count, and last_event come from the store's session row —
+    // the same source the sessions list reads — so the two surfaces can never
+    // disagree. (The projection can drift slightly from the store when boot
+    // backfill re-publishes events with fresh ids; the store row is the
+    // deduplicated truth.)
+    let row = s
         .store
         .event_store
-        .session_events(&session_id)
+        .list_sessions()
         .await
-        .unwrap_or_default();
-    let summary = session_summary(&session_id, &events, Some(Utc::now()));
+        .unwrap_or_default()
+        .into_iter()
+        .find(|r| r.id == session_id);
+    let (status, event_count, last_event) = match &row {
+        Some(r) => (
+            status_from_last_event(r.last_event.as_deref()).to_string(),
+            r.event_count as usize,
+            r.last_event.clone(),
+        ),
+        None => (summary.status.clone(), summary.event_count, None),
+    };
+
     let project_id = s
         .store
         .session_projects
         .get(&session_id)
         .map(|r| r.value().clone());
-    Json(json!({
+    // The subagent→parent edge: a spawned agent's session names its spawner.
+    let parent_session_id = s
+        .store
+        .subagent_parents
+        .get(&session_id)
+        .map(|r| r.value().clone());
+    let mut body = json!({
         "session_id": summary.session_id,
-        "status": summary.status,
+        "status": status,
         "start_time": summary.start_time,
+        "last_event": last_event,
         "duration_ms": summary.duration_ms,
-        "event_count": summary.event_count,
+        "event_count": event_count,
         "error_count": summary.error_count,
         "tool_calls": summary.tool_calls,
         "files_edited": summary.files_edited,
@@ -606,7 +926,21 @@ pub async fn get_summary(
         "prompt_count": summary.prompt_count,
         "response_count": summary.response_count,
         "project_id": project_id,
-    }))
+    });
+    if let Some((turn_count, tokens, top_files, first_error)) = extras {
+        let obj = body.as_object_mut().expect("body is an object");
+        obj.insert("turn_count".to_string(), json!(turn_count));
+        obj.insert("tokens".to_string(), tokens);
+        obj.insert("top_files".to_string(), json!(top_files));
+        if let Some(err_id) = first_error {
+            obj.insert("first_error_event_id".to_string(), json!(err_id));
+        }
+    }
+    if let Some(parent) = parent_session_id {
+        let obj = body.as_object_mut().expect("body is an object");
+        obj.insert("parent_session_id".to_string(), json!(parent));
+    }
+    Json(body)
 }
 
 pub async fn get_activity(
@@ -813,6 +1147,12 @@ pub struct ConversationQuery {
     /// Output format: json (default) or markdown
     #[serde(default)]
     pub format: Option<String>,
+    /// Max events to window (JSON format only). Absent = whole session.
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// Only events with seq < before_seq (walk older history).
+    #[serde(default)]
+    pub before_seq: Option<u64>,
 }
 
 pub async fn get_conversation(
@@ -829,12 +1169,43 @@ pub async fn get_conversation(
         ),
     );
     let s = state.read().await;
-    let events = s
-        .store
-        .event_store
-        .session_events(&session_id)
-        .await
-        .unwrap_or_default();
+
+    // JSON format supports windowing: the most-recent `limit` events
+    // (below before_seq when walking), paired, plus a cursor. Markdown/HTML
+    // exports stay whole-session — an export is the whole story.
+    let paginated = fmt == "json" && (query.limit.is_some() || query.before_seq.is_some());
+    let (events, next_before_seq) = if paginated {
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_RECORDS_LIMIT)
+            .clamp(1, MAX_RECORDS_LIMIT);
+        let window = s
+            .store
+            .event_store
+            .session_events_before(&session_id, query.before_seq, limit)
+            .await
+            .unwrap_or_default();
+        // A full window means older history may exist; its oldest seq is
+        // the cursor for the next page up.
+        let cursor = (window.len() == limit)
+            .then(|| {
+                window
+                    .first()
+                    .and_then(|e| e.get("data"))
+                    .and_then(|d| d.get("seq"))
+                    .and_then(|v| v.as_u64())
+            })
+            .flatten();
+        (window, cursor)
+    } else {
+        let all = s
+            .store
+            .event_store
+            .session_events(&session_id)
+            .await
+            .unwrap_or_default();
+        (all, None)
+    };
 
     let view_records: Vec<_> = events
         .iter()
@@ -863,8 +1234,13 @@ pub async fn get_conversation(
                 .body(axum::body::Body::from(html))
                 .unwrap()
         }
-        _ => axum::response::Json(serde_json::to_value(paired).unwrap_or(json!({"entries": []})))
-            .into_response(),
+        _ => {
+            let mut body = serde_json::to_value(paired).unwrap_or(json!({"entries": []}));
+            if let (Some(cursor), Some(obj)) = (next_before_seq, body.as_object_mut()) {
+                obj.insert("next_before_seq".to_string(), json!(cursor));
+            }
+            axum::response::Json(body).into_response()
+        }
     }
 }
 
@@ -1778,12 +2154,60 @@ pub async fn get_session_records(
     );
     let s = state.read().await;
 
-    let events = s
-        .store
-        .event_store
-        .session_events(&session_id)
-        .await
-        .unwrap_or_default();
+    let events = if paginated {
+        // Chunk-walk backward from the cursor instead of loading the whole
+        // session (measured: full-load-then-slice cost ~0.9 s per page on a
+        // 19k-event session). Events fan out to ≥1 ViewRecords, so one
+        // chunk usually fills the page; events that translate to zero
+        // records trigger another round so a mid-history page is never
+        // accidentally short (the client reads a short page as
+        // end-of-history).
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_RECORDS_LIMIT)
+            .clamp(1, MAX_RECORDS_LIMIT);
+        let mut collected: Vec<Value> = Vec::new();
+        let mut record_estimate = 0usize;
+        let mut cursor = query.before_seq;
+        loop {
+            let chunk = s
+                .store
+                .event_store
+                .session_events_before(&session_id, cursor, limit)
+                .await
+                .unwrap_or_default();
+            if chunk.is_empty() {
+                break;
+            }
+            let exhausted = chunk.len() < limit;
+            cursor = chunk
+                .first()
+                .and_then(|e| e.get("data"))
+                .and_then(|d| d.get("seq"))
+                .and_then(|v| v.as_u64());
+            record_estimate += chunk
+                .iter()
+                .filter(|e| {
+                    serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(
+                        (*e).clone(),
+                    )
+                    .map(|ce| !from_cloud_event(&ce).is_empty())
+                    .unwrap_or(false)
+                })
+                .count();
+            collected.splice(0..0, chunk);
+            if record_estimate >= limit || exhausted {
+                break;
+            }
+        }
+        collected
+    } else {
+        s.store
+            .event_store
+            .session_events(&session_id)
+            .await
+            .unwrap_or_default()
+    };
 
     // Build parent_map from raw events — one entry per stored CloudEvent.
     // Fan-out ViewRecords (e.g., parallel tool_use blocks) inherit the
@@ -1802,6 +2226,17 @@ pub async fn get_session_records(
             .map(|s| s.to_string());
         parent_map.insert(id, parent);
     }
+
+    // A page may not contain a record's ancestors, so the local parent walk
+    // can under-count depth at page edges. The projection maintains global
+    // depths incrementally — prefer it, fall back to the local walk.
+    let projection_depth = |id: &str| -> Option<u16> {
+        let base_id = id.split(':').next().unwrap_or(id);
+        s.store
+            .projections
+            .get(&session_id)
+            .map(|p| p.node_depth(base_id))
+    };
 
     // Depth: walk the parent chain. Capped at 64 to bound cost on
     // pathological inputs (production trees are shallow).
@@ -1835,7 +2270,8 @@ pub async fn get_session_records(
             // Parent lookup uses base id (strip fan-out suffix).
             let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
             let parent_uuid = parent_map.get(&base_id).and_then(|p| p.clone());
-            let depth = depth_of(&vr.id, &parent_map);
+            let depth = projection_depth(&vr.id)
+                .unwrap_or_else(|| depth_of(&vr.id, &parent_map));
 
             // Truncation: same rule as the pre-refactor to_wire_record.
             let (truncated, payload_bytes) = match &vr.body {

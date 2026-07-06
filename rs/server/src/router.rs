@@ -97,6 +97,18 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::list_sessions),
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
+        .route("/api/control", axum::routing::post(crate::api::post_control))
+        .route(
+            "/api/annotations",
+            axum::routing::post(crate::api::post_annotation).get(crate::api::list_annotations),
+        )
+        .route(
+            "/api/annotations/{id}",
+            axum::routing::delete(crate::api::delete_annotation),
+        )
+        .route("/api/interactions", axum::routing::post(crate::api::post_interaction))
+        .route("/api/ui-state", axum::routing::get(crate::api::get_ui_state))
+        .route("/api/ui-state/journey", axum::routing::get(crate::api::get_ui_journey))
         .route("/api/digests", axum::routing::get(crate::api::session_digests))
         .route(
             "/api/watchers",

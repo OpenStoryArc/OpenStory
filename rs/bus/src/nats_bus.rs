@@ -251,6 +251,26 @@ impl NatsBus {
             .await
             .context("failed to create/get 'patterns' JetStream stream")?;
 
+        // UI stream — the AUTHORED agent-in-UI namespace (interactions, control,
+        // annotations published to `ui.*` by the server). Interest-based (kept
+        // only while a subscriber — e.g. the MCP's subscribe_ui_state — is
+        // attached), so it's a light live-follow channel; the durable copy of
+        // interactions already lives in SQLite. STRICTLY separate from the
+        // observed, read-only `events.*` stream — the sovereignty partition,
+        // enforced at the subject layer (server: ui_events::ui_subject, which
+        // only ever emits `ui.*`). Needed so `publish_bytes` to `ui.>` doesn't
+        // error at the broker. (Durable/limits retention is the future
+        // enhancement for resumable replay — see the NATS-unification backlog.)
+        self.jetstream
+            .get_or_create_stream(stream::Config {
+                name: "ui".to_string(),
+                subjects: vec!["ui.>".to_string()],
+                retention: stream::RetentionPolicy::Interest,
+                ..Default::default()
+            })
+            .await
+            .context("failed to create/get 'ui' JetStream stream")?;
+
         Ok(())
     }
 
@@ -352,6 +372,24 @@ impl NatsBus {
             }
         });
         Ok(())
+    }
+
+    /// Subscribe to a named stream filtered by `pattern`, yielding typed
+    /// `IngestBatch`es (the same decode as `Bus::subscribe`, which is hardwired
+    /// to the `events` stream). For the authored `ui` stream
+    /// (`subscribe_typed("ui", "ui.>")`) — now that authored events are proper
+    /// CloudEvents published as IngestBatches, the ui stream uses the SAME typed
+    /// path as observed events; no raw-bytes special-case remains. Sovereignty
+    /// note: this only consumes the named stream; the observed read-only
+    /// `events.*` path is untouched.
+    pub async fn subscribe_typed(
+        &self,
+        stream_name: &str,
+        pattern: &str,
+    ) -> Result<mpsc::Receiver<IngestBatch>> {
+        let (tx, rx) = mpsc::channel(256);
+        self.spawn_consumer(tx, stream_name, pattern).await?;
+        Ok(rx)
     }
 }
 

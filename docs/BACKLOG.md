@@ -4,6 +4,147 @@ Ideas and future work for Open Story. Each entry describes *what* and *why* in a
 
 ---
 
+## Guiding principle — the UI is a map: every datum drills to its source
+
+Open Story's UI should be an *interface to the session data* — a map you can
+navigate down to the source of anything shown. **No visual is a terminal.**
+Every displayed datum links down the tree to what produced it: a sunburst wedge
+→ its sessions → its events → the raw transcript line; a token count → the
+events that generated it; a sentence → its turn → its tool calls; a file name →
+the reads/writes that touched it. This is the data-sovereignty twin of the
+no-dead-end-truncation rule (you can always reach the full thing) applied to
+navigation (you can always reach the source). Acceptance test for every view:
+*can I click this element down to its source event/record?* If not, it's a gap.
+This principle unifies the object-navigation work (`focus_event`, `route.eventId`
+consumption in Explore/Story, click-granular interaction capture), viz drill-in
+(sunburst/treemap labels + drill), and clickable stats.
+
+
+## Unify the interaction/control seam onto NATS (one bus, one source→sink graph)
+
+Today there are **two fan-out layers that don't overlap**: (1) NATS JetStream —
+the durable event spine the four consumer-actors (persist / patterns /
+projections / broadcast) drink from; and (2) a tokio `broadcast` channel → the
+`/ws` WebSocket — the ephemeral live-push to browsers. The **agent-in-UI seam**
+(interactions, control, annotations) rides *only* the second layer + REST +
+SQLite; it **never hits NATS**. Consequences: the MCP (a NATS subscriber) can't
+natively `subscribe_ui_state` (it's why 1c needs a bridge); user interactions
+aren't replayable/patternable the way agent events are; and the ephemeral
+broadcast channel **silently drops** for lagged receivers (perf pressure-point
+#2) with no resume.
+
+**Fix:** publish interactions/control/annotations onto NATS too (their own
+subjects, e.g. `ui.{principal}.interaction.*`, `ui.control.*`), so there is ONE
+bus and one set of sinks. The browser fan-out becomes just another actor
+relaying NATS → clients. Then: the MCP subscribes to ui-state natively; the
+metronome/attention-pacing work reads the user's rhythm off the same spine the
+agent events are on; "the user's attention" becomes a first-class, replayable
+event source, not a side channel.
+
+**Sovereignty invariant (NON-NEGOTIABLE — do not break the soul).** Sharing the
+*transport* must not commingle the *data domains*. Two strictly-partitioned
+namespaces on the one bus:
+- `events.*` = **OBSERVED** agent activity — watcher-sourced, **read-only**.
+  Only the translate step (watched file → CloudEvent) ever publishes here.
+- `ui.*` / `overlay.*` = **AUTHORED** — interactions, control, annotations
+  (the user/agent acting *on the mirror*, never on the watched source).
+
+The invariant: **no code path in the authored namespace may ever write into,
+mutate, or masquerade as the observed namespace.** Publishers are partitioned by
+construction (interaction path → `ui.*` only; observe path → `events.*` only);
+sinks stay separate (observed → EventStore agent tables; authored → the
+`openstory-ui` viewing session + `annotations.jsonl`), and the JSONL escape
+hatch stays partitioned too. This is exactly how annotations already work (a
+separate overlay namespace) — extend that discipline to interactions/control.
+
+**Absolute data federation.** Across the fleet the two domains federate
+*separately*: a peer's observed agent data mirrors in as read-only (as today);
+authored/interaction data is the user's own — federated under the existing
+share/consent policy, never injected into anyone's observed stream. "Observe,
+never interfere" is a statement about the observed SOURCE; putting interactions
+on the bus is a NEW parallel stream in a separate namespace, so the read-only-on-
+agent-data soul is preserved by construction. Any design that can't guarantee
+this partition is rejected.
+
+**Transport — SSE is a strong fit (Max's instinct).** The UI is a pure *sink*
+(it only receives on the socket; its writes go via REST POST). SSE is a
+one-way server→browser stream over plain HTTP — exactly that shape — and it's
+simpler than WS (no upgrade handshake, built-in auto-reconnect, HTTP/2
+multiplexing). Bonus that directly fixes pressure-point #2: an SSE stream backed
+by NATS can be **resumable** — a client reconnecting sends `Last-Event-ID`, the
+server replays from that NATS sequence, so a lagged/dropped client *heals*
+instead of silently losing messages (the tokio broadcast can't do this). Caveat:
+SSE is server→client only, but that's fine here — upstream already goes via REST;
+and per-client filtering (this session/project) rides the connection URL. Keep
+WS if a future feature needs true bidirectionality, but for the fan-out, NATS→SSE
+is cleaner and drop-free. Evaluate NATS→SSE relay vs the current tokio-broadcast
+→WS as part of this unification.
+
+## MCP discoverability & self-documentation
+
+An agent connecting to `open-story-mcp` should learn what it can do — and the
+right tool for each question — WITHOUT reading source. Today `tools/list`
+returns per-tool descriptions (good), but there's no server-level guidance and
+no docs surface. Make the MCP self-documenting across its whole surface:
+
+- **`instructions` in the `initialize` response** (protocol.rs `handle_initialize`):
+  a concise "what OpenStory is + when to use which tool," covering ALL
+  categories, not just one — discovery (`list_sessions`, `session_synopsis`,
+  `project_pulse`), per-session (`tool_journey`, `file_impact`, `session_errors`,
+  `session_patterns`, `session_sentences`, `session_plans`, `session_transcript`,
+  `session_activity`), search (`search`, `agent_search`), analytics
+  (`token_usage`, `daily_token_usage`, `productivity`), story (`session_story`),
+  and the agent-in-UI seam (`ui_control` drive, `where_is_user` read,
+  `subscribe_ui_state` follow). Lands in the model's context at handshake.
+  (Phase 1e of the current loop does this first slice.)
+- **Resources** (`resources/list` + `resources/read`): expose the docs as
+  readable resources — `docs/agent-in-ui.md` to start, then a general
+  "how to investigate a session" guide. First-class, on-demand, discoverable.
+- **Prompts** (`prompts/list` + `prompts/get`): reusable templates the server
+  offers — e.g. "investigate this session", "drive the dashboard to X",
+  "follow the user" — so common workflows are one call, not hand-assembled.
+- Optional HTTP convenience: a `/api/mcp-docs` (or fold a docs pointer into
+  `/health`) for humans/curl — secondary to the protocol-native hooks above,
+  which is where an agent actually looks.
+
+Goal: the MCP teaches itself. A fresh agent reads `instructions`, sees the tool
+map + when-to-use, and can pull deeper docs as resources — no source-diving.
+
+## Overlay annotations (the pin-a-note layer)
+
+Annotations are user/agent-authored notes pinned to sessions — the overlay
+namespace (`annotations.jsonl`, never the observed event stream). Add/list/
+remove exist (`POST`/`GET`/`DELETE /api/annotations`) + a corner overlay with a
+× remove. Follow-ups to make them first-class:
+
+### Show annotations in context, not just the corner overlay
+A note pinned to a session only appears in the global bottom-right overlay. It
+should render *on that session* — inline in Explore/Story (e.g. a margin note
+on the turn/event it targets) and as a badge on the session's cards — so the
+note lives where the thing it annotates lives.
+
+### Anchor annotations to a target finer than a session
+Today `session_id` is the only anchor. Let a note target a specific event/turn,
+a file, or even a viz element (a Canvas node, a heatmap day), carrying an
+optional `anchor` (event_id / turn / file / selector). The interaction schema
+already captures selections — reuse it so "annotate what I'm looking at" works.
+
+### Provenance & ownership on delete
+`DELETE /api/annotations/{id}` currently lets anyone remove any note. With the
+person/principal model, deletion (and edit) should respect authorship — you can
+remove your own notes; an agent's notes are labeled and removable by their
+principal. Also add EDIT (`PATCH`) so a note can be reworded without delete+re-add.
+
+### Surface created_at + issuer richly
+Notes store `created_at` and `issuer` but the overlay only shows issuer + a
+short id. Show a relative timestamp (with absolute on hover — see the
+timestamps-everywhere sweep) and make provenance legible (person vs agent).
+
+### Annotation threads / replies
+A single body per note is thin for a real conversation-in-the-margin. Consider
+threading (reply to a note) so a human and an agent can discuss a session
+inline — the overlay becomes a lightweight review surface.
+
 ## Federation & transport — follow-ups from the host-in-subject work
 
 ### Container/e2e tests: NATS-at-boot
@@ -12,6 +153,33 @@ CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
 NATS server — pre-existing, identical on master, surfaced once NATS became
 a hard boot dependency. Fix the test image to manage/bundle NATS so the
 Dockerized data path can be verified end-to-end.
+
+### Federated sessions have records but no turn.sentence patterns (blank Story)
+`turn.sentence` patterns are derived by the patterns-consumer actor as events
+flow through the *live local* NATS pipeline (eval-apply → sentence detectors).
+When a session streams in from another node, the raw CloudEvents replicate but
+the receiving node never re-runs the detectors, so remote-host sessions have
+records but **zero patterns** — and the Story view (which renders sentences,
+not raw records) is blank for them. Confirmed 2026-07-02: a local session had
+106 `turn.sentence` patterns; a `Katies-Mac-mini` session had 36 records / 0
+patterns. Diagnose with `GET /api/sessions/{id}/patterns?type=turn.sentence`
+returning empty while `/records` is populated. Given the fleet's host spread
+(a1, Maxs-Air, Katies-Mac-mini, …) this blanks the Story for a large fraction
+of federated sessions. Three fixes, roughly increasing cost:
+1. **Client-side fold fallback (quick win):** when the patterns fetch is empty,
+   the Story view fetches records and runs `ui/src/lib/eval-apply.ts::extractCycles(records)`
+   to render turns locally. No backend change; works for any records-bearing
+   session, federated or not. Renders structural turns but not the full
+   sentence grammar (verb/adverbial) — that still needs the detectors.
+2. **Consume patterns from other hosts:** federate the `patterns` stream too
+   (mirror/source it like `events`), so a peer's derived sentences replicate
+   alongside its raw events.
+3. **Run sentences locally on federated events:** re-run the pattern detectors
+   on inbound federated/backfilled events at ingest so patterns materialize for
+   remote sessions on the receiving node. Correct long-term; touches the
+   federation + patterns-consumer path.
+Surfaced 2026-07-02 while giving a UI tour — navigated to a federated session's
+Story and it looked empty.
 
 ### Federated catch-up re-injects to a host-less subject (silent no-op)
 `rs/server/src/catch_up.rs:110` publishes healed events to
@@ -750,6 +918,56 @@ Today the bottle workflow uploads artifacts and prints the `bottle do` block; a 
 
 ### Homebrew-core qualification (long-term)
 The current formula declares `depends_on "nats-server"` — homebrew-core forbids that pattern (formulas must not require an external service to be useful). To qualify for core, OpenStory needs a no-NATS or embedded-NATS mode. Design notes already exist in [`docs/research/nats-permissions-spike.md`](research/nats-permissions-spike.md). Other gates: stable 1.0, 40+ stars, 30-day notability waiting period. Tap-only is the right home until those are cleared.
+
+---
+
+## UI — follow-ups from the session-visibility loop (branch `feat/ui-session-visibility`)
+
+That loop shipped the D3 activity ribbon, Sessions Overview dashboard (calendar +
+facets + shareable URLs), tool-trace duration waterfall, the shared clickable
+SessionSummary spine (across Explore/Overview/Story), ⌘K palette with frecency
+recents, harness-message untruncation, and a shadcn Skeleton polish pass. Per-
+iteration UX+design reviews live in `docs/reports/ui-loop-reviews.md`. The items
+below were deliberately deferred because they need a human in the loop (their
+failure mode is *visual*, which the logic-only test suite can't catch and the
+loop's environment couldn't screenshot).
+
+### Color-token pass — inline hex → CSS variables, enforce one accent
+Components hardcode Tokyonight hex (`bg-[#1a1b26]`, `text-[#c0caf5]`, …) while
+`ui/src/index.css` already defines the matching CSS variables (`--bg`,
+`--bg-surface`, `--accent`, …) that almost nothing references. Migrate the inline
+hex to the tokens, then enforce a single primary accent (blue `#7aa2f7`) with the
+rest demoted to data-encoding only (session/tool/person colors). Unlocks real
+theming and the "one accent" discipline the design reviews kept asking for.
+Flagged in five consecutive reviews; do it as one deliberate, visually-verified
+pass (~30+ components, high churn, regressions are cosmetic so lean on manual QA
+plus the full suite).
+
+### Motion primitive — one shared transition token
+The app has no motion: the ⌘K palette hard-appears, the Overview drill-in pops
+in, ribbon/trace marks don't ease in. Define one shared 120–160ms
+scale/opacity/slide token (Apple's "motion that explains") and apply it
+consistently to the palette, drill-in, and viz mark entrances. Verify visually.
+
+### ⌘K palette actions (not just navigation)
+The palette only navigates. Extend it to run commands the way GitHub/Linear do —
+"copy link to this view", "clear filters", "toggle theme", per-session actions —
+surfaced alongside the session/tab results. Pure command registry + the existing
+fuzzy ranker; low risk once the action model is defined.
+
+### Subagent visibility within a session
+Records already carry `is_sidechain` / `agent_id` / `depth`. The activity ribbon
+and tool-trace could render subagent lanes (indented/nested) so a session's
+delegated work is legible, not flattened. Genuinely new session-visibility value;
+needs a visual pass to get the nesting readable.
+
+### Server-side session label skips harness wrappers
+`rs/store/src/projection.rs:302` sets the label to the first user prompt
+truncated to 50 chars — for `/loop`-style sessions that's harness plumbing
+(`<command-message>…`), so the stored label is noise. The UI now cleans this at
+render (`ui/src/lib/harness-message.ts`), but the source-of-truth label is still
+lossy (affects API consumers, search, exports). Fix: derive the label from the
+first *human* prompt, skipping harness-wrapper content, at ingest.
 
 ---
 

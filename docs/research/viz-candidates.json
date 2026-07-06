@@ -1,0 +1,477 @@
+[
+  {
+    "id": "delegation-graph",
+    "name": "Delegation Graph",
+    "d3_shape": "force-directed graph",
+    "data_shape": "session->subagent tree/graph",
+    "what_it_shows": "The live spawn topology of how a parent session delegates work to agent-* subagents.",
+    "openstory_fields_used": [
+      "session_id",
+      "origin_agent",
+      "project_id",
+      "event_count",
+      "status",
+      "start_time"
+    ],
+    "novelty": 5,
+    "insight_value": 5,
+    "build_cost": 3,
+    "score": 8.3,
+    "notes": "Genuinely novel; no other tool shows your agent's delegation topology. Nodes sized by event_count, edges = parent->child spawn. Sovereignty story: see who acted on your behalf. [built] resolution works reliably (~12-14 children per parent via tool_result agentId echoes, phantom-filtered); the view samples the top-10 delegators so shows a subset \u2014 resolving all 631 needs sampling all parents or a server-side parent index.",
+    "hypothesis": "Parent sessions fan out to multiple subagents in recognizable delegation shapes (wide fan-outs, deep chains) that expose how work is decomposed.",
+    "falsifier": "If almost every session_id starting with 'agent-' has no resolvable parent (flat, orphaned subagents), the graph degenerates into disconnected dots and reveals no topology.",
+    "witness": "GET /api/sessions \u2192 count session_id LIKE 'agent-%' vs those that resolve to a parent session; needs a substantial share (>~30%) with a linkable parent, else no edges to draw.",
+    "status": "built"
+  },
+  {
+    "id": "delegation-tree",
+    "name": "Delegation Dendrogram",
+    "d3_shape": "tree/dendrogram",
+    "data_shape": "session->subagent tree",
+    "what_it_shows": "A tidy top-down tree of parent sessions and their subagent lineage.",
+    "openstory_fields_used": [
+      "session_id",
+      "project_id",
+      "start_time",
+      "event_count"
+    ],
+    "novelty": 4,
+    "insight_value": 4,
+    "build_cost": 2,
+    "score": 8.0,
+    "notes": "Cheaper, deterministic alternative to the force graph; better for reading exact lineage. d3-hierarchy tree, no physics.",
+    "hypothesis": "Delegation is genuinely hierarchical (a rooted tree with depth >1), so a dendrogram reads lineage more clearly than a physics graph.",
+    "falsifier": "If max delegation depth is 1 (parents spawn leaves but subagents never spawn their own), the tree collapses to a two-level star and a simple list would do.",
+    "witness": "GET /api/sessions \u2192 derive parent links and compute max tree depth; needs depth \u2265 2 for a dendrogram to beat a flat list."
+  },
+  {
+    "id": "agent-project-matrix",
+    "name": "Agent x Project Adjacency Matrix",
+    "d3_shape": "matrix/adjacency heatmap",
+    "data_shape": "agent x project matrix",
+    "what_it_shows": "Where each agent does its work: a colored grid of session/event volume per agent-project cell.",
+    "openstory_fields_used": [
+      "origin_agent",
+      "project_id",
+      "event_count",
+      "total_output_tokens"
+    ],
+    "novelty": 4,
+    "insight_value": 4,
+    "build_cost": 2,
+    "score": 8.0,
+    "notes": "Cross-tab already exists in analytics; just needs a rect grid. Sortable rows/cols reveal clusters (Cuthill-McKee optional).",
+    "hypothesis": "Agents specialize across projects, so the (agent x project) grid shows an uneven, block-structured fill rather than uniform coverage.",
+    "falsifier": "If there is effectively one agent, or every agent touches every project evenly, the matrix is a single row or a flat block and carries no signal.",
+    "witness": "GET /api/sessions \u2192 count distinct origin_agent and distinct project_id; needs \u22652 agents and \u22653 projects with an uneven cell distribution to be informative.",
+    "status": "built"
+  },
+  {
+    "id": "duration-beeswarm",
+    "name": "Session Duration Beeswarm by Agent",
+    "d3_shape": "beeswarm",
+    "data_shape": "flat session rows",
+    "what_it_shows": "The full distribution of session durations, one dot per session, grouped by agent.",
+    "openstory_fields_used": [
+      "duration",
+      "origin_agent",
+      "session_id",
+      "event_count"
+    ],
+    "novelty": 4,
+    "insight_value": 4,
+    "build_cost": 2,
+    "score": 8.0,
+    "notes": "Shows spread and outliers Scatter hides. forceX + collide dodge. Click dot -> Story.",
+    "hypothesis": "Session durations are broadly spread with agent-specific modes and long-tail outliers that a beeswarm surfaces per agent.",
+    "falsifier": "If duration is missing/near-constant for most rows, or one agent dominates all points, the swarm is a single tight clump with nothing to compare.",
+    "witness": "GET /api/sessions \u2192 derive duration = last_event - start_time; needs a spread of \u22652 decades and \u22652 agents with enough sessions each to form distinct swarms.",
+    "status": "built"
+  },
+  {
+    "id": "events-streamgraph",
+    "name": "Events-over-Time Streamgraph by Agent",
+    "d3_shape": "streamgraph",
+    "data_shape": "per-session event time-series (day-bucketed)",
+    "what_it_shows": "How activity volume ebbs and flows across days, stacked and colored by agent.",
+    "openstory_fields_used": [
+      "last_event",
+      "start_time",
+      "origin_agent",
+      "event_count"
+    ],
+    "novelty": 3,
+    "insight_value": 4,
+    "build_cost": 2,
+    "score": 6.0,
+    "notes": "stack.offset(wiggle). Reads the rhythm of work; complements the calendar heatmap with a flow view.",
+    "hypothesis": "Event volume varies across days with shifting agent composition, producing a flowing stacked band that reveals work rhythm.",
+    "falsifier": "If activity spans too few days, or a single agent supplies ~all events, the streamgraph is one flat lump indistinguishable from a bar.",
+    "witness": "GET /api/sessions \u2192 bucket start_time by day; needs \u2265 ~7 active days and \u22652 agents contributing meaningfully per day.",
+    "status": "built"
+  },
+  {
+    "id": "agent-project-chord",
+    "name": "Agent <-> Project Chord",
+    "d3_shape": "chord",
+    "data_shape": "agent x project matrix",
+    "what_it_shows": "Ribbons connecting agents to the projects they touch, weighted by activity.",
+    "openstory_fields_used": [
+      "origin_agent",
+      "project_id",
+      "event_count"
+    ],
+    "novelty": 4,
+    "insight_value": 3,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "Pretty and legible for few agents/projects; degrades past ~20 nodes. d3-chord + ribbon.",
+    "hypothesis": "Agents and projects form a many-to-many web where several agents share projects, giving the chord meaningful cross-links.",
+    "falsifier": "If agent<->project is near-diagonal (each agent maps to one project), the chord shows only trivial self-links and reveals nothing.",
+    "witness": "GET /api/sessions \u2192 count distinct (origin_agent, project_id) pairs with >1 session; needs \u2265 ~8 cross-pairs to justify a chord over a matrix."
+  },
+  {
+    "id": "token-ridgeline",
+    "name": "Token Distribution Ridgeline per Agent",
+    "d3_shape": "ridgeline",
+    "data_shape": "token distributions (long-tail)",
+    "what_it_shows": "Overlapping density curves of output-token counts, one ridge per agent.",
+    "openstory_fields_used": [
+      "total_output_tokens",
+      "total_input_tokens",
+      "origin_agent"
+    ],
+    "novelty": 4,
+    "insight_value": 3,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "Log-binned KDE over 6 decades. Reveals whether an agent is chatty or terse. area + curveBasis.",
+    "hypothesis": "Different agents have distinguishable token-output distributions (some terse, some verbose) that stacked density ridges make comparable.",
+    "falsifier": "If per-agent token distributions overlap almost completely, or only one agent has enough sessions, the ridges coincide and add nothing over one histogram.",
+    "witness": "GET /api/sessions \u2192 group total_output_tokens by origin_agent; needs \u22652 agents each with \u2265 ~30 sessions and visibly different medians."
+  },
+  {
+    "id": "delegation-arc-diagram",
+    "name": "Session->Subagent Arc Diagram",
+    "d3_shape": "arc-diagram",
+    "data_shape": "session->subagent links",
+    "what_it_shows": "Sessions on a time-ordered baseline with arcs linking parents to spawned subagents.",
+    "openstory_fields_used": [
+      "session_id",
+      "start_time",
+      "project_id"
+    ],
+    "novelty": 4,
+    "insight_value": 3,
+    "build_cost": 2,
+    "score": 6.0,
+    "notes": "1D layout keeps chronology; arc height encodes spawn distance in time. Good for a dense single-day view.",
+    "hypothesis": "Parent and subagent sessions are close in time, so arcs over a chronological baseline reveal bursts of delegation.",
+    "falsifier": "If parent->subagent links cannot be resolved (same orphan problem as the graph), there are no arcs to draw.",
+    "witness": "GET /api/sessions?limit=all \u2192 count resolvable parent->child links within a single day window; needs \u2265 ~5 links in a day to be worth the layout."
+  },
+  {
+    "id": "session-parallel-coords",
+    "name": "Session Parallel Coordinates",
+    "d3_shape": "parallel-coordinates",
+    "data_shape": "flat session rows",
+    "what_it_shows": "Each session as a polyline across events / tokens / duration / turns to spot multivariate outliers.",
+    "openstory_fields_used": [
+      "event_count",
+      "total_output_tokens",
+      "total_input_tokens",
+      "duration"
+    ],
+    "novelty": 4,
+    "insight_value": 4,
+    "build_cost": 3,
+    "score": 5.3,
+    "notes": "Brushable axes = filter. Reveals e.g. 'many events, few tokens' sessions. Color by agent.",
+    "hypothesis": "The four axes are not perfectly correlated, so polylines cross and reveal off-diagonal sessions (e.g. high events, low tokens).",
+    "falsifier": "If events/tokens/duration are near-perfectly correlated, every line is parallel and the plot degenerates into one thick band.",
+    "witness": "GET /api/sessions \u2192 compute pairwise correlation among event_count, total_output_tokens, duration; needs at least one pair with |r| < ~0.8 to show crossings.",
+    "status": "built"
+  },
+  {
+    "id": "project-bump-chart",
+    "name": "Project Activity Bump Chart",
+    "d3_shape": "bump chart",
+    "data_shape": "day-buckets / weekly ranks",
+    "what_it_shows": "How projects rise and fall in activity rank week over week.",
+    "openstory_fields_used": [
+      "project_id",
+      "start_time",
+      "event_count"
+    ],
+    "novelty": 4,
+    "insight_value": 3,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "line + curveBumpX over per-week rank. Narrative of where attention shifts over time.",
+    "hypothesis": "Project attention shifts over weeks, so their activity ranks cross and produce a readable bump narrative.",
+    "falsifier": "If one project dominates every week (rank never changes) or history spans <2 weeks, the lines are flat and parallel.",
+    "witness": "GET /api/sessions \u2192 rank projects by weekly event volume; needs \u22653 weeks and \u22652 projects that actually swap ranks."
+  },
+  {
+    "id": "calendar-ribbon",
+    "name": "Calendar Ribbon",
+    "d3_shape": "calendar-heatmap + area ribbon",
+    "data_shape": "day-buckets",
+    "what_it_shows": "A continuous day-by-day ribbon of session intensity, distinct from the discrete contribution grid.",
+    "openstory_fields_used": [
+      "start_time",
+      "last_event",
+      "event_count"
+    ],
+    "novelty": 2,
+    "insight_value": 2,
+    "build_cost": 2,
+    "score": 2.0,
+    "notes": "Overlaps conceptually with existing heatmap; lower marginal value. Kept for completeness.",
+    "hypothesis": "A continuous ribbon reads day-over-day momentum better than the discrete contribution grid.",
+    "falsifier": "If it merely restates the existing heatmap's daily counts with no added temporal reading, it is redundant by construction.",
+    "witness": "Compare against existing heatmap: if daily aggregate == heatmap cell values with no new derived signal, reject as duplicate."
+  },
+  {
+    "id": "tool-transition-chord",
+    "name": "Tool->Tool Transition Chord",
+    "d3_shape": "chord",
+    "data_shape": "tool->tool transition counts",
+    "what_it_shows": "Cyclic tool-usage grammar (e.g. Edit->Bash->Read loops) that a bipartite sankey cannot show.",
+    "openstory_fields_used": [
+      "origin_agent",
+      "event_count"
+    ],
+    "novelty": 3,
+    "insight_value": 4,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "Flow mode is bipartite (source|target); chord captures self-loops and cycles the sankey flattens.",
+    "hypothesis": "Tool usage forms cycles (Edit->Bash->Read->Edit) that the existing bipartite Flow sankey cannot represent but a chord can.",
+    "falsifier": "If the tool transition matrix is effectively acyclic/feed-forward, the chord adds nothing the sankey did not already show.",
+    "witness": "Aggregate tool->tool transitions from event records (via /api/sessions/{id}/records or analytics); needs measurable back-edges/self-loops for a chord to beat Flow."
+  },
+  {
+    "id": "tool-adjacency-heatmap",
+    "name": "Tool Transition Adjacency Heatmap",
+    "d3_shape": "matrix/adjacency heatmap",
+    "data_shape": "tool->tool transition counts",
+    "what_it_shows": "A from x to grid of tool-transition frequencies, readable at a glance for hot pairs.",
+    "openstory_fields_used": [
+      "origin_agent"
+    ],
+    "novelty": 3,
+    "insight_value": 3,
+    "build_cost": 1,
+    "score": 9.0,
+    "notes": "Cheapest high-value item: reuse Flow's transition counts, render as rects. Diagonal = tool repetition.",
+    "hypothesis": "A few tool pairs dominate transitions, producing bright hot cells that make the agent's habitual grammar legible.",
+    "falsifier": "If transitions are near-uniform across all tool pairs, the grid is flat and no pattern stands out.",
+    "witness": "Reuse the transition counts Flow already computes; needs a skewed distribution (top few pairs >> the rest) to show hot cells.",
+    "status": "built"
+  },
+  {
+    "id": "session-icicle",
+    "name": "Turn-Phase Icicle",
+    "d3_shape": "icicle/partition",
+    "data_shape": "turn phases / eval-apply within a session",
+    "what_it_shows": "A single session decomposed into turns -> phases -> tool calls as nested horizontal bars.",
+    "openstory_fields_used": [
+      "session_id",
+      "event_count"
+    ],
+    "novelty": 3,
+    "insight_value": 4,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "Linear cousin of Sunburst but per-session and phase-aware; complements Story's linear scroll.",
+    "hypothesis": "A session decomposes into multi-level turn->phase->tool structure worth showing as nested bars.",
+    "falsifier": "If sessions have essentially one turn or no phase detection, the icicle is a single flat bar with no hierarchy.",
+    "witness": "GET /api/sessions/{id}/records for a busy session \u2192 count distinct turns and phases; needs \u22653 turns with detectable phase structure."
+  },
+  {
+    "id": "user-project-marimekko",
+    "name": "User x Project Marimekko",
+    "d3_shape": "marimekko/mosaic",
+    "data_shape": "user x project matrix",
+    "what_it_shows": "Proportional mosaic of who works on what, column width = user share, segment height = project share.",
+    "openstory_fields_used": [
+      "user",
+      "project_id",
+      "event_count"
+    ],
+    "novelty": 4,
+    "insight_value": 3,
+    "build_cost": 3,
+    "score": 4.0,
+    "notes": "Good for team/fleet story; encodes two proportions at once. Rect math only.",
+    "hypothesis": "Multiple users split their effort across projects unevenly, so a mosaic conveys both user share and per-user project mix.",
+    "falsifier": "If there is effectively one user, the mosaic collapses to a single column and the two-proportion encoding is wasted.",
+    "witness": "GET /api/sessions \u2192 count distinct user values with >1 session; needs \u22652 active users for the marimekko to mean anything."
+  },
+  {
+    "id": "fleet-force-graph",
+    "name": "Fleet Topology Graph",
+    "d3_shape": "force-directed graph",
+    "data_shape": "principal/host/agent graph",
+    "what_it_shows": "Your fleet as a graph: principals -> hosts -> agents -> active sessions.",
+    "openstory_fields_used": [
+      "principal_id",
+      "person_id",
+      "host",
+      "origin_agent",
+      "session_id"
+    ],
+    "novelty": 5,
+    "insight_value": 4,
+    "build_cost": 4,
+    "score": 5.0,
+    "notes": "Directly serves the personhood/fleet story; multi-level force layout. Higher build cost due to level constraints.",
+    "hypothesis": "The fleet spans multiple principals/hosts/agents forming a multi-level graph that makes 'who and what is in my fleet' visible at a glance.",
+    "falsifier": "If there is one principal on one host with one agent, the graph is a trivial star and tells the user nothing they don't know.",
+    "witness": "GET /api/sessions \u2192 count distinct principal_id, host, origin_agent; needs \u22652 in at least two of those dimensions to form real topology."
+  },
+  {
+    "id": "duration-gantt-swimlane-agent",
+    "name": "Agent Swimlane Timeline",
+    "d3_shape": "gantt (per-agent lanes)",
+    "data_shape": "flat session rows with time",
+    "what_it_shows": "Sessions laid on time, one swimlane per agent, to see concurrency across agents.",
+    "openstory_fields_used": [
+      "start_time",
+      "last_event",
+      "origin_agent",
+      "session_id"
+    ],
+    "novelty": 2,
+    "insight_value": 3,
+    "build_cost": 2,
+    "score": 3.0,
+    "notes": "Existing Gantt packs by group generically; this is a fixed agent-lane variant. Marginal over current Gantt.",
+    "hypothesis": "Agents run concurrently in overlapping time windows, which fixed per-agent lanes make obvious.",
+    "falsifier": "If sessions rarely overlap in time or there is one agent, the swimlanes show no concurrency and the generic Gantt already suffices.",
+    "witness": "GET /api/sessions \u2192 check for overlapping [start_time,last_event] intervals across \u22652 agents; needs measurable overlap to justify a dedicated view."
+  },
+  {
+    "id": "token-hexbin",
+    "name": "Events x Tokens Hexbin Density",
+    "d3_shape": "hexbin",
+    "data_shape": "flat session rows",
+    "what_it_shows": "Density of sessions in the events-vs-tokens plane where the Scatter view overplots.",
+    "openstory_fields_used": [
+      "event_count",
+      "total_output_tokens"
+    ],
+    "novelty": 3,
+    "insight_value": 3,
+    "build_cost": 2,
+    "score": 4.5,
+    "notes": "d3-hexbin plugin. Directly upgrades Scatter for 800+ points where dots collide. Log axes.",
+    "hypothesis": "With 800+ sessions the events-vs-tokens Scatter overplots, and hexbin density reveals concentration Scatter hides.",
+    "falsifier": "If total session count is small (<~200) or points are well separated, Scatter already reads fine and binning adds nothing.",
+    "witness": "GET /api/sessions \u2192 total count and overplot check in the events/tokens plane; needs \u2265 ~500 points with visible clumping to warrant hexbin."
+  },
+  {
+    "id": "session-radar",
+    "name": "Session Fingerprint Radar",
+    "d3_shape": "radar/spider",
+    "data_shape": "flat session rows (normalized)",
+    "what_it_shows": "A single session's shape across normalized axes (events, tokens-in, tokens-out, duration, tools, errors).",
+    "openstory_fields_used": [
+      "event_count",
+      "total_input_tokens",
+      "total_output_tokens",
+      "duration",
+      "plan_count"
+    ],
+    "novelty": 3,
+    "insight_value": 3,
+    "build_cost": 2,
+    "score": 4.5,
+    "notes": "Good compact 'what kind of session was this' glyph; overlay two for comparison. lineRadial.",
+    "hypothesis": "Sessions have distinguishable multi-axis fingerprints, so overlaying two radars makes their character comparable at a glance.",
+    "falsifier": "If the chosen axes are highly correlated, every radar is the same near-regular polygon and comparison is uninformative.",
+    "witness": "GET /api/sessions \u2192 sample 2-3 sessions and normalize the axes; needs visibly different axis profiles between sessions to be worth a glyph."
+  },
+  {
+    "id": "circlepack-lineage",
+    "name": "Lineage Circle-Pack",
+    "d3_shape": "circle-pack",
+    "data_shape": "session->subagent tree",
+    "what_it_shows": "Parent sessions as circles containing their subagent circles, sized by event volume.",
+    "openstory_fields_used": [
+      "session_id",
+      "project_id",
+      "event_count"
+    ],
+    "novelty": 2,
+    "insight_value": 3,
+    "build_cost": 2,
+    "score": 3.0,
+    "notes": "Board mode is already circle-pack-ish by group; this keys on spawn lineage instead. Modest novelty.",
+    "hypothesis": "Keying the pack on spawn lineage (not group) shows delegation containment the current Board mode does not.",
+    "falsifier": "If parent->child links are unresolvable, or the result is visually indistinguishable from the existing Board's group packing, it adds nothing.",
+    "witness": "GET /api/sessions \u2192 confirm resolvable parent links exist AND differ from the group hierarchy Board uses; needs both to justify a new mode."
+  },
+  {
+    "id": "cost-waffle",
+    "name": "Token/Cost Waffle by Agent",
+    "d3_shape": "waffle",
+    "data_shape": "flat session rows aggregated",
+    "what_it_shows": "Proportional unit-square grid of token spend attributed to each agent.",
+    "openstory_fields_used": [
+      "total_output_tokens",
+      "total_input_tokens",
+      "origin_agent"
+    ],
+    "novelty": 2,
+    "insight_value": 2,
+    "build_cost": 1,
+    "score": 4.0,
+    "notes": "Cheap, friendly proportion glyph for the Overview tab. Pure rect grid.",
+    "hypothesis": "Token spend is unevenly split across agents, which a waffle communicates more intuitively than a number.",
+    "falsifier": "If one agent accounts for ~100% of tokens, the waffle is a single-color block conveying nothing a label wouldn't.",
+    "witness": "GET /api/sessions \u2192 sum total_output_tokens+total_input_tokens grouped by origin_agent; needs the top agent to be <~90% of the total for the split to read."
+  },
+  {
+    "id": "activity-horizon",
+    "name": "Per-Project Horizon Chart",
+    "d3_shape": "horizon chart",
+    "data_shape": "per-project event time-series",
+    "what_it_shows": "Compact folded-area bands of activity for many projects stacked in little space.",
+    "openstory_fields_used": [
+      "project_id",
+      "start_time",
+      "event_count"
+    ],
+    "novelty": 3,
+    "insight_value": 3,
+    "build_cost": 3,
+    "score": 3.0,
+    "notes": "Dense small-multiples of activity; good when there are many projects. Hand-rolled banding over area.",
+    "hypothesis": "There are enough projects with time-varying activity that dense folded-area small-multiples beat a single stacked chart.",
+    "falsifier": "If only a couple of projects are active, plain area charts are clearer and horizon banding is gratuitous complexity.",
+    "witness": "GET /api/sessions \u2192 count projects with activity on \u2265 ~5 distinct days; needs \u2265 ~8 such projects for horizon's density payoff."
+  },
+  {
+    "id": "session-voronoi",
+    "name": "Session Similarity Voronoi",
+    "d3_shape": "voronoi/cells",
+    "data_shape": "flat session rows (2D projection)",
+    "what_it_shows": "Sessions positioned by a 2D projection with Voronoi cells for easy hit-testing and neighborhood reading.",
+    "openstory_fields_used": [
+      "event_count",
+      "total_output_tokens",
+      "duration",
+      "origin_agent"
+    ],
+    "novelty": 3,
+    "insight_value": 2,
+    "build_cost": 4,
+    "score": 1.5,
+    "notes": "Needs a projection step (PCA/UMAP offline) to be meaningful; high cost, speculative payoff.",
+    "hypothesis": "A 2D projection of session features forms interpretable neighborhoods (clusters of similar sessions) worth partitioning into cells.",
+    "falsifier": "If the projection yields no discernible clustering (points uniformly scattered), the Voronoi partition is arbitrary and meaningless.",
+    "witness": "Offline: project session feature vectors (events/tokens/duration) to 2D and test for cluster structure (e.g. silhouette > ~0.2); needs real clustering before building."
+  }
+]

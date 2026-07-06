@@ -3,6 +3,9 @@ export interface SessionSummary {
   readonly session_id: string;
   readonly status: "ongoing" | "completed" | "errored" | "stale";
   readonly start_time: string;
+  /** Time of the most recent event (last activity) — served by /api/sessions,
+   *  which is already sorted by it DESC. What rows show/sort by. */
+  readonly last_event?: string;
   readonly event_count: number;
   readonly tool_calls?: number;
   readonly files_edited?: number;

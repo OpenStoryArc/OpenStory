@@ -35,3 +35,38 @@ export function formatTime(iso: string): string {
 export function compactTime(iso: string): string {
   return new Date(iso).toTimeString().slice(0, 8);
 }
+
+/** Full local date + time — the WHEN in absolute form, for a hover title next
+ *  to a relative time ("43d ago" ⟶ hover ⟶ "Jul 2, 2026, 8:38:25 AM"). Falls
+ *  back to the raw input if unparseable so a card never renders "Invalid Date".*/
+export function absoluteTime(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+/** The canonical absolute stamp used everywhere the date matters:
+ *  `HH:MM:SS TZ YYYY/MM/DD` (24-hour, timezone abbreviation, then date) —
+ *  e.g. "14:27:21 PDT 2026/07/02". Time-first because that's the scan target;
+ *  the date follows so a bare time never hides the day. `opts.timeZone` (IANA)
+ *  forces a zone — used by tests for determinism; omitted = the viewer's local
+ *  zone. Invalid/empty input renders an em-dash, never "Invalid Date". */
+export function fullTimestamp(iso: string, opts?: { timeZone?: string }): string {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return "—";
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZoneName: "short",
+    ...(opts?.timeZone ? { timeZone: opts.timeZone } : {}),
+  });
+  const parts = fmt.formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  // hour12:false can render "24" at midnight in some engines — normalize to "00".
+  const hh = get("hour") === "24" ? "00" : get("hour");
+  return `${hh}:${get("minute")}:${get("second")} ${get("timeZoneName")} ${get("year")}/${get("month")}/${get("day")}`;
+}

@@ -109,6 +109,14 @@ export function turnEventIds(pattern: PatternView): readonly string[] {
   return pattern.events;
 }
 
+/** The turn's SOURCE event — where "click all the way into the turn" lands. The
+ *  culminating (last) event is the turn's payoff; null when the turn has no
+ *  events. The map principle: a Story turn is never a dead end. */
+export function turnDrillTarget(pattern: PatternView): string | null {
+  const ev = pattern.events;
+  return ev.length > 0 ? ev[ev.length - 1]! : null;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Turn-in-progress detection
 // ═══════════════════════════════════════════════════════════════════
@@ -182,4 +190,43 @@ export function turnEventMap(pattern: PatternView): ApplyEventEntry[] {
     tool_name: a.tool_name,
     fact: a.tool_outcome ? extractDomainFact(a.tool_outcome) : null,
   }));
+}
+
+/** Index of the sentence/turn whose events include `eventId` (for deep-linking
+ *  Story to a specific event — `#/story/SES/event/ID`). -1 when not found or no
+ *  eventId. Pure → the scroll-to-turn effect is testable. */
+export function findSentenceIndexByEvent(
+  sentences: readonly PatternView[],
+  eventId: string | undefined,
+): number {
+  if (!eventId) return -1;
+  return sentences.findIndex((s) => (s.events ?? []).includes(eventId));
+}
+
+/** Index of the sentence whose turn number is `turn` — the spine's click
+ *  target in the feed (both are the same session's sentences; the feed is
+ *  sorted by turn). -1 when missing. Pure → the click mapping is testable. */
+export function findSentenceIndexByTurn(
+  sentences: readonly PatternView[],
+  turn: number | undefined,
+): number {
+  if (turn == null) return -1;
+  return sentences.findIndex((s) => (s.metadata?.turn as number | undefined) === turn);
+}
+
+/** A short human headline for a turn.sentence — the verb + object of what the
+ *  agent did that turn (e.g. "edited 5 source files"). Falls back to the
+ *  pattern label. The verbatim rationale (the "because …" quote) is returned
+ *  separately so the sidebar can lead with the action and whisper the why. */
+export function sentenceHeadline(p: PatternView): { text: string; because: string | null } {
+  const m = p.metadata ?? {};
+  const verb = typeof m.verb === "string" ? m.verb.trim() : "";
+  const object = typeof m.object === "string" ? m.object.trim() : "";
+  const text = [verb, object].filter(Boolean).join(" ").trim() || p.label || "…";
+  let because: string | null = null;
+  if (typeof m.adverbial === "string" && m.adverbial.trim()) {
+    const raw = m.adverbial.trim().replace(/^"|"$/g, "");
+    because = raw.split("\n")[0]!.slice(0, 90).trim() || null;
+  }
+  return { text, because };
 }

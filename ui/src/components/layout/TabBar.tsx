@@ -11,13 +11,19 @@ const TABS: { mode: ViewMode; label: string }[] = [
   { mode: "live", label: "Live" },
   { mode: "explore", label: "Explore" },
   { mode: "story", label: "Story" },
+  { mode: "canvas", label: "Canvas" },
+  { mode: "ask", label: "Ask" },
   { mode: "users", label: "Users" },
   { mode: "admin", label: "Admin" },
 ];
 
 export function TabBar({ active, onSwitch }: TabBarProps) {
   return (
-    <div className="flex items-center gap-1" data-testid="tab-bar" role="tablist">
+    <div
+      className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+      data-testid="tab-bar"
+      role="tablist"
+    >
       {TABS.map(({ mode, label }) => (
         <button
           key={mode}
@@ -25,7 +31,7 @@ export function TabBar({ active, onSwitch }: TabBarProps) {
           data-testid={`tab-${mode}`}
           role="tab"
           aria-selected={active === mode}
-          className={`px-3 py-1 rounded text-sm transition-colors ${
+          className={`shrink-0 px-3 py-1 rounded text-sm transition-colors ${
             active === mode
               ? "bg-[#7aa2f7] text-[#1a1b26] font-medium"
               : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b]"

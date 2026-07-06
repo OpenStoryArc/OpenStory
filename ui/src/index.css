@@ -120,3 +120,22 @@ body {
 .pulse-live {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
+
+/* Skeleton loading — a calm, slow shimmer (not a frenetic pulse) */
+@keyframes skeleton-shimmer {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.75; }
+}
+
+.skeleton-shimmer {
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer { animation: none; opacity: 0.6; }
+}
+
+/* merge-prep overflow guards: wide content scrolls inside its own box,
+   never the page. SyntaxHighlighter emits inline-styled <pre>; this is the
+   safety net for any block that skips wrapLongLines. */
+pre { max-width: 100%; overflow-x: auto; }

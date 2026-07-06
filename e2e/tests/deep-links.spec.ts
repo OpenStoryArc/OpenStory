@@ -8,6 +8,16 @@ test.describe('deep-link navigation', () => {
     await expect(page.getByTestId('explore-view')).toBeVisible();
   });
 
+  test('legacy #/overview aliases onto Explore with filters intact', async ({ page }) => {
+    await page.goto('/#/overview?project=OpenStory&sort=events');
+    await expect(page.getByTestId('tab-explore')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('explore-view')).toBeVisible();
+    // The mirror canonicalizes the address bar to the new grammar.
+    await expect
+      .poll(async () => page.evaluate(() => window.location.hash))
+      .toContain('#/explore?project=OpenStory');
+  });
+
   test('#/live opens Live tab', async ({ page }) => {
     await page.goto('/#/live');
     await expect(page.getByTestId('tab-live')).toHaveAttribute('aria-selected', 'true');

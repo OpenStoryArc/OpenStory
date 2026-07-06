@@ -414,11 +414,18 @@ pub fn translate_line(line: &Value, state: &mut TranscriptState) -> Vec<CloudEve
         return vec![];
     }
 
-    // Deduplication by UUID
+    // Deduplication by UUID. Lines without one (queue-operation) get a
+    // deterministic v5 id derived from session + line content — a random id
+    // here would evade dedup and store the event again on every boot
+    // backfill replay (observed: +~770 duplicate rows per restart).
     let uuid = line
         .get("uuid")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let seed = format!("{}:{}", state.session_id, line);
+            Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, seed.as_bytes()).to_string())
+        });
     if let Some(ref u) = uuid {
         if state.seen_uuids.contains(u) {
             return vec![];

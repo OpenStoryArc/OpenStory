@@ -9,7 +9,7 @@ import { useMemo, useState, useCallback, useRef, useEffect, memo } from "react";
 import type { ViewRecord } from "@/types/view-record";
 import type { WireRecord } from "@/types/wire-record";
 import type { StorySession, Fleet } from "@/lib/story-api";
-import { compactTime } from "@/lib/time";
+import { Timestamp } from "@/components/ui/Timestamp";
 import { sampleDepthProfile } from "@/lib/depth-profile";
 import { sessionColor } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
@@ -469,7 +469,15 @@ export const Sidebar = memo(function Sidebar({
   }, [sessions, onSelectSession, onFocusAgent]);
 
   // --- Horizontal resize (sidebar width) ---
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [width, setWidth] = useState(() => {
+    // Persisted like the other resizable panels — a chosen width survives reloads.
+    if (typeof window === "undefined") return DEFAULT_WIDTH;
+    const saved = Number(window.localStorage.getItem("live.sidebar.width"));
+    return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+  }, [width]);
   const hDrag = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: 0 });
 
   const onHDragStart = useCallback((e: React.MouseEvent) => {
@@ -622,7 +630,7 @@ export const Sidebar = memo(function Sidebar({
             data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
           >
             <div className="px-3 py-1.5 text-[9px] font-semibold text-[#7aa2f7] bg-[#1a1b26] border-b border-[#2f3348] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
-              <span className="truncate" data-testid="fleet-group-name">
+              <span className="truncate" data-testid="fleet-group-name" title={group.principalName}>
                 {group.principalName}
               </span>
               <span className="text-[#565f89] normal-case font-normal text-[9px]">
@@ -688,7 +696,7 @@ export const Sidebar = memo(function Sidebar({
                       </div>
                     ) : null;
                   })()}
-                  <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4">
+                  <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4" title={s.label}>
                     {s.label}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -699,10 +707,10 @@ export const Sidebar = memo(function Sidebar({
                       {s.id.slice(0, 8)}
                     </span>
                     {s.branch && (
-                      <span className="text-[9px] text-[#7dcfff] truncate">{s.branch}</span>
+                      <span className="text-[9px] text-[#7dcfff] truncate" title={s.branch}>{s.branch}</span>
                     )}
                     <span className="text-[9px] text-[#565f89]">
-                      {s.eventCount} · {compactTime(s.latestTimestamp)}
+                      {s.eventCount} · <Timestamp iso={s.latestTimestamp} />
                     </span>
                     {s.totalTokens > 0 && (
                       <span className="text-[9px] text-[#e0af68]" title="Total tokens used">
@@ -783,7 +791,7 @@ export const Sidebar = memo(function Sidebar({
                     </span>
                   </div>
                   <div className="text-[10px] text-[#565f89] mt-0.5">
-                    {compactTime(s.latestTimestamp)}
+                    <Timestamp iso={s.latestTimestamp} />
                     {s.subagents.length > 0 && (
                       <span className="ml-2 text-[#bb9af7]">
                         {s.subagents.length} subagent{s.subagents.length !== 1 ? "s" : ""}
@@ -867,12 +875,12 @@ export const Sidebar = memo(function Sidebar({
                 >
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-[#565f89]">└</span>
-                    <span className="text-[11px] text-[#bb9af7] truncate">
+                    <span className="text-[11px] text-[#bb9af7] truncate" title={sub.description ?? sub.agentId}>
                       {sub.description ?? sub.agentId.slice(0, 16)}
                     </span>
                   </div>
                   <div className="text-[10px] text-[#565f89] pl-4">
-                    {sub.eventCount} events · {compactTime(sub.firstTimestamp)}
+                    {sub.eventCount} events · <Timestamp iso={sub.firstTimestamp} />
                   </div>
                 </button>
               );

@@ -2,7 +2,7 @@ import { memo } from "react";
 import type { ViewRecord, ToolCall } from "@/types/view-record";
 import { viewRecordLabel, viewRecordSummary } from "@/lib/view-record-transforms";
 import { viewRecordColor, isGitBashRecord } from "@/lib/view-record-transforms";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { gitCommandRisk, GIT_RISK_COLORS } from "@/lib/git-commands";
 import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
@@ -44,7 +44,7 @@ export const EventRow = memo(
         style={gitBorderStyle}
       >
         <span className="w-16 text-[#565f89] flex-shrink-0">
-          {compactTime(record.timestamp)}
+          <span title={fullTimestamp(record.timestamp)}>{compactTime(record.timestamp)}</span>
         </span>
         {agentLabel && (
           <span

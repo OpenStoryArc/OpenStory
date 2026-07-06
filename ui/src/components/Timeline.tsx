@@ -14,7 +14,7 @@ import { dispatchSessionRecordsLoaded } from "@/streams/sessions";
 import { streamSessionRecords } from "@/lib/session-records";
 import type { WireRecord } from "@/types/wire-record";
 import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/timeline";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
 import { CardBody } from "@/components/events/EventCard";
 import { TIMELINE_FILTERS, FILTER_GROUPS } from "@/lib/timeline-filters";
 import { FILTER_LABELS, FILTER_TOOLTIPS, PATTERN_LABELS, PATTERN_TOOLTIPS } from "@/lib/ui-labels";
@@ -24,6 +24,7 @@ import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { subtreeIds } from "@/lib/subtree";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 import { buildPatternIndex } from "@/lib/pattern-index";
+import { summarizePatterns, patternRollupLabel } from "@/lib/pattern-rollup";
 import { extractTurnPhases } from "@/lib/turn-phases";
 import { TurnPhaseBar } from "@/components/TurnPhaseBar";
 import type { PatternView } from "@/types/wire-record";
@@ -137,6 +138,10 @@ interface RowProps {
 
 const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHighlighted, isSelected, patterns, turnSummary, sessionLabel, onPatternClick, onSelect, onExploreLink }: RowProps) {
   const catColor = CATEGORY_COLORS[row.category];
+  // Pattern pills default to a calm rollup ("12 cycles · 8 sentences"); the raw
+  // detector pills expand on click (map principle: quiet default, detail on demand).
+  const [showPills, setShowPills] = useState(false);
+  const rollup = summarizePatterns(patterns);
 
   // Turn divider
   if (row.category === "turn") {
@@ -189,25 +194,46 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
               {row.toolName && (
                 <span className="text-xs font-semibold text-[#2ac3de]">{row.toolName}</span>
               )}
-              {patterns.map((p, i) => {
-                const color = patternColor(p);
-                return (
-                  <span
-                    key={`${p.type}-${i}`}
-                    role="button"
-                    onClick={(e) => { e.stopPropagation(); onPatternClick(p); }}
-                    className="text-[9px] px-1.5 py-0.5 rounded-full border cursor-pointer hover:brightness-125"
-                    style={{ color, backgroundColor: `${color}10`, borderColor: `${color}40` }}
-                    title={PATTERN_TOOLTIPS[p.type] ?? p.label}
-                    data-testid="pattern-badge"
+              {rollup.total > 0 && (
+                showPills ? (
+                  <>
+                    {patterns.map((p, i) => {
+                      const color = patternColor(p);
+                      return (
+                        <span
+                          key={`${p.type}-${i}`}
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); onPatternClick(p); }}
+                          className="text-[9px] px-1.5 py-0.5 rounded-full border cursor-pointer hover:brightness-125"
+                          style={{ color, backgroundColor: `${color}10`, borderColor: `${color}40` }}
+                          title={PATTERN_TOOLTIPS[p.type] ?? p.label}
+                          data-testid="pattern-badge"
+                        >
+                          {PATTERN_LABELS[p.type] ?? p.type}
+                        </span>
+                      );
+                    })}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowPills(false); }}
+                      className="text-[9px] text-[#565f89] hover:text-[#c0caf5]"
+                    >
+                      ◂ collapse
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowPills(true); }}
+                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[#3b4261] text-[#7aa2f7] hover:bg-[#7aa2f710]"
+                    title="Show the raw pattern detections"
+                    data-testid="pattern-rollup"
                   >
-                    {PATTERN_LABELS[p.type] ?? p.type}
-                  </span>
-                );
-              })}
+                    {patternRollupLabel(rollup) || `${rollup.total} patterns`} ▸
+                  </button>
+                )
+              )}
               <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <span className="text-[10px] text-[#565f89] font-mono">
-                  {compactTime(row.timestamp)}
+                  <span title={fullTimestamp(row.timestamp)}>{compactTime(row.timestamp)}</span>
                 </span>
                 {onExploreLink && (
                   <button

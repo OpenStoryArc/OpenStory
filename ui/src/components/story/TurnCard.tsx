@@ -18,6 +18,7 @@ import { sessionChipStyle } from "@/lib/session-colors";
 import type { PatternView } from "@/types/wire-record";
 import { extractDomainFact, extractDomainFacts, type FactKind } from "@/lib/domain-facts";
 import { extractCycles } from "@/lib/eval-apply";
+import { turnDrillTarget } from "@/lib/story";
 import { CycleList } from "./CycleCard";
 
 interface TurnCardProps {
@@ -31,9 +32,12 @@ interface TurnCardProps {
   onSelectSession?: (sessionId: string | null) => void;
   /** True when this card's session is the currently-selected one. */
   isSelectedSession?: boolean;
+  /** Drill a turn (or one of its events) to its SOURCE in Explore. When set,
+   *  event ids become clickable links — the map principle, no dead end. */
+  onOpenEvent?: (eventId: string) => void;
 }
 
-export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSession }: TurnCardProps) {
+export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSession, onOpenEvent }: TurnCardProps) {
   const m = pattern.metadata ?? {};
   const turn = (m.turn as number) ?? 0;
   const isTerminal = (m.is_terminal as boolean) ?? true;
@@ -100,7 +104,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
             type="button"
             onClick={handleChipClick}
             disabled={!chipClickable}
-            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 transition-all ${
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink min-w-0 max-w-[42vw] truncate transition-all ${
               chipClickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
             } ${isSelectedSession ? "ring-1 ring-offset-0" : ""}`}
             style={{
@@ -133,6 +137,17 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
               {pattern.events[0]?.slice(0, 8)}..{pattern.events[pattern.events.length - 1]?.slice(0, 8)}
             </span>
           )}
+          {onOpenEvent && turnDrillTarget(pattern) && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); const t = turnDrillTarget(pattern); if (t) onOpenEvent(t); }}
+              className="text-[9px] font-mono text-[#7aa2f7] hover:text-[#bb9af7] shrink-0 cursor-pointer transition-colors"
+              title="Open this turn's source event in Explore"
+              data-testid="turn-drill-source"
+            >
+              source&nbsp;↗
+            </button>
+          )}
         </div>
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
           isTerminal
@@ -155,12 +170,20 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
             {pattern.events.map((eid, i) => (
               <div key={eid} className="flex items-baseline gap-1.5">
                 <span className="text-[#3b4261] w-6 text-right shrink-0">{i + 1}</span>
-                <span
-                  className="select-all break-all hover:text-[#7aa2f7] transition-colors"
-                  title="Double-click to select, ⌘C to copy"
-                >
-                  {eid}
-                </span>
+                {onOpenEvent ? (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onOpenEvent(eid); }}
+                    className="text-left break-all text-[#a9b1d6] hover:text-[#7aa2f7] hover:underline cursor-pointer transition-colors"
+                    title="Open this event in Explore"
+                  >
+                    {eid}
+                  </button>
+                ) : (
+                  <span className="select-all break-all hover:text-[#7aa2f7] transition-colors" title="Double-click to select, ⌘C to copy">
+                    {eid}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -263,13 +286,13 @@ function DiagramInline({ subject, verb, object, adverbial, adverbialFull, subord
         <span className="text-[#3b4261]"> ──── </span>
         <span className="text-[#9ece6a] font-bold">{verb}</span>
         <span className="text-[#3b4261]"> ──── </span>
-        <span className="text-[#c0caf5]">{object}</span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{object}</span>
       </div>
       {subordinates.map((sub, i) => (
         <div key={i} className="pl-5 my-0.5">
           <span className="text-[#3b4261]">├──</span>{" "}
           <span style={{ color: ROLE_COLORS[sub.role] ?? "#565f89" }}>{sub.verb}</span>{" "}
-          <span className="text-[#c0caf5]">{sub.object}</span>{" "}
+          <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{sub.object}</span>{" "}
           <span className="text-[#565f89]">({sub.tool_calls})</span>
         </div>
       ))}
@@ -302,7 +325,7 @@ function AdverbialLine({ truncated, full }: { truncated: string; full: string | 
       <div className="pl-5 my-0.5">
         <span className="text-[#3b4261]">└──</span>{" "}
         <span className="text-[#f7768e]">because</span>{" "}
-        <span className="text-[#c0caf5]">{truncated}</span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{truncated}</span>
       </div>
     );
   }
@@ -508,7 +531,7 @@ function DomainStrip({ applies }: { applies: Apply[] }) {
           return (
             <span
               key={`${fact.kind}-${i}`}
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px]"
+              className="inline-flex max-w-full min-w-0 items-center gap-0.5 truncate px-1.5 py-0.5 rounded text-[10px]"
               style={{ backgroundColor: style.bg, color: style.color }}
               title={fact.detail}
             >

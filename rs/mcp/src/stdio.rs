@@ -127,6 +127,9 @@ async fn handle_line<S: Subscribe>(
             "subscribe_tokens" => {
                 handle_subscribe_tokens(parsed, server, out, subs).await;
             }
+            "subscribe_ui_state" => {
+                handle_subscribe_ui_state(parsed, server, out, subs).await;
+            }
             _ => {
                 let result = crate::tools::dispatch_query_tool(server, name, args).await;
                 let response = crate::protocol::JsonRpcResponse::success(id, result);
@@ -207,6 +210,74 @@ async fn handle_subscribe_session<S: Subscribe>(
                     "seq": event.seq,
                     "session_id": event.session_id,
                     "data": event.data,
+                }
+            });
+            if pump_out
+                .send(serde_json::to_string(&notif).unwrap())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    subs.lock().await.insert(id_key, handle);
+}
+
+/// `subscribe_ui_state` — live-follow WHERE THE USER IS (the READ half of the
+/// agent-in-UI seam). Subscribes to the authored `ui.*` stream and emits a
+/// JSON-RPC notification per interaction, shaped by `ui_state_notification`
+/// (same summary as `where_is_user`). No args. Pair with `ui_control` to drive
+/// from where the user just moved.
+async fn handle_subscribe_ui_state<S: Subscribe>(
+    parsed: Value,
+    server: &Server<S>,
+    out: &mpsc::Sender<String>,
+    subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+) {
+    let id = parsed.get("id").cloned().unwrap_or(Value::Null);
+    let id_key = id_as_key(&id);
+
+    let mut subscription = match server.subscriber.subscribe_ui().await {
+        Ok(s) => s,
+        Err(e) => {
+            let resp = crate::protocol::JsonRpcResponse::failure(
+                id,
+                crate::protocol::error_code::INTERNAL_ERROR,
+                &format!("subscribe_ui_state failed: {e}"),
+            );
+            let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+            return;
+        }
+    };
+    let stream_id = subscription.stream_id.to_string();
+
+    let result = json!({
+        "isError": false,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "stream_id": stream_id,
+                "status": "started",
+                "following": "ui-state — where the user is, live",
+            })).unwrap(),
+        }]
+    });
+    let response = crate::protocol::JsonRpcResponse::success(id, result);
+    let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+
+    let pump_out = out.clone();
+    let pump_stream_id = stream_id.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(event) = subscription.recv().await {
+            let notif = json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/openstory/ui_state",
+                "params": {
+                    "stream_id": pump_stream_id,
+                    "seq": event.seq,
+                    "ui_state": crate::tools::control::ui_state_notification(&event.data),
                 }
             });
             if pump_out

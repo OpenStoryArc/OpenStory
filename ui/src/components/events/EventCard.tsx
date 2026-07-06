@@ -8,12 +8,15 @@
 import type { TimelineRow } from "@/lib/timeline";
 import type { ViewRecord, ToolCall } from "@/types/view-record";
 import { detectLanguage } from "@/lib/detect-language";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
+import { buildHash } from "@/lib/hash-route";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { codeTheme, lineNumberStyle } from "@/lib/code-theme";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { isHarnessMessage } from "@/lib/harness-message";
+import { HarnessMessageBlock } from "./HarnessMessageBlock";
 import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 // ---------------------------------------------------------------------------
@@ -378,6 +381,13 @@ export function CardBody({ row }: { row: TimelineRow }) {
 
   // ── Prompts + responses: render as markdown — prefer full text from payload ──
   const content = fullText(vr) ?? row.summary;
+
+  // Harness-wrapper prompts (slash commands, task notifications, system
+  // reminders) render as a clean structured block, full content preserved.
+  if (row.category === "prompt" && isHarnessMessage(content)) {
+    return <HarnessMessageBlock text={content} />;
+  }
+
   const textColor = row.category === "prompt" ? "text-[#c0caf5]" : "text-[#a9b1d6]";
   return (
     <div className={`text-sm ${textColor} leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere]`}>
@@ -419,9 +429,11 @@ interface EventCardRowProps {
   selected?: boolean;
   /** Called when the row is clicked (for expand/collapse). */
   onClick?: () => void;
+  /** Event id of this record's tool round-trip partner (call↔result). */
+  pairedEventId?: string;
 }
 
-export function EventCardRow({ row, compact = false, selected = false, onClick }: EventCardRowProps) {
+export function EventCardRow({ row, compact = false, selected = false, onClick, pairedEventId }: EventCardRowProps) {
   if (row.category === "turn") {
     return (
       <div className="flex items-center px-4 py-2">
@@ -469,7 +481,11 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
               {row.summary.length > 80 ? row.summary.slice(0, 80) + "..." : row.summary}
             </span>
           )}
-          <span className="ml-auto text-[10px] text-[#565f89] font-mono shrink-0">
+          <span
+            className="ml-auto text-[10px] text-[#565f89] font-mono shrink-0"
+            data-testid="event-time"
+            title={fullTimestamp(row.timestamp)}
+          >
             {compactTime(row.timestamp)}
           </span>
         </div>
@@ -478,6 +494,37 @@ export function EventCardRow({ row, compact = false, selected = false, onClick }
         {!compact && (
           <div className="mt-1">
             <CardBody row={row} />
+            {/* The event→turn edge: climb from this event to its turn in
+                Story. Detail-on-click — only the expanded card offers it. */}
+            <a
+              href={buildHash({
+                view: "story",
+                sessionId: (row.record as ViewRecord).session_id,
+                eventId: (row.record as ViewRecord).id,
+              })}
+              data-testid="event-story-turn-link"
+              onClick={(e) => e.stopPropagation()}
+              className="mt-1 inline-block text-[10px] text-[#bb9af7] hover:underline"
+              title="Open this event's turn in Story"
+            >
+              ↑ Turn in Story
+            </a>
+            {/* toolcall↔result: jump across the round trip. */}
+            {pairedEventId && (
+              <a
+                href={buildHash({
+                  view: "explore",
+                  sessionId: (row.record as ViewRecord).session_id,
+                  eventId: pairedEventId,
+                })}
+                data-testid="event-pair-link"
+                onClick={(e) => e.stopPropagation()}
+                className="ml-3 mt-1 inline-block text-[10px] text-[#7dcfff] hover:underline"
+                title="Jump across the tool round trip"
+              >
+                ⇄ {row.record.record_type === "tool_call" ? "result" : "call"}
+              </a>
+            )}
           </div>
         )}
       </div>

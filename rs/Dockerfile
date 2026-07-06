@@ -73,6 +73,15 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
+# NATS JetStream is a hard dependency of `serve`. Bundle the static
+# nats-server so the image is self-contained; --manage-nats probes the
+# configured URL first, so compose setups with an external NATS service
+# reuse it and this binary stays idle.
+ADD https://github.com/nats-io/nats-server/releases/download/v2.11.6/nats-server-v2.11.6-linux-amd64.tar.gz /tmp/nats.tgz
+RUN tar -xzf /tmp/nats.tgz -C /tmp && \
+    mv /tmp/nats-server-v2.11.6-linux-amd64/nats-server /usr/local/bin/nats-server && \
+    rm -rf /tmp/nats.tgz /tmp/nats-server-v2.11.6-linux-amd64
+
 COPY --from=builder /build/target/release/open-story /usr/local/bin/open-story
 
 RUN groupadd --gid 1000 openstory && \
@@ -85,4 +94,4 @@ USER openstory
 EXPOSE 3002
 
 ENTRYPOINT ["open-story"]
-CMD ["serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data", "--watch-dir", "/watch"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data", "--watch-dir", "/watch", "--manage-nats"]

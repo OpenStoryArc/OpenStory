@@ -1,5 +1,7 @@
 import { memo } from "react";
-import { compactTime } from "@/lib/time";
+import { compactTime, fullTimestamp } from "@/lib/time";
+import { userMessageView } from "@/lib/harness-message";
+import { Markdown } from "@/components/ui/Markdown";
 
 interface UserMessageProps {
   text: string;
@@ -20,13 +22,27 @@ export const UserMessage = memo(function UserMessage({
           <span className="text-xs font-medium text-[#7aa2f7]">User</span>
           {timestamp && (
             <span className="text-xs text-[#565f89]">
-              {compactTime(timestamp)}
+              <span title={fullTimestamp(timestamp)}>{compactTime(timestamp)}</span>
             </span>
           )}
         </div>
-        <div className="text-sm text-[#c0caf5] whitespace-pre-wrap break-words">
-          {text}
-        </div>
+        {(() => {
+          const v = userMessageView(text);
+          // A slash-command reads as a clean chip; a real message renders as
+          // markdown with syntax-highlighted code (the "Live experience").
+          if (v.command) {
+            return (
+              <code className="inline-block rounded bg-[#1a1b26] px-2 py-0.5 font-mono text-[12px] text-[#7dcfff]">
+                {v.command}
+              </code>
+            );
+          }
+          return (
+            <Markdown className="text-sm text-[#c0caf5] break-words [&_p]:my-1 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5">
+              {v.body}
+            </Markdown>
+          );
+        })()}
       </div>
     </div>
   );
