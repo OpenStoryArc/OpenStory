@@ -8,8 +8,8 @@ _The MCP surveyor drives every drivable edge through the control seam and checks
 
 | edge | verb | landed? | route |
 |---|---|:--:|---|
-| person→session | query | ✅ | `#/overview?user=max` |
-| project→session | query | ✅ | `#/overview?project=OpenStory` |
+| person→session | query | ✅ | `#/explore?user=max` |
+| project→session | query | ✅ | `#/explore?project=OpenStory` |
 | session→subagent | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/graph` |
 | session→turn | open_view | ✅ | `#/story/feb9e902-b5b3-49fb-827c-150cd38e0b4f` |
 | session→plan | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/plans` |
