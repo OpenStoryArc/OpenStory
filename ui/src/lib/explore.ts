@@ -134,19 +134,30 @@ export function isAgentSession(sessionId: string): boolean {
   return sessionId.startsWith("agent-");
 }
 
+/** The structural minimum the hierarchy fold needs — both SessionSummary and
+ *  StorySession satisfy it, so the merged Explore can feed either. */
+export interface HierarchySession {
+  readonly session_id: string;
+  readonly project_id?: string | null;
+  readonly event_count?: number;
+  readonly start_time?: string;
+}
+
 /** A parent session with its agent children. */
-export interface ParentSession {
-  readonly session: SessionSummary;
-  readonly agents: readonly SessionSummary[];
+export interface ParentSession<S extends HierarchySession = SessionSummary> {
+  readonly session: S;
+  readonly agents: readonly S[];
   readonly totalAgentEvents: number;
 }
 
 /** Build a hierarchy: main sessions as parents, agent sessions grouped underneath by project.
  *  Orphan agents (no matching main session in same project) become top-level entries.
  *  Sorted by most recent first. */
-export function buildSessionHierarchy(sessions: readonly SessionSummary[]): ParentSession[] {
-  const main: SessionSummary[] = [];
-  const agents: SessionSummary[] = [];
+export function buildSessionHierarchy<S extends HierarchySession>(
+  sessions: readonly S[],
+): ParentSession<S>[] {
+  const main: S[] = [];
+  const agents: S[] = [];
 
   for (const s of sessions) {
     if (isAgentSession(s.session_id)) {
@@ -157,15 +168,15 @@ export function buildSessionHierarchy(sessions: readonly SessionSummary[]): Pare
   }
 
   // Index main sessions by project_id
-  const mainByProject = new Map<string, SessionSummary>();
+  const mainByProject = new Map<string, S>();
   for (const m of main) {
     const pid = m.project_id ?? "";
     if (pid) mainByProject.set(pid, m);
   }
 
   // Group agents under their parent by project
-  const agentsByParent = new Map<string, SessionSummary[]>();
-  const orphans: SessionSummary[] = [];
+  const agentsByParent = new Map<string, S[]>();
+  const orphans: S[] = [];
 
   for (const a of agents) {
     const pid = a.project_id ?? "";
@@ -180,11 +191,11 @@ export function buildSessionHierarchy(sessions: readonly SessionSummary[]): Pare
   }
 
   // Build result
-  const result: ParentSession[] = [];
+  const result: ParentSession<S>[] = [];
 
   for (const m of main) {
     const children = agentsByParent.get(m.session_id) ?? [];
-    const totalAgentEvents = children.reduce((sum, a) => sum + a.event_count, 0);
+    const totalAgentEvents = children.reduce((sum, a) => sum + (a.event_count ?? 0), 0);
     result.push({ session: m, agents: children, totalAgentEvents });
   }
 
@@ -193,10 +204,9 @@ export function buildSessionHierarchy(sessions: readonly SessionSummary[]): Pare
     result.push({ session: o, agents: [], totalAgentEvents: 0 });
   }
 
-  // Sort by most recent first
-  result.sort((a, b) =>
-    new Date(b.session.start_time).getTime() - new Date(a.session.start_time).getTime(),
-  );
+  // Sort by most recent first; sessions without a start_time sink to the end.
+  const at = (s: HierarchySession) => (s.start_time ? new Date(s.start_time).getTime() : 0);
+  result.sort((a, b) => at(b.session) - at(a.session));
 
   return result;
 }
