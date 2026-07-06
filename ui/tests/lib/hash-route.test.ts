@@ -94,6 +94,35 @@ describe("parseHash ∘ buildHash roundtrip", () => {
   });
 });
 
+describe("explore — bookmarkable filter state (query tail on any explore route)", () => {
+  it("round-trips filters + sort on the bare explore route", () => {
+    const route = { view: "explore", explore: { filters: { project: "OpenStory", range: "7d" }, sort: "events" } } as const;
+    const hash = buildHash(route);
+    expect(hash).toBe("#/explore?project=OpenStory&range=7d&sort=events");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("keeps filters when a session and detail view are in the path", () => {
+    const route = { view: "explore", sessionId: "sess-9", detailView: "events", explore: { filters: { user: "max" } } } as const;
+    const hash = buildHash(route);
+    expect(hash).toBe("#/explore/sess-9/events?user=max");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("parses q as the sidebar search filter", () => {
+    expect(parseHash("#/explore?q=fix+auth")).toEqual({ view: "explore", explore: { filters: { search: "fix auth" } } });
+  });
+
+  it("drops an invalid range and an invalid sort silently", () => {
+    expect(parseHash("#/explore?range=90d&sort=bogus")).toEqual({ view: "explore" });
+  });
+
+  it("returns bare #/explore when there is no state", () => {
+    expect(buildHash({ view: "explore" })).toBe("#/explore");
+    expect(parseHash("#/explore")).toEqual({ view: "explore" });
+  });
+});
+
 describe("overview — bookmarkable filter state", () => {
   it("builds a query tail from filters, sort, and drill-in session", () => {
     expect(buildHash({ view: "overview", overview: { filters: { project: "OpenStory", user: "max" }, sort: "events", sessionId: "s1" } }))

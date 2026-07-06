@@ -12,8 +12,51 @@ export interface OverviewRoute {
 }
 
 const VALID_SORTS = new Set<SortKey>(["recent", "events", "tokens", "duration"]);
+const VALID_RANGES = new Set(["today", "7d", "30d"]);
 /** Facet filter keys carried 1:1 as query params (search uses `q`). */
 const OVERVIEW_FACET_KEYS = ["project", "host", "user", "branch", "status", "agent", "day"] as const;
+
+/** Bookmarkable filter state carried as a query tail on ANY explore route —
+ *  filters survive selecting a session or switching detail tabs. The path owns
+ *  the session id; on explore paths `q` always means the sidebar text filter
+ *  (the semantic-search query keeps its dedicated #/search?q= shortcut). */
+export interface ExploreQuery {
+  filters: OverviewFilters;
+  sort?: SortKey;
+}
+
+/** Parse the explore filter query tail, or null if none set. */
+function parseExploreQuery(params: URLSearchParams | null): ExploreQuery | null {
+  if (!params) return null;
+  const filters: OverviewFilters = {};
+  for (const key of OVERVIEW_FACET_KEYS) {
+    const v = params.get(key);
+    if (v) filters[key] = v;
+  }
+  const range = params.get("range");
+  if (range && VALID_RANGES.has(range)) filters.range = range as OverviewFilters["range"];
+  const q = params.get("q");
+  if (q) filters.search = q;
+
+  const rawSort = params.get("sort");
+  const sort = rawSort && VALID_SORTS.has(rawSort as SortKey) ? (rawSort as SortKey) : undefined;
+
+  if (Object.keys(filters).length === 0 && !sort) return null;
+  return { filters, ...(sort ? { sort } : {}) };
+}
+
+/** Serialize an ExploreQuery into URLSearchParams (stable key order). */
+function buildExploreQuery(e: ExploreQuery): URLSearchParams {
+  const params = new URLSearchParams();
+  for (const key of OVERVIEW_FACET_KEYS) {
+    const v = e.filters[key];
+    if (v) params.set(key, v);
+  }
+  if (e.filters.range) params.set("range", e.filters.range);
+  if (e.filters.search) params.set("q", e.filters.search);
+  if (e.sort) params.set("sort", e.sort);
+  return params;
+}
 
 export interface HashRoute {
   view: "live" | "explore" | "story" | "overview" | "canvas" | "ask" | "heatmap" | "lab" | "storm" | "users" | "admin";
@@ -31,6 +74,8 @@ export interface HashRoute {
   userFilter?: string;
   /** Bookmarkable Overview dashboard state (filters/sort/drill-in). */
   overview?: OverviewRoute;
+  /** Bookmarkable Explore filter state — query tail on any explore route. */
+  explore?: ExploreQuery;
   /** Optional time-window filter for the Live tab. Same query-tail
    *  pattern as `userFilter`: `#/live?time=today`. Composes with the
    *  user filter (logical AND). Valid values: "1h", "today", "week",
@@ -133,28 +178,31 @@ export function parseHash(hash: string): HashRoute {
     return route;
   }
 
-  // explore
+  // explore — the filter query tail rides along on every path shape.
+  const explore = parseExploreQuery(queryParams);
+  const withQuery = (route: HashRoute): HashRoute => (explore ? { ...route, explore } : route);
+
   const sessionId = parts[1] || undefined;
-  if (!sessionId) return { view };
+  if (!sessionId) return withQuery({ view });
 
   const segment2 = parts[2];
 
   // /explore/SES/event/EVT
   if (segment2 === "event" && parts[3]) {
-    return { view, sessionId, eventId: parts[3] };
+    return withQuery({ view, sessionId, eventId: parts[3] });
   }
 
   // /explore/SES/file/ENCODED_PATH
   if (segment2 === "file" && parts[3]) {
-    return { view, sessionId, filePath: decodeURIComponent(parts[3]) };
+    return withQuery({ view, sessionId, filePath: decodeURIComponent(parts[3]) });
   }
 
   // /explore/SES/detailView
   if (segment2 && VALID_DETAIL_VIEWS.has(segment2)) {
-    return { view, sessionId, detailView: segment2 as DetailView };
+    return withQuery({ view, sessionId, detailView: segment2 as DetailView });
   }
 
-  return { view, sessionId };
+  return withQuery({ view, sessionId });
 }
 
 /** Build a hash string from a HashRoute. */
@@ -195,13 +243,18 @@ export function buildHash(route: HashRoute): string {
   // `timeFilter` live here today; future options should follow the
   // same pattern rather than adding more path segments. Only Live
   // and Story honour these — the other tabs ignore them.
-  const params = new URLSearchParams();
+  let params = new URLSearchParams();
   if (route.view === "live" || route.view === "story") {
     if (route.userFilter) params.set("user", route.userFilter);
     if (route.timeFilter && route.timeFilter !== "all") {
       // "all" is the implicit default — omit it to keep the URL clean.
       params.set("time", route.timeFilter);
     }
+  }
+  // Explore's filter state rides every explore path so filters survive
+  // selecting a session or switching detail tabs.
+  if (route.view === "explore" && route.explore) {
+    params = buildExploreQuery(route.explore);
   }
   const query = params.toString() ? `?${params.toString()}` : "";
 
