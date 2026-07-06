@@ -12,10 +12,9 @@ import { runWitness, type WitnessResult } from "@/lib/witnesses";
 import { controlActions$ } from "@/streams/control";
 import { postInteraction } from "@/lib/interaction";
 import type { StorySession } from "@/lib/story-api";
-import { ToolAdjacencyHeatmap } from "./ToolAdjacencyHeatmap";
-import { DelegationGraphView } from "./DelegationGraphView";
-import { AgentProjectMatrix } from "./AgentProjectMatrix";
-import { DurationBeeswarm } from "./DurationBeeswarm";
+import { ToolAdjacencyHeatmap } from "@/components/canvas/ToolAdjacencyHeatmap";
+import { AgentProjectMatrix } from "@/components/canvas/AgentProjectMatrix";
+import { DurationBeeswarm } from "@/components/canvas/DurationBeeswarm";
 import { EventsStreamgraph } from "./EventsStreamgraph";
 import { ParallelCoords } from "./ParallelCoords";
 import { cn } from "@/lib/cn";
@@ -27,7 +26,6 @@ type Verdict = { ran: true; result: WitnessResult | null };
  *  entry here — the registry is the source of truth for what's implemented. */
 const BUILT_VIZ: Record<string, (sessions: readonly StorySession[]) => ReactNode> = {
   "tool-adjacency-heatmap": (sessions) => <ToolAdjacencyHeatmap sessions={sessions} />,
-  "delegation-graph": (sessions) => <DelegationGraphView sessions={sessions} />,
   "agent-project-matrix": (sessions) => <AgentProjectMatrix sessions={sessions} />,
   "duration-beeswarm": (sessions) => <DurationBeeswarm sessions={sessions} />,
   "events-streamgraph": (sessions) => <EventsStreamgraph sessions={sessions} />,

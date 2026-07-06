@@ -15,7 +15,11 @@ import { formatDuration } from "@/lib/time";
 
 const W = 820, LEFT = 112, R = 2.7, LANE_PAD = 16, AXIS_H = 26;
 
-export function DurationBeeswarm({ sessions }: { sessions: readonly StorySession[] }) {
+export function DurationBeeswarm({ sessions, onOpenSession }: {
+  sessions: readonly StorySession[];
+  /** Dot click → open that session (the canvas side panel). */
+  onOpenSession?: (id: string) => void;
+}) {
   const { lanes, height, ticks } = useMemo(() => {
     const withDur = sessions
       .map((s) => ({ id: s.session_id, label: s.label || s.session_id.slice(0, 8), agent: s.origin_agent || "unknown", dur: sessionDurationMs(s) }))
@@ -65,7 +69,17 @@ export function DurationBeeswarm({ sessions }: { sessions: readonly StorySession
             <text x={LEFT - 16} y={lane.center + 4} textAnchor="end" fontSize={10} fill="#a9b1d6">{lane.agent}</text>
             <text x={LEFT - 16} y={lane.center + 15} textAnchor="end" fontSize={8} fill="#565f89">{lane.count}</text>
             {lane.dots.map((d) => (
-              <circle key={d.id} cx={d.cx} cy={d.cy} r={R} fill={agentColor(lane.agent)} fillOpacity={0.66}>
+              <circle
+                key={d.id}
+                data-session-id={d.id}
+                cx={d.cx}
+                cy={d.cy}
+                r={R}
+                fill={agentColor(lane.agent)}
+                fillOpacity={0.66}
+                className={onOpenSession ? "cursor-pointer hover:fill-opacity-100" : undefined}
+                onClick={onOpenSession ? () => onOpenSession(d.id) : undefined}
+              >
                 <title>{`${cleanHarnessPreview(d.label)} · ${formatDuration(d.dur)}`}</title>
               </circle>
             ))}

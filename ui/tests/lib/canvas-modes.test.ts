@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { CANVAS_MODES, MODE_META, modeUsesGroupBy } from "@/lib/canvas-modes";
+import { CANVAS_MODES, DEFAULT_CANVAS_MODE, MODE_META, modeUsesGroupBy } from "@/lib/canvas-modes";
 
 describe("canvas modes metadata", () => {
   it("has complete metadata (icon, label, blurb) for every mode", () => {
@@ -46,19 +46,13 @@ describe("canvas modes metadata", () => {
     );
   });
 
-  it("includes the graduated delegation mode with complete, ungrouped metadata", () => {
-    scenario(
-      () => "delegation" as const,
-      (m) => ({ inList: (CANVAS_MODES as readonly string[]).includes(m), meta: MODE_META[m], grouped: modeUsesGroupBy(m) }),
-      ({ inList, meta, grouped }) => {
-        expect(inList).toBe(true);
-        expect(meta.icon.length).toBeGreaterThan(0);
-        expect(meta.label.length).toBeGreaterThan(0);
-        expect(meta.blurb.length).toBeGreaterThan(0);
-        expect(grouped).toBe(false); // spawn topology, not group-by
-        expect(meta.groupByNote && meta.groupByNote.length).toBeTruthy();
-      },
-    );
+  it("defaults to sunburst — the strongest first impression", () => {
+    expect(DEFAULT_CANVAS_MODE).toBe("sunburst");
+    expect(CANVAS_MODES).toContain(DEFAULT_CANVAS_MODE);
+  });
+
+  it("no longer carries the delegation mode (removed; preserved on ui-improvements)", () => {
+    expect(CANVAS_MODES).not.toContain("delegation");
   });
 
   it("includes the graduated agent-project matrix mode with complete, ungrouped metadata", () => {
