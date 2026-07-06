@@ -24,7 +24,7 @@ each into a typed `UIControlAction`):
 
 | action | params | effect |
 |--------|--------|--------|
-| `open_view` | `{ route }` or `{ view, sessionId? }` | navigate (route = `/canvas`, `/story/<id>`, `/overview?project=…`) |
+| `open_view` | `{ route }` or `{ view, sessionId? }` | navigate (route = `/canvas`, `/story/<id>`, `/explore?project=…`; legacy `/overview?…` still aliases onto Explore) |
 | `present` / `announce` / `highlight` | `{ message, sessionIds?, route? }` | show a banner + spotlight sessions, with an optional jump |
 | `toggle` | `{ target, value }` | flip a component-local control (`canvas.mode`, `heatmap.dim`, `story.sort`, `lab.open`, …) |
 | `set` | `{ target, params }` | structured multi-field change (a brush box, a camera pose, a drill path) |
@@ -58,9 +58,9 @@ and exposes the latest.
 **MCP:** `where_is_user {}` (no args) → an agent-friendly shape:
 
 ```jsonc
-{ "present": true, "view": "overview", "kind": "navigate",
+{ "present": true, "view": "explore", "kind": "navigate",
   "session_id": null, "at": "2026-07-02T12:42:27.507Z",
-  "summary": "the user is on 'overview'" }
+  "summary": "the user is on 'explore'" }
 ```
 
 `present: false` means no interaction has been recorded yet (position unknown).

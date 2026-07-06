@@ -29,8 +29,18 @@ test.describe('Explore tab', () => {
     await expect(firstSession).toBeVisible({ timeout: 10_000 });
     await firstSession.click();
 
-    // Detail panel should appear
+    // Default detail is conversation-forward (Session tab); the busy
+    // events wall lives behind the Events toggle.
+    await expect(page.getByTestId('view-toggle-session')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('view-toggle-events').click();
     await expect(page.getByTestId('explore-detail')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('landing shows the dashboard (stats + calendar) and a facet fold', async ({ page }) => {
+    await expect(page.getByTestId('explore-dashboard')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('facets-toggle')).toBeVisible();
+    // Calendar cells carry data-day for day-filter drilling.
+    await expect(page.locator('[data-day]').first()).toBeVisible();
   });
 
   // `search input filters sessions` retired — the sidebar search is local

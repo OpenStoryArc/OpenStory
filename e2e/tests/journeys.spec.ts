@@ -61,8 +61,10 @@ test.describe('journey: agent drives the mirror', () => {
     ).json();
     const eventId = records[0].id as string;
 
-    // 1. The human is parked on Overview, doing their own thing — and the
-    //    mirror is live (control intents arrive over the WebSocket).
+    // 1. The human is parked on the dashboard, doing their own thing — and the
+    //    mirror is live (control intents arrive over the WebSocket). The legacy
+    //    #/overview URL is used DELIBERATELY: it proves the alias onto Explore
+    //    keeps old bookmarks/agent calls working.
     await page.goto('/#/overview');
     await expect(page.getByTestId('connection-status')).toContainText('Connected', {
       timeout: 10_000,
