@@ -14,7 +14,7 @@ import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
-import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
+import { SessionVizSkeleton } from "@/components/ui/skeletons";
 import { firstErrorEventId } from "@/lib/session-summary";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 

@@ -9,7 +9,7 @@ import { TurnTraceView } from "./TurnTraceView";
 import { TokenReport } from "./TokenReport";
 import { SubagentsSection } from "./SubagentsSection";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
-import { SessionVizSkeleton } from "@/components/overview/OverviewSkeletons";
+import { SessionVizSkeleton } from "@/components/ui/skeletons";
 import { ConversationView } from "@/components/conversation/ConversationView";
 import { cn } from "@/lib/cn";
 

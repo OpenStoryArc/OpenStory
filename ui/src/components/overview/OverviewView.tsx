@@ -32,7 +32,7 @@ import { isSubagentSession } from "@/lib/subagents";
 import { SessionCalendar } from "@/components/viz/SessionCalendar";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
 import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
-import { SessionListSkeleton } from "./OverviewSkeletons";
+import { SessionListSkeleton } from "@/components/ui/skeletons";
 import { sessionColor } from "@/lib/session-colors";
 import { formatDuration, relativeTime } from "@/lib/time";
 import { sessionTitle } from "@/lib/session-title";

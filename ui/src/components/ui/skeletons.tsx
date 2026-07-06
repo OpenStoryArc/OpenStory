@@ -1,4 +1,4 @@
-/** Layout-matched loading skeletons for the Overview dashboard.
+/** Layout-matched loading skeletons for the sessions views (Overview-era, now shared).
  *  Each mirrors the shape of the real content it replaces so nothing shifts
  *  when data arrives. */
 
