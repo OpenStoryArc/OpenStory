@@ -97,18 +97,6 @@ pub async fn post_control(
     )
 }
 
-/// `GET /api/viz-candidates` — serve the falsifiable viz design-space catalog
-/// (docs/research/viz-candidates.json) so the Lab tab renders it. Read at
-/// runtime (cwd-relative to the project root) so the dataset stays the single
-/// source of truth. Missing/unparseable → empty list, never an error.
-pub async fn get_viz_candidates() -> impl IntoResponse {
-    let candidates = std::fs::read_to_string("docs/research/viz-candidates.json")
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .unwrap_or_else(|| json!([]));
-    Json(json!({ "candidates": candidates }))
-}
-
 /// The synthetic session that holds the human's own interaction stream — their
 /// dashboard use, observed as first-class events (the read half of the seam).
 const VIEWING_SESSION: &str = "openstory-ui";

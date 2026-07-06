@@ -51,10 +51,8 @@ function buildExploreQuery(e: ExploreQuery): URLSearchParams {
 }
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "canvas" | "ask" | "lab" | "storm" | "users" | "admin";
+  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin";
   sessionId?: string;
-  /** Storm board: deep-link one sticky (#/storm?sticky=id). */
-  stickyId?: string;
   detailView?: DetailView;
   eventId?: string;
   filePath?: string;
@@ -73,7 +71,7 @@ export interface HashRoute {
   timeFilter?: "1h" | "today" | "week" | "all";
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "lab", "storm", "users", "admin"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
@@ -110,8 +108,10 @@ export function parseHash(hash: string): HashRoute {
   // Legacy alias: the Overview tab merged into Explore. Old #/overview links
   // (docs, bookmarks, agent open_view calls) land on Explore with their
   // filters intact; the legacy sid= param becomes the path-style session id.
-  // Legacy alias: the Heatmap tab became a Canvas mode.
-  if (parts[0] === "heatmap") {
+  // Legacy aliases: the Heatmap tab became a Canvas mode; Lab's graduated
+  // shapes live in Canvas too. (Storm was removed — preserved on the
+  // ui-improvements branch — so #/storm falls through to the live default.)
+  if (parts[0] === "heatmap" || parts[0] === "lab") {
     return { view: "canvas" };
   }
 
@@ -126,13 +126,11 @@ export function parseHash(hash: string): HashRoute {
   }
 
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "lab" | "storm" | "users" | "admin")
+    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin")
     : "live";
 
-  if (view === "users" || view === "admin" || view === "canvas" || view === "ask" || view === "lab" || view === "storm") {
-    // Storm deep-links a sticky — a shareable pointer at one architecture note.
-    const sticky = view === "storm" ? queryParams?.get("sticky") : null;
-    return sticky ? { view, stickyId: sticky } : { view };
+  if (view === "users" || view === "admin" || view === "canvas" || view === "ask") {
+    return { view };
   }
 
   if (view === "live" || view === "story") {
@@ -181,10 +179,6 @@ export function buildHash(route: HashRoute): string {
   // Search shortcut with query
   if (route.detailView === "search" && route.searchQuery) {
     return `#/search?q=${route.searchQuery.replace(/ /g, "+")}`;
-  }
-
-  if (route.view === "storm" && route.stickyId) {
-    return `#/storm?sticky=${encodeURIComponent(route.stickyId)}`;
   }
 
   const parts: string[] = [route.view];

@@ -65,8 +65,6 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     // The event→turn canopy edge: Story deep-links to the turn containing an
     // event. StoryView already consumes route.eventId; the parse must keep it.
     { view: "story", sessionId: "abc", eventId: "evt-1" },
-    // Storm deep-links a sticky — a shareable pointer at one architecture note.
-    { view: "storm", stickyId: "rm_recordcache" },
     { view: "explore", sessionId: "abc", filePath: "src/main.rs" },
     { view: "explore", detailView: "search", searchQuery: "hello world" },
     { view: "live", userFilter: "katie" },
@@ -144,6 +142,17 @@ describe("legacy #/heatmap links — alias onto Canvas (heatmap is a mode there 
   it("lands on the Canvas tab", () => {
     expect(parseHash("#/heatmap")).toEqual({ view: "canvas" });
     expect(buildHash(parseHash("#/heatmap"))).toBe("#/canvas");
+  });
+});
+
+describe("retired lab + storm tabs", () => {
+  it("aliases #/lab onto Canvas (its graduated shapes live there)", () => {
+    expect(parseHash("#/lab")).toEqual({ view: "canvas" });
+  });
+
+  it("lets #/storm fall back to Live like any unknown route", () => {
+    expect(parseHash("#/storm")).toEqual({ view: "live" });
+    expect(parseHash("#/storm?sticky=read-model")).toEqual({ view: "live" });
   });
 });
 
