@@ -7,6 +7,7 @@
  */
 
 import type { StorySession } from "@/lib/story-api";
+import { inRange } from "@/lib/explore";
 
 // ── time helpers ──────────────────────────────────────────────────────────
 
@@ -270,13 +271,21 @@ export interface OverviewFilters {
   agent?: string;
   /** YYYY-MM-DD — restrict to sessions started on this day. */
   day?: string;
+  /** Rolling window over last activity — absorbs the sidebar's date chips.
+   *  Mutually exclusive with `day` in the UI (they AND-compose if both set). */
+  range?: "today" | "7d" | "30d";
   /** Free-text; matches label / branch / project / session id (case-insensitive). */
   search?: string;
 }
 
-export function applyFilters(sessions: readonly StorySession[], f: OverviewFilters): StorySession[] {
+export function applyFilters(
+  sessions: readonly StorySession[],
+  f: OverviewFilters,
+  nowMs: number = Date.now(),
+): StorySession[] {
   const q = f.search?.trim().toLowerCase();
   return sessions.filter((s) => {
+    if (f.range && !inRange(s.last_event ?? s.start_time ?? "", f.range, nowMs)) return false;
     if (f.project && projectKey(s) !== f.project) return false;
     if (f.host && s.host !== f.host) return false;
     if (f.user && s.user !== f.user) return false;
@@ -293,7 +302,7 @@ export function applyFilters(sessions: readonly StorySession[], f: OverviewFilte
 }
 
 export function hasActiveFilters(f: OverviewFilters): boolean {
-  return Boolean(f.project || f.host || f.user || f.branch || f.status || f.agent || f.day || f.search?.trim());
+  return Boolean(f.project || f.host || f.user || f.branch || f.status || f.agent || f.day || f.range || f.search?.trim());
 }
 
 // ── sorting ───────────────────────────────────────────────────────────────

@@ -337,7 +337,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
     [baseSessions, sidebarFilters, search],
   );
   const findActive = search.trim().length > 0 || Object.keys(sidebarFilters).length > 0;
-  const toggleFacet = useCallback((key: keyof OverviewFilters, val: string) => {
+  const toggleFacet = useCallback((key: keyof Omit<OverviewFilters, "range">, val: string) => {
     setSidebarFilters(f => {
       const next = { ...f };
       if (next[key] === val) delete next[key];

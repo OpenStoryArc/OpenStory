@@ -167,6 +167,44 @@ describe("computeFacets", () => {
   });
 });
 
+describe("when filtering by a rolling date range", () => {
+  // NOW pinned mid-day 2026-06-12; s1's last activity is 2 days back, s2's is 1 day back.
+  const NOW = new Date("2026-06-12T12:00:00.000Z").getTime();
+  const RANGED = [
+    sess({ session_id: "old", start_time: "2026-05-20T09:00:00.000Z", last_event: "2026-05-20T10:00:00.000Z" }), // 23d back: outside 7d, inside 30d
+    sess({ session_id: "recent", start_time: A, last_event: B }),
+  ];
+
+  it("should keep only sessions whose last activity falls inside the range", () => {
+    scenario(
+      () => applyFilters(RANGED, { range: "7d" }, NOW),
+      (r) => r.map((s) => s.session_id),
+      (ids) => expect(ids).toEqual(["recent"]),
+    );
+  });
+
+  it("should fall back to start_time when a session has no last_event", () => {
+    scenario(
+      () => applyFilters([sess({ session_id: "s", start_time: B })], { range: "7d" }, NOW),
+      (r) => r.map((s) => s.session_id),
+      (ids) => expect(ids).toEqual(["s"]),
+    );
+  });
+
+  it("should compose range with facets (logical AND)", () => {
+    scenario(
+      () => applyFilters(RANGED, { range: "30d", status: "completed" }, NOW),
+      (r) => r.map((s) => s.session_id),
+      (ids) => expect(ids).toEqual(["old", "recent"]),
+    );
+  });
+
+  it("should count a set range as an active filter", () => {
+    expect(hasActiveFilters({ range: "7d" })).toBe(true);
+    expect(hasActiveFilters({})).toBe(false);
+  });
+});
+
 describe("applyFilters", () => {
   const SESSIONS = [
     sess({ session_id: "s1", start_time: A, host: "a1", user: "max", branch: "main", status: "completed", label: "fix login bug", project_name: "OpenStory" }),
