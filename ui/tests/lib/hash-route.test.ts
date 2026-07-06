@@ -140,6 +140,13 @@ describe("legacy #/overview links — parse-time alias onto Explore", () => {
   });
 });
 
+describe("legacy #/heatmap links — alias onto Canvas (heatmap is a mode there now)", () => {
+  it("lands on the Canvas tab", () => {
+    expect(parseHash("#/heatmap")).toEqual({ view: "canvas" });
+    expect(buildHash(parseHash("#/heatmap"))).toBe("#/canvas");
+  });
+});
+
 describe("userFilter — Live tab query param", () => {
   it("buildHash places ?user=… after the path", () => {
     expect(buildHash({ view: "live", userFilter: "katie" })).toBe(

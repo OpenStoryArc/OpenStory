@@ -29,6 +29,7 @@ import { GanttView } from "./GanttView";
 import { ScatterView } from "./ScatterView";
 import { ToolFlowView } from "./ToolFlowView";
 import { ToolAdjacencyHeatmap } from "@/components/canvas/ToolAdjacencyHeatmap";
+import { HeatmapView } from "@/components/canvas/HeatmapView";
 import { AgentProjectMatrix } from "@/components/canvas/AgentProjectMatrix";
 import { DurationBeeswarm } from "@/components/canvas/DurationBeeswarm";
 import { cn } from "@/lib/cn";
@@ -51,6 +52,7 @@ const MODE_CAPTION: Record<ViewMode, (g: GroupDim, m: Metric) => string> = {
   flow: () => `How often one tool follows another for the chosen agent · ribbon width = number of transitions · left = the tool used, right = what came next.`,
   "tool-adjacency": () => `From × to heatmap of tool transitions across sampled sessions · brighter = that pair fires more often · the diagonal is a tool repeating itself.`,
   "agent-project": () => `Rows = agents, columns = projects · brighter cell = more events there · the block structure shows which agent owns which project.`,
+  heatmap: () => `Contribution calendar in 3D · each day a stack, each box a session (warm base = biggest) · hover to see a session, click to open it · 2D toggle inside.`,
   durations: () => `One dot = a session · x = duration on a log scale · lane + color = agent · the swarm shows each agent's spread of session lengths and its outliers.`,
 };
 
@@ -246,6 +248,8 @@ export function SessionsCanvas({ onNavigate }: Props) {
                 })
               }
             /></div>
+          ) : viewMode === "heatmap" ? (
+            <div className="absolute inset-0 flex flex-col overflow-auto"><HeatmapView onNavigate={onNavigate} onOpenSession={openSessionPanel} /></div>
           ) : viewMode === "durations" ? (
             <div className="absolute inset-0 overflow-auto"><DurationBeeswarm sessions={universe} onOpenSession={openSessionPanel} /></div>
           ) : viewMode !== "board" ? (

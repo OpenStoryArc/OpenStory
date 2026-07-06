@@ -5,11 +5,11 @@ import { interactionFromRoute } from "@/lib/interaction";
 describe("interactionFromRoute", () => {
   it("maps a simple view route to a navigate interaction", () => {
     scenario(
-      () => interactionFromRoute({ view: "heatmap" }),
+      () => interactionFromRoute({ view: "canvas" }),
       (p) => p,
       (p) => {
         expect(p.kind).toBe("navigate");
-        expect(p.view).toBe("heatmap");
+        expect(p.view).toBe("canvas");
         expect(p.session_id).toBeUndefined();
       },
     );

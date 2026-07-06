@@ -33,13 +33,17 @@ const FILTER_DIMS: { key: keyof OverviewFilters; label: string; facet: keyof Fac
   { key: "status", label: "Status", facet: "statuses" },
 ];
 
-export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => void }) {
+export function HeatmapView({ onNavigate, onOpenSession }: {
+  onNavigate: (route: HashRoute) => void;
+  /** 3D box click → open that session (canvas side panel when hosted there). */
+  onOpenSession?: (id: string) => void;
+}) {
   const { sessions, loading } = useSessionsList();
   const universe = useMemo(() => sessions.filter((s) => !isSubagentSession(s.session_id)), [sessions]);
   const nowMs = useMemo(() => Date.now(), []);
   const [weeks, setWeeks] = useState(26);
   const [filters, setFilters] = useState<OverviewFilters>({});
-  const [is3D, setIs3D] = useState(false); // default 2D
+  const [is3D, setIs3D] = useState(true); // 3D is the default — the strongest read of the fleet
 
   // Agent-in-UI: apply `heatmap.*` toggle intents (component-local). Sink only.
   useEffect(() => {
@@ -128,10 +132,14 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
       {is3D && (
         <div className="relative min-h-0 flex-1">
           <Suspense fallback={<div className="flex h-full items-center justify-center text-[12px] text-[#565f89]">Loading 3D…</div>}>
-            <Heatmap3D grid={grid} onNavigate={onNavigate} />
+            <Heatmap3D
+              grid={grid}
+              onOpenSession={(id) => (onOpenSession ? onOpenSession(id) : onNavigate({ view: "explore", sessionId: id }))}
+              onDayFilter={(date) => onNavigate({ view: "explore", explore: { filters: { day: date } } })}
+            />
           </Suspense>
           <div className="pointer-events-none absolute bottom-3 left-4 text-[10px] text-[#565f89]">
-            height = sessions · warm (largest) → cool (smallest) · drag to orbit · click a stack → filter Overview
+            each box = a session · warm (largest) → cool (smallest) · drag to orbit · hover a box to see it, click to open
           </div>
         </div>
       )}
@@ -172,7 +180,7 @@ export function HeatmapView({ onNavigate }: { onNavigate: (route: HashRoute) => 
           <span>Less</span>
           {SCALE.map((c, i) => <span key={i} className="inline-block h-[11px] w-[11px] rounded-[2px]" style={{ background: c }} />)}
           <span>More</span>
-          <span className="ml-3">Click a day → filter Overview to it.</span>
+          <span className="ml-3">Click a day → filter Explore to it.</span>
         </div>
       </div>
       )}

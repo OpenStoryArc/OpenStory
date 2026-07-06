@@ -16,9 +16,10 @@ describe("controlToRoute", () => {
 
   it("tolerates a route missing the leading # or /", () => {
     scenario(
+      // legacy "heatmap" now aliases onto Canvas (the heatmap is a mode there)
       () => controlToRoute("open_view", { route: "heatmap" }),
       (r) => r?.view,
-      (view) => expect(view).toBe("heatmap"),
+      (view) => expect(view).toBe("canvas"),
     );
   });
 

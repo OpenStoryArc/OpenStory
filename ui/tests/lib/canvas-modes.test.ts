@@ -51,6 +51,12 @@ describe("canvas modes metadata", () => {
     expect(CANVAS_MODES).toContain(DEFAULT_CANVAS_MODE);
   });
 
+  it("includes the heatmap mode — the Heatmap tab lives in Canvas now", () => {
+    expect(CANVAS_MODES).toContain("heatmap");
+    expect(MODE_META["heatmap"].usesGroupBy).toBe(false);
+    expect(MODE_META["heatmap"].groupByNote).toBeTruthy();
+  });
+
   it("no longer carries the delegation mode (removed; preserved on ui-improvements)", () => {
     expect(CANVAS_MODES).not.toContain("delegation");
   });

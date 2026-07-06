@@ -11,7 +11,6 @@ import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
 import { AskView } from "@/components/ask/AskView";
-import { HeatmapView } from "@/components/heatmap/HeatmapView";
 import { LabView } from "@/components/lab/LabView";
 import { EventStormBoard } from "@/components/storm/EventStormBoard";
 import { UsersView } from "@/components/users/UsersView";
@@ -247,9 +246,6 @@ export function App() {
 
       {/* Ask tab */}
       {viewMode === "ask" && <AskView onNavigate={navigate} />}
-
-      {/* Heatmap tab */}
-      {viewMode === "heatmap" && <HeatmapView onNavigate={navigate} />}
 
       {/* Lab tab */}
       {viewMode === "lab" && <LabView onNavigate={navigate} />}

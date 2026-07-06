@@ -115,3 +115,44 @@ export function heatLevel(count: number, maxCount: number): 0 | 1 | 2 | 3 | 4 {
   if (r <= 0.75) return 3;
   return 4;
 }
+
+// ── 3D stack fold ──────────────────────────────────────────────────────────
+
+/** One box in the 3D stack. Every real box carries its session so the view
+ *  can show it on hover and open it on click; a tall day's cap box carries
+ *  the hidden count instead. */
+export interface StackBox {
+  readonly date: string;
+  readonly week: number;
+  readonly day: number;
+  /** 0 = stack base (the day's biggest session). */
+  readonly level: number;
+  readonly session?: HeatSession;
+  readonly overflow: boolean;
+  /** Sessions the cap hides (overflow boxes only). */
+  readonly hidden: number;
+}
+
+/** Fold a HeatGrid into boxes, one per session per day, capped at maxH boxes
+ *  per day — the cap's top box becomes an overflow marker. Pure so the
+ *  session-per-box mapping is testable without WebGL. */
+export function stackBoxes(grid: HeatGrid, maxH: number): StackBox[] {
+  const out: StackBox[] = [];
+  for (const c of grid.cells) {
+    if (!c.count) continue;
+    const shown = Math.min(c.count, maxH);
+    for (let level = 0; level < shown; level++) {
+      const overflow = c.count > maxH && level === shown - 1;
+      out.push({
+        date: c.date,
+        week: c.week,
+        day: c.day,
+        level,
+        ...(overflow ? {} : { session: c.sessions[level] }),
+        overflow,
+        hidden: overflow ? c.count - (shown - 1) : 0,
+      });
+    }
+  }
+  return out;
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { buildHeatmap, heatLevel } from "@/lib/heatmap";
+import { buildHeatmap, heatLevel, stackBoxes } from "@/lib/heatmap";
 import type { StorySession } from "@/lib/story-api";
 
 function sess(id: string, start: string, over: Partial<StorySession> = {}): StorySession {
@@ -84,5 +84,38 @@ describe("heatLevel", () => {
     expect(heatLevel(2, 10)).toBe(1);
     expect(heatLevel(4, 10)).toBe(2);
     expect(heatLevel(7, 10)).toBe(3);
+  });
+});
+
+describe("stackBoxes — the 3D stack fold (one box per session, explorable)", () => {
+  const NOW = new Date("2026-06-12T12:00:00.000Z").getTime();
+  const sess = (id: string, events: number) => ({
+    session_id: id,
+    start_time: "2026-06-10T09:00:00.000Z",
+    last_event: "2026-06-10T10:00:00.000Z",
+    event_count: events,
+    label: `label-${id}`,
+  });
+
+  it("should give every box its session so hover/click can reach it", () => {
+    const grid = buildHeatmap([sess("big", 100), sess("small", 5)], { nowMs: NOW, weeks: 2 });
+    const boxes = stackBoxes(grid, 12);
+    expect(boxes).toHaveLength(2);
+    // base box = the biggest session of the day
+    expect(boxes[0]!.session?.id).toBe("big");
+    expect(boxes[0]!.level).toBe(0);
+    expect(boxes[1]!.session?.id).toBe("small");
+    expect(boxes[1]!.overflow).toBe(false);
+  });
+
+  it("should cap tall days with an overflow box that carries NO single session", () => {
+    const many = Array.from({ length: 15 }, (_, i) => sess(`s${i}`, 10 + i));
+    const grid = buildHeatmap(many, { nowMs: NOW, weeks: 2 });
+    const boxes = stackBoxes(grid, 12);
+    expect(boxes).toHaveLength(12); // capped
+    const top = boxes[boxes.length - 1]!;
+    expect(top.overflow).toBe(true);
+    expect(top.session).toBeUndefined();
+    expect(top.hidden).toBe(4); // 15 sessions, 11 real boxes + cap
   });
 });
