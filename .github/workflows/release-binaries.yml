@@ -1,13 +1,22 @@
 name: Build Homebrew bottles
 
-# Runs alongside release.yml (which builds the Docker image).
-# Produces Homebrew bottles for the macOS architectures we care about,
-# attaches them to the GitHub Release, and prints the `bottle do` block
-# that the tap formula needs.
+# Tag push (or manual dispatch) builds macOS bottles for `openstory` and attaches
+# them to a DRAFT GitHub Release, then emits the `bottle do` block for the tap.
 #
-# Until the tap repo (OpenStoryArc/homebrew-openstory) exists, the
-# bottle JSONs need to be copied into the tap by hand from the release
-# page. A follow-up workflow will automate that push.
+# Why a draft: published releases are immutable in this org, so `gh release
+# upload` onto an already-published release 422s ("Cannot upload assets to an
+# immutable release") — which is exactly how every prior bottle run failed. We
+# build bottles into workflow artifacts (no release interaction), then a single
+# publish job attaches them to a DRAFT and leaves it for a human to review and
+# publish. Sealing happens on publish, after all assets are present.
+#
+# The build itself is ~3 min/arch. Earlier runs also burned the 24h ceiling on a
+# hung Intel runner (no timeout); `timeout-minutes` + partial-success publishing
+# fix that — the arm64 bottle ships even if macos-13 is flaky.
+#
+# After this runs: review the draft release, then paste the emitted `bottle do`
+# block into Formula/openstory.rb in the tap (OpenStoryArc/homebrew-openstory)
+# and publish. See docs — Phase 3 of the release.
 
 on:
   push:
@@ -16,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to bottle (without leading v)"
+        description: "Version to bottle (without leading v), e.g. 0.4.0"
         required: true
         type: string
 
@@ -26,7 +35,11 @@ permissions:
 jobs:
   bottle:
     name: Bottle on ${{ matrix.label }}
+    # Was unbounded — a hung Intel runner burned the 24h Actions ceiling. The
+    # build is ~3 min; 45 is generous headroom that still fails fast on a hang.
+    timeout-minutes: 45
     strategy:
+      # arm64 must be able to ship even if the Intel runner is flaky/unavailable.
       fail-fast: false
       matrix:
         include:
@@ -67,12 +80,16 @@ jobs:
           test -n "$sha"
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
 
-      - name: Patch formula with real sha256
+      - name: Set formula sha256 to the real tarball hash
+        # The tag's Formula/openstory.rb should already carry the real url+sha
+        # (release Phase 2). But pin it to the freshly-computed hash regardless,
+        # so bottling can never build against a stale/placeholder sha.
         run: |
-          sed -i.bak \
-            -e 's/sha256 "0\{64\}"/sha256 "${{ steps.sha.outputs.sha256 }}"/' \
+          sed -i.bak -E \
+            's/sha256 "[0-9a-f]{64}"/sha256 "${{ steps.sha.outputs.sha256 }}"/' \
             Formula/openstory.rb
           rm -f Formula/openstory.rb.bak
+          grep -n 'sha256' Formula/openstory.rb | head -1
 
       - name: Stage formula as local tap
         run: |
@@ -104,28 +121,33 @@ jobs:
           done
           ls -lah *.bottle.*
 
-      - name: Upload bottle to GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ steps.ver.outputs.tag }}" \
-            *.bottle.tar.gz *.bottle.json \
-            --clobber
-
       - name: Smoke-test the installed binary
         run: |
           brew test openstoryarc/openstory/openstory
           "$(brew --prefix openstoryarc/openstory/openstory)/bin/open-story" --help | head -20
 
-  print-bottle-block:
-    name: Print bottle do block
+      - name: Upload bottle as a workflow artifact
+        # Decouples building from publishing — the immutable-release 422 only ever
+        # happened at upload time. Here the matrix never touches the release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: bottle-${{ matrix.label }}
+          path: |
+            *.bottle.tar.gz
+            *.bottle.json
+          if-no-files-found: error
+
+  publish:
+    name: Attach bottles to draft release
     needs: bottle
-    runs-on: macos-14
+    # Run whenever the matrix ran at all (success OR partial failure) — never
+    # skip a good arm64 bottle because Intel was flaky. Skips only on cancel.
+    if: ${{ always() && (needs.bottle.result == 'success' || needs.bottle.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Resolve version
         id: ver
-        # Pass inputs via env, not direct ${{ }} interpolation — same
-        # shell-injection reason as the build job above.
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
@@ -137,26 +159,63 @@ jobs:
           fi
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
 
-      - name: Download all bottle JSONs from the release
+      - name: Download bottle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bottles
+          pattern: bottle-*
+          merge-multiple: true
+
+      - name: List bottles (fail if none were produced)
+        run: |
+          ls -lah bottles/*.bottle.* || {
+            echo "::error::No bottles were produced by any matrix job — nothing to publish."
+            exit 1
+          }
+
+      - name: Ensure a DRAFT release exists (immutable-safe)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download "${{ steps.ver.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "*.bottle.json"
+          tag="${{ steps.ver.outputs.tag }}"
+          if gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx true; then
+            echo "Draft release $tag exists — will attach bottles."
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag is already PUBLISHED and immutable — assets can't be attached. Delete it and re-run so CI recreates it as a draft, or attach bottles before publishing."
+            exit 1
+          else
+            gh release create "$tag" \
+              --draft \
+              --title "$tag" \
+              --notes "Draft release — CI attaches the Homebrew bottles below. Review, add notes, then publish. (Publishing seals the assets — this org's releases are immutable once published.)"
+            echo "Created draft release $tag."
+          fi
 
-      - name: Print bottle block for the tap formula
+      - name: Attach bottles to the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "::group::Paste this into Formula/openstory.rb in the tap repo"
-          echo "bottle do"
-          echo '  root_url "https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.tag }}"'
-          for f in *.bottle.json; do
-            sha=$(jq -r '.. | objects | .sha256? // empty' "$f" | head -1)
-            cellar=$(jq -r '.. | objects | .cellar? // empty' "$f" | head -1)
-            tag=$(jq -r '.. | objects | .tag? // empty' "$f" | head -1)
-            if [ -n "$tag" ] && [ -n "$sha" ]; then
-              echo "  sha256 cellar: :any_skip_relocation, ${tag}: \"$sha\""
-            fi
-          done
-          echo "end"
-          echo "::endgroup::"
+          tag="${{ steps.ver.outputs.tag }}"
+          gh release upload "$tag" bottles/*.bottle.tar.gz bottles/*.bottle.json --clobber
+          echo "Attached: $(ls bottles/*.bottle.tar.gz | wc -l) bottle(s)."
+
+      - name: Emit the bottle do block for the tap
+        run: |
+          {
+            echo "## \`bottle do\` block for the tap formula"
+            echo ""
+            echo "Paste into \`Formula/openstory.rb\` in OpenStoryArc/homebrew-openstory, then publish the draft release."
+            echo ""
+            echo '```ruby'
+            echo "  bottle do"
+            echo "    root_url \"https://github.com/${{ github.repository }}/releases/download/${{ steps.ver.outputs.tag }}\""
+            for f in bottles/*.bottle.json; do
+              sha=$(jq -r '.. | objects | .sha256? // empty' "$f" | head -1)
+              btag=$(jq -r '.. | objects | .tag? // empty' "$f" | head -1)
+              if [ -n "$btag" ] && [ -n "$sha" ]; then
+                echo "    sha256 cellar: :any_skip_relocation, ${btag}: \"$sha\""
+              fi
+            done
+            echo "  end"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
