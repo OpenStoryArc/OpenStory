@@ -109,23 +109,41 @@ pub fn run_wizard(data_dir: PathBuf) -> Result<()> {
     run_wizard_io(&mut reader, &mut out, data_dir)
 }
 
+/// Environment probes the flow branches on, injected so the flow is testable
+/// without shelling out. `Default` = all-off (nothing installed), the hermetic
+/// baseline for tests.
+#[derive(Default)]
+struct WizardEnv {
+    /// Homebrew present → offer `brew services run`.
+    brew: bool,
+    /// Path to the `open-story-mcp` companion binary, if installed.
+    mcp_bin: Option<PathBuf>,
+    /// `claude` CLI present → can run `claude mcp add` directly.
+    claude: bool,
+}
+
 /// The wizard flow, generic over reader/writer so the I/O edge is uniform.
-/// Probes for Homebrew once, then runs the flow (brew presence is injected so
-/// the flow is testable without shelling out).
+/// Probes the environment once (brew, the MCP companion, the `claude` CLI),
+/// then runs the flow with those results injected so it stays testable.
 fn run_wizard_io<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     data_dir: PathBuf,
 ) -> Result<()> {
-    run_flow(reader, writer, data_dir, brew_available())
+    let env = WizardEnv {
+        brew: brew_available(),
+        mcp_bin: mcp_binary_path(),
+        claude: claude_available(),
+    };
+    run_flow(reader, writer, data_dir, env)
 }
 
-/// The wizard flow with brew availability injected.
+/// The wizard flow with environment probes injected.
 fn run_flow<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
     data_dir: PathBuf,
-    brew: bool,
+    env: WizardEnv,
 ) -> Result<()> {
     writeln!(
         writer,
@@ -239,7 +257,12 @@ fn run_flow<R: BufRead, W: Write>(
     writeln!(writer, "    data    : {}", config.data_dir)?;
 
     // 7. Offer to start services (Homebrew only) + open the dashboard.
-    maybe_start_services(reader, writer, config.port, brew)?;
+    maybe_start_services(reader, writer, config.port, env.brew)?;
+
+    // 8. Offer to wire OpenStory's MCP tools into Claude Code. The agent-in-UI
+    //    seam (ui_control / where_is_user / subscribe_ui_state) is inert until
+    //    the MCP is registered, so setup shouldn't leave that step implicit.
+    maybe_wire_mcp(reader, writer, env.mcp_bin.as_deref(), env.claude)?;
 
     writeln!(writer, "\n  Dashboard: http://localhost:{}\n", config.port)?;
     Ok(())
@@ -295,6 +318,102 @@ fn brew_available() -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+/// Resolve a binary on `PATH` — a dependency-free `command -v`. Used to *probe*
+/// for the MCP companion and the `claude` CLI. We must never exec the MCP binary
+/// to detect it (it speaks JSON-RPC over stdin and would block), so a PATH-file
+/// lookup is the only safe probe.
+fn which(bin: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(bin))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Path to the `open-story-mcp` companion binary if installed (via the optional
+/// `openstory-mcp` formula). `None` → not installed.
+fn mcp_binary_path() -> Option<PathBuf> {
+    which("open-story-mcp")
+}
+
+/// True if the `claude` CLI is on PATH (so `claude mcp add` can run).
+fn claude_available() -> bool {
+    which("claude").is_some()
+}
+
+/// The `claude mcp add` argv to register the MCP over stdio at the default
+/// (local) scope. The binary defaults to `http://localhost:3002`, so no `--env`
+/// is needed locally. The `--` separates Claude's own flags from the server
+/// command — the older positional `stdio` form no longer parses.
+fn claude_mcp_add_args(mcp_bin: &str) -> Vec<String> {
+    ["mcp", "add", "--transport", "stdio", "openstory", "--", mcp_bin]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Offer to wire OpenStory's MCP tools into Claude Code. Environment probes
+/// (companion binary path, `claude` CLI presence) are injected so the flow is
+/// unit-testable without spawning anything.
+///
+/// This is the one place setup touches the user's agent config, and only via an
+/// explicit, consented `claude mcp add` — it registers a server the user asked
+/// for, it does not inject hooks or alter agent behavior. That's distinct from
+/// the "observe, never interfere" boundary, which governs the *listener's*
+/// relation to the agent's transcripts, not the user configuring their own tools.
+fn maybe_wire_mcp<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    mcp_bin: Option<&Path>,
+    claude: bool,
+) -> Result<()> {
+    let Some(bin) = mcp_bin else {
+        // Companion not installed — point at the formula, don't prompt.
+        writeln!(
+            writer,
+            "\n  Want your agent to query + drive OpenStory? Install the MCP companion:"
+        )?;
+        writeln!(writer, "    brew install openstoryarc/openstory/openstory-mcp")?;
+        return Ok(());
+    };
+    let bin = bin.display();
+    let manual = format!("claude mcp add --transport stdio openstory -- {bin}");
+
+    if !claude {
+        // Binary present, but no `claude` CLI to run the registration for them.
+        writeln!(writer, "\n  To wire OpenStory's 24 MCP tools into Claude Code, run:")?;
+        writeln!(writer, "    {manual}")?;
+        return Ok(());
+    }
+
+    if confirm(
+        reader,
+        writer,
+        "\n  Wire OpenStory's MCP tools into Claude Code now? (24 tools — query history + drive the dashboard)",
+        true,
+    )? {
+        match std::process::Command::new("claude")
+            .args(claude_mcp_add_args(&bin.to_string()))
+            .status()
+        {
+            Ok(s) if s.success() => {
+                writeln!(writer, "  ✓ registered the openstory MCP (restart Claude Code to load it)")?;
+            }
+            Ok(s) => {
+                writeln!(writer, "  ! `claude mcp add` exited with {s} — run it yourself:")?;
+                writeln!(writer, "    {manual}")?;
+            }
+            Err(e) => {
+                writeln!(writer, "  ! could not run claude: {e} — run it yourself:")?;
+                writeln!(writer, "    {manual}")?;
+            }
+        }
+    } else {
+        writeln!(writer, "  skipped — wire it later with:")?;
+        writeln!(writer, "    {manual}")?;
+    }
+    Ok(())
 }
 
 fn open_browser<W: Write>(writer: &mut W, port: u16) {
@@ -389,13 +508,14 @@ mod tests {
     fn full_flow_writes_chosen_config() {
         let tmp = tempfile::tempdir().unwrap();
         // Answers: 30 days, custom watch dir, skip multi-agent, port 4567,
-        // accept default data_dir (the tmp path). brew injected false → no
-        // service prompts, so the script ends after data_dir.
+        // accept default data_dir (the tmp path). Env all-off → no service
+        // prompts and the MCP step falls through to the install hint (no
+        // prompt), so the script ends after data_dir.
         let script = format!("30\n{}\nn\n4567\n\n", "/tmp/os-watch");
         let mut r = reader(&script);
         let mut w = Vec::new();
 
-        run_flow(&mut r, &mut w, tmp.path().to_path_buf(), false).unwrap();
+        run_flow(&mut r, &mut w, tmp.path().to_path_buf(), WizardEnv::default()).unwrap();
 
         let cfg = Config::from_file(&tmp.path().join("config.toml"));
         assert_eq!(cfg.port, 4567);
@@ -405,5 +525,70 @@ mod tests {
         let out = String::from_utf8(w).unwrap();
         assert!(out.contains("Wrote"), "summary should report the written file");
         assert!(out.contains("open-story serve"), "no-brew path should show manual start");
+        // With no companion binary, the flow points at the mcp formula.
+        assert!(
+            out.contains("openstory-mcp"),
+            "should surface the MCP companion when it isn't installed: {out}"
+        );
+    }
+
+    // ── MCP-wiring step (`open-story init` → `claude mcp add`) ──────────────
+
+    #[test]
+    fn claude_mcp_add_args_use_transport_stdio_and_separator() {
+        let bin = "/opt/homebrew/opt/openstory-mcp/bin/open-story-mcp";
+        let args = claude_mcp_add_args(bin);
+        assert_eq!(args, ["mcp", "add", "--transport", "stdio", "openstory", "--", bin]);
+        // The `--` must immediately precede the binary so Claude stops parsing
+        // its own flags — the stale positional `stdio` form is gone.
+        let sep = args.iter().position(|a| a == "--").expect("has a -- separator");
+        assert_eq!(args[sep + 1], bin, "binary must follow the -- separator");
+    }
+
+    #[test]
+    fn mcp_wiring_absent_binary_points_at_formula() {
+        // Companion not installed → offer the formula, never prompt.
+        let mut w = Vec::new();
+        maybe_wire_mcp(&mut reader(""), &mut w, None, true).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(out.contains("brew install"), "should offer the companion formula: {out}");
+        assert!(out.contains("openstory-mcp"), "names the mcp formula: {out}");
+    }
+
+    #[test]
+    fn mcp_wiring_without_claude_prints_manual_command() {
+        let mut w = Vec::new();
+        let bin = std::path::PathBuf::from("/x/bin/open-story-mcp");
+        maybe_wire_mcp(&mut reader(""), &mut w, Some(bin.as_path()), false).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(
+            out.contains("claude mcp add --transport stdio openstory -- /x/bin/open-story-mcp"),
+            "no-claude path should print the exact manual command: {out}"
+        );
+    }
+
+    #[test]
+    fn mcp_wiring_declined_prints_manual_command_and_does_not_run() {
+        // claude + binary present, user declines → hermetic (nothing spawned),
+        // and the manual command is left behind for later.
+        let mut w = Vec::new();
+        let bin = std::path::PathBuf::from("/x/bin/open-story-mcp");
+        maybe_wire_mcp(&mut reader("n\n"), &mut w, Some(bin.as_path()), true).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(out.contains("skipped"), "decline should be acknowledged: {out}");
+        assert!(
+            out.contains("claude mcp add --transport stdio openstory -- /x/bin/open-story-mcp"),
+            "decline should leave the manual command: {out}"
+        );
+    }
+
+    #[test]
+    fn mcp_wiring_prompt_frames_the_capability() {
+        // The offer must say what wiring buys — query AND drive, not just read.
+        let mut w = Vec::new();
+        let bin = std::path::PathBuf::from("/x/bin/open-story-mcp");
+        maybe_wire_mcp(&mut reader("n\n"), &mut w, Some(bin.as_path()), true).unwrap();
+        let out = String::from_utf8(w).unwrap().to_lowercase();
+        assert!(out.contains("drive"), "prompt should name the drive capability: {out}");
     }
 }
