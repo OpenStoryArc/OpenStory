@@ -188,15 +188,19 @@ GET /api/search?q=...                              — full-text search across e
 
 **Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
 
-### MCP server — 21 tools, all Rust
+### MCP server — 24 tools, all Rust
 
 `rs/mcp/` is the agent-facing edge of OpenStory: a single-binary Rust MCP (Model Context Protocol) server that handles both **live streaming subscriptions** (the agent watches its own session in real time) and **query tools** (sessions, search, analytics, transcripts, …). JSON-RPC 2.0 over stdio. Built and tested as a first-class workspace crate.
 
 **It reads OpenStory over its REST API — it never opens your database.** The
 query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
 `GET`s instead of holding a SQLite handle), so the binary needs only a URL and
-runs from any directory. It is read-only by construction. For the full
-architecture and the trust story, see **[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**.
+runs from any directory. The observe tools are read-only; the agent-in-UI tools
+(`ui_control`, `where_is_user`, `subscribe_ui_state`) are full-duplex but
+sovereignty-partitioned — everything the agent authors flows on the `ui.*`
+namespace **only**, never the observed `events.*` stream. Agent activity is
+never mutated. For the full architecture and the trust story, see
+**[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**.
 
 The recommended way to install it is the `openstory-mcp` Homebrew formula
 (see [With Homebrew](#with-homebrew-recommended) below). To build from source:
@@ -218,8 +222,10 @@ cargo build --release -p open-story-mcp
 
 ```bash
 # 1. Direct — register the Homebrew-installed binary with Claude Code
-claude mcp add openstory stdio /opt/homebrew/opt/openstory-mcp/bin/open-story-mcp
-#    (set OPENSTORY_API_URL in the environment if not the default)
+claude mcp add --transport stdio openstory -- /opt/homebrew/opt/openstory-mcp/bin/open-story-mcp
+#    Defaults to http://localhost:3002. For a remote/token-secured instance, add
+#    env vars before the name: `-e OPENSTORY_API_URL=https://your-host`
+#    (`open-story init` offers to run this for you.)
 ```
 
 ```jsonc
@@ -238,7 +244,7 @@ a remote or token-secured instance, add an `env` block with a **literal** value
 (`"OPENSTORY_API_URL": "https://your-host"`) — Claude Code does not reliably expand
 `${VAR:-default}` syntax here, so a literal avoids a silently-empty result.
 
-**The 21-tool surface:**
+**The 24-tool surface:**
 
 | Group | Tools |
 |---|---|
@@ -247,7 +253,8 @@ a remote or token-secured instance, add an `env` block with a **literal** value
 | Search | `search`, `agent_search` (FTS + per-session grouping) |
 | Projects | `project_pulse`, `project_context`, `recent_files` |
 | Analytics | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
-| Streaming | `subscribe_session`, `subscribe_tokens` — push notifications via `notifications/openstory/{stream,tokens}` |
+| Streaming | `subscribe_session`, `subscribe_tokens`, `subscribe_ui_state` — push notifications via `notifications/openstory/{stream,tokens,ui_state}` |
+| Agent-in-UI | `ui_control` (drive the dashboard — navigate/present/toggle/query), `where_is_user` (point-read the human's current view) — the full-duplex `ui.*` seam, never touches `events.*` |
 
 Manual smoke (against a running NATS + OpenStory server). Query tools read
 the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only
@@ -653,7 +660,7 @@ open-story/
 │   ├── server/                  open-story-server (HTTP/WS, API, consumer actors)
 │   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
 │   ├── cli/                     open-story-cli binary (thin CLI wrapper)
-│   ├── mcp/                     open-story-mcp (Rust MCP server — 21 tools: queries + streaming subscriptions)
+│   ├── mcp/                     open-story-mcp (Rust MCP server — 24 tools: queries + streaming + dashboard control)
 │   └── tests/                   Integration + principle tests
 ├── schemas/                     Committed JSON Schema files (11 — source of truth)
 ├── ui/                          React dashboard

@@ -20,11 +20,16 @@ class OpenstoryMcp < Formula
 
   def caveats
     <<~EOS
-      Wire OpenStory's MCP tools into your agent (needs OpenStory running):
-          claude mcp add openstory stdio #{opt_bin}/open-story-mcp
+      24 tools: query your OpenStory history AND drive the dashboard
+      (the agent-in-UI seam — ui_control / where_is_user / subscribe_ui_state).
+
+      Easiest: `open-story init` offers to wire this into Claude Code for you.
+      Or do it by hand (needs OpenStory running):
+          claude mcp add --transport stdio openstory -- #{opt_bin}/open-story-mcp
 
       Query tools read OpenStory's REST API; streaming tools use its bus.
-      Match these to your openstory config if you changed them:
+      Match these to your openstory config if you changed them (pass with
+      `-e KEY=val` before the server name):
           OPENSTORY_API_URL    (default http://localhost:3002)
           OPENSTORY_API_TOKEN  (only if openstory has api_token set)
           OPENSTORY_NATS_URL   (default nats://localhost:4222)
