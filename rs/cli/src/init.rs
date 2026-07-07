@@ -387,11 +387,14 @@ fn maybe_wire_mcp<R: BufRead, W: Write>(
         return Ok(());
     }
 
+    // Default NO: this writes to the user's agent config (~/.claude.json), so a
+    // bare Enter must never register anything — opt-in only, mirroring the
+    // service-start prompt above.
     if confirm(
         reader,
         writer,
         "\n  Wire OpenStory's MCP tools into Claude Code now? (24 tools — query history + drive the dashboard)",
-        true,
+        false,
     )? {
         match std::process::Command::new("claude")
             .args(claude_mcp_add_args(&bin.to_string()))
@@ -579,6 +582,23 @@ mod tests {
         assert!(
             out.contains("claude mcp add --transport stdio openstory -- /x/bin/open-story-mcp"),
             "decline should leave the manual command: {out}"
+        );
+    }
+
+    #[test]
+    fn mcp_wiring_bare_enter_does_not_register() {
+        // Security/consent guard: registering the MCP writes to the user's
+        // ~/.claude.json. A bare Enter (default) must NOT do that — the confirm
+        // defaults to NO, so an empty/EOF answer takes the skipped path and
+        // spawns nothing (this test would hang or mutate real config otherwise).
+        let mut w = Vec::new();
+        let bin = std::path::PathBuf::from("/x/bin/open-story-mcp");
+        maybe_wire_mcp(&mut reader(""), &mut w, Some(bin.as_path()), true).unwrap();
+        let out = String::from_utf8(w).unwrap();
+        assert!(out.contains("skipped"), "bare Enter must default to skip: {out}");
+        assert!(
+            out.contains("[y/N]"),
+            "prompt must show a NO default for agent-config mutation: {out}"
         );
     }
 
