@@ -148,6 +148,12 @@ jobs:
     if: ${{ always() && (needs.bottle.result == 'success' || needs.bottle.result == 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # This job does NOT check out the repo, so `gh` can't infer the target from a
+    # git remote. GH_REPO tells every `gh release …` call which repo to act on
+    # (without it: "failed to run git: not a git repository"). GH_TOKEN authorizes.
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Resolve version
         id: ver
@@ -177,8 +183,6 @@ jobs:
           }
 
       - name: Ensure a DRAFT release exists (immutable-safe)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.ver.outputs.tag }}"
           if gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx true; then
@@ -195,8 +199,6 @@ jobs:
           fi
 
       - name: Attach bottles to the draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.ver.outputs.tag }}"
           gh release upload "$tag" bottles/*.bottle.tar.gz bottles/*.bottle.json --clobber
