@@ -39,14 +39,17 @@ jobs:
     # build is ~3 min; 45 is generous headroom that still fails fast on a hang.
     timeout-minutes: 45
     strategy:
-      # arm64 must be able to ship even if the Intel runner is flaky/unavailable.
       fail-fast: false
       matrix:
         include:
           - os: macos-14         # Apple Silicon Sonoma
             label: arm64_sonoma
-          - os: macos-13         # Intel Ventura
-            label: ventura
+          # Intel (macos-13) is intentionally omitted: GitHub is retiring Intel
+          # macOS runners, so the job sat un-scheduled and burned the 24h ceiling
+          # (queued time isn't bounded by timeout-minutes). Apple Silicon covers
+          # the vast majority; Intel Macs fall back to the source build. Re-add a
+          # `- os: macos-13 / label: ventura` entry here if Intel bottles are
+          # needed and runners are available.
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
