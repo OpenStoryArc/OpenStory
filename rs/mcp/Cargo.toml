@@ -1,6 +1,6 @@
 [package]
 name = "open-story-mcp"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Rust-native MCP server for open-story — streaming subscriptions + query tools, no Python in the path"
@@ -22,7 +22,11 @@ open-story-bus = { path = "../bus" }
 open-story-core = { path = "../core" }
 open-story-patterns = { path = "../patterns" }
 open-story-store = { path = "../store" }
-reqwest = { version = "0.12", features = ["json"] }
+# rustls-tls (pure Rust) instead of the default native-tls -> openssl-sys, so the
+# binary needs no system OpenSSL/pkg-config to build. The MCP only talks to the
+# local REST origin (http://localhost:3002), but rustls keeps https working for a
+# remote/token-secured instance without a C TLS stack.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "io-util", "sync"] }

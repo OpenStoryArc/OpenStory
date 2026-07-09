@@ -1,6 +1,6 @@
 [package]
 name = "open-story-server"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "HTTP/WS server: API, hooks, ingest, broadcast — the BFF layer"
@@ -18,7 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
 regex = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 schemars = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -36,4 +36,4 @@ tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 proptest = "1"
 testcontainers = { version = "0.27.2", features = ["http_wait"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

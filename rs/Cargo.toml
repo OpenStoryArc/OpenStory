@@ -3,7 +3,7 @@ members = [".", "bus", "cli", "core", "mcp", "patterns", "schemas", "server", "s
 
 [package]
 name = "open-story"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Max Glassie"]
 license = "Apache-2.0"
@@ -52,7 +52,7 @@ tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 testcontainers = { version = "0.27.3", features = ["http_wait", "docker-compose"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 urlencoding = "2"
 tokio-tungstenite = "0.26"
 futures-util = "0.3"

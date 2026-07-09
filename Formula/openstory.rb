@@ -40,7 +40,7 @@ class Openstory < Formula
       "--static-dir", "#{HOMEBREW_PREFIX}/share/openstory/static",
       "--data-dir", "#{HOMEBREW_PREFIX}/var/openstory",
       "--manage-nats",
-      "--nats-bin", "#{Formula["nats-server"].opt_bin}/nats-server"
+      "--nats-bin", "#{formula_opt_bin("nats-server")}/nats-server"
     ]
     keep_alive true
     log_path var/"log/openstory.log"
