@@ -107,6 +107,65 @@ impl ProjectionCache {
         self.map.contains_key(id)
     }
 
+    /// True when no projection is resident. (Cache-membership only — the
+    /// durable store may still hold sessions that were never loaded.)
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Iterate the resident projections. Best-effort over the cached subset —
+    /// evicted sessions are absent (re-derivable via `get_or_rebuild`). Does
+    /// not mark recency; iteration is a read over whatever is currently held.
+    pub fn iter(&self) -> dashmap::iter::Iter<'_, String, SessionProjection> {
+        self.map.iter()
+    }
+
+    /// Drop a session's in-memory copy entirely (used when the durable session
+    /// is deleted). Re-accounts bytes and clears the recency/pin side-tables so
+    /// nothing leaks. This is the one removal that is *not* an eviction — the
+    /// caller has removed the durable record too.
+    pub fn remove(&self, id: &str) {
+        if let Some((_, old)) = self.map.remove(id) {
+            self.sub_bytes(old.heap_bytes());
+        }
+        self.access.remove(id);
+        self.pins.remove(id);
+    }
+
+    /// Mutate a session's projection in place (creating it if absent), then
+    /// re-account the byte delta, refresh recency, and evict to budget. This is
+    /// the in-place-growth path used by live ingest / replay, where appending a
+    /// single event to a resident projection must keep the byte budget honest
+    /// without a full re-`insert`.
+    ///
+    /// Deadlock-safe: the `RefMut` shard-write guard is dropped before
+    /// `evict_to_budget` (which iterates the map). The recency/byte side-tables
+    /// it touches after are *different* maps/atomics, matching `insert`.
+    pub fn append_or_insert<F, R>(&self, id: &str, f: F) -> R
+    where
+        F: FnOnce(&mut SessionProjection) -> R,
+    {
+        let (old_bytes, new_bytes, ret) = {
+            let mut entry = self
+                .map
+                .entry(id.to_string())
+                .or_insert_with(|| SessionProjection::new(id));
+            let old = entry.heap_bytes();
+            let ret = f(entry.value_mut());
+            let new = entry.heap_bytes();
+            (old, new, ret)
+        };
+        let t = self.tick();
+        self.access.insert(id.to_string(), (t, Instant::now()));
+        if new_bytes >= old_bytes {
+            self.bytes.fetch_add(new_bytes - old_bytes, Ordering::Relaxed);
+        } else {
+            self.sub_bytes(old_bytes - new_bytes);
+        }
+        self.evict_to_budget();
+        ret
+    }
+
     /// Pin a session as live/streaming — it will never be evicted until
     /// `unpin_live`. Safe to call before the projection is inserted (the pin
     /// is consulted by id, independent of map membership).

@@ -109,6 +109,15 @@ pub async fn create_state_with_watch_dirs(
         },
     };
     let mut store = StoreState::with_backend(data_dir, db_key, backend).await?;
+    // Size the bounded read-through caches from the parsed config, before
+    // reconcile/reproject populate them. The store crate bakes in defaults; the
+    // operator's `projection_cache_bytes` / `working_set_days` /
+    // `payload_cache_bytes` take effect here.
+    store.set_cache_budget(
+        config.projection_cache_bytes,
+        config.working_set_days,
+        config.payload_cache_bytes,
+    );
 
     // Reconciler — ensure the EventStore contains every event present in
     // JSONL on disk. Idempotent (PK dedup); no-op when data_dir is empty

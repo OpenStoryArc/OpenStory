@@ -12,10 +12,24 @@ use dashmap::DashMap;
 use open_story_patterns::PatternEvent;
 
 use crate::event_store::EventStore;
+use crate::payload_cache::PayloadCache;
 use crate::persistence::{EventLog, SessionStore};
 use crate::plan_store::PlanStore;
 use crate::projection::SessionProjection;
+use crate::projection_cache::ProjectionCache;
 use crate::sqlite_store::SqliteStore;
+
+// ── default cache budgets ────────────────────────────────────────────────
+// These mirror the server `Config` defaults (projection_cache_bytes = 4 GB,
+// working_set_days = 7, payload_cache_bytes = 256 MB). The store crate stays
+// standalone (no dependency on the server's `Config`), so the legacy/test
+// constructors bake in these defaults; the server overrides them at boot via
+// `set_cache_budget` from the parsed config. A 4 GB projection budget means
+// effectively no eviction for the small fixtures the test suite builds — the
+// old unbounded-`DashMap` behavior is preserved for those callers.
+const DEFAULT_PROJECTION_CACHE_BYTES: u64 = 4_000_000_000;
+const DEFAULT_WORKING_SET_DAYS: u32 = 7;
+const DEFAULT_PAYLOAD_CACHE_BYTES: u64 = 256_000_000;
 
 /// Detect a subagent → parent relationship from one event and update the maps.
 ///
@@ -70,7 +84,12 @@ pub struct StoreState {
     // Shared across actor-consumers (Actor 3 owns writes, API + ws +
     // other actors read). DashMap gives lock-free concurrent reads
     // without forcing all call sites onto an explicit RwLock guard.
-    pub projections: Arc<DashMap<String, SessionProjection>>,
+    /// Bounded read-through cache of per-session projections. Was an unbounded
+    /// `Arc<DashMap<String, SessionProjection>>`; now a byte-budgeted,
+    /// recency-aware cache. An evicted projection is transparently re-derived
+    /// from the durable event store via [`StoreState::get_or_rebuild`] — SQLite
+    /// stays the source of truth, so eviction never loses data.
+    pub projections: Arc<ProjectionCache>,
     /// Cache of detected patterns keyed by session_id, populated by the
     /// patterns consumer (Actor 2). Read by `build_initial_state` for the
     /// WebSocket handshake. Pattern *detection* lives in the patterns
@@ -78,9 +97,10 @@ pub struct StoreState {
     /// API/WebSocket layers can read it without a DB roundtrip.
     pub detected_patterns: Arc<DashMap<String, Vec<PatternEvent>>>,
     /// Truncation cache: `(session_id, event_id)` → full tool output.
-    /// Shared `Arc<DashMap>` so replay + live ingest can populate it
-    /// concurrently while the API reads for the lazy-load endpoint.
-    pub full_payloads: Arc<DashMap<(String, String), String>>,
+    /// Byte-bounded LRU (`PayloadCache`); the lazy-load endpoint falls back to
+    /// the durable `EventStore::full_payload` on a miss, so eviction here is
+    /// safe. Populated by replay + live ingest for truncated tool outputs.
+    pub full_payloads: Arc<PayloadCache>,
 
     // ── subagent parent-child index ──
     /// Subagent session_id → parent session_id. Shared `Arc<DashMap>`
@@ -217,9 +237,12 @@ impl StoreState {
             session_store,
             event_log,
             plan_store,
-            projections: Arc::new(DashMap::new()),
+            projections: Arc::new(ProjectionCache::new(
+                DEFAULT_PROJECTION_CACHE_BYTES,
+                DEFAULT_WORKING_SET_DAYS,
+            )),
             detected_patterns: Arc::new(DashMap::new()),
-            full_payloads: Arc::new(DashMap::new()),
+            full_payloads: Arc::new(PayloadCache::new(DEFAULT_PAYLOAD_CACHE_BYTES)),
             subagent_parents: Arc::new(DashMap::new()),
             session_children: Arc::new(DashMap::new()),
             session_projects: Arc::new(DashMap::new()),
@@ -227,6 +250,53 @@ impl StoreState {
             watch_dir_entries: Vec::new(),
             data_dir,
         }
+    }
+
+    /// Replace the projection + payload caches with ones sized from the parsed
+    /// server config. The constructors bake in [`DEFAULT_PROJECTION_CACHE_BYTES`]
+    /// etc. because the store crate can't see the server's `Config`; the server
+    /// calls this immediately after construction (before reconcile/reproject
+    /// populate the caches) to apply the operator-configured budgets. Cheap:
+    /// the caches are empty at this point, so nothing is copied.
+    pub fn set_cache_budget(
+        &mut self,
+        projection_cache_bytes: u64,
+        working_set_days: u32,
+        payload_cache_bytes: u64,
+    ) {
+        self.projections = Arc::new(ProjectionCache::new(
+            projection_cache_bytes,
+            working_set_days,
+        ));
+        self.full_payloads = Arc::new(PayloadCache::new(payload_cache_bytes));
+    }
+
+    /// Read-through accessor for a session's projection.
+    ///
+    /// Cache hit → return it (marking recency). Miss → re-derive from the
+    /// durable event store via [`rebuild_session`](crate::rebuild::rebuild_session),
+    /// insert into the cache, and return. Returns `None` only when the session
+    /// has no events in the store (nothing to project). Eviction is therefore
+    /// transparent to callers: a cold session reloads its full projection on
+    /// demand, and SQLite remains the source of truth.
+    ///
+    /// Deadlock-safety: the miss path never holds a `get()` `Ref` across the
+    /// `insert()`. The first `get` returns `None` (guard already dropped) before
+    /// `rebuild_session`/`insert`, and only the *final* `get` produces the
+    /// returned `Ref`. Holding a `Ref` across a same-cache `insert` on one
+    /// thread self-deadlocks DashMap (eviction's `map.remove` needs the shard
+    /// write-lock the `Ref` read-locks), so this ordering is load-bearing.
+    pub async fn get_or_rebuild(
+        &self,
+        session_id: &str,
+    ) -> Option<dashmap::mapref::one::Ref<'_, String, SessionProjection>> {
+        if let Some(r) = self.projections.get(session_id) {
+            return Some(r); // hit — recency marked, no Ref held past here
+        }
+        // Miss: no Ref is held here. Re-derive from the durable store.
+        let p = crate::rebuild::rebuild_session(self.event_store.as_ref(), session_id).await?;
+        self.projections.insert(session_id.to_string(), p);
+        self.projections.get(session_id)
     }
 }
 
@@ -322,6 +392,72 @@ mod tests {
         assert_eq!(state.data_dir, tmp.path());
     }
 
+    /// A well-formed CloudEvent envelope (same shape `rebuild.rs`'s own tests
+    /// use — the fields `CloudEvent` requires to deserialize). Kept minimal;
+    /// `event_count()` only needs a parseable event per id.
+    fn test_event(id: &str, subtype: &str, time: &str, data: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "specversion": "1.0",
+            "datacontenttype": "application/json",
+            "type": "io.arc.event",
+            "subtype": subtype,
+            "time": time,
+            "source": "arc://test",
+            "data": data,
+        })
+    }
+
+    /// Build a `StoreState` whose durable event store holds `events` under
+    /// `session_id`, but whose projection cache is left cold (nothing inserted).
+    async fn test_state_with_events(session_id: &str, events: &[serde_json::Value]) -> StoreState {
+        let tmp = TempDir::new().unwrap();
+        // Persist the TempDir so the on-disk SQLite outlives the returned state
+        // for the duration of the test (the state owns no handle to keep it
+        // alive). `keep` returns the path and disarms the auto-delete.
+        let path = tmp.keep();
+        let state = StoreState::new(&path).unwrap();
+        for event in events {
+            state
+                .event_store
+                .insert_event(session_id, event)
+                .await
+                .expect("insert_event");
+        }
+        state
+    }
+
+    /// Read-through contract: a session whose events are durably present but
+    /// whose projection was never loaded (evicted / never inserted) misses on a
+    /// plain `get`, is transparently rebuilt by `get_or_rebuild`, and is then
+    /// resident. This is the eviction-transparency guarantee — SQLite is the
+    /// source of truth and the projection re-derives on demand.
+    #[tokio::test]
+    async fn get_or_rebuild_reloads_evicted_session() {
+        let state = test_state_with_events(
+            "s1",
+            &[test_event(
+                "e1",
+                "message.user.prompt",
+                "2026-01-01T00:00:00Z",
+                serde_json::json!({"text": "hi"}),
+            )],
+        )
+        .await;
+
+        assert!(state.projections.get("s1").is_none(), "starts cold");
+        let p = state.get_or_rebuild("s1").await.expect("rebuilt from store");
+        assert_eq!(p.event_count(), 1);
+        drop(p);
+        assert!(state.projections.contains("s1"), "now resident");
+
+        // A session with no durable events has nothing to project → None.
+        assert!(
+            state.get_or_rebuild("no-such-session").await.is_none(),
+            "missing session yields None, not an empty projection"
+        );
+    }
+
     #[test]
     fn new_creates_plans_subdirectory() {
         let tmp = TempDir::new().unwrap();
@@ -336,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_event_into_store_state() {
         let tmp = TempDir::new().unwrap();
-        let mut state = StoreState::new(tmp.path()).unwrap();
+        let state = StoreState::new(tmp.path()).unwrap();
 
         // Simulate what ingest_events does: dedup, persist, project.
         // Event shape mirrors the typed EventData → AgentPayload model the
@@ -379,14 +515,13 @@ mod tests {
             "dedup via PK"
         );
 
-        let mut proj = state
+        let result = state
             .projections
-            .entry("sess-1".to_string())
-            .or_insert_with(|| SessionProjection::new("sess-1"));
-        let result = proj.append(&event);
+            .append_or_insert("sess-1", |proj| proj.append(&event));
 
         let stored = state.event_store.session_events("sess-1").await.unwrap();
         assert_eq!(stored.len(), 1);
+        let proj = state.projections.get("sess-1").unwrap();
         assert_eq!(proj.event_count(), 1);
         assert!(!result.is_empty());
 

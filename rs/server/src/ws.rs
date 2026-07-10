@@ -95,7 +95,7 @@ pub fn build_initial_state(state: &AppState) -> InitialState {
             session_labels.len(),
             all_patterns.len(),
             state.config.watch_backfill_hours,
-            state.store.projections.len(),
+            state.store.projections.resident_sessions(),
         ),
     );
 

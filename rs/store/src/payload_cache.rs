@@ -65,6 +65,41 @@ impl PayloadCache {
         self.bytes.load(Ordering::Relaxed)
     }
 
+    /// True when no body is resident.
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Event ids of the resident bodies for a session. Introspection helper
+    /// (snapshot tests, diagnostics) that avoids exposing the private `Entry`
+    /// via a raw `iter()`. Order is unspecified — callers sort if they need
+    /// determinism.
+    pub fn session_event_ids(&self, session_id: &str) -> Vec<String> {
+        self.map
+            .iter()
+            .filter(|e| e.key().0 == session_id)
+            .map(|e| e.key().1.clone())
+            .collect()
+    }
+
+    /// Drop every cached body for a session (used when the durable session is
+    /// deleted). Re-accounts bytes for each removed entry. Keys are
+    /// `(session_id, event_id)`, so this walks and prunes the matching prefix —
+    /// the focused replacement for the previous `iter()` + `remove()` dance.
+    pub fn remove_session(&self, session_id: &str) {
+        let to_drop: Vec<(String, String)> = self
+            .map
+            .iter()
+            .filter(|e| e.key().0 == session_id)
+            .map(|e| e.key().clone())
+            .collect();
+        for k in to_drop {
+            if let Some((_, e)) = self.map.remove(&k) {
+                self.sub_bytes(e.body.len() as u64);
+            }
+        }
+    }
+
     /// Look up a cached body, marking it as most-recently-used on a hit.
     pub fn get(&self, key: &(String, String)) -> Option<String> {
         let t = self.tick();

@@ -169,7 +169,7 @@ mod records_endpoint {
             // Projection is intentionally NOT updated — this is the
             // production divergence we're fixing.
             assert!(
-                !s.store.projections.contains_key("sess-bypass"),
+                !s.store.projections.contains("sess-bypass"),
                 "test precondition: projection must NOT contain the session"
             );
         }

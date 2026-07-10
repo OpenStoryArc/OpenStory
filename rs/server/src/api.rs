@@ -308,7 +308,7 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
         .await
         .map(|v| v.len())
         .unwrap_or(0);
-    let projections = s.store.projections.len();
+    let projections = s.store.projections.resident_sessions();
 
     Json(json!({
         "status": "ok",
@@ -482,7 +482,7 @@ pub async fn list_sessions(
             .get(sid)
             .map(|r| r.value().clone());
         let (label, branch, total_input_tokens, total_output_tokens) =
-            match s.store.projections.get(sid) {
+            match s.store.get_or_rebuild(sid).await {
                 Some(proj) => (
                     proj.label().map(|s| s.to_string()),
                     proj.branch().map(|s| s.to_string()),
@@ -839,7 +839,7 @@ pub async fn get_summary(
     // the projections consumer, rebuilt at boot). Falls back to the whole-
     // session scan only when no projection exists — on a 16.7k-event session
     // that scan costs ~0.9 s per request.
-    let (summary, extras) = match s.store.projections.get(&session_id) {
+    let (summary, extras) = match s.store.get_or_rebuild(&session_id).await {
         Some(proj) => {
             let p = proj.value();
             let tokens = json!({
@@ -1295,8 +1295,8 @@ pub async fn get_session_meta(
     let s = state.read().await;
     let proj = s
         .store
-        .projections
-        .get(&session_id)
+        .get_or_rebuild(&session_id)
+        .await
         .ok_or(StatusCode::NOT_FOUND)?;
     let meta = proj.query_meta();
     Ok(Json(json!({
@@ -1324,12 +1324,12 @@ pub async fn get_event_content(
     let s = state.read().await;
     // Try in-memory cache first, then fall back to EventStore.
     // Key is (session_id, event_id) — the DashMap guard derefs to `&String`.
-    if let Some(entry) = s
+    if let Some(body) = s
         .store
         .full_payloads
         .get(&(session_id.clone(), event_id.clone()))
     {
-        return Ok(entry.value().clone());
+        return Ok(body);
     }
     // Fall back: extract tool output from full event payload in EventStore
     let payload = s
@@ -2348,29 +2348,16 @@ pub async fn delete_session(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if deleted == 0 && !s.store.projections.contains_key(&session_id) {
+    if deleted == 0 && !s.store.projections.contains(&session_id) {
         return Err(StatusCode::NOT_FOUND);
     }
 
     // Clean up in-memory state
     s.store.projections.remove(&session_id);
     s.store.detected_patterns.remove(&session_id);
-    // full_payloads is keyed on (session_id, event_id) — walk to prune.
-    let to_drop: Vec<(String, String)> = s
-        .store
-        .full_payloads
-        .iter()
-        .filter_map(|e| {
-            if e.key().0 == session_id {
-                Some(e.key().clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-    for k in to_drop {
-        s.store.full_payloads.remove(&k);
-    }
+    // full_payloads is keyed on (session_id, event_id) — prune the session's
+    // entries (the cache walks and drops the matching prefix).
+    s.store.full_payloads.remove_session(&session_id);
     s.store.session_projects.remove(&session_id);
     s.store.session_project_names.remove(&session_id);
 

@@ -25,12 +25,12 @@
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use open_story::cloud_event::CloudEvent;
 use open_story::server::{SharedState, consumers};
 use open_story_patterns::PatternEvent;
 use open_story_store::persistence::SessionStore;
 use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 use tempfile::TempDir;
 
 use crate::helpers::test_state;
@@ -166,7 +166,7 @@ impl TestActors {
     /// Callers must `.await` on `self.state.read()` themselves and call
     /// `.store.projections.clone()` on the guard. Direct access is
     /// preferred to keep the DashMap Arc lifetime explicit in tests.
-    pub async fn projections(&self) -> Arc<DashMap<String, SessionProjection>> {
+    pub async fn projections(&self) -> Arc<ProjectionCache> {
         self.state.read().await.store.projections.clone()
     }
 }

@@ -893,6 +893,11 @@ async fn main() -> Result<()> {
             };
 
             let mut store = StoreState::with_backend(&data_dir, key, backend).await?;
+            store.set_cache_budget(
+                config.projection_cache_bytes,
+                config.working_set_days,
+                config.payload_cache_bytes,
+            );
             let report =
                 open_story::server::reconcile::reconcile_local(&data_dir, &mut store).await?;
 

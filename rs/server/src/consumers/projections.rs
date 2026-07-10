@@ -24,13 +24,14 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 
 /// State owned by the projections consumer actor.
 pub struct ProjectionsConsumer {
     /// Shared materialized view per session. Actor 3 is the sole writer;
-    /// the API / WebSocket / other consumers read from the same map
-    /// without coordination.
-    projections: Arc<DashMap<String, SessionProjection>>,
+    /// the API / WebSocket / other consumers read from the same bounded
+    /// read-through cache without coordination.
+    projections: Arc<ProjectionCache>,
     /// Session → project_id mapping (used when wired as independent consumer).
     #[allow(dead_code)]
     session_projects: HashMap<String, String>,
@@ -57,7 +58,7 @@ impl ProjectionsConsumer {
     /// Pass `state.store.projections.clone()` / `subagent_parents.clone()`
     /// / `session_children.clone()` — Arc clones are cheap (refcount only).
     pub fn new(
-        projections: Arc<DashMap<String, SessionProjection>>,
+        projections: Arc<ProjectionCache>,
         subagent_parents: Arc<DashMap<String, String>>,
         session_children: Arc<DashMap<String, Vec<String>>>,
     ) -> Self {
@@ -87,13 +88,13 @@ impl ProjectionsConsumer {
                 &self.session_children,
             );
 
-            // Update projection (DashMap: entry().or_insert_with — same shape
-            // as HashMap, different guard type).
-            let mut proj = self
+            // Update projection in place through the cache accessor, which
+            // re-accounts bytes + recency and evicts to budget after the
+            // shard-write guard is dropped (deadlock-safe — no Ref held across
+            // the internal eviction).
+            let append_result = self
                 .projections
-                .entry(session_id.to_string())
-                .or_insert_with(|| SessionProjection::new(session_id));
-            let append_result = proj.append(&val);
+                .append_or_insert(session_id, |proj| proj.append(&val));
 
             if append_result.label_changed {
                 label_changed = true;
@@ -115,9 +116,9 @@ impl ProjectionsConsumer {
         self.projections.get(session_id).map(|r| r.value().clone())
     }
 
-    /// How many sessions have projections today. Intended for tests.
+    /// How many sessions have projections resident today. Intended for tests.
     pub fn projection_count(&self) -> usize {
-        self.projections.len()
+        self.projections.resident_sessions()
     }
 
     /// Get the parent session for a subagent.
@@ -164,8 +165,10 @@ mod tests {
         )
     }
 
-    fn empty_shared_map() -> Arc<DashMap<String, SessionProjection>> {
-        Arc::new(DashMap::new())
+    fn empty_shared_map() -> Arc<ProjectionCache> {
+        // Effectively unbounded (u64::MAX budget, no working-set window) so the
+        // consumer tests see the old always-resident DashMap behavior.
+        Arc::new(ProjectionCache::new(u64::MAX, 0))
     }
 
     fn empty_parents() -> Arc<DashMap<String, String>> {
@@ -217,8 +220,8 @@ mod tests {
 
         // The external holder of the Arc sees the same projection.
         assert!(
-            shared.contains_key("sess-shared"),
-            "external shared map should see the consumer's write without any sync step"
+            shared.contains("sess-shared"),
+            "external shared cache should see the consumer's write without any sync step"
         );
     }
 

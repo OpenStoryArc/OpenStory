@@ -48,8 +48,8 @@ async fn drive_batch_persists_events_and_populates_projection() {
             .await
             .store
             .projections
-            .contains_key("sess-actors"),
-        "projection should be present in shared DashMap"
+            .contains("sess-actors"),
+        "projection should be present in shared cache"
     );
 
     // Broadcast returned something (or at worst an empty vec, but no panic).

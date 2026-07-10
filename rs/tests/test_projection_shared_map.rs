@@ -16,7 +16,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use helpers::{make_event_with_id, test_state};
 use open_story::server::consumers::projections::ProjectionsConsumer;
-use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -26,7 +26,7 @@ async fn consumer_writes_are_visible_on_store_state_projections() {
 
     // Production wiring: hand the shared maps to the consumer.
     let (shared, parents, children): (
-        Arc<DashMap<String, SessionProjection>>,
+        Arc<ProjectionCache>,
         Arc<DashMap<String, String>>,
         Arc<DashMap<String, Vec<String>>>,
     ) = {
@@ -86,7 +86,7 @@ async fn api_layer_observes_consumer_updates_without_sync_step() {
     // the projection without reaching into ProjectionsConsumer at all.
     let api_view = state.read().await.store.projections.clone();
     assert!(
-        api_view.contains_key("sess-api"),
-        "API-side read of the shared map should observe the write without a sync step"
+        api_view.contains("sess-api"),
+        "API-side read of the shared cache should observe the write without a sync step"
     );
 }
