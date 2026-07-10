@@ -2,7 +2,7 @@ class OpenstoryMcp < Formula
   desc "MCP server for OpenStory — agent tools over stdio (optional companion)"
   homepage "https://github.com/OpenStoryArc/OpenStory"
   url "https://github.com/OpenStoryArc/OpenStory/archive/refs/tags/v0.4.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "ca18b250ecb54b16408d63011204b192864e07f63498a12b1d95f5593c09b691"
   license "Apache-2.0"
   head "https://github.com/OpenStoryArc/OpenStory.git", branch: "master"
 
