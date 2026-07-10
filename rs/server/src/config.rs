@@ -279,6 +279,13 @@ pub struct Config {
     /// Payload size (bytes) above which tool outputs are truncated in WireRecords.
     /// Full content available via the /content endpoint.
     pub truncation_threshold: usize,
+    /// Byte ceiling for resident session projections. Cold sessions evict
+    /// (LRU) above this and rebuild from SQLite on access.
+    pub projection_cache_bytes: u64,
+    /// Sessions accessed within this many days are never evicted (0 = off).
+    pub working_set_days: u32,
+    /// Byte ceiling for the full-body (tool-output) cache.
+    pub payload_cache_bytes: u64,
     /// Seconds of inactivity before a session is marked "stale".
     pub stale_threshold_secs: i64,
     /// Size of the broadcast channel for WebSocket subscribers.
@@ -384,6 +391,9 @@ impl Default for Config {
             max_initial_records: 2000,
             watch_backfill_hours: 24,
             truncation_threshold: 100_000,
+            projection_cache_bytes: 4_000_000_000,
+            working_set_days: 7,
+            payload_cache_bytes: 256_000_000,
             stale_threshold_secs: 300,
             broadcast_channel_size: 256,
             metrics_enabled: false,
@@ -580,6 +590,16 @@ impl Config {
 # Payload size (bytes) above which tool outputs are truncated.
 # Full content available via /api/sessions/{id}/events/{eid}/content.
 # truncation_threshold = 100000
+
+# Byte ceiling for resident session projections. Cold sessions evict (LRU)
+# above this and rebuild from SQLite on access.
+# projection_cache_bytes = 4000000000
+
+# Sessions accessed within this many days are never evicted (0 = off).
+# working_set_days = 7
+
+# Byte ceiling for the full-body (tool-output) cache.
+# payload_cache_bytes = 256000000
 
 # Seconds of inactivity before a session shows as "stale".
 # stale_threshold_secs = 300
@@ -780,6 +800,14 @@ mod tests {
     }
 
     #[test]
+    fn cache_bounds_have_sane_defaults() {
+        let c = Config::default();
+        assert_eq!(c.projection_cache_bytes, 4_000_000_000); // 4 GB
+        assert_eq!(c.payload_cache_bytes, 256_000_000);      // 256 MB
+        assert_eq!(c.working_set_days, 7);
+    }
+
+    #[test]
     fn from_file_returns_defaults_when_missing() {
         let config = Config::from_file(Path::new("/nonexistent/config.toml"));
         assert_eq!(config.port, 3002);
@@ -858,6 +886,9 @@ mod tests {
             max_initial_records: 100,
             watch_backfill_hours: 48,
             truncation_threshold: 4000,
+            projection_cache_bytes: 4_000_000_000,
+            working_set_days: 7,
+            payload_cache_bytes: 256_000_000,
             stale_threshold_secs: 600,
             broadcast_channel_size: 512,
             metrics_enabled: true,
