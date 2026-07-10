@@ -15,7 +15,7 @@
 //! idempotent — re-running, or the watcher re-reading afterward, dedups against
 //! the rebuilt `seen_ids`.
 
-use open_story_store::projection::SessionProjection;
+use open_story_store::rebuild::rebuild_session;
 use open_story_store::state::StoreState;
 
 #[derive(Debug, Default)]
@@ -37,21 +37,12 @@ pub async fn reproject_all(store: &StoreState) -> ReprojectReport {
         .unwrap_or_default();
 
     for row in &sessions {
-        let events = store
-            .event_store
-            .session_events(&row.id)
-            .await
-            .unwrap_or_default();
-        if events.is_empty() {
+        let Some(proj) = rebuild_session(store.event_store.as_ref(), &row.id).await else {
             continue;
-        }
-        let mut proj = SessionProjection::new(&row.id);
-        for event in &events {
-            proj.append(event);
-        }
-        store.projections.insert(row.id.clone(), proj);
+        };
         report.sessions_reprojected += 1;
-        report.events_applied += events.len();
+        report.events_applied += proj.event_count();
+        store.projections.insert(row.id.clone(), proj);
     }
 
     report
