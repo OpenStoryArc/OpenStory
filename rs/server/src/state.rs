@@ -180,10 +180,19 @@ pub async fn create_state_with_watch_dirs(
         // empty until the watcher re-reads a source — so sessions whose source is
         // gone or beyond boot_window show 0 tokens despite being durably stored.
         // Idempotent: the watcher's later re-read dedups against the rebuilt seen_ids.
-        let report = crate::reproject::reproject_all(&store).await;
+        //
+        // Lazy boot: eagerly rebuild only the working set (sessions active within
+        // `working_set_days`); colder sessions are rebuilt on first access by
+        // `StoreState::get_or_rebuild`. This bounds boot-time work + resident
+        // memory to the recent window instead of every session ever recorded.
+        // SQLite stays the source of truth — an un-seeded session is deferred,
+        // never lost. `reproject_all` remains available for on-demand full
+        // rebuilds and is still exercised by tests.
+        let report =
+            crate::reproject::reproject_working_set(&store, config.working_set_days).await;
         if report.sessions_reprojected > 0 {
             eprintln!(
-                "  \x1b[32mReprojected {} sessions ({} events) from store\x1b[0m",
+                "  \x1b[32mReprojected {} working-set sessions ({} events) from store\x1b[0m",
                 report.sessions_reprojected, report.events_applied
             );
         }
@@ -622,14 +631,17 @@ mod tests {
         );
     }
 
-    /// Boot rebuilds the in-memory projection from the durable store via
-    /// `reproject_all`. `/api/sessions` serves token totals (and live
+    /// Boot rebuilds the in-memory projection from the durable store via the
+    /// working-set reproject. `/api/sessions` serves token totals (and live
     /// label/branch) from `store.projections` (api.rs:~100,141); before the
     /// reproject step those stayed empty until the watcher re-read a source, so
-    /// a session whose source is gone or beyond boot_window (pi-mono
-    /// --no-session, old sessions) showed 0 tokens despite being durably stored.
-    /// This pins the fix: after boot, the projection exists with the right count
-    /// even with an empty watch dir (no re-readable source).
+    /// a session whose source is gone (pi-mono --no-session) showed 0 tokens
+    /// despite being durably stored. This pins the fix: after boot, a session
+    /// active within the working-set window has its projection resident with the
+    /// right count, even with an empty watch dir (no re-readable source). The
+    /// row's `last_event` is stamped `now` so it falls inside the default 7-day
+    /// working set; older sessions are instead rebuilt lazily on first access
+    /// (covered by `reproject::tests::lazy_boot_seeds_only_recent_sessions`).
     #[tokio::test]
     async fn boot_reprojects_the_in_memory_projection_from_store() {
         let tmp = tempfile::tempdir().unwrap();
@@ -655,6 +667,11 @@ mod tests {
             )
             .await
             .unwrap();
+            // last_event = now so the session is inside the working-set window
+            // that lazy boot eagerly rebuilds. (The event's own `time` is
+            // irrelevant to the working-set filter, which reads the row's
+            // last_event.)
+            let now = chrono::Utc::now().to_rfc3339();
             db.upsert_session(&SessionRow {
                 id: "orphan-session".into(),
                 project_id: None,
@@ -663,8 +680,8 @@ mod tests {
                 custom_label: None,
                 branch: None,
                 event_count: 1,
-                first_event: Some("2025-01-14T10:00:00Z".into()),
-                last_event: Some("2025-01-14T10:00:00Z".into()),
+                first_event: Some(now.clone()),
+                last_event: Some(now),
                 host: None,
                 user: None,
                 origin_agent: None,
@@ -698,7 +715,7 @@ mod tests {
         let proj = s.store.projections.get("orphan-session");
         assert!(
             proj.is_some(),
-            "reproject_all should rebuild the projection from the durable store at boot"
+            "working-set reproject should rebuild the projection from the durable store at boot"
         );
         assert_eq!(
             proj.unwrap().event_count(),
