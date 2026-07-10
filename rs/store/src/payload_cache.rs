@@ -48,6 +48,19 @@ impl PayloadCache {
         self.clock.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Subtract from the resident-byte counter, saturating at 0.
+    ///
+    /// A plain `fetch_sub` can underflow to a ~2^64 value if a subtract
+    /// ever races ahead of its matching add (or double-fires); that would
+    /// pin `bytes > max_bytes` forever and make the cache evict everything
+    /// without self-healing. Clamping at 0 turns any such mistiming into a
+    /// transient *undercount* that corrects itself on the next insert.
+    fn sub_bytes(&self, n: u64) {
+        let _ = self
+            .bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| Some(b.saturating_sub(n)));
+    }
+
     pub fn resident_bytes(&self) -> u64 {
         self.bytes.load(Ordering::Relaxed)
     }
@@ -65,12 +78,18 @@ impl PayloadCache {
     /// entries — never the durable record, just this in-memory copy —
     /// while resident bytes exceed the budget.
     pub fn insert(&self, key: (String, String), body: String) {
-        let t = self.tick();
         let len = body.len() as u64;
-        if let Some(old) = self.map.insert(key, Entry { body, tick: t }) {
-            self.bytes.fetch_sub(old.body.len() as u64, Ordering::Relaxed);
-        }
+        // Count the bytes BEFORE making the entry visible/evictable in the
+        // map. If we inserted first, another thread could evict this entry
+        // (and `sub_bytes` its length) in the window before we added it —
+        // subtracting bytes that were never counted. Adding first closes
+        // that window: an entry is never evictable-before-counted.
         self.bytes.fetch_add(len, Ordering::Relaxed);
+        let t = self.tick();
+        if let Some(old) = self.map.insert(key, Entry { body, tick: t }) {
+            // Overwrite: drop the replaced entry's contribution.
+            self.sub_bytes(old.body.len() as u64);
+        }
 
         // Evict least-recently-used entries (by min tick) while over
         // budget. Each successful removal strictly shrinks the map, so
@@ -86,7 +105,7 @@ impl PayloadCache {
             match victim {
                 Some(k) => {
                     if let Some((_, e)) = self.map.remove(&k) {
-                        self.bytes.fetch_sub(e.body.len() as u64, Ordering::Relaxed);
+                        self.sub_bytes(e.body.len() as u64);
                     }
                 }
                 None => break,
@@ -107,6 +126,19 @@ mod tests {
         assert!(c.get(&("s".into(), "a".into())).is_none(), "a should be evicted");
         assert!(c.get(&("s".into(), "b".into())).is_some(), "b stays");
         assert!(c.resident_bytes() <= 1000);
+    }
+
+    #[test]
+    fn payload_cache_overwrite_replaces_byte_accounting() {
+        let c = PayloadCache::new(1000);
+        c.insert(("s".into(), "k".into()), "x".repeat(600));
+        assert_eq!(c.resident_bytes(), 600);
+        c.insert(("s".into(), "k".into()), "x".repeat(300)); // same key, smaller body
+        assert_eq!(
+            c.resident_bytes(),
+            300,
+            "overwrite must drop the old body's bytes, not accumulate"
+        );
     }
 
     #[test]
