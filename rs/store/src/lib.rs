@@ -17,6 +17,7 @@ pub mod ingest;
 pub mod jsonl_store;
 #[cfg(feature = "mongo")]
 pub mod mongo_store;
+pub mod payload_cache;
 pub mod persistence;
 pub mod plan_store;
 pub mod projection;
