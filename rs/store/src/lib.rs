@@ -21,6 +21,7 @@ pub mod payload_cache;
 pub mod persistence;
 pub mod plan_store;
 pub mod projection;
+pub mod projection_cache;
 pub mod queries;
 pub mod rebuild;
 pub mod sqlite_store;
