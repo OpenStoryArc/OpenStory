@@ -44,8 +44,13 @@ pub struct ProjectionCache {
     map: DashMap<String, SessionProjection>,
     /// Recency side-table: id -> (monotonic tick, last-access instant).
     access: DashMap<String, (u64, Instant)>,
-    /// Pinned (live / streaming) session ids — never evicted.
-    pins: DashMap<String, ()>,
+    /// Pin **ref-counts** by session id — an id with count > 0 is never
+    /// evicted. Ref-counted (not a set) so protections compose: a transient
+    /// pin (e.g. `get_or_rebuild` guarding a just-rebuilt entry against its own
+    /// insert-time eviction) can nest inside a genuine live pin without the
+    /// transient `unpin` clobbering the live one. `pin_live` increments,
+    /// `unpin_live` decrements saturating; the entry is removed at 0.
+    pins: DashMap<String, u32>,
     max_bytes: u64,
     /// Working-set window: if set, sessions touched within it are not evicted.
     /// `None` when `working_set_days == 0`.
@@ -166,15 +171,29 @@ impl ProjectionCache {
         ret
     }
 
-    /// Pin a session as live/streaming — it will never be evicted until
-    /// `unpin_live`. Safe to call before the projection is inserted (the pin
-    /// is consulted by id, independent of map membership).
+    /// Pin a session as live/streaming — protected from eviction while its pin
+    /// count is > 0. Ref-counted: each `pin_live` must be balanced by an
+    /// `unpin_live`, and nested pins (transient + live) compose. Safe to call
+    /// before the projection is inserted (the pin is consulted by id,
+    /// independent of map membership).
     pub fn pin_live(&self, id: &str) {
-        self.pins.insert(id.to_string(), ());
+        *self.pins.entry(id.to_string()).or_insert(0) += 1;
     }
 
+    /// Release one pin. Saturating: an unbalanced extra `unpin_live` is a
+    /// harmless no-op (never underflows). The entry is reaped when its count
+    /// reaches 0 — via `remove_if(== 0)` so a concurrent `pin_live` that raced
+    /// in after the decrement (bumping it back to 1) is NOT clobbered.
     pub fn unpin_live(&self, id: &str) {
-        self.pins.remove(id);
+        if let Some(mut e) = self.pins.get_mut(id) {
+            *e = e.saturating_sub(1);
+        }
+        self.pins.remove_if(id, |_, &count| count == 0);
+    }
+
+    /// True while the id holds at least one pin.
+    fn is_pinned(&self, id: &str) -> bool {
+        self.pins.get(id).map(|c| *c > 0).unwrap_or(false)
     }
 
     /// Look up a cached projection, marking it most-recently-used on a hit.
@@ -234,7 +253,7 @@ impl ProjectionCache {
                 .iter()
                 .filter_map(|e| {
                     let id = e.key();
-                    if self.pins.contains_key(id) {
+                    if self.is_pinned(id) {
                         return None; // pinned live session — never evict
                     }
                     match self.access.get(id) {

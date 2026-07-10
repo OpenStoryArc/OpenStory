@@ -295,8 +295,20 @@ impl StoreState {
         }
         // Miss: no Ref is held here. Re-derive from the durable store.
         let p = crate::rebuild::rebuild_session(self.event_store.as_ref(), session_id).await?;
+        // Transiently pin BEFORE inserting so the just-rebuilt entry can't
+        // self-evict during its own `insert` when the projection alone exceeds
+        // `projection_cache_bytes` and nothing shields it (working_set_days==0,
+        // not otherwise pinned). Ref-counted pins mean this composes safely with
+        // a genuine live pin: our `unpin_live` only releases OUR increment. The
+        // returned `Ref` keeps the entry readable; eviction is deferred, not
+        // denied — the next `insert` reclaims the bytes once it's unpinned.
+        // No `Ref` is held across `pin_live`/`insert`/`unpin_live` — same
+        // deadlock rule as the hit path.
+        self.projections.pin_live(session_id);
         self.projections.insert(session_id.to_string(), p);
-        self.projections.get(session_id)
+        let r = self.projections.get(session_id);
+        self.projections.unpin_live(session_id);
+        r
     }
 }
 
@@ -455,6 +467,113 @@ mod tests {
         assert!(
             state.get_or_rebuild("no-such-session").await.is_none(),
             "missing session yields None, not an empty projection"
+        );
+    }
+
+    /// Under real byte-budget pressure (`working_set_days == 0`, tiny budget),
+    /// two things must hold:
+    ///   (a) a cold, non-oversized session genuinely evicts when a second
+    ///       session pushes the cache over budget; and
+    ///   (b) `get_or_rebuild` STILL returns the full projection — both for the
+    ///       evicted session AND for a session whose projection alone exceeds
+    ///       the entire budget. The latter is the Important edge: without the
+    ///       transient pin in `get_or_rebuild`, the just-rebuilt oversized entry
+    ///       self-evicts during its own `insert` and the final `get` misses,
+    ///       returning `None` for a session that has events.
+    #[tokio::test]
+    async fn get_or_rebuild_survives_eviction_and_oversized_projection() {
+        // Well-formed assistant-text events (the shape that actually populates
+        // `records`, so `heap_bytes()` is non-zero) — chunky text so a 3-event
+        // projection has a meaningful footprint. Two same-shape sessions with
+        // different ids ⇒ equal-ish projection sizes.
+        let assistant_text = |id: &str, sess: &str, seq: u64, text: &str| {
+            serde_json::json!({
+                "specversion": "1.0",
+                "id": id,
+                "source": "arc://test",
+                "type": "io.arc.event",
+                "datacontenttype": "application/json",
+                "subtype": "message.assistant.text",
+                "time": format!("2026-01-01T00:00:{:02}Z", seq % 60),
+                "data": {
+                    "raw": {"type": "assistant", "message": {"model": "m",
+                            "content": [{"type": "text", "text": text}]}},
+                    "seq": seq,
+                    "session_id": sess,
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "text": text,
+                    },
+                },
+            })
+        };
+        let events_for = |sess: &str| {
+            let body = "x".repeat(300);
+            vec![
+                assistant_text(&format!("{sess}-e1"), sess, 1, &body),
+                assistant_text(&format!("{sess}-e2"), sess, 2, &body),
+                assistant_text(&format!("{sess}-e3"), sess, 3, &body),
+            ]
+        };
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.keep();
+        let mut state = StoreState::new(&path).unwrap();
+        for e in events_for("a") {
+            state.event_store.insert_event("a", &e).await.unwrap();
+        }
+        for e in events_for("b") {
+            state.event_store.insert_event("b", &e).await.unwrap();
+        }
+
+        // Measure one projection's real heap size, then size the budget to hold
+        // ~one but not two → a second resident session forces eviction.
+        let one = crate::rebuild::rebuild_session(state.event_store.as_ref(), "a")
+            .await
+            .unwrap()
+            .heap_bytes();
+        state.set_cache_budget(one + one / 2, 0, 256_000);
+
+        // (a) Load `a`; it fits. Loading `b` pushes over budget → the LRU cold
+        //     `a` is the (unpinned, no-window) victim.
+        let ra = state.get_or_rebuild("a").await.expect("a rebuilt");
+        let a_count = ra.event_count();
+        assert_eq!(a_count, 3);
+        drop(ra); // must not hold a Ref across the next insert (deadlock rule)
+        assert!(state.projections.contains("a"), "a resident after load");
+
+        let rb = state.get_or_rebuild("b").await.expect("b rebuilt");
+        assert_eq!(rb.event_count(), 3);
+        drop(rb);
+        assert!(state.projections.contains("b"), "b resident");
+        assert!(
+            !state.projections.contains("a"),
+            "a evicted under budget pressure (cold, non-oversized)"
+        );
+        assert!(state.projections.evictions() >= 1, "a real eviction happened");
+
+        // …and the evicted session transparently reloads with its full count.
+        let ra2 = state
+            .get_or_rebuild("a")
+            .await
+            .expect("a transparently reloaded after eviction");
+        assert_eq!(ra2.event_count(), a_count, "reloaded projection is complete");
+        drop(ra2);
+
+        // (b) The Important edge: a projection larger than the ENTIRE budget.
+        //     Budget of 1 byte makes every projection oversized. Without the
+        //     transient pin this returns None; with it, the full projection
+        //     round-trips.
+        state.set_cache_budget(1, 0, 256_000);
+        let rb2 = state
+            .get_or_rebuild("b")
+            .await
+            .expect("oversized projection must still return the full projection, not None");
+        assert_eq!(
+            rb2.event_count(),
+            3,
+            "oversized session returns the FULL projection through get_or_rebuild"
         );
     }
 
