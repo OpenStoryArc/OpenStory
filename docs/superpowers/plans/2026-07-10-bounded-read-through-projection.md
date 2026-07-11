@@ -528,6 +528,44 @@ git commit -m "feat(metrics): cache gauges + validation harness"
 
 ---
 
+## Task 9: Concurrency tests for the caches (added 2026-07-11)
+
+**Why:** the caught bugs (`PayloadCache` byte-underflow race; ref-counted-pin races) were found by *review reasoning*, not tests. Current cache tests are single-threaded. This task adds tests that would FAIL if those races were reintroduced.
+
+**Reality (bakes into the approach):** `PayloadCache`/`ProjectionCache` use `dashmap`, whose internal sync is `std`, not loom-instrumented — **loom cannot model-check DashMap operations directly.** So deliver both of:
+
+**Files:**
+- Create: `rs/store/src/concurrency_tests.rs` (or `#[cfg(test)]` mods in the cache files)
+- Modify: `rs/store/Cargo.toml` (add `loom` as a cfg-gated dev-dependency), `rs/store/src/lib.rs`
+- Test: the above
+
+**Interfaces:** none new — tests only.
+
+- [ ] **9b — real-threads stress test (primary, no loom needed).** `std::thread::spawn` N threads hammering the REAL `PayloadCache` and `ProjectionCache` with concurrent `insert`/`get`/overwrite/`pin_live`/`unpin_live` (+ inserts that force eviction) for many iterations. Assert post-conditions that the underflow bug would violate: `resident_bytes()` is sane (not near `u64::MAX`, `<=` a generous bound of total-inserted-bytes), the cache still serves, no panic, and (ProjectionCache) a never-unpinned session is never evicted. This exercises the real code and would catch the underflow class under load.
+
+```rust
+#[test]
+fn payload_cache_survives_concurrent_hammering() {
+    let c = std::sync::Arc::new(PayloadCache::new(50_000));
+    let mut hs = vec![];
+    for t in 0..8 { let c = c.clone(); hs.push(std::thread::spawn(move || {
+        for i in 0..2_000 { let k=(format!("s{}",t), format!("e{}",i%64));
+            if i%3==0 { c.get(&k); } else { c.insert(k, "x".repeat(200 + (i%400))); } }
+    })); }
+    for h in hs { h.join().unwrap(); }
+    assert!(c.resident_bytes() <= 50_000 * 4, "bytes must not have underflowed/blown up: {}", c.resident_bytes());
+    c.insert(("z".into(),"z".into()), "y".repeat(100)); // still functional
+    assert!(c.get(&("z".into(),"z".into())).is_some());
+}
+```
+Write it, run `cargo test -p open-story-store payload_cache_survives_concurrent_hammering` FOREGROUND → GREEN. Add the ProjectionCache analogue (concurrent insert/pin/unpin/evict; assert a pinned session stays resident and `resident_bytes` sane). Commit.
+
+- [ ] **9a — loom model of the accounting + pin core (rigorous, for the exact fix).** Under `#[cfg(loom)]`, build a minimal replica of ONLY the concurrency-critical section — an `AtomicU64` byte counter with the `fetch_add`-before-insert + saturating `sub_bytes` discipline, and a refcount pin with `remove_if(count==0)` — substituting `loom::sync::atomic::AtomicU64` and `loom::sync::Mutex<HashMap<..>>` for the `std`/DashMap types. `loom::model(|| { spawn 2–3 threads doing insert/overwrite/evict and pin/unpin })` asserting the invariants the reviewers proved by hand: the byte counter never underflows (wraps huge), a `pin_live` racing a reap-at-0 never loses the pin, two concurrent `unpin_live` never double-free. Run `cargo test -p open-story-store --cfg loom loom_` (or the project's loom invocation). If cfg-gating proves too invasive, deliver 9b + this extracted-core loom model and DOCUMENT in the test file why the full DashMap-backed cache can't be loom-instrumented directly.
+
+- [ ] **Commit** (specific files only — never `git add -A`): `git add rs/store/src/concurrency_tests.rs rs/store/src/lib.rs rs/store/Cargo.toml && git commit -m "test(store): concurrency stress + loom model for cache byte-accounting and pins"`
+
+**Escalate (NEEDS_CONTEXT)** if loom's cfg-gating requires touching the production cache code in a way that risks the shipped behavior — deliver 9b alone plus a written rationale rather than destabilizing the caches for a test.
+
 ## Self-Review
 
 - **Spec coverage:** hot-set-resident (T5/T7 pin+lazy-boot), cold-evict+rebuild (T3/T5/T6), byte-bounded payload LRU (T4), `projection_cache_bytes`/`working_set_days`/`payload_cache_bytes` (T1), preservation via SQLite read-through (T6, unchanged store), never-evict-live (T5 pins), validation (T8). Out-of-scope items (openactor prune, retention) intentionally absent. ✓
