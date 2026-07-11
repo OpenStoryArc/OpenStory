@@ -188,6 +188,23 @@ pub async fn create_state_with_watch_dirs(
         // SQLite stays the source of truth — an un-seeded session is deferred,
         // never lost. `reproject_all` remains available for on-demand full
         // rebuilds and is still exercised by tests.
+        //
+        // Live-session eviction protection (design decision — Option A): a
+        // streaming session is kept resident by the *recency working-set window*,
+        // not by an explicit pin. Every ingested event runs `append_or_insert`,
+        // which refreshes the session's recency, so an actively-appended session
+        // stays inside the `working_set_days` window and is never chosen as an
+        // eviction victim. The protection auto-expires when the session goes
+        // quiet — no explicit unpin, so no pin leak. `ProjectionCache::pin_live`
+        // is deliberately NOT wired into the streaming lifecycle: there is no
+        // reliable "session ended / went stale" signal to balance a pin-on-start
+        // (`system.session.end` is optional, staleness is computed lazily at
+        // query time, and `stale_threshold_secs` is unwired), so wiring only the
+        // pin would leak and defeat the byte bound. At `working_set_days == 0`
+        // the window is disabled, so a live session may be evicted and then
+        // rebuilt from SQLite on the next access/append — lossless, at the cost
+        // of some rebuild churn; operators wanting live sessions always-resident
+        // should keep `working_set_days > 0`.
         let report =
             crate::reproject::reproject_working_set(&store, config.working_set_days).await;
         if report.sessions_reprojected > 0 {

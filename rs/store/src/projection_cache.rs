@@ -176,6 +176,21 @@ impl ProjectionCache {
     /// `unpin_live`, and nested pins (transient + live) compose. Safe to call
     /// before the projection is inserted (the pin is consulted by id,
     /// independent of map membership).
+    ///
+    /// Streaming-lifecycle note (design decision — Option A): this pin is used
+    /// only for `get_or_rebuild`'s *transient* protection (guarding a
+    /// just-rebuilt entry against its own insert-time eviction). It is
+    /// deliberately NOT wired to the ingest/streaming lifecycle to keep a live
+    /// session resident, because there is no reliable "session ended / went
+    /// stale" signal to balance a pin-on-start (`system.session.end` is
+    /// optional, staleness is computed lazily at query time, `stale_threshold_secs`
+    /// is unwired) — a pin with no matching unpin would leak and defeat the byte
+    /// bound. Instead, an actively-streaming session stays resident via the
+    /// recency **working-set window**: each appended event refreshes its
+    /// recency, keeping it inside `working_set_days` and off the eviction list,
+    /// with protection auto-expiring when the session goes quiet. At
+    /// `working_set_days == 0` there is no window, so a live session may be
+    /// evicted and losslessly rebuilt from SQLite on next access.
     pub fn pin_live(&self, id: &str) {
         *self.pins.entry(id.to_string()).or_insert(0) += 1;
     }
