@@ -321,12 +321,14 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .merge(admin_writes_router)
         .layer(cors)
         .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
-        .with_state(state);
+        .with_state(state.clone());
 
-    // Add /metrics endpoint if enabled (outside auth — Prometheus scrapes without tokens)
+    // Add /metrics endpoint if enabled (outside auth — Prometheus scrapes without tokens).
+    // metrics_router takes its own SharedState clone so it can append live
+    // projection/payload cache gauges to the standard `metrics` crate output.
     let router = if config.metrics_enabled {
         if let Some(handle) = crate::metrics::init_recorder() {
-            router.merge(crate::metrics::metrics_router(handle))
+            router.merge(crate::metrics::metrics_router(handle, state))
         } else {
             router
         }
