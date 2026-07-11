@@ -331,9 +331,10 @@ pub async fn run_server(
         // and other consumers read from that same map. No sync needed.
         {
             let projections_bus = bus.clone();
-            let (shared_projections, shared_parents, shared_children) = {
+            let (shared_event_store, shared_projections, shared_parents, shared_children) = {
                 let s = state.read().await;
                 (
+                    s.store.event_store.clone(),
                     s.store.projections.clone(),
                     s.store.subagent_parents.clone(),
                     s.store.session_children.clone(),
@@ -341,6 +342,7 @@ pub async fn run_server(
             };
             tokio::spawn(async move {
                 let mut actor = consumers::projections::ProjectionsConsumer::new(
+                    shared_event_store,
                     shared_projections,
                     shared_parents,
                     shared_children,
@@ -348,7 +350,7 @@ pub async fn run_server(
                 match projections_bus.subscribe("events.>").await {
                     Ok(mut sub) => {
                         while let Some(batch) = sub.receiver.recv().await {
-                            actor.process_batch(&batch.session_id, &batch.events);
+                            actor.process_batch(&batch.session_id, &batch.events).await;
                         }
                     }
                     Err(e) => eprintln!("Projections consumer error: {e}"),

@@ -310,6 +310,62 @@ impl StoreState {
         self.projections.unpin_live(session_id);
         r
     }
+
+    /// Live-append entry point: hydrate a cold session's full durable history
+    /// into the projection cache BEFORE appending the new event(s) in place.
+    ///
+    /// `ProjectionCache::append_or_insert` alone is sync and can't read SQLite,
+    /// so for a session that isn't resident (evicted while cold, or never
+    /// seeded by lazy boot) it would create a FRESH EMPTY projection and append
+    /// only the new events — silently dropping prior history from every
+    /// projection-derived aggregate (token totals, event_count, filter_counts).
+    /// This async wrapper closes that hole: it rebuilds from the durable store
+    /// first (a no-op when already resident), so history + new = complete.
+    /// `SessionProjection::seen_ids` dedups, so replaying an already-persisted
+    /// event is harmless. Thin method over [`hydrate_and_append`] — the DRY core
+    /// shared with the NATS `ProjectionsConsumer` path.
+    ///
+    /// Deadlock rule: no `Ref` is held across the `.await` or the append.
+    pub async fn append_hydrated<F, R>(&self, session_id: &str, f: F) -> R
+    where
+        F: FnOnce(&mut SessionProjection) -> R,
+    {
+        hydrate_and_append(self.event_store.as_ref(), &self.projections, session_id, f).await
+    }
+}
+
+/// Hydrate a cold session's full durable history into `projections` before an
+/// in-place append, then perform the append. The DRY core behind
+/// [`StoreState::append_hydrated`] and the NATS `ProjectionsConsumer` — both
+/// live-append paths route through here so neither can regress into building a
+/// partial projection from only the new events.
+///
+/// On a resident session this is just the append (the `contains` check short-
+/// circuits). On a cold session it rebuilds from the durable store first; a
+/// `None` rebuild means there truly is no prior history, so the append below
+/// correctly seeds the projection fresh.
+///
+/// Deadlock-safety: no `Ref` is held across the `.await`, the transient
+/// `pin`/`insert`/`unpin`, or the final `append_or_insert` (the same rule
+/// `get_or_rebuild` follows). The transient pin shields the just-rebuilt entry
+/// from self-evicting during its own `insert` when it alone exceeds the budget.
+pub async fn hydrate_and_append<F, R>(
+    event_store: &dyn EventStore,
+    projections: &crate::projection_cache::ProjectionCache,
+    session_id: &str,
+    f: F,
+) -> R
+where
+    F: FnOnce(&mut SessionProjection) -> R,
+{
+    if !projections.contains(session_id) {
+        if let Some(p) = crate::rebuild::rebuild_session(event_store, session_id).await {
+            projections.pin_live(session_id);
+            projections.insert(session_id.to_string(), p);
+            projections.unpin_live(session_id);
+        }
+    }
+    projections.append_or_insert(session_id, f)
 }
 
 /// Internal helper used by the legacy sync constructors. Creates the
@@ -574,6 +630,70 @@ mod tests {
             rb2.event_count(),
             3,
             "oversized session returns the FULL projection through get_or_rebuild"
+        );
+    }
+
+    /// Regression: a live event arriving for a session that is durably present
+    /// but NOT resident in the projection cache (evicted while cold, or never
+    /// seeded) must NOT produce a fresh empty projection holding only the new
+    /// event. The live-append path (`append_hydrated`) hydrates the full
+    /// durable history first; `seen_ids` dedups, so history + new = complete.
+    #[tokio::test]
+    async fn append_hydrated_loads_full_history_before_appending() {
+        // Well-formed assistant-text events (populate records → filter_counts).
+        let assistant_text = |id: &str, seq: u64| {
+            serde_json::json!({
+                "specversion": "1.0",
+                "id": id,
+                "source": "arc://test",
+                "type": "io.arc.event",
+                "datacontenttype": "application/json",
+                "subtype": "message.assistant.text",
+                "time": format!("2026-01-01T00:00:{:02}Z", seq),
+                "data": {
+                    "raw": {"type": "assistant", "message": {"model": "m",
+                            "content": [{"type": "text", "text": "hi"}]}},
+                    "seq": seq,
+                    "session_id": "cold",
+                    "agent_payload": {
+                        "_variant": "claude-code",
+                        "meta": {"agent": "claude-code"},
+                        "text": "hi",
+                    },
+                },
+            })
+        };
+
+        // 3 prior events durable in SQLite; projection cache is cold.
+        let state = test_state_with_events(
+            "cold",
+            &[
+                assistant_text("cold-e1", 1),
+                assistant_text("cold-e2", 2),
+                assistant_text("cold-e3", 3),
+            ],
+        )
+        .await;
+        assert!(
+            !state.projections.contains("cold"),
+            "precondition: cold session is not resident"
+        );
+
+        // A live event arrives via the live-append path.
+        let new_ev = assistant_text("cold-e4", 4);
+        state.append_hydrated("cold", |p| p.append(&new_ev)).await;
+
+        let proj = state.projections.get("cold").unwrap();
+        assert_eq!(
+            proj.event_count(),
+            4,
+            "full durable history (3) + the new event (1) — NOT just the new event"
+        );
+        // Aggregate reflects the full history, not only the new event.
+        let filter_total: usize = proj.filter_counts().values().sum();
+        assert!(
+            filter_total > 1,
+            "filter_counts must reflect all 4 events, not a fresh single-event projection"
         );
     }
 

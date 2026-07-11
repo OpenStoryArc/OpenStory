@@ -202,9 +202,12 @@ pub async fn create_state_with_watch_dirs(
         // query time, and `stale_threshold_secs` is unwired), so wiring only the
         // pin would leak and defeat the byte bound. At `working_set_days == 0`
         // the window is disabled, so a live session may be evicted and then
-        // rebuilt from SQLite on the next access/append — lossless, at the cost
-        // of some rebuild churn; operators wanting live sessions always-resident
-        // should keep `working_set_days > 0`.
+        // rebuilt from SQLite — losslessly — on the next access OR live append:
+        // reads go through `StoreState::get_or_rebuild` and live appends through
+        // `StoreState::append_hydrated`, which reloads the full durable history
+        // BEFORE appending the new event (so a cold session never yields a
+        // partial projection). The only cost is some rebuild churn; operators
+        // wanting live sessions always-resident should keep `working_set_days > 0`.
         let report =
             crate::reproject::reproject_working_set(&store, config.working_set_days).await;
         if report.sessions_reprojected > 0 {

@@ -117,14 +117,14 @@ pub async fn ingest_events(
             // `append()` returns `AppendResult::empty()` for duplicate IDs.
 
             // Update projection (dedup happens here now via seen_ids).
-            // Scope the DashMap RefMut tightly: hold it only long enough
-            // to append, then drop before any later `.get()` or awaits
-            // on the same map. DashMap shards are RwLocks; two live
-            // guards on the same shard deadlock.
+            // `append_hydrated` first loads the full durable history for a cold
+            // (evicted / never-seeded) session, so a live event never produces
+            // a partial projection holding only the new event. No DashMap `Ref`
+            // is held across its `.await`.
             let append_result = state
                 .store
-                .projections
-                .append_or_insert(session_id, |proj| proj.append(&val));
+                .append_hydrated(session_id, |proj| proj.append(&val))
+                .await;
             if append_result.is_empty() {
                 // Duplicate event (seen_ids caught it) or unparseable CloudEvent.
                 // Skip broadcast — Actor 1 handles persistence independently.
@@ -1275,6 +1275,7 @@ mod tests {
             plan_store,
         );
         let mut projections = ProjectionsConsumer::new(
+            event_store.clone(),
             projections_map,
             std::sync::Arc::new(dashmap::DashMap::new()),
             std::sync::Arc::new(dashmap::DashMap::new()),
@@ -1293,7 +1294,7 @@ mod tests {
 
         // Both subscribers see the same batch independently.
         let persist_result = persist.process_batch("sess-comp", &events, None).await;
-        let _ = projections.process_batch("sess-comp", &events);
+        let _ = projections.process_batch("sess-comp", &events).await;
 
         // EventStore side (Actor 1's side of the stream).
         let stored = event_store.session_events("sess-comp").await.unwrap();

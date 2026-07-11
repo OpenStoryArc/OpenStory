@@ -89,7 +89,7 @@ impl TestActors {
         };
         Self {
             persist: PersistConsumer::new(
-                event_store,
+                event_store.clone(),
                 session_store,
                 shared_projections.clone(),
                 shared_projects,
@@ -98,6 +98,7 @@ impl TestActors {
             ),
             patterns: PatternsConsumer::new(),
             projections: ProjectionsConsumer::new(
+                event_store,
                 shared_projections,
                 shared_parents,
                 shared_children,
@@ -127,7 +128,7 @@ impl TestActors {
             .persist
             .process_batch(session_id, events, project_id)
             .await;
-        let _projection_res = self.projections.process_batch(session_id, events);
+        let _projection_res = self.projections.process_batch(session_id, events).await;
         let patterns_res = self.patterns.process_batch(session_id, events);
 
         // Snapshot the projection *after* Actor 3 has updated it, then

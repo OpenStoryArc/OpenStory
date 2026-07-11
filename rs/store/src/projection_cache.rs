@@ -143,6 +143,15 @@ impl ProjectionCache {
     /// single event to a resident projection must keep the byte budget honest
     /// without a full re-`insert`.
     ///
+    /// ⚠️ This is SYNC and cannot read the durable store, so for a session that
+    /// is NOT already resident it creates a FRESH EMPTY projection and appends
+    /// only `f`'s event(s) — losing prior history. Live-append callers must
+    /// hydrate cold sessions first: route through
+    /// [`crate::state::hydrate_and_append`] / [`crate::state::StoreState::append_hydrated`],
+    /// which rebuild from SQLite before delegating here. Call this directly only
+    /// when the caller has already guaranteed the projection is complete (e.g.
+    /// `reproject_all` inserts a full rebuild).
+    ///
     /// Deadlock-safe: the `RefMut` shard-write guard is dropped before
     /// `evict_to_budget` (which iterates the map). The recency/byte side-tables
     /// it touches after are *different* maps/atomics, matching `insert`.
