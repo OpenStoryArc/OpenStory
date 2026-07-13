@@ -39,8 +39,10 @@ const LANE_LABEL: Record<LaneKey, string> = {
   system: "system",
 };
 
-const LANE_ROW = 22; // px per swimlane
-const TOKEN_BAND = 34; // px for the token-burn area
+const LANE_ROW_FULL = 22; // px per swimlane
+const LANE_ROW_COMPACT = 13;
+const TOKEN_BAND_FULL = 34; // px for the token-burn area
+const TOKEN_BAND_COMPACT = 20;
 const AXIS_H = 18;
 const PAD_L = 76; // room for lane labels
 const PAD_R = 12;
@@ -79,6 +81,27 @@ function useMeasuredWidth(explicit: number | undefined): [React.RefObject<HTMLDi
   return [ref, w];
 }
 
+/** Persist a boolean UI preference to localStorage (quota/SSR-safe). */
+function usePersistedFlag(key: string, initial: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState<boolean>(() => {
+    try {
+      const s = localStorage.getItem(key);
+      return s == null ? initial : s === "1";
+    } catch {
+      return initial;
+    }
+  });
+  const set = (nv: boolean) => {
+    setV(nv);
+    try {
+      localStorage.setItem(key, nv ? "1" : "0");
+    } catch {
+      /* ignore quota/SSR */
+    }
+  };
+  return [v, set];
+}
+
 export function SessionActivityRibbon({
   records,
   width,
@@ -89,6 +112,10 @@ export function SessionActivityRibbon({
   const model = useMemo(() => buildTimelineModel(records), [records]);
   const [containerRef, measuredW] = useMeasuredWidth(width);
   const [hover, setHover] = useState<{ ev: RibbonEvent; x: number; y: number } | null>(null);
+  const [collapsed, setCollapsed] = usePersistedFlag("os.ribbon.collapsed", false);
+  const [compact, setCompact] = usePersistedFlag("os.ribbon.compact", false);
+  const LANE_ROW = compact ? LANE_ROW_COMPACT : LANE_ROW_FULL;
+  const TOKEN_BAND = compact ? TOKEN_BAND_COMPACT : TOKEN_BAND_FULL;
 
   const w = Math.max(measuredW, PAD_L + PAD_R + 40);
   const lanes = model.lanes;
@@ -133,8 +160,17 @@ export function SessionActivityRibbon({
 
   return (
     <div ref={containerRef} className={cn("relative w-full select-none", className)}>
-      {/* Summary chips */}
+      {/* Summary chips + view controls */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[#565f89]">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="-ml-1 px-1 text-[#565f89] hover:text-[#c0caf5]"
+          title={collapsed ? "Expand activity timeline" : "Collapse activity timeline"}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? "▸" : "▾"}
+        </button>
         <span className="text-[#c0caf5]">{model.events.length} events</span>
         <span>· {humanDuration(model.durationMs)}</span>
         {model.totalTokens > 0 && (
@@ -143,8 +179,19 @@ export function SessionActivityRibbon({
         {model.errorCount > 0 && (
           <span className="text-[#f7768e]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
         )}
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => setCompact(!compact)}
+            className="ml-auto rounded border border-[#2f3348] px-1.5 py-0.5 text-[#565f89] hover:border-[#565f89] hover:text-[#c0caf5]"
+            title={compact ? "Taller rows" : "Shorter rows"}
+          >
+            {compact ? "full height" : "compact"}
+          </button>
+        )}
       </div>
 
+      {!collapsed && (
       <svg width={w} height={height} className="block" role="img" aria-label="Session activity ribbon">
         {/* lane rows + labels */}
         {lanes.map((lane) => {
@@ -210,6 +257,7 @@ export function SessionActivityRibbon({
           );
         })}
       </svg>
+      )}
 
       {/* hover tooltip */}
       {hover && (
