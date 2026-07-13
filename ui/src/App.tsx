@@ -7,6 +7,7 @@ import { useHashRoute } from "@/hooks/use-hash-route";
 import { Timeline } from "@/components/Timeline";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
+import { TextSizeControl } from "@/components/layout/TextSizeControl";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
@@ -159,6 +160,7 @@ export function App() {
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <TextSizeControl />
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
             className="flex items-center gap-1.5 rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5] transition-colors"
