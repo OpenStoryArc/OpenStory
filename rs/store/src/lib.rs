@@ -11,6 +11,8 @@
 //! The server crate reads from the store to serve API requests.
 
 pub mod analysis;
+#[cfg(test)]
+mod concurrency_tests;
 pub mod event_store;
 pub mod extract;
 pub mod ingest;
