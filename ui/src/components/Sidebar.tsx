@@ -539,7 +539,7 @@ export const Sidebar = memo(function Sidebar({
     <div
       ref={sidebarRef}
       data-testid="sidebar"
-      className="flex flex-col bg-[color:var(--bg)] border-r border-[color:var(--bg-hover)] overflow-hidden relative"
+      className="flex flex-col bg-[color:var(--bg)] border-r border-[color:var(--divider)] overflow-hidden relative"
       style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH }}
     >
       {/* Width resize handle (right edge) */}
@@ -554,7 +554,7 @@ export const Sidebar = memo(function Sidebar({
       <TimeFilter value={timeFilter} onChange={setTimeFilter} />
 
       {/* Sessions header */}
-      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--bg-hover)] flex items-center justify-between">
+      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between">
         <span>Sessions</span>
         <span className="text-[color:var(--accent)]" data-testid="sidebar-session-count">
           {hostFilter || userFilter || timeFilter !== "all"
@@ -565,7 +565,7 @@ export const Sidebar = memo(function Sidebar({
 
       {/* Origin filter chips — only rendered when at least one filter is active. */}
       {(hostFilter || userFilter) && (
-        <div className="px-3 py-1.5 border-b border-[color:var(--bg-hover)] flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-chips">
+        <div className="px-3 py-1.5 border-b border-[color:var(--divider)] flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-chips">
           {hostFilter && (
             <button
               type="button"
@@ -629,7 +629,7 @@ export const Sidebar = memo(function Sidebar({
             key={`group-${group.principalId ?? "unattributed"}`}
             data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
           >
-            <div className="px-3 py-1.5 text-[length:var(--fs-label)] font-semibold text-[color:var(--accent)] bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
+            <div className="px-3 py-1.5 text-[length:var(--fs-label)] font-semibold text-[color:var(--accent)] bg-[color:var(--bg)] border-b border-[color:var(--divider)] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
               <span className="truncate" data-testid="fleet-group-name" title={group.principalName}>
                 {group.principalName}
               </span>
@@ -655,7 +655,7 @@ export const Sidebar = memo(function Sidebar({
                 setHighlightedIndex(i);
                 sessionListRef.current?.focus();
               }}
-              className={`w-full text-left px-3 py-2 border-b border-[color:var(--bg-hover)] transition-colors relative ${
+              className={`w-full text-left px-3 py-2 border-b border-[color:var(--divider)] transition-colors relative ${
                 isSelected
                   ? "bg-[color:var(--bg-surface)] border-l-2"
                   : "hover:bg-[color:var(--bg-surface)] cursor-pointer"
@@ -819,10 +819,10 @@ export const Sidebar = memo(function Sidebar({
           {/* Vertical drag handle */}
           <div
             onMouseDown={onVDragStart}
-            className="h-1 cursor-row-resize hover:bg-[color:var(--accent)] transition-colors shrink-0 border-t border-[color:var(--bg-hover)]"
+            className="h-1 cursor-row-resize hover:bg-[color:var(--accent)] transition-colors shrink-0 border-t border-[color:var(--divider)]"
           />
 
-          <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--bg-hover)] flex items-center justify-between shrink-0" data-testid="sidebar-agents-header">
+          <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between shrink-0" data-testid="sidebar-agents-header">
             <span>Agents</span>
             <span className="text-[color:var(--purple)]">
               1{selectedInfo.subagents.length > 0 ? ` + ${selectedInfo.subagents.length}` : ""}
@@ -834,7 +834,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               data-testid="agent-all"
               onClick={() => onFocusAgent(null)}
-              className={`w-full text-left px-3 py-1.5 text-xs border-b border-[color:var(--bg-hover)] transition-colors ${
+              className={`w-full text-left px-3 py-1.5 text-xs border-b border-[color:var(--divider)] transition-colors ${
                 !focusAgentId ? "bg-[color:var(--bg-surface)] text-[color:var(--accent)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)]"
               }`}
             >
@@ -845,7 +845,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               data-testid="agent-main"
               onClick={() => onFocusAgent("__main__")}
-              className={`w-full text-left px-3 py-1.5 border-b border-[color:var(--bg-hover)] transition-colors ${
+              className={`w-full text-left px-3 py-1.5 border-b border-[color:var(--divider)] transition-colors ${
                 focusAgentId === "__main__"
                   ? "bg-[color:var(--bg-surface)] border-l-2 border-l-[color:var(--accent)]"
                   : "hover:bg-[color:var(--bg-surface)]"
@@ -867,7 +867,7 @@ export const Sidebar = memo(function Sidebar({
                   key={sub.agentId}
                   data-testid={`agent-${sub.agentId.slice(0, 16)}`}
                   onClick={() => onFocusAgent(isActive ? null : sub.agentId)}
-                  className={`w-full text-left pl-6 pr-3 py-1.5 border-b border-[color:var(--bg-hover)] transition-colors ${
+                  className={`w-full text-left pl-6 pr-3 py-1.5 border-b border-[color:var(--divider)] transition-colors ${
                     isActive
                       ? "bg-[#1a1a3e] border-l-2 border-l-[color:var(--purple)]"
                       : "hover:bg-[color:var(--bg-surface)]"

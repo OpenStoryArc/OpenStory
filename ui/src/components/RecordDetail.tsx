@@ -75,8 +75,8 @@ function CodeBlock({
   const displayLabel = lang || (language !== "text" ? language : undefined);
 
   return (
-    <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--bg-hover)] overflow-auto" style={{ maxHeight: maxHeight ?? "200px" }}>
-      <div className="flex items-center justify-between border-b border-[color:var(--bg-hover)]" style={{ minHeight: displayLabel ? undefined : 0 }}>
+    <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--divider)] overflow-auto" style={{ maxHeight: maxHeight ?? "200px" }}>
+      <div className="flex items-center justify-between border-b border-[color:var(--divider)]" style={{ minHeight: displayLabel ? undefined : 0 }}>
         {displayLabel && (
           <div className="px-2 py-0.5 text-[10px] text-[color:var(--text-muted)]">{displayLabel}</div>
         )}
@@ -425,7 +425,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
 
       {/* Metadata bar: origin badge + depth badge + truncation indicator + subtree focus */}
       {(record.origin_agent || onFocusSubtree || depth > 0 || truncated) && (
-        <div className="mt-2 pt-2 border-t border-[color:var(--bg-hover)] flex items-center gap-2 flex-wrap">
+        <div className="mt-2 pt-2 border-t border-[color:var(--divider)] flex items-center gap-2 flex-wrap">
           {record.origin_agent && (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)]"

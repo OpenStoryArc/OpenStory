@@ -29,7 +29,7 @@ export const TimeFilter = memo(function TimeFilter({ value, onChange }: TimeFilt
 
   return (
     <div
-      className="px-2 py-2 border-b border-[color:var(--bg-hover)] flex items-center gap-1.5 overflow-x-auto"
+      className="px-2 py-2 border-b border-[color:var(--divider)] flex items-center gap-1.5 overflow-x-auto"
       data-testid="time-filter"
       role="group"
       aria-label="Filter sessions by time"

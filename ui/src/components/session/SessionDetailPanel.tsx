@@ -49,7 +49,7 @@ export function SessionDetailPanel({ sessionId }: SessionDetailPanelProps) {
 
   return (
     <div
-      className="border-b border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)]"
+      className="border-b border-[color:var(--divider)] bg-[color:var(--bg-surface)]"
       data-testid="session-detail-panel"
     >
       {/* Header bar — always visible */}

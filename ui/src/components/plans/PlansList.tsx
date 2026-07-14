@@ -49,12 +49,12 @@ export function PlansList({ sessionId, onSelect, selectedId, onPlansLoaded }: Pl
   }
 
   return (
-    <div className="border-r border-[color:var(--bg-hover)] w-64 overflow-y-auto">
+    <div className="border-r border-[color:var(--divider)] w-64 overflow-y-auto">
       {plans.map((p) => (
         <button
           key={p.id}
           onClick={() => onSelect(p.id)}
-          className={`w-full text-left p-3 border-b border-[color:var(--bg-hover)] transition-colors ${
+          className={`w-full text-left p-3 border-b border-[color:var(--divider)] transition-colors ${
             selectedId === p.id ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
           }`}
         >

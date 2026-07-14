@@ -248,7 +248,7 @@ export function SessionActivityRibbon({
       {/* hover tooltip */}
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[length:var(--fs-label)] text-[color:var(--text)] shadow-lg"
+          className="pointer-events-none absolute z-10 rounded border border-[color:var(--divider)] bg-[color:var(--bg)] px-2 py-1 text-[length:var(--fs-label)] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 8, w - 140), top: hover.y - 34 }}
         >
           <span className="font-medium" style={{ color: hover.ev.color }}>

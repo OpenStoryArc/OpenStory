@@ -137,7 +137,7 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
 
   // View tab bar — shared between session and no-session states
   const tabBar = (
-    <div className="flex items-center gap-1 px-4 py-2 border-t border-[color:var(--bg-hover)]">
+    <div className="flex items-center gap-1 px-4 py-2 border-t border-[color:var(--divider)]">
       {/* Back to search button — shown when navigated from a search result */}
       {cameFromSearch.current && detailView !== "search" && (
         <button

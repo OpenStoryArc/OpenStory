@@ -139,7 +139,7 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
         className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-[color:var(--bg-hover)] px-3">
+        <div className="flex items-center gap-2 border-b border-[color:var(--divider)] px-3">
           <span className="text-[color:var(--text-muted)]">⌘</span>
           <input
             ref={inputRef}
@@ -181,7 +181,7 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-3 border-t border-[color:var(--bg-hover)] px-3 py-1.5 text-[10px] text-[color:var(--text-muted)]">
+        <div className="flex items-center gap-3 border-t border-[color:var(--divider)] px-3 py-1.5 text-[10px] text-[color:var(--text-muted)]">
           <span><kbd className="text-[color:var(--accent)]">↑↓</kbd> navigate</span>
           <span><kbd className="text-[color:var(--accent)]">↵</kbd> open</span>
           <span className="ml-auto">{results.length} result{results.length === 1 ? "" : "s"}</span>

@@ -38,7 +38,7 @@ export const EventRow = memo(
     return (
       <button
         onClick={() => onClick(record.id)}
-        className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs font-mono border-b border-[color:var(--bg-hover)] transition-colors ${
+        className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs font-mono border-b border-[color:var(--divider)] transition-colors ${
           selected ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
         } ${isNew ? "event-new" : ""}${destructiveBg}`}
         style={gitBorderStyle}

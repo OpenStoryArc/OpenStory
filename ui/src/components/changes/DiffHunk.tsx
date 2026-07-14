@@ -8,9 +8,9 @@ export function DiffHunk({ hunk }: DiffHunkProps) {
   const timeLabel = new Date(hunk.timestamp).toLocaleTimeString();
 
   return (
-    <div className="mb-4 border border-[color:var(--bg-hover)] rounded">
+    <div className="mb-4 border border-[color:var(--divider)] rounded">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--bg-surface)] text-xs text-[color:var(--text-muted)] border-b border-[color:var(--bg-hover)]">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--bg-surface)] text-xs text-[color:var(--text-muted)] border-b border-[color:var(--divider)]">
         <span>
           {hunk.tool}
           {hunk.replaceAll ? " (replace all)" : ""}

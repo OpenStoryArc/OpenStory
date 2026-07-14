@@ -169,7 +169,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[color:var(--bg-hover)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
+      className={`mx-3 my-1 rounded-xl border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
       onClick={onSelect}
     >
@@ -277,7 +277,7 @@ interface FilterBarProps {
 const FilterBar = memo(function FilterBar({ activeFilter, onSelect, matchCount, totalCount, filterCounts }: FilterBarProps) {
   const filters = FILTER_GROUPS.flatMap((g) => g.filters);
   return (
-    <div className="px-3 py-1.5 bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)] text-xs" data-testid="filter-bar">
+    <div className="px-3 py-1.5 bg-[color:var(--bg)] border-b border-[color:var(--divider)] text-xs" data-testid="filter-bar">
       <div className="flex items-center gap-1 flex-wrap">
         {filters.map((f) => {
               const count = filterCounts[f];
@@ -598,7 +598,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
   return (
     <div className="flex flex-col h-full" data-testid="timeline">
       {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--text-muted)]" data-testid="timeline-status">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)] text-xs text-[color:var(--text-muted)]" data-testid="timeline-status">
         <span className="flex items-center gap-2">
           {highlightedPattern && (
             <span className="flex items-center gap-1" data-testid="highlight-indicator">
@@ -666,7 +666,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
 
       {/* Ephemeral progress indicator */}
       {state.currentEphemeral && (
-        <div className="px-3 py-1 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--orange)] animate-pulse">
+        <div className="px-3 py-1 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)] text-xs text-[color:var(--orange)] animate-pulse">
           {state.currentEphemeral.record_type === "system_event"
             ? ((state.currentEphemeral.payload as { message?: string }).message ?? "Working...")
             : "Working..."}

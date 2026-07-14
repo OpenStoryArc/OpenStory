@@ -107,7 +107,7 @@ export function UsersView({ onNavigate }: UsersViewProps) {
             </p>
           )}
           {!noData && (
-            <pre className="text-[11px] text-left bg-[color:var(--bg)] border border-[color:var(--bg-hover)] rounded p-3 text-[color:var(--green)] mb-2 overflow-x-auto">
+            <pre className="text-[11px] text-left bg-[color:var(--bg)] border border-[color:var(--divider)] rounded p-3 text-[color:var(--green)] mb-2 overflow-x-auto">
               {`export OPEN_STORY_USER=$USER\nexport OPEN_STORY_HOST=$(scutil --get LocalHostName)\ndocker compose ... up -d --force-recreate`}
             </pre>
           )}
@@ -152,10 +152,10 @@ function UserCard({ user, onNavigate }: UserCardProps) {
 
   return (
     <div
-      className="rounded-xl border border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)] overflow-hidden"
+      className="rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)] overflow-hidden"
       data-testid={`user-card-${user.user}`}
     >
-      <div className="px-4 py-3 border-b border-[color:var(--bg-hover)]">
+      <div className="px-4 py-3 border-b border-[color:var(--divider)]">
         <div className="flex items-baseline justify-between gap-2 mb-1">
           <button
             onClick={() =>

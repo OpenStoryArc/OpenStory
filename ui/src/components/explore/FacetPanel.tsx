@@ -22,7 +22,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Files */}
       {files.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--divider)]">
             Files ({files.length})
           </div>
           <div className="max-h-[180px] overflow-y-auto">
@@ -67,7 +67,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Tools */}
       {tools.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--divider)]">
             Tools ({tools.length})
           </div>
           {tools.map((t) => {
@@ -100,7 +100,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Plans */}
       {plans.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--divider)]">
             Plans ({plans.length})
           </div>
           {plans.map((p) => {

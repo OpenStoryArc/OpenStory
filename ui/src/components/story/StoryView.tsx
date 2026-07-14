@@ -384,7 +384,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           title="Drag to resize"
         />
         {/* Header bar */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] shrink-0">
           <span className="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider font-semibold">Sessions</span>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -395,7 +395,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           </button>
         </div>
         {/* Find bar — free-text search + facet filters over loaded sessions. */}
-        <div className="px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
+        <div className="px-3 py-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
           <div className="relative">
             <input
               value={search}
@@ -455,7 +455,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           )}
         </div>
         {/* Filter strip — sort + time window. Changing either resets paging. */}
-        <div className="px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
+        <div className="px-3 py-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
           <div className="flex flex-wrap gap-1">
             {SORT_OPTIONS.map(opt => {
               const active = sortMode === opt.key;
@@ -595,7 +595,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
             {/* The story, unfurled: the session's key sentences as a scannable
                 narrative spine — what it did, and (muted) why. */}
             {isActive && cached && cached.length > 0 && (
-              <div className="ml-3 mt-1 mb-1.5 border-l border-[color:var(--bg-hover)] pl-2.5">
+              <div className="ml-3 mt-1 mb-1.5 border-l border-[color:var(--divider)] pl-2.5">
                 {(spineExpanded ? cached : cached.slice(0, 8)).map((p, i) => {
                   const h = sentenceHeadline(p);
                   const turn = p.metadata?.turn as number | undefined;
@@ -719,7 +719,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
 
         {/* Stats bar + filters */}
         {sentences.length > 0 && (
-          <div className="px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] flex-shrink-0">
+          <div className="px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)] flex-shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-xs text-[color:var(--text-bright)]">
                 <b className="text-[color:var(--text)]">{sentences.length}</b> turns

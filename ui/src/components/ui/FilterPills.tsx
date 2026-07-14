@@ -17,7 +17,7 @@ export function FilterPills<F extends string>({
 }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-1 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-3 py-1.5 text-[11px]"
+      className="flex flex-wrap items-center gap-1 border-b border-[color:var(--divider)] bg-[color:var(--bg)] px-3 py-1.5 text-[11px]"
       data-testid="conversation-filter-pills"
     >
       {facets.map((f) => {

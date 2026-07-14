@@ -32,7 +32,7 @@ export function AnnotationsOverlay({
         <span className="ml-auto text-[color:var(--text-muted)]">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
-        <div className="max-h-[40vh] overflow-y-auto border-t border-[color:var(--bg-hover)] px-2 py-1.5">
+        <div className="max-h-[40vh] overflow-y-auto border-t border-[color:var(--divider)] px-2 py-1.5">
           {annotations.slice(0, 30).map((a) => (
             <div key={a.id} data-annotation={a.id} className="group relative mb-1 rounded hover:bg-[color:var(--bg-surface)]">
               <button

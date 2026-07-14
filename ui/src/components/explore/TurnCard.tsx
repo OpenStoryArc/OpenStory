@@ -31,10 +31,10 @@ export function TurnCard({ turn, index }: TurnCardProps) {
   };
 
   return (
-    <div className="border border-[color:var(--bg-hover)] rounded-xl overflow-hidden" data-testid="turn-card">
+    <div className="border border-[color:var(--divider)] rounded-xl overflow-hidden" data-testid="turn-card">
       {/* Prompt */}
       {turn.prompt && (
-        <div className="px-4 py-3 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)]">
+        <div className="px-4 py-3 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)]">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/9 text-[color:var(--accent)] font-medium">
               Turn {index + 1}
@@ -51,7 +51,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
 
       {/* Thinking (collapsed by default) */}
       {turn.thinking && (
-        <div className="border-b border-[color:var(--bg-hover)]">
+        <div className="border-b border-[color:var(--divider)]">
           <button
             onClick={() => setShowThinking((v) => !v)}
             className="w-full px-4 py-1.5 text-left text-[11px] text-[color:var(--green)] hover:bg-[color:var(--bg)] transition-colors flex items-center gap-1"
@@ -69,7 +69,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
 
       {/* Tool calls */}
       {turn.toolCalls.length > 0 && (
-        <div className="border-b border-[color:var(--bg-hover)]">
+        <div className="border-b border-[color:var(--divider)]">
           {turn.toolCalls.map((tc, i) => (
             <ToolCallRow
               key={i}
@@ -114,7 +114,7 @@ function ToolCallRow({ entry, expanded, onToggle }: {
   const filePath = (tc.typed_input as { file_path?: string } | undefined)?.file_path;
 
   return (
-    <div className="border-b border-[color:var(--bg-hover)]/19 last:border-b-0">
+    <div className="border-b border-[color:var(--divider)]/19 last:border-b-0">
       <button
         onClick={onToggle}
         className="w-full px-4 py-1.5 text-left text-xs hover:bg-[color:var(--bg)] transition-colors flex items-center gap-2"

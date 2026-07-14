@@ -125,27 +125,27 @@ export function ExploreSidebar({
   };
 
   return (
-    <div className="w-72 shrink-0 flex flex-col border-r border-[color:var(--bg-hover)] bg-[color:var(--bg)] overflow-hidden" data-testid="explore-sidebar">
+    <div className="w-72 shrink-0 flex flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg)] overflow-hidden" data-testid="explore-sidebar">
       {/* Header */}
-      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--bg-hover)] flex items-center justify-between">
+      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between">
         <span>Sessions</span>
         <span className="text-[color:var(--accent)]">{hierarchy.length}</span>
       </div>
 
       {/* Search */}
-      <div className="px-2 py-1.5 border-b border-[color:var(--bg-hover)]">
+      <div className="px-2 py-1.5 border-b border-[color:var(--divider)]">
         <input
           type="text"
           value={filters.search ?? ""}
           onChange={(e) => onFiltersChange({ ...filters, search: e.target.value || undefined })}
           placeholder="Search..."
-          className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-[11px] rounded px-2 py-1 border border-[color:var(--bg-hover)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
+          className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-[11px] rounded px-2 py-1 border border-[color:var(--divider)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
           data-testid="explore-search"
         />
       </div>
 
       {/* Sort chips */}
-      <div className="flex flex-wrap items-center gap-1 px-2 py-1 border-b border-[color:var(--bg-hover)]">
+      <div className="flex flex-wrap items-center gap-1 px-2 py-1 border-b border-[color:var(--divider)]">
         {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
           <button
             key={k}
@@ -162,7 +162,7 @@ export function ExploreSidebar({
       </div>
 
       {/* Date-range chips — bookmarkable via filters.range */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-[color:var(--bg-hover)] text-[10px]">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-[color:var(--divider)] text-[10px]">
         {RANGE_CHIPS.map((r) => (
           <button
             key={r.key}
@@ -190,7 +190,7 @@ export function ExploreSidebar({
 
       {/* Facets + active-filter controls */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="border-b border-[color:var(--bg-hover)]">
+        <div className="border-b border-[color:var(--divider)]">
           <div className="p-2 pb-0">
             {active && (
               <button
@@ -287,7 +287,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
   const durMs = sessionDurationMs(s);
 
   return (
-    <div className="border-b border-[color:var(--bg-hover)]">
+    <div className="border-b border-[color:var(--divider)]">
       {/* Parent session */}
       <button
         onClick={() => onSelect(s.session_id)}

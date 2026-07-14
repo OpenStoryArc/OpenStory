@@ -89,7 +89,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   const cardClassName = `mb-2 rounded-lg bg-[color:var(--bg-surface)] border overflow-hidden transition-colors ${
     isSelectedSession
       ? "border-[color:var(--accent)]"
-      : "border-[color:var(--bg-hover)] hover:border-[color:var(--border)]"
+      : "border-[color:var(--divider)] hover:border-[color:var(--border)]"
   }`;
 
   return (
@@ -162,7 +162,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           Shows full UUIDs in a compact list, each individually selectable so
           they can be copied with a single double-click. */}
       {eventsOpen && pattern.events.length > 0 && (
-        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[color:var(--bg-hover)]">
+        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[color:var(--divider)]">
           <div className="text-[9px] uppercase tracking-wide text-[color:var(--text-muted)] mb-1">
             event ids ({pattern.events.length})
           </div>
@@ -215,7 +215,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         </button>
 
         {detailOpen && (
-          <div className="space-y-1 border-t border-[color:var(--bg-hover)] pt-2 mt-1">
+          <div className="space-y-1 border-t border-[color:var(--divider)] pt-2 mt-1">
             {/* Sentence one-liner */}
             <p className="text-[12px] italic text-[color:var(--text-bright)] pb-1">
               {pattern.label}
@@ -588,9 +588,9 @@ function ApplyOutput({ output, toolName, outcome }: {
 
   if (isCode || isBash) {
     return (
-      <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--bg-hover)] overflow-auto max-h-60">
+      <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--divider)] overflow-auto max-h-60">
         {filePath && (
-          <div className="px-2 py-0.5 text-[10px] text-[color:var(--text-muted)] border-b border-[color:var(--bg-hover)]">
+          <div className="px-2 py-0.5 text-[10px] text-[color:var(--text-muted)] border-b border-[color:var(--divider)]">
             {language !== "text" ? language : ""} {filePath.split("/").pop()}
           </div>
         )}
@@ -614,7 +614,7 @@ function ApplyOutput({ output, toolName, outcome }: {
 
   // Fallback: markdown for non-code outputs
   return (
-    <div className="text-[11px] text-[color:var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[color:var(--bg-hover)] pt-1">
+    <div className="text-[11px] text-[color:var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[color:var(--divider)] pt-1">
       <Markdown remarkPlugins={[remarkGfm]}>{output}</Markdown>
     </div>
   );

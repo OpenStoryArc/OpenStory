@@ -11,7 +11,7 @@ export function Header() {
   const { color, label } = STATUS_INDICATOR[status];
 
   return (
-    <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)]">
+    <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)]">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-semibold text-[color:var(--text)]">Open Story</h1>
         <span className="text-xs text-[color:var(--text-muted)]">Event Dashboard</span>

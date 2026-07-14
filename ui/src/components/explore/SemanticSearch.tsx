@@ -83,7 +83,7 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search by meaning..."
-        className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-xs rounded px-3 py-2 border border-[color:var(--bg-hover)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
+        className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-xs rounded px-3 py-2 border border-[color:var(--divider)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
         data-testid="semantic-search-input"
       />
 
@@ -113,7 +113,7 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
             <button
               key={session.session_id}
               onClick={() => onSelectSession(session.session_id)}
-              className="text-left bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] rounded px-3 py-2 border border-[color:var(--bg-hover)] transition-colors"
+              className="text-left bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] rounded px-3 py-2 border border-[color:var(--divider)] transition-colors"
               data-testid="semantic-search-result"
             >
               {/* Session header */}

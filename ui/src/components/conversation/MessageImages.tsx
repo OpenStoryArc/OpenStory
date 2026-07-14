@@ -15,7 +15,7 @@ export function MessageImages({ images }: { images: readonly ResolvedImage[] }) 
           key={i}
           type="button"
           onClick={() => setZoom(img)}
-          className="block overflow-hidden rounded border border-[color:var(--bg-hover)] transition-colors hover:border-[color:var(--accent)]"
+          className="block overflow-hidden rounded border border-[color:var(--divider)] transition-colors hover:border-[color:var(--accent)]"
           title="Click to expand"
         >
           <img

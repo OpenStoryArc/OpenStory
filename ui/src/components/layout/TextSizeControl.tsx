@@ -54,7 +54,7 @@ export function TextSizeControl() {
 
   return (
     <div
-      className="flex items-center overflow-hidden rounded border border-[color:var(--bg-hover)]"
+      className="flex items-center overflow-hidden rounded border border-[color:var(--divider)]"
       role="group"
       aria-label="Text size"
       title="Text size"

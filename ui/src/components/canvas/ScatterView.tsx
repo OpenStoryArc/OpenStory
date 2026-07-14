@@ -208,7 +208,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
       <button
         onClick={() => { setSelecting((s) => !s); setBrushed(null); setHover(null); }}
         className={`absolute right-3 top-3 z-10 rounded border px-2 py-1 text-[10px] transition-colors ${
-          selecting ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--bg)]" : "border-[color:var(--bg-hover)] bg-[color:var(--bg)] text-[color:var(--text-bright)] hover:border-[color:var(--accent)]"
+          selecting ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--bg)]" : "border-[color:var(--divider)] bg-[color:var(--bg)] text-[color:var(--text-bright)] hover:border-[color:var(--accent)]"
         }`}
         title="Drag a box over the cloud to list those sessions"
       >
@@ -217,7 +217,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
 
       {/* linked list of brushed sessions */}
       {selecting && brushed && brushed.length > 0 && (
-        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)]/95 p-2 shadow-xl">
+        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[color:var(--divider)] bg-[color:var(--bg)]/95 p-2 shadow-xl">
           <div className="mb-1 flex items-center justify-between text-[10px] text-[color:var(--text-muted)]">
             <span>{brushed.length} session{brushed.length === 1 ? "" : "s"} selected</span>
             <span>out tok</span>
@@ -240,7 +240,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
       )}
 
       {hover && (
-        <div className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg" style={{ left: Math.min(hover.x + 10, width - 160), top: hover.y - 8 }}>
+        <div className="pointer-events-none absolute z-10 rounded border border-[color:var(--divider)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg" style={{ left: Math.min(hover.x + 10, width - 160), top: hover.y - 8 }}>
           <div className="max-w-[150px] truncate">{cleanHarnessPreview(hover.p.label)}</div>
           <div className="text-[color:var(--text-muted)]">{hover.p.events} ev · {kfmt(hover.p.tokens)} out · {formatDuration(hover.p.durationMs)} · <span style={{ color: agentColor(hover.p.agent) }}>{hover.p.agent}</span></div>
         </div>

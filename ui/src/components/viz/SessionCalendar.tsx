@@ -114,7 +114,7 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
 
       {hover && hover.c.sessionCount > 0 && (
         <div
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg"
+          className="pointer-events-none absolute z-10 whitespace-nowrap rounded border border-[color:var(--divider)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 14, width - 40), top: hover.y + TOP + 14 }}
         >
           <span className="text-[color:var(--text)]">{hover.c.date}</span>

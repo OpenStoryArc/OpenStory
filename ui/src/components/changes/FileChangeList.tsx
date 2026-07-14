@@ -21,7 +21,7 @@ export function FileChangeList({
           <button
             key={file.filePath}
             onClick={() => onSelect(file.filePath)}
-            className={`w-full text-left px-3 py-2 border-b border-[color:var(--bg-hover)] transition-colors ${
+            className={`w-full text-left px-3 py-2 border-b border-[color:var(--divider)] transition-colors ${
               isSelected
                 ? "bg-[color:var(--bg-surface)] text-[color:var(--text)]"
                 : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"

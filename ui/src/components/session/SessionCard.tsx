@@ -37,7 +37,7 @@ export const SessionCard = memo(function SessionCard({
   return (
     <button
       onClick={handleClick}
-      className={`w-full text-left p-3 border-b border-[color:var(--bg-hover)] transition-colors ${
+      className={`w-full text-left p-3 border-b border-[color:var(--divider)] transition-colors ${
         selected ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
       }`}
     >

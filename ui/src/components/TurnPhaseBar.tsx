@@ -34,7 +34,7 @@ export const TurnPhaseBar = memo(function TurnPhaseBar({ segments }: Props) {
 
   return (
     <div
-      className="flex h-1.5 bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)]"
+      className="flex h-1.5 bg-[color:var(--bg)] border-b border-[color:var(--divider)]"
       data-testid="turn-phase-bar"
       title={segments.map(s => `${s.phase}: ${s.eventCount}`).join(" · ")}
     >

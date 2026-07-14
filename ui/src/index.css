@@ -20,6 +20,10 @@
   --text-bright: #a9b1d6;
   --border: #3b4261;
   --cyan-bright: #7dcfff;
+  /* Section dividers. Same as --bg-hover in dark (its historical value), but
+     independently darker in light — a divider must READ against near-white
+     surfaces, while a hover wash must stay subtle. One var can't do both. */
+  --divider: #2f3348;
 
   /* Type scale — four steps instead of ad-hoc px. Use as
      text-[length:var(--fs-*)]; change here to retune the whole app. */
@@ -46,8 +50,9 @@
   --purple: #7847bd;
   --cyan: #007197;
   --text-bright: #3a4161;
-  --border: #b6bccf;
+  --border: #a6adc6;
   --cyan-bright: #006d8f;
+  --divider: #c0c5d4;
 }
 
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of

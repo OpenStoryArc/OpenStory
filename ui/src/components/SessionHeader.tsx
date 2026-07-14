@@ -41,7 +41,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
 
   return (
     <div
-      className="border-b border-[color:var(--bg-hover)]"
+      className="border-b border-[color:var(--divider)]"
       data-testid="session-header"
       data-cross-user={isCrossUser ? "true" : "false"}
     >

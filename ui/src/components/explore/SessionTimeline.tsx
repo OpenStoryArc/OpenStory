@@ -222,7 +222,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1" data-testid="session-timeline">
-        <div className="w-52 shrink-0 border-r border-[color:var(--bg-hover)] bg-[color:var(--bg)]" />
+        <div className="w-52 shrink-0 border-r border-[color:var(--divider)] bg-[color:var(--bg)]" />
         <div className="min-w-0 flex-1">
           <SessionVizSkeleton />
         </div>
@@ -233,7 +233,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   return (
     <div className="flex min-h-0" data-testid="session-timeline">
       {/* Navigation sidebar: turns + facets */}
-      <div className="w-52 shrink-0 border-r border-[color:var(--bg-hover)] overflow-y-auto bg-[color:var(--bg)] outline-none" ref={exploreSidebarRef} tabIndex={0}>
+      <div className="w-52 shrink-0 border-r border-[color:var(--divider)] overflow-y-auto bg-[color:var(--bg)] outline-none" ref={exploreSidebarRef} tabIndex={0}>
         <TurnOutline
           turns={graph.turns}
           selectedTurn={selectedTurn}
@@ -255,7 +255,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       {/* Event cards */}
       <div className="flex min-h-0 flex-1 min-w-0 flex-col outline-none" tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
         {/* Shared summary header — the one-product spine (clickable stats) */}
-        <div className="border-b border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)]">
+        <div className="border-b border-[color:var(--divider)] bg-[color:var(--bg-surface)]">
           <SessionSummaryHeader
             records={records}
             onJumpToError={() => {
@@ -267,19 +267,19 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
         </div>
 
         {/* Activity ribbon — temporal shape of the whole session */}
-        <div className="border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)]">
+        <div className="border-b border-[color:var(--divider)] bg-[color:var(--bg)]">
           <SessionActivityRibbon
             records={records}
             selectedEventId={selectedEventId}
             onSelectEvent={selectEvent}
           />
-          <div className="border-t border-[color:var(--bg-hover)]">
+          <div className="border-t border-[color:var(--divider)]">
             <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
           </div>
         </div>
 
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--bg-hover)] text-[10px] text-[color:var(--text-muted)]">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--divider)] text-[10px] text-[color:var(--text-muted)]">
           <span>
             {hasFacets
               ? `${filteredRecords.length} of ${records.length} events`

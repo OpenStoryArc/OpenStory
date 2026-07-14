@@ -18,7 +18,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
   const summary = truncate(toolInputSummary(call.typed_input), 60);
 
   return (
-    <div className="mx-4 my-1 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)] text-xs">
+    <div className="mx-4 my-1 rounded border border-[color:var(--divider)] bg-[color:var(--bg-surface)] text-xs">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[color:var(--bg-hover)] transition-colors"
@@ -30,7 +30,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
         <span className="text-[color:var(--text-muted)]">{expanded ? "\u25B2" : "\u25BC"}</span>
       </button>
       {expanded && (
-        <div className="border-t border-[color:var(--bg-hover)]">
+        <div className="border-t border-[color:var(--divider)]">
           <div className="px-3 py-2">
             <div className="text-[color:var(--text-muted)] mb-1">Input:</div>
             <pre className="bg-[color:var(--bg)] rounded p-2 overflow-x-auto whitespace-pre-wrap break-words text-[color:var(--text)]">
@@ -38,7 +38,7 @@ export const ToolCallBlock = memo(function ToolCallBlock({
             </pre>
           </div>
           {result && (
-            <div className="px-3 py-2 border-t border-[color:var(--bg-hover)]">
+            <div className="px-3 py-2 border-t border-[color:var(--divider)]">
               <div className="text-[color:var(--text-muted)] mb-1">
                 Result{result.is_error ? " (error)" : ""}:
               </div>

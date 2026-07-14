@@ -104,7 +104,7 @@ export function ExploreDashboard({
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-testid="explore-dashboard">
       {/* Stats bar — numbers reflect the active filters; click a stat to sort. */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-[color:var(--bg-hover)] px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-[color:var(--divider)] px-4 py-2">
         <div>
           <div className="text-[18px] font-semibold tabular-nums text-[color:var(--text)]">{stats.sessionCount.toLocaleString()}</div>
           <div className="text-[10px] text-[color:var(--text-muted)]">sessions{filtersActive ? " (filtered)" : ""}</div>
@@ -131,20 +131,20 @@ export function ExploreDashboard({
       </div>
 
       {/* Calendar — always the full universe so the shape of your history stays visible. */}
-      <div className="overflow-x-auto border-b border-[color:var(--bg-hover)] px-4 py-3">
+      <div className="overflow-x-auto border-b border-[color:var(--divider)] px-4 py-3">
         <SessionCalendar sessions={[...universe]} selectedDay={selectedDay} onSelectDay={onSelectDay} />
       </div>
 
       {/* Recent strip — frecency where the eye already is. */}
       {recentSessions.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-[color:var(--bg-hover)] px-3 py-1.5" data-testid="recent-strip">
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-[color:var(--divider)] px-3 py-1.5" data-testid="recent-strip">
           <span className="shrink-0 text-[10px] uppercase tracking-wide text-[color:var(--text-muted)]">Recent</span>
           {recentSessions.map((s) => (
             <button
               key={s.session_id}
               data-recent-session={s.session_id}
               onClick={() => onOpenSession(s.session_id)}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-[color:var(--bg-hover)] px-2 py-0.5 text-[11px] text-[color:var(--text)] hover:border-[color:var(--accent)] hover:bg-[color:var(--bg-surface)]"
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-[color:var(--divider)] px-2 py-0.5 text-[11px] text-[color:var(--text)] hover:border-[color:var(--accent)] hover:bg-[color:var(--bg-surface)]"
               title={sessionTitle(s)}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: sessionColor(s.session_id) }} />

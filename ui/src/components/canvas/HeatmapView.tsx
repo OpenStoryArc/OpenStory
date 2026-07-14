@@ -85,7 +85,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-[color:var(--bg)] text-[color:var(--text)]" data-testid="heatmap-view">
       {/* header */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] px-4 py-2.5">
         <div className="flex items-baseline gap-2">
           <span className="text-[15px] font-semibold">Contributions</span>
           <span className="text-[11px] text-[color:var(--text-muted)]">{grid.totalSessions.toLocaleString()} sessions · {activeDays} active days · last {weeks} weeks</span>
@@ -107,7 +107,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
       </div>
 
       {/* filter bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[color:var(--bg-hover)]/60 bg-[color:var(--bg)] px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[color:var(--divider)]/60 bg-[color:var(--bg)] px-4 py-2">
         {FILTER_DIMS.map((dim) => {
           const values = facets[dim.facet].slice(0, 6);
           if (!values.length) return null;

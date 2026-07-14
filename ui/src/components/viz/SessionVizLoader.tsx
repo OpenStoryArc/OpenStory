@@ -51,12 +51,12 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
         )}
       </div>
       {/* Key data on top: the token summary, before the conversation. */}
-      <div className="border-b border-[color:var(--bg-hover)]">
+      <div className="border-b border-[color:var(--divider)]">
         <div className="px-3 pt-1 text-[length:var(--fs-label)] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">Tokens</div>
         <TokenReport records={records} />
       </div>
       <SessionActivityRibbon records={records} />
-      <div className="mt-1 flex min-h-0 grow flex-col border-t border-[color:var(--bg-hover)] pt-1">
+      <div className="mt-1 flex min-h-0 grow flex-col border-t border-[color:var(--divider)] pt-1">
         {/* Conversation-first: the transcript leads; trace, subagents, and the
             detail wall are lens tabs at the top — no scroll-past-everything. */}
         <div className="flex items-center gap-1 px-3 pt-1">

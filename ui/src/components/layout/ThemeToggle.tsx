@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { controlActions$ } from "@/streams/control";
 
 const KEY = "os.theme";
 type Theme = "dark" | "light";
@@ -21,6 +22,18 @@ function readTheme(): Theme {
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(readTheme);
+
+  // Agent-in-UI seam: `toggle {target: "theme", value: "light"|"dark"}` lets
+  // an agent switch the theme for the human (sink only, always visible via
+  // the driven-by indicator).
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "theme" && (a.value === "light" || a.value === "dark")) {
+        setTheme(a.value);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (theme === "light") {
