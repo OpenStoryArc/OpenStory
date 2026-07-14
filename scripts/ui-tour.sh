@@ -29,10 +29,12 @@ ISSUER="ui-tour"
 
 FAST=0
 SILENT=0
+SHORT=0
 for arg in "$@"; do
   case "$arg" in
     --fast) FAST=1 ;;
     --silent) SILENT=1 ;;
+    --short) SHORT=1 ;;
     -h|--help)
       sed -n '2,20p' "$0"
       exit 0
@@ -124,6 +126,7 @@ stop \
 
 # ---------------------------------------------------------------------------
 # Stop 2 — Explore: the sessions browser
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 open_view explore
 stop \
@@ -131,6 +134,7 @@ stop \
   "This is Explore, the browser for everything your agents have ever done. You can search across sessions, sort by recency or by token cost, and drill into any run without losing your place. It's the front door for digging back through history."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 3 — Open the rich demo session: the session pane, conversation-first
 # ---------------------------------------------------------------------------
 open_view explore "$SID"
@@ -150,6 +154,7 @@ stop \
 
 # ---------------------------------------------------------------------------
 # Stop 5 — Declutter: compact the ribbon, fold up the token math
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 toggle ribbon.compact on
 pause 1
@@ -159,6 +164,7 @@ stop \
   "For long sessions, all that detail can get busy, so both the activity ribbon and the token report can compact down on demand. Same underlying data, just a tighter footprint, which matters once a session runs for hours instead of minutes."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 6 — Theme flip to light
 # ---------------------------------------------------------------------------
 toggle theme light
@@ -167,7 +173,13 @@ stop \
   "The whole interface can flip from dark to light in an instant, no reload, no flash. It's a real preference, not an afterthought, and it's remembered per device. Some people just read logs better on a bright screen in the middle of the day."
 
 # ---------------------------------------------------------------------------
+# Short cut: restore dark without ceremony (stop 7 is skipped).
+if [ "$SHORT" -eq 1 ]; then
+  post '{"action":"toggle","params":{"target":"theme","value":"dark"},"issuer":"'"$ISSUER"'"}'
+fi
+
 # Stop 7 — Theme back to dark, ribbon restored to full detail
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 toggle theme dark
 pause 1
@@ -177,7 +189,9 @@ stop \
   "Back to dark, and back to the fuller ribbon layout. The point isn't which one is right, it's that the human at the keyboard always has the last word over how this looks, even when an agent is the one driving."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 8 — Story: narrative sentences, sorted by token cost
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 open_view story "$SID"
 pause 1
@@ -187,7 +201,9 @@ stop \
   "This is Story. Instead of raw events, it reads back like a narrative, plain sentences describing what happened and when. Sorting by token cost is a fast way to spot the sessions quietly burning through your budget."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 9 — Canvas: the whole fleet as a zoomable board
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 open_view canvas
 stop \
@@ -195,7 +211,9 @@ stop \
   "Canvas lays your whole fleet out as a zoomable board. It starts grouped by day or user or project so it never feels overwhelming, and you pan and click your way deeper, group to project to a single session, with the same detail pane we just saw waiting underneath."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 10 — Ask: real questions, computed live, no model in the loop
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 open_view ask
 stop \
@@ -203,7 +221,9 @@ stop \
   "Ask lets you pick a real question about your history and get an answer computed straight from the data, no language model in the loop, nothing sent anywhere. Every answer links back into Explore, so you're never more than a click from the actual sessions behind it."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 11 — Zoom all the way out: Users, then the federation in Admin
+if [ "$SHORT" -eq 0 ]; then
 # ---------------------------------------------------------------------------
 open_view users
 pause 1.5
@@ -213,6 +233,7 @@ stop \
   "Users rolls everything up by person, who's working, from where, and how much they're spending. Admin goes one level further and shows the federation topology itself, how every device and account link up into a single shared store."
 
 # ---------------------------------------------------------------------------
+fi
 # Stop 12 — The meta moment: this tour is an agent driving the seam
 # ---------------------------------------------------------------------------
 open_view live
