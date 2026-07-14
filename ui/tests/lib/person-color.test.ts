@@ -26,13 +26,16 @@ describe("personColor", () => {
     expect(palette.size).toBeGreaterThan(1);
   });
 
-  it("returns a value from the Tokyo Night palette", () => {
-    expect(personColor("katie")).toMatch(/^#[0-9a-f]{6}$/i);
+  it("returns a value from the theme-aware identity slots", () => {
+    // Colors are now CSS custom-property references (--sc-0..9 in
+    // index.css) rather than literal hexes, so the same palette renders
+    // correctly in both light and dark themes.
+    expect(personColor("katie")).toMatch(/^var\(--sc-[0-9]\)$/);
   });
 
   it("handles empty string without throwing", () => {
     // hash defaults to 0; idx = 0; index 0 is the first color.
     expect(() => personColor("")).not.toThrow();
-    expect(personColor("")).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(personColor("")).toBe("var(--sc-0)");
   });
 });

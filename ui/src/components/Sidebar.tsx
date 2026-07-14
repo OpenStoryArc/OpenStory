@@ -471,12 +471,24 @@ export const Sidebar = memo(function Sidebar({
   // --- Horizontal resize (sidebar width) ---
   const [width, setWidth] = useState(() => {
     // Persisted like the other resizable panels — a chosen width survives reloads.
-    if (typeof window === "undefined") return DEFAULT_WIDTH;
-    const saved = Number(window.localStorage.getItem("live.sidebar.width"));
-    return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+    // Guarded like the rest of the persistence hooks (use-persisted-flag,
+    // ThemeToggle, lib/recents): storage can be absent even when `window`
+    // isn't (privacy modes, quota, or a test/SSR environment), so failing to
+    // read it should fall back to the default rather than throw.
+    try {
+      if (typeof window === "undefined") return DEFAULT_WIDTH;
+      const saved = Number(window.localStorage.getItem("live.sidebar.width"));
+      return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+    } catch {
+      return DEFAULT_WIDTH;
+    }
   });
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+    } catch {
+      /* ignore quota/SSR/unavailable storage */
+    }
   }, [width]);
   const hDrag = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: 0 });
 

@@ -25,16 +25,26 @@ export function useResizablePanel(
   side: "left" | "right" = "right",
 ): ResizablePanel {
   const [width, setWidth] = useState<number>(() => {
-    if (typeof window === "undefined") return defaultPx;
-    const saved = Number(window.localStorage.getItem(storageKey));
-    return clampWidth(Number.isFinite(saved) && saved > 0 ? saved : defaultPx, min, max);
+    // Storage can be absent even when `window` isn't (privacy modes, quota,
+    // or a test/SSR environment) — fall back to the default rather than throw.
+    try {
+      if (typeof window === "undefined") return defaultPx;
+      const saved = Number(window.localStorage.getItem(storageKey));
+      return clampWidth(Number.isFinite(saved) && saved > 0 ? saved : defaultPx, min, max);
+    } catch {
+      return clampWidth(defaultPx, min, max);
+    }
   });
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Persist whenever the width settles.
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(storageKey, String(width));
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem(storageKey, String(width));
+    } catch {
+      /* ignore quota/SSR/unavailable storage */
+    }
   }, [storageKey, width]);
 
   const onHandlePointerDown = useCallback((e: React.PointerEvent) => {
