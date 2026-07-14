@@ -5,7 +5,6 @@ import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { useObservable } from "@/hooks/use-observable";
 import { useHashRoute } from "@/hooks/use-hash-route";
 import { Timeline } from "@/components/Timeline";
-import { ZenView } from "@/components/zen/ZenView";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { TextSizeControl } from "@/components/layout/TextSizeControl";
@@ -222,9 +221,6 @@ export function App() {
           </div>
         </div>
       )}
-
-      {/* Zen tab — the calm room: one quiet line per event, one person. */}
-      {viewMode === "zen" && <ZenView records={state.records} patterns={state.patterns} onOpenEvent={(sid, eid) => navigate({ view: "explore", sessionId: sid, eventId: eid })} />}
 
       {/* Explore tab */}
       {viewMode === "explore" && (

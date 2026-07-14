@@ -123,16 +123,6 @@
   .chat-enter { animation: none; }
 }
 
-/* Zen room: new lines breathe in — a slow fade-and-rise, nothing sudden. */
-@keyframes zen-breathe {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.zen-enter { animation: zen-breathe 0.45s ease-out; }
-@media (prefers-reduced-motion: reduce) {
-  .zen-enter { animation: none; }
-}
-
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of
    scattered per-component transition classes. Guarded for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {

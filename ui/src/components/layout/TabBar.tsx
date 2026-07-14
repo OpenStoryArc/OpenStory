@@ -9,7 +9,6 @@ interface TabBarProps {
 
 const TABS: { mode: ViewMode; label: string }[] = [
   { mode: "live", label: "Live" },
-  { mode: "zen", label: "Zen" },
   { mode: "explore", label: "Explore" },
   { mode: "story", label: "Story" },
   { mode: "canvas", label: "Canvas" },
