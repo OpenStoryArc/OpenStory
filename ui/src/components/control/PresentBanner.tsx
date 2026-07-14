@@ -16,7 +16,6 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { HashRoute } from "@/lib/hash-route";
 import { compactTime } from "@/lib/time";
-import { cn } from "@/lib/cn";
 
 export interface Presentation {
   readonly issuer: string;

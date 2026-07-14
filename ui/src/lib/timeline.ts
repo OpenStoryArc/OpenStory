@@ -48,7 +48,7 @@ export interface TimelineRow {
 const SKIP_TYPES = new Set(["token_usage", "session_meta", "turn_start", "file_snapshot", "context_compaction"]);
 
 /** Max summary length — generous since cards auto-size to content */
-const MAX_SUMMARY = 500;
+const MAX_SUMMARY = 1200; // generous — the text IS the content (Max, 2026-07-14)
 
 function truncate(s: string, max: number): string {
   const clean = stripAnsi(s);
