@@ -144,11 +144,12 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
     }
     return (
       <div className="flex items-center px-4 py-2" data-testid="turn-divider">
-        <div className="flex-1 h-px bg-[color:var(--border)]" />
-        <span className="text-[10px] text-[color:var(--text-muted)] px-3 shrink-0 font-mono">
+        {/* Sits directly ON the stream field — fixed on-stream inks, not theme text vars. */}
+        <div className="flex-1 h-px bg-[color:var(--stream-line)]" />
+        <span className="text-[10px] text-[color:var(--stream-text)] px-3 shrink-0 font-mono">
           {parts.length > 0 ? parts.join(" · ") : row.summary}
         </span>
-        <div className="flex-1 h-px bg-[color:var(--border)]" />
+        <div className="flex-1 h-px bg-[color:var(--stream-line)]" />
       </div>
     );
   }
@@ -686,9 +687,9 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
       />
 
       {/* Event feed */}
-      <div ref={scrollRef} className="flex-1 overflow-auto outline-none" tabIndex={0} data-focus-zone="timeline" onFocus={() => setTimelineFocused(true)} onBlur={() => setTimelineFocused(false)}>
+      <div ref={scrollRef} className="flex-1 overflow-auto outline-none bg-[color:var(--stream)]" tabIndex={0} data-focus-zone="timeline" onFocus={() => setTimelineFocused(true)} onBlur={() => setTimelineFocused(false)}>
         {loadingSession && rows.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-[color:var(--text-muted)]" data-testid="loading-session">
+          <div className="flex items-center justify-center h-full text-[color:var(--stream-text)]" data-testid="loading-session">
             <div className="text-center">
               <div className="text-lg mb-2">Loading session…</div>
               <div className="text-xs">Fetching records via REST</div>

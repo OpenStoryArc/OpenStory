@@ -39,6 +39,14 @@
   --sc-8: #c0caf5; /* light gray */
   --sc-9: #73daca; /* teal */
 
+  /* The stream field — the dark canvas behind Live-feed event blocks (the
+     x.com idiom: entities float bright on a dark field). Ink in BOTH themes;
+     on-stream chrome (dividers, loading text) uses the fixed on-stream inks
+     below rather than theme text vars. */
+  --stream: #0e0f16;
+  --stream-text: #8f97bd;
+  --stream-line: #31364d;
+
   /* Type scale — four steps instead of ad-hoc px. Use as
      text-[length:var(--fs-*)]; change here to retune the whole app. */
   --fs-label: 10px;    /* uppercase labels, timestamps, chips */
