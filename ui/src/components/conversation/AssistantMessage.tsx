@@ -1,9 +1,12 @@
 import { memo, useState } from "react";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { Markdown } from "@/components/ui/Markdown";
+import { MessageImages } from "./MessageImages";
+import type { ResolvedImage } from "@/lib/message-images";
 
 interface AssistantMessageProps {
   text: string;
+  images?: readonly ResolvedImage[];
   model?: string;
   timestamp?: string;
   isThinking?: boolean;
@@ -13,6 +16,7 @@ const COLLAPSE_THRESHOLD = 300; // chars
 
 export const AssistantMessage = memo(function AssistantMessage({
   text,
+  images,
   model,
   timestamp,
   isThinking,
@@ -63,6 +67,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             {expanded ? "Collapse" : "Expand"}
           </button>
         )}
+        <MessageImages images={images ?? []} />
       </div>
     </div>
   );

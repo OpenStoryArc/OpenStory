@@ -6,6 +6,7 @@ import type {
 } from "@/types/view-record";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { textFromContent, imagesFromContent } from "@/lib/message-images";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FilterPills } from "@/components/ui/FilterPills";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,26 +89,16 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
         case "user_message":
           return (
             <UserMessage
-              text={
-                typeof entry.payload.content === "string"
-                  ? entry.payload.content
-                  : entry.payload.content
-                      ?.filter((b) => b.type === "text")
-                      .map((b) => b.text ?? "")
-                      .join("") ?? ""
-              }
+              text={textFromContent(entry.payload.content)}
+              images={imagesFromContent(entry.payload.content)}
               timestamp={entry.timestamp}
             />
           );
         case "assistant_message":
           return (
             <AssistantMessage
-              text={
-                entry.payload.content
-                  ?.filter((b) => b.type === "text")
-                  .map((b) => b.text ?? "")
-                  .join("") ?? ""
-              }
+              text={textFromContent(entry.payload.content)}
+              images={imagesFromContent(entry.payload.content)}
               model={entry.payload.model}
               timestamp={entry.timestamp}
             />

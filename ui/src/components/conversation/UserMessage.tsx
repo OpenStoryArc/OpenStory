@@ -2,14 +2,18 @@ import { memo } from "react";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { userMessageView } from "@/lib/harness-message";
 import { Markdown } from "@/components/ui/Markdown";
+import { MessageImages } from "./MessageImages";
+import type { ResolvedImage } from "@/lib/message-images";
 
 interface UserMessageProps {
   text: string;
+  images?: readonly ResolvedImage[];
   timestamp?: string;
 }
 
 export const UserMessage = memo(function UserMessage({
   text,
+  images,
   timestamp,
 }: UserMessageProps) {
   return (
@@ -43,6 +47,7 @@ export const UserMessage = memo(function UserMessage({
             </Markdown>
           );
         })()}
+        <MessageImages images={images ?? []} />
       </div>
     </div>
   );
