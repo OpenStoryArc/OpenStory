@@ -18,14 +18,13 @@ import { toTimelineRows, type TimelineRow, type TimelineCategory } from "@/lib/t
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { CardBody } from "@/components/events/EventCard";
 import { TIMELINE_FILTERS, FILTER_GROUPS } from "@/lib/timeline-filters";
-import { FILTER_LABELS, FILTER_TOOLTIPS, PATTERN_LABELS, PATTERN_TOOLTIPS } from "@/lib/ui-labels";
+import { FILTER_LABELS, FILTER_TOOLTIPS } from "@/lib/ui-labels";
 import { shouldClearFocus } from "@/lib/focus";
 import { emptyStateMessage } from "@/lib/empty-state";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { subtreeIds } from "@/lib/subtree";
 import { nextCardIndex } from "@/lib/keyboard-nav";
 import { buildPatternIndex } from "@/lib/pattern-index";
-import { summarizePatterns, patternRollupLabel } from "@/lib/pattern-rollup";
 import { extractTurnPhases } from "@/lib/turn-phases";
 import { TurnPhaseBar } from "@/components/TurnPhaseBar";
 import type { PatternView } from "@/types/wire-record";
@@ -61,20 +60,6 @@ const CATEGORY_LABELS: Record<TimelineCategory, string> = {
 // ---------------------------------------------------------------------------
 // Session badge — short colored identifier
 // ---------------------------------------------------------------------------
-
-// Pattern badge colors (Tokyonight palette)
-// ---------------------------------------------------------------------------
-// All persisted pattern types live in the eval_apply.* / turn.* namespaces.
-// Pre-cleanup, this map had entries for legacy types (test.cycle, git.workflow,
-// error.recovery, agent.delegation, turn.phase) — all retired in
-// chore/cut-legacy-detectors. Anything not matched falls back to the muted
-// grey default below, which keeps the badge palette consistent without
-// requiring per-type entries.
-const PATTERN_COLORS: Record<string, string> = {};
-
-function patternColor(p: PatternView): string {
-  return PATTERN_COLORS[p.type] ?? "#565f89";
-}
 
 function formatTurnDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -118,20 +103,18 @@ interface RowProps {
   isFocusRoot: boolean;
   isHighlighted: boolean;
   isSelected: boolean;
-  patterns: readonly PatternView[];
+  /** Still threaded by the parent for highlight indexing; unused since the
+   *  rollup pill was removed (detector jargon didn't belong on cards). */
+  patterns?: readonly PatternView[];
   turnSummary: TurnSummary | null;
   sessionLabel: string | null;
-  onPatternClick: (pattern: PatternView) => void;
+  onPatternClick?: (pattern: PatternView) => void;
   onSelect?: () => void;
   onExploreLink?: (sessionId: string, eventId: string) => void;
 }
 
-const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHighlighted, isSelected, patterns, turnSummary, sessionLabel, onPatternClick, onSelect, onExploreLink }: RowProps) {
+const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHighlighted, isSelected, turnSummary, sessionLabel, onSelect, onExploreLink }: RowProps) {
   const catColor = CATEGORY_COLORS[row.category];
-  // Pattern pills default to a calm rollup ("12 cycles · 8 sentences"); the raw
-  // detector pills expand on click (map principle: quiet default, detail on demand).
-  const [showPills, setShowPills] = useState(false);
-  const rollup = summarizePatterns(patterns);
 
   // Turn divider
   if (row.category === "turn") {
@@ -194,43 +177,6 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
               </span>
               {row.toolName && (
                 <span className="text-xs font-semibold text-[color:var(--cyan)]">{row.toolName}</span>
-              )}
-              {rollup.total > 0 && (
-                showPills ? (
-                  <>
-                    {patterns.map((p, i) => {
-                      const color = patternColor(p);
-                      return (
-                        <span
-                          key={`${p.type}-${i}`}
-                          role="button"
-                          onClick={(e) => { e.stopPropagation(); onPatternClick(p); }}
-                          className="text-[9px] px-1.5 py-0.5 rounded-full border cursor-pointer hover:brightness-125"
-                          style={{ color, backgroundColor: tint(color, 6), borderColor: tint(color, 25) }}
-                          title={PATTERN_TOOLTIPS[p.type] ?? p.label}
-                          data-testid="pattern-badge"
-                        >
-                          {PATTERN_LABELS[p.type] ?? p.type}
-                        </span>
-                      );
-                    })}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowPills(false); }}
-                      className="text-[9px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
-                    >
-                      ◂ collapse
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowPills(true); }}
-                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[color:var(--border)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/6"
-                    title="Show the raw pattern detections"
-                    data-testid="pattern-rollup"
-                  >
-                    {patternRollupLabel(rollup) || `${rollup.total} patterns`} ▸
-                  </button>
-                )
               )}
               <span className="ml-auto flex items-center gap-1.5 shrink-0">
                 <span className="text-[10px] text-[color:var(--text-muted)] font-mono">
@@ -608,8 +554,8 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
         <span className="flex items-center gap-2">
           {highlightedPattern && (
             <span className="flex items-center gap-1" data-testid="highlight-indicator">
-              <span style={{ color: patternColor(highlightedPattern) }}>
-                {PATTERN_LABELS[highlightedPattern.type] ?? highlightedPattern.type}: {highlightedPattern.events.length} events
+              <span className="text-[color:var(--accent)]">
+                {highlightedPattern.type}: {highlightedPattern.events.length} events
               </span>
               <button
                 onClick={() => setHighlightedPattern(null)}
