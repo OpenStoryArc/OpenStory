@@ -1,18 +1,21 @@
 /** ZenView — the calm room.
  *
- *  One quiet bullet per event: a kind-colored dot and a single line of text
- *  on a blank canvas. No cards, no chrome, no numbers competing for the eye.
- *  Watches ONE person at a time (picker top-right, defaults to whoever was
- *  active most recently). New lines breathe in at the bottom; scroll up to
- *  read history, and a "return to live" whisper brings you back.
+ *  The story, one sentence at a time: as turns complete, their narrative
+ *  sentences (verb + object, with an optional "because") breathe in at the
+ *  bottom of a blank canvas. Markdown renders inline; long absolute paths are
+ *  shortened to their last two segments (a full /Users/... path is not zen).
+ *  Watches ONE person at a time. Falls back to one-line event bullets for
+ *  sessions that have no sentences yet.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { WireRecord } from "@/types/wire-record";
+import type { WireRecord, PatternView } from "@/types/wire-record";
 import { toTimelineRows, type TimelineCategory } from "@/lib/timeline";
+import { sentenceHeadline, categorizeTurn, type StoryCategory } from "@/lib/story";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Markdown } from "@/components/ui/Markdown";
 import { cn } from "@/lib/cn";
 
 const KIND_COLOR: Record<TimelineCategory, string> = {
@@ -26,8 +29,28 @@ const KIND_COLOR: Record<TimelineCategory, string> = {
   turn: "var(--border)",
 };
 
+const STORY_COLOR: Record<StoryCategory, string> = {
+  pure_text: "var(--green)",
+  tool_use: "var(--orange)",
+  thinking: "var(--purple)",
+  delegation: "var(--cyan)",
+  error: "var(--red)",
+};
+
 /** How much history the room holds — enough to scroll, never a wall. */
 const ZEN_ROWS = 400;
+
+/** `/Users/max/projects/OpenStory/rs/src/watcher.rs` → `src/watcher.rs`.
+ *  Absolute paths read as noise in a calm room; keep the last two segments. */
+export function shortenPaths(text: string): string {
+  return text.replace(
+    /(?:\/[\w.@~+-]+){3,}/g,
+    (path) => {
+      const segs = path.split("/").filter(Boolean);
+      return segs.slice(-2).join("/");
+    },
+  );
+}
 
 interface SessionLike {
   session_id: string;
@@ -35,7 +58,13 @@ interface SessionLike {
   last_event?: string | null;
 }
 
-export function ZenView({ records }: { records: readonly WireRecord[] }) {
+export function ZenView({
+  records,
+  patterns,
+}: {
+  records: readonly WireRecord[];
+  patterns: readonly PatternView[];
+}) {
   const { sessions } = useSessionsList();
 
   // People, most-recently-active first.
@@ -62,22 +91,41 @@ export function ZenView({ records }: { records: readonly WireRecord[] }) {
     [sessions, person],
   );
 
-  // toTimelineRows returns newest-first (the Live feed's order); the zen room
-  // reads top-to-bottom like a page, so reverse into chronological order.
+  // The story stream: turn sentences, in arrival order.
+  const sentences = useMemo(
+    () =>
+      patterns
+        .filter((p) => p.type === "turn.sentence" && personSessions.has(p.session_id))
+        .map((p, i) => {
+          const { text, because } = sentenceHeadline(p);
+          return {
+            id: p.events[0] ?? `${p.session_id}-${i}`,
+            text: shortenPaths(text),
+            because: because ? shortenPaths(because) : null,
+            color: STORY_COLOR[categorizeTurn(p)] ?? "var(--text-muted)",
+          };
+        })
+        .slice(-ZEN_ROWS),
+    [patterns, personSessions],
+  );
+
+  // Fallback for sessions with no sentences yet: one-line event bullets.
   const rows = useMemo(() => {
-    const all = toTimelineRows(records)
+    if (sentences.length > 0) return [];
+    return toTimelineRows(records)
       .filter((r) => r.category !== "turn" && personSessions.has(r.sessionId))
-      .reverse();
-    return all.slice(-ZEN_ROWS);
-  }, [records, personSessions]);
+      .reverse()
+      .slice(-ZEN_ROWS);
+  }, [records, personSessions, sentences.length]);
 
   // Follow-live: pinned to the bottom until the reader scrolls up.
   const scrollRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
+  const count = sentences.length + rows.length;
   useEffect(() => {
     const el = scrollRef.current;
     if (el && follow) el.scrollTop = el.scrollHeight;
-  }, [rows.length, follow]);
+  }, [count, follow]);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -105,13 +153,31 @@ export function ZenView({ records }: { records: readonly WireRecord[] }) {
       </div>
 
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-        {rows.length === 0 ? (
+        {count === 0 ? (
           <EmptyState
             title="Stillness"
-            hint={person ? `When ${person} acts, it will appear here — one line at a time.` : "No activity yet."}
+            hint={person ? `When ${person} acts, the story will appear here — one sentence at a time.` : "No activity yet."}
           />
         ) : (
-          <div className="mx-auto max-w-[62ch] space-y-3 px-6 py-10">
+          <div className="mx-auto max-w-[62ch] space-y-4 px-6 py-10">
+            {sentences.map((s) => (
+              <div key={s.id} className="zen-enter flex items-baseline gap-3">
+                <span
+                  className="mt-2 h-1.5 w-1.5 shrink-0 self-start rounded-full"
+                  style={{ background: s.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <Markdown className="text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)] [&_p]:my-0 [&_code]:text-[0.9em]">
+                    {s.text}
+                  </Markdown>
+                  {s.because && (
+                    <div className="mt-0.5 text-[length:var(--fs-label)] italic text-[color:var(--text-muted)]">
+                      because {s.because}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
             {rows.map((r) => (
               <div key={r.id} className="zen-enter group flex items-baseline gap-3">
                 <span
@@ -119,7 +185,7 @@ export function ZenView({ records }: { records: readonly WireRecord[] }) {
                   style={{ background: KIND_COLOR[r.category] }}
                 />
                 <span className="min-w-0 flex-1 text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)]">
-                  {r.summary}
+                  {shortenPaths(r.summary)}
                 </span>
                 <span
                   className="shrink-0 text-[length:var(--fs-label)] text-[color:var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100"

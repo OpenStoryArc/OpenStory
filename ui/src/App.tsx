@@ -224,7 +224,7 @@ export function App() {
       )}
 
       {/* Zen tab — the calm room: one quiet line per event, one person. */}
-      {viewMode === "zen" && <ZenView records={state.records} />}
+      {viewMode === "zen" && <ZenView records={state.records} patterns={state.patterns} />}
 
       {/* Explore tab */}
       {viewMode === "explore" && (
