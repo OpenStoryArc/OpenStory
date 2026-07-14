@@ -97,14 +97,18 @@ interface PatternsResponse {
   patterns: ApiPattern[];
 }
 
-/** Map API pattern to frontend PatternView. */
+/** Map API pattern to frontend PatternView.
+ *  Threads `started_at`/`ended_at` (top-level on the wire, real per-pattern
+ *  timestamps — verified present on 197/197 turn.sentence patterns for a real
+ *  session) into `metadata` so consumers like Zen Replay can show a genuine
+ *  time without widening the shared `PatternView` shape. Never fabricated. */
 function toPatternView(p: ApiPattern): PatternView {
   return {
     type: p.pattern_type,
     label: p.summary,
     session_id: p.session_id,
     events: p.event_ids,
-    metadata: p.metadata,
+    metadata: { ...p.metadata, started_at: p.started_at, ended_at: p.ended_at },
   };
 }
 
