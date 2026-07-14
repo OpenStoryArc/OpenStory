@@ -70,7 +70,6 @@ export function PresentBanner({
 }) {
   const { issuer, message } = present;
   const [, bump] = useState(0);
-  const [expanded, setExpanded] = useState(false);
   const [showLog, setShowLog] = useState(false);
 
   // Append each new arrival to the session-lifetime log (dedupe re-renders).
@@ -84,9 +83,6 @@ export function PresentBanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [present]);
 
-  // New message arrives collapsed — the bar stays one line tall.
-  useEffect(() => setExpanded(false), [message]);
-
   const earlier = LOG.slice(0, -1).reverse();
   const latest = LOG[LOG.length - 1];
 
@@ -94,22 +90,16 @@ export function PresentBanner({
     <div className="flex justify-center px-4 pt-2" data-testid="present-banner">
       <div className="w-full max-w-[56rem] overflow-hidden rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)]">
         {/* resting state: one quiet line — avatar · name · message · time · controls */}
-        <div className="flex items-center gap-2.5 px-3 py-1.5">
+        <div className="flex items-start gap-2.5 px-3 py-2 [&>span:first-child]:mt-0.5">
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] text-[10px] font-bold text-[color:var(--bg-surface)]">
             {issuer.replace(/^Claude\s*/i, "C").slice(0, 1).toUpperCase()}
           </span>
           <span className="shrink-0 text-[length:var(--fs-body)] font-semibold text-[color:var(--text)]">
             {issuer}
           </span>
-          <div
-            className={cn(
-              "prose prose-sm min-w-0 flex-1 text-[length:var(--fs-body)] leading-snug text-[color:var(--text)] marker:text-[color:var(--text-muted)] [&_p]:my-0",
-              !expanded && "truncate [&_p]:inline [&_*]:inline",
-            )}
-            onClick={() => setExpanded((v) => !v)}
-            title={expanded ? undefined : "Click to expand"}
-            role="button"
-          >
+          {/* The message shows in FULL — no default truncation (Max: the
+              message is the point). It wraps; the bar grows in flow. */}
+          <div className="prose prose-sm min-w-0 flex-1 text-[length:var(--fs-body)] leading-snug text-[color:var(--text)] marker:text-[color:var(--text-muted)] [&_p]:my-0">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
               {message}
             </ReactMarkdown>
@@ -144,8 +134,8 @@ export function PresentBanner({
           </button>
         </div>
 
-        {/* expanded extras of the latest message: session chips */}
-        {expanded && latest && latest.sessionIds.length > 0 && (
+        {/* session chips — always visible when the message carries them */}
+        {latest && latest.sessionIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
             {latest.sessionIds.slice(0, 6).map((id) => (
               <button
