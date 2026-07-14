@@ -41,7 +41,7 @@ export function SubagentsSection({ records, onOpen, className }: Props) {
             >
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.isError ? "#f7768e" : color }} />
               {s.subagentType && (
-                <span className="shrink-0 rounded bg-[#bb9af7]/15 px-1 text-[9px] text-[color:var(--purple)]">{s.subagentType}</span>
+                <span className="shrink-0 rounded bg-[color:var(--purple)]/15 px-1 text-[9px] text-[color:var(--purple)]">{s.subagentType}</span>
               )}
               <span className="min-w-0 flex-1 truncate text-[color:var(--text)]">{s.description}</span>
               {s.isError && <span className="shrink-0 text-[9px] text-[color:var(--red)]">failed</span>}

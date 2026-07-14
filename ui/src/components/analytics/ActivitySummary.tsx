@@ -94,7 +94,7 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
             {data.error_messages.map((msg, i) => (
               <div
                 key={i}
-                className="text-xs text-[color:var(--red)] bg-[#f7768e10] rounded p-2 font-mono"
+                className="text-xs text-[color:var(--red)] bg-[color:var(--red)]/6 rounded p-2 font-mono"
               >
                 {truncate(msg, 200)}
               </div>

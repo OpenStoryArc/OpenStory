@@ -376,7 +376,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
         {/* drag handle: right-edge grip, persisted width */}
         <div
           onPointerDown={sidebarPanel.onHandlePointerDown}
-          className={`absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${sidebarPanel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+          className={`absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors hover:bg-[color:var(--accent)]/40 ${sidebarPanel.dragging ? "bg-[color:var(--accent)]/60" : "bg-transparent"}`}
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize sidebar"
@@ -420,7 +420,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   onClick={() => toggleFacet("project", p.key)}
                   className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
                     sidebarFilters.project === p.key
-                      ? "border-[color:var(--cyan-bright)] text-[color:var(--cyan-bright)] bg-[#7dcfff18]"
+                      ? "border-[color:var(--cyan-bright)] text-[color:var(--cyan-bright)] bg-[color:var(--cyan-bright)]/9"
                       : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                   title={`${p.count} sessions`}
@@ -434,7 +434,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   onClick={() => toggleFacet("user", u.key)}
                   className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
                     sidebarFilters.user === u.key
-                      ? "border-[color:var(--green)] text-[color:var(--green)] bg-[#9ece6a18]"
+                      ? "border-[color:var(--green)] text-[color:var(--green)] bg-[color:var(--green)]/9"
                       : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                   title={`${u.count} sessions`}
@@ -445,7 +445,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
               {findActive && (
                 <button
                   onClick={() => { setSearch(""); setSidebarFilters({}); }}
-                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#f7768e]/40 text-[color:var(--red)] hover:bg-[#f7768e]/10"
+                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[color:var(--red)]/40 text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
                 >
                   clear
                 </button>
@@ -470,7 +470,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   }}
                   className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
                     active
-                      ? "border-[color:var(--accent)] text-[color:var(--accent)] bg-[#7aa2f718]"
+                      ? "border-[color:var(--accent)] text-[color:var(--accent)] bg-[color:var(--accent)]/9"
                       : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                 >
@@ -494,7 +494,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   }}
                   className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
                     active
-                      ? "border-[color:var(--purple)] text-[color:var(--purple)] bg-[#bb9af718]"
+                      ? "border-[color:var(--purple)] text-[color:var(--purple)] bg-[color:var(--purple)]/9"
                       : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                 >

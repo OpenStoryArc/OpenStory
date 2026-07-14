@@ -85,7 +85,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
         )}
         {session.host && (
           <span
-            className="text-[10px] text-[color:var(--cyan-bright)] bg-[#7dcfff15] px-1.5 py-0.5 rounded"
+            className="text-[10px] text-[color:var(--cyan-bright)] bg-[color:var(--cyan-bright)]/8 px-1.5 py-0.5 rounded"
             title="Origin host"
           >
             ⌂ {session.host}

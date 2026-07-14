@@ -19,7 +19,7 @@ export function ErrorList({ errors }: ErrorListProps) {
         {errors.map((e, i) => (
           <div
             key={`${e.timestamp}-${i}`}
-            className="text-xs bg-[#f7768e10] rounded px-2 py-1.5 font-mono"
+            className="text-xs bg-[color:var(--red)]/6 rounded px-2 py-1.5 font-mono"
           >
             <span className="text-[color:var(--text-muted)] mr-2" title={fullTimestamp(e.timestamp)}>{compactTime(e.timestamp)}</span>
             <span className="text-[color:var(--red)]">{truncateError(e.message)}</span>

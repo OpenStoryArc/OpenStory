@@ -52,7 +52,7 @@ export function PersonClustersView({ clusters, selfHost }: Props) {
                   key={h}
                   className={`rounded px-2 py-0.5 text-xs font-mono ${
                     isSelf
-                      ? "bg-[#9ece6a]/20 text-[color:var(--green)]"
+                      ? "bg-[color:var(--green)]/20 text-[color:var(--green)]"
                       : "bg-[color:var(--bg-surface)] text-[color:var(--text)]"
                   }`}
                   title={isSelf ? "this device" : undefined}

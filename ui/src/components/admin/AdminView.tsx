@@ -170,7 +170,7 @@ export function AdminView() {
             <FleetGrid nodes={topology.nodes} />
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[color:var(--bg)] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--purple)]/30 bg-[color:var(--bg)] p-4">
             <header className="mb-3">
               <h3 className="text-sm font-medium text-[color:var(--purple)]">
                 Live sources <span className="text-xs text-[color:var(--text-muted)]">— from JetStream events-agg</span>
@@ -382,10 +382,10 @@ function NodeIdentity({ topology }: { topology: Topology }) {
           <span
             className={`inline-block rounded px-2 py-0.5 text-xs ${
               self.role === "hub"
-                ? "bg-[#7aa2f7]/20 text-[color:var(--accent)]"
+                ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
                 : self.role === "leaf"
-                  ? "bg-[#9ece6a]/20 text-[color:var(--green)]"
-                  : "bg-[#565f89]/30 text-[color:var(--text)]"
+                  ? "bg-[color:var(--green)]/20 text-[color:var(--green)]"
+                  : "bg-[color:var(--text-muted)]/30 text-[color:var(--text)]"
             }`}
           >
             {self.role}

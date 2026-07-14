@@ -64,7 +64,7 @@ function NodeCard({ node }: { node: NodeSummary }) {
           {node.host}
         </code>
         {node.is_self && (
-          <span className="rounded bg-[#1a1b26]/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[color:var(--bg)]">
+          <span className="rounded bg-[color:var(--bg)]/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[color:var(--bg)]">
             self
           </span>
         )}

@@ -33,7 +33,7 @@ export const EventRow = memo(
     const gitBorderStyle = gitRisk
       ? { borderLeftWidth: "3px", borderLeftColor: GIT_RISK_COLORS[gitRisk] }
       : {};
-    const destructiveBg = gitRisk === "destructive" ? " bg-[#f7768e]/10" : "";
+    const destructiveBg = gitRisk === "destructive" ? " bg-[color:var(--red)]/10" : "";
 
     return (
       <button

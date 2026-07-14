@@ -22,13 +22,13 @@ export function AnnotationsOverlay({
   if (annotations.length === 0) return null;
 
   return (
-    <div className="fixed bottom-3 right-3 z-40 w-72 rounded-lg border border-[#e0af68]/40 bg-[#1a1b26]/95 shadow-xl" data-testid="annotations-overlay">
+    <div className="fixed bottom-3 right-3 z-40 w-72 rounded-lg border border-[color:var(--orange)]/40 bg-[color:var(--bg)]/95 shadow-xl" data-testid="annotations-overlay">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-[12px] font-semibold text-[color:var(--orange)]"
       >
         <span>📌</span> Notes
-        <span className="rounded bg-[#e0af68]/20 px-1.5 text-[10px]">{annotations.length}</span>
+        <span className="rounded bg-[color:var(--orange)]/20 px-1.5 text-[10px]">{annotations.length}</span>
         <span className="ml-auto text-[color:var(--text-muted)]">{open ? "▾" : "▸"}</span>
       </button>
       {open && (

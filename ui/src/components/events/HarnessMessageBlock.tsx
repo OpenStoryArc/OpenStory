@@ -10,7 +10,7 @@ export function HarnessMessageBlock({ text }: { text: string }) {
   if (m.kind === "slash_command") {
     return (
       <div className="text-sm" data-harness="slash_command">
-        <span className="inline-flex items-center gap-1 rounded bg-[#7aa2f7]/15 px-1.5 py-0.5 font-mono text-[12px] text-[color:var(--accent)]">
+        <span className="inline-flex items-center gap-1 rounded bg-[color:var(--accent)]/15 px-1.5 py-0.5 font-mono text-[12px] text-[color:var(--accent)]">
           <span className="opacity-70">⌘</span>/{m.command}
         </span>
         {m.args && (
@@ -26,7 +26,7 @@ export function HarnessMessageBlock({ text }: { text: string }) {
   if (m.kind === "task_notification") {
     return (
       <div className="text-sm" data-harness="task_notification">
-        <span className="inline-flex items-center gap-1 rounded bg-[#bb9af7]/15 px-1.5 py-0.5 text-[11px] text-[color:var(--purple)]">
+        <span className="inline-flex items-center gap-1 rounded bg-[color:var(--purple)]/15 px-1.5 py-0.5 text-[11px] text-[color:var(--purple)]">
           ⚙ background task{m.status ? ` — ${m.status}` : ""}
         </span>
         {m.summary && <div className="mt-1 text-[13px] text-[color:var(--text)]">{m.summary}</div>}

@@ -22,23 +22,24 @@
   --cyan-bright: #7dcfff;
 }
 
-/* Tokyonight Day — light theme. Same token semantics, elevation runs
-   bg → surface → hover by darkening; text tiers keep their hierarchy. */
+/* Tokyonight Day — light theme. Elevation matches the dark theme's direction
+   (surfaces get LIGHTER as they elevate): light-gray page, near-white panels,
+   strong slate text. v1 used gray-on-gray and washed out. */
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #e1e2e7;
-  --bg-surface: #d3d5de;
-  --bg-hover: #c3c6d4;
-  --text: #343b59;
-  --text-muted: #5f6693;
+  --bg-surface: #f7f8fc;
+  --bg-hover: #d8dbe6;
+  --text: #1f2437;
+  --text-muted: #565f89;
   --accent: #2e7de9;
   --green: #587539;
   --red: #f52a65;
   --orange: #b15c00;
   --purple: #7847bd;
   --cyan: #007197;
-  --text-bright: #474e75;
-  --border: #a8aecb;
+  --text-bright: #3a4161;
+  --border: #b6bccf;
   --cyan-bright: #006d8f;
 }
 

@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 function SessionRowSkeleton() {
   return (
-    <div className="flex items-center gap-3 border-b border-[#2f3348]/60 px-3 py-2">
+    <div className="flex items-center gap-3 border-b border-[color:var(--bg-hover)]/60 px-3 py-2">
       <Skeleton className="h-2.5 w-2.5 rounded-full" />
       <div className="min-w-0 flex-1 space-y-1.5">
         <Skeleton className="h-3 w-1/2" />

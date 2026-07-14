@@ -305,7 +305,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
             ConversationView) so the virtualizer's rect is the viewport, not
             the content. Header/ribbon/toolbar pin above it. */}
         {capped && (
-          <div className="border-b border-[#e0af68]/30 bg-[#e0af68]/10 px-3 py-1 text-[10px] text-[color:var(--orange)]">
+          <div className="border-b border-[color:var(--orange)]/30 bg-[color:var(--orange)]/10 px-3 py-1 text-[10px] text-[color:var(--orange)]">
             Large session — showing the most recent {rows.length.toLocaleString()} events; older history is not loaded.
           </div>
         )}

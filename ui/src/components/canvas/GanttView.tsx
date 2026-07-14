@@ -80,7 +80,7 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-[#16171f]">
-      <AgentLegend agents={model.bars.map((b) => b.agent)} className="absolute right-3 top-1.5 z-10 rounded bg-[#1a1b26]/80 px-1.5 py-0.5" />
+      <AgentLegend agents={model.bars.map((b) => b.agent)} className="absolute right-3 top-1.5 z-10 rounded bg-[color:var(--bg)]/80 px-1.5 py-0.5" />
       {/* scrollable lane plot */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <svg width={width} height={Math.max(topH, vis.laneCount * LANE_H + 8)} className="block">

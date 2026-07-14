@@ -107,7 +107,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
       </div>
 
       {/* filter bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[#2f3348]/60 bg-[color:var(--bg)] px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[color:var(--bg-hover)]/60 bg-[color:var(--bg)] px-4 py-2">
         {FILTER_DIMS.map((dim) => {
           const values = facets[dim.facet].slice(0, 6);
           if (!values.length) return null;

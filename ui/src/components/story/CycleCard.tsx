@@ -48,7 +48,7 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
           )}
         </div>
         {cycle.isTerminal && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-[#9ece6a18] text-[color:var(--green)] border border-[#9ece6a33]">
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-[color:var(--green)]/9 text-[color:var(--green)] border border-[color:var(--green)]/20">
             terminal
           </span>
         )}

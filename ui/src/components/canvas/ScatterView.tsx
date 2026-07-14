@@ -217,12 +217,12 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
 
       {/* linked list of brushed sessions */}
       {selecting && brushed && brushed.length > 0 && (
-        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[color:var(--bg-hover)] bg-[#1a1b26]/95 p-2 shadow-xl">
+        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)]/95 p-2 shadow-xl">
           <div className="mb-1 flex items-center justify-between text-[10px] text-[color:var(--text-muted)]">
             <span>{brushed.length} session{brushed.length === 1 ? "" : "s"} selected</span>
             <span>out tok</span>
           </div>
-          <div className="flex flex-col divide-y divide-[#2f3348]/60">
+          <div className="flex flex-col divide-y divide-[color:var(--bg-hover)]/60">
             {brushed.slice(0, 40).map((p) => (
               <button
                 key={p.id}

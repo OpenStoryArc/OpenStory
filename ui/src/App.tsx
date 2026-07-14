@@ -173,7 +173,7 @@ export function App() {
           </button>
           {drivenBy && (
             <div
-              className="flex items-center gap-1.5 rounded border border-[#7aa2f7]/50 bg-[#7aa2f7]/10 px-2 py-1 text-[11px] text-[color:var(--accent)] animate-pulse"
+              className="flex items-center gap-1.5 rounded border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/10 px-2 py-1 text-[11px] text-[color:var(--accent)] animate-pulse"
               data-testid="driven-by"
               title="An agent is driving this view. Click anywhere or navigate to take back the wheel."
             >

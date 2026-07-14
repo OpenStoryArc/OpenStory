@@ -35,7 +35,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                   onClick={() => onSelectFile(isSelected ? null : f.path)}
                   className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                     isSelected
-                      ? "bg-[#7aa2f715] text-[color:var(--accent)]"
+                      ? "bg-[color:var(--accent)]/8 text-[color:var(--accent)]"
                       : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"
                   }`}
                   title={f.path}
@@ -79,7 +79,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                 onClick={() => onSelectTool(isSelected ? null : t.name)}
                 className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                   isSelected
-                    ? "bg-[#7aa2f715]"
+                    ? "bg-[color:var(--accent)]/8"
                     : "hover:bg-[color:var(--bg-surface)]"
                 }`}
               >
@@ -111,7 +111,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                 onClick={() => onSelectPlan(isSelected ? null : p.title)}
                 className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                   isSelected
-                    ? "bg-[#e0af6815] text-[color:var(--orange)]"
+                    ? "bg-[color:var(--orange)]/8 text-[color:var(--orange)]"
                     : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"
                 }`}
                 title={p.title}

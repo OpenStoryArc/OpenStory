@@ -245,7 +245,7 @@ function ToolResultDetail({ payload, sessionId, eventId, isTruncated }: {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        {payload.is_error && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f7768e20] text-[color:var(--red)]">Error</span>}
+        {payload.is_error && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--red)]/13 text-[color:var(--red)]">Error</span>}
         <span className="text-[10px] text-[color:var(--text-muted)]">{payload.call_id.slice(0, 12)}</span>
       </div>
       {displayOutput && (
@@ -428,7 +428,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
         <div className="mt-2 pt-2 border-t border-[color:var(--bg-hover)] flex items-center gap-2 flex-wrap">
           {record.origin_agent && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f720] text-[color:var(--accent)]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)]"
               data-testid="detail-origin-agent"
               title="Origin agent"
             >
@@ -437,7 +437,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
           )}
           {depth > 0 && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#2ac3de20] text-[color:var(--cyan)]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--cyan)]/13 text-[color:var(--cyan)]"
               data-testid="detail-depth"
               title={`Nesting level in agent delegation chain (0 = top-level, ${depth} = ${depth} level${depth !== 1 ? "s" : ""} deep)`}
             >
@@ -446,7 +446,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
           )}
           {truncated && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0af6820] text-[color:var(--orange)]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--orange)]/13 text-[color:var(--orange)]"
               data-testid="detail-truncated"
               title={truncationLabel(payloadBytes, DISPLAY_LIMIT)}
             >
@@ -462,7 +462,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
                 : "Show only this event and its descendants in the timeline"}
               className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
                 isFocusRoot
-                  ? "bg-[#e0af6830] text-[color:var(--orange)]"
+                  ? "bg-[color:var(--orange)]/19 text-[color:var(--orange)]"
                   : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
               }`}
             >

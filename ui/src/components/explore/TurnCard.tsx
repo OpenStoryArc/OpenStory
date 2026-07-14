@@ -36,7 +36,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
       {turn.prompt && (
         <div className="px-4 py-3 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)]">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f718] text-[color:var(--accent)] font-medium">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/9 text-[color:var(--accent)] font-medium">
               Turn {index + 1}
             </span>
             {turn.promptTimestamp && (
@@ -114,7 +114,7 @@ function ToolCallRow({ entry, expanded, onToggle }: {
   const filePath = (tc.typed_input as { file_path?: string } | undefined)?.file_path;
 
   return (
-    <div className="border-b border-[#2f334830] last:border-b-0">
+    <div className="border-b border-[color:var(--bg-hover)]/19 last:border-b-0">
       <button
         onClick={onToggle}
         className="w-full px-4 py-1.5 text-left text-xs hover:bg-[color:var(--bg)] transition-colors flex items-center gap-2"

@@ -195,7 +195,7 @@ export function ExploreSidebar({
             {active && (
               <button
                 onClick={() => onFiltersChange({})}
-                className="mb-2 w-full rounded border border-[#f7768e]/40 px-2 py-0.5 text-[11px] text-[color:var(--red)] hover:bg-[#f7768e]/10"
+                className="mb-2 w-full rounded border border-[color:var(--red)]/40 px-2 py-0.5 text-[11px] text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
               >
                 Clear all filters
               </button>

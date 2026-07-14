@@ -570,7 +570,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setHostFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7dcfff20] text-[color:var(--cyan-bright)] hover:bg-[#7dcfff40] transition-colors flex items-center gap-1"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--cyan-bright)]/13 text-[color:var(--cyan-bright)] hover:bg-[color:var(--cyan-bright)]/25 transition-colors flex items-center gap-1"
               title="Clear host filter"
               data-testid="filter-chip-host"
             >
@@ -582,7 +582,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setUserFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#bb9af720] text-[color:var(--purple)] hover:bg-[#bb9af740] transition-colors flex items-center gap-1"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--purple)]/13 text-[color:var(--purple)] hover:bg-[color:var(--purple)]/25 transition-colors flex items-center gap-1"
               title="Clear user filter"
               data-testid="filter-chip-user"
             >
@@ -617,7 +617,7 @@ export const Sidebar = memo(function Sidebar({
                 setUserFilter(null);
                 setTimeFilter("all");
               }}
-              className="text-[10px] px-2 py-1 rounded bg-[#7aa2f720] text-[color:var(--accent)] hover:bg-[#7aa2f740] transition-colors"
+              className="text-[10px] px-2 py-1 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors"
               data-testid="sidebar-clear-filters"
             >
               Clear filters
@@ -740,7 +740,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setHostFilter(s.host);
                           }}
-                          className="text-[9px] text-[color:var(--cyan-bright)] hover:bg-[#7dcfff20] px-1 rounded cursor-pointer"
+                          className="text-[9px] text-[color:var(--cyan-bright)] hover:bg-[color:var(--cyan-bright)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to host: ${s.host}`}
                         >
                           ⌂ {s.host}
@@ -753,7 +753,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setUserFilter(s.user);
                           }}
-                          className="text-[9px] text-[color:var(--purple)] hover:bg-[#bb9af720] px-1 rounded cursor-pointer"
+                          className="text-[9px] text-[color:var(--purple)] hover:bg-[color:var(--purple)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to user: ${s.user}`}
                         >
                           @{s.user}

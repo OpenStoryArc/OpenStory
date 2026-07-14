@@ -31,7 +31,7 @@ export function TurnOutline({ turns, selectedTurn, onSelectTurn }: TurnOutlinePr
               onClick={() => onSelectTurn(isSelected ? null : t.index)}
               className={`w-full text-left px-2 py-1.5 text-xs transition-colors ${
                 isSelected
-                  ? "bg-[#7aa2f715] border-l-2 border-[color:var(--accent)]"
+                  ? "bg-[color:var(--accent)]/8 border-l-2 border-[color:var(--accent)]"
                   : "hover:bg-[color:var(--bg-surface)] border-l-2 border-transparent"
               }`}
               data-testid={`turn-${t.index}`}

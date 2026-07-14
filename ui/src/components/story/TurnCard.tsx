@@ -151,8 +151,8 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         </div>
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
           isTerminal
-            ? "bg-[#9ece6a18] text-[color:var(--green)] border border-[#9ece6a33]"
-            : "bg-[#e0af6818] text-[color:var(--orange)] border border-[#e0af6833]"
+            ? "bg-[color:var(--green)]/9 text-[color:var(--green)] border border-[color:var(--green)]/20"
+            : "bg-[color:var(--orange)]/9 text-[color:var(--orange)] border border-[color:var(--orange)]/20"
         }`}>
           {isTerminal ? "terminate" : "continue"}
         </span>
@@ -239,8 +239,8 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
               <PhaseBlock label="eval" color="#9ece6a">
                 <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
                   eval_.decision === "text_only"
-                    ? "bg-[#9ece6a22] text-[color:var(--green)]"
-                    : "bg-[#e0af6822] text-[color:var(--orange)]"
+                    ? "bg-[color:var(--green)]/13 text-[color:var(--green)]"
+                    : "bg-[color:var(--orange)]/13 text-[color:var(--orange)]"
                 }`}>
                   {eval_.decision === "text_only" ? "text" : "tool use"}
                 </span>

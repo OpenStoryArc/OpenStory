@@ -226,7 +226,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
           )}
         </div>
         {/* per-mode caption — what am I looking at + the encoding */}
-        <div className="border-b border-[#2f3348]/60 bg-[color:var(--bg)] px-3 py-1 text-[10px] text-[color:var(--text-muted)]">{caption}</div>
+        <div className="border-b border-[color:var(--bg-hover)]/60 bg-[color:var(--bg)] px-3 py-1 text-[10px] text-[color:var(--text-muted)]">{caption}</div>
 
         <div ref={wrapRef} className="relative min-h-0 flex-1">
           {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[color:var(--text-muted)]">Loading canvas…</div>}
@@ -306,7 +306,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
           {/* drag handle: a hit-target straddling the left border */}
           <div
             onPointerDown={panel.onHandlePointerDown}
-            className={`absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${panel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+            className={`absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-[color:var(--accent)]/40 ${panel.dragging ? "bg-[color:var(--accent)]/60" : "bg-transparent"}`}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize panel"

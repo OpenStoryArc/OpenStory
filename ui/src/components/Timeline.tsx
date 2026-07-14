@@ -163,7 +163,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
     );
   }
 
-  const highlight = isHighlighted ? " bg-[#7aa2f714]" : "";
+  const highlight = isHighlighted ? " bg-[color:var(--accent)]/8" : "";
   const focusBorder = isFocusRoot ? " ring-1 ring-[color:var(--orange)]" : "";
   const selectedBorder = isSelected ? " ring-1 ring-[color:var(--accent)]" : "";
 
@@ -223,7 +223,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowPills(true); }}
-                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[color:var(--border)] text-[color:var(--accent)] hover:bg-[#7aa2f710]"
+                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[color:var(--border)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/6"
                     title="Show the raw pattern detections"
                     data-testid="pattern-rollup"
                   >
@@ -238,7 +238,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 {onExploreLink && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onExploreLink(row.sessionId, row.id); }}
-                    className="text-[11px] px-1.5 py-0.5 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[#7aa2f710] transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[color:var(--accent)]/6 transition-colors"
                     title="Open full session in Explore"
                     data-testid="explore-link"
                   >
@@ -659,7 +659,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
 
       {/* Disconnected banner — warns user data may be stale */}
       {connectionStatus === "disconnected" && state.records.length > 0 && (
-        <div className="px-3 py-1.5 bg-[#f7768e15] border-b border-[#f7768e30] text-xs text-[color:var(--red)]" data-testid="disconnected-banner">
+        <div className="px-3 py-1.5 bg-[color:var(--red)]/8 border-b border-[color:var(--red)]/19 text-xs text-[color:var(--red)]" data-testid="disconnected-banner">
           Connection lost — data may be stale. Waiting to reconnect...
         </div>
       )}

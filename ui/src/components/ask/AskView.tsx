@@ -62,7 +62,7 @@ export function AskView({ onNavigate }: { onNavigate: (route: HashRoute) => void
             {ans.items.length === 0 ? (
               <div className="text-[12px] text-[color:var(--text-muted)]">Nothing to show.</div>
             ) : (
-              <div className="flex flex-col divide-y divide-[#2f3348]/60">
+              <div className="flex flex-col divide-y divide-[color:var(--bg-hover)]/60">
                 {ans.items.map((it, i) => (
                   <button
                     key={i}

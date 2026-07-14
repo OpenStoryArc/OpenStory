@@ -93,7 +93,7 @@ export function ExploreDashboard({
         <div className="max-w-[420px] break-words text-[11px] text-[color:var(--text-muted)]">{error}</div>
         <button
           onClick={refresh}
-          className="mt-1 rounded border border-[color:var(--accent)] px-3 py-1 text-[11px] text-[color:var(--accent)] hover:bg-[#7aa2f7]/10"
+          className="mt-1 rounded border border-[color:var(--accent)] px-3 py-1 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10"
         >
           Retry
         </button>
@@ -164,7 +164,7 @@ export function ExploreDashboard({
           {filtersActive && (
             <button
               onClick={onClearFilters}
-              className="mt-1 rounded border border-[color:var(--accent)] px-3 py-1 text-[11px] text-[color:var(--accent)] hover:bg-[#7aa2f7]/10"
+              className="mt-1 rounded border border-[color:var(--accent)] px-3 py-1 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10"
             >
               Reset filters
             </button>
