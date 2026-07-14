@@ -513,6 +513,96 @@ export function ZenView({
     setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   };
 
+  // ─── Guided mode: "ask, and I answer by arranging the room." ───
+  // A narrator CONDUCTS a curated sequence through the seam, one sentence at
+  // a time, pacing it with their own voice:
+  //   toggle zen.guide       value='{"title":"..."}'          → open the room
+  //   toggle zen.guide.item  value='{"sessionId","eventId"}'  → breathe one in
+  //   toggle zen.guide.done  value=""                          → fin
+  //   toggle zen.guide       value=""                          → back to live
+  // Read-only on the record; every arrival is a door to its source.
+  interface GuidedItem {
+    id: string;
+    sessionId: string;
+    eventId: string | null;
+    anatomy: SentenceAnatomy;
+    color: string;
+    time: string | null;
+  }
+  const [guided, setGuided] = useState<{ title: string; items: GuidedItem[]; done: boolean } | null>(null);
+  const guideCache = useRef<Map<string, PatternView[]>>(new Map());
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "zen.guide") {
+        if (!a.value) {
+          setGuided(null);
+          return;
+        }
+        try {
+          const cfg = JSON.parse(a.value) as { title?: string };
+          setGuided({ title: cfg.title || "a guided answer", items: [], done: false });
+        } catch {
+          /* malformed guide config — ignore */
+        }
+      } else if (a.target === "zen.guide.done") {
+        setGuided((g) => (g ? { ...g, done: true } : g));
+      } else if (a.target === "zen.guide.item") {
+        try {
+          const ref = JSON.parse(a.value) as { sessionId?: string; eventId?: string };
+          if (!ref.sessionId || !ref.eventId) return;
+          const sid = ref.sessionId;
+          const eid = ref.eventId;
+          const cached = guideCache.current.get(sid);
+          const withPatterns = (pats: PatternView[]) => {
+            guideCache.current.set(sid, pats);
+            const p = pats.find((x) => x.events.includes(eid));
+            if (!p) return;
+            const a2 = zenSentence(p);
+            const item: GuidedItem = {
+              id: eid,
+              sessionId: sid,
+              eventId: eid,
+              anatomy: {
+                ...a2,
+                object: shortenPaths(a2.object),
+                text: shortenPaths(a2.text),
+                because: a2.because ? shortenPaths(a2.because) : null,
+              },
+              color: STORY_COLOR[categorizeTurn(p)] ?? "var(--text-muted)",
+              time: typeof p.metadata?.started_at === "string" ? (p.metadata.started_at as string) : null,
+            };
+            setGuided((g) => {
+              if (!g || g.items.some((x) => x.id === item.id)) return g;
+              return { ...g, items: [...g.items, item] };
+            });
+          };
+          if (cached) withPatterns(cached);
+          else fetchSessionSentences(sid).then(withPatterns).catch(() => {});
+        } catch {
+          /* malformed item ref — ignore */
+        }
+      }
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Guided scroll: newest conducted sentence settles centered-low, in unison.
+  useEffect(() => {
+    if (!guided || guided.items.length === 0) return;
+    const last = guided.items[guided.items.length - 1];
+    const container = scrollRef.current;
+    if (!last || !container) return;
+    const el = document.getElementById(`zen-guide-${last.id}`);
+    if (!el) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const elTop = elRect.top - containerRect.top + container.scrollTop;
+    container.scrollTo({ top: Math.max(0, elTop - container.clientHeight * 0.62), behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guided?.items.length]);
+
   // Agent-in-UI seam: `toggle {target:"zen.focus", value:"<eventId>"}` lets a
   // narrator SPOTLIGHT a sentence — scroll to it and hold a glow on it, so
   // "the moment I just told you about" is a place on screen. Empty value clears.
@@ -685,7 +775,45 @@ export function ZenView({
       )}
 
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-        {replay ? (
+        {guided ? (
+          <div className="mx-auto max-w-[62ch] space-y-4 px-6 py-10">
+            <div className="flex items-center gap-2 text-[length:var(--fs-label)] uppercase tracking-wide text-[color:var(--text-muted)]">
+              <span className="h-1 w-1 rounded-full bg-[color:var(--accent)]" />
+              {guided.title}
+            </div>
+            {guided.items.map((item) => (
+              <ZenSentenceRow
+                key={item.id}
+                id={`zen-guide-${item.id}`}
+                anatomy={item.anatomy}
+                color={item.color}
+                time={item.time ? compactTime(item.time) : null}
+                onClick={
+                  item.eventId && onOpenEvent
+                    ? () => onOpenEvent(item.sessionId, item.eventId!)
+                    : undefined
+                }
+              />
+            ))}
+            {guided.items.length === 0 && !guided.done && (
+              <div className="text-[length:var(--fs-body)] italic text-[color:var(--text-muted)]">
+                listening…
+              </div>
+            )}
+            {guided.done && (
+              <div className="flex items-center gap-2 pt-2 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
+                <span>fin</span>
+                <span>·</span>
+                <button
+                  onClick={() => setGuided(null)}
+                  className="underline underline-offset-4 transition-colors hover:text-[color:var(--text)]"
+                >
+                  return to live
+                </button>
+              </div>
+            )}
+          </div>
+        ) : replay ? (
           replay.items.length === 0 ? (
             <EmptyState
               title="Nothing to replay"
