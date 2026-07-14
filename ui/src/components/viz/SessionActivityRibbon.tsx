@@ -162,15 +162,6 @@ export function SessionActivityRibbon({
     <div ref={containerRef} className={cn("relative w-full select-none", className)}>
       {/* Summary chips + view controls */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[#565f89]">
-        <button
-          type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="-ml-1 px-1 text-[#565f89] hover:text-[#c0caf5]"
-          title={collapsed ? "Expand activity timeline" : "Collapse activity timeline"}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? "▸" : "▾"}
-        </button>
         <span className="text-[#c0caf5]">{model.events.length} events</span>
         <span>· {humanDuration(model.durationMs)}</span>
         {model.totalTokens > 0 && (
@@ -179,16 +170,27 @@ export function SessionActivityRibbon({
         {model.errorCount > 0 && (
           <span className="text-[#f7768e]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
         )}
-        {!collapsed && (
+        <div className="ml-auto flex items-center gap-1.5">
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => setCompact(!compact)}
+              className="rounded border border-[#3b4261] px-2 py-0.5 text-[#565f89] transition-colors hover:border-[#7aa2f7] hover:text-[#c0caf5]"
+              title={compact ? "Taller lane rows" : "Shorter lane rows to save space"}
+            >
+              {compact ? "↕ full height" : "↕ compact"}
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => setCompact(!compact)}
-            className="ml-auto rounded border border-[#2f3348] px-1.5 py-0.5 text-[#565f89] hover:border-[#565f89] hover:text-[#c0caf5]"
-            title={compact ? "Taller rows" : "Shorter rows"}
+            onClick={() => setCollapsed(!collapsed)}
+            className="rounded border border-[#3b4261] px-2 py-0.5 text-[#565f89] transition-colors hover:border-[#7aa2f7] hover:text-[#c0caf5]"
+            title={collapsed ? "Show the activity timeline" : "Hide the activity timeline"}
+            aria-expanded={!collapsed}
           >
-            {compact ? "full height" : "compact"}
+            {collapsed ? "▸ show timeline" : "▾ hide"}
           </button>
-        )}
+        </div>
       </div>
 
       {!collapsed && (
