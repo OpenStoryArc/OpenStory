@@ -224,7 +224,7 @@ export function App() {
       )}
 
       {/* Zen tab — the calm room: one quiet line per event, one person. */}
-      {viewMode === "zen" && <ZenView records={state.records} patterns={state.patterns} />}
+      {viewMode === "zen" && <ZenView records={state.records} patterns={state.patterns} onOpenEvent={(sid, eid) => navigate({ view: "explore", sessionId: sid, eventId: eid })} />}
 
       {/* Explore tab */}
       {viewMode === "explore" && (

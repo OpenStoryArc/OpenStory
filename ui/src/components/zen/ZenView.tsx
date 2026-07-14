@@ -17,6 +17,7 @@ import { compactTime, fullTimestamp } from "@/lib/time";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Markdown } from "@/components/ui/Markdown";
 import { cn } from "@/lib/cn";
+import { controlActions$ } from "@/streams/control";
 
 const KIND_COLOR: Record<TimelineCategory, string> = {
   prompt: "var(--accent)",
@@ -78,9 +79,12 @@ interface SessionLike {
 export function ZenView({
   records,
   patterns,
+  onOpenEvent,
 }: {
   records: readonly WireRecord[];
   patterns: readonly PatternView[];
+  /** Click-through: a sentence is a PLACE — open its first event in Explore. */
+  onOpenEvent?: (sessionId: string, eventId: string) => void;
 }) {
   const { sessions } = useSessionsList();
 
@@ -117,6 +121,8 @@ export function ZenView({
           const { text, because } = zenSentence(p);
           return {
             id: p.events[0] ?? `${p.session_id}-${i}`,
+            sessionId: p.session_id,
+            eventId: p.events[0] ?? null,
             text: shortenPaths(text),
             because: because ? shortenPaths(because) : null,
             color: STORY_COLOR[categorizeTurn(p)] ?? "var(--text-muted)",
@@ -149,6 +155,26 @@ export function ZenView({
     setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   };
 
+  // Agent-in-UI seam: `toggle {target:"zen.focus", value:"<eventId>"}` lets a
+  // narrator SPOTLIGHT a sentence — scroll to it and hold a glow on it, so
+  // "the moment I just told you about" is a place on screen. Empty value clears.
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle" || a.target !== "zen.focus") return;
+      setFocusId(a.value || null);
+    });
+    return () => sub.unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!focusId) return;
+    setFollow(false);
+    const el = document.getElementById(`zen-s-${focusId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setFocusId(null), 12000);
+    return () => clearTimeout(t);
+  }, [focusId]);
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {/* The quietest possible header: just people. */}
@@ -178,7 +204,17 @@ export function ZenView({
         ) : (
           <div className="mx-auto max-w-[62ch] space-y-4 px-6 py-10">
             {sentences.map((s) => (
-              <div key={s.id} className="zen-enter flex items-baseline gap-3">
+              <div
+                key={s.id}
+                id={`zen-s-${s.id}`}
+                onClick={s.eventId && onOpenEvent ? () => onOpenEvent(s.sessionId, s.eventId!) : undefined}
+                title={s.eventId && onOpenEvent ? "Open this moment in Explore" : undefined}
+                className={cn(
+                  "zen-enter flex items-baseline gap-3 rounded-lg px-2 py-1 -mx-2 transition-colors",
+                  s.eventId && onOpenEvent && "cursor-pointer hover:bg-[color:var(--bg-hover)]/30",
+                  focusId === s.id && "bg-[color:var(--accent)]/10 ring-1 ring-[color:var(--accent)]/40",
+                )}
+              >
                 <span
                   className="mt-2 h-1.5 w-1.5 shrink-0 self-start rounded-full"
                   style={{ background: s.color }}
