@@ -50,7 +50,23 @@ const ZEN_ROWS = 400;
 /** Compose a FLOWING sentence from a turn pattern — fuller than the Story
  *  tab's clipped headline: verb + object, with the "because" clause woven
  *  inline (up to ~220 chars) so the sentence structure actually reads. */
-function zenSentence(p: PatternView): { text: string; because: string | null } {
+interface SentenceSub {
+  role: string;
+  verb: string;
+  object: string;
+  tool_calls: number;
+}
+interface SentenceAnatomy {
+  verb: string;
+  object: string;
+  /** Flat fallback (ghost lines, plain contexts). */
+  text: string;
+  because: string | null;
+  subs: SentenceSub[];
+  predicate: string | null;
+}
+
+function zenSentence(p: PatternView): SentenceAnatomy {
   const m = p.metadata ?? {};
   const verb = typeof m.verb === "string" ? m.verb.trim() : "";
   const object = typeof m.object === "string" ? m.object.trim() : "";
@@ -61,7 +77,11 @@ function zenSentence(p: PatternView): { text: string; because: string | null } {
     because = raw.slice(0, 220).trim() || null;
     if (because && raw.length > 220) because += "…";
   }
-  return { text, because };
+  const subs = Array.isArray(m.subordinates)
+    ? (m.subordinates as SentenceSub[]).filter((x) => x && (x.verb || x.object))
+    : [];
+  const predicate = typeof m.predicate === "string" && m.predicate.trim() ? m.predicate.trim() : null;
+  return { verb: verb || (text === object ? "" : text), object, text, because, subs, predicate };
 }
 
 /** `/Users/max/projects/OpenStory/rs/src/watcher.rs` → `src/watcher.rs`.
@@ -91,23 +111,21 @@ interface SessionLike {
 
 function ZenSentenceRow({
   id,
-  text,
-  because,
+  anatomy,
   color,
   time,
   onClick,
   focused,
 }: {
   id: string;
-  text: string;
-  because: string | null;
+  anatomy: SentenceAnatomy;
   color: string;
-  /** Replay-only: a compactTime or "n / total" label. Live rows never pass
-   *  this — omitting it keeps the live row's DOM byte-for-byte unchanged. */
+  /** Replay-only: a compactTime or "n / total" label. */
   time?: string | null;
   onClick?: () => void;
   focused?: boolean;
 }) {
+  const { verb, object, text, because, subs, predicate } = anatomy;
   return (
     <div
       id={id}
@@ -124,12 +142,50 @@ function ZenSentenceRow({
         style={{ background: color }}
       />
       <div className="min-w-0 flex-1">
-        <Markdown className="text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)] [&_p]:my-0 [&_code]:text-[0.9em]">
-          {text}
-        </Markdown>
+        {/* The sentence spine: VERB (category-colored, weighted) + object.
+            Same grammar as the Story tab's diagram, set as calm prose. */}
+        {verb && object ? (
+          <div className="text-[length:var(--fs-emph)] leading-relaxed">
+            <span className="font-semibold" style={{ color }}>
+              {verb}
+            </span>{" "}
+            <Markdown className="inline text-[color:var(--text)] [&_p]:my-0 [&_p]:inline [&_code]:text-[0.9em]">
+              {object}
+            </Markdown>
+          </div>
+        ) : (
+          <Markdown className="text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)] [&_p]:my-0 [&_code]:text-[0.9em]">
+            {text}
+          </Markdown>
+        )}
+        {/* Subordinate clauses — the tree branches, as quiet indents. */}
+        {subs.slice(0, 3).map((sub, i) => (
+          <div
+            key={i}
+            className="ml-0.5 mt-0.5 border-l border-[color:var(--divider)] pl-2.5 text-[length:var(--fs-body)] leading-relaxed text-[color:var(--text-muted)]"
+          >
+            <span className="text-[color:var(--text-bright)]">{sub.verb}</span>{" "}
+            {shortenPaths(sub.object)}
+            {sub.tool_calls > 0 && <span className="opacity-70"> ({sub.tool_calls})</span>}
+          </div>
+        ))}
+        {subs.length > 3 && (
+          <div className="ml-0.5 border-l border-[color:var(--divider)] pl-2.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] opacity-70">
+            +{subs.length - 3} more
+          </div>
+        )}
+        {/* The prompt that caused it — a quoted aside, not a footnote. */}
         {because && (
-          <div className="mt-0.5 text-[length:var(--fs-label)] italic text-[color:var(--text-muted)]">
-            because {because}
+          <div
+            className="ml-0.5 mt-1 border-l-2 pl-2.5 text-[length:var(--fs-body)] italic leading-snug text-[color:var(--text-muted)]"
+            style={{ borderColor: `color-mix(in oklab, ${color} 45%, transparent)` }}
+          >
+            because “{because}”
+          </div>
+        )}
+        {predicate && (because || subs.length > 0) && (
+          <div className="mt-0.5 text-[length:var(--fs-label)] text-[color:var(--green)] opacity-80">
+            → {predicate}
           </div>
         )}
       </div>
@@ -156,8 +212,7 @@ export interface ReplaySentenceItem {
   id: string;
   sessionId: string;
   eventId: string | null;
-  text: string;
-  because: string | null;
+  anatomy: SentenceAnatomy;
   color: string;
   /** Real wall-clock ISO timestamp from the pattern's `started_at`, when the
    *  API supplied one — verified present on turn.sentence patterns for a real
@@ -190,15 +245,19 @@ function sortByTurn(patterns: readonly PatternView[]): PatternView[] {
 function buildReplayItems(patterns: readonly PatternView[]): ReplayItem[] {
   const sorted = sortByTurn(patterns);
   return sorted.map((p, i) => {
-    const { text, because } = zenSentence(p);
+    const a = zenSentence(p);
     const startedAt = p.metadata?.started_at;
     return {
-      kind: "sentence",
+      kind: "sentence" as const,
       id: p.events[0] ?? `${p.session_id}-${i}`,
       sessionId: p.session_id,
       eventId: p.events[0] ?? null,
-      text: shortenPaths(text),
-      because: because ? shortenPaths(because) : null,
+      anatomy: {
+        ...a,
+        object: shortenPaths(a.object),
+        text: shortenPaths(a.text),
+        because: a.because ? shortenPaths(a.because) : null,
+      },
       color: STORY_COLOR[categorizeTurn(p)] ?? "var(--text-muted)",
       time: typeof startedAt === "string" && startedAt ? startedAt : null,
       seq: i + 1,
@@ -287,13 +346,19 @@ export function ZenView({
       patterns
         .filter((p) => p.type === "turn.sentence" && personSessions.has(p.session_id))
         .map((p, i) => {
-          const { text, because } = zenSentence(p);
+          const a = zenSentence(p);
+          const anatomy = {
+            ...a,
+            object: shortenPaths(a.object),
+            text: shortenPaths(a.text),
+            because: a.because ? shortenPaths(a.because) : null,
+          };
           return {
             id: p.events[0] ?? `${p.session_id}-${i}`,
             sessionId: p.session_id,
             eventId: p.events[0] ?? null,
-            text: shortenPaths(text),
-            because: because ? shortenPaths(because) : null,
+            text: anatomy.text,
+            anatomy,
             color: STORY_COLOR[categorizeTurn(p)] ?? "var(--text-muted)",
           };
         })
@@ -624,8 +689,7 @@ export function ZenView({
                 <ZenSentenceRow
                   key={item.id}
                   id={`zen-replay-${item.id}`}
-                  text={item.text}
-                  because={item.because}
+                  anatomy={item.anatomy}
                   color={item.color}
                   time={item.time ? compactTime(item.time) : `${item.seq} / ${item.total}`}
                   onClick={
@@ -648,8 +712,7 @@ export function ZenView({
               <ZenSentenceRow
                 key={s.id}
                 id={`zen-s-${s.id}`}
-                text={s.text}
-                because={s.because}
+                anatomy={s.anatomy}
                 color={s.color}
                 onClick={s.eventId && onOpenEvent ? () => onOpenEvent(s.sessionId, s.eventId!) : undefined}
                 focused={focusId === s.id}
