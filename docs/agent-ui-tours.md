@@ -89,3 +89,28 @@ using that seam — visibly, interruptibly, with the human able to take the
 wheel at any moment. Interaction and command are inverses; a captured
 journey can replay as a tour, and a tour is a journey somebody else can
 follow.
+
+## Driving via MCP (instead of raw curl)
+
+Everything above used raw `curl` against `/api/control` — but any agent with
+the **OpenStory MCP server** connected gets the same seam as first-class
+tools, no shell required:
+
+| MCP tool | Wraps | Use |
+|---|---|---|
+| `ui_control` | `POST /api/control` | `open_view` / `present` / `toggle` / `query` — same vocabulary as this doc |
+| `where_is_user` | `GET /api/ui-state` | point-read of where the human is right now |
+| `subscribe_ui_state` | ui_state notifications | live stream of the human's navigation (follow, don't just drive) |
+
+So a tour from an MCP-connected agent (Bobby, Vera, any Claude with the
+`openstory` server) is just `ui_control` calls with the same JSON params —
+plus `where_is_user` first, which raw curl can't do, to meet the human where
+they already are.
+
+**Canonical reference:** `docs/agent-in-ui.md` — the full agent-in-UI seam
+spec (drive + follow + replay), also served to agents as the MCP resource
+`openstory://docs/agent-in-ui`.
+
+Note from the night this was written: the tours used raw curl only because
+this laptop's MCP connection happened to be down — the seam is identical
+either way, which is rather the point.
