@@ -54,9 +54,23 @@ post() {
   fi
 }
 
+SEG=0
 # talk <text> — BLOCKING narration; this is what paces the whole tour.
+# Video mode: when OS_TOUR_AUDIO_DIR is set (see record-tour-video.sh), each
+# line is rendered to an aiff, its start offset (vs OS_TOUR_T0) logged, then
+# played — so the video muxer can rebuild a clean narration track instead of
+# recording a microphone.
 talk() {
   [ "$SILENT" -eq 1 ] && return 0
+  if [ -n "${OS_TOUR_AUDIO_DIR:-}" ]; then
+    SEG=$((SEG+1))
+    local f="$OS_TOUR_AUDIO_DIR/seg-$(printf '%03d' "$SEG").aiff"
+    /usr/bin/say -v "$VOICE" -r 178 -o "$f" "$1"
+    python3 -c "import time; print(round(time.time()-${OS_TOUR_T0:-0},3))" >> "$OS_TOUR_AUDIO_DIR/offsets.log"
+    echo "$f" >> "$OS_TOUR_AUDIO_DIR/files.log"
+    afplay "$f"
+    return 0
+  fi
   /usr/bin/say -v "$VOICE" -r 178 "$1"
 }
 
