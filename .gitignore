@@ -78,3 +78,4 @@ captures/
 
 # Generated leaf-remote configs (contain hub tokens — never commit)
 deploy/*.generated.conf
+.superpowers/
