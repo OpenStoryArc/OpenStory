@@ -11,7 +11,7 @@ import type { WireRecord } from "@/types/wire-record";
 import type { StorySession, Fleet } from "@/lib/story-api";
 import { Timestamp } from "@/components/ui/Timestamp";
 import { sampleDepthProfile } from "@/lib/depth-profile";
-import { sessionColor } from "@/lib/session-colors";
+import { sessionColor, tint } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
 import { PersonRow } from "@/components/PersonRow";
 import { TimeFilter } from "@/components/TimeFilter";
@@ -687,7 +687,7 @@ export const Sidebar = memo(function Sidebar({
                       <div className="flex items-center mb-0.5">
                         <span
                           className="text-[length:var(--fs-label)] px-1 py-0.5 rounded"
-                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          style={{ color: agentColor, backgroundColor: tint(agentColor, 12) }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
                         >
@@ -702,7 +702,7 @@ export const Sidebar = memo(function Sidebar({
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span
                       className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
-                      style={{ color, backgroundColor: `${color}20` }}
+                      style={{ color, backgroundColor: tint(color, 12) }}
                     >
                       {s.id.slice(0, 8)}
                     </span>
@@ -772,7 +772,7 @@ export const Sidebar = memo(function Sidebar({
                       return agentLabel ? (
                         <span
                           className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
-                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          style={{ color: agentColor, backgroundColor: tint(agentColor, 12) }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
                         >
@@ -782,7 +782,7 @@ export const Sidebar = memo(function Sidebar({
                     })()}
                     <span
                       className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded shrink-0"
-                      style={{ color, backgroundColor: `${color}20` }}
+                      style={{ color, backgroundColor: tint(color, 12) }}
                     >
                       {s.id.slice(0, 8)}
                     </span>

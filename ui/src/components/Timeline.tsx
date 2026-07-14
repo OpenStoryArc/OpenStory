@@ -5,6 +5,7 @@
  * Pure function drives it: state.records → toTimelineRows() → rendered rows.
  */
 
+import { sessionColor, tint } from "@/lib/session-colors";
 import { useRef, useEffect, useState, useMemo, useCallback, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Observable } from "rxjs";
@@ -58,20 +59,7 @@ const CATEGORY_LABELS: Record<TimelineCategory, string> = {
 // ---------------------------------------------------------------------------
 // Session badge — short colored identifier
 // ---------------------------------------------------------------------------
-const SESSION_COLORS = [
-  "#7aa2f7", "#bb9af7", "#2ac3de", "#9ece6a", "#e0af68",
-  "#f7768e", "#7dcfff", "#ff9e64", "#c0caf5", "#73daca",
-];
 
-function sessionColor(sessionId: string): string {
-  let hash = 0;
-  for (let i = 0; i < sessionId.length; i++) {
-    hash = ((hash << 5) - hash + sessionId.charCodeAt(i)) | 0;
-  }
-  return SESSION_COLORS[Math.abs(hash) % SESSION_COLORS.length]!;
-}
-
-// ---------------------------------------------------------------------------
 // Pattern badge colors (Tokyonight palette)
 // ---------------------------------------------------------------------------
 // All persisted pattern types live in the eval_apply.* / turn.* namespaces.
@@ -110,7 +98,7 @@ function SessionAvatar({ sessionId, label }: { sessionId: string; label?: string
   return (
     <div
       className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold"
-      style={{ backgroundColor: `${color}25`, color }}
+      style={{ backgroundColor: tint(color, 15), color }}
       title={label || sessionId}
     >
       {sessionId.slice(0, 3).toUpperCase()}
@@ -205,7 +193,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                           role="button"
                           onClick={(e) => { e.stopPropagation(); onPatternClick(p); }}
                           className="text-[9px] px-1.5 py-0.5 rounded-full border cursor-pointer hover:brightness-125"
-                          style={{ color, backgroundColor: `${color}10`, borderColor: `${color}40` }}
+                          style={{ color, backgroundColor: tint(color, 6), borderColor: tint(color, 25) }}
                           title={PATTERN_TOOLTIPS[p.type] ?? p.label}
                           data-testid="pattern-badge"
                         >

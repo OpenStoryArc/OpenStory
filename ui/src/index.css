@@ -25,6 +25,20 @@
      surfaces, while a hover wash must stay subtle. One var can't do both. */
   --divider: #2f3348;
 
+  /* Session identity colors (sessionColor()) — pastels tuned for dark. The
+     light theme overrides each with a darker same-hue ink so session chips
+     stay legible on white. Consumed as var() so themes swap them live. */
+  --sc-0: #7aa2f7; /* blue */
+  --sc-1: #bb9af7; /* purple */
+  --sc-2: #2ac3de; /* bright cyan */
+  --sc-3: #9ece6a; /* green */
+  --sc-4: #e0af68; /* yellow */
+  --sc-5: #f7768e; /* pink */
+  --sc-6: #7dcfff; /* cyan */
+  --sc-7: #ff9e64; /* orange */
+  --sc-8: #c0caf5; /* light gray */
+  --sc-9: #73daca; /* teal */
+
   /* Type scale — four steps instead of ad-hoc px. Use as
      text-[length:var(--fs-*)]; change here to retune the whole app. */
   --fs-label: 10px;    /* uppercase labels, timestamps, chips */
@@ -53,6 +67,18 @@
   --border: #a6adc6;
   --cyan-bright: #006d8f;
   --divider: #c0c5d4;
+
+  /* Session identity inks — same hue order as dark, darkened for white. */
+  --sc-0: #2456c0;
+  --sc-1: #7440b8;
+  --sc-2: #0a7691;
+  --sc-3: #55752f;
+  --sc-4: #8f5e07;
+  --sc-5: #c2255c;
+  --sc-6: #0e6a9e;
+  --sc-7: #a85413;
+  --sc-8: #4a5178;
+  --sc-9: #0f766e;
 }
 
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of
