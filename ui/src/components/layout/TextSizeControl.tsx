@@ -68,7 +68,7 @@ export function TextSizeControl() {
             onClick={() => pick(s)}
             title={title}
             aria-pressed={active}
-            className={`px-1.5 py-0.5 text-[10px] leading-none transition-colors ${
+            className={`px-1.5 py-0.5 text-[length:var(--fs-label)] leading-none transition-colors ${
               active
                 ? "bg-[color:var(--accent)] font-medium text-[color:var(--bg)]"
                 : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text)]"

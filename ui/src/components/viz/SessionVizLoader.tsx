@@ -43,7 +43,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
         {onOpenStory && (
           <button
             onClick={onOpenStory}
-            className="shrink-0 whitespace-nowrap px-3 py-2 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]"
+            className="shrink-0 whitespace-nowrap px-3 py-2 text-[length:var(--fs-body)] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]"
             title="Open this session's Story"
           >
             Story →
@@ -52,7 +52,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
       </div>
       {/* Key data on top: the token summary, before the conversation. */}
       <div className="border-b border-[color:var(--bg-hover)]">
-        <div className="px-3 pt-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">Tokens</div>
+        <div className="px-3 pt-1 text-[length:var(--fs-label)] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">Tokens</div>
         <TokenReport records={records} />
       </div>
       <SessionActivityRibbon records={records} />
@@ -73,7 +73,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
               onClick={() => openLens(t.key)}
               aria-pressed={lens === t.key}
               className={cn(
-                "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors",
+                "rounded px-2 py-0.5 text-[length:var(--fs-label)] font-medium uppercase tracking-wide transition-colors",
                 lens === t.key ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
               )}
             >

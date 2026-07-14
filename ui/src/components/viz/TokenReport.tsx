@@ -52,7 +52,7 @@ export function TokenReport({ records, className }: { records: readonly WireReco
   const total = s.totalTokens;
 
   if (total === 0) {
-    return <div className={cn("px-3 py-4 text-[11px] text-[color:var(--text-muted)]", className)}>No token data for this session.</div>;
+    return <div className={cn("px-3 py-4 text-[length:var(--fs-body)] text-[color:var(--text-muted)]", className)}>No token data for this session.</div>;
   }
 
   const hit = cacheHitRate(s);
@@ -61,18 +61,18 @@ export function TokenReport({ records, className }: { records: readonly WireReco
     <div className={cn("px-3 py-2", className)}>
       <div className="mb-2 flex items-baseline justify-between">
         <div>
-          <span className="text-[18px] font-semibold tabular-nums text-[color:var(--text)]">{compact(total)}</span>
-          <span className="ml-1 text-[10px] text-[color:var(--text-muted)]">tokens total</span>
+          <span className="text-[length:var(--fs-headline)] font-semibold tabular-nums text-[color:var(--text)]">{compact(total)}</span>
+          <span className="ml-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">tokens total</span>
         </div>
         <div className="flex items-baseline gap-2">
           <span className="text-right">
-            <span className="text-[13px] font-medium tabular-nums text-[color:var(--cyan-bright)]">{Math.round(hit * 100)}%</span>
-            <span className="ml-1 text-[10px] text-[color:var(--text-muted)]">from cache</span>
+            <span className="text-[length:var(--fs-emph)] font-medium tabular-nums text-[color:var(--cyan-bright)]">{Math.round(hit * 100)}%</span>
+            <span className="ml-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">from cache</span>
           </span>
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[10px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
             title={collapsed ? "Show the token breakdown" : "Hide the token breakdown"}
             aria-expanded={!collapsed}
           >
@@ -107,7 +107,7 @@ export function TokenReport({ records, className }: { records: readonly WireReco
               const v = values[c.key] ?? 0;
               const pct = total > 0 ? (v / total) * 100 : 0;
               return (
-                <div key={c.key} className="flex items-center gap-1.5 text-[11px]" title={c.hint}>
+                <div key={c.key} className="flex items-center gap-1.5 text-[length:var(--fs-body)]" title={c.hint}>
                   <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: c.color }} />
                   <span className="text-[color:var(--text-bright)]">{c.label}</span>
                   <span className="ml-auto tabular-nums text-[color:var(--text)]">{v.toLocaleString()}</span>

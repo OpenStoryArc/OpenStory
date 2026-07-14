@@ -20,6 +20,13 @@
   --text-bright: #a9b1d6;
   --border: #3b4261;
   --cyan-bright: #7dcfff;
+
+  /* Type scale — four steps instead of ad-hoc px. Use as
+     text-[length:var(--fs-*)]; change here to retune the whole app. */
+  --fs-label: 10px;    /* uppercase labels, timestamps, chips */
+  --fs-body: 12px;     /* default UI text */
+  --fs-emph: 13px;     /* emphasized values, list titles */
+  --fs-headline: 18px; /* headline numbers (tokens total) */
 }
 
 /* Tokyonight Day — light theme. Elevation matches the dark theme's direction

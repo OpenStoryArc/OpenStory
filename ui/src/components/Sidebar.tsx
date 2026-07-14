@@ -570,7 +570,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setHostFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
+              className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear host filter"
               data-testid="filter-chip-host"
             >
@@ -582,7 +582,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setUserFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
+              className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear user filter"
               data-testid="filter-chip-user"
             >
@@ -606,7 +606,7 @@ export const Sidebar = memo(function Sidebar({
               {hostFilter ? ` ⌂ ${hostFilter}` : ""}
               {timeFilter !== "all" ? ` · ${TIME_FILTER_LABELS[timeFilter]}` : ""}
             </div>
-            <div className="text-[10px] mb-2">
+            <div className="text-[length:var(--fs-label)] mb-2">
               {sessions.length} stamped session{sessions.length === 1 ? "" : "s"} on this leaf,
               none from this filter yet.
             </div>
@@ -617,7 +617,7 @@ export const Sidebar = memo(function Sidebar({
                 setUserFilter(null);
                 setTimeFilter("all");
               }}
-              className="text-[10px] px-2 py-1 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors"
+              className="text-[length:var(--fs-label)] px-2 py-1 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors"
               data-testid="sidebar-clear-filters"
             >
               Clear filters
@@ -629,11 +629,11 @@ export const Sidebar = memo(function Sidebar({
             key={`group-${group.principalId ?? "unattributed"}`}
             data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
           >
-            <div className="px-3 py-1.5 text-[9px] font-semibold text-[color:var(--accent)] bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
+            <div className="px-3 py-1.5 text-[length:var(--fs-label)] font-semibold text-[color:var(--accent)] bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
               <span className="truncate" data-testid="fleet-group-name" title={group.principalName}>
                 {group.principalName}
               </span>
-              <span className="text-[color:var(--text-muted)] normal-case font-normal text-[9px]">
+              <span className="text-[color:var(--text-muted)] normal-case font-normal text-[length:var(--fs-label)]">
                 {group.sessions.length}
               </span>
             </div>
@@ -686,7 +686,7 @@ export const Sidebar = memo(function Sidebar({
                     return agentLabel ? (
                       <div className="flex items-center mb-0.5">
                         <span
-                          className="text-[9px] px-1 py-0.5 rounded"
+                          className="text-[length:var(--fs-label)] px-1 py-0.5 rounded"
                           style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
@@ -696,34 +696,34 @@ export const Sidebar = memo(function Sidebar({
                       </div>
                     ) : null;
                   })()}
-                  <div className="text-[11px] text-[color:var(--text)] truncate leading-tight pr-4" title={s.label}>
+                  <div className="text-[length:var(--fs-body)] text-[color:var(--text)] truncate leading-tight pr-4" title={s.label}>
                     {s.label}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span
-                      className="text-[9px] px-1 py-0.5 rounded shrink-0"
+                      className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
                       style={{ color, backgroundColor: `${color}20` }}
                     >
                       {s.id.slice(0, 8)}
                     </span>
                     {s.branch && (
-                      <span className="text-[9px] text-[color:var(--cyan-bright)] truncate" title={s.branch}>{s.branch}</span>
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--cyan-bright)] truncate" title={s.branch}>{s.branch}</span>
                     )}
-                    <span className="text-[9px] text-[color:var(--text-muted)]">
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                       {s.eventCount} · <Timestamp iso={s.latestTimestamp} />
                     </span>
                     {s.totalTokens > 0 && (
-                      <span className="text-[9px] text-[color:var(--orange)]" title="Total tokens used">
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--orange)]" title="Total tokens used">
                         {formatTokenCount(s.totalTokens)}
                       </span>
                     )}
                     {s.subagents.length > 0 && (
-                      <span className="text-[9px] text-[color:var(--purple)]">
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--purple)]">
                         +{s.subagents.length}
                       </span>
                     )}
                     {s.planCount > 0 && (
-                      <span className="text-[9px] text-[color:var(--green)]" title={`${s.planCount} plan${s.planCount !== 1 ? "s" : ""}`}>
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--green)]" title={`${s.planCount} plan${s.planCount !== 1 ? "s" : ""}`}>
                         {s.planCount} plan{s.planCount !== 1 ? "s" : ""}
                       </span>
                     )}
@@ -740,7 +740,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setHostFilter(s.host);
                           }}
-                          className="text-[9px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
+                          className="text-[length:var(--fs-label)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to host: ${s.host}`}
                         >
                           ⌂ {s.host}
@@ -753,7 +753,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setUserFilter(s.user);
                           }}
-                          className="text-[9px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
+                          className="text-[length:var(--fs-label)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to user: ${s.user}`}
                         >
                           @{s.user}
@@ -771,7 +771,7 @@ export const Sidebar = memo(function Sidebar({
                       const agentColor = originAgentColor(s.originAgent);
                       return agentLabel ? (
                         <span
-                          className="text-[9px] px-1 py-0.5 rounded shrink-0"
+                          className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
                           style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
@@ -781,16 +781,16 @@ export const Sidebar = memo(function Sidebar({
                       ) : null;
                     })()}
                     <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                      className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded shrink-0"
                       style={{ color, backgroundColor: `${color}20` }}
                     >
                       {s.id.slice(0, 8)}
                     </span>
-                    <span className="text-[10px] text-[color:var(--text-muted)]">
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                       {s.eventCount} events
                     </span>
                   </div>
-                  <div className="text-[10px] text-[color:var(--text-muted)] mt-0.5">
+                  <div className="text-[length:var(--fs-label)] text-[color:var(--text-muted)] mt-0.5">
                     <Timestamp iso={s.latestTimestamp} />
                     {s.subagents.length > 0 && (
                       <span className="ml-2 text-[color:var(--purple)]">
@@ -852,8 +852,8 @@ export const Sidebar = memo(function Sidebar({
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-[color:var(--accent)]">Main agent</span>
-                <span className="text-[10px] text-[color:var(--text-muted)]">
+                <span className="text-[length:var(--fs-body)] text-[color:var(--accent)]">Main agent</span>
+                <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                   {selectedInfo.mainAgentCount} events
                 </span>
               </div>
@@ -874,12 +874,12 @@ export const Sidebar = memo(function Sidebar({
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-[color:var(--text-muted)]">└</span>
-                    <span className="text-[11px] text-[color:var(--purple)] truncate" title={sub.description ?? sub.agentId}>
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">└</span>
+                    <span className="text-[length:var(--fs-body)] text-[color:var(--purple)] truncate" title={sub.description ?? sub.agentId}>
                       {sub.description ?? sub.agentId.slice(0, 16)}
                     </span>
                   </div>
-                  <div className="text-[10px] text-[color:var(--text-muted)] pl-4">
+                  <div className="text-[length:var(--fs-label)] text-[color:var(--text-muted)] pl-4">
                     {sub.eventCount} events · <Timestamp iso={sub.firstTimestamp} />
                   </div>
                 </button>
@@ -887,7 +887,7 @@ export const Sidebar = memo(function Sidebar({
             })}
 
             {selectedInfo.subagents.length === 0 && (
-              <div className="px-3 py-2 text-[10px] text-[color:var(--text-muted)] italic">
+              <div className="px-3 py-2 text-[length:var(--fs-label)] text-[color:var(--text-muted)] italic">
                 No subagents spawned
               </div>
             )}

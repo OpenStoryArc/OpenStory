@@ -55,9 +55,9 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
   const topFile = s.topFiles[0];
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-[color:var(--text)]", className)}>
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[length:var(--fs-body)] text-[color:var(--text)]", className)}>
       {s.model && (
-        <span className="rounded bg-[color:var(--accent)]/15 px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--accent)]">{shortModel(s.model)}</span>
+        <span className="rounded bg-[color:var(--accent)]/15 px-1.5 py-0.5 font-mono text-[length:var(--fs-label)] text-[color:var(--accent)]">{shortModel(s.model)}</span>
       )}
       {s.durationMs > 0 && (
         <span

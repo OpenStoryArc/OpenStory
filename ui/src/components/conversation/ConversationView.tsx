@@ -163,7 +163,7 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
           data-testid="load-older"
           onClick={loadOlder}
           disabled={loadingOlder}
-          className="w-full border-b border-[color:var(--bg-hover)] px-3 py-1.5 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50"
+          className="w-full border-b border-[color:var(--bg-hover)] px-3 py-1.5 text-[length:var(--fs-body)] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50"
         >
           {loadingOlder ? "Loading older…" : "↑ Load older history"}
         </button>

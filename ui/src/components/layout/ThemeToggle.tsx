@@ -40,7 +40,7 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={() => setTheme(next)}
-      className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+      className="rounded border border-[color:var(--border)] px-2 py-1 text-[length:var(--fs-body)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
       title={`Switch to ${next} mode`}
       aria-label={`Switch to ${next} mode`}
     >

@@ -36,7 +36,7 @@ export const UserMessage = memo(function UserMessage({
           // markdown with syntax-highlighted code (the "Live experience").
           if (v.command) {
             return (
-              <code className="inline-block rounded bg-[color:var(--bg)] px-2 py-0.5 font-mono text-[12px] text-[color:var(--cyan-bright)]">
+              <code className="inline-block rounded bg-[color:var(--bg)] px-2 py-0.5 font-mono text-[length:var(--fs-body)] text-[color:var(--cyan-bright)]">
                 {v.command}
               </code>
             );

@@ -20,7 +20,7 @@ export function SubagentsSection({ records, onOpen, className }: Props) {
 
   return (
     <div className={cn("px-3 py-2", className)} data-testid="subagents-section">
-      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+      <div className="mb-1 text-[length:var(--fs-label)] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
         Subagents · {subs.length}
       </div>
       <div className="flex flex-col gap-0.5">
@@ -34,17 +34,17 @@ export function SubagentsSection({ records, onOpen, className }: Props) {
               disabled={!linkable}
               onClick={linkable ? () => onOpen!(s.sessionId!) : undefined}
               className={cn(
-                "flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] transition-colors",
+                "flex items-center gap-2 rounded px-2 py-1 text-left text-[length:var(--fs-body)] transition-colors",
                 linkable ? "hover:bg-[color:var(--bg-surface)] cursor-pointer" : "cursor-default opacity-80",
               )}
               title={linkable ? "Open this subagent's session" : "Subagent session not linked yet"}
             >
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.isError ? "#f7768e" : color }} />
               {s.subagentType && (
-                <span className="shrink-0 rounded bg-[color:var(--purple)]/15 px-1 text-[9px] text-[color:var(--purple)]">{s.subagentType}</span>
+                <span className="shrink-0 rounded bg-[color:var(--purple)]/15 px-1 text-[length:var(--fs-label)] text-[color:var(--purple)]">{s.subagentType}</span>
               )}
               <span className="min-w-0 flex-1 truncate text-[color:var(--text)]">{s.description}</span>
-              {s.isError && <span className="shrink-0 text-[9px] text-[color:var(--red)]">failed</span>}
+              {s.isError && <span className="shrink-0 text-[length:var(--fs-label)] text-[color:var(--red)]">failed</span>}
               {linkable && <span className="shrink-0 text-[color:var(--text-muted)]">→</span>}
             </button>
           );

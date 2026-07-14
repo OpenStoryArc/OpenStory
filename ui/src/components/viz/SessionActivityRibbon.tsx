@@ -130,7 +130,7 @@ export function SessionActivityRibbon({
 
   if (model.events.length === 0) {
     return (
-      <div ref={containerRef} className={cn("px-3 py-4 text-[11px] text-[color:var(--text-muted)]", className)}>
+      <div ref={containerRef} className={cn("px-3 py-4 text-[length:var(--fs-body)] text-[color:var(--text-muted)]", className)}>
         No activity to chart yet.
       </div>
     );
@@ -141,7 +141,7 @@ export function SessionActivityRibbon({
   return (
     <div ref={containerRef} className={cn("relative w-full select-none", className)}>
       {/* Summary chips + view controls */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[color:var(--text-muted)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
         <span className="text-[color:var(--text)]">{model.events.length} events</span>
         <span>· {humanDuration(model.durationMs)}</span>
         {model.totalTokens > 0 && (
@@ -248,7 +248,7 @@ export function SessionActivityRibbon({
       {/* hover tooltip */}
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg"
+          className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[length:var(--fs-label)] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 8, w - 140), top: hover.y - 34 }}
         >
           <span className="font-medium" style={{ color: hover.ev.color }}>
