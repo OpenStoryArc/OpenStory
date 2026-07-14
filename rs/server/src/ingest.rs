@@ -116,6 +116,34 @@ pub async fn ingest_events(
             // handled by the projection's own `seen_ids: HashSet<String>` —
             // `append()` returns `AppendResult::empty()` for duplicate IDs.
 
+            // Plan extraction — BEFORE the projection append: `append_hydrated`
+            // absorbs a cold session's durable history first, so an event
+            // that's already durable (seeded, redelivered, backfilled) dedups
+            // and would skip everything below. Plans must not be lost to that
+            // skip; `plan_store.save` is idempotent (deterministic plan_id →
+            // overwrite), so extracting for every incoming plan event is safe.
+            if is_plan_event(&val) {
+                let plan_content = extract_plan_content(&val).or_else(|| {
+                    val.get("data")
+                        .and_then(|d| d.get("agent_payload"))
+                        .and_then(|ap| ap.get("args"))
+                        .and_then(|a| a.get("plan"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                });
+                if let Some(content) = plan_content {
+                    let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
+                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
+                    // Dual-write plan to EventStore
+                    let plan_id = format!("plan:{}:{}", session_id, timestamp);
+                    let _ = state
+                        .store
+                        .event_store
+                        .upsert_plan(&plan_id, session_id, &content)
+                        .await;
+                }
+            }
+
             // Update projection (dedup happens here now via seen_ids).
             // `append_hydrated` first loads the full durable history for a cold
             // (evicted / never-seeded) session, so a live event never produces
@@ -159,28 +187,6 @@ pub async fn ingest_events(
                 }
             }
 
-            // Plan extraction
-            if is_plan_event(&val) {
-                let plan_content = extract_plan_content(&val).or_else(|| {
-                    val.get("data")
-                        .and_then(|d| d.get("agent_payload"))
-                        .and_then(|ap| ap.get("args"))
-                        .and_then(|a| a.get("plan"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                });
-                if let Some(content) = plan_content {
-                    let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
-                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
-                    // Dual-write plan to EventStore
-                    let plan_id = format!("plan:{}:{}", session_id, timestamp);
-                    let _ = state
-                        .store
-                        .event_store
-                        .upsert_plan(&plan_id, session_id, &content)
-                        .await;
-                }
-            }
 
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
