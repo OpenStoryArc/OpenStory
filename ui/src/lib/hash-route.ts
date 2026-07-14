@@ -51,7 +51,7 @@ function buildExploreQuery(e: ExploreQuery): URLSearchParams {
 }
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin";
+  view: "live" | "zen" | "explore" | "story" | "canvas" | "ask" | "users" | "admin";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -71,7 +71,7 @@ export interface HashRoute {
   timeFilter?: "1h" | "today" | "week" | "all";
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin"]);
+const VALID_VIEWS = new Set(["live", "zen", "explore", "story", "canvas", "ask", "users", "admin"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
