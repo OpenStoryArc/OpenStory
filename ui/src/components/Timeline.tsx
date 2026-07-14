@@ -34,15 +34,17 @@ import { computeTurnSummaries, type TurnSummary } from "@/lib/turn-summary";
 // ---------------------------------------------------------------------------
 // Color palette for category badges (Tokyonight)
 // ---------------------------------------------------------------------------
+// Theme-aware: semantic vars, not literal pastels — kind colors stay legible
+// in light mode and echo the activity ribbon's lane language.
 const CATEGORY_COLORS: Record<TimelineCategory, string> = {
-  prompt: "#7aa2f7",
-  response: "#bb9af7",
-  thinking: "#9ece6a",
-  tool: "#2ac3de",
-  result: "#2ac3de",
-  system: "#565f89",
-  error: "#f7768e",
-  turn: "#3b4261",
+  prompt: "var(--accent)",
+  response: "var(--purple)",
+  thinking: "var(--green)",
+  tool: "var(--cyan)",
+  result: "var(--cyan)",
+  system: "var(--text-muted)",
+  error: "var(--red)",
+  turn: "var(--border)",
 };
 
 const CATEGORY_LABELS: Record<TimelineCategory, string> = {
@@ -157,9 +159,19 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
+      className={`mx-3 my-1 rounded-lg border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
       onClick={onSelect}
+      // Markdown-block idiom: each event is a distinct block — a colored kind
+      // gutter (blockquote/diff style) + a whisper of kind color washed over
+      // an ELEVATED surface, so cards visibly lift off the stream background.
+      // Highlight state keeps its own background.
+      style={{
+        borderLeft: `3px solid ${catColor}`,
+        ...(isHighlighted
+          ? {}
+          : { background: `color-mix(in oklab, ${catColor} 5%, var(--bg-surface))` }),
+      }}
     >
       <div className="px-3 py-2">
         <div className="flex gap-3">
@@ -174,7 +186,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
               )}
               <span
                 className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                style={{ color: catColor, backgroundColor: `${catColor}18` }}
+                style={{ color: catColor, backgroundColor: tint(catColor, 10) }}
                 data-testid="row-category-badge"
               >
                 {CATEGORY_LABELS[row.category]}
