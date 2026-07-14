@@ -112,7 +112,7 @@ export function UsersView({ onNavigate }: UsersViewProps) {
             </pre>
           )}
           {!noData && (
-            <p className="text-[10px] text-[#414868]">
+            <p className="text-[10px] text-[color:var(--border)]">
               New events from this point on will be stamped and surface here.
             </p>
           )}
@@ -152,7 +152,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
 
   return (
     <div
-      className="rounded-xl border border-[color:var(--bg-hover)] bg-[#1f2335] overflow-hidden"
+      className="rounded-xl border border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)] overflow-hidden"
       data-testid={`user-card-${user.user}`}
     >
       <div className="px-4 py-3 border-b border-[color:var(--bg-hover)]">
@@ -196,7 +196,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
         </div>
         {user.projects.length > 0 && (
           <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-            <span className="text-[10px] text-[#414868]">projects:</span>
+            <span className="text-[10px] text-[color:var(--border)]">projects:</span>
             {user.projects.slice(0, 4).map((p) => {
               const c = projectColor(p);
               return (
@@ -229,7 +229,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
             height={28}
             ariaLabel={`${user.user}'s activity over the last 24 hours`}
           />
-          <div className="flex justify-between text-[9px] text-[#414868] mt-0.5 px-0.5">
+          <div className="flex justify-between text-[9px] text-[color:var(--border)] mt-0.5 px-0.5">
             <span>24h ago</span>
             <span>12h</span>
             <span>now</span>
@@ -238,7 +238,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
       </div>
 
       <div className="px-2 py-2">
-        <div className="text-[10px] text-[#414868] uppercase tracking-wider px-2 py-1">
+        <div className="text-[10px] text-[color:var(--border)] uppercase tracking-wider px-2 py-1">
           Recent sessions
         </div>
         {user.recent_sessions.length === 0 ? (

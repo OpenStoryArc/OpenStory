@@ -207,7 +207,7 @@ export function AdminView() {
             {topology.live_sources ? (
               <LiveSourcesPanel sources={topology.live_sources} />
             ) : (
-              <div className="rounded border border-dashed border-[#414868] p-3 text-sm text-[color:var(--text-muted)]">
+              <div className="rounded border border-dashed border-[color:var(--border)] p-3 text-sm text-[color:var(--text-muted)]">
                 <p>
                   <strong className="text-[color:var(--text)]">No hub aggregate here.</strong>{" "}
                   <code>events-agg</code> lives on the <em>hub</em> — this node
@@ -220,11 +220,11 @@ export function AdminView() {
                 </p>
                 <p className="mt-2 text-xs">
                   To light it up locally:{" "}
-                  <code className="bg-[#16161e] px-1 py-0.5 rounded">
+                  <code className="bg-[color:var(--bg)] px-1 py-0.5 rounded">
                     OPEN_STORY_HUB_DOMAIN=hub just serve
                   </code>{" "}
                   with NATS configured{" "}
-                  <code className="bg-[#16161e] px-1 py-0.5 rounded">
+                  <code className="bg-[color:var(--bg)] px-1 py-0.5 rounded">
                     jetstream {`{ domain: hub }`}
                   </code>
                   .
@@ -365,7 +365,7 @@ function ShapeBadge({ shape }: { shape: TopologyShape }) {
     t3: "T3 · Multi-hub mesh",
   } as const)[shape];
   return (
-    <span className="rounded bg-[#414868] px-2 py-0.5 text-xs font-medium text-[color:var(--text)]">
+    <span className="rounded bg-[color:var(--border)] px-2 py-0.5 text-xs font-medium text-[color:var(--text)]">
       {label}
     </span>
   );

@@ -90,7 +90,7 @@ function TraceRow({
       onClick={onSelect ? () => onSelect(span.callId) : undefined}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-[3px] text-left transition-colors",
-        selected ? "bg-[#283549]" : "hover:bg-[color:var(--bg-surface)]",
+        selected ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]",
       )}
       title={`${span.name}${span.detail ? " · " + span.detail : ""}${unresolved ? " · no result" : " · " + formatDuration(span.durationMs!)}`}
     >

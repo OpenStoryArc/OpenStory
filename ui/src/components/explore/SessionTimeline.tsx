@@ -288,7 +288,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
           {hasFacets && (
             <button
               onClick={clearFacets}
-              className="text-[color:var(--accent)] hover:text-[#89b4fa]"
+              className="text-[color:var(--accent)] hover:text-[color:var(--accent)]"
             >
               Clear filters
             </button>

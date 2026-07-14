@@ -72,9 +72,12 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
           {formatDuration(s.durationMs)}
         </span>
       )}
+      {/* Stat values stay neutral (Stripe discipline): color in this strip is
+          reserved for meaning, not per-metric identity — the rainbow read as
+          noise. The model chip keeps the single interactive accent. */}
       {s.turnCount > 0 && <Stat label={s.turnCount === 1 ? "turn" : "turns"} value={String(s.turnCount)} />}
-      <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} color="#7dcfff" />
-      {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} color="#e0af68" />}
+      <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} />
+      {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} />}
       {s.errorCount > 0 && (
         onJumpToError ? (
           <button
@@ -110,7 +113,7 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
         <a
           href={`#/explore/${s.parentSessionId}`}
           data-testid="parent-session-link"
-          className="text-[color:var(--purple)] hover:underline"
+          className="text-[color:var(--accent)] hover:underline"
           title={`Spawned by session ${s.parentSessionId}`}
         >
           ↑ parent session

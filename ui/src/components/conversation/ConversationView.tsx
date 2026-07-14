@@ -10,6 +10,7 @@ import { textFromContent, imagesFromContent } from "@/lib/message-images";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FilterPills } from "@/components/ui/FilterPills";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { CONVERSATION_FACETS, conversationEntryMatches, facetCounts, type ConversationFacet } from "@/lib/conversation-facets";
 
 interface ConversationViewProps {
@@ -146,9 +147,10 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
 
   if (entries.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[color:var(--text-muted)] text-sm">
-        No conversation data
-      </div>
+      <EmptyState
+        title="No conversation yet"
+        hint="User and assistant messages will appear here as this session talks."
+      />
     );
   }
 

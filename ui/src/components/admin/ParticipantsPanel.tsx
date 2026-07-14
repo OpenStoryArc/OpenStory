@@ -64,12 +64,12 @@ export function ParticipantsPanel() {
           </thead>
           <tbody>
             {participants.map((p) => (
-              <tr key={p.principal_id} className="border-b border-[#16161e]">
+              <tr key={p.principal_id} className="border-b border-[color:var(--bg)]">
                 <td className="py-2 pr-4 font-mono text-[color:var(--text)]">{p.principal_id}</td>
                 <td className="py-2 pr-4 text-[color:var(--purple)]">{p.person_id}</td>
                 <td className="py-2 pr-4">
                   <span
-                    className="inline-block rounded bg-[#16161e] border border-[color:var(--bg-surface)] text-[color:var(--text)] text-xs px-2 py-1"
+                    className="inline-block rounded bg-[color:var(--bg)] border border-[color:var(--bg-surface)] text-[color:var(--text)] text-xs px-2 py-1"
                     data-testid={`role-${p.principal_id}`}
                   >
                     {p.role}

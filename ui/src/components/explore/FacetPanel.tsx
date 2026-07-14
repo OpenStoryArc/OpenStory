@@ -54,7 +54,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
               <a
                 href={buildHash({ view: "explore", detailView: "search", searchQuery: selectedFile })}
                 data-testid="file-impact-link"
-                className="block px-2 py-1 text-[10px] text-[color:var(--purple)] hover:underline"
+                className="block px-2 py-1 text-[10px] text-[color:var(--accent)] hover:underline"
                 title={`All sessions touching ${selectedFile}`}
               >
                 ↺ Impact across sessions

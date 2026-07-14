@@ -49,7 +49,7 @@ export function FacetGroup({
           );
         })}
         {values.length > 8 && (
-          <button onClick={() => setShowAll((s) => !s)} className="px-2 py-0.5 text-left text-[10px] text-[color:var(--accent)] hover:text-[#89b4fa]">
+          <button onClick={() => setShowAll((s) => !s)} className="px-2 py-0.5 text-left text-[10px] text-[color:var(--accent)] hover:text-[color:var(--accent)]">
             {showAll ? "Show less" : `+${values.length - 8} more`}
           </button>
         )}

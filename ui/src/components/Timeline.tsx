@@ -169,7 +169,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[color:var(--bg-hover)] overflow-hidden hover:border-[#414868]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
+      className={`mx-3 my-1 rounded-xl border border-[color:var(--bg-hover)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
       onClick={onSelect}
     >
@@ -650,7 +650,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
               setAutoScroll(true);
               virtualizer.scrollToIndex(0, { align: "start" });
             }}
-            className="text-[color:var(--accent)] hover:text-[#89b4fa]"
+            className="text-[color:var(--accent)] hover:text-[color:var(--accent)]"
           >
             Scroll to latest
           </button>
@@ -666,7 +666,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
 
       {/* Ephemeral progress indicator */}
       {state.currentEphemeral && (
-        <div className="px-3 py-1 bg-[#1e2030] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--orange)] animate-pulse">
+        <div className="px-3 py-1 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--orange)] animate-pulse">
           {state.currentEphemeral.record_type === "system_event"
             ? ((state.currentEphemeral.payload as { message?: string }).message ?? "Working...")
             : "Working..."}
@@ -709,7 +709,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
                   {msg.action && (
                     <button
                       onClick={() => setActiveFilter(msg.action!)}
-                      className="mt-3 text-xs text-[color:var(--accent)] hover:text-[#89b4fa] underline"
+                      className="mt-3 text-xs text-[color:var(--accent)] hover:text-[color:var(--accent)] underline"
                       data-testid="empty-state-action"
                     >
                       Show all events

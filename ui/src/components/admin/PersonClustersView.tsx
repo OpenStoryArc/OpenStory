@@ -35,7 +35,7 @@ export function PersonClustersView({ clusters, selfHost }: Props) {
       {clusters.map((c) => (
         <article
           key={c.person_id}
-          className="rounded border border-[color:var(--bg-surface)] bg-[#16161e] p-3"
+          className="rounded border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-3"
           data-testid={`person-cluster-${c.person_id}`}
         >
           <header className="mb-2 flex items-baseline justify-between">

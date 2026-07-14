@@ -13,7 +13,7 @@ export function HowItWorks({
   children: ReactNode;
 }) {
   return (
-    <details className="mt-3 rounded border border-[color:var(--bg-surface)] bg-[#16161e]/60 text-xs text-[#9aa5ce]">
+    <details className="mt-3 rounded border border-[color:var(--bg-surface)] bg-[color:var(--bg)]/60 text-xs text-[#9aa5ce]">
       <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[color:var(--accent)]">
         {summary}
       </summary>

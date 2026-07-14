@@ -175,7 +175,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const caption = MODE_CAPTION[viewMode](groupBy, metric);
 
   return (
-    <div className="flex min-h-0 flex-1 bg-[#16171f] text-[color:var(--text)]" data-testid="sessions-canvas">
+    <div className="flex min-h-0 flex-1 bg-[color:var(--bg)] text-[color:var(--text)]" data-testid="sessions-canvas">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-3 py-2">
@@ -315,7 +315,7 @@ export function SessionsCanvas({ onNavigate }: Props) {
           <div className="flex items-center justify-between border-b border-[color:var(--bg-hover)] px-3 py-2">
             <span className="truncate text-[12px] text-[color:var(--text)]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => onNavigate({ view: "story", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[color:var(--purple)] hover:bg-[color:var(--bg-hover)]">Story →</button>
+              <button onClick={() => onNavigate({ view: "story", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]">Story →</button>
               <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]">Explore →</button>
               <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[color:var(--text-muted)] hover:text-[color:var(--text)]" aria-label="Close">✕</button>
             </div>

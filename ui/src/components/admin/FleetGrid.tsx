@@ -49,7 +49,7 @@ function NodeCard({ node }: { node: NodeSummary }) {
 
   const cardClass = node.is_self
     ? "bg-[color:var(--accent)] text-[color:var(--bg)] border-[color:var(--accent)]"
-    : "bg-[color:var(--bg)] text-[color:var(--text)] border-[color:var(--bg-surface)] hover:border-[#414868]";
+    : "bg-[color:var(--bg)] text-[color:var(--text)] border-[color:var(--bg-surface)] hover:border-[color:var(--border)]";
 
   return (
     <div

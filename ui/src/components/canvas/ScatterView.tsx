@@ -114,7 +114,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
   const kfmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(0)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}k` : String(n));
 
   return (
-    <div className="relative min-h-0 flex-1 bg-[#16171f]">
+    <div className="relative min-h-0 flex-1 bg-[color:var(--bg)]">
       <AgentLegend agents={model.points.map((p) => p.agent)} className="absolute left-3 top-2 z-10" />
       <svg width={width} height={height} className="block">
         {/* axes */}

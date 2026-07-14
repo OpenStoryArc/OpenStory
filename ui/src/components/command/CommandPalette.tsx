@@ -136,7 +136,7 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
       data-testid="command-palette"
     >
       <div
-        className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-[color:var(--border)] bg-[#1f2335] shadow-2xl"
+        className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-[color:var(--bg-hover)] px-3">
@@ -166,7 +166,7 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
                   onClick={() => run(item)}
                   className={cn(
                     "flex w-full items-center gap-3 px-3 py-2 text-left",
-                    active ? "bg-[#283549]" : "hover:bg-[color:var(--bg-surface)]",
+                    active ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]",
                   )}
                 >
                   <span className="w-4 shrink-0 text-center text-[13px]" style={{ color: item.color ?? "#7aa2f7" }}>{item.icon}</span>

@@ -106,7 +106,7 @@ export function SpaceFillingView({ sessions, groupBy, metric, mode, width, heigh
         ))}
         <span className="ml-2 text-[color:var(--text-muted)]">· {metric}</span>
       </div>
-      <div className="relative min-h-0 flex-1 bg-[#16171f]">
+      <div className="relative min-h-0 flex-1 bg-[color:var(--bg)]">
         {mode === "sunburst"
           ? <Sunburst focus={focus} width={width} height={height - 30} onDrill={drill} metric={metric} />
           : <Treemap focus={focus} width={width} height={height - 30} onDrill={drill} />}

@@ -86,10 +86,10 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   };
 
   // Selected-session highlight ring on the whole card.
-  const cardClassName = `mb-2 rounded-lg bg-[#1f2335] border overflow-hidden transition-colors ${
+  const cardClassName = `mb-2 rounded-lg bg-[color:var(--bg-surface)] border overflow-hidden transition-colors ${
     isSelectedSession
       ? "border-[color:var(--accent)]"
-      : "border-[#2a2e42] hover:border-[color:var(--border)]"
+      : "border-[color:var(--bg-hover)] hover:border-[color:var(--border)]"
   }`;
 
   return (
@@ -162,7 +162,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           Shows full UUIDs in a compact list, each individually selectable so
           they can be copied with a single double-click. */}
       {eventsOpen && pattern.events.length > 0 && (
-        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[#2a2e42]">
+        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[color:var(--bg-hover)]">
           <div className="text-[9px] uppercase tracking-wide text-[color:var(--text-muted)] mb-1">
             event ids ({pattern.events.length})
           </div>
@@ -215,7 +215,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         </button>
 
         {detailOpen && (
-          <div className="space-y-1 border-t border-[#2a2e42] pt-2 mt-1">
+          <div className="space-y-1 border-t border-[color:var(--bg-hover)] pt-2 mt-1">
             {/* Sentence one-liner */}
             <p className="text-[12px] italic text-[color:var(--text-bright)] pb-1">
               {pattern.label}
@@ -393,7 +393,7 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
       {hidden.length > 0 && (
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-          className="w-full text-left py-1.5 px-2.5 my-1 rounded-r bg-[color:var(--bg-surface)] border-l-[3px] border-[color:var(--orange)] text-[11px] text-[color:var(--text-bright)] hover:bg-[#2a3050] transition-colors"
+          className="w-full text-left py-1.5 px-2.5 my-1 rounded-r bg-[color:var(--bg-surface)] border-l-[3px] border-[color:var(--orange)] text-[11px] text-[color:var(--text-bright)] hover:bg-[color:var(--bg-hover)] transition-colors"
         >
           ▶ ... and {hidden.length} more: <span className="text-[color:var(--orange)]">{groupSummary}</span>
         </button>
@@ -404,8 +404,8 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
 
 function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
   const [showOutput, setShowOutput] = useState(false);
-  const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[color:var(--red)]" : "border-[color:var(--orange)]";
-  const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[color:var(--red)]" : "text-[color:var(--orange)]";
+  const cls = apply.is_agent ? "border-[color:var(--orange)]" : apply.is_error ? "border-[color:var(--red)]" : "border-[color:var(--orange)]";
+  const labelColor = apply.is_agent ? "text-[color:var(--orange)]" : apply.is_error ? "text-[color:var(--red)]" : "text-[color:var(--orange)]";
   const label = apply.is_agent ? "apply · compound" : "apply";
   const fact = apply.tool_outcome ? extractDomainFact(apply.tool_outcome) : null;
   const factStyle = fact ? FACT_STYLES[fact.kind] : null;
@@ -479,7 +479,7 @@ function AgentExpand({ apply }: { apply: Apply }) {
     <div className="mt-1">
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-        className="text-[10px] text-[#ff9e64] hover:text-[color:var(--text)] transition-colors"
+        className="text-[10px] text-[color:var(--orange)] hover:text-[color:var(--text)] transition-colors"
       >
         {expanded ? "▼" : "▶"} {cycles ? `${cycles.length} eval-apply cycles` : "subagent eval-apply"}
         <span className="text-[color:var(--text-muted)] ml-1">"{description.slice(0, 40)}{description.length > 40 ? "..." : ""}"</span>
@@ -488,7 +488,7 @@ function AgentExpand({ apply }: { apply: Apply }) {
         <div className="text-[10px] text-[color:var(--text-muted)] italic mt-1 ml-4">loading cycles...</div>
       )}
       {expanded && cycles && cycles.length > 0 && (
-        <div className="mt-1 ml-2 border-l-2 border-[#ff9e6433] pl-2">
+        <div className="mt-1 ml-2 border-l-2 border-[color:var(--orange)]/20 pl-2">
           <CycleList cycles={cycles} sessionId={agentSessionId || ""} depth={1} />
         </div>
       )}
@@ -614,7 +614,7 @@ function ApplyOutput({ output, toolName, outcome }: {
 
   // Fallback: markdown for non-code outputs
   return (
-    <div className="text-[11px] text-[color:var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
+    <div className="text-[11px] text-[color:var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[color:var(--bg-hover)] pt-1">
       <Markdown remarkPlugins={[remarkGfm]}>{output}</Markdown>
     </div>
   );

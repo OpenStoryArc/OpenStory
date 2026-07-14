@@ -295,7 +295,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         data-session-row={s.session_id}
         className={cn(
           "w-full text-left px-3 py-2 transition-colors border-l-2",
-          isSelected ? "bg-[color:var(--bg-surface)]" : "hover:bg-[#1e2030] border-l-transparent",
+          isSelected ? "bg-[color:var(--bg-surface)]" : "hover:bg-[color:var(--bg-surface)] border-l-transparent",
           isHighlighted && "ring-1 ring-inset ring-[color:var(--accent)]",
         )}
         style={isSelected ? { borderLeftColor: color } : undefined}
@@ -348,7 +348,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         <>
           <button
             onClick={onToggleExpand}
-            className="w-full px-3 py-1 text-[10px] text-[color:var(--purple)] hover:bg-[#1e2030] transition-colors flex items-center gap-1"
+            className="w-full px-3 py-1 text-[10px] text-[color:var(--purple)] hover:bg-[color:var(--bg-surface)] transition-colors flex items-center gap-1"
           >
             <span>{isExpanded ? "▾" : "▸"}</span>
             <span>{parent.agents.length} subagent{parent.agents.length !== 1 ? "s" : ""}</span>
@@ -357,7 +357,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
 
           {/* Agent list */}
           {isExpanded && (
-            <div className="bg-[#1e2030]">
+            <div className="bg-[color:var(--bg-surface)]">
               {parent.agents.map((a) => {
                 const agentColor = sessionColor(a.session_id);
                 const agentSelected = selectedSessionId === a.session_id;

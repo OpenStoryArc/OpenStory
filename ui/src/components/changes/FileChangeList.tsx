@@ -24,7 +24,7 @@ export function FileChangeList({
             className={`w-full text-left px-3 py-2 border-b border-[color:var(--bg-hover)] transition-colors ${
               isSelected
                 ? "bg-[color:var(--bg-surface)] text-[color:var(--text)]"
-                : "text-[color:var(--text-bright)] hover:bg-[#1f2335]"
+                : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"
             }`}
           >
             <div className="flex items-center justify-between">

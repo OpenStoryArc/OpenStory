@@ -88,7 +88,7 @@ export function ToolFlowView({ sessions, width, height }: Props) {
     !hover || flow.links.some((l) => linkActive(l, hover) && (side === "from" ? l.from : l.to) === tool);
 
   return (
-    <div className="relative min-h-0 flex-1 bg-[#16171f]">
+    <div className="relative min-h-0 flex-1 bg-[color:var(--bg)]">
       <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]">
         <span>tool grammar ·</span>
         {agents.slice(0, 6).map((a) => (

@@ -255,7 +255,7 @@ function ToolResultDetail({ payload, sessionId, eventId, isTruncated }: {
         <button
           onClick={handleViewFull}
           disabled={loading}
-          className="text-[10px] text-[color:var(--accent)] hover:text-[#89b4fa] transition-colors"
+          className="text-[10px] text-[color:var(--accent)] hover:text-[color:var(--accent)] transition-colors"
           data-testid="view-full-button"
         >
           {loading ? "Loading..." : "View full output"}

@@ -35,7 +35,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
         {onOpenStory && (
           <button
             onClick={onOpenStory}
-            className="shrink-0 whitespace-nowrap px-3 py-2 text-[11px] text-[color:var(--purple)] hover:bg-[color:var(--bg-hover)]"
+            className="shrink-0 whitespace-nowrap px-3 py-2 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]"
             title="Open this session's Story"
           >
             Story →

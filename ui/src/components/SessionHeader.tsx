@@ -109,7 +109,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
             {session.branch}
           </span>
         )}
-        <span className="ml-auto text-[10px] text-[#414868] font-mono" title="Session ID">
+        <span className="ml-auto text-[10px] text-[color:var(--border)] font-mono" title="Session ID">
           {session.session_id.slice(0, 8)}
         </span>
       </div>

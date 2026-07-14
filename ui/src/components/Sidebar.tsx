@@ -570,7 +570,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setHostFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--cyan-bright)]/13 text-[color:var(--cyan-bright)] hover:bg-[color:var(--cyan-bright)]/25 transition-colors flex items-center gap-1"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear host filter"
               data-testid="filter-chip-host"
             >
@@ -582,7 +582,7 @@ export const Sidebar = memo(function Sidebar({
             <button
               type="button"
               onClick={() => setUserFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--purple)]/13 text-[color:var(--purple)] hover:bg-[color:var(--purple)]/25 transition-colors flex items-center gap-1"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear user filter"
               data-testid="filter-chip-user"
             >
@@ -658,7 +658,7 @@ export const Sidebar = memo(function Sidebar({
               className={`w-full text-left px-3 py-2 border-b border-[color:var(--bg-hover)] transition-colors relative ${
                 isSelected
                   ? "bg-[color:var(--bg-surface)] border-l-2"
-                  : "hover:bg-[#1e2030] cursor-pointer"
+                  : "hover:bg-[color:var(--bg-surface)] cursor-pointer"
               }${sidebarFocused && isHighlighted ? " ring-1 ring-inset ring-[color:var(--accent)]" : ""}`}
               style={isSelected ? { borderLeftColor: color } : undefined}
             >
@@ -740,7 +740,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setHostFilter(s.host);
                           }}
-                          className="text-[9px] text-[color:var(--cyan-bright)] hover:bg-[color:var(--cyan-bright)]/13 px-1 rounded cursor-pointer"
+                          className="text-[9px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to host: ${s.host}`}
                         >
                           ⌂ {s.host}
@@ -753,7 +753,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setUserFilter(s.user);
                           }}
-                          className="text-[9px] text-[color:var(--purple)] hover:bg-[color:var(--purple)]/13 px-1 rounded cursor-pointer"
+                          className="text-[9px] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to user: ${s.user}`}
                         >
                           @{s.user}
@@ -835,7 +835,7 @@ export const Sidebar = memo(function Sidebar({
               data-testid="agent-all"
               onClick={() => onFocusAgent(null)}
               className={`w-full text-left px-3 py-1.5 text-xs border-b border-[color:var(--bg-hover)] transition-colors ${
-                !focusAgentId ? "bg-[color:var(--bg-surface)] text-[color:var(--accent)]" : "text-[color:var(--text-muted)] hover:bg-[#1e2030]"
+                !focusAgentId ? "bg-[color:var(--bg-surface)] text-[color:var(--accent)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)]"
               }`}
             >
               All events ({selectedInfo.eventCount})
@@ -848,7 +848,7 @@ export const Sidebar = memo(function Sidebar({
               className={`w-full text-left px-3 py-1.5 border-b border-[color:var(--bg-hover)] transition-colors ${
                 focusAgentId === "__main__"
                   ? "bg-[color:var(--bg-surface)] border-l-2 border-l-[color:var(--accent)]"
-                  : "hover:bg-[#1e2030]"
+                  : "hover:bg-[color:var(--bg-surface)]"
               }`}
             >
               <div className="flex items-center gap-1.5">
@@ -870,7 +870,7 @@ export const Sidebar = memo(function Sidebar({
                   className={`w-full text-left pl-6 pr-3 py-1.5 border-b border-[color:var(--bg-hover)] transition-colors ${
                     isActive
                       ? "bg-[#1a1a3e] border-l-2 border-l-[color:var(--purple)]"
-                      : "hover:bg-[#1e2030]"
+                      : "hover:bg-[color:var(--bg-surface)]"
                   }`}
                 >
                   <div className="flex items-center gap-1.5">

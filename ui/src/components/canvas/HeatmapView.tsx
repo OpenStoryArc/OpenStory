@@ -83,7 +83,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#16171f] text-[color:var(--text)]" data-testid="heatmap-view">
+    <div className="flex min-h-0 flex-1 flex-col bg-[color:var(--bg)] text-[color:var(--text)]" data-testid="heatmap-view">
       {/* header */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-4 py-2.5">
         <div className="flex items-baseline gap-2">

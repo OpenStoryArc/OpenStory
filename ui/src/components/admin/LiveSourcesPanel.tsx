@@ -42,7 +42,7 @@ export function LiveSourcesPanel({ sources }: Props) {
           const stale =
             s.active_ms !== null && s.active_ms > 30_000;
           return (
-            <tr key={`${s.name}-${i}`} className="border-b border-[#16161e]">
+            <tr key={`${s.name}-${i}`} className="border-b border-[color:var(--bg)]">
               <td className="py-2 pr-4">
                 <code className="text-[color:var(--accent)]">{s.name}</code>
               </td>

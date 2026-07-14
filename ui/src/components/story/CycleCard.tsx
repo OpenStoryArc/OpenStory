@@ -103,7 +103,7 @@ function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sess
       {isAgent && (
         <button
           onClick={() => setAgentExpanded(!agentExpanded)}
-          className="text-[10px] text-[#ff9e64] hover:text-[color:var(--text)] transition-colors mt-1 ml-[48px]"
+          className="text-[10px] text-[color:var(--orange)] hover:text-[color:var(--text)] transition-colors mt-1 ml-[48px]"
         >
           {agentExpanded ? "▼" : "▶"} subagent: {tool.summary.slice(0, 40)}
         </button>

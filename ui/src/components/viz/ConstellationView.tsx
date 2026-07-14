@@ -119,7 +119,7 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
       <div className="pointer-events-none absolute left-2 top-2 z-10 text-[10px] text-[color:var(--text-muted)]">
         {graph.nodes.length - 1} subagents · scroll to zoom · drag to pan
       </div>
-      <svg ref={svgRef} width={width} height={height} className="block cursor-grab bg-[#16171f] active:cursor-grabbing" style={{ touchAction: "none" }}>
+      <svg ref={svgRef} width={width} height={height} className="block cursor-grab bg-[color:var(--bg)] active:cursor-grabbing" style={{ touchAction: "none" }}>
         <defs>
           {/* Figma-style dot grid backdrop */}
           <pattern id="con-dots" width="22" height="22" patternUnits="userSpaceOnUse">
