@@ -74,8 +74,8 @@ function zenSentence(p: PatternView): SentenceAnatomy {
   let because: string | null = null;
   if (typeof m.adverbial === "string" && m.adverbial.trim()) {
     const raw = m.adverbial.trim().replace(/^"|"$/g, "").replace(/\s+/g, " ");
-    because = raw.slice(0, 220).trim() || null;
-    if (because && raw.length > 220) because += "…";
+    because = raw.slice(0, 420).trim() || null;
+    if (because && raw.length > 420) because += "…";
   }
   const subs = Array.isArray(m.subordinates)
     ? (m.subordinates as SentenceSub[]).filter((x) => x && (x.verb || x.object))
@@ -174,13 +174,21 @@ function ZenSentenceRow({
             +{subs.length - 3} more
           </div>
         )}
-        {/* The prompt that caused it — a quoted aside, not a footnote. */}
+        {/* The prompt that caused it — the human voice, and the good stuff.
+            Highlighted: category-tinted wash, full-strength ink, reads like a
+            pull-quote rather than a footnote. */}
         {because && (
           <div
-            className="ml-0.5 mt-1 border-l-2 pl-2.5 text-[length:var(--fs-body)] italic leading-snug text-[color:var(--text-muted)]"
-            style={{ borderColor: `color-mix(in oklab, ${color} 45%, transparent)` }}
+            className="mt-1.5 rounded-r-lg border-l-2 py-1.5 pl-3 pr-2.5 text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)]"
+            style={{
+              borderColor: color,
+              background: `color-mix(in oklab, ${color} 7%, transparent)`,
+            }}
           >
-            because “{because}”
+            <span className="mr-1.5 select-none font-semibold opacity-70" style={{ color }}>
+              ❝
+            </span>
+            {because}
           </div>
         )}
         {predicate && (because || subs.length > 0) && (
