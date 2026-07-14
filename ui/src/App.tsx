@@ -20,6 +20,7 @@ import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
@@ -51,6 +52,8 @@ export function App() {
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  // Live tab: the sessions sidebar folds away — a clear labeled control, persisted.
+  const [liveSidebar, setLiveSidebar] = usePersistedFlag("os.live.sidebar", true);
 
   // Durable overlay annotations: load existing on mount, append live ones.
   useEffect(() => { fetchAnnotations().then(setAnnotations); }, []);
@@ -195,18 +198,40 @@ export function App() {
       {/* Live tab */}
       {viewMode === "live" && (
         <div className="flex flex-1 min-h-0">
-          <Sidebar
-            events={state.records}
-            selectedSession={selectedSession}
-            onSelectSession={handleSelectSession}
-            focusAgentId={focusAgentId}
-            onFocusAgent={setFocusAgentId}
-            sessionLabels={state.sessionLabels}
-            userFilter={userFilter}
-            onUserFilterChange={handleUserFilterChange}
-            timeFilter={timeFilter}
-            onTimeFilterChange={handleTimeFilterChange}
-          />
+          {liveSidebar ? (
+            <div className="relative flex min-h-0 shrink-0">
+              <Sidebar
+                events={state.records}
+                selectedSession={selectedSession}
+                onSelectSession={handleSelectSession}
+                focusAgentId={focusAgentId}
+                onFocusAgent={setFocusAgentId}
+                sessionLabels={state.sessionLabels}
+                userFilter={userFilter}
+                onUserFilterChange={handleUserFilterChange}
+                timeFilter={timeFilter}
+                onTimeFilterChange={handleTimeFilterChange}
+              />
+              {/* Clear, well-sized collapse control — pinned bottom of the rail. */}
+              <button
+                onClick={() => setLiveSidebar(false)}
+                className="absolute bottom-3 left-3 z-10 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[length:var(--fs-body)] font-medium text-[color:var(--text-muted)] shadow-card transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+                title="Collapse the sessions sidebar"
+              >
+                ◂ hide sessions
+              </button>
+            </div>
+          ) : (
+            <div className="flex min-h-0 shrink-0 flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-1.5 pt-3">
+              <button
+                onClick={() => setLiveSidebar(true)}
+                className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-surface)] px-2 py-2 text-[length:var(--fs-body)] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)] [writing-mode:vertical-rl]"
+                title="Show the sessions sidebar"
+              >
+                ▸ sessions
+              </button>
+            </div>
+          )}
           <div className="flex-1 min-w-0 flex flex-col">
             <SessionHeaderForLive
               sessionId={selectedSession}

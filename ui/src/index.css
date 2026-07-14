@@ -85,9 +85,9 @@
   /* The stream field goes WARM in sepia — the shared blue-black ink clashed
      with aged paper (Max, from the Live tab). Deep umber keeps the dark-field
      entity contrast while belonging to the same warm world. */
-  --stream: #2b2115;
-  --stream-text: #b3a184;
-  --stream-line: #4a3d2b;
+  --stream: #57493a;
+  --stream-text: #e6dac2;
+  --stream-line: #7a6a52;
 
   /* Session identity inks — deep enough to read on cream; hue variety kept. */
   --sc-0: #1c48a8;
