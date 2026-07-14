@@ -23,6 +23,14 @@ type Lens = "conversation" | "trace" | "subagents" | "details";
 export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { sessionId: string; onOpenSubagent?: (id: string) => void; onOpenStory?: () => void }) {
   const { records, loading } = useSessionRecords(sessionId);
   const [lens, setLens] = useState<Lens>("conversation");
+  // Lazy-mount-once: a lens mounts on first visit, then stays mounted (CSS
+  // hidden) so returning to it is instant — Details' 4 fetches and the
+  // conversation's scroll position survive tab switches.
+  const [visited, setVisited] = useState<ReadonlySet<Lens>>(() => new Set<Lens>(["conversation"]));
+  const openLens = (k: Lens) => {
+    setLens(k);
+    setVisited((prev) => (prev.has(k) ? prev : new Set(prev).add(k)));
+  };
   const subagentCount = useMemo(() => extractSubagents(records).length, [records]);
 
   if (loading) return <SessionVizSkeleton />;
@@ -62,7 +70,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
           ] as { key: Lens; label: string }[]).map((t) => (
             <button
               key={t.key}
-              onClick={() => setLens(t.key)}
+              onClick={() => openLens(t.key)}
               aria-pressed={lens === t.key}
               className={cn(
                 "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors",
@@ -77,10 +85,24 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
             Explore flex chain (no dead block below), while Canvas (block
             context) keeps the 58vh height. No max cap — tall screens win. */}
         <div className="flex h-[58vh] min-h-[240px] grow flex-col overflow-y-auto">
-          {lens === "conversation" && <ConversationView sessionId={sessionId} />}
-          {lens === "trace" && <TurnTraceView records={records} />}
-          {lens === "subagents" && <SubagentsSection records={records} onOpen={onOpenSubagent} />}
-          {lens === "details" && <SessionDetailPanel sessionId={sessionId} />}
+          <div className={cn("min-h-0 grow flex-col", lens === "conversation" ? "flex" : "hidden")}>
+            <ConversationView sessionId={sessionId} />
+          </div>
+          {visited.has("trace") && (
+            <div className={lens === "trace" ? undefined : "hidden"}>
+              <TurnTraceView records={records} />
+            </div>
+          )}
+          {visited.has("subagents") && (
+            <div className={lens === "subagents" ? undefined : "hidden"}>
+              <SubagentsSection records={records} onOpen={onOpenSubagent} />
+            </div>
+          )}
+          {visited.has("details") && (
+            <div className={lens === "details" ? undefined : "hidden"}>
+              <SessionDetailPanel sessionId={sessionId} />
+            </div>
+          )}
         </div>
       </div>
     </div>
