@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WireRecord, PatternView } from "@/types/wire-record";
 import { toTimelineRows, type TimelineCategory } from "@/lib/timeline";
-import { sentenceHeadline, categorizeTurn, type StoryCategory } from "@/lib/story";
+import { categorizeTurn, type StoryCategory } from "@/lib/story";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -39,6 +39,23 @@ const STORY_COLOR: Record<StoryCategory, string> = {
 
 /** How much history the room holds — enough to scroll, never a wall. */
 const ZEN_ROWS = 400;
+
+/** Compose a FLOWING sentence from a turn pattern — fuller than the Story
+ *  tab's clipped headline: verb + object, with the "because" clause woven
+ *  inline (up to ~220 chars) so the sentence structure actually reads. */
+function zenSentence(p: PatternView): { text: string; because: string | null } {
+  const m = p.metadata ?? {};
+  const verb = typeof m.verb === "string" ? m.verb.trim() : "";
+  const object = typeof m.object === "string" ? m.object.trim() : "";
+  const text = [verb, object].filter(Boolean).join(" ").trim() || p.label || "…";
+  let because: string | null = null;
+  if (typeof m.adverbial === "string" && m.adverbial.trim()) {
+    const raw = m.adverbial.trim().replace(/^"|"$/g, "").replace(/\s+/g, " ");
+    because = raw.slice(0, 220).trim() || null;
+    if (because && raw.length > 220) because += "…";
+  }
+  return { text, because };
+}
 
 /** `/Users/max/projects/OpenStory/rs/src/watcher.rs` → `src/watcher.rs`.
  *  Absolute paths read as noise in a calm room; keep the last two segments. */
@@ -97,7 +114,7 @@ export function ZenView({
       patterns
         .filter((p) => p.type === "turn.sentence" && personSessions.has(p.session_id))
         .map((p, i) => {
-          const { text, because } = sentenceHeadline(p);
+          const { text, because } = zenSentence(p);
           return {
             id: p.events[0] ?? `${p.session_id}-${i}`,
             text: shortenPaths(text),

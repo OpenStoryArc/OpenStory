@@ -113,14 +113,14 @@
   box-shadow: 0 1px 2px rgba(74, 55, 24, 0.10);
 }
 
-/* Agent message panel: slides down into place. */
-@keyframes panel-in {
-  from { opacity: 0; transform: translate(-50%, -10px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+/* Agent chat bubbles: each new message settles in like a sent text. */
+@keyframes chat-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.panel-enter { animation: panel-in 0.25s ease-out; }
+.chat-enter { animation: chat-in 0.22s ease-out; }
 @media (prefers-reduced-motion: reduce) {
-  .panel-enter { animation: none; }
+  .chat-enter { animation: none; }
 }
 
 /* Zen room: new lines breathe in — a slow fade-and-rise, nothing sudden. */
