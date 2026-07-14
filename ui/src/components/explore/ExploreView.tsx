@@ -209,7 +209,10 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
       </div>
       <div className="flex-1 min-w-0 overflow-y-auto flex flex-col">
         {selectedSessionId && (
-          <div style={{ display: detailView === "search" ? "none" : undefined }}>
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            style={{ display: detailView === "search" ? "none" : undefined }}
+          >
             {tabBar}
             {/* Default: conversation-forward — summary card + tokens on top +
                 transcript & writes. The busy Events/Tool-Journey/Files wall is

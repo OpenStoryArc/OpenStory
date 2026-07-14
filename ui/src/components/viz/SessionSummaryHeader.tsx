@@ -81,11 +81,11 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
             type="button"
             data-testid="summary-errors"
             onClick={onJumpToError}
-            className="flex items-baseline gap-1 text-[color:var(--red)] hover:underline"
+            className="flex items-baseline gap-1 text-[color:var(--text-muted)] hover:underline"
             title="Jump to the first failure"
           >
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed →</span>
+            <span>{" "}failed tools →</span>
           </button>
         ) : s.firstErrorEventId && s.sessionId ? (
           // error→event: even without a scroll callback, "n failed" is a
@@ -93,16 +93,16 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
           <a
             href={`#/explore/${s.sessionId}/event/${s.firstErrorEventId}`}
             data-testid="summary-errors"
-            className="flex items-baseline gap-1 text-[color:var(--red)] hover:underline"
+            className="flex items-baseline gap-1 text-[color:var(--text-muted)] hover:underline"
             title="Open the first failure"
           >
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed →</span>
+            <span>{" "}failed tools →</span>
           </a>
         ) : (
-          <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[color:var(--red)]">
+          <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[color:var(--text-muted)]">
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed</span>
+            <span>{" "}failed tools</span>
           </span>
         )
       )}

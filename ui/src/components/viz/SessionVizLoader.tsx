@@ -28,7 +28,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
   if (loading) return <SessionVizSkeleton />;
 
   return (
-    <div>
+    <div className="flex min-h-0 grow flex-col">
       {/* Header: the session summary card + an optional jump to its Story. */}
       <div className="flex items-start justify-between gap-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)]">
         <div className="min-w-0 flex-1"><SessionSummaryHeader records={records} /></div>
@@ -48,7 +48,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
         <TokenReport records={records} />
       </div>
       <SessionActivityRibbon records={records} />
-      <div className="mt-1 border-t border-[color:var(--bg-hover)] pt-1">
+      <div className="mt-1 flex min-h-0 grow flex-col border-t border-[color:var(--bg-hover)] pt-1">
         {/* Conversation-first: the transcript leads; trace, subagents, and the
             detail wall are lens tabs at the top — no scroll-past-everything. */}
         <div className="flex items-center gap-1 px-3 pt-1">
@@ -73,7 +73,10 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
             </button>
           ))}
         </div>
-        <div className="flex h-[58vh] max-h-[560px] min-h-[240px] flex-col overflow-y-auto">
+        {/* h-[58vh] is the flex-basis; `grow` lets it FILL the viewport in the
+            Explore flex chain (no dead block below), while Canvas (block
+            context) keeps the 58vh height. No max cap — tall screens win. */}
+        <div className="flex h-[58vh] min-h-[240px] grow flex-col overflow-y-auto">
           {lens === "conversation" && <ConversationView sessionId={sessionId} />}
           {lens === "trace" && <TurnTraceView records={records} />}
           {lens === "subagents" && <SubagentsSection records={records} onOpen={onOpenSubagent} />}

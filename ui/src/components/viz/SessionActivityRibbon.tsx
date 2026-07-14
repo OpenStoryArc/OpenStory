@@ -147,8 +147,12 @@ export function SessionActivityRibbon({
         {model.totalTokens > 0 && (
           <span>· <span className="text-[color:var(--orange)]">{model.totalTokens.toLocaleString()}</span> out-tokens</span>
         )}
+        {/* Failed tool calls are routine agent probing (a grep with no match,
+            a non-zero exit) — informative, not alarming. Muted, not red. */}
         {model.errorCount > 0 && (
-          <span className="text-[color:var(--red)]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
+          <span title="Tool calls that returned an error — usually routine probing, not session failures">
+            · {model.errorCount} failed tool{model.errorCount > 1 ? "s" : ""}
+          </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {!collapsed && (
