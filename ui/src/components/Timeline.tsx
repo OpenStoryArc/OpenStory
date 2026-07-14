@@ -249,13 +249,18 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
               </span>
             </div>
 
-            {/* Body — the card IS the content */}
-            <CardBody row={row} />
-
-            {/* Full IDs — always visible for cross-referencing */}
-            <div className="mt-1 text-[9px] text-[color:var(--text-muted)] font-mono leading-tight">
-              <div>event: {row.id}</div>
-              <div>session: {row.sessionId}</div>
+            {/* Body — the CONTENT sits in its own inset well (Max: a box
+                around the event's content), visibly recessed from the card's
+                header chrome: page-toned wash + soft inner border. Dark mode
+                recesses toward ink, sepia toward parchment — both themes get
+                the content/chrome separation for free from the tokens. */}
+            <div className="mt-1.5 rounded-md border border-[color:var(--divider)]/50 bg-[color:var(--bg)]/45 px-2.5 py-2">
+              <CardBody row={row} />
+              {/* Full IDs — cross-referencing metadata lives with the content */}
+              <div className="mt-1.5 border-t border-[color:var(--divider)]/40 pt-1 text-[9px] text-[color:var(--text-muted)] font-mono leading-tight">
+                <div>event: {row.id}</div>
+                <div>session: {row.sessionId}</div>
+              </div>
             </div>
           </div>
         </div>
