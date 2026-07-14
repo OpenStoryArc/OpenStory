@@ -310,10 +310,54 @@ export function ZenView({
       .slice(-ZEN_ROWS);
   }, [records, personSessions, sentences.length]);
 
+  // ─── Graceful delivery + back-pressure (live mode) ───
+  // Arrivals queue instead of shoving in: one sentence is RELEASED every
+  // ~1.4s (÷ delivery speed), history appears instantly on load/person
+  // switch, and the un-released remainder is made visible as ghost lines +
+  // a pressure chip. Max's spec: see the burst coming, never be buried by it.
+  const [shownCount, setShownCount] = useState(0);
+  const [deliverySpeed, setDeliverySpeed] = useState<1 | 2 | 4>(1);
+  const [catchUp, setCatchUp] = useState(false);
+  const personRef = useRef<string | null>(null);
+  const bootRef = useRef(true);
+  useEffect(() => {
+    // First load or person switch: snap to now — pacing is for LIVE arrivals,
+    // not a slow replay of history.
+    if (bootRef.current || personRef.current !== person) {
+      bootRef.current = false;
+      personRef.current = person;
+      setShownCount(sentences.length);
+      setCatchUp(false);
+      return;
+    }
+    if (sentences.length < shownCount) {
+      setShownCount(sentences.length); // cap rotation / shrink — resync
+      return;
+    }
+    if (sentences.length === shownCount) {
+      if (catchUp) setCatchUp(false); // drained — chip fades, speed resumes
+      return;
+    }
+    const gap = catchUp ? 90 : Math.round(1400 / deliverySpeed);
+    const t = setTimeout(
+      () => setShownCount((c) => Math.min(c + 1, sentences.length)),
+      gap,
+    );
+    return () => clearTimeout(t);
+  }, [sentences.length, shownCount, person, deliverySpeed, catchUp]);
+
+  const visibleSentences = sentences.slice(0, shownCount);
+  const ghosts = sentences.slice(shownCount, shownCount + 2);
+  const queued = Math.max(0, sentences.length - shownCount);
+  // Pressure reads at a glance: calm cyan → amber → pulsing red as depth grows.
+  const pressureColor =
+    queued > 10 ? "var(--red)" : queued > 3 ? "var(--orange)" : "var(--cyan)";
+  const pressureSize = queued > 10 ? "h-2.5 w-2.5" : queued > 3 ? "h-2 w-2" : "h-1.5 w-1.5";
+
   // Follow-live: pinned to the bottom until the reader scrolls up.
   const scrollRef = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
-  const count = sentences.length + rows.length;
+  const count = shownCount + rows.length;
 
   // ─── Replay state ───
   const [replay, setReplay] = useState<ReplayState | null>(null);
@@ -600,7 +644,7 @@ export function ZenView({
           />
         ) : (
           <div className="mx-auto max-w-[62ch] space-y-4 px-6 py-10">
-            {sentences.map((s) => (
+            {visibleSentences.map((s) => (
               <ZenSentenceRow
                 key={s.id}
                 id={`zen-s-${s.id}`}
@@ -610,6 +654,23 @@ export function ZenView({
                 onClick={s.eventId && onOpenEvent ? () => onOpenEvent(s.sessionId, s.eventId!) : undefined}
                 focused={focusId === s.id}
               />
+            ))}
+            {/* Ghost lines: the next queued sentences, fading into the fog —
+                you can SEE more arriving before it lands. */}
+            {ghosts.map((g, gi) => (
+              <div
+                key={`ghost-${g.id}`}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none flex select-none items-baseline gap-3 px-2 -mx-2",
+                  gi === 0 ? "opacity-40 blur-[1px]" : "opacity-20 blur-[2px]",
+                )}
+              >
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 self-start rounded-full bg-[color:var(--text-muted)]" />
+                <span className="min-w-0 flex-1 text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text-muted)]">
+                  {g.text}
+                </span>
+              </div>
             ))}
             {rows.map((r) => (
               <div key={r.id} className="zen-enter group flex items-baseline gap-3">
@@ -632,7 +693,46 @@ export function ZenView({
         )}
       </div>
 
-      {!follow && !replay && (
+      {/* Back-pressure chip: how much is still arriving, and the throttle. */}
+      {!replay && queued > 0 && (
+        <div className="chat-enter absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-3.5 py-1.5 shadow-card backdrop-blur-sm">
+          <span
+            className={cn("shrink-0 rounded-full transition-all", pressureSize, queued > 10 && "pulse-live")}
+            style={{ background: pressureColor }}
+          />
+          <span className="text-[length:var(--fs-label)] tabular-nums text-[color:var(--text-bright)]">
+            {queued} arriving
+          </span>
+          <span className="h-3 w-px bg-[color:var(--divider)]" />
+          {([1, 2, 4] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setDeliverySpeed(s)}
+              className={cn(
+                "text-[length:var(--fs-label)] transition-colors",
+                deliverySpeed === s && !catchUp
+                  ? "text-[color:var(--text)] underline underline-offset-4"
+                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
+              )}
+              title={`Deliver one sentence every ${(1.4 / s).toFixed(1)}s`}
+            >
+              {s}×
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              setCatchUp(true);
+              setFollow(true);
+            }}
+            className="text-[length:var(--fs-label)] text-[color:var(--accent)] transition-colors hover:underline"
+            title="Fast-drain the queue to now"
+          >
+            ⏩ catch up
+          </button>
+        </div>
+      )}
+
+      {!follow && !replay && queued === 0 && (
         <button
           onClick={() => {
             setFollow(true);
