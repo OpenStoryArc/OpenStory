@@ -10,7 +10,8 @@
  *  marks render as JSX so the component stays React-idiomatic and testable.
  */
 
-import { useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import { controlActions$ } from "@/streams/control";
 import { scaleTime, scaleLinear, scaleSqrt } from "d3-scale";
 import { area, curveMonotoneX } from "d3-shape";
 import { timeFormat } from "d3-time-format";
@@ -96,6 +97,17 @@ export function SessionActivityRibbon({
   const [compact, setCompact] = usePersistedFlag("os.ribbon.compact", false);
   const LANE_ROW = compact ? LANE_ROW_COMPACT : LANE_ROW_FULL;
   const TOKEN_BAND = compact ? TOKEN_BAND_COMPACT : TOKEN_BAND_FULL;
+
+  // Agent-in-UI seam: ribbon.compact / ribbon.collapsed ("on"|"off").
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "ribbon.compact") setCompact(a.value === "on");
+      if (a.target === "ribbon.collapsed") setCollapsed(a.value === "on");
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const w = Math.max(measuredW, PAD_L + PAD_R + 40);
   const lanes = model.lanes;

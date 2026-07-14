@@ -2,7 +2,8 @@
  *  the activity ribbon (temporal shape) + the tool-call trace (durations).
  *  Used in the Overview drill-in where only a session id is in hand. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { controlActions$ } from "@/streams/control";
 import { useSessionRecords } from "@/hooks/use-session-records";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
 import { TurnTraceView } from "./TurnTraceView";
@@ -32,6 +33,22 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
     setVisited((prev) => (prev.has(k) ? prev : new Set(prev).add(k)));
   };
   const subagentCount = useMemo(() => extractSubagents(records).length, [records]);
+
+  // Agent-in-UI seam: `toggle {target:"session.lens", value:<lens>}` opens a
+  // lens tab remotely (guided tours, deep-links from agents).
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (
+        a.type === "toggle" &&
+        a.target === "session.lens" &&
+        ["conversation", "trace", "subagents", "details"].includes(a.value)
+      ) {
+        openLens(a.value as Lens);
+      }
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) return <SessionVizSkeleton />;
 

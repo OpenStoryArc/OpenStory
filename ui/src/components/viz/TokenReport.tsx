@@ -7,7 +7,8 @@
  *  scale (and how much context was reused vs. re-sent) is finally visible.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { controlActions$ } from "@/streams/control";
 import type { WireRecord } from "@/types/wire-record";
 import { buildSessionSummary } from "@/lib/session-summary";
 import { cn } from "@/lib/cn";
@@ -42,6 +43,15 @@ const CATS = [
 export function TokenReport({ records, className }: { records: readonly WireRecord[]; className?: string }) {
   const s = useMemo(() => buildSessionSummary(records), [records]);
   const [collapsed, setCollapsed] = usePersistedFlag("os.tokens.collapsed", false);
+
+  // Agent-in-UI seam: tokens.collapsed ("on"|"off").
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "tokens.collapsed") setCollapsed(a.value === "on");
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const values: Record<string, number> = {
     output: s.outputTokens,
