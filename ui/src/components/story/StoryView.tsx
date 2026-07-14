@@ -37,6 +37,9 @@ import {
   type StorySession,
 } from "@/lib/story-api";
 import { sessionColor } from "@/lib/session-colors";
+import { fetchSessionRecords } from "@/lib/session-records";
+import { extractCycles, type EvalApplyCycle } from "@/lib/eval-apply";
+import { storyFeed } from "@/lib/story-fallback";
 import { controlActions$ } from "@/streams/control";
 import { postInteraction } from "@/lib/interaction";
 import { applyFilters, computeFacets, type OverviewFilters } from "@/lib/sessions-overview";
@@ -149,6 +152,16 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
   sentenceCacheRef.current = sentenceCache;
   const [loadingSentences, setLoadingSentences] = useState(false);
 
+  // ── Structural-turn fallback ──
+  // Some sessions have records but zero `turn.sentence` patterns (federated
+  // backfill, older imports) — Story rendered blank for them. When a session
+  // has no sentences, derive eval→apply cycles from its records so Story is
+  // never empty for a session that has data. Read-only, no backend change.
+  const [fallbackCache, setFallbackCache] = useState<Map<string, EvalApplyCycle[]>>(new Map());
+  const fallbackCacheRef = useRef(fallbackCache);
+  fallbackCacheRef.current = fallbackCache;
+  const [loadingFallback, setLoadingFallback] = useState(false);
+
   // Fetch sessions on mount and when limit/sort/time changes.
   useEffect(() => {
     let cancelled = false;
@@ -225,6 +238,43 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
       return ta - tb;
     });
   }, [currentSentences, activeFilters]);
+
+  // Structural fallback: once the sentence fetch has resolved and the session
+  // has no sentences, fetch its records once and derive eval→apply cycles so
+  // Story isn't blank. Cached per session; an empty/failed fetch caches [] so
+  // we don't loop. Note: the WS live-merge above only augments sentence
+  // sessions, so fallback sessions don't live-append (acceptable — they're the
+  // ones the detectors never ran on).
+  useEffect(() => {
+    if (!selectedSession) return;
+    if (loadingSentences) return; // wait for the patterns fetch to resolve
+    if (!sentenceCacheRef.current.has(selectedSession)) return; // sentences not loaded yet
+    if (currentSentences.length > 0) return; // real sentences exist — no fallback
+    if (fallbackCacheRef.current.has(selectedSession)) return; // already attempted
+    let cancelled = false;
+    setLoadingFallback(true);
+    fetchSessionRecords(selectedSession)
+      .then((records) => {
+        if (!cancelled) setFallbackCache((prev) => new Map(prev).set(selectedSession, extractCycles(records)));
+      })
+      .catch(() => {
+        if (!cancelled) setFallbackCache((prev) => new Map(prev).set(selectedSession, []));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingFallback(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedSession, loadingSentences, currentSentences.length]);
+
+  // What the feed renders: sentences, the structural fallback, loading, or empty.
+  const fallbackCycles = selectedSession ? (fallbackCache.get(selectedSession) ?? null) : null;
+  const feed = storyFeed({
+    selectedSession,
+    loadingSentences,
+    sentenceCount: currentSentences.length,
+    loadingFallback,
+    fallbackCycles,
+  });
 
   // Stats
   const verbs = useMemo(() => verbDistribution(sentences), [sentences]);
@@ -771,14 +821,16 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
             setAutoScroll(atBottom);
           }}
         >
-          {loadingSentences ? (
+          {feed.kind === "loading" ? (
             <div className="text-center text-[#565f89] mt-20">
-              <p className="text-sm">Loading sentences...</p>
+              <p className="text-sm">Loading…</p>
             </div>
-          ) : sentences.length === 0 ? (
+          ) : feed.kind === "structural" ? (
+            <StructuralTurns cycles={feed.cycles} />
+          ) : feed.kind === "empty" ? (
             <div className="text-center text-[#565f89] mt-20">
               <p className="text-lg">
-                {selectedSession ? "No sentences for this session." : "Select a session to view its story."}
+                {feed.selected ? "No turns for this session." : "Select a session to view its story."}
               </p>
               <p className="text-sm mt-2">Sentences appear as agent turns complete.</p>
             </div>
@@ -827,6 +879,51 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// StructuralTurns — records-derived fallback when a session has no
+// turn.sentence patterns. Renders eval→apply cycles: degraded (no verb/
+// adverbial grammar) but never blank. Not virtualized — fallback sessions
+// are the small, pattern-less ones (federated backfill, older imports).
+// ─────────────────────────────────────────────
+
+function StructuralTurns({ cycles }: { cycles: EvalApplyCycle[] }) {
+  return (
+    <div className="max-w-3xl" data-testid="story-structural-fallback">
+      <div className="mb-3 rounded border border-[#e0af68]/40 bg-[#e0af68]/10 px-3 py-2 text-[11px] leading-snug text-[#e0af68]">
+        Sentence patterns aren’t available for this session yet — showing structural turns (eval → apply). The full narrative appears once the detectors run on these events.
+      </div>
+      <div className="flex flex-col gap-2">
+        {cycles.map((c) => (
+          <div key={c.cycleNumber} className="rounded-lg border border-[#2f3348] bg-[#1f2335] p-3">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-[10px] tabular-nums text-[#565f89]">#{c.cycleNumber}</span>
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                  c.isTerminal ? "bg-[#9ece6a]/15 text-[#9ece6a]" : "bg-[#e0af68]/15 text-[#e0af68]"
+                }`}
+              >
+                {c.isTerminal ? "answered" : "continued"}
+              </span>
+            </div>
+            {c.evalText && (
+              <Clamp text={c.evalText} className="block text-[12px] leading-snug text-[#a9b1d6]" />
+            )}
+            {c.tools.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {c.tools.map((t, i) => (
+                  <span key={i} className="rounded bg-[#24283b] px-1.5 py-0.5 text-[10px] text-[#7aa2f7]">
+                    {t.name}{t.summary ? `: ${t.summary}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

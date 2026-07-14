@@ -154,7 +154,7 @@ NATS server — pre-existing, identical on master, surfaced once NATS became
 a hard boot dependency. Fix the test image to manage/bundle NATS so the
 Dockerized data path can be verified end-to-end.
 
-### Federated sessions have records but no turn.sentence patterns (blank Story)
+### Federated sessions have records but no turn.sentence patterns (blank Story) — option 1 SHIPPED
 `turn.sentence` patterns are derived by the patterns-consumer actor as events
 flow through the *live local* NATS pipeline (eval-apply → sentence detectors).
 When a session streams in from another node, the raw CloudEvents replicate but
@@ -166,11 +166,13 @@ patterns. Diagnose with `GET /api/sessions/{id}/patterns?type=turn.sentence`
 returning empty while `/records` is populated. Given the fleet's host spread
 (a1, Maxs-Air, Katies-Mac-mini, …) this blanks the Story for a large fraction
 of federated sessions. Three fixes, roughly increasing cost:
-1. **Client-side fold fallback (quick win):** when the patterns fetch is empty,
-   the Story view fetches records and runs `ui/src/lib/eval-apply.ts::extractCycles(records)`
+1. **Client-side fold fallback (quick win) — SHIPPED** (`ui/src/lib/story-fallback.ts`
+   `storyFeed()` + `StructuralTurns` in `StoryView.tsx`): when the patterns fetch is
+   empty, the Story view fetches records and runs `ui/src/lib/eval-apply.ts::extractCycles(records)`
    to render turns locally. No backend change; works for any records-bearing
    session, federated or not. Renders structural turns but not the full
-   sentence grammar (verb/adverbial) — that still needs the detectors.
+   sentence grammar (verb/adverbial) — that still needs the detectors. Options 2
+   and 3 below remain for full sentence-grammar coverage on remote sessions.
 2. **Consume patterns from other hosts:** federate the `patterns` stream too
    (mirror/source it like `events`), so a peer's derived sentences replicate
    alongside its raw events.
