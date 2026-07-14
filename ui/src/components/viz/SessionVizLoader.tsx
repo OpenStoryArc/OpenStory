@@ -2,7 +2,7 @@
  *  the activity ribbon (temporal shape) + the tool-call trace (durations).
  *  Used in the Overview drill-in where only a session id is in hand. */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSessionRecords } from "@/hooks/use-session-records";
 import { SessionActivityRibbon } from "./SessionActivityRibbon";
 import { TurnTraceView } from "./TurnTraceView";
@@ -11,15 +11,19 @@ import { SubagentsSection } from "./SubagentsSection";
 import { SessionSummaryHeader } from "./SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/ui/skeletons";
 import { ConversationView } from "@/components/conversation/ConversationView";
+import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
+import { extractSubagents } from "@/lib/subagents";
 import { cn } from "@/lib/cn";
 
-/** The panel leads with the CONVERSATION (the story), with the tool trace a
- *  click away — "show me the conversation, not the numbers." */
-type Lens = "conversation" | "trace";
+/** The panel leads with the CONVERSATION (the story). Everything else —
+ *  tool trace, subagents, the detail wall (synopsis / journey / files) —
+ *  is a click away at the TOP, not a scroll below the transcript. */
+type Lens = "conversation" | "trace" | "subagents" | "details";
 
 export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { sessionId: string; onOpenSubagent?: (id: string) => void; onOpenStory?: () => void }) {
   const { records, loading } = useSessionRecords(sessionId);
   const [lens, setLens] = useState<Lens>("conversation");
+  const subagentCount = useMemo(() => extractSubagents(records).length, [records]);
 
   if (loading) return <SessionVizSkeleton />;
 
@@ -45,12 +49,17 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
       </div>
       <SessionActivityRibbon records={records} />
       <div className="mt-1 border-t border-[color:var(--bg-hover)] pt-1">
-        {/* Conversation-first: the transcript leads, the tool trace is a click away. */}
+        {/* Conversation-first: the transcript leads; trace, subagents, and the
+            detail wall are lens tabs at the top — no scroll-past-everything. */}
         <div className="flex items-center gap-1 px-3 pt-1">
           {([
             { key: "conversation", label: "Conversation" },
             { key: "trace", label: "Tool trace" },
-          ] as const).map((t) => (
+            ...(subagentCount > 0
+              ? ([{ key: "subagents", label: `Subagents · ${subagentCount}` }] as const)
+              : []),
+            { key: "details", label: "Details" },
+          ] as { key: Lens; label: string }[]).map((t) => (
             <button
               key={t.key}
               onClick={() => setLens(t.key)}
@@ -64,16 +73,12 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
             </button>
           ))}
         </div>
-        {lens === "conversation" ? (
-          <div className="flex h-[58vh] max-h-[560px] min-h-[240px] flex-col">
-            <ConversationView sessionId={sessionId} />
-          </div>
-        ) : (
-          <TurnTraceView records={records} />
-        )}
-      </div>
-      <div className="mt-1 border-t border-[color:var(--bg-hover)] pt-1">
-        <SubagentsSection records={records} onOpen={onOpenSubagent} />
+        <div className="flex h-[58vh] max-h-[560px] min-h-[240px] flex-col overflow-y-auto">
+          {lens === "conversation" && <ConversationView sessionId={sessionId} />}
+          {lens === "trace" && <TurnTraceView records={records} />}
+          {lens === "subagents" && <SubagentsSection records={records} onOpen={onOpenSubagent} />}
+          {lens === "details" && <SessionDetailPanel sessionId={sessionId} />}
+        </div>
       </div>
     </div>
   );

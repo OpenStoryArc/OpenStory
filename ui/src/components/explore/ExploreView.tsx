@@ -15,7 +15,6 @@ import { SemanticSearch } from "./SemanticSearch";
 import { PlanViewer } from "@/components/plans/PlanViewer";
 import { ConstellationView } from "@/components/viz/ConstellationView";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
-import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { isSubagentSession } from "@/lib/subagents";
@@ -216,16 +215,13 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
                 transcript & writes. The busy Events/Tool-Journey/Files wall is
                 demoted behind the Events tab. */}
             {detailView === "session" && (
-              <>
-                <SessionVizLoader
-                  sessionId={selectedSessionId}
-                  onOpenStory={() => onNavigate({ view: "story", sessionId: selectedSessionId })}
-                  onOpenSubagent={(id) => handleSelectSession(id)}
-                />
-                {/* Synopsis / file-impact / error drills — the former Overview
-                    drill-in's deep links stay reachable here. */}
-                <SessionDetailPanel sessionId={selectedSessionId} />
-              </>
+              /* Synopsis / journey / files now live behind the loader's
+                 "Details" lens tab — nothing stacks below the transcript. */
+              <SessionVizLoader
+                sessionId={selectedSessionId}
+                onOpenStory={() => onNavigate({ view: "story", sessionId: selectedSessionId })}
+                onOpenSubagent={(id) => handleSelectSession(id)}
+              />
             )}
             {detailView === "events" && (
               <>
