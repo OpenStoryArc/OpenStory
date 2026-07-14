@@ -174,21 +174,15 @@ function ZenSentenceRow({
             +{subs.length - 3} more
           </div>
         )}
-        {/* The prompt that caused it — the human voice, and the good stuff.
-            Highlighted: category-tinted wash, full-strength ink, reads like a
-            pull-quote rather than a footnote. */}
+        {/* The prompt that caused it — the human voice. Quietly distinct
+            (Max: the wash version overdid it): a firm category-colored quote
+            bar, ink one step brighter than muted, no background. */}
         {because && (
           <div
-            className="mt-1.5 rounded-r-lg border-l-2 py-1.5 pl-3 pr-2.5 text-[length:var(--fs-emph)] leading-relaxed text-[color:var(--text)]"
-            style={{
-              borderColor: color,
-              background: `color-mix(in oklab, ${color} 7%, transparent)`,
-            }}
+            className="ml-0.5 mt-1 border-l-2 pl-2.5 text-[length:var(--fs-body)] leading-relaxed text-[color:var(--text-bright)]"
+            style={{ borderColor: `color-mix(in oklab, ${color} 60%, transparent)` }}
           >
-            <span className="mr-1.5 select-none font-semibold opacity-70" style={{ color }}>
-              ❝
-            </span>
-            {because}
+            “{because}”
           </div>
         )}
         {predicate && (because || subs.length > 0) && (
@@ -549,20 +543,23 @@ export function ZenView({
         setGuided((g) => (g ? { ...g, done: true } : g));
       } else if (a.target === "zen.guide.item") {
         try {
-          const ref = JSON.parse(a.value) as { sessionId?: string; eventId?: string };
-          if (!ref.sessionId || !ref.eventId) return;
+          const ref = JSON.parse(a.value) as { sessionId?: string; eventId?: string; turn?: number };
+          if (!ref.sessionId || (!ref.eventId && ref.turn == null)) return;
           const sid = ref.sessionId;
-          const eid = ref.eventId;
+          const eid = ref.eventId ?? null;
           const cached = guideCache.current.get(sid);
           const withPatterns = (pats: PatternView[]) => {
             guideCache.current.set(sid, pats);
-            const p = pats.find((x) => x.events.includes(eid));
+            const p = eid
+              ? pats.find((x) => x.events.includes(eid))
+              : pats.find((x) => (x.metadata?.turn as number | undefined) === ref.turn);
             if (!p) return;
             const a2 = zenSentence(p);
+            const realEid = p.events[0] ?? eid;
             const item: GuidedItem = {
-              id: eid,
+              id: realEid ?? `${sid}-t${ref.turn}`,
               sessionId: sid,
-              eventId: eid,
+              eventId: realEid,
               anatomy: {
                 ...a2,
                 object: shortenPaths(a2.object),
