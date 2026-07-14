@@ -103,6 +103,12 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_events_subtype ON events(subtype);
+            -- Composite for `WHERE session_id = ? AND subtype = ?` (synopsis
+            -- counts, top-tools, file-impact). Without it the planner picks
+            -- idx_events_subtype and scans every session's rows for a subtype
+            -- (measured 3.5s vs 0.04s on a 387k-event store) — cost grows with
+            -- the whole store, not the one session being asked about.
+            CREATE INDEX IF NOT EXISTS idx_events_session_subtype ON events(session_id, subtype);
             CREATE INDEX IF NOT EXISTS idx_events_session_seq
                 ON events(session_id, CAST(json_extract(payload, '$.data.seq') AS INTEGER));
 
