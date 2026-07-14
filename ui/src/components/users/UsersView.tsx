@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 import { fetchUsers, type UserSummary, type UsersResponse } from "@/lib/users-api";
 import { compactTime, fullTimestamp } from "@/lib/time";
-import { sessionColor } from "@/lib/session-colors";
+import { sessionColor, tint } from "@/lib/session-colors";
 import { personColor } from "@/lib/person-color";
 import { projectColor } from "@/lib/project-color";
 import { ActivitySparkline } from "@/components/users/ActivitySparkline";
@@ -260,7 +260,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
                 <div className="flex items-center gap-2">
                   <span
                     className="text-[9px] px-1 py-0.5 rounded shrink-0"
-                    style={{ color, backgroundColor: `${color}20` }}
+                    style={{ color, backgroundColor: tint(color, 12) }}
                   >
                     {s.session_id.slice(0, 8)}
                   </span>

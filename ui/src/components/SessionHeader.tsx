@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { personColor } from "@/lib/person-color";
+import { tint } from "@/lib/session-colors";
 import { projectColor } from "@/lib/project-color";
 
 export interface SessionHeaderInfo {
@@ -50,9 +51,9 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
         <div
           className="px-4 py-1 text-[10px] flex items-center gap-1.5"
           style={{
-            backgroundColor: `${userColor}20`,
+            backgroundColor: tint(userColor, 12),
             color: userColor,
-            borderBottom: `1px solid ${userColor}55`,
+            borderBottom: `1px solid ${tint(userColor, 33)}`,
           }}
           data-testid="session-header-cross-user-band"
         >
@@ -75,7 +76,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
           >
             <span
               className="w-5 h-5 rounded-full flex items-center justify-center text-[9px]"
-              style={{ backgroundColor: `${userColor}30`, color: userColor }}
+              style={{ backgroundColor: tint(userColor, 18), color: userColor }}
               aria-hidden="true"
             >
               {session.user.slice(0, 2).toUpperCase()}

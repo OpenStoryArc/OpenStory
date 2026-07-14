@@ -13,6 +13,7 @@
 
 import { memo } from "react";
 import { personColor } from "@/lib/person-color";
+import { tint } from "@/lib/session-colors";
 
 export interface PersonChipProps {
   /** User identifier — used as the displayed name and for color derivation. */
@@ -54,7 +55,7 @@ export const PersonChip = memo(function PersonChip({
       style={
         selected
           ? {
-              backgroundColor: `${color}25`,
+              backgroundColor: tint(color, 15),
               borderColor: color,
               boxShadow: `inset 0 0 0 1px ${color}`,
             }
@@ -64,7 +65,7 @@ export const PersonChip = memo(function PersonChip({
     >
       <span
         className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold relative"
-        style={{ backgroundColor: `${color}30`, color }}
+        style={{ backgroundColor: tint(color, 18), color }}
       >
         {initial}
         {isActiveNow && (

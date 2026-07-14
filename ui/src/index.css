@@ -9,7 +9,7 @@
   --bg: #1a1b26;
   --bg-surface: #24283b;
   --bg-hover: #2f3348;
-  --text: #c0caf5;
+  --text: #cdd6f9;
   --text-muted: #737aa2;
   --accent: #7aa2f7;
   --green: #9ece6a;
@@ -50,35 +50,46 @@
 /* Tokyonight Day — light theme. Elevation matches the dark theme's direction
    (surfaces get LIGHTER as they elevate): light-gray page, near-white panels,
    strong slate text. v1 used gray-on-gray and washed out. */
+/* Light — calligrapher's ink on paper (user direction: "bold, like a
+   Japanese/Chinese calligrapher"). Near-black ink strokes on paper-white,
+   decisive dividers, no timid grays. Hues stay Tokyonight Day. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #e1e2e7;
-  --bg-surface: #f7f8fc;
-  --bg-hover: #d8dbe6;
-  --text: #1f2437;
-  --text-muted: #565f89;
-  --accent: #2e7de9;
-  --green: #587539;
-  --red: #f52a65;
-  --orange: #b15c00;
-  --purple: #7847bd;
-  --cyan: #007197;
-  --text-bright: #3a4161;
-  --border: #a6adc6;
-  --cyan-bright: #006d8f;
-  --divider: #c0c5d4;
+  --bg: #dde0e8;
+  --bg-surface: #ffffff;
+  --bg-hover: #cdd1de;
+  --text: #000000;
+  --text-muted: #333a5e;
+  --accent: #1652b8;
+  --green: #40591f;
+  --red: #c0134a;
+  --orange: #8a4700;
+  --purple: #5c2f9e;
+  --cyan: #00566e;
+  --text-bright: #14182a;
+  --border: #767e9e;
+  --cyan-bright: #00536d;
+  --divider: #8b90aa;
 
-  /* Session identity inks — same hue order as dark, darkened for white. */
-  --sc-0: #2456c0;
-  --sc-1: #7440b8;
-  --sc-2: #0a7691;
-  --sc-3: #55752f;
-  --sc-4: #8f5e07;
-  --sc-5: #c2255c;
-  --sc-6: #0e6a9e;
-  --sc-7: #a85413;
-  --sc-8: #4a5178;
-  --sc-9: #0f766e;
+  /* Session identity inks — same hue order as dark, calligrapher-deep. */
+  --sc-0: #1c48a8;
+  --sc-1: #63359f;
+  --sc-2: #08627a;
+  --sc-3: #476325;
+  --sc-4: #7a4f04;
+  --sc-5: #a91c4e;
+  --sc-6: #0a5a88;
+  --sc-7: #92470d;
+  --sc-8: #3c4265;
+  --sc-9: #0c645d;
+}
+
+/* Calligrapher entity distinction (light): section labels become bold ink
+   strokes so the eye can find structure — weight, not gray, carries the
+   hierarchy on white paper. */
+:root[data-theme="light"] .uppercase {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of

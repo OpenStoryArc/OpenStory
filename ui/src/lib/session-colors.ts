@@ -49,7 +49,7 @@ export function sessionChipStyle(sessionId: string): {
 } {
   return {
     fg: sessionColor(sessionId),
-    bg: sessionTint(sessionId, 9),
-    border: sessionTint(sessionId, 20),
+    bg: sessionTint(sessionId, 13),
+    border: sessionTint(sessionId, 26),
   };
 }

@@ -10,17 +10,11 @@
  * sessions, so the eye can connect them without a legend.
  */
 
+// Theme-aware identity vars — same slots as sessionColor() (--sc-0..9 in
+// index.css): pastels on dark, calligrapher inks on light.
 const PERSON_COLORS = [
-  "#7aa2f7", // blue
-  "#bb9af7", // purple
-  "#2ac3de", // bright cyan
-  "#9ece6a", // green
-  "#e0af68", // yellow
-  "#f7768e", // pink
-  "#7dcfff", // cyan
-  "#ff9e64", // orange
-  "#c0caf5", // light gray
-  "#73daca", // teal
+  "var(--sc-0)", "var(--sc-1)", "var(--sc-2)", "var(--sc-3)", "var(--sc-4)",
+  "var(--sc-5)", "var(--sc-6)", "var(--sc-7)", "var(--sc-8)", "var(--sc-9)",
 ] as const;
 
 /** Stable color for a user/person identifier. */
