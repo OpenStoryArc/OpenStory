@@ -110,9 +110,7 @@
    surface that should float. Dark mode: none (elevation is value-based). */
 :root[data-theme="light"] [data-testid="timeline-row"],
 :root[data-theme="light"] .shadow-card {
-  box-shadow:
-    0 1px 3px rgba(74, 55, 24, 0.22),
-    0 1px 2px rgba(74, 55, 24, 0.12);
+  box-shadow: 0 1px 2px rgba(74, 55, 24, 0.10);
 }
 
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of
