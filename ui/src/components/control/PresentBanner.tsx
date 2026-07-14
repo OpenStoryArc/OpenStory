@@ -1,14 +1,15 @@
-/** PresentBanner — the agent's chat panel.
+/** PresentBanner — the agent's narration bar.
  *
- *  Agent `present` messages arrive as a narrow chat thread (iMessage idiom):
- *  incoming bubbles from the agent, newest at the bottom, anchored top-right
- *  so it reads as a companion to the page rather than a banner across it.
- *  The thread is session-lifetime — narrator beats accumulate. Markdown in
- *  full; session chips ride inside the bubble; dismiss hides the panel until
- *  the next message. Agent-in-UI seam: shows things, never mutates sources.
+ *  IN-FLOW under the header (never floats, never covers the record it
+ *  narrates — occlusion was the floating panel's design flaw): a slim,
+ *  content-width line of avatar · name · latest message · time · controls.
+ *  Click the message to expand it; "n earlier" unfolds the session-lifetime
+ *  thread DOWNWARD in flow. Markdown in full; session chips on expand;
+ *  dismiss hides until the next message. Agent-in-UI seam: shows things,
+ *  never mutates sources.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -58,61 +59,6 @@ const MD_COMPONENTS = {
   },
 };
 
-function Bubble({
-  entry,
-  latest,
-  onNavigate,
-}: {
-  entry: HistoryEntry;
-  latest: boolean;
-  onNavigate: (route: HashRoute) => void;
-}) {
-  return (
-    <div className={cn("chat-enter flex flex-col items-start gap-0.5", !latest && "opacity-80")}>
-      <div
-        className={cn(
-          "max-w-full rounded-2xl rounded-tl-md px-3 py-2",
-          latest
-            ? "bg-[color:var(--accent)]/10 border border-[color:var(--accent)]/25"
-            : "bg-[color:var(--bg-hover)]/40 border border-[color:var(--divider)]",
-        )}
-      >
-        <div className="prose prose-sm max-w-none break-words text-[length:var(--fs-emph)] leading-snug text-[color:var(--text)] marker:text-[color:var(--text-muted)] [&_p]:my-0.5">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-            {entry.message}
-          </ReactMarkdown>
-        </div>
-        {entry.sessionIds.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {entry.sessionIds.slice(0, 6).map((id) => (
-              <button
-                key={id}
-                data-present-session={id}
-                onClick={() => onNavigate({ view: "explore", sessionId: id })}
-                className="rounded-full border border-[color:var(--divider)] px-2 py-0.5 font-mono text-[10px] text-[color:var(--accent)] hover:border-[color:var(--accent)]"
-                title={id}
-              >
-                {id.slice(0, 8)}
-              </button>
-            ))}
-          </div>
-        )}
-        {latest && entry.route && (
-          <button
-            onClick={() => onNavigate(entry.route!)}
-            className="mt-1.5 rounded-full bg-[color:var(--accent)] px-2.5 py-0.5 text-[11px] font-medium text-[color:var(--bg-surface)] hover:opacity-90"
-          >
-            Open →
-          </button>
-        )}
-      </div>
-      <span className="pl-1 text-[10px] tabular-nums text-[color:var(--text-muted)]">
-        {compactTime(entry.at)}
-      </span>
-    </div>
-  );
-}
-
 export function PresentBanner({
   present,
   onNavigate,
@@ -124,7 +70,8 @@ export function PresentBanner({
 }) {
   const { issuer, message } = present;
   const [, bump] = useState(0);
-  const threadRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [showLog, setShowLog] = useState(false);
 
   // Append each new arrival to the session-lifetime log (dedupe re-renders).
   useEffect(() => {
@@ -137,29 +84,59 @@ export function PresentBanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [present]);
 
-  // Newest bubble stays in view.
-  useEffect(() => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [LOG.length]);
+  // New message arrives collapsed — the bar stays one line tall.
+  useEffect(() => setExpanded(false), [message]);
+
+  const earlier = LOG.slice(0, -1).reverse();
+  const latest = LOG[LOG.length - 1];
 
   return (
-    <div
-      className="fixed right-4 top-14 z-40 w-[min(92vw,22rem)]"
-      data-testid="present-banner"
-    >
-      <div className="shadow-card overflow-hidden rounded-2xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 backdrop-blur-sm">
-        {/* header — as quiet as a contact card */}
-        <div className="flex items-center gap-2 px-3 py-2">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] text-[11px] font-bold text-[color:var(--bg-surface)]">
+    <div className="flex justify-center px-4 pt-2" data-testid="present-banner">
+      <div className="w-full max-w-[56rem] overflow-hidden rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)]">
+        {/* resting state: one quiet line — avatar · name · message · time · controls */}
+        <div className="flex items-center gap-2.5 px-3 py-1.5">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] text-[10px] font-bold text-[color:var(--bg-surface)]">
             {issuer.replace(/^Claude\s*/i, "C").slice(0, 1).toUpperCase()}
           </span>
-          <span className="truncate text-[length:var(--fs-body)] font-semibold text-[color:var(--text)]">
+          <span className="shrink-0 text-[length:var(--fs-body)] font-semibold text-[color:var(--text)]">
             {issuer}
           </span>
+          <div
+            className={cn(
+              "prose prose-sm min-w-0 flex-1 text-[length:var(--fs-body)] leading-snug text-[color:var(--text)] marker:text-[color:var(--text-muted)] [&_p]:my-0",
+              !expanded && "truncate [&_p]:inline [&_*]:inline",
+            )}
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? undefined : "Click to expand"}
+            role="button"
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+              {message}
+            </ReactMarkdown>
+          </div>
+          <span className="shrink-0 text-[length:var(--fs-label)] tabular-nums text-[color:var(--text-muted)]">
+            {latest ? compactTime(latest.at) : ""}
+          </span>
+          {latest?.route && (
+            <button
+              onClick={() => onNavigate(latest.route!)}
+              className="shrink-0 rounded-full bg-[color:var(--accent)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--bg-surface)] hover:opacity-90"
+            >
+              Open →
+            </button>
+          )}
+          {earlier.length > 0 && (
+            <button
+              onClick={() => setShowLog((v) => !v)}
+              className="shrink-0 rounded-full border border-[color:var(--divider)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+              aria-expanded={showLog}
+            >
+              {showLog ? "hide" : `${earlier.length} earlier`}
+            </button>
+          )}
           <button
             onClick={onDismiss}
-            className="ml-auto rounded px-1.5 text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+            className="shrink-0 rounded px-1 text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
             title="Dismiss"
             aria-label="Dismiss"
           >
@@ -167,17 +144,38 @@ export function PresentBanner({
           </button>
         </div>
 
-        {/* the thread — oldest to newest, newest pinned into view */}
-        <div ref={threadRef} className="flex max-h-[46vh] flex-col gap-2.5 overflow-y-auto px-3 pb-3">
-          {LOG.map((e, i) => (
-            <Bubble
-              key={`${e.at}-${i}`}
-              entry={e}
-              latest={i === LOG.length - 1}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
+        {/* expanded extras of the latest message: session chips */}
+        {expanded && latest && latest.sessionIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+            {latest.sessionIds.slice(0, 6).map((id) => (
+              <button
+                key={id}
+                data-present-session={id}
+                onClick={() => onNavigate({ view: "explore", sessionId: id })}
+                className="rounded-full border border-[color:var(--divider)] px-2 py-0.5 font-mono text-[10px] text-[color:var(--accent)] hover:border-[color:var(--accent)]"
+                title={id}
+              >
+                {id.slice(0, 8)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* the thread — expands DOWNWARD in flow, never covers content */}
+        {showLog && earlier.length > 0 && (
+          <div className="max-h-52 space-y-1.5 overflow-y-auto border-t border-[color:var(--divider)] px-3 py-2">
+            {earlier.map((e, i) => (
+              <div key={`${e.at}-${i}`} className="flex items-baseline gap-2">
+                <span className="shrink-0 text-[length:var(--fs-label)] tabular-nums text-[color:var(--text-muted)]">
+                  {compactTime(e.at)}
+                </span>
+                <span className="min-w-0 flex-1 text-[length:var(--fs-body)] leading-snug text-[color:var(--text-bright)]">
+                  {e.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
