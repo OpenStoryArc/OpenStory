@@ -155,7 +155,7 @@ export function App() {
   return (
     <div className="h-screen flex flex-col bg-[color:var(--bg)] text-[color:var(--text)]">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)]">
+      <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)]">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <h1 className="shrink-0 text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />

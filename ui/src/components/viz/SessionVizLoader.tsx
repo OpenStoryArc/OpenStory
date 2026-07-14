@@ -38,7 +38,7 @@ export function SessionVizLoader({ sessionId, onOpenSubagent, onOpenStory }: { s
   return (
     <div className="flex min-h-0 grow flex-col">
       {/* Header: the session summary card + an optional jump to its Story. */}
-      <div className="flex items-start justify-between gap-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)]">
+      <div className="flex items-start justify-between gap-2 bg-[color:var(--bg-surface)]">
         <div className="min-w-0 flex-1"><SessionSummaryHeader records={records} /></div>
         {onOpenStory && (
           <button

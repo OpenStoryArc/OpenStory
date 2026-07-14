@@ -371,7 +371,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
       {/* Sidebar */}
       {sidebarOpen && (
       <div
-        className="relative bg-[color:var(--bg-surface)] border-r border-[color:var(--bg-hover)] overflow-y-auto flex-shrink-0 flex flex-col"
+        className="relative bg-[color:var(--bg-surface)] overflow-y-auto flex-shrink-0 flex flex-col"
         style={{ width: sidebarPanel.width }}
       >
         {/* drag handle: right-edge grip, persisted width */}
@@ -709,7 +709,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
         {selectedSession && (
           <div
             className={cn(
-              "bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] flex-shrink-0",
+              "bg-[color:var(--bg-surface)] flex-shrink-0",
               !sidebarOpen && "pl-12",
             )}
           >
