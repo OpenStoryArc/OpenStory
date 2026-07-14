@@ -8,6 +8,7 @@ import { Timeline } from "@/components/Timeline";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
 import { TextSizeControl } from "@/components/layout/TextSizeControl";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
@@ -160,6 +161,7 @@ export function App() {
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <ThemeToggle />
           <TextSizeControl />
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}

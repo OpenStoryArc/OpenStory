@@ -1,13 +1,16 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Tokyonight color tokens */
+/* Tokyonight color tokens — dark (default theme).
+   --text-muted was #565f89 (≈2.8:1 on --bg); bumped to #737aa2 (≈4.2:1) so
+   labels, timestamps, and button text stay muted but readable. */
 :root {
+  color-scheme: dark;
   --bg: #1a1b26;
   --bg-surface: #24283b;
   --bg-hover: #2f3348;
   --text: #c0caf5;
-  --text-muted: #565f89;
+  --text-muted: #737aa2;
   --accent: #7aa2f7;
   --green: #9ece6a;
   --red: #f7768e;
@@ -17,6 +20,26 @@
   --text-bright: #a9b1d6;
   --border: #3b4261;
   --cyan-bright: #7dcfff;
+}
+
+/* Tokyonight Day — light theme. Same token semantics, elevation runs
+   bg → surface → hover by darkening; text tiers keep their hierarchy. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e1e2e7;
+  --bg-surface: #d3d5de;
+  --bg-hover: #c3c6d4;
+  --text: #343b59;
+  --text-muted: #5f6693;
+  --accent: #2e7de9;
+  --green: #587539;
+  --red: #f52a65;
+  --orange: #b15c00;
+  --purple: #7847bd;
+  --cyan: #007197;
+  --text-bright: #474e75;
+  --border: #a8aecb;
+  --cyan-bright: #006d8f;
 }
 
 body {
