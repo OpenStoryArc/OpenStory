@@ -39,10 +39,10 @@ export function SynopsisCard({ synopsis }: SynopsisCardProps) {
 
       {/* Project / label context */}
       {(synopsis.label || synopsis.project_name) && (
-        <div className="flex items-center gap-2 text-[11px] text-[#565f89]">
+        <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-muted)]">
           {synopsis.project_name && <span>{synopsis.project_name}</span>}
           {synopsis.label && synopsis.project_name && <span>·</span>}
-          {synopsis.label && <span className="text-[#c0caf5]">{cleanHarnessPreview(synopsis.label)}</span>}
+          {synopsis.label && <span className="text-[color:var(--text)]">{cleanHarnessPreview(synopsis.label)}</span>}
         </div>
       )}
     </div>
@@ -51,8 +51,8 @@ export function SynopsisCard({ synopsis }: SynopsisCardProps) {
 
 function Metric({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (
-    <div className="bg-[#1a1b26] rounded px-2 py-1.5">
-      <div className="text-[10px] text-[#565f89]">{label}</div>
+    <div className="bg-[color:var(--bg)] rounded px-2 py-1.5">
+      <div className="text-[10px] text-[color:var(--text-muted)]">{label}</div>
       <div className="text-sm font-semibold" style={{ color: color ?? "#c0caf5" }}>{value}</div>
     </div>
   );

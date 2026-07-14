@@ -33,7 +33,7 @@ import type { WireRecord } from "@/types/wire-record";
 // ---------------------------------------------------------------------------
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <span className="text-[#565f89] text-[10px] uppercase tracking-wider">{children}</span>;
+  return <span className="text-[color:var(--text-muted)] text-[10px] uppercase tracking-wider">{children}</span>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -49,7 +49,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="text-[10px] text-[#565f89] hover:text-[#c0caf5] transition-colors px-1.5"
+      className="text-[10px] text-[color:var(--text-muted)] hover:text-[color:var(--text)] transition-colors px-1.5"
       title="Copy to clipboard"
       data-testid="copy-button"
     >
@@ -75,10 +75,10 @@ function CodeBlock({
   const displayLabel = lang || (language !== "text" ? language : undefined);
 
   return (
-    <div className="mt-1 rounded bg-[#1a1b26] border border-[#2f3348] overflow-auto" style={{ maxHeight: maxHeight ?? "200px" }}>
-      <div className="flex items-center justify-between border-b border-[#2f3348]" style={{ minHeight: displayLabel ? undefined : 0 }}>
+    <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--bg-hover)] overflow-auto" style={{ maxHeight: maxHeight ?? "200px" }}>
+      <div className="flex items-center justify-between border-b border-[color:var(--bg-hover)]" style={{ minHeight: displayLabel ? undefined : 0 }}>
         {displayLabel && (
-          <div className="px-2 py-0.5 text-[10px] text-[#565f89]">{displayLabel}</div>
+          <div className="px-2 py-0.5 text-[10px] text-[color:var(--text-muted)]">{displayLabel}</div>
         )}
         <CopyButton text={children} />
       </div>
@@ -105,8 +105,8 @@ function FilePath({ path }: { path: string }) {
   const dir = parts.join("/");
   return (
     <span className="font-mono text-xs">
-      {dir && <span className="text-[#565f89]">{dir}/</span>}
-      <span className="text-[#7aa2f7]">{file}</span>
+      {dir && <span className="text-[color:var(--text-muted)]">{dir}/</span>}
+      <span className="text-[color:var(--accent)]">{file}</span>
     </span>
   );
 }
@@ -121,15 +121,15 @@ function ToolCallDetail({ payload }: { payload: ToolCall }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-[#2ac3de]">{payload.name}</span>
-        <span className="text-[10px] text-[#565f89]">{payload.call_id.slice(0, 12)}</span>
+        <span className="text-sm font-semibold text-[color:var(--cyan)]">{payload.name}</span>
+        <span className="text-[10px] text-[color:var(--text-muted)]">{payload.call_id.slice(0, 12)}</span>
       </div>
 
       {ti?.tool === "bash" && (
         <div>
           <Label>Command</Label>
           {(ti as BashInput).description && (
-            <div className="text-xs text-[#565f89] italic mb-1">{(ti as BashInput).description}</div>
+            <div className="text-xs text-[color:var(--text-muted)] italic mb-1">{(ti as BashInput).description}</div>
           )}
           <CodeBlock lang="bash">{(ti as BashInput).command}</CodeBlock>
         </div>
@@ -177,21 +177,21 @@ function ToolCallDetail({ payload }: { payload: ToolCall }) {
       {ti?.tool === "agent" && (
         <div>
           {(ti as any).description && (
-            <div className="text-xs text-[#c0caf5] mb-1">{(ti as any).description}</div>
+            <div className="text-xs text-[color:var(--text)] mb-1">{(ti as any).description}</div>
           )}
           <Label>Prompt</Label>
-          <div className="mt-0.5 text-xs text-[#a9b1d6] max-h-[150px] overflow-auto whitespace-pre-wrap">
+          <div className="mt-0.5 text-xs text-[color:var(--text-bright)] max-h-[150px] overflow-auto whitespace-pre-wrap">
             {(ti as any).prompt}
           </div>
         </div>
       )}
 
       {ti?.tool === "web_search" && (
-        <div><Label>Query</Label><div className="text-xs text-[#c0caf5] mt-0.5">{(ti as any).query}</div></div>
+        <div><Label>Query</Label><div className="text-xs text-[color:var(--text)] mt-0.5">{(ti as any).query}</div></div>
       )}
 
       {ti?.tool === "web_fetch" && (
-        <div><Label>URL</Label><div className="text-xs text-[#7aa2f7] mt-0.5">{(ti as any).url}</div></div>
+        <div><Label>URL</Label><div className="text-xs text-[color:var(--accent)] mt-0.5">{(ti as any).url}</div></div>
       )}
 
       {/* Fallback for unknown tools */}
@@ -245,8 +245,8 @@ function ToolResultDetail({ payload, sessionId, eventId, isTruncated }: {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        {payload.is_error && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f7768e20] text-[#f7768e]">Error</span>}
-        <span className="text-[10px] text-[#565f89]">{payload.call_id.slice(0, 12)}</span>
+        {payload.is_error && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f7768e20] text-[color:var(--red)]">Error</span>}
+        <span className="text-[10px] text-[color:var(--text-muted)]">{payload.call_id.slice(0, 12)}</span>
       </div>
       {displayOutput && (
         <CodeBlock maxHeight={fullContent ? "500px" : "200px"}>{displayOutput}</CodeBlock>
@@ -255,14 +255,14 @@ function ToolResultDetail({ payload, sessionId, eventId, isTruncated }: {
         <button
           onClick={handleViewFull}
           disabled={loading}
-          className="text-[10px] text-[#7aa2f7] hover:text-[#89b4fa] transition-colors"
+          className="text-[10px] text-[color:var(--accent)] hover:text-[#89b4fa] transition-colors"
           data-testid="view-full-button"
         >
           {loading ? "Loading..." : "View full output"}
         </button>
       )}
       {error && (
-        <div className="text-[10px] text-[#f7768e]">Failed to load full content: {error}</div>
+        <div className="text-[10px] text-[color:var(--red)]">Failed to load full content: {error}</div>
       )}
     </div>
   );
@@ -277,12 +277,12 @@ function renderContentBlocks(blocks: ContentBlock[], useMarkdown = false) {
     if (block.type === "text" && block.text) {
       if (useMarkdown) {
         return (
-          <div key={i} className="text-xs text-[#c0caf5] prose prose-invert prose-xs max-w-none">
+          <div key={i} className="text-xs text-[color:var(--text)] prose prose-invert prose-xs max-w-none">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
           </div>
         );
       }
-      return <div key={i} className="text-xs text-[#c0caf5] whitespace-pre-wrap">{block.text}</div>;
+      return <div key={i} className="text-xs text-[color:var(--text)] whitespace-pre-wrap">{block.text}</div>;
     }
     if (block.type === "code_block" && block.text) {
       return <CodeBlock key={i} lang={block.language}>{block.text}</CodeBlock>;
@@ -293,7 +293,7 @@ function renderContentBlocks(blocks: ContentBlock[], useMarkdown = false) {
 
 function UserMessageDetail({ payload }: { payload: UserMessage }) {
   if (typeof payload.content === "string") {
-    return <div className="text-xs text-[#c0caf5] whitespace-pre-wrap">{payload.content}</div>;
+    return <div className="text-xs text-[color:var(--text)] whitespace-pre-wrap">{payload.content}</div>;
   }
   return <div className="space-y-2">{renderContentBlocks(payload.content)}</div>;
 }
@@ -302,8 +302,8 @@ function AssistantMessageDetail({ payload }: { payload: AssistantMessage }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-[#565f89]">{payload.model}</span>
-        {payload.stop_reason && <span className="text-[10px] text-[#565f89]">stop: {payload.stop_reason}</span>}
+        <span className="text-[10px] text-[color:var(--text-muted)]">{payload.model}</span>
+        {payload.stop_reason && <span className="text-[10px] text-[color:var(--text-muted)]">stop: {payload.stop_reason}</span>}
       </div>
       {renderContentBlocks(payload.content, true)}
     </div>
@@ -313,12 +313,12 @@ function AssistantMessageDetail({ payload }: { payload: AssistantMessage }) {
 function ReasoningDetail({ payload }: { payload: Reasoning }) {
   return (
     <div className="space-y-1">
-      {payload.encrypted && <span className="text-[10px] text-[#565f89]">encrypted</span>}
+      {payload.encrypted && <span className="text-[10px] text-[color:var(--text-muted)]">encrypted</span>}
       {payload.summary.map((s, i) => (
-        <div key={i} className="text-xs text-[#9ece6a] italic">{s}</div>
+        <div key={i} className="text-xs text-[color:var(--green)] italic">{s}</div>
       ))}
       {payload.content && (
-        <div className="text-xs text-[#a9b1d6] whitespace-pre-wrap mt-1">{payload.content}</div>
+        <div className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap mt-1">{payload.content}</div>
       )}
     </div>
   );
@@ -331,10 +331,10 @@ function ReasoningDetail({ payload }: { payload: Reasoning }) {
 function SystemEventDetail({ payload }: { payload: SystemEvent }) {
   return (
     <div className="space-y-1">
-      <span className="text-xs text-[#565f89] font-mono">{payload.subtype}</span>
-      {payload.message && <div className="text-xs text-[#a9b1d6]">{payload.message}</div>}
+      <span className="text-xs text-[color:var(--text-muted)] font-mono">{payload.subtype}</span>
+      {payload.message && <div className="text-xs text-[color:var(--text-bright)]">{payload.message}</div>}
       {payload.duration_ms != null && (
-        <div className="text-xs text-[#565f89]">{(payload.duration_ms / 1000).toFixed(1)}s</div>
+        <div className="text-xs text-[color:var(--text-muted)]">{(payload.duration_ms / 1000).toFixed(1)}s</div>
       )}
     </div>
   );
@@ -343,8 +343,8 @@ function SystemEventDetail({ payload }: { payload: SystemEvent }) {
 function ErrorDetail({ payload }: { payload: ErrorRecord }) {
   return (
     <div className="space-y-1">
-      <div className="text-xs font-mono text-[#f7768e]">{payload.code}</div>
-      <div className="text-xs text-[#c0caf5]">{payload.message}</div>
+      <div className="text-xs font-mono text-[color:var(--red)]">{payload.code}</div>
+      <div className="text-xs text-[color:var(--text)]">{payload.message}</div>
       {payload.details && <CodeBlock>{payload.details}</CodeBlock>}
     </div>
   );
@@ -352,7 +352,7 @@ function ErrorDetail({ payload }: { payload: ErrorRecord }) {
 
 function TurnEndDetail({ payload }: { payload: TurnEnd }) {
   return (
-    <div className="text-xs text-[#565f89]">
+    <div className="text-xs text-[color:var(--text-muted)]">
       {payload.reason && <span>Reason: {payload.reason}</span>}
       {payload.duration_ms != null && <span className="ml-2">{(payload.duration_ms / 1000).toFixed(1)}s</span>}
     </div>
@@ -413,7 +413,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
       break;
     default:
       detail = (
-        <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap overflow-auto max-h-[300px]">
+        <pre className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap overflow-auto max-h-[300px]">
           {JSON.stringify(p, null, 2)}
         </pre>
       );
@@ -425,10 +425,10 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
 
       {/* Metadata bar: origin badge + depth badge + truncation indicator + subtree focus */}
       {(record.origin_agent || onFocusSubtree || depth > 0 || truncated) && (
-        <div className="mt-2 pt-2 border-t border-[#2f3348] flex items-center gap-2 flex-wrap">
+        <div className="mt-2 pt-2 border-t border-[color:var(--bg-hover)] flex items-center gap-2 flex-wrap">
           {record.origin_agent && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f720] text-[#7aa2f7]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f720] text-[color:var(--accent)]"
               data-testid="detail-origin-agent"
               title="Origin agent"
             >
@@ -437,7 +437,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
           )}
           {depth > 0 && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#2ac3de20] text-[#2ac3de]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#2ac3de20] text-[color:var(--cyan)]"
               data-testid="detail-depth"
               title={`Nesting level in agent delegation chain (0 = top-level, ${depth} = ${depth} level${depth !== 1 ? "s" : ""} deep)`}
             >
@@ -446,7 +446,7 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
           )}
           {truncated && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0af6820] text-[#e0af68]"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[#e0af6820] text-[color:var(--orange)]"
               data-testid="detail-truncated"
               title={truncationLabel(payloadBytes, DISPLAY_LIMIT)}
             >
@@ -462,8 +462,8 @@ export const RecordDetail = memo(function RecordDetail({ record, onFocusSubtree,
                 : "Show only this event and its descendants in the timeline"}
               className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
                 isFocusRoot
-                  ? "bg-[#e0af6830] text-[#e0af68]"
-                  : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b]"
+                  ? "bg-[#e0af6830] text-[color:var(--orange)]"
+                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
               }`}
             >
               {isFocusRoot ? "Focused — click to exit" : "Focus subtree"}

@@ -22,7 +22,7 @@ interface Props {
 export function PersonClustersView({ clusters, selfHost }: Props) {
   if (clusters.length === 0) {
     return (
-      <p className="text-sm text-[#565f89]">
+      <p className="text-sm text-[color:var(--text-muted)]">
         No person clustering yet — either no sessions have a{" "}
         <code>person_id</code> stamp, or the directory bootstrap hasn't run.
         Sessions written before <code>person_id</code> support shipped don't
@@ -35,12 +35,12 @@ export function PersonClustersView({ clusters, selfHost }: Props) {
       {clusters.map((c) => (
         <article
           key={c.person_id}
-          className="rounded border border-[#24283b] bg-[#16161e] p-3"
+          className="rounded border border-[color:var(--bg-surface)] bg-[#16161e] p-3"
           data-testid={`person-cluster-${c.person_id}`}
         >
           <header className="mb-2 flex items-baseline justify-between">
-            <h4 className="text-sm font-medium text-[#bb9af7]">{c.person_id}</h4>
-            <span className="text-xs text-[#565f89]">
+            <h4 className="text-sm font-medium text-[color:var(--purple)]">{c.person_id}</h4>
+            <span className="text-xs text-[color:var(--text-muted)]">
               {c.hosts.length} {c.hosts.length === 1 ? "host" : "hosts"}
             </span>
           </header>
@@ -52,8 +52,8 @@ export function PersonClustersView({ clusters, selfHost }: Props) {
                   key={h}
                   className={`rounded px-2 py-0.5 text-xs font-mono ${
                     isSelf
-                      ? "bg-[#9ece6a]/20 text-[#9ece6a]"
-                      : "bg-[#24283b] text-[#c0caf5]"
+                      ? "bg-[#9ece6a]/20 text-[color:var(--green)]"
+                      : "bg-[color:var(--bg-surface)] text-[color:var(--text)]"
                   }`}
                   title={isSelf ? "this device" : undefined}
                 >

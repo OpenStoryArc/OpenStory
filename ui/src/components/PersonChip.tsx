@@ -42,7 +42,7 @@ export const PersonChip = memo(function PersonChip({
     "flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors text-left shrink-0";
   const stateClasses = selected
     ? "ring-1"
-    : "hover:bg-[#24283b]";
+    : "hover:bg-[color:var(--bg-surface)]";
 
   return (
     <button
@@ -69,17 +69,17 @@ export const PersonChip = memo(function PersonChip({
         {initial}
         {isActiveNow && (
           <span
-            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#9ece6a] pulse-live"
+            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[color:var(--green)] pulse-live"
             title="Currently active"
             aria-label="active now"
           />
         )}
       </span>
       <span className="flex flex-col items-start min-w-0">
-        <span className="text-[12px] font-medium text-[#c0caf5] truncate max-w-[120px]">
+        <span className="text-[12px] font-medium text-[color:var(--text)] truncate max-w-[120px]">
           @{user}
         </span>
-        <span className="text-[10px] text-[#565f89]">
+        <span className="text-[10px] text-[color:var(--text-muted)]">
           {sessionCount} session{sessionCount === 1 ? "" : "s"}
         </span>
       </span>

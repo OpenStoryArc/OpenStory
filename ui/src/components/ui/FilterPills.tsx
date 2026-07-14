@@ -17,7 +17,7 @@ export function FilterPills<F extends string>({
 }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-1 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-1.5 text-[11px]"
+      className="flex flex-wrap items-center gap-1 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-3 py-1.5 text-[11px]"
       data-testid="conversation-filter-pills"
     >
       {facets.map((f) => {
@@ -33,10 +33,10 @@ export function FilterPills<F extends string>({
             className={cn(
               "rounded px-2 py-0.5 transition-colors",
               active === f
-                ? "bg-[#7aa2f7] font-medium text-[#1a1b26]"
+                ? "bg-[color:var(--accent)] font-medium text-[color:var(--bg)]"
                 : empty
-                  ? "cursor-default text-[#3b4261]"
-                  : "text-[#565f89] hover:text-[#c0caf5]",
+                  ? "cursor-default text-[color:var(--border)]"
+                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
             )}
           >
             {label}

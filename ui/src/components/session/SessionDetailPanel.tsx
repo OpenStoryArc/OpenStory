@@ -49,19 +49,19 @@ export function SessionDetailPanel({ sessionId }: SessionDetailPanelProps) {
 
   return (
     <div
-      className="border-b border-[#2f3348] bg-[#24283b]"
+      className="border-b border-[color:var(--bg-hover)] bg-[color:var(--bg-surface)]"
       data-testid="session-detail-panel"
     >
       {/* Header bar — always visible */}
       <button
         onClick={toggleCollapse}
-        className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-[#565f89] hover:text-[#c0caf5] transition-colors"
+        className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-[color:var(--text-muted)] hover:text-[color:var(--text)] transition-colors"
       >
         <span className="flex items-center gap-2">
           <span className="text-[10px]">{collapsed ? "▸" : "▾"}</span>
           <span>Session Detail</span>
           {data?.synopsis?.label && (
-            <span className="text-[#c0caf5] font-medium">{data.synopsis.label}</span>
+            <span className="text-[color:var(--text)] font-medium">{data.synopsis.label}</span>
           )}
         </span>
         <span className="font-mono text-[10px]">{sessionId.slice(0, 8)}</span>
@@ -71,7 +71,7 @@ export function SessionDetailPanel({ sessionId }: SessionDetailPanelProps) {
       {!collapsed && (
         <div className="px-3 pb-3 space-y-3">
           {loading ? (
-            <div className="text-xs text-[#565f89] py-2">Loading session detail...</div>
+            <div className="text-xs text-[color:var(--text-muted)] py-2">Loading session detail...</div>
           ) : data ? (
             <>
               {data.synopsis && <SynopsisCard synopsis={data.synopsis} />}
@@ -82,7 +82,7 @@ export function SessionDetailPanel({ sessionId }: SessionDetailPanelProps) {
               </div>
             </>
           ) : (
-            <div className="text-xs text-[#565f89] py-2">No data available</div>
+            <div className="text-xs text-[color:var(--text-muted)] py-2">No data available</div>
           )}
         </div>
       )}

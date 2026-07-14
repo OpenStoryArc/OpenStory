@@ -22,7 +22,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Files */}
       {files.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[#565f89] uppercase tracking-wider border-t border-[#2f3348]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
             Files ({files.length})
           </div>
           <div className="max-h-[180px] overflow-y-auto">
@@ -35,15 +35,15 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                   onClick={() => onSelectFile(isSelected ? null : f.path)}
                   className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                     isSelected
-                      ? "bg-[#7aa2f715] text-[#7aa2f7]"
-                      : "text-[#a9b1d6] hover:bg-[#24283b]"
+                      ? "bg-[#7aa2f715] text-[color:var(--accent)]"
+                      : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"
                   }`}
                   title={f.path}
                 >
                   <span className="truncate font-mono text-[10px]">{basename}</span>
                   <span className="ml-auto flex items-center gap-1 shrink-0">
-                    {f.reads > 0 && <span className="text-[8px] text-[#7aa2f7]">{f.reads}R</span>}
-                    {f.writes > 0 && <span className="text-[8px] text-[#e0af68]">{f.writes}W</span>}
+                    {f.reads > 0 && <span className="text-[8px] text-[color:var(--accent)]">{f.reads}R</span>}
+                    {f.writes > 0 && <span className="text-[8px] text-[color:var(--orange)]">{f.writes}W</span>}
                   </span>
                 </button>
               );
@@ -54,7 +54,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
               <a
                 href={buildHash({ view: "explore", detailView: "search", searchQuery: selectedFile })}
                 data-testid="file-impact-link"
-                className="block px-2 py-1 text-[10px] text-[#bb9af7] hover:underline"
+                className="block px-2 py-1 text-[10px] text-[color:var(--purple)] hover:underline"
                 title={`All sessions touching ${selectedFile}`}
               >
                 ↺ Impact across sessions
@@ -67,7 +67,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Tools */}
       {tools.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[#565f89] uppercase tracking-wider border-t border-[#2f3348]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
             Tools ({tools.length})
           </div>
           {tools.map((t) => {
@@ -80,7 +80,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                 className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                   isSelected
                     ? "bg-[#7aa2f715]"
-                    : "hover:bg-[#24283b]"
+                    : "hover:bg-[color:var(--bg-surface)]"
                 }`}
               >
                 <span
@@ -88,7 +88,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                   style={{ backgroundColor: color }}
                 />
                 <span style={{ color }} className="font-medium text-[10px]">{t.name}</span>
-                <span className="text-[9px] text-[#565f89] ml-auto">
+                <span className="text-[9px] text-[color:var(--text-muted)] ml-auto">
                   {t.count} in {t.turnCount}t
                 </span>
               </button>
@@ -100,7 +100,7 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
       {/* Plans */}
       {plans.length > 0 && (
         <div>
-          <div className="px-2 py-1 text-[10px] text-[#565f89] uppercase tracking-wider border-t border-[#2f3348]">
+          <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider border-t border-[color:var(--bg-hover)]">
             Plans ({plans.length})
           </div>
           {plans.map((p) => {
@@ -111,16 +111,16 @@ export function FacetPanel({ files, tools, plans, selectedFile, selectedTool, se
                 onClick={() => onSelectPlan(isSelected ? null : p.title)}
                 className={`w-full text-left px-2 py-1 text-xs transition-colors flex items-center gap-1.5 ${
                   isSelected
-                    ? "bg-[#e0af6815] text-[#e0af68]"
-                    : "text-[#a9b1d6] hover:bg-[#24283b]"
+                    ? "bg-[#e0af6815] text-[color:var(--orange)]"
+                    : "text-[color:var(--text-bright)] hover:bg-[color:var(--bg-surface)]"
                 }`}
                 title={p.title}
               >
                 <span
-                  className="w-2 h-2 rounded-sm shrink-0 bg-[#e0af68]"
+                  className="w-2 h-2 rounded-sm shrink-0 bg-[color:var(--orange)]"
                 />
                 <span className="truncate text-[10px]">{p.title}</span>
-                <span className="text-[9px] text-[#565f89] ml-auto shrink-0">
+                <span className="text-[9px] text-[color:var(--text-muted)] ml-auto shrink-0">
                   {p.count}
                 </span>
               </button>

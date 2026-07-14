@@ -208,7 +208,7 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
       <button
         onClick={() => { setSelecting((s) => !s); setBrushed(null); setHover(null); }}
         className={`absolute right-3 top-3 z-10 rounded border px-2 py-1 text-[10px] transition-colors ${
-          selecting ? "border-[#7aa2f7] bg-[#7aa2f7] text-[#1a1b26]" : "border-[#2f3348] bg-[#1a1b26] text-[#a9b1d6] hover:border-[#7aa2f7]"
+          selecting ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--bg)]" : "border-[color:var(--bg-hover)] bg-[color:var(--bg)] text-[color:var(--text-bright)] hover:border-[color:var(--accent)]"
         }`}
         title="Drag a box over the cloud to list those sessions"
       >
@@ -217,8 +217,8 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
 
       {/* linked list of brushed sessions */}
       {selecting && brushed && brushed.length > 0 && (
-        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[#2f3348] bg-[#1a1b26]/95 p-2 shadow-xl">
-          <div className="mb-1 flex items-center justify-between text-[10px] text-[#565f89]">
+        <div className="absolute bottom-3 right-3 z-10 max-h-[45%] w-64 overflow-y-auto rounded border border-[color:var(--bg-hover)] bg-[#1a1b26]/95 p-2 shadow-xl">
+          <div className="mb-1 flex items-center justify-between text-[10px] text-[color:var(--text-muted)]">
             <span>{brushed.length} session{brushed.length === 1 ? "" : "s"} selected</span>
             <span>out tok</span>
           </div>
@@ -227,22 +227,22 @@ export function ScatterView({ sessions, width, height, onOpenSession }: Props) {
               <button
                 key={p.id}
                 onClick={() => onOpenSession(p.id)}
-                className="flex items-center gap-2 py-1 text-left hover:bg-[#24283b]"
+                className="flex items-center gap-2 py-1 text-left hover:bg-[color:var(--bg-surface)]"
               >
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: agentColor(p.agent) }} />
-                <span className="min-w-0 flex-1 truncate text-[11px] text-[#c0caf5]">{cleanHarnessPreview(p.label)}</span>
-                <span className="shrink-0 text-[10px] tabular-nums text-[#7aa2f7]">{kfmt(p.tokens)}</span>
+                <span className="min-w-0 flex-1 truncate text-[11px] text-[color:var(--text)]">{cleanHarnessPreview(p.label)}</span>
+                <span className="shrink-0 text-[10px] tabular-nums text-[color:var(--accent)]">{kfmt(p.tokens)}</span>
               </button>
             ))}
-            {brushed.length > 40 && <div className="pt-1 text-[9px] text-[#565f89]">+{brushed.length - 40} more…</div>}
+            {brushed.length > 40 && <div className="pt-1 text-[9px] text-[color:var(--text-muted)]">+{brushed.length - 40} more…</div>}
           </div>
         </div>
       )}
 
       {hover && (
-        <div className="pointer-events-none absolute z-10 rounded border border-[#2f3348] bg-[#1a1b26] px-2 py-1 text-[10px] text-[#c0caf5] shadow-lg" style={{ left: Math.min(hover.x + 10, width - 160), top: hover.y - 8 }}>
+        <div className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg" style={{ left: Math.min(hover.x + 10, width - 160), top: hover.y - 8 }}>
           <div className="max-w-[150px] truncate">{cleanHarnessPreview(hover.p.label)}</div>
-          <div className="text-[#565f89]">{hover.p.events} ev · {kfmt(hover.p.tokens)} out · {formatDuration(hover.p.durationMs)} · <span style={{ color: agentColor(hover.p.agent) }}>{hover.p.agent}</span></div>
+          <div className="text-[color:var(--text-muted)]">{hover.p.events} ev · {kfmt(hover.p.tokens)} out · {formatDuration(hover.p.durationMs)} · <span style={{ color: agentColor(hover.p.agent) }}>{hover.p.agent}</span></div>
         </div>
       )}
     </div>

@@ -107,16 +107,16 @@ export function ConstellationView({ rootId, height = 480, onOpen, className }: P
     select(svg).call(z.transform, zoomIdentity.translate(tx, ty).scale(scale));
   }, [graph, width, height, px, rScale]);
 
-  if (loading) return <div className={cn("px-3 py-6 text-[11px] text-[#565f89]", className)}>Loading graph…</div>;
+  if (loading) return <div className={cn("px-3 py-6 text-[11px] text-[color:var(--text-muted)]", className)}>Loading graph…</div>;
   if (graph.edges.length === 0) {
-    return <div className={cn("px-3 py-8 text-center text-[12px] text-[#565f89]", className)} data-testid="constellation-empty">This session spawned no subagents.</div>;
+    return <div className={cn("px-3 py-8 text-center text-[12px] text-[color:var(--text-muted)]", className)} data-testid="constellation-empty">This session spawned no subagents.</div>;
   }
 
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
 
   return (
     <div ref={wrapRef} className={cn("relative w-full", className)} data-testid="constellation">
-      <div className="pointer-events-none absolute left-2 top-2 z-10 text-[10px] text-[#565f89]">
+      <div className="pointer-events-none absolute left-2 top-2 z-10 text-[10px] text-[color:var(--text-muted)]">
         {graph.nodes.length - 1} subagents · scroll to zoom · drag to pan
       </div>
       <svg ref={svgRef} width={width} height={height} className="block cursor-grab bg-[#16171f] active:cursor-grabbing" style={{ touchAction: "none" }}>

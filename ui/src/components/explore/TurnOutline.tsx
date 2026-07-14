@@ -14,7 +14,7 @@ export function TurnOutline({ turns, selectedTurn, onSelectTurn }: TurnOutlinePr
 
   return (
     <div data-testid="turn-outline">
-      <div className="px-2 py-1 text-[10px] text-[#565f89] uppercase tracking-wider">
+      <div className="px-2 py-1 text-[10px] text-[color:var(--text-muted)] uppercase tracking-wider">
         Turns
       </div>
       <div className="space-y-px">
@@ -31,25 +31,25 @@ export function TurnOutline({ turns, selectedTurn, onSelectTurn }: TurnOutlinePr
               onClick={() => onSelectTurn(isSelected ? null : t.index)}
               className={`w-full text-left px-2 py-1.5 text-xs transition-colors ${
                 isSelected
-                  ? "bg-[#7aa2f715] border-l-2 border-[#7aa2f7]"
-                  : "hover:bg-[#24283b] border-l-2 border-transparent"
+                  ? "bg-[#7aa2f715] border-l-2 border-[color:var(--accent)]"
+                  : "hover:bg-[color:var(--bg-surface)] border-l-2 border-transparent"
               }`}
               data-testid={`turn-${t.index}`}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-[#565f89] font-mono shrink-0">
+                <span className="text-[10px] text-[color:var(--text-muted)] font-mono shrink-0">
                   {t.index + 1}
                 </span>
                 {prompt && (
-                  <span className="text-[10px] text-[#c0caf5] truncate">{prompt}</span>
+                  <span className="text-[10px] text-[color:var(--text)] truncate">{prompt}</span>
                 )}
                 {!prompt && (
-                  <span className="text-[10px] text-[#565f89] italic">no prompt</span>
+                  <span className="text-[10px] text-[color:var(--text-muted)] italic">no prompt</span>
                 )}
                 {t.hasError && (
-                  <span className="text-[9px] text-[#f7768e] shrink-0">!</span>
+                  <span className="text-[9px] text-[color:var(--red)] shrink-0">!</span>
                 )}
-                <span className="text-[9px] text-[#565f89] ml-auto shrink-0">
+                <span className="text-[9px] text-[color:var(--text-muted)] ml-auto shrink-0">
                   {t.eventIds.length}
                 </span>
               </div>
@@ -65,7 +65,7 @@ export function TurnOutline({ turns, selectedTurn, onSelectTurn }: TurnOutlinePr
                     </span>
                   ))}
                   {t.files.length > 0 && (
-                    <span className="text-[8px] text-[#565f89] ml-auto">
+                    <span className="text-[8px] text-[color:var(--text-muted)] ml-auto">
                       {t.files.length}f
                     </span>
                   )}

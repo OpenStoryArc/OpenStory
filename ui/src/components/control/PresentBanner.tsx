@@ -43,7 +43,7 @@ const MD_COMPONENTS = {
       );
     }
     return (
-      <code className="rounded bg-[#1a1b26] px-1 py-0.5 font-mono text-[12px] text-[#7dcfff]" {...rest}>
+      <code className="rounded bg-[color:var(--bg)] px-1 py-0.5 font-mono text-[12px] text-[color:var(--cyan-bright)]" {...rest}>
         {children}
       </code>
     );
@@ -66,12 +66,12 @@ export function PresentBanner({
 
   return (
     <div
-      className="flex flex-col gap-1 border-b border-[#7aa2f7]/40 bg-[#7aa2f7]/10 px-4 py-2 text-[13px] text-[#c0caf5]"
+      className="flex flex-col gap-1 border-b border-[#7aa2f7]/40 bg-[#7aa2f7]/10 px-4 py-2 text-[13px] text-[color:var(--text)]"
       data-testid="present-banner"
     >
       {/* header row: who + spotlight chips + jump + expand + dismiss */}
       <div className="flex items-center gap-3">
-        <span className="shrink-0 rounded bg-[#7aa2f7] px-1.5 py-0.5 text-[10px] font-semibold text-[#1a1b26]">
+        <span className="shrink-0 rounded bg-[color:var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--bg)]">
           ▸ {issuer}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -82,21 +82,21 @@ export function PresentBanner({
                   key={id}
                   data-present-session={id}
                   onClick={() => onNavigate({ view: "explore", sessionId: id })}
-                  className="rounded border border-[#3b4261] px-1.5 py-0.5 font-mono text-[10px] text-[#7aa2f7] hover:border-[#7aa2f7] hover:bg-[#24283b]"
+                  className="rounded border border-[color:var(--border)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--accent)] hover:border-[color:var(--accent)] hover:bg-[color:var(--bg-surface)]"
                   title={id}
                 >
                   {id.slice(0, 8)}
                 </button>
               ))}
               {sessionIds.length > 6 && (
-                <span className="text-[10px] text-[#565f89]">+{sessionIds.length - 6}</span>
+                <span className="text-[10px] text-[color:var(--text-muted)]">+{sessionIds.length - 6}</span>
               )}
             </div>
           )}
           {route && (
             <button
               onClick={() => onNavigate(route)}
-              className="rounded bg-[#7aa2f7] px-2 py-0.5 text-[11px] font-medium text-[#1a1b26] hover:bg-[#9db8fa]"
+              className="rounded bg-[color:var(--accent)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--bg)] hover:bg-[#9db8fa]"
             >
               Open →
             </button>
@@ -105,7 +105,7 @@ export function PresentBanner({
             <button
               data-testid="present-expand"
               onClick={() => setExpanded((v) => !v)}
-              className="rounded border border-[#3b4261] px-1.5 py-0.5 text-[10px] text-[#a9b1d6] hover:border-[#7aa2f7] hover:text-[#c0caf5]"
+              className="rounded border border-[color:var(--border)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-bright)] hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
               aria-expanded={expanded}
             >
               {expanded ? "▲ less" : "▼ more"}
@@ -113,7 +113,7 @@ export function PresentBanner({
           )}
           <button
             onClick={onDismiss}
-            className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]"
+            className="rounded px-1.5 text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
             title="Dismiss"
             aria-label="Dismiss"
           >
@@ -127,7 +127,7 @@ export function PresentBanner({
       {message && (
         <div
           className={cn(
-            "prose prose-invert prose-sm max-w-none break-words text-[13px] leading-snug marker:text-[#565f89]",
+            "prose prose-invert prose-sm max-w-none break-words text-[13px] leading-snug marker:text-[color:var(--text-muted)]",
             clamped && "relative max-h-12 cursor-pointer overflow-hidden",
           )}
           onClick={clamped ? () => setExpanded(true) : undefined}

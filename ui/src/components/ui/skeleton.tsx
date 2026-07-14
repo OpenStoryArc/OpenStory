@@ -10,7 +10,7 @@ export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivEl
   return (
     <div
       data-slot="skeleton"
-      className={cn("skeleton-shimmer rounded-md bg-[#2f3348]", className)}
+      className={cn("skeleton-shimmer rounded-md bg-[color:var(--bg-hover)]", className)}
       {...props}
     />
   );

@@ -121,7 +121,7 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
       </svg>
 
       {/* overview + brush */}
-      <svg width={width} height={OV_H} className="block shrink-0 border-t border-[#2f3348]">
+      <svg width={width} height={OV_H} className="block shrink-0 border-t border-[color:var(--bg-hover)]">
         <text x={6} y={12} fontSize={9} fill="#565f89">overview · concurrent sessions · drag to window</text>
         {density.map((c, i) => {
           const bh = (c / maxD) * (OV_BOT - OV_TOP);

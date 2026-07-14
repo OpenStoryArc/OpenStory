@@ -37,8 +37,8 @@ export const SessionCard = memo(function SessionCard({
   return (
     <button
       onClick={handleClick}
-      className={`w-full text-left p-3 border-b border-[#2f3348] transition-colors ${
-        selected ? "bg-[#2f3348]" : "hover:bg-[#24283b]"
+      className={`w-full text-left p-3 border-b border-[color:var(--bg-hover)] transition-colors ${
+        selected ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
       }`}
     >
       <div className="flex items-center justify-between mb-1">
@@ -65,20 +65,20 @@ export const SessionCard = memo(function SessionCard({
             )}
             {session.status}
             {elapsed && (
-              <span className="text-[#565f89] font-normal ml-1">{elapsed}</span>
+              <span className="text-[color:var(--text-muted)] font-normal ml-1">{elapsed}</span>
             )}
           </span>
         </div>
-        <span className="text-xs text-[#565f89]">
+        <span className="text-xs text-[color:var(--text-muted)]">
           {timeAgo}
         </span>
       </div>
-      <div className="text-xs text-[#c0caf5] mb-1 leading-relaxed">
+      <div className="text-xs text-[color:var(--text)] mb-1 leading-relaxed">
         {session.first_prompt
           ? truncate(session.first_prompt, 80)
           : "No prompt yet"}
       </div>
-      <div className="flex items-center gap-2 text-xs text-[#565f89]">
+      <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]">
         {session.model && <span>{session.model}</span>}
         <span>{session.event_count} events</span>
         {session.duration_ms != null && (

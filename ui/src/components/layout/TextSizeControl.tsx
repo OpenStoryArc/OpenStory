@@ -54,7 +54,7 @@ export function TextSizeControl() {
 
   return (
     <div
-      className="flex items-center overflow-hidden rounded border border-[#2f3348]"
+      className="flex items-center overflow-hidden rounded border border-[color:var(--bg-hover)]"
       role="group"
       aria-label="Text size"
       title="Text size"
@@ -70,8 +70,8 @@ export function TextSizeControl() {
             aria-pressed={active}
             className={`px-1.5 py-0.5 text-[10px] leading-none transition-colors ${
               active
-                ? "bg-[#7aa2f7] font-medium text-[#1a1b26]"
-                : "text-[#565f89] hover:bg-[#24283b] hover:text-[#c0caf5]"
+                ? "bg-[color:var(--accent)] font-medium text-[color:var(--bg)]"
+                : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text)]"
             }`}
           >
             {label}

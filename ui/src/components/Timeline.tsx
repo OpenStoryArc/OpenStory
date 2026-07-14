@@ -154,22 +154,22 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
     }
     return (
       <div className="flex items-center px-4 py-2" data-testid="turn-divider">
-        <div className="flex-1 h-px bg-[#3b4261]" />
-        <span className="text-[10px] text-[#565f89] px-3 shrink-0 font-mono">
+        <div className="flex-1 h-px bg-[color:var(--border)]" />
+        <span className="text-[10px] text-[color:var(--text-muted)] px-3 shrink-0 font-mono">
           {parts.length > 0 ? parts.join(" · ") : row.summary}
         </span>
-        <div className="flex-1 h-px bg-[#3b4261]" />
+        <div className="flex-1 h-px bg-[color:var(--border)]" />
       </div>
     );
   }
 
   const highlight = isHighlighted ? " bg-[#7aa2f714]" : "";
-  const focusBorder = isFocusRoot ? " ring-1 ring-[#e0af68]" : "";
-  const selectedBorder = isSelected ? " ring-1 ring-[#7aa2f7]" : "";
+  const focusBorder = isFocusRoot ? " ring-1 ring-[color:var(--orange)]" : "";
+  const selectedBorder = isSelected ? " ring-1 ring-[color:var(--accent)]" : "";
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
+      className={`mx-3 my-1 rounded-xl border border-[color:var(--bg-hover)] overflow-hidden hover:border-[#414868]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
       onClick={onSelect}
     >
@@ -180,7 +180,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
             {/* Header */}
             <div className="flex items-center gap-1.5 mb-1 flex-wrap">
               {sessionLabel && (
-                <span className="text-[11px] text-[#c0caf5] font-medium truncate max-w-[200px]">
+                <span className="text-[11px] text-[color:var(--text)] font-medium truncate max-w-[200px]">
                   {sessionLabel}
                 </span>
               )}
@@ -192,7 +192,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 {CATEGORY_LABELS[row.category]}
               </span>
               {row.toolName && (
-                <span className="text-xs font-semibold text-[#2ac3de]">{row.toolName}</span>
+                <span className="text-xs font-semibold text-[color:var(--cyan)]">{row.toolName}</span>
               )}
               {rollup.total > 0 && (
                 showPills ? (
@@ -215,7 +215,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                     })}
                     <button
                       onClick={(e) => { e.stopPropagation(); setShowPills(false); }}
-                      className="text-[9px] text-[#565f89] hover:text-[#c0caf5]"
+                      className="text-[9px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
                     >
                       ◂ collapse
                     </button>
@@ -223,7 +223,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowPills(true); }}
-                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[#3b4261] text-[#7aa2f7] hover:bg-[#7aa2f710]"
+                    className="text-[9px] px-1.5 py-0.5 rounded-full border border-[color:var(--border)] text-[color:var(--accent)] hover:bg-[#7aa2f710]"
                     title="Show the raw pattern detections"
                     data-testid="pattern-rollup"
                   >
@@ -232,13 +232,13 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
                 )
               )}
               <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] text-[#565f89] font-mono">
+                <span className="text-[10px] text-[color:var(--text-muted)] font-mono">
                   <span title={fullTimestamp(row.timestamp)}>{compactTime(row.timestamp)}</span>
                 </span>
                 {onExploreLink && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onExploreLink(row.sessionId, row.id); }}
-                    className="text-[11px] px-1.5 py-0.5 rounded text-[#565f89] hover:text-[#7aa2f7] hover:bg-[#7aa2f710] transition-colors"
+                    className="text-[11px] px-1.5 py-0.5 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[#7aa2f710] transition-colors"
                     title="Open full session in Explore"
                     data-testid="explore-link"
                   >
@@ -252,7 +252,7 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
             <CardBody row={row} />
 
             {/* Full IDs — always visible for cross-referencing */}
-            <div className="mt-1 text-[9px] text-[#565f89] font-mono leading-tight">
+            <div className="mt-1 text-[9px] text-[color:var(--text-muted)] font-mono leading-tight">
               <div>event: {row.id}</div>
               <div>session: {row.sessionId}</div>
             </div>
@@ -277,7 +277,7 @@ interface FilterBarProps {
 const FilterBar = memo(function FilterBar({ activeFilter, onSelect, matchCount, totalCount, filterCounts }: FilterBarProps) {
   const filters = FILTER_GROUPS.flatMap((g) => g.filters);
   return (
-    <div className="px-3 py-1.5 bg-[#1a1b26] border-b border-[#2f3348] text-xs" data-testid="filter-bar">
+    <div className="px-3 py-1.5 bg-[color:var(--bg)] border-b border-[color:var(--bg-hover)] text-xs" data-testid="filter-bar">
       <div className="flex items-center gap-1 flex-wrap">
         {filters.map((f) => {
               const count = filterCounts[f];
@@ -289,8 +289,8 @@ const FilterBar = memo(function FilterBar({ activeFilter, onSelect, matchCount, 
                   title={FILTER_TOOLTIPS[f]}
                   className={`px-2 py-1 rounded text-[11px] transition-colors ${
                     activeFilter === f
-                      ? "bg-[#7aa2f7] text-[#1a1b26] font-medium"
-                      : "text-[#787c99] hover:text-[#c0caf5] hover:bg-[#24283b]"
+                      ? "bg-[color:var(--accent)] text-[color:var(--bg)] font-medium"
+                      : "text-[#787c99] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
                   }`}
                 >
                   {FILTER_LABELS[f] ?? f}
@@ -301,7 +301,7 @@ const FilterBar = memo(function FilterBar({ activeFilter, onSelect, matchCount, 
               );
         })}
         {activeFilter !== "all" && (
-          <span className="text-[#565f89] ml-auto" data-testid="filter-match-count">
+          <span className="text-[color:var(--text-muted)] ml-auto" data-testid="filter-match-count">
             {matchCount}/{totalCount}
           </span>
         )}
@@ -598,7 +598,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
   return (
     <div className="flex flex-col h-full" data-testid="timeline">
       {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#24283b] border-b border-[#2f3348] text-xs text-[#565f89]" data-testid="timeline-status">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--text-muted)]" data-testid="timeline-status">
         <span className="flex items-center gap-2">
           {highlightedPattern && (
             <span className="flex items-center gap-1" data-testid="highlight-indicator">
@@ -607,25 +607,25 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
               </span>
               <button
                 onClick={() => setHighlightedPattern(null)}
-                className="text-[#565f89] hover:text-[#f7768e] ml-0.5"
+                className="text-[color:var(--text-muted)] hover:text-[color:var(--red)] ml-0.5"
                 title="Clear highlight"
               >
                 ×
               </button>
-              <span className="text-[#2f3348]">·</span>
+              <span className="text-[color:var(--bg-hover)]">·</span>
             </span>
           )}
           {focusRootId && (
             <span className="flex items-center gap-1">
-              <span className="text-[#e0af68]">Focused on {focusRootId.slice(0, 8)}</span>
+              <span className="text-[color:var(--orange)]">Focused on {focusRootId.slice(0, 8)}</span>
               <button
                 onClick={() => setFocusRootId(null)}
-                className="text-[#565f89] hover:text-[#f7768e] ml-0.5"
+                className="text-[color:var(--text-muted)] hover:text-[color:var(--red)] ml-0.5"
                 title="Exit focus"
               >
                 ×
               </button>
-              <span className="text-[#2f3348]">·</span>
+              <span className="text-[color:var(--bg-hover)]">·</span>
             </span>
           )}
           <span>
@@ -635,7 +635,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
             {sessionCount > 0 && ` from ${sessionCount} session${sessionCount !== 1 ? "s" : ""}`}
             {state.patterns.length > 0 && (
               <span
-                className="text-[#bb9af7]"
+                className="text-[color:var(--purple)]"
                 data-testid="pattern-count"
                 title="Behavioral patterns detected: test cycles, git workflows, error recoveries, agent delegations, and turn phases"
               >
@@ -650,7 +650,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
               setAutoScroll(true);
               virtualizer.scrollToIndex(0, { align: "start" });
             }}
-            className="text-[#7aa2f7] hover:text-[#89b4fa]"
+            className="text-[color:var(--accent)] hover:text-[#89b4fa]"
           >
             Scroll to latest
           </button>
@@ -659,14 +659,14 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
 
       {/* Disconnected banner — warns user data may be stale */}
       {connectionStatus === "disconnected" && state.records.length > 0 && (
-        <div className="px-3 py-1.5 bg-[#f7768e15] border-b border-[#f7768e30] text-xs text-[#f7768e]" data-testid="disconnected-banner">
+        <div className="px-3 py-1.5 bg-[#f7768e15] border-b border-[#f7768e30] text-xs text-[color:var(--red)]" data-testid="disconnected-banner">
           Connection lost — data may be stale. Waiting to reconnect...
         </div>
       )}
 
       {/* Ephemeral progress indicator */}
       {state.currentEphemeral && (
-        <div className="px-3 py-1 bg-[#1e2030] border-b border-[#2f3348] text-xs text-[#e0af68] animate-pulse">
+        <div className="px-3 py-1 bg-[#1e2030] border-b border-[color:var(--bg-hover)] text-xs text-[color:var(--orange)] animate-pulse">
           {state.currentEphemeral.record_type === "system_event"
             ? ((state.currentEphemeral.payload as { message?: string }).message ?? "Working...")
             : "Working..."}
@@ -688,7 +688,7 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
       {/* Event feed */}
       <div ref={scrollRef} className="flex-1 overflow-auto outline-none" tabIndex={0} data-focus-zone="timeline" onFocus={() => setTimelineFocused(true)} onBlur={() => setTimelineFocused(false)}>
         {loadingSession && rows.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-[#565f89]" data-testid="loading-session">
+          <div className="flex items-center justify-center h-full text-[color:var(--text-muted)]" data-testid="loading-session">
             <div className="text-center">
               <div className="text-lg mb-2">Loading session…</div>
               <div className="text-xs">Fetching records via REST</div>
@@ -702,14 +702,14 @@ export function Timeline({ state$, sessionFilter = null, agentFilter = null, onE
               totalRecords: state.records.length,
             });
             return (
-              <div className="flex items-center justify-center h-full text-[#565f89]" data-testid="empty-state">
+              <div className="flex items-center justify-center h-full text-[color:var(--text-muted)]" data-testid="empty-state">
                 <div className="text-center">
                   <div className="text-lg mb-2">{msg.headline}</div>
                   <div className="text-xs">{msg.detail}</div>
                   {msg.action && (
                     <button
                       onClick={() => setActiveFilter(msg.action!)}
-                      className="mt-3 text-xs text-[#7aa2f7] hover:text-[#89b4fa] underline"
+                      className="mt-3 text-xs text-[color:var(--accent)] hover:text-[#89b4fa] underline"
                       data-testid="empty-state-action"
                     >
                       Show all events

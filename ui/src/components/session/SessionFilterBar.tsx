@@ -22,8 +22,8 @@ export function SessionFilterBar({ value, onChange }: SessionFilterBarProps) {
           onClick={() => onChange(f.value)}
           className={`text-xs px-2 py-1 rounded transition-colors ${
             value === f.value
-              ? "bg-[#7aa2f7] text-[#1a1b26]"
-              : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#2f3348]"
+              ? "bg-[color:var(--accent)] text-[color:var(--bg)]"
+              : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
           }`}
         >
           {f.label}

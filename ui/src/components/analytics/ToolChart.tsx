@@ -23,7 +23,7 @@ export function ToolChart({ breakdown, maxBars = 8 }: ToolChartProps) {
 
   return (
     <div data-testid="tool-chart">
-      <h3 className="text-xs text-[#565f89] mb-2">Tool Distribution</h3>
+      <h3 className="text-xs text-[color:var(--text-muted)] mb-2">Tool Distribution</h3>
       <ResponsiveContainer width="100%" height={data.length * 28 + 16}>
         <BarChart
           data={data}

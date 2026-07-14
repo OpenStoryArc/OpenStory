@@ -83,18 +83,18 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search by meaning..."
-        className="w-full bg-[#24283b] text-[#c0caf5] text-xs rounded px-3 py-2 border border-[#2f3348] focus:border-[#7aa2f7] focus:outline-none placeholder-[#565f89]"
+        className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-xs rounded px-3 py-2 border border-[color:var(--bg-hover)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
         data-testid="semantic-search-input"
       />
 
       {/* Status */}
       {loading && (
-        <div className="text-[11px] text-[#565f89]">Searching...</div>
+        <div className="text-[11px] text-[color:var(--text-muted)]">Searching...</div>
       )}
 
       {error && (
         <div
-          className="text-[11px] text-[#e0af68] bg-[#24283b] rounded px-2 py-1"
+          className="text-[11px] text-[color:var(--orange)] bg-[color:var(--bg-surface)] rounded px-2 py-1"
           data-testid="semantic-search-error"
         >
           {error}
@@ -104,7 +104,7 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
       {/* Results */}
       {!loading && !error && results.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <div className="text-[10px] text-[#565f89]">
+          <div className="text-[10px] text-[color:var(--text-muted)]">
             {results.length} session{results.length !== 1 ? "s" : ""} found
             {totalSearched > 0 && ` (${totalSearched} events searched)`}
           </div>
@@ -113,24 +113,24 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
             <button
               key={session.session_id}
               onClick={() => onSelectSession(session.session_id)}
-              className="text-left bg-[#24283b] hover:bg-[#2f3348] rounded px-3 py-2 border border-[#2f3348] transition-colors"
+              className="text-left bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] rounded px-3 py-2 border border-[color:var(--bg-hover)] transition-colors"
               data-testid="semantic-search-result"
             >
               {/* Session header */}
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-[#c0caf5] font-medium truncate">
+                <span className="text-[11px] text-[color:var(--text)] font-medium truncate">
                   {session.label
                     ? truncateSnippet(session.label, 60)
                     : session.session_id.slice(0, 12) + "…"}
                 </span>
-                <span className="text-[10px] text-[#7aa2f7] ml-2 shrink-0">
+                <span className="text-[10px] text-[color:var(--accent)] ml-2 shrink-0">
                   {formatScore(session.relevance_score)}
                 </span>
               </div>
 
               {/* Project + event count */}
               {(session.project_name || session.event_count > 0) && (
-                <div className="text-[10px] text-[#565f89] mb-1">
+                <div className="text-[10px] text-[color:var(--text-muted)] mb-1">
                   {session.project_name && (
                     <span className="mr-2">{session.project_name}</span>
                   )}
@@ -144,9 +144,9 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
               {session.matching_events.map((evt, i) => (
                 <div
                   key={evt.event_id ?? i}
-                  className="text-[10px] text-[#a9b1d6] mt-0.5 flex gap-1.5"
+                  className="text-[10px] text-[color:var(--text-bright)] mt-0.5 flex gap-1.5"
                 >
-                  <span className="text-[#565f89] shrink-0 w-14 text-right">
+                  <span className="text-[color:var(--text-muted)] shrink-0 w-14 text-right">
                     {recordTypeLabel(evt.record_type)}
                   </span>
                   <span className="truncate">
@@ -161,7 +161,7 @@ export function SemanticSearch({ onSelectSession, initialQuery }: SemanticSearch
 
       {/* No results */}
       {!loading && !error && query.trim() && results.length === 0 && (
-        <div className="text-[11px] text-[#565f89]" data-testid="semantic-search-empty">
+        <div className="text-[11px] text-[color:var(--text-muted)]" data-testid="semantic-search-empty">
           No results
         </div>
       )}

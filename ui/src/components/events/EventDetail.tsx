@@ -29,40 +29,40 @@ export function EventDetail({ record, onClose }: EventDetailProps) {
     : undefined;
 
   return (
-    <div className="h-full bg-[#24283b] p-4 overflow-y-auto">
+    <div className="h-full bg-[color:var(--bg-surface)] p-4 overflow-y-auto">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-[#c0caf5]">
+        <h3 className="text-sm font-medium text-[color:var(--text)]">
           {viewRecordLabel(record.record_type)}
           {toolName && (
-            <span className="ml-2 text-[#2ac3de]">{toolName}</span>
+            <span className="ml-2 text-[color:var(--cyan)]">{toolName}</span>
           )}
         </h3>
         <button
           onClick={onClose}
-          className="text-xs text-[#565f89] hover:text-[#c0caf5] px-2 py-1"
+          className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--text)] px-2 py-1"
         >
           Close
         </button>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs mb-3">
         <div>
-          <span className="text-[#565f89]">Time: </span>
+          <span className="text-[color:var(--text-muted)]">Time: </span>
           <span>{formatTime(record.timestamp)}</span>
         </div>
         <div>
-          <span className="text-[#565f89]">ID: </span>
+          <span className="text-[color:var(--text-muted)]">ID: </span>
           <span className="font-mono">{record.id.slice(0, 8)}</span>
         </div>
         <div>
-          <span className="text-[#565f89]">Seq: </span>
+          <span className="text-[color:var(--text-muted)]">Seq: </span>
           <span>{record.seq}</span>
         </div>
       </div>
       <details open className="text-xs">
-        <summary className="text-[#565f89] cursor-pointer mb-2">
+        <summary className="text-[color:var(--text-muted)] cursor-pointer mb-2">
           Record Data
         </summary>
-        <pre className="bg-[#1a1b26] rounded p-3 overflow-x-auto text-[#c0caf5] whitespace-pre-wrap break-words">
+        <pre className="bg-[color:var(--bg)] rounded p-3 overflow-x-auto text-[color:var(--text)] whitespace-pre-wrap break-words">
           {JSON.stringify(record.payload, null, 2)}
         </pre>
       </details>

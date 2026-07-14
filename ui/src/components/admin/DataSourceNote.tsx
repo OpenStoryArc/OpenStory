@@ -29,7 +29,7 @@ export function DataSourceNote({
   return (
     <div
       data-testid="data-source"
-      className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-[#565f89]"
+      className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-[color:var(--text-muted)]"
     >
       <span
         aria-hidden
@@ -37,7 +37,7 @@ export function DataSourceNote({
         style={{ backgroundColor: k.dot }}
       />
       <span>
-        <code className="text-[#7dcfff]">{endpoint}</code>
+        <code className="text-[color:var(--cyan-bright)]">{endpoint}</code>
         {" · "}
         <span className="uppercase tracking-wide">{k.label}</span>
         {" — "}

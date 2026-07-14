@@ -34,18 +34,18 @@ export function TurnTraceView({ records, selectedCallId, onSelectSpan, className
   );
 
   if (model.spans.length === 0) {
-    return <div className={cn("px-3 py-4 text-[11px] text-[#565f89]", className)}>No tool calls to trace.</div>;
+    return <div className={cn("px-3 py-4 text-[11px] text-[color:var(--text-muted)]", className)}>No tool calls to trace.</div>;
   }
 
   return (
     <div className={cn("select-none", className)}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1.5 text-[10px] text-[#565f89]">
-        <span className="text-[#c0caf5]">{model.spans.length} tool calls</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1.5 text-[10px] text-[color:var(--text-muted)]">
+        <span className="text-[color:var(--text)]">{model.spans.length} tool calls</span>
         <span>· {formatDuration(model.totalMs)} span</span>
         {model.slowest && (
           <span>· slowest <span style={{ color: toolColor(model.slowest.name) }}>{model.slowest.name}</span> {formatDuration(model.slowest.durationMs ?? 0)}</span>
         )}
-        {model.errorCount > 0 && <span className="text-[#f7768e]">· {model.errorCount} failed</span>}
+        {model.errorCount > 0 && <span className="text-[color:var(--red)]">· {model.errorCount} failed</span>}
       </div>
 
       <div className="max-h-[280px] overflow-y-auto pb-1">
@@ -90,21 +90,21 @@ function TraceRow({
       onClick={onSelect ? () => onSelect(span.callId) : undefined}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-[3px] text-left transition-colors",
-        selected ? "bg-[#283549]" : "hover:bg-[#24283b]",
+        selected ? "bg-[#283549]" : "hover:bg-[color:var(--bg-surface)]",
       )}
       title={`${span.name}${span.detail ? " · " + span.detail : ""}${unresolved ? " · no result" : " · " + formatDuration(span.durationMs!)}`}
     >
       {/* label */}
       <span className="flex w-40 shrink-0 items-center gap-1.5 truncate">
         <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: color }} />
-        <span className="truncate text-[11px] text-[#c0caf5]">{span.name}</span>
-        {span.detail && <span className="truncate text-[10px] text-[#565f89]">{span.detail}</span>}
+        <span className="truncate text-[11px] text-[color:var(--text)]">{span.name}</span>
+        {span.detail && <span className="truncate text-[10px] text-[color:var(--text-muted)]">{span.detail}</span>}
       </span>
 
       {/* waterfall track */}
-      <span className="relative h-3 flex-1 rounded-sm bg-[#1a1b26]">
+      <span className="relative h-3 flex-1 rounded-sm bg-[color:var(--bg)]">
         <span
-          className={cn("absolute top-0 h-3 rounded-sm", slow && "ring-1 ring-[#e0af68]")}
+          className={cn("absolute top-0 h-3 rounded-sm", slow && "ring-1 ring-[color:var(--orange)]")}
           style={{
             left: `${left}%`,
             width: `${widthPct}%`,
@@ -119,7 +119,7 @@ function TraceRow({
       </span>
 
       {/* duration */}
-      <span className="w-14 shrink-0 text-right text-[10px] tabular-nums text-[#565f89]">
+      <span className="w-14 shrink-0 text-right text-[10px] tabular-nums text-[color:var(--text-muted)]">
         {unresolved ? "—" : formatDuration(span.durationMs!)}
       </span>
     </button>

@@ -26,7 +26,7 @@ export function FacetGroup({
   const shown = showAll ? values : values.slice(0, 8);
   return (
     <div className="mb-3">
-      <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[#565f89]">{title}</div>
+      <div className="mb-1 px-1 text-[10px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">{title}</div>
       <div className="flex flex-col gap-0.5">
         {shown.map((v) => {
           const active = selected === v.key;
@@ -37,19 +37,19 @@ export function FacetGroup({
               onClick={() => onSelect(active ? undefined : v.key)}
               className={cn(
                 "flex items-center justify-between rounded px-2 py-0.5 text-left text-[11px] transition-colors",
-                active ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#c0caf5] hover:bg-[#2f3348]",
+                active ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]",
               )}
             >
               <span className="flex items-center gap-1.5 truncate">
                 {color && <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: color(v.key) }} />}
                 <span className="truncate">{v.key}</span>
               </span>
-              <span className={cn("ml-2 shrink-0 tabular-nums", active ? "text-[#1a1b26]" : "text-[#565f89]")}>{v.count}</span>
+              <span className={cn("ml-2 shrink-0 tabular-nums", active ? "text-[color:var(--bg)]" : "text-[color:var(--text-muted)]")}>{v.count}</span>
             </button>
           );
         })}
         {values.length > 8 && (
-          <button onClick={() => setShowAll((s) => !s)} className="px-2 py-0.5 text-left text-[10px] text-[#7aa2f7] hover:text-[#89b4fa]">
+          <button onClick={() => setShowAll((s) => !s)} className="px-2 py-0.5 text-left text-[10px] text-[color:var(--accent)] hover:text-[#89b4fa]">
             {showAll ? "Show less" : `+${values.length - 8} more`}
           </button>
         )}

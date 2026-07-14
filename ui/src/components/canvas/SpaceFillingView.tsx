@@ -95,16 +95,16 @@ export function SpaceFillingView({ sessions, groupBy, metric, mode, width, heigh
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* breadcrumb */}
-      <div className="flex items-center gap-1 px-3 py-1.5 text-[11px] text-[#565f89]">
+      <div className="flex items-center gap-1 px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]">
         {breadcrumb.map((a, i) => (
           <span key={a.data.key} className="flex items-center gap-1">
-            {i > 0 && <span className="text-[#3b4261]">/</span>}
-            <button onClick={() => setFocusKeys(a.ancestors().reverse().slice(1).map((x) => x.data.key))} className="hover:text-[#c0caf5]">
+            {i > 0 && <span className="text-[color:var(--border)]">/</span>}
+            <button onClick={() => setFocusKeys(a.ancestors().reverse().slice(1).map((x) => x.data.key))} className="hover:text-[color:var(--text)]">
               {i === 0 ? "all" : cleanHarnessPreview(a.data.name).split(/[/]/).pop()?.slice(0, 20)}
             </button>
           </span>
         ))}
-        <span className="ml-2 text-[#565f89]">· {metric}</span>
+        <span className="ml-2 text-[color:var(--text-muted)]">· {metric}</span>
       </div>
       <div className="relative min-h-0 flex-1 bg-[#16171f]">
         {mode === "sunburst"

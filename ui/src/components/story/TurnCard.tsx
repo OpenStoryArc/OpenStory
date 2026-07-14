@@ -88,8 +88,8 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   // Selected-session highlight ring on the whole card.
   const cardClassName = `mb-2 rounded-lg bg-[#1f2335] border overflow-hidden transition-colors ${
     isSelectedSession
-      ? "border-[#7aa2f7]"
-      : "border-[#2a2e42] hover:border-[#3b4261]"
+      ? "border-[color:var(--accent)]"
+      : "border-[#2a2e42] hover:border-[color:var(--border)]"
   }`;
 
   return (
@@ -98,7 +98,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
       style={{ marginLeft: `${depthIndent}px` }}
     >
       {/* Header */}
-      <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[#24283b]">
+      <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[color:var(--bg-surface)]">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <button
             type="button"
@@ -123,17 +123,17 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           >
             {chipLabel}
           </button>
-          <span className="text-[#7aa2f7] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
+          <span className="text-[color:var(--accent)] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setEventsOpen(!eventsOpen); }}
-            className="text-[9px] font-mono text-[#565f89] hover:text-[#7aa2f7] shrink-0 cursor-pointer transition-colors"
+            className="text-[9px] font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent)] shrink-0 cursor-pointer transition-colors"
             title={`${pattern.events.length} CloudEvents — click to ${eventsOpen ? "hide" : "show"} ids`}
           >
             {pattern.events.length} events {eventsOpen ? "▾" : "▸"}
           </button>
           {pattern.events.length > 0 && !eventsOpen && (
-            <span className="text-[9px] font-mono text-[#3b4261] truncate" title={pattern.events.join("\n")}>
+            <span className="text-[9px] font-mono text-[color:var(--border)] truncate" title={pattern.events.join("\n")}>
               {pattern.events[0]?.slice(0, 8)}..{pattern.events[pattern.events.length - 1]?.slice(0, 8)}
             </span>
           )}
@@ -141,7 +141,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); const t = turnDrillTarget(pattern); if (t) onOpenEvent(t); }}
-              className="text-[9px] font-mono text-[#7aa2f7] hover:text-[#bb9af7] shrink-0 cursor-pointer transition-colors"
+              className="text-[9px] font-mono text-[color:var(--accent)] hover:text-[color:var(--purple)] shrink-0 cursor-pointer transition-colors"
               title="Open this turn's source event in Explore"
               data-testid="turn-drill-source"
             >
@@ -151,8 +151,8 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         </div>
         <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
           isTerminal
-            ? "bg-[#9ece6a18] text-[#9ece6a] border border-[#9ece6a33]"
-            : "bg-[#e0af6818] text-[#e0af68] border border-[#e0af6833]"
+            ? "bg-[#9ece6a18] text-[color:var(--green)] border border-[#9ece6a33]"
+            : "bg-[#e0af6818] text-[color:var(--orange)] border border-[#e0af6833]"
         }`}>
           {isTerminal ? "terminate" : "continue"}
         </span>
@@ -162,25 +162,25 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           Shows full UUIDs in a compact list, each individually selectable so
           they can be copied with a single double-click. */}
       {eventsOpen && pattern.events.length > 0 && (
-        <div className="px-3.5 py-1.5 bg-[#1a1b26] border-y border-[#2a2e42]">
-          <div className="text-[9px] uppercase tracking-wide text-[#565f89] mb-1">
+        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[#2a2e42]">
+          <div className="text-[9px] uppercase tracking-wide text-[color:var(--text-muted)] mb-1">
             event ids ({pattern.events.length})
           </div>
-          <div className="font-mono text-[10px] text-[#a9b1d6] space-y-0.5 max-h-40 overflow-y-auto">
+          <div className="font-mono text-[10px] text-[color:var(--text-bright)] space-y-0.5 max-h-40 overflow-y-auto">
             {pattern.events.map((eid, i) => (
               <div key={eid} className="flex items-baseline gap-1.5">
-                <span className="text-[#3b4261] w-6 text-right shrink-0">{i + 1}</span>
+                <span className="text-[color:var(--border)] w-6 text-right shrink-0">{i + 1}</span>
                 {onOpenEvent ? (
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onOpenEvent(eid); }}
-                    className="text-left break-all text-[#a9b1d6] hover:text-[#7aa2f7] hover:underline cursor-pointer transition-colors"
+                    className="text-left break-all text-[color:var(--text-bright)] hover:text-[color:var(--accent)] hover:underline cursor-pointer transition-colors"
                     title="Open this event in Explore"
                   >
                     {eid}
                   </button>
                 ) : (
-                  <span className="select-all break-all hover:text-[#7aa2f7] transition-colors" title="Double-click to select, ⌘C to copy">
+                  <span className="select-all break-all hover:text-[color:var(--accent)] transition-colors" title="Double-click to select, ⌘C to copy">
                     {eid}
                   </span>
                 )}
@@ -209,7 +209,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         {/* Detail toggle — eval-apply phases */}
         <button
           onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
-          className="text-[11px] py-1.5 px-2 -mx-1 rounded text-[#565f89] hover:text-[#7aa2f7] hover:bg-[#24283b] transition-colors cursor-pointer"
+          className="text-[11px] py-1.5 px-2 -mx-1 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[color:var(--bg-surface)] transition-colors cursor-pointer"
         >
           {detailOpen ? "▼ hide eval-apply" : "▶ eval-apply detail"}
         </button>
@@ -217,7 +217,7 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
         {detailOpen && (
           <div className="space-y-1 border-t border-[#2a2e42] pt-2 mt-1">
             {/* Sentence one-liner */}
-            <p className="text-[12px] italic text-[#a9b1d6] pb-1">
+            <p className="text-[12px] italic text-[color:var(--text-bright)] pb-1">
               {pattern.label}
             </p>
 
@@ -239,8 +239,8 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
               <PhaseBlock label="eval" color="#9ece6a">
                 <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
                   eval_.decision === "text_only"
-                    ? "bg-[#9ece6a22] text-[#9ece6a]"
-                    : "bg-[#e0af6822] text-[#e0af68]"
+                    ? "bg-[#9ece6a22] text-[color:var(--green)]"
+                    : "bg-[#e0af6822] text-[color:var(--orange)]"
                 }`}>
                   {eval_.decision === "text_only" ? "text" : "tool use"}
                 </span>
@@ -252,12 +252,12 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
       </div>
 
       {/* Footer */}
-      <div className="flex justify-between px-3.5 py-1.5 text-[11px] text-[#565f89]">
+      <div className="flex justify-between px-3.5 py-1.5 text-[11px] text-[color:var(--text-muted)]">
         <span>
           env: {envSize} messages
-          {envDelta > 0 && <span className="text-[#9ece6a]"> (+{envDelta})</span>}
+          {envDelta > 0 && <span className="text-[color:var(--green)]"> (+{envDelta})</span>}
         </span>
-        <span className={isTerminal ? "text-[#9ece6a]" : "text-[#e0af68]"}>
+        <span className={isTerminal ? "text-[color:var(--green)]" : "text-[color:var(--orange)]"}>
           {stopReason} → {isTerminal ? "TERMINATE" : "CONTINUE"}
           {applies.length > 0 && ` · ${applies.length} applies`}
           {durationMs != null && ` · ${Math.round(durationMs)}ms`}
@@ -280,26 +280,26 @@ function DiagramInline({ subject, verb, object, adverbial, adverbialFull, subord
   predicate: string;
 }) {
   return (
-    <div className="px-1 py-1 bg-[#1a1b26] rounded text-[11px] font-mono">
+    <div className="px-1 py-1 bg-[color:var(--bg)] rounded text-[11px] font-mono">
       <div>
-        <span className="text-[#7aa2f7] font-bold">{subject}</span>
-        <span className="text-[#3b4261]"> ──── </span>
-        <span className="text-[#9ece6a] font-bold">{verb}</span>
-        <span className="text-[#3b4261]"> ──── </span>
-        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{object}</span>
+        <span className="text-[color:var(--accent)] font-bold">{subject}</span>
+        <span className="text-[color:var(--border)]"> ──── </span>
+        <span className="text-[color:var(--green)] font-bold">{verb}</span>
+        <span className="text-[color:var(--border)]"> ──── </span>
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[color:var(--text)]">{object}</span>
       </div>
       {subordinates.map((sub, i) => (
         <div key={i} className="pl-5 my-0.5">
-          <span className="text-[#3b4261]">├──</span>{" "}
+          <span className="text-[color:var(--border)]">├──</span>{" "}
           <span style={{ color: ROLE_COLORS[sub.role] ?? "#565f89" }}>{sub.verb}</span>{" "}
-          <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{sub.object}</span>{" "}
-          <span className="text-[#565f89]">({sub.tool_calls})</span>
+          <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[color:var(--text)]">{sub.object}</span>{" "}
+          <span className="text-[color:var(--text-muted)]">({sub.tool_calls})</span>
         </div>
       ))}
       {adverbial && (
         <AdverbialLine truncated={adverbial} full={adverbialFull} />
       )}
-      <div className="pl-5 mt-1 text-[#9ece6a]">→ {predicate}</div>
+      <div className="pl-5 mt-1 text-[color:var(--green)]">→ {predicate}</div>
     </div>
   );
 }
@@ -323,24 +323,24 @@ function AdverbialLine({ truncated, full }: { truncated: string; full: string | 
   if (!isExpandable) {
     return (
       <div className="pl-5 my-0.5">
-        <span className="text-[#3b4261]">└──</span>{" "}
-        <span className="text-[#f7768e]">because</span>{" "}
-        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[#c0caf5]">{truncated}</span>
+        <span className="text-[color:var(--border)]">└──</span>{" "}
+        <span className="text-[color:var(--red)]">because</span>{" "}
+        <span className="min-w-0 break-words [overflow-wrap:anywhere] text-[color:var(--text)]">{truncated}</span>
       </div>
     );
   }
   return (
     <div className="pl-5 my-0.5">
-      <span className="text-[#3b4261]">└──</span>{" "}
-      <span className="text-[#f7768e]">because</span>{" "}
+      <span className="text-[color:var(--border)]">└──</span>{" "}
+      <span className="text-[color:var(--red)]">because</span>{" "}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-        className="text-left text-[#c0caf5] hover:text-[#7aa2f7] cursor-pointer whitespace-pre-wrap break-words"
+        className="text-left text-[color:var(--text)] hover:text-[color:var(--accent)] cursor-pointer whitespace-pre-wrap break-words"
         title={expanded ? "Click to collapse" : "Click to see full prompt"}
       >
         {display}{" "}
-        <span className="text-[#565f89]">{expanded ? "▲" : "▼"}</span>
+        <span className="text-[color:var(--text-muted)]">{expanded ? "▲" : "▼"}</span>
       </button>
     </div>
   );
@@ -393,9 +393,9 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
       {hidden.length > 0 && (
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-          className="w-full text-left py-1.5 px-2.5 my-1 rounded-r bg-[#24283b] border-l-[3px] border-[#e0af68] text-[11px] text-[#a9b1d6] hover:bg-[#2a3050] transition-colors"
+          className="w-full text-left py-1.5 px-2.5 my-1 rounded-r bg-[color:var(--bg-surface)] border-l-[3px] border-[color:var(--orange)] text-[11px] text-[color:var(--text-bright)] hover:bg-[#2a3050] transition-colors"
         >
-          ▶ ... and {hidden.length} more: <span className="text-[#e0af68]">{groupSummary}</span>
+          ▶ ... and {hidden.length} more: <span className="text-[color:var(--orange)]">{groupSummary}</span>
         </button>
       )}
     </>
@@ -404,14 +404,14 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
 
 function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
   const [showOutput, setShowOutput] = useState(false);
-  const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[#f7768e]" : "border-[#e0af68]";
-  const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[#f7768e]" : "text-[#e0af68]";
+  const cls = apply.is_agent ? "border-[#ff9e64]" : apply.is_error ? "border-[color:var(--red)]" : "border-[color:var(--orange)]";
+  const labelColor = apply.is_agent ? "text-[#ff9e64]" : apply.is_error ? "text-[color:var(--red)]" : "text-[color:var(--orange)]";
   const label = apply.is_agent ? "apply · compound" : "apply";
   const fact = apply.tool_outcome ? extractDomainFact(apply.tool_outcome) : null;
   const factStyle = fact ? FACT_STYLES[fact.kind] : null;
 
   return (
-    <div className={`py-1.5 px-2.5 my-1 rounded-r bg-[#24283b] border-l-[3px] ${cls}`}>
+    <div className={`py-1.5 px-2.5 my-1 rounded-r bg-[color:var(--bg-surface)] border-l-[3px] ${cls}`}>
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className={`text-[10px] font-bold uppercase tracking-wide shrink-0 ${labelColor}`}>{label}</span>
@@ -426,18 +426,18 @@ function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly s
             </span>
           )}
         </div>
-        <span className="text-[10px] text-[#565f89] shrink-0">
+        <span className="text-[10px] text-[color:var(--text-muted)] shrink-0">
           {apply.tool_name}
           {apply.tool_outcome && <OutcomeBadge outcome={apply.tool_outcome} />}
         </span>
       </div>
-      <div className="text-[12px] text-[#a9b1d6] mt-0.5 whitespace-pre-wrap break-words">
+      <div className="text-[12px] text-[color:var(--text-bright)] mt-0.5 whitespace-pre-wrap break-words">
         {(apply.tool_outcome?.command ?? apply.tool_outcome?.path ?? apply.input_summary) || "(no input)"}
       </div>
       {apply.output_summary && (
         <button
           onClick={(e) => { e.stopPropagation(); setShowOutput(!showOutput); }}
-          className="text-[10px] py-0.5 text-[#565f89] hover:text-[#7aa2f7] transition-colors mt-0.5"
+          className="text-[10px] py-0.5 text-[color:var(--text-muted)] hover:text-[color:var(--accent)] transition-colors mt-0.5"
         >
           {showOutput ? "▼ hide output" : "▶ show output"}
         </button>
@@ -479,13 +479,13 @@ function AgentExpand({ apply }: { apply: Apply }) {
     <div className="mt-1">
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-        className="text-[10px] text-[#ff9e64] hover:text-[#c0caf5] transition-colors"
+        className="text-[10px] text-[#ff9e64] hover:text-[color:var(--text)] transition-colors"
       >
         {expanded ? "▼" : "▶"} {cycles ? `${cycles.length} eval-apply cycles` : "subagent eval-apply"}
-        <span className="text-[#565f89] ml-1">"{description.slice(0, 40)}{description.length > 40 ? "..." : ""}"</span>
+        <span className="text-[color:var(--text-muted)] ml-1">"{description.slice(0, 40)}{description.length > 40 ? "..." : ""}"</span>
       </button>
       {expanded && loading && (
-        <div className="text-[10px] text-[#565f89] italic mt-1 ml-4">loading cycles...</div>
+        <div className="text-[10px] text-[color:var(--text-muted)] italic mt-1 ml-4">loading cycles...</div>
       )}
       {expanded && cycles && cycles.length > 0 && (
         <div className="mt-1 ml-2 border-l-2 border-[#ff9e6433] pl-2">
@@ -493,7 +493,7 @@ function AgentExpand({ apply }: { apply: Apply }) {
         </div>
       )}
       {expanded && cycles && cycles.length === 0 && !loading && (
-        <div className="text-[10px] text-[#565f89] italic mt-1 ml-4">no cycles detected</div>
+        <div className="text-[10px] text-[color:var(--text-muted)] italic mt-1 ml-4">no cycles detected</div>
       )}
     </div>
   );
@@ -543,7 +543,7 @@ function DomainStrip({ applies }: { applies: Apply[] }) {
         {hidden > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
-            className="text-[10px] text-[#565f89] hover:text-[#7aa2f7] px-1"
+            className="text-[10px] text-[color:var(--text-muted)] hover:text-[color:var(--accent)] px-1"
           >
             +{hidden} more
           </button>
@@ -588,9 +588,9 @@ function ApplyOutput({ output, toolName, outcome }: {
 
   if (isCode || isBash) {
     return (
-      <div className="mt-1 rounded bg-[#1a1b26] border border-[#2f3348] overflow-auto max-h-60">
+      <div className="mt-1 rounded bg-[color:var(--bg)] border border-[color:var(--bg-hover)] overflow-auto max-h-60">
         {filePath && (
-          <div className="px-2 py-0.5 text-[10px] text-[#565f89] border-b border-[#2f3348]">
+          <div className="px-2 py-0.5 text-[10px] text-[color:var(--text-muted)] border-b border-[color:var(--bg-hover)]">
             {language !== "text" ? language : ""} {filePath.split("/").pop()}
           </div>
         )}
@@ -614,7 +614,7 @@ function ApplyOutput({ output, toolName, outcome }: {
 
   // Fallback: markdown for non-code outputs
   return (
-    <div className="text-[11px] text-[#565f89] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
+    <div className="text-[11px] text-[color:var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-60 overflow-y-auto border-t border-[#2a2e42] pt-1">
       <Markdown remarkPlugins={[remarkGfm]}>{output}</Markdown>
     </div>
   );
@@ -631,7 +631,7 @@ function PhaseBlock({ label, color, children }: {
 }) {
   return (
     <div
-      className="py-1.5 px-2.5 my-1 rounded-r bg-[#24283b]"
+      className="py-1.5 px-2.5 my-1 rounded-r bg-[color:var(--bg-surface)]"
       style={{ borderLeft: `3px solid ${color}` }}
     >
       <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color }}>
@@ -651,10 +651,10 @@ function ExpandableText({ text, maxLines = 3 }: { text: string; maxLines?: numbe
   return (
     <div className="mt-0.5">
       <div
-        className="text-[12px] text-[#a9b1d6] break-words overflow-hidden prose prose-invert prose-sm max-w-none
-          [&_code]:bg-[#1a1b26] [&_code]:px-1 [&_code]:rounded [&_code]:text-[11px]
-          [&_pre]:bg-[#1a1b26] [&_pre]:p-2 [&_pre]:rounded [&_pre]:text-[11px] [&_pre]:overflow-x-auto
-          [&_a]:text-[#7aa2f7] [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0"
+        className="text-[12px] text-[color:var(--text-bright)] break-words overflow-hidden prose prose-invert prose-sm max-w-none
+          [&_code]:bg-[color:var(--bg)] [&_code]:px-1 [&_code]:rounded [&_code]:text-[11px]
+          [&_pre]:bg-[color:var(--bg)] [&_pre]:p-2 [&_pre]:rounded [&_pre]:text-[11px] [&_pre]:overflow-x-auto
+          [&_a]:text-[color:var(--accent)] [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0"
         style={{ maxHeight: expanded || !isLong ? "none" : `${maxHeight}px` }}
       >
         <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
@@ -662,7 +662,7 @@ function ExpandableText({ text, maxLines = 3 }: { text: string; maxLines?: numbe
       {isLong && (
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className="text-[10px] text-[#565f89] hover:text-[#7aa2f7] mt-0.5 transition-colors"
+          className="text-[10px] text-[color:var(--text-muted)] hover:text-[color:var(--accent)] mt-0.5 transition-colors"
         >
           {expanded ? "▲ collapse" : "▼ expand"}
         </button>
@@ -674,16 +674,16 @@ function ExpandableText({ text, maxLines = 3 }: { text: string; maxLines?: numbe
 function OutcomeBadge({ outcome }: { outcome: { type: string; succeeded?: boolean } }) {
   switch (outcome.type) {
     case "FileCreated":
-      return <span className="ml-1 text-[10px] text-[#9ece6a]">+created</span>;
+      return <span className="ml-1 text-[10px] text-[color:var(--green)]">+created</span>;
     case "FileModified":
-      return <span className="ml-1 text-[10px] text-[#e0af68]">~modified</span>;
+      return <span className="ml-1 text-[10px] text-[color:var(--orange)]">~modified</span>;
     case "CommandExecuted":
-      return <span className={`ml-1 text-[10px] ${outcome.succeeded ? "text-[#9ece6a]" : "text-[#f7768e]"}`}>
+      return <span className={`ml-1 text-[10px] ${outcome.succeeded ? "text-[color:var(--green)]" : "text-[color:var(--red)]"}`}>
         {outcome.succeeded ? "ok" : "failed"}
       </span>;
     case "FileReadFailed":
     case "FileWriteFailed":
-      return <span className="ml-1 text-[10px] text-[#f7768e]">failed</span>;
+      return <span className="ml-1 text-[10px] text-[color:var(--red)]">failed</span>;
     default:
       return null;
   }

@@ -61,7 +61,7 @@ export function PlanViewer({ sessionId, initialPlanId }: PlanViewerProps) {
               <a
                 href={`#/story/${plan.session_id}/event/${sourceEventId}`}
                 data-testid="plan-turn-link"
-                className="mb-3 inline-block text-[11px] text-[#bb9af7] hover:underline"
+                className="mb-3 inline-block text-[11px] text-[color:var(--purple)] hover:underline"
                 title="Open the turn that authored this plan in Story"
               >
                 ↑ Turn that authored this plan
@@ -74,7 +74,7 @@ export function PlanViewer({ sessionId, initialPlanId }: PlanViewerProps) {
             </div>
           </div>
         ) : hasPlans ? (
-          <div className="flex items-center justify-center h-full text-[#565f89] text-sm">
+          <div className="flex items-center justify-center h-full text-[color:var(--text-muted)] text-sm">
             Select a plan to view
           </div>
         ) : null}

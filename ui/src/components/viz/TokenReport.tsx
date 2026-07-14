@@ -50,7 +50,7 @@ export function TokenReport({ records, className }: { records: readonly WireReco
   const total = s.totalTokens;
 
   if (total === 0) {
-    return <div className={cn("px-3 py-4 text-[11px] text-[#565f89]", className)}>No token data for this session.</div>;
+    return <div className={cn("px-3 py-4 text-[11px] text-[color:var(--text-muted)]", className)}>No token data for this session.</div>;
   }
 
   const hit = cacheHitRate(s);
@@ -59,12 +59,12 @@ export function TokenReport({ records, className }: { records: readonly WireReco
     <div className={cn("px-3 py-2", className)}>
       <div className="mb-2 flex items-baseline justify-between">
         <div>
-          <span className="text-[18px] font-semibold tabular-nums text-[#c0caf5]">{compact(total)}</span>
-          <span className="ml-1 text-[10px] text-[#565f89]">tokens total</span>
+          <span className="text-[18px] font-semibold tabular-nums text-[color:var(--text)]">{compact(total)}</span>
+          <span className="ml-1 text-[10px] text-[color:var(--text-muted)]">tokens total</span>
         </div>
         <div className="text-right">
-          <span className="text-[13px] font-medium tabular-nums text-[#7dcfff]">{Math.round(hit * 100)}%</span>
-          <span className="ml-1 text-[10px] text-[#565f89]">from cache</span>
+          <span className="text-[13px] font-medium tabular-nums text-[color:var(--cyan-bright)]">{Math.round(hit * 100)}%</span>
+          <span className="ml-1 text-[10px] text-[color:var(--text-muted)]">from cache</span>
         </div>
       </div>
 
@@ -94,9 +94,9 @@ export function TokenReport({ records, className }: { records: readonly WireReco
           return (
             <div key={c.key} className="flex items-center gap-1.5 text-[11px]" title={c.hint}>
               <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: c.color }} />
-              <span className="text-[#a9b1d6]">{c.label}</span>
-              <span className="ml-auto tabular-nums text-[#c0caf5]">{v.toLocaleString()}</span>
-              <span className="w-9 text-right tabular-nums text-[#565f89]">{pct.toFixed(pct < 1 && pct > 0 ? 2 : 0)}%</span>
+              <span className="text-[color:var(--text-bright)]">{c.label}</span>
+              <span className="ml-auto tabular-nums text-[color:var(--text)]">{v.toLocaleString()}</span>
+              <span className="w-9 text-right tabular-nums text-[color:var(--text-muted)]">{pct.toFixed(pct < 1 && pct > 0 ? 2 : 0)}%</span>
             </div>
           );
         })}

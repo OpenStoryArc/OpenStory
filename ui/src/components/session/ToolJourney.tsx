@@ -18,7 +18,7 @@ export function ToolJourney({ steps }: ToolJourneyProps) {
 
   if (elements.length === 0) {
     return (
-      <div className="text-xs text-[#565f89] py-2" data-testid="tool-journey-empty">
+      <div className="text-xs text-[color:var(--text-muted)] py-2" data-testid="tool-journey-empty">
         No tool usage
       </div>
     );
@@ -26,7 +26,7 @@ export function ToolJourney({ steps }: ToolJourneyProps) {
 
   return (
     <div data-testid="tool-journey">
-      <div className="text-[10px] text-[#565f89] mb-1.5">
+      <div className="text-[10px] text-[color:var(--text-muted)] mb-1.5">
         Tool Journey ({steps.length} steps)
       </div>
       <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin">
@@ -35,7 +35,7 @@ export function ToolJourney({ steps }: ToolJourneyProps) {
             return (
               <span
                 key={`gap-${i}`}
-                className="text-[9px] text-[#565f89] px-1 shrink-0"
+                className="text-[9px] text-[color:var(--text-muted)] px-1 shrink-0"
                 title={`${el.gap.label} pause`}
               >
                 ⋯ {el.gap.label}

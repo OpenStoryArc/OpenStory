@@ -47,14 +47,14 @@ export function GitCommandDetail({ record, onClose }: GitCommandDetailProps) {
   const warning = getWarning(command);
 
   return (
-    <div className="h-full bg-[#24283b] p-4 overflow-y-auto">
+    <div className="h-full bg-[color:var(--bg-surface)] p-4 overflow-y-auto">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-[#c0caf5]">
+        <h3 className="text-sm font-medium text-[color:var(--text)]">
           Git Command
         </h3>
         <button
           onClick={onClose}
-          className="text-xs text-[#565f89] hover:text-[#c0caf5] px-2 py-1"
+          className="text-xs text-[color:var(--text-muted)] hover:text-[color:var(--text)] px-2 py-1"
         >
           Close
         </button>
@@ -69,13 +69,13 @@ export function GitCommandDetail({ record, onClose }: GitCommandDetailProps) {
         <span className="text-xs font-medium" style={{ color: riskColor }}>
           {label}
         </span>
-        <span className="text-xs text-[#565f89] ml-2">
+        <span className="text-xs text-[color:var(--text-muted)] ml-2">
           {summary}
         </span>
       </div>
 
       {/* Full command */}
-      <pre className="bg-[#1a1b26] rounded p-3 text-xs font-mono text-[#c0caf5] whitespace-pre-wrap break-words mb-3">
+      <pre className="bg-[color:var(--bg)] rounded p-3 text-xs font-mono text-[color:var(--text)] whitespace-pre-wrap break-words mb-3">
         {command}
       </pre>
 
@@ -96,10 +96,10 @@ export function GitCommandDetail({ record, onClose }: GitCommandDetailProps) {
 
       {/* Record data */}
       <details className="text-xs">
-        <summary className="text-[#565f89] cursor-pointer mb-2">
+        <summary className="text-[color:var(--text-muted)] cursor-pointer mb-2">
           Record Data
         </summary>
-        <pre className="bg-[#1a1b26] rounded p-3 overflow-x-auto text-[#c0caf5] whitespace-pre-wrap break-words">
+        <pre className="bg-[color:var(--bg)] rounded p-3 overflow-x-auto text-[color:var(--text)] whitespace-pre-wrap break-words">
           {JSON.stringify(record.payload, null, 2)}
         </pre>
       </details>

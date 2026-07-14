@@ -41,7 +41,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
 
   return (
     <div
-      className="border-b border-[#2f3348]"
+      className="border-b border-[color:var(--bg-hover)]"
       data-testid="session-header"
       data-cross-user={isCrossUser ? "true" : "false"}
     >
@@ -85,7 +85,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
         )}
         {session.host && (
           <span
-            className="text-[10px] text-[#7dcfff] bg-[#7dcfff15] px-1.5 py-0.5 rounded"
+            className="text-[10px] text-[color:var(--cyan-bright)] bg-[#7dcfff15] px-1.5 py-0.5 rounded"
             title="Origin host"
           >
             ⌂ {session.host}
@@ -105,7 +105,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
           </span>
         )}
         {session.branch && (
-          <span className="text-[10px] text-[#9ece6a]" title="Git branch">
+          <span className="text-[10px] text-[color:var(--green)]" title="Git branch">
             {session.branch}
           </span>
         )}

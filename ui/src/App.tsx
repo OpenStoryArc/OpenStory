@@ -152,9 +152,9 @@ export function App() {
   }, [navigate]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#1a1b26] text-[#c0caf5]">
+    <div className="h-screen flex flex-col bg-[color:var(--bg)] text-[color:var(--text)]">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 bg-[#24283b] border-b border-[#2f3348]">
+      <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)]">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <h1 className="shrink-0 text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
@@ -163,22 +163,22 @@ export function App() {
           <TextSizeControl />
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
-            className="flex items-center gap-1.5 rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5] transition-colors"
+            className="flex items-center gap-1.5 rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:border-[color:var(--accent)] hover:text-[color:var(--text)] transition-colors"
             title="Command palette"
           >
             <span>Jump to…</span>
-            <kbd className="rounded bg-[#1a1b26] px-1 text-[10px]">⌘K</kbd>
+            <kbd className="rounded bg-[color:var(--bg)] px-1 text-[10px]">⌘K</kbd>
           </button>
           {drivenBy && (
             <div
-              className="flex items-center gap-1.5 rounded border border-[#7aa2f7]/50 bg-[#7aa2f7]/10 px-2 py-1 text-[11px] text-[#7aa2f7] animate-pulse"
+              className="flex items-center gap-1.5 rounded border border-[#7aa2f7]/50 bg-[#7aa2f7]/10 px-2 py-1 text-[11px] text-[color:var(--accent)] animate-pulse"
               data-testid="driven-by"
               title="An agent is driving this view. Click anywhere or navigate to take back the wheel."
             >
               <span>▸</span> driven by {drivenBy}
             </div>
           )}
-          <div className="flex items-center gap-2 text-xs text-[#565f89]" data-testid="connection-status">
+          <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]" data-testid="connection-status">
             <span className={`w-2 h-2 rounded-full ${color}`} />
             {label}
           </div>

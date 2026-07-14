@@ -139,19 +139,19 @@ export default function Heatmap3D({ grid, onOpenSession, onDayFilter }: {
       {hover && (
         <div
           data-testid="heatmap-box-tooltip"
-          className="pointer-events-none fixed z-50 max-w-[280px] rounded border border-[#3b4261] bg-[#1a1b26] px-2.5 py-1.5 text-[11px] shadow-xl"
+          className="pointer-events-none fixed z-50 max-w-[280px] rounded border border-[color:var(--border)] bg-[color:var(--bg)] px-2.5 py-1.5 text-[11px] shadow-xl"
           style={{ left: hover.x + 14, top: hover.y + 12 }}
         >
           {hover.box.session ? (
             <>
-              <div className="truncate text-[#c0caf5]">{hover.box.session.title}</div>
-              <div className="mt-0.5 text-[10px] text-[#565f89]">
+              <div className="truncate text-[color:var(--text)]">{hover.box.session.title}</div>
+              <div className="mt-0.5 text-[10px] text-[color:var(--text-muted)]">
                 {hover.box.date} · {hover.box.session.events.toLocaleString()} ev
                 {hover.box.session.agent ? ` · ${hover.box.session.agent}` : ""} · click to open
               </div>
             </>
           ) : (
-            <div className="text-[10px] text-[#565f89]">
+            <div className="text-[10px] text-[color:var(--text-muted)]">
               {hover.box.date} · +{hover.box.hidden} more sessions · click to filter the day
             </div>
           )}

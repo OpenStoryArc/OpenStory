@@ -18,14 +18,14 @@ export const UserMessage = memo(function UserMessage({
 }: UserMessageProps) {
   return (
     <div className="flex gap-3 px-4 py-3">
-      <div className="w-8 h-8 rounded-full bg-[#7aa2f7] flex items-center justify-center text-xs text-[#1a1b26] font-bold flex-shrink-0">
+      <div className="w-8 h-8 rounded-full bg-[color:var(--accent)] flex items-center justify-center text-xs text-[color:var(--bg)] font-bold flex-shrink-0">
         U
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-[#7aa2f7]">User</span>
+          <span className="text-xs font-medium text-[color:var(--accent)]">User</span>
           {timestamp && (
-            <span className="text-xs text-[#565f89]">
+            <span className="text-xs text-[color:var(--text-muted)]">
               <span title={fullTimestamp(timestamp)}>{compactTime(timestamp)}</span>
             </span>
           )}
@@ -36,13 +36,13 @@ export const UserMessage = memo(function UserMessage({
           // markdown with syntax-highlighted code (the "Live experience").
           if (v.command) {
             return (
-              <code className="inline-block rounded bg-[#1a1b26] px-2 py-0.5 font-mono text-[12px] text-[#7dcfff]">
+              <code className="inline-block rounded bg-[color:var(--bg)] px-2 py-0.5 font-mono text-[12px] text-[color:var(--cyan-bright)]">
                 {v.command}
               </code>
             );
           }
           return (
-            <Markdown className="text-sm text-[#c0caf5] break-words [&_p]:my-1 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5">
+            <Markdown className="text-sm text-[color:var(--text)] break-words [&_p]:my-1 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5">
               {v.body}
             </Markdown>
           );

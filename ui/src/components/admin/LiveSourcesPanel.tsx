@@ -20,7 +20,7 @@ interface Props {
 export function LiveSourcesPanel({ sources }: Props) {
   if (sources.length === 0) {
     return (
-      <p className="text-sm text-[#565f89]">
+      <p className="text-sm text-[color:var(--text-muted)]">
         JetStream is reachable, but <code>events-agg</code> has no
         registered sources yet. Leaves will appear here as they
         self-register via the hub's cross-domain API.
@@ -30,7 +30,7 @@ export function LiveSourcesPanel({ sources }: Props) {
   return (
     <table className="w-full text-sm" data-testid="live-sources-table">
       <thead>
-        <tr className="text-left text-xs uppercase tracking-wider text-[#565f89] border-b border-[#24283b]">
+        <tr className="text-left text-xs uppercase tracking-wider text-[color:var(--text-muted)] border-b border-[color:var(--bg-surface)]">
           <th className="py-2 pr-4">Source</th>
           <th className="py-2 pr-4">Host</th>
           <th className="py-2 pr-4">Lag</th>
@@ -44,13 +44,13 @@ export function LiveSourcesPanel({ sources }: Props) {
           return (
             <tr key={`${s.name}-${i}`} className="border-b border-[#16161e]">
               <td className="py-2 pr-4">
-                <code className="text-[#7aa2f7]">{s.name}</code>
+                <code className="text-[color:var(--accent)]">{s.name}</code>
               </td>
               <td className="py-2 pr-4">
                 {s.host ? (
-                  <code className="text-[#bb9af7]">{s.host}</code>
+                  <code className="text-[color:var(--purple)]">{s.host}</code>
                 ) : (
-                  <span className="text-[#565f89]" title={s.api_prefix ?? ""}>
+                  <span className="text-[color:var(--text-muted)]" title={s.api_prefix ?? ""}>
                     (local / unparseable)
                   </span>
                 )}
@@ -58,7 +58,7 @@ export function LiveSourcesPanel({ sources }: Props) {
               <td className="py-2 pr-4">
                 <span
                   className={
-                    s.lag === 0 ? "text-[#9ece6a]" : "text-[#e0af68]"
+                    s.lag === 0 ? "text-[color:var(--green)]" : "text-[color:var(--orange)]"
                   }
                 >
                   {s.lag}
@@ -66,9 +66,9 @@ export function LiveSourcesPanel({ sources }: Props) {
               </td>
               <td className="py-2 pr-4">
                 {s.active_ms === null ? (
-                  <span className="text-[#565f89]">never</span>
+                  <span className="text-[color:var(--text-muted)]">never</span>
                 ) : (
-                  <span className={stale ? "text-[#f7768e]" : "text-[#9ece6a]"}>
+                  <span className={stale ? "text-[color:var(--red)]" : "text-[color:var(--green)]"}>
                     {formatActive(s.active_ms)}
                   </span>
                 )}

@@ -26,7 +26,7 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
 
   if (!data) {
     return (
-      <div className="p-4 text-sm text-[#565f89]">Loading activity...</div>
+      <div className="p-4 text-sm text-[color:var(--text-muted)]">Loading activity...</div>
     );
   }
 
@@ -34,8 +34,8 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
     <div className="p-4 space-y-4">
       {/* First prompt */}
       <div>
-        <h3 className="text-xs text-[#565f89] mb-1">First Prompt</h3>
-        <p className="text-sm text-[#c0caf5]">
+        <h3 className="text-xs text-[color:var(--text-muted)] mb-1">First Prompt</h3>
+        <p className="text-sm text-[color:var(--text)]">
           {truncate(data.first_prompt, 200)}
         </p>
       </div>
@@ -53,7 +53,7 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
       {/* Files touched */}
       {data.files_touched.length > 0 && (
         <div>
-          <h3 className="text-xs text-[#565f89] mb-2">
+          <h3 className="text-xs text-[color:var(--text-muted)] mb-2">
             Files Touched ({data.files_touched.length})
           </h3>
           <div className="flex flex-wrap gap-1">
@@ -87,14 +87,14 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
       {/* Errors */}
       {data.error_messages.length > 0 && (
         <div>
-          <h3 className="text-xs text-[#f7768e] mb-2">
+          <h3 className="text-xs text-[color:var(--red)] mb-2">
             Errors ({data.error_messages.length})
           </h3>
           <div className="space-y-1">
             {data.error_messages.map((msg, i) => (
               <div
                 key={i}
-                className="text-xs text-[#f7768e] bg-[#f7768e10] rounded p-2 font-mono"
+                className="text-xs text-[color:var(--red)] bg-[#f7768e10] rounded p-2 font-mono"
               >
                 {truncate(msg, 200)}
               </div>
@@ -106,8 +106,8 @@ export function ActivitySummary({ sessionId }: ActivitySummaryProps) {
       {/* Last response */}
       {data.last_response && (
         <div>
-          <h3 className="text-xs text-[#565f89] mb-1">Last Response</h3>
-          <p className="text-xs text-[#c0caf5]">
+          <h3 className="text-xs text-[color:var(--text-muted)] mb-1">Last Response</h3>
+          <p className="text-xs text-[color:var(--text)]">
             {truncate(data.last_response, 300)}
           </p>
         </div>
@@ -124,9 +124,9 @@ function MetricCard({
   value: string | number;
 }) {
   return (
-    <div className="bg-[#24283b] rounded p-3">
-      <div className="text-xs text-[#565f89]">{label}</div>
-      <div className="text-lg font-semibold text-[#c0caf5]">{value}</div>
+    <div className="bg-[color:var(--bg-surface)] rounded p-3">
+      <div className="text-xs text-[color:var(--text-muted)]">{label}</div>
+      <div className="text-lg font-semibold text-[color:var(--text)]">{value}</div>
     </div>
   );
 }

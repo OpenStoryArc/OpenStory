@@ -44,11 +44,11 @@ export function ExploreDetail({ sessionId }: ExploreDetailProps) {
   }, [sessionId]);
 
   if (loading) {
-    return <div className="p-4 text-xs text-[#565f89]">Loading session detail...</div>;
+    return <div className="p-4 text-xs text-[color:var(--text-muted)]">Loading session detail...</div>;
   }
 
   if (!data) {
-    return <div className="p-4 text-xs text-[#565f89]">No data available</div>;
+    return <div className="p-4 text-xs text-[color:var(--text-muted)]">No data available</div>;
   }
 
   return (

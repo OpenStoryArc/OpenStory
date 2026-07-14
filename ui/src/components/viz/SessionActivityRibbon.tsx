@@ -150,7 +150,7 @@ export function SessionActivityRibbon({
 
   if (model.events.length === 0) {
     return (
-      <div ref={containerRef} className={cn("px-3 py-4 text-[11px] text-[#565f89]", className)}>
+      <div ref={containerRef} className={cn("px-3 py-4 text-[11px] text-[color:var(--text-muted)]", className)}>
         No activity to chart yet.
       </div>
     );
@@ -161,21 +161,21 @@ export function SessionActivityRibbon({
   return (
     <div ref={containerRef} className={cn("relative w-full select-none", className)}>
       {/* Summary chips + view controls */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[#565f89]">
-        <span className="text-[#c0caf5]">{model.events.length} events</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[color:var(--text-muted)]">
+        <span className="text-[color:var(--text)]">{model.events.length} events</span>
         <span>· {humanDuration(model.durationMs)}</span>
         {model.totalTokens > 0 && (
-          <span>· <span className="text-[#e0af68]">{model.totalTokens.toLocaleString()}</span> out-tokens</span>
+          <span>· <span className="text-[color:var(--orange)]">{model.totalTokens.toLocaleString()}</span> out-tokens</span>
         )}
         {model.errorCount > 0 && (
-          <span className="text-[#f7768e]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
+          <span className="text-[color:var(--red)]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {!collapsed && (
             <button
               type="button"
               onClick={() => setCompact(!compact)}
-              className="rounded border border-[#3b4261] px-2 py-0.5 text-[#565f89] transition-colors hover:border-[#7aa2f7] hover:text-[#c0caf5]"
+              className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
               title={compact ? "Taller lane rows" : "Shorter lane rows to save space"}
             >
               {compact ? "↕ full height" : "↕ compact"}
@@ -184,7 +184,7 @@ export function SessionActivityRibbon({
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="rounded border border-[#3b4261] px-2 py-0.5 text-[#565f89] transition-colors hover:border-[#7aa2f7] hover:text-[#c0caf5]"
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
             title={collapsed ? "Show the activity timeline" : "Hide the activity timeline"}
             aria-expanded={!collapsed}
           >
@@ -264,14 +264,14 @@ export function SessionActivityRibbon({
       {/* hover tooltip */}
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded border border-[#2f3348] bg-[#1a1b26] px-2 py-1 text-[10px] text-[#c0caf5] shadow-lg"
+          className="pointer-events-none absolute z-10 rounded border border-[color:var(--bg-hover)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 8, w - 140), top: hover.y - 34 }}
         >
           <span className="font-medium" style={{ color: hover.ev.color }}>
             {hover.ev.label}
           </span>
-          <span className="ml-1 text-[#565f89]">{fmtFull(new Date(hover.ev.t))}</span>
-          {hover.ev.isError && <span className="ml-1 text-[#f7768e]">error</span>}
+          <span className="ml-1 text-[color:var(--text-muted)]">{fmtFull(new Date(hover.ev.t))}</span>
+          {hover.ev.isError && <span className="ml-1 text-[color:var(--red)]">error</span>}
         </div>
       )}
     </div>

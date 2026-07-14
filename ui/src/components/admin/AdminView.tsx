@@ -39,32 +39,32 @@ export function AdminView() {
   return (
     <div className="p-6 max-w-5xl mx-auto" data-testid="admin-view">
       <header className="mb-6">
-        <h2 className="text-xl font-semibold text-[#c0caf5] mb-1 flex items-center">
+        <h2 className="text-xl font-semibold text-[color:var(--text)] mb-1 flex items-center">
           Admin
           <BetaBadge note="Beta — this is a read-only view of the federation and identity model. It reflects state; it does not change it. The write surface (sharing, role grants) is intentionally not wired into the UI yet." />
         </h2>
-        <p className="text-sm text-[#565f89]">
+        <p className="text-sm text-[color:var(--text-muted)]">
           This device's <strong>read-only</strong> view of the federation it's
           running in — topology, fleet, and identity. Everything here is
           computed by <em>this node</em> from two REST endpoints
-          (<code className="text-[#7dcfff]">/api/admin/topology</code>,{" "}
-          <code className="text-[#7dcfff]">/api/admin/participants</code>). It{" "}
+          (<code className="text-[color:var(--cyan-bright)]">/api/admin/topology</code>,{" "}
+          <code className="text-[color:var(--cyan-bright)]">/api/admin/participants</code>). It{" "}
           <em>observes</em> state — nothing on this page mutates sharing, roles,
           or any session. Each subsection notes its endpoint and how its data is
           derived, with a dot showing whether it's a deterministic read of local
           state or a live network probe:
         </p>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#565f89]">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#9ece6a]" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--green)]" />
             deterministic — local store / config / roles DB
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#7aa2f7]" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
             mostly local · one live probe
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#e0af68]" />
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--orange)]" />
             live network — best-effort, varies
           </span>
         </div>
@@ -78,7 +78,7 @@ export function AdminView() {
       </header>
 
       {loading && (
-        <p className="text-sm text-[#565f89]">Loading topology…</p>
+        <p className="text-sm text-[color:var(--text-muted)]">Loading topology…</p>
       )}
       {error && (
         <div className="rounded border border-red-900 bg-red-950/30 p-3 text-sm text-red-300">
@@ -88,9 +88,9 @@ export function AdminView() {
 
       {topology && (
         <>
-          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">
                 This node
               </h3>
               <ShapeBadge shape={topology.shape} />
@@ -120,10 +120,10 @@ export function AdminView() {
             <NodeIdentity topology={topology} />
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Fleet</h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">Fleet</h3>
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Every host this device has evidence of — self, hosts seen in
                 stored sessions, and configured peers/hubs.
               </p>
@@ -170,12 +170,12 @@ export function AdminView() {
             <FleetGrid nodes={topology.nodes} />
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[#bb9af7]/30 bg-[color:var(--bg)] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#bb9af7]">
-                Live sources <span className="text-xs text-[#565f89]">— from JetStream events-agg</span>
+              <h3 className="text-sm font-medium text-[color:var(--purple)]">
+                Live sources <span className="text-xs text-[color:var(--text-muted)]">— from JetStream events-agg</span>
               </h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Authoritative fleet roster — every leaf currently registered with the hub aggregate, with delivery state.
               </p>
               <DataSourceNote
@@ -207,9 +207,9 @@ export function AdminView() {
             {topology.live_sources ? (
               <LiveSourcesPanel sources={topology.live_sources} />
             ) : (
-              <div className="rounded border border-dashed border-[#414868] p-3 text-sm text-[#565f89]">
+              <div className="rounded border border-dashed border-[#414868] p-3 text-sm text-[color:var(--text-muted)]">
                 <p>
-                  <strong className="text-[#c0caf5]">No hub aggregate here.</strong>{" "}
+                  <strong className="text-[color:var(--text)]">No hub aggregate here.</strong>{" "}
                   <code>events-agg</code> lives on the <em>hub</em> — this node
                   isn't hosting one. It's solo, T1, or a leaf; a leaf can be
                   connected to a hub (like this node) and still show nothing
@@ -233,10 +233,10 @@ export function AdminView() {
             )}
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Shape</h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">Shape</h3>
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Connectivity from this device's vantage. The Fleet panel above
                 shows <em>presence</em>; this shows how data flows.
               </p>
@@ -269,10 +269,10 @@ export function AdminView() {
             <TopologyMap topology={topology} />
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Participants & roles</h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">Participants & roles</h3>
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Phase 6 role directory, shown <strong>read-only</strong>. Each
                 principal's role (<code>Observer</code> &lt;{" "}
                 <code>Contributor</code> &lt; <code>Admin</code>) is listed as
@@ -317,10 +317,10 @@ export function AdminView() {
             <ParticipantsPanel />
           </section>
 
-          <section className="mb-6 rounded-lg border border-[#24283b] bg-[#1a1b26] p-4">
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <header className="mb-3">
-              <h3 className="text-sm font-medium text-[#c0caf5]">Person clusters</h3>
-              <p className="text-xs text-[#565f89] mt-0.5">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">Person clusters</h3>
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Fleet grouped by sovereign owner. A host can appear under
                 multiple persons — a shared dev box is normal. Cross-person
                 share edges are added in a follow-up.
@@ -365,7 +365,7 @@ function ShapeBadge({ shape }: { shape: TopologyShape }) {
     t3: "T3 · Multi-hub mesh",
   } as const)[shape];
   return (
-    <span className="rounded bg-[#414868] px-2 py-0.5 text-xs font-medium text-[#c0caf5]">
+    <span className="rounded bg-[#414868] px-2 py-0.5 text-xs font-medium text-[color:var(--text)]">
       {label}
     </span>
   );
@@ -375,17 +375,17 @@ function NodeIdentity({ topology }: { topology: Topology }) {
   const { self } = topology;
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-      <Row k="Host" v={<code className="text-[#7aa2f7]">{self.host}</code>} />
+      <Row k="Host" v={<code className="text-[color:var(--accent)]">{self.host}</code>} />
       <Row
         k="Role"
         v={
           <span
             className={`inline-block rounded px-2 py-0.5 text-xs ${
               self.role === "hub"
-                ? "bg-[#7aa2f7]/20 text-[#7aa2f7]"
+                ? "bg-[#7aa2f7]/20 text-[color:var(--accent)]"
                 : self.role === "leaf"
-                  ? "bg-[#9ece6a]/20 text-[#9ece6a]"
-                  : "bg-[#565f89]/30 text-[#c0caf5]"
+                  ? "bg-[#9ece6a]/20 text-[color:var(--green)]"
+                  : "bg-[#565f89]/30 text-[color:var(--text)]"
             }`}
           >
             {self.role}
@@ -394,11 +394,11 @@ function NodeIdentity({ topology }: { topology: Topology }) {
       />
       <Row
         k="JS domain"
-        v={self.domain ? <code className="text-[#bb9af7]">{self.domain}</code> : <em className="text-[#565f89]">none (solo)</em>}
+        v={self.domain ? <code className="text-[color:var(--purple)]">{self.domain}</code> : <em className="text-[color:var(--text-muted)]">none (solo)</em>}
       />
       <Row
         k="Hub domain"
-        v={self.hub_domain ? <code className="text-[#bb9af7]">{self.hub_domain}</code> : <em className="text-[#565f89]">—</em>}
+        v={self.hub_domain ? <code className="text-[color:var(--purple)]">{self.hub_domain}</code> : <em className="text-[color:var(--text-muted)]">—</em>}
       />
       {self.peer_hub_domains.length > 0 && (
         <Row
@@ -419,7 +419,7 @@ function NodeIdentity({ topology }: { topology: Topology }) {
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <>
-      <dt className="text-[#565f89]">{k}</dt>
+      <dt className="text-[color:var(--text-muted)]">{k}</dt>
       <dd>{v}</dd>
     </>
   );

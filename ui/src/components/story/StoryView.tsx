@@ -360,7 +360,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
       {!sidebarOpen && (
         <button
           onClick={() => setSidebarOpen(true)}
-          className="absolute top-2 left-2 z-50 w-8 h-8 rounded bg-[#24283b] border border-[#3b4261] text-[#7aa2f7] flex items-center justify-center shadow-lg text-sm hover:bg-[#2a3050] transition-colors"
+          className="absolute top-2 left-2 z-50 w-8 h-8 rounded bg-[color:var(--bg-surface)] border border-[color:var(--border)] text-[color:var(--accent)] flex items-center justify-center shadow-lg text-sm hover:bg-[#2a3050] transition-colors"
           title="Open sidebar"
         >
           ☰
@@ -370,7 +370,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
       {/* Sidebar */}
       {sidebarOpen && (
       <div
-        className="relative bg-[#1f2335] border-r border-[#2f3348] overflow-y-auto flex-shrink-0 flex flex-col"
+        className="relative bg-[#1f2335] border-r border-[color:var(--bg-hover)] overflow-y-auto flex-shrink-0 flex flex-col"
         style={{ width: sidebarPanel.width }}
       >
         {/* drag handle: right-edge grip, persisted width */}
@@ -383,29 +383,29 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           title="Drag to resize"
         />
         {/* Header bar */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0">
-          <span className="text-[11px] text-[#565f89] uppercase tracking-wider font-semibold">Sessions</span>
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0">
+          <span className="text-[11px] text-[color:var(--text-muted)] uppercase tracking-wider font-semibold">Sessions</span>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="w-6 h-6 rounded flex items-center justify-center text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b] transition-colors text-base"
+            className="w-6 h-6 rounded flex items-center justify-center text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)] transition-colors text-base"
             title="Close sidebar"
           >
             ×
           </button>
         </div>
         {/* Find bar — free-text search + facet filters over loaded sessions. */}
-        <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
+        <div className="px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
           <div className="relative">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Find a session…"
-              className="w-full rounded border border-[#3b4261] bg-[#24283b] px-2 py-1 pr-6 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none"
+              className="w-full rounded border border-[color:var(--border)] bg-[color:var(--bg-surface)] px-2 py-1 pr-6 text-[12px] text-[color:var(--text)] placeholder:text-[color:var(--text-muted)] focus:border-[color:var(--accent)] focus:outline-none"
             />
             {search && (
               <button
                 onClick={() => setSearch("")}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#565f89] hover:text-[#c0caf5]"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
                 title="Clear search"
               >
                 ×
@@ -420,8 +420,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   onClick={() => toggleFacet("project", p.key)}
                   className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
                     sidebarFilters.project === p.key
-                      ? "border-[#7dcfff] text-[#7dcfff] bg-[#7dcfff18]"
-                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                      ? "border-[color:var(--cyan-bright)] text-[color:var(--cyan-bright)] bg-[#7dcfff18]"
+                      : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                   title={`${p.count} sessions`}
                 >
@@ -434,8 +434,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   onClick={() => toggleFacet("user", u.key)}
                   className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${
                     sidebarFilters.user === u.key
-                      ? "border-[#9ece6a] text-[#9ece6a] bg-[#9ece6a18]"
-                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                      ? "border-[color:var(--green)] text-[color:var(--green)] bg-[#9ece6a18]"
+                      : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                   title={`${u.count} sessions`}
                 >
@@ -445,7 +445,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
               {findActive && (
                 <button
                   onClick={() => { setSearch(""); setSidebarFilters({}); }}
-                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#f7768e]/40 text-[#f7768e] hover:bg-[#f7768e]/10"
+                  className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#f7768e]/40 text-[color:var(--red)] hover:bg-[#f7768e]/10"
                 >
                   clear
                 </button>
@@ -454,7 +454,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           )}
         </div>
         {/* Filter strip — sort + time window. Changing either resets paging. */}
-        <div className="px-3 py-2 border-b border-[#2f3348] bg-[#1a1b26] shrink-0 space-y-1.5">
+        <div className="px-3 py-2 border-b border-[color:var(--bg-hover)] bg-[color:var(--bg)] shrink-0 space-y-1.5">
           <div className="flex flex-wrap gap-1">
             {SORT_OPTIONS.map(opt => {
               const active = sortMode === opt.key;
@@ -470,8 +470,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   }}
                   className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
                     active
-                      ? "border-[#7aa2f7] text-[#7aa2f7] bg-[#7aa2f718]"
-                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                      ? "border-[color:var(--accent)] text-[color:var(--accent)] bg-[#7aa2f718]"
+                      : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                 >
                   {opt.label}
@@ -494,8 +494,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   }}
                   className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
                     active
-                      ? "border-[#bb9af7] text-[#bb9af7] bg-[#bb9af718]"
-                      : "border-[#3b4261] text-[#565f89] hover:text-[#a9b1d6]"
+                      ? "border-[color:var(--purple)] text-[color:var(--purple)] bg-[#bb9af718]"
+                      : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:text-[color:var(--text-bright)]"
                   }`}
                 >
                   {opt.label}
@@ -508,12 +508,12 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
 
         {/* Session loading indicator */}
         {sessionsLoading && sessions.length === 0 && (
-          <div className="text-center text-[#565f89] text-sm py-4">Loading sessions...</div>
+          <div className="text-center text-[color:var(--text-muted)] text-sm py-4">Loading sessions...</div>
         )}
 
         {/* Empty find result */}
         {!sessionsLoading && findActive && visibleSessions.length === 0 && (
-          <div className="text-center text-[#565f89] text-xs py-4">No loaded sessions match. Try “Load more”.</div>
+          <div className="text-center text-[color:var(--text-muted)] text-xs py-4">No loaded sessions match. Try “Load more”.</div>
         )}
 
         {/* Session list */}
@@ -532,8 +532,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
               onClick={() => onSelectSession(isActive ? null : s.session_id)}
               className={`w-full text-left px-2 py-2 rounded mb-0.5 transition-colors ${
                 isActive
-                  ? "bg-[#283549] border-l-[3px] border-y border-r border-[#3b4261]"
-                  : "hover:bg-[#24283b] border border-transparent"
+                  ? "bg-[#283549] border-l-[3px] border-y border-r border-[color:var(--border)]"
+                  : "hover:bg-[color:var(--bg-surface)] border border-transparent"
               }`}
               style={isActive ? { borderLeftColor: color } : undefined}
               title={s.session_id}
@@ -549,16 +549,16 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
-                    <div className={`text-sm truncate ${isActive ? "text-[#c0caf5] font-medium" : "text-[#c0caf5]"}`}>
+                    <div className={`text-sm truncate ${isActive ? "text-[color:var(--text)] font-medium" : "text-[color:var(--text)]"}`}>
                       {label}
                     </div>
                     {recency && (
-                      <span className="text-[10px] text-[#565f89] shrink-0" title={s.last_event ?? undefined}>
+                      <span className="text-[10px] text-[color:var(--text-muted)] shrink-0" title={s.last_event ?? undefined}>
                         {recency}
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[#565f89] truncate">
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-[color:var(--text-muted)] truncate">
                     {s.project_name && (
                       <span className="truncate" title={s.project_name}>
                         {s.project_name}
@@ -594,7 +594,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
             {/* The story, unfurled: the session's key sentences as a scannable
                 narrative spine — what it did, and (muted) why. */}
             {isActive && cached && cached.length > 0 && (
-              <div className="ml-3 mt-1 mb-1.5 border-l border-[#2f3348] pl-2.5">
+              <div className="ml-3 mt-1 mb-1.5 border-l border-[color:var(--bg-hover)] pl-2.5">
                 {(spineExpanded ? cached : cached.slice(0, 8)).map((p, i) => {
                   const h = sentenceHeadline(p);
                   const turn = p.metadata?.turn as number | undefined;
@@ -613,15 +613,15 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                           virtualizer.scrollToIndex(idx, { align: "center" });
                         }
                       }}
-                      className="block w-full rounded py-0.5 text-left hover:bg-[#24283b]"
+                      className="block w-full rounded py-0.5 text-left hover:bg-[color:var(--bg-surface)]"
                     >
-                      <div className="text-[11px] leading-snug text-[#a9b1d6]">
-                        <span className="text-[#565f89]">{i + 1}.</span> {h.text}
+                      <div className="text-[11px] leading-snug text-[color:var(--text-bright)]">
+                        <span className="text-[color:var(--text-muted)]">{i + 1}.</span> {h.text}
                       </div>
                       {h.because && (
                         <Clamp
                           text={`“${((p.metadata?.human as { content?: string } | undefined)?.content ?? "").trim() || h.because}”`}
-                          className="block text-[10px] italic leading-snug text-[#565f89]"
+                          className="block text-[10px] italic leading-snug text-[color:var(--text-muted)]"
                         />
                       )}
                     </button>
@@ -631,7 +631,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   <button
                     data-testid="spine-show-all"
                     onClick={() => setSpineExpanded((v) => !v)}
-                    className="py-0.5 text-[10px] text-[#7aa2f7] hover:text-[#89b4fa]"
+                    className="py-0.5 text-[10px] text-[color:var(--accent)] hover:text-[#89b4fa]"
                   >
                     {spineExpanded ? "show fewer ↑" : `+${cached.length - 8} more turns ↓`}
                   </button>
@@ -646,8 +646,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
         {sessions.some(s => s.session_id.startsWith("agent-")) && (
           <>
             <div className="flex items-center justify-between px-2 py-1 mt-3 mb-1">
-              <span className="text-[10px] text-[#565f89] uppercase tracking-wide">Agents</span>
-              <span className="text-[10px] text-[#565f89]">{sessions.filter(s => s.session_id.startsWith("agent-")).length}</span>
+              <span className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-wide">Agents</span>
+              <span className="text-[10px] text-[color:var(--text-muted)]">{sessions.filter(s => s.session_id.startsWith("agent-")).length}</span>
             </div>
             {sessions.filter(s => s.session_id.startsWith("agent-")).map(s => {
               const isActive = selectedSession === s.session_id;
@@ -659,8 +659,8 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                   onClick={() => onSelectSession(isActive ? null : s.session_id)}
                   className={`w-full text-left px-2 py-1.5 rounded text-xs truncate mb-0.5 transition-colors ${
                     isActive
-                      ? "bg-[#283549] border-l-[3px] border-y border-r border-[#3b4261] text-[#c0caf5]"
-                      : "text-[#565f89] hover:bg-[#24283b] border border-transparent"
+                      ? "bg-[#283549] border-l-[3px] border-y border-r border-[color:var(--border)] text-[color:var(--text)]"
+                      : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)] border border-transparent"
                   }`}
                   style={isActive ? { borderLeftColor: color } : undefined}
                   title={s.session_id}
@@ -677,7 +677,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
         {sessions.length < sessionsTotal && (
           <button
             onClick={handleLoadMore}
-            className="w-full text-center text-[11px] text-[#7aa2f7] hover:text-[#89b4fa] py-2 mt-2 border border-[#3b4261] rounded hover:bg-[#24283b] transition-colors"
+            className="w-full text-center text-[11px] text-[color:var(--accent)] hover:text-[#89b4fa] py-2 mt-2 border border-[color:var(--border)] rounded hover:bg-[color:var(--bg-surface)] transition-colors"
           >
             Load more ({sessionsTotal - sessions.length} remaining)
           </button>
@@ -686,11 +686,11 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
         {/* Sparklines */}
         {sentences.length > 2 && (
           <div className="mt-4 px-2">
-            <div className="text-[10px] text-[#565f89] uppercase tracking-wide mb-1">Env growth</div>
+            <div className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-wide mb-1">Env growth</div>
             <Sparkline data={envSeries} color="#7aa2f7" />
             {depthSeries.some(d => d > 0) && (
               <>
-                <div className="text-[10px] text-[#565f89] uppercase tracking-wide mb-1 mt-2">Scope depth</div>
+                <div className="text-[10px] text-[color:var(--text-muted)] uppercase tracking-wide mb-1 mt-2">Scope depth</div>
                 <Sparkline data={depthSeries} color="#bb9af7" />
               </>
             )}
@@ -704,32 +704,32 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
       <div className="flex-1 flex flex-col min-w-0">
         {/* Shared summary spine — same header as Explore / Overview */}
         {selectedSession && (
-          <div className="bg-[#24283b] border-b border-[#2f3348] flex-shrink-0">
+          <div className="bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] flex-shrink-0">
             <SessionSummaryLoader sessionId={selectedSession} />
           </div>
         )}
 
         {/* Stats bar + filters */}
         {sentences.length > 0 && (
-          <div className="px-4 py-2 bg-[#24283b] border-b border-[#2f3348] flex-shrink-0">
+          <div className="px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-hover)] flex-shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-xs text-[#a9b1d6]">
-                <b className="text-[#c0caf5]">{sentences.length}</b> turns
+              <span className="text-xs text-[color:var(--text-bright)]">
+                <b className="text-[color:var(--text)]">{sentences.length}</b> turns
               </span>
-              <span className="text-xs text-[#a9b1d6]">
-                <b className="text-[#9ece6a]">{terminalCount}</b> terminated
+              <span className="text-xs text-[color:var(--text-bright)]">
+                <b className="text-[color:var(--green)]">{terminalCount}</b> terminated
               </span>
-              <span className="text-xs text-[#a9b1d6]">
-                <b className="text-[#e0af68]">{continuedCount}</b> continued
+              <span className="text-xs text-[color:var(--text-bright)]">
+                <b className="text-[color:var(--orange)]">{continuedCount}</b> continued
               </span>
               {/* Verb distribution */}
-              <span className="text-xs text-[#565f89]">·</span>
+              <span className="text-xs text-[color:var(--text-muted)]">·</span>
               {Array.from(verbs.entries())
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 5)
                 .map(([verb, count]) => (
-                  <span key={verb} className="text-xs text-[#a9b1d6]">
-                    <b className="text-[#c0caf5]">{count}</b> {verb}
+                  <span key={verb} className="text-xs text-[color:var(--text-bright)]">
+                    <b className="text-[color:var(--text)]">{count}</b> {verb}
                   </span>
                 ))}
             </div>
@@ -772,11 +772,11 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
           }}
         >
           {loadingSentences ? (
-            <div className="text-center text-[#565f89] mt-20">
+            <div className="text-center text-[color:var(--text-muted)] mt-20">
               <p className="text-sm">Loading sentences...</p>
             </div>
           ) : sentences.length === 0 ? (
-            <div className="text-center text-[#565f89] mt-20">
+            <div className="text-center text-[color:var(--text-muted)] mt-20">
               <p className="text-lg">
                 {selectedSession ? "No sentences for this session." : "Select a session to view its story."}
               </p>
@@ -799,7 +799,7 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                     ref={virtualizer.measureElement}
                     data-index={virtualRow.index}
                     data-turn-card
-                    className={focusIndex === virtualRow.index ? "ring-1 ring-[#7aa2f7] rounded-lg" : ""}
+                    className={focusIndex === virtualRow.index ? "ring-1 ring-[color:var(--accent)] rounded-lg" : ""}
                     onClick={() => {
                       // Emit a typed `select` interaction: which turn/eval you
                       // touched, so an agent can read exactly what you clicked.
