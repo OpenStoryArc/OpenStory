@@ -34,6 +34,8 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   const [showTrace, setShowTrace] = usePersistedFlag("os.events.trace", false);
   // The same category filters as the Live feed (Max's ask) — one language.
   const [activeFilter, setActiveFilter] = useState("all");
+  // The turns+facets rail is dense (Max & Katie: too much) — folded by default.
+  const [showRail, setShowRail] = usePersistedFlag("os.events.rail", false);
   const { records: rawRecords, loading, capped } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
@@ -248,8 +250,30 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
   return (
     <div className="flex min-h-0" data-testid="session-timeline">
-      {/* Navigation sidebar: turns + facets */}
+      {/* Navigation sidebar: turns + facets — folded by default into a slim
+          labeled rail; expands on demand, remembers the choice. */}
+      {!showRail && (
+        <div className="flex shrink-0 flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg)] px-1.5 pt-3">
+          <button
+            onClick={() => setShowRail(true)}
+            className="rounded-lg border border-[color:var(--border)] px-2 py-2 text-[length:var(--fs-label)] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)] [writing-mode:vertical-rl]"
+            title="Show turns and facets"
+          >
+            ▸ turns
+          </button>
+        </div>
+      )}
+      {showRail && (
       <div className="w-52 shrink-0 border-r border-[color:var(--divider)] overflow-y-auto bg-[color:var(--bg)] outline-none" ref={exploreSidebarRef} tabIndex={0}>
+        <div className="flex justify-end px-2 pt-2">
+          <button
+            onClick={() => setShowRail(false)}
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+            title="Collapse turns and facets"
+          >
+            ◂ hide
+          </button>
+        </div>
         <TurnOutline
           turns={graph.turns}
           selectedTurn={selectedTurn}
@@ -267,6 +291,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
           onSelectPlan={setSelectedPlan}
         />
       </div>
+      )}
 
       {/* Event cards */}
       <div className="flex min-h-0 flex-1 min-w-0 flex-col outline-none" tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
