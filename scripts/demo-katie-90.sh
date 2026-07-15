@@ -223,16 +223,16 @@ pause 2
 # ────────────────────────────────────────────────────────────────────
 focus_event "$SID" "$E_MERGED" "Where that leaves us"
 pause 1
-talk "Merged."
+talk "Merged. Three loop engineering research items are no longer languishing in the backlog. From recall to PR in under an hour."
 pause 2
 
 # ---------------------------------------------------------------------------
 # Stop 5 — The closer, as a full-screen TITLE CARD: the words are the shot
 # (present {spotlight:true} → TitleSpotlight).
 # ---------------------------------------------------------------------------
-post "{\"action\":\"present\",\"params\":{\"message\":\"Have your agent read your history to you.\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
+post "{\"action\":\"present\",\"params\":{\"message\":\"OpenStory: Have your agent read your history to you.\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
 pause 1
-talk "Have your agent read your history to you."
+talk "OpenStory: Have your agent read your history to you."
 pause 1
 
 echo "demo-katie-90: done."
