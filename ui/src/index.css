@@ -129,6 +129,22 @@
   .chat-enter { animation: none; }
 }
 
+/* Event Spotlight (presentation mode): backdrop fades in, card scales+fades. */
+@keyframes spotlight-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes spotlight-card-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.spotlight-backdrop { animation: spotlight-fade 0.18s ease-out; }
+.spotlight-card { animation: spotlight-card-in 0.22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-backdrop,
+  .spotlight-card { animation: none; }
+}
+
 /* Micro-motion: one quiet 120ms ease on every interactive surface, instead of
    scattered per-component transition classes. Guarded for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {

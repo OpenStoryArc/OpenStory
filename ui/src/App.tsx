@@ -24,6 +24,7 @@ import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
+import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
@@ -51,6 +52,8 @@ export function App() {
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
+  // Event Spotlight (presentation mode): one event full-screen, the rest dimmed.
+  const [spotlight, setSpotlight] = useState<{ sessionId: string; eventId: string } | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   // Live tab: the sessions sidebar folds away — a clear labeled control, persisted.
   const [liveSidebar, setLiveSidebar] = usePersistedFlag("os.live.sidebar", true);
@@ -76,9 +79,18 @@ export function App() {
       const action = interpretControl(msg.action, msg.params);
       if (action?.type === "navigate") {
         navigate(action.route);
+        setSpotlight(null); // any view-changing drive dismisses the spotlight
       } else if (action?.type === "present") {
-        if (action.route) navigate(action.route);
+        if (action.route) {
+          navigate(action.route);
+          setSpotlight(null);
+        }
         setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
+      } else if (action?.type === "spotlight") {
+        setSpotlight({ sessionId: action.sessionId, eventId: action.eventId });
+      } else if (action?.type === "toggle" && action.target === "spotlight") {
+        // The seam's explicit dismissal: toggle {target:"spotlight", value:"off"}.
+        if (action.value === "off") setSpotlight(null);
       }
       setDrivenBy(issuer);
     });
@@ -277,6 +289,15 @@ export function App() {
 
       {/* Admin tab */}
       {viewMode === "admin" && <AdminView />}
+
+      {/* Event Spotlight — presentation mode over everything (Esc / click closes) */}
+      {spotlight && (
+        <EventSpotlight
+          sessionId={spotlight.sessionId}
+          eventId={spotlight.eventId}
+          onClose={() => setSpotlight(null)}
+        />
+      )}
 
       {/* Durable overlay annotations (agent/person notes) */}
       <AnnotationsOverlay

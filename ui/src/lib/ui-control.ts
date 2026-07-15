@@ -22,6 +22,8 @@ export interface ControlParams {
   message?: string;
   note?: string;
   sessionIds?: unknown;
+  /** focus_event only: true = full-screen presentation spotlight of the event. */
+  spotlight?: unknown;
   [k: string]: unknown;
 }
 
@@ -43,6 +45,15 @@ export type UIControlAction =
       readonly type: "toggle";
       readonly target: string;
       readonly value: string;
+    }
+  | {
+      /** Presentation spotlight: fill the screen with ONE event and dim
+       *  everything else (narrated demos). Raised by `focus_event` with
+       *  `spotlight: true`; dismissed by Esc / backdrop click, any subsequent
+       *  view-changing action, or `toggle {target:"spotlight", value:"off"}`. */
+      readonly type: "spotlight";
+      readonly sessionId: string;
+      readonly eventId: string;
     }
   | {
       /** Set a STRUCTURED view control — the multi-field sibling of `toggle`,
@@ -99,6 +110,9 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const sessionId = typeof p.sessionId === "string" ? p.sessionId.trim() : "";
     const eventId = typeof p.eventId === "string" ? p.eventId.trim() : "";
     if (!sessionId || !eventId) return null;
+    // `spotlight: true` upgrades the focus to presentation mode — a full-screen
+    // overlay of that one event, instead of a navigation.
+    if (p.spotlight === true) return { type: "spotlight", sessionId, eventId };
     const view: HashRoute["view"] = p.view === "story" ? "story" : "explore";
     return {
       type: "navigate",

@@ -263,3 +263,55 @@ describe("interpretControl — focus_event (navigate-to-thing)", () => {
     );
   });
 });
+
+describe("interpretControl — spotlight (presentation mode)", () => {
+  it("focus_event with spotlight:true becomes a spotlight action, not a navigation", () => {
+    scenario(
+      () => interpretControl("focus_event", { sessionId: "s1", eventId: "e9", spotlight: true }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("spotlight");
+        if (a?.type === "spotlight") {
+          expect(a.sessionId).toBe("s1");
+          expect(a.eventId).toBe("e9");
+        }
+      },
+    );
+  });
+
+  it("only a literal true upgrades to spotlight — falsy/other values still navigate", () => {
+    scenario(
+      () => ({
+        off: interpretControl("focus_event", { sessionId: "s1", eventId: "e9", spotlight: false }),
+        stringy: interpretControl("focus_event", { sessionId: "s1", eventId: "e9", spotlight: "yes" }),
+      }),
+      (r) => r,
+      (r) => {
+        expect(r.off?.type).toBe("navigate");
+        expect(r.stringy?.type).toBe("navigate");
+      },
+    );
+  });
+
+  it("spotlight still requires both sessionId and eventId", () => {
+    scenario(
+      () => interpretControl("focus_event", { eventId: "e9", spotlight: true }),
+      (a) => a,
+      (a) => expect(a).toBeNull(),
+    );
+  });
+
+  it("toggle {target:'spotlight', value:'off'} parses as the dismissal seam", () => {
+    scenario(
+      () => interpretControl("toggle", { target: "spotlight", value: "off" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("toggle");
+        if (a?.type === "toggle") {
+          expect(a.target).toBe("spotlight");
+          expect(a.value).toBe("off");
+        }
+      },
+    );
+  });
+});
