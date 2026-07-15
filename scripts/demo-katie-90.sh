@@ -145,7 +145,7 @@ pause 2
 # ---------------------------------------------------------------------------
 focus_event "$SID" "$E_PRSTATUS"
 pause 1
-talk "Thirty-nine minutes later: a pull request."
+talk "Thirty nine minutes later, loop engineering delivered a pull request."
 pause 2
 
 # ---------------------------------------------------------------------------
