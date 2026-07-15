@@ -228,7 +228,9 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
             )}
             {detailView === "events" && (
               <>
-                <ExploreDetail sessionId={selectedSessionId} />
+                {/* An event deep-link means THE EVENT — the stats/journey/files
+                    wall steps aside so the focused card is what you land on. */}
+                {!route.eventId && <ExploreDetail sessionId={selectedSessionId} />}
                 <SessionTimeline
                   sessionId={selectedSessionId}
                   scrollToEventId={route.eventId}

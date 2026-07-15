@@ -213,8 +213,12 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       setSelectedIndex(targetIndex);
       // The target may not be in the DOM yet (virtualized) — scroll by index.
       requestAnimationFrame(() => {
+        // Two scrolls: the PAGE to the timeline region (the busy wall above
+        // otherwise hides the whole list below the fold), then the virtual
+        // list to the card. Without the first, "focused" was invisible.
+        scrollContainerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         rowVirtualizer.scrollToIndex(targetIndex, { align: "center" });
-        scrollContainerRef.current?.focus();
+        scrollContainerRef.current?.focus({ preventScroll: true });
       });
     }
   }, [scrollToEventId, rows, rowVirtualizer]);
