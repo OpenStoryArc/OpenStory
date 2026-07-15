@@ -156,7 +156,7 @@ focus_event "$SID" "$E_MERGED"
 pause 1
 talk "Merged."
 pause 2
-talk "Ask your history. It answers."
+talk "Have your agent read your agent history to you."
 pause 1
 
 echo "demo-katie-90: done."
