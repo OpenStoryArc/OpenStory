@@ -133,6 +133,9 @@ echo "demo-katie-90: driving ${B} as issuer '${ISSUER}' (session ${SID})"
 # ---------------------------------------------------------------------------
 # Stop 1 — Katie's question, spotlit
 # ---------------------------------------------------------------------------
+# ── ON SCREEN (display value, verbatim from the record) ──
+#   I would like to know - I did a deep research on loop engineering for raptor and an assessment on what we needed to do to make it work better. ANything there?
+# ────────────────────────────────────────────────────────────────────
 focus_event "$SID" "$E_ASK"
 pause 1
 talk "Katie asks: did I research loop engineering? Anything there?"
@@ -141,6 +144,36 @@ pause 2
 # ---------------------------------------------------------------------------
 # Stop 2 — The recall, 84 seconds later
 # ---------------------------------------------------------------------------
+# ── ON SCREEN (display value, verbatim from the record) ──
+#   Yes — it's all there, and it's a meaty piece of work. Here's the recap.
+#
+#   ## The session
+#   **June 19, 2026** (session `b4c2cc6a`), you said: *"Hey fam — can you do some research on loop engineering practices for agents? Let's pause and do some learning and see if we need to adjust our approach."* That kicked off the **deep-research workflow**:
+#
+#   - **105 agents, ~1.7M tokens, 488 tool calls**
+#   - **23 sources → 109 claims → 25 adversarially verified** (24 confirmed, 1 refuted, 3-vote/kill-on-2)
+#   - Covered 5 areas: agentic control loop, retry/recovery, multi-agent orchestration, context & state, adversarial review
+#   - The framing: *"the field has converged on principles that map almost one-to-one onto the bugs our dogfood run just surfaced"*
+#
+#   ## The assessment → 3 filed items
+#   The report was distilled into **3 actionable backlog items**, filed to `Ready` in commit `6b950b3` and bundled into **PR #22 (still OPEN)**. Each was validated against source before filing:
+#
+#   **1. `adversarial-verifier-review-gate`** — make QA/PR gates true out-of-loop verifiers. Three parts: assert against *real production seams* (no test-local reimplementations → false-green); **generator ≠ verifier** (add `--model` plumbing to `spawnAgent` so the review agent runs a different model than the Engineer); bias controls on any LLM-judge. Evidence: in-context reward hacking (arXiv 2407.04549), ImpossibleBench (stronger models cheat *more*, GPT-5 76%). ⚠️ Note it flagged: a judge *ensemble* was **refuted 0-3** — don't build a judge panel.
+#
+#   **2. `persist-feedback-across-retries`** — directional feedback is injected only on **attempt 1** and silently dropped on attempts 2-3 (verified at `runner.ts:832` and `runner.ts:1448`). Per Reflexion (arXiv 2303.11366), add a per-step reflection buffer to `sprint-N.json` that conditions *every* retry.
+#
+#   **3. `progress-aware-circuit-breaker`** — the 3-attempt breaker counts attempts but has **no progress signal**, so it burns all 3 on a deterministically-failing step. Fix: detect no-progress (identical failure signature) + classify transient vs deterministic. Explicitly **absorbs** the older `early-exit-on-stdin-warning` item.
+#
+#   ## The part that should get your attention
+#   Item #3 **exactly describes the wall your current branch is stuck against.** Sprint 11's `expected-outputs-glob-resolution` escalated by burning all 3 attempts on identical failures (two 900s timeouts + a socket error) — no progress detection, no transient-vs-deterministic classification. The research you commissioned in June *predicted the precise failure mode* now blocking you.
+#
+#   So the loop: research → 3 recommendations filed (June 19) → but they've sat in `Ready`/PR #22 since, and Sprint 11 then hit the very gap #3 was meant to close.
+#
+#   Want me to:
+#   1. **Pull the full research report text** (the workflow output file, if still on disk) for the complete cited version?
+#   2. **Reprioritize** — pick up `progress-aware-circuit-breaker` as the next sprint, since it's actively biting?
+#   3. **Merge/groom PR #22** so these three stop languishing?
+# ────────────────────────────────────────────────────────────────────
 focus_event "$SID" "$E_RECAP"
 pause 1
 talk "Eighty-four seconds later: all of it. The exact June session, quoted back verbatim: Hey fam — can you do some research on loop engineering practices for agents? Let's pause and do some learning and see if we need to adjust our approach."
@@ -149,6 +182,28 @@ pause 2
 # ---------------------------------------------------------------------------
 # Stop 3 — The pull request
 # ---------------------------------------------------------------------------
+# ── ON SCREEN (display value, verbatim from the record) ──
+#   Here's the state of PR #22 — good news, it's clean.
+#
+#   ## What's in it
+#   - **1 file, +6/−0**: `docs/backlog.md` only. Pure backlog additions, **zero code**.
+#   - **2 commits**: the 3 Sprint-10 dogfood follow-ups + the 3 loop-engineering research items.
+#   - `mergeable: MERGEABLE` — no conflicts, no divergence from `main`.
+#   - **No CI checks** configured on the branch, so nothing failing.
+#
+#   ## The one thing blocking it
+#   `mergeStateStatus: BLOCKED` / `reviewDecision: REVIEW_REQUIRED` — branch protection on `main` requires a review approval. That's the *only* gate. There's nothing missing from the PR itself: it's a docs-only backlog PR, content-complete.
+#
+#   Two ways to clear it:
+#
+#   **A. Admin merge** (bypass protection) — `gh pr merge 22 --squash --admin`. You own the repo, and this is a docs-only PO commit; a self-review requirement is the kind of gate admin-merge exists for. Fastest.
+#
+#   **B. Approve then merge** — you add an approving review in the GitHub UI (GitHub won't let the PR author approve via CLI here), then I merge normally.
+#
+#   One caveat worth a beat: PR #22 only **files** these items into the backlog — it doesn't implement anything. Merging it just lands the grooming so the three loop-engineering items live on `main` instead of languishing on a branch. That's exactly what you asked for ("stop them languishing"), just want it explicit.
+#
+#   Let me confirm the merge method before I run it — which do you want?
+# ────────────────────────────────────────────────────────────────────
 focus_event "$SID" "$E_PRSTATUS"
 pause 1
 talk "Thirty nine minutes later, loop engineering delivered a pull request."
@@ -158,6 +213,14 @@ pause 2
 # Stop 4 — Merged (shot framed before the trailing "Where that leaves us"
 # queue rundown — Max cut it from the highlight; the record is untouched)
 # ---------------------------------------------------------------------------
+# ── ON SCREEN (display value, verbatim from the record, as clipped) ──
+#   Both merged and confirmed — no open PRs left. `main` is now at:
+#
+#   - **`affe58c` (#22)** — the 3 loop-engineering research items + 3 Sprint-10 dogfood follow-ups
+#   - **`6eabee2` (#20)** — close Sprint 9 backlog / file orchestrator-recovery
+#
+#   So the three research recommendations (`adversarial-verifier-review-gate`, `persist-feedback-across-retries`, `progress-aware-circuit-breaker`) now live in `docs/backlog.md` on `main`. They've stopped languishing. 🦖
+# ────────────────────────────────────────────────────────────────────
 focus_event "$SID" "$E_MERGED" "Where that leaves us"
 pause 1
 talk "Merged."
@@ -167,9 +230,9 @@ pause 2
 # Stop 5 — The closer, as a full-screen TITLE CARD: the words are the shot
 # (present {spotlight:true} → TitleSpotlight).
 # ---------------------------------------------------------------------------
-post "{\"action\":\"present\",\"params\":{\"message\":\"Have your agent read your agent history to you.\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
+post "{\"action\":\"present\",\"params\":{\"message\":\"Have your agent read your history to you.\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
 pause 1
-talk "Have your agent read your agent history to you."
+talk "Have your agent read your history to you."
 pause 1
 
 echo "demo-katie-90: done."
