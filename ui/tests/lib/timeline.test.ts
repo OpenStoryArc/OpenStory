@@ -259,12 +259,12 @@ describe("toTimelineRows", () => {
   });
 
   it("should truncate very long summaries", () => {
-    const longText = "A".repeat(600);
+    const longText = "A".repeat(1500);
     scenario(
       () => [makeRecord("user_message", { content: longText })],
       (records) => toTimelineRows(records),
       (rows) => {
-        expect(rows[0]!.summary.length).toBeLessThanOrEqual(501);
+        expect(rows[0]!.summary.length).toBeLessThanOrEqual(1201);
       },
     );
   });

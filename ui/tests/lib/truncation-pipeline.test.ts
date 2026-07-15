@@ -3,7 +3,7 @@
  *
  * Pipeline:
  *   Server (truncation_threshold=2000) → WireRecord (truncated flag, payload_bytes)
- *     → toTimelineRows (MAX_SUMMARY=500) → TimelineRow.summary (truncated)
+ *     → toTimelineRows (MAX_SUMMARY=1200) → TimelineRow.summary (truncated)
  *       → CardBody reads record.payload (full text, bypasses summary)
  *
  * These tests verify data availability at each stage.
@@ -43,11 +43,11 @@ function blocksPayload(text: string) {
 const SUMMARY_TRUNCATION_TABLE: [string, string, number, boolean, (t: string) => any][] = [
   // description, record_type, text_length, expect_truncated, payload_builder
   ["short prompt passes through",     "user_message",      50,  false, blocksPayload],
-  ["long prompt truncated to 500",    "user_message",      600, true,  blocksPayload],
+  ["long prompt truncated to 1200",   "user_message",     1500, true,  blocksPayload],
   ["short response passes through",   "assistant_message",  50,  false, blocksPayload],
-  ["long response truncated to 500",  "assistant_message",  800, true,  blocksPayload],
+  ["long response truncated to 1200", "assistant_message", 1800, true,  blocksPayload],
   ["short result passes through",     "tool_result",        50,  false, (t: string) => ({ output: t, is_error: false })],
-  ["long result truncated to 500",    "tool_result",        800, true,  (t: string) => ({ output: t, is_error: false })],
+  ["long result truncated to 1200",   "tool_result",       1800, true,  (t: string) => ({ output: t, is_error: false })],
 ];
 
 describe("Stage 1: toTimelineRows summary truncation — boundary table", () => {
@@ -67,7 +67,7 @@ describe("Stage 1: toTimelineRows summary truncation — boundary table", () => 
         },
         ({ summaryLength, isTruncated }) => {
           if (expectTruncated) {
-            expect(summaryLength).toBeLessThanOrEqual(500);
+            expect(summaryLength).toBeLessThanOrEqual(1200);
             expect(isTruncated).toBe(true);
           } else {
             expect(summaryLength).toBe(textLength);
@@ -91,7 +91,7 @@ describe("Stage 2: full text preserved on record.payload despite summary truncat
       (r) => toTimelineRows(r),
       (rows) => {
         const row = rows.find((r) => r.category === "prompt")!;
-        expect(row.summary.length).toBeLessThanOrEqual(500); // summary truncated
+        expect(row.summary.length).toBeLessThanOrEqual(1200); // summary truncated
         const blocks = (row.record.payload as any).content as { text: string }[];
         expect(blocks[0]!.text.length).toBe(600); // payload full
       },
@@ -107,7 +107,7 @@ describe("Stage 2: full text preserved on record.payload despite summary truncat
       (r) => toTimelineRows(r),
       (rows) => {
         const row = rows.find((r) => r.category === "response")!;
-        expect(row.summary.length).toBeLessThanOrEqual(500);
+        expect(row.summary.length).toBeLessThanOrEqual(1200);
         const blocks = (row.record.payload as any).content as { text: string }[];
         expect(blocks[0]!.text.length).toBe(1000); // payload full
       },
@@ -123,7 +123,7 @@ describe("Stage 2: full text preserved on record.payload despite summary truncat
       (r) => toTimelineRows(r),
       (rows) => {
         const row = rows.find((r) => r.category === "result")!;
-        expect(row.summary.length).toBeLessThanOrEqual(500);
+        expect(row.summary.length).toBeLessThanOrEqual(1200);
         expect(((row.record.payload as any).output as string).length).toBe(800);
       },
     );
@@ -214,8 +214,8 @@ describe("End-to-end: truncation data flow", () => {
         };
       },
       (info) => {
-        // Timeline summary: truncated to <=500
-        expect(info.summaryLength).toBeLessThanOrEqual(500);
+        // Timeline summary: truncated to <=1200
+        expect(info.summaryLength).toBeLessThanOrEqual(1200);
         // Payload output: server-capped at 2000
         expect(info.payloadOutputLength).toBe(2000);
         // Truncation metadata available for "load full content" feature
