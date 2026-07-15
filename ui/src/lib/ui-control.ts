@@ -100,7 +100,13 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const eventId = typeof p.eventId === "string" ? p.eventId.trim() : "";
     if (!sessionId || !eventId) return null;
     const view: HashRoute["view"] = p.view === "story" ? "story" : "explore";
-    return { type: "navigate", route: { view, sessionId, eventId } };
+    return {
+      type: "navigate",
+      route:
+        view === "explore"
+          ? { view, sessionId, eventId, detailView: "events" }
+          : { view, sessionId, eventId },
+    };
   }
   // The "present" class: an agent shows the human something — a message and/or a
   // spotlight on sessions, optionally with a jump. `announce`/`highlight` are

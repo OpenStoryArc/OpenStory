@@ -156,9 +156,11 @@ export function parseHash(hash: string): HashRoute {
 
   const segment2 = parts[2];
 
-  // /explore/SES/event/EVT
+  // /explore/SES/event/EVT — an event deep-link lands on the Events detail
+  // view, the one place that scrolls to + auto-expands the exact event
+  // (landing on the session view left the zoom machinery unmounted).
   if (segment2 === "event" && parts[3]) {
-    return withQuery({ view, sessionId, eventId: parts[3] });
+    return withQuery({ view, sessionId, eventId: parts[3], detailView: "events" });
   }
 
   // /explore/SES/file/ENCODED_PATH
