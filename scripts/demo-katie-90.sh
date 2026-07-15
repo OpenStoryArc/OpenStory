@@ -11,7 +11,7 @@
 #   t≈20  spotlight E_RECAP    — the recall, 84s later (2026-07-06 15:00:51)
 #   t≈40  spotlight E_PRSTATUS — the pull request, 39min later (2026-07-06 15:39:03)
 #   t≈55  spotlight E_MERGED   — merged (2026-07-06 15:45:12)
-#   t≈70  open_view story      — zoom out (closes the spotlight); the closer.
+#   t≈70  (still on the merge spotlight) — the closer.
 #
 # Provenance: these four event ids were verified live against the store on
 # 2026-07-14 — all four resolve inside session ac9cf839-7b94-48e2-87e3-279fa8634f76
@@ -149,18 +149,13 @@ talk "Thirty-nine minutes later: a pull request."
 pause 2
 
 # ---------------------------------------------------------------------------
-# Stop 4 — Merged
+# Stop 4 — Merged, and the closer (spotlight stays up; no story zoom-out —
+# Max cut it: the demo ends on the record itself)
 # ---------------------------------------------------------------------------
 focus_event "$SID" "$E_MERGED"
 pause 1
 talk "Merged."
 pause 2
-
-# ---------------------------------------------------------------------------
-# Stop 5 — Zoom out to Story (a view change closes the spotlight)
-# ---------------------------------------------------------------------------
-open_view story "$SID"
-pause 1
 talk "Ask your history. It answers."
 pause 1
 
