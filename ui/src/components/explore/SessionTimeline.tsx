@@ -13,6 +13,7 @@ import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/ui/skeletons";
 import { firstErrorEventId } from "@/lib/session-summary";
@@ -27,6 +28,8 @@ interface SessionTimelineProps {
 }
 
 export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }: SessionTimelineProps) {
+  // The tool-call waterfall is a wall (Max: too busy) — folded by default.
+  const [showTrace, setShowTrace] = usePersistedFlag("os.events.trace", false);
   const { records: rawRecords, loading, capped } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
@@ -278,7 +281,19 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
             onSelectEvent={selectEvent}
           />
           <div className="border-t border-[color:var(--divider)]">
-            <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
+            <div className="flex items-center px-3 py-1.5">
+              <button
+                onClick={() => setShowTrace(!showTrace)}
+                className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+                aria-expanded={showTrace}
+                title={showTrace ? "Hide the tool-call waterfall" : "Show every tool call with durations"}
+              >
+                {showTrace ? "▾ hide tool trace" : "▸ tool trace"}
+              </button>
+            </div>
+            {showTrace && (
+              <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
+            )}
           </div>
         </div>
 
