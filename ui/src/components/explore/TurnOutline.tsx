@@ -43,8 +43,10 @@ export function TurnOutline({ turns, selectedTurn, onSelectTurn }: TurnOutlinePr
                 {prompt && (
                   <span className="text-[10px] text-[color:var(--text)] truncate">{prompt}</span>
                 )}
-                {!prompt && (
-                  <span className="text-[10px] text-[color:var(--text-muted)] italic">no prompt</span>
+                {!prompt && t.responseText && (
+                  <span className="truncate text-[10px] text-[color:var(--text-muted)]">
+                    {t.responseText.length > 40 ? t.responseText.slice(0, 40) + "..." : t.responseText}
+                  </span>
                 )}
                 {t.hasError && (
                   <span className="text-[9px] text-[color:var(--red)] shrink-0">!</span>
