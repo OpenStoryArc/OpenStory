@@ -72,7 +72,7 @@ export function PersonRow({
 
   return (
     <div
-      className="px-2 py-2 border-b border-[#2f3348] flex items-center gap-1.5 overflow-x-auto"
+      className="px-2 py-2 border-b border-[color:var(--divider)] flex items-center gap-1.5 overflow-x-auto"
       data-testid="person-row"
     >
       <button
@@ -82,8 +82,8 @@ export function PersonRow({
         data-selected={userFilter === null}
         className={`shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
           userFilter === null
-            ? "bg-[#7aa2f7] text-[#1a1b26]"
-            : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b]"
+            ? "bg-[color:var(--accent)] text-[color:var(--bg)]"
+            : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
         }`}
       >
         All ({sortedUsers.length})

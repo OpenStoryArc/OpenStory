@@ -34,7 +34,7 @@ export function DepthSparkline({
     >
       <polygon
         points={areaPoints}
-        fill={`${color}20`}
+        fill={`color-mix(in oklab, ${color} 12%, transparent)`}
         stroke="none"
       />
       <polyline

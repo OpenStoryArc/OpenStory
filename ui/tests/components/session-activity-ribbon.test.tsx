@@ -46,7 +46,9 @@ describe("SessionActivityRibbon", () => {
 
   it("surfaces the error count in the summary", () => {
     render(<SessionActivityRibbon records={RECORDS} width={600} />);
-    expect(screen.getByText(/1 error/i)).toBeInTheDocument();
+    // Muted "N failed tools" phrasing replaced the red "N errors" label —
+    // same signal, quieter tone (see SessionActivityRibbon.tsx).
+    expect(screen.getByText(/1 failed tool/i)).toBeInTheDocument();
   });
 
   it("renders an empty-state message when there are no events", () => {

@@ -11,15 +11,20 @@
 //! The server crate reads from the store to serve API requests.
 
 pub mod analysis;
+#[cfg(test)]
+mod concurrency_tests;
 pub mod event_store;
 pub mod extract;
 pub mod ingest;
 pub mod jsonl_store;
 #[cfg(feature = "mongo")]
 pub mod mongo_store;
+pub mod payload_cache;
 pub mod persistence;
 pub mod plan_store;
 pub mod projection;
+pub mod projection_cache;
 pub mod queries;
+pub mod rebuild;
 pub mod sqlite_store;
 pub mod state;

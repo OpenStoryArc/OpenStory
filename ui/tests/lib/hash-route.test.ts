@@ -15,7 +15,7 @@ describe("parseHash", () => {
     ["#/explore + convo",    "#/explore/SES/conversation",          { view: "explore", sessionId: "SES", detailView: "conversation" }],
     ["#/explore + plans",    "#/explore/SES/plans",                 { view: "explore", sessionId: "SES", detailView: "plans" }],
     ["#/explore + search",   "#/explore/SES/search",                { view: "explore", sessionId: "SES", detailView: "search" }],
-    ["event deep-link",      "#/explore/SES/event/EVT-1",           { view: "explore", sessionId: "SES", eventId: "EVT-1" }],
+    ["event deep-link",      "#/explore/SES/event/EVT-1",           { view: "explore", sessionId: "SES", eventId: "EVT-1", detailView: "events" }],
     ["file deep-link",       "#/explore/SES/file/src%2Fauth.rs",    { view: "explore", sessionId: "SES", filePath: "src/auth.rs" }],
     ["search query",         "#/search?q=fix+auth",                 { view: "explore", detailView: "search", searchQuery: "fix auth" }],
     ["search query encoded", "#/search?q=fix%20auth%20bug",         { view: "explore", detailView: "search", searchQuery: "fix auth bug" }],
@@ -61,7 +61,9 @@ describe("parseHash ∘ buildHash roundtrip", () => {
     { view: "explore" },
     { view: "explore", sessionId: "abc-123" },
     { view: "explore", sessionId: "abc", detailView: "conversation" },
-    { view: "explore", sessionId: "abc", eventId: "evt-1" },
+    // Event routes land on the Events detail view (where scroll-to-event
+    // + auto-expand live) — the zoom fix of 2026-07-14.
+    { view: "explore", sessionId: "abc", eventId: "evt-1", detailView: "events" },
     // The event→turn canopy edge: Story deep-links to the turn containing an
     // event. StoryView already consumes route.eventId; the parse must keep it.
     { view: "story", sessionId: "abc", eventId: "evt-1" },

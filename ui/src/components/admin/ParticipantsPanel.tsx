@@ -33,7 +33,7 @@ export function ParticipantsPanel() {
   }, [refresh]);
 
   if (participants === null) {
-    return <p className="text-sm text-[#565f89]">Loading participants…</p>;
+    return <p className="text-sm text-[color:var(--text-muted)]">Loading participants…</p>;
   }
 
   return (
@@ -45,17 +45,17 @@ export function ParticipantsPanel() {
       )}
 
       {participants.length === 0 ? (
-        <p className="text-sm text-[#565f89]">
+        <p className="text-sm text-[color:var(--text-muted)]">
           No participants yet. Bootstrap the first Admin from the CLI:
           <br />
-          <code className="text-[#7aa2f7]">
+          <code className="text-[color:var(--accent)]">
             open-story grant-role --principal-id YOUR_ID --person-id YOUR_PERSON --role admin
           </code>
         </p>
       ) : (
         <table className="w-full text-sm" data-testid="participants-table">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wider text-[#565f89] border-b border-[#24283b]">
+            <tr className="text-left text-xs uppercase tracking-wider text-[color:var(--text-muted)] border-b border-[color:var(--bg-surface)]">
               <th className="py-2 pr-4">Principal</th>
               <th className="py-2 pr-4">Person</th>
               <th className="py-2 pr-4">Role</th>
@@ -64,18 +64,18 @@ export function ParticipantsPanel() {
           </thead>
           <tbody>
             {participants.map((p) => (
-              <tr key={p.principal_id} className="border-b border-[#16161e]">
-                <td className="py-2 pr-4 font-mono text-[#c0caf5]">{p.principal_id}</td>
-                <td className="py-2 pr-4 text-[#bb9af7]">{p.person_id}</td>
+              <tr key={p.principal_id} className="border-b border-[color:var(--bg)]">
+                <td className="py-2 pr-4 font-mono text-[color:var(--text)]">{p.principal_id}</td>
+                <td className="py-2 pr-4 text-[color:var(--purple)]">{p.person_id}</td>
                 <td className="py-2 pr-4">
                   <span
-                    className="inline-block rounded bg-[#16161e] border border-[#24283b] text-[#c0caf5] text-xs px-2 py-1"
+                    className="inline-block rounded bg-[color:var(--bg)] border border-[color:var(--bg-surface)] text-[color:var(--text)] text-xs px-2 py-1"
                     data-testid={`role-${p.principal_id}`}
                   >
                     {p.role}
                   </span>
                 </td>
-                <td className="py-2 pr-4 text-xs text-[#565f89]">
+                <td className="py-2 pr-4 text-xs text-[color:var(--text-muted)]">
                   {p.created_at.slice(0, 16)}
                 </td>
               </tr>
@@ -84,9 +84,9 @@ export function ParticipantsPanel() {
         </table>
       )}
 
-      <p className="mt-4 pt-4 border-t border-[#24283b] text-xs text-[#565f89]">
+      <p className="mt-4 pt-4 border-t border-[color:var(--bg-surface)] text-xs text-[color:var(--text-muted)]">
         Roles are managed from the CLI
-        (<code className="text-[#7aa2f7]">open-story grant-role</code>), not from
+        (<code className="text-[color:var(--accent)]">open-story grant-role</code>), not from
         this read-only view.
       </p>
     </div>

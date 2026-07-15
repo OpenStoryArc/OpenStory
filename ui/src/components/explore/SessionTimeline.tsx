@@ -13,6 +13,9 @@ import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
+import { TIMELINE_FILTERS, FILTER_GROUPS } from "@/lib/timeline-filters";
+import { FILTER_LABELS } from "@/lib/ui-labels";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/ui/skeletons";
 import { firstErrorEventId } from "@/lib/session-summary";
@@ -27,6 +30,12 @@ interface SessionTimelineProps {
 }
 
 export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }: SessionTimelineProps) {
+  // The tool-call waterfall is a wall (Max: too busy) — folded by default.
+  const [showTrace, setShowTrace] = usePersistedFlag("os.events.trace", false);
+  // The same category filters as the Live feed (Max's ask) — one language.
+  const [activeFilter, setActiveFilter] = useState("all");
+  // The turns+facets rail is dense (Max & Katie: too much) — folded by default.
+  const [showRail, setShowRail] = usePersistedFlag("os.events.rail", false);
   const { records: rawRecords, loading, capped } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
@@ -87,7 +96,12 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
     [records, matchedIds],
   );
 
-  const rows = useMemo(() => toTimelineRows(filteredRecords), [filteredRecords]);
+  const categoryFiltered = useMemo(() => {
+    if (activeFilter === "all") return filteredRecords;
+    const predicate = TIMELINE_FILTERS[activeFilter] ?? TIMELINE_FILTERS["all"]!;
+    return filteredRecords.filter(predicate);
+  }, [filteredRecords, activeFilter]);
+  const rows = useMemo(() => toTimelineRows(categoryFiltered), [categoryFiltered]);
 
   const hasFacets = selectedTurn != null || selectedFile != null || selectedTool != null || selectedPlan != null;
 
@@ -213,8 +227,12 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
       setSelectedIndex(targetIndex);
       // The target may not be in the DOM yet (virtualized) — scroll by index.
       requestAnimationFrame(() => {
+        // Two scrolls: the PAGE to the timeline region (the busy wall above
+        // otherwise hides the whole list below the fold), then the virtual
+        // list to the card. Without the first, "focused" was invisible.
+        scrollContainerRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
         rowVirtualizer.scrollToIndex(targetIndex, { align: "center" });
-        scrollContainerRef.current?.focus();
+        scrollContainerRef.current?.focus({ preventScroll: true });
       });
     }
   }, [scrollToEventId, rows, rowVirtualizer]);
@@ -222,7 +240,7 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1" data-testid="session-timeline">
-        <div className="w-52 shrink-0 border-r border-[#2f3348] bg-[#1a1b26]" />
+        <div className="w-52 shrink-0 border-r border-[color:var(--divider)] bg-[color:var(--bg)]" />
         <div className="min-w-0 flex-1">
           <SessionVizSkeleton />
         </div>
@@ -232,8 +250,30 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
 
   return (
     <div className="flex min-h-0" data-testid="session-timeline">
-      {/* Navigation sidebar: turns + facets */}
-      <div className="w-52 shrink-0 border-r border-[#2f3348] overflow-y-auto bg-[#1a1b26] outline-none" ref={exploreSidebarRef} tabIndex={0}>
+      {/* Navigation sidebar: turns + facets — folded by default into a slim
+          labeled rail; expands on demand, remembers the choice. */}
+      {!showRail && (
+        <div className="flex shrink-0 flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg)] px-1.5 pt-3">
+          <button
+            onClick={() => setShowRail(true)}
+            className="rounded-lg border border-[color:var(--border)] px-2 py-2 text-[length:var(--fs-label)] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)] [writing-mode:vertical-rl]"
+            title="Show turns and facets"
+          >
+            ▸ turns
+          </button>
+        </div>
+      )}
+      {showRail && (
+      <div className="w-52 shrink-0 border-r border-[color:var(--divider)] overflow-y-auto bg-[color:var(--bg)] outline-none" ref={exploreSidebarRef} tabIndex={0}>
+        <div className="flex justify-end px-2 pt-2">
+          <button
+            onClick={() => setShowRail(false)}
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+            title="Collapse turns and facets"
+          >
+            ◂ hide
+          </button>
+        </div>
         <TurnOutline
           turns={graph.turns}
           selectedTurn={selectedTurn}
@@ -251,11 +291,12 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
           onSelectPlan={setSelectedPlan}
         />
       </div>
+      )}
 
       {/* Event cards */}
       <div className="flex min-h-0 flex-1 min-w-0 flex-col outline-none" tabIndex={0} onFocus={() => setEventsFocused(true)} onBlur={() => setEventsFocused(false)}>
         {/* Shared summary header — the one-product spine (clickable stats) */}
-        <div className="border-b border-[#2f3348] bg-[#24283b]">
+        <div className="border-b border-[color:var(--divider)] bg-[color:var(--bg-surface)]">
           <SessionSummaryHeader
             records={records}
             onJumpToError={() => {
@@ -267,19 +308,48 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
         </div>
 
         {/* Activity ribbon — temporal shape of the whole session */}
-        <div className="border-b border-[#2f3348] bg-[#1a1b26]">
+        <div className="border-b border-[color:var(--divider)] bg-[color:var(--bg)]">
           <SessionActivityRibbon
             records={records}
             selectedEventId={selectedEventId}
             onSelectEvent={selectEvent}
           />
-          <div className="border-t border-[#2f3348]">
-            <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
+          <div className="border-t border-[color:var(--divider)]">
+            <div className="flex items-center px-3 py-1.5">
+              <button
+                onClick={() => setShowTrace(!showTrace)}
+                className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+                aria-expanded={showTrace}
+                title={showTrace ? "Hide the tool-call waterfall" : "Show every tool call with durations"}
+              >
+                {showTrace ? "▾ hide tool trace" : "▸ tool trace"}
+              </button>
+            </div>
+            {showTrace && (
+              <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
+            )}
           </div>
         </div>
 
+        {/* Category filters — the Live feed's pills, same language here. */}
+        <div className="flex flex-wrap items-center gap-1 border-b border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-3 py-1.5">
+          {FILTER_GROUPS.flatMap((g) => g.filters).map((f) => (
+            <button
+              key={f}
+              onClick={() => setActiveFilter(f)}
+              className={
+                activeFilter === f
+                  ? "rounded bg-[color:var(--accent)] px-2 py-0.5 text-[length:var(--fs-label)] font-medium text-[color:var(--bg-surface)]"
+                  : "rounded px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]/40 hover:text-[color:var(--text)]"
+              }
+            >
+              {FILTER_LABELS[f] ?? f}
+            </button>
+          ))}
+        </div>
+
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#2f3348] text-[10px] text-[#565f89]">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--divider)] text-[10px] text-[color:var(--text-muted)]">
           <span>
             {hasFacets
               ? `${filteredRecords.length} of ${records.length} events`
@@ -288,15 +358,15 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
           {hasFacets && (
             <button
               onClick={clearFacets}
-              className="text-[#7aa2f7] hover:text-[#89b4fa]"
+              className="text-[color:var(--accent)] hover:text-[color:var(--accent)]"
             >
               Clear filters
             </button>
           )}
           <span className="ml-auto flex items-center gap-2">
-            <button onClick={expandAll} className="hover:text-[#c0caf5]">Expand all</button>
-            <span className="text-[#2f3348]">|</span>
-            <button onClick={collapseAll} className="hover:text-[#c0caf5]">Collapse all</button>
+            <button onClick={expandAll} className="hover:text-[color:var(--text)]">Expand all</button>
+            <span className="text-[color:var(--bg-hover)]">|</span>
+            <button onClick={collapseAll} className="hover:text-[color:var(--text)]">Collapse all</button>
           </span>
         </div>
 
@@ -305,14 +375,14 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
             ConversationView) so the virtualizer's rect is the viewport, not
             the content. Header/ribbon/toolbar pin above it. */}
         {capped && (
-          <div className="border-b border-[#e0af68]/30 bg-[#e0af68]/10 px-3 py-1 text-[10px] text-[#e0af68]">
+          <div className="border-b border-[color:var(--orange)]/30 bg-[color:var(--orange)]/10 px-3 py-1 text-[10px] text-[color:var(--orange)]">
             Large session — showing the most recent {rows.length.toLocaleString()} events; older history is not loaded.
           </div>
         )}
         <div className="h-[70vh] min-h-[320px] overflow-y-auto" ref={scrollContainerRef}>
         <div className="relative" style={{ height: rows.length === 0 ? undefined : rowVirtualizer.getTotalSize() }}>
           {rows.length === 0 ? (
-            <div className="p-4 text-xs text-[#565f89] text-center">
+            <div className="p-4 text-xs text-[color:var(--text-muted)] text-center">
               No events match the selected filters
             </div>
           ) : (

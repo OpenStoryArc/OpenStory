@@ -4,8 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Open Story</title>
+    <script>
+      /* Apply the saved theme before first paint (no flash). Dark is default. */
+      try {
+        if (localStorage.getItem("os.theme") === "light")
+          document.documentElement.dataset.theme = "light";
+      } catch (e) {}
+    </script>
   </head>
-  <body class="bg-[#1a1b26] text-[#c0caf5]">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

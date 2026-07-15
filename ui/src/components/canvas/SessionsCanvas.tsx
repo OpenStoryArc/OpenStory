@@ -175,38 +175,38 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const caption = MODE_CAPTION[viewMode](groupBy, metric);
 
   return (
-    <div className="flex min-h-0 flex-1 bg-[#16171f] text-[#c0caf5]" data-testid="sessions-canvas">
+    <div className="flex min-h-0 flex-1 bg-[color:var(--bg)] text-[color:var(--text)]" data-testid="sessions-canvas">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* toolbar */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-[#2f3348] bg-[#1a1b26] px-3 py-2">
-          <div className="flex flex-wrap rounded border border-[#3b4261] p-0.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] px-3 py-2">
+          <div className="flex flex-wrap rounded border border-[color:var(--border)] p-0.5">
             {CANVAS_MODES.map((m) => (
               <button
                 key={m}
                 onClick={() => setViewMode(m)}
                 title={MODE_META[m].blurb}
-                className={cn("flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors", viewMode === m ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}
+                className={cn("flex items-center gap-1 rounded px-2 py-0.5 text-[11px] transition-colors", viewMode === m ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]")}
               >
                 <span aria-hidden className="text-[10px] opacity-80">{MODE_META[m].icon}</span>{MODE_META[m].label}
               </button>
             ))}
           </div>
           {(viewMode === "sunburst" || viewMode === "treemap") && (
-            <div className="flex rounded border border-[#3b4261] p-0.5">
+            <div className="flex rounded border border-[color:var(--border)] p-0.5">
               {(["events", "tokens"] as Metric[]).map((mt) => (
-                <button key={mt} onClick={() => setMetric(mt)} className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", metric === mt ? "bg-[#e0af68] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{mt}</button>
+                <button key={mt} onClick={() => setMetric(mt)} className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", metric === mt ? "bg-[color:var(--orange)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]")}>{mt}</button>
               ))}
             </div>
           )}
           {usesGroupBy && (
             <>
-              <span className="ml-1 text-[10px] uppercase tracking-wide text-[#565f89]">group by</span>
+              <span className="ml-1 text-[10px] uppercase tracking-wide text-[color:var(--text-muted)]">group by</span>
               <div className="flex flex-wrap gap-1">
                 {DIMS.map((d) => (
                   <button
                     key={d.key}
                     onClick={() => { setGroupBy(d.key); setExpanded(new Set()); setSelected(null); }}
-                    className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", groupBy === d.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]")}
+                    className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", groupBy === d.key ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]")}
                   >
                     {d.label}
                   </button>
@@ -215,21 +215,21 @@ export function SessionsCanvas({ onNavigate }: Props) {
             </>
           )}
           {!usesGroupBy && MODE_META[viewMode].groupByNote && (
-            <span className="ml-1 text-[10px] italic text-[#565f89]">{MODE_META[viewMode].groupByNote}</span>
+            <span className="ml-1 text-[10px] italic text-[color:var(--text-muted)]">{MODE_META[viewMode].groupByNote}</span>
           )}
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="ml-2 w-40 rounded border border-[#2f3348] bg-[#24283b] px-2 py-1 text-[12px] text-[#c0caf5] placeholder:text-[#565f89] focus:border-[#7aa2f7] focus:outline-none" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" className="ml-2 w-40 rounded border border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-2 py-1 text-[12px] text-[color:var(--text)] placeholder:text-[color:var(--text-muted)] focus:border-[color:var(--accent)] focus:outline-none" />
           {viewMode === "board" && (
             <>
-              <button onClick={() => setExpanded(new Set())} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Collapse all</button>
-              <button onClick={fit} className="rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:text-[#c0caf5]">Fit</button>
+              <button onClick={() => setExpanded(new Set())} className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Collapse all</button>
+              <button onClick={fit} className="rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">Fit</button>
             </>
           )}
         </div>
         {/* per-mode caption — what am I looking at + the encoding */}
-        <div className="border-b border-[#2f3348]/60 bg-[#1a1b26] px-3 py-1 text-[10px] text-[#565f89]">{caption}</div>
+        <div className="border-b border-[color:var(--divider)]/60 bg-[color:var(--bg)] px-3 py-1 text-[10px] text-[color:var(--text-muted)]">{caption}</div>
 
         <div ref={wrapRef} className="relative min-h-0 flex-1">
-          {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[#565f89]">Loading canvas…</div>}
+          {loading && <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[color:var(--text-muted)]">Loading canvas…</div>}
           {viewMode === "gantt" ? (
             <GanttView sessions={universe} groupBy={groupBy} width={size.w} height={size.h} nowMs={nowMs} onOpenSession={openSessionPanel} />
           ) : viewMode === "scatter" ? (
@@ -300,24 +300,24 @@ export function SessionsCanvas({ onNavigate }: Props) {
       {/* details side panel — user-resizable via the left-edge grip */}
       {selected && (
         <aside
-          className="relative flex shrink-0 flex-col border-l border-[#2f3348] bg-[#1a1b26]"
+          className="relative flex shrink-0 flex-col border-l border-[color:var(--divider)] bg-[color:var(--bg)]"
           style={{ width: panel.width }}
         >
           {/* drag handle: a hit-target straddling the left border */}
           <div
             onPointerDown={panel.onHandlePointerDown}
-            className={`absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-[#7aa2f7]/40 ${panel.dragging ? "bg-[#7aa2f7]/60" : "bg-transparent"}`}
+            className={`absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize transition-colors hover:bg-[color:var(--accent)]/40 ${panel.dragging ? "bg-[color:var(--accent)]/60" : "bg-transparent"}`}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize panel"
             title="Drag to resize"
           />
-          <div className="flex items-center justify-between border-b border-[#2f3348] px-3 py-2">
-            <span className="truncate text-[12px] text-[#c0caf5]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
+          <div className="flex items-center justify-between border-b border-[color:var(--divider)] px-3 py-2">
+            <span className="truncate text-[12px] text-[color:var(--text)]">{cleanHarnessPreview(selected.label).slice(0, 40)}</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => onNavigate({ view: "story", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#bb9af7] hover:bg-[#2f3348]">Story →</button>
-              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348]">Explore →</button>
-              <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[#565f89] hover:text-[#c0caf5]" aria-label="Close">✕</button>
+              <button onClick={() => onNavigate({ view: "story", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]">Story →</button>
+              <button onClick={() => onNavigate({ view: "explore", sessionId: selected.sessionId })} className="rounded px-2 py-0.5 text-[11px] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)]">Explore →</button>
+              <button onClick={() => setSelected(null)} className="rounded px-1.5 text-[color:var(--text-muted)] hover:text-[color:var(--text)]" aria-label="Close">✕</button>
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">

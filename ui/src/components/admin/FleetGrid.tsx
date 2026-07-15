@@ -19,7 +19,7 @@ interface Props {
 
 export function FleetGrid({ nodes }: Props) {
   if (nodes.length === 0) {
-    return <p className="text-sm text-[#565f89]">No nodes visible.</p>;
+    return <p className="text-sm text-[color:var(--text-muted)]">No nodes visible.</p>;
   }
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-testid="fleet-grid">
@@ -40,16 +40,16 @@ function NodeCard({ node }: { node: NodeSummary }) {
   } as const)[node.source];
 
   const evidenceColor = node.is_self
-    ? "text-[#1a1b26]"
+    ? "text-[color:var(--bg)]"
     : node.source === "hub-config" || node.source === "nats-leafnode-hub"
-      ? "text-[#bb9af7]"
+      ? "text-[color:var(--purple)]"
       : node.source === "peer-config"
-        ? "text-[#7aa2f7]"
-        : "text-[#565f89]";
+        ? "text-[color:var(--accent)]"
+        : "text-[color:var(--text-muted)]";
 
   const cardClass = node.is_self
-    ? "bg-[#7aa2f7] text-[#1a1b26] border-[#7aa2f7]"
-    : "bg-[#1a1b26] text-[#c0caf5] border-[#24283b] hover:border-[#414868]";
+    ? "bg-[color:var(--accent)] text-[color:var(--bg)] border-[color:var(--accent)]"
+    : "bg-[color:var(--bg)] text-[color:var(--text)] border-[color:var(--bg-surface)] hover:border-[color:var(--border)]";
 
   return (
     <div
@@ -58,20 +58,20 @@ function NodeCard({ node }: { node: NodeSummary }) {
     >
       <div className="flex items-baseline justify-between gap-2">
         <code
-          className={`text-sm font-semibold truncate ${node.is_self ? "text-[#1a1b26]" : "text-[#c0caf5]"}`}
+          className={`text-sm font-semibold truncate ${node.is_self ? "text-[color:var(--bg)]" : "text-[color:var(--text)]"}`}
           title={node.host}
         >
           {node.host}
         </code>
         {node.is_self && (
-          <span className="rounded bg-[#1a1b26]/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[#1a1b26]">
+          <span className="rounded bg-[color:var(--bg)]/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-[color:var(--bg)]">
             self
           </span>
         )}
       </div>
       <div className="mt-2 flex items-baseline justify-between gap-2 text-xs">
         <span className={evidenceColor}>{evidenceLabel}</span>
-        <span className={node.is_self ? "text-[#1a1b26]" : "text-[#9ece6a]"}>
+        <span className={node.is_self ? "text-[color:var(--bg)]" : "text-[color:var(--green)]"}>
           {node.session_count > 0
             ? `${node.session_count} session${node.session_count === 1 ? "" : "s"}`
             : "no sessions yet"}

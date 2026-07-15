@@ -21,7 +21,7 @@ export function AgentLegend({ agents, className = "" }: { agents: readonly strin
   return (
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${className}`} data-testid="agent-legend">
       {present.map((a) => (
-        <span key={a} className="flex items-center gap-1 text-[10px] text-[#a9b1d6]">
+        <span key={a} className="flex items-center gap-1 text-[10px] text-[color:var(--text-bright)]">
           <span className="h-2 w-2 rounded-full" style={{ background: agentColor(a) }} />
           {a}
         </span>

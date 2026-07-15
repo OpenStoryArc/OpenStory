@@ -39,7 +39,7 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   return (
     <span className="flex items-baseline gap-1">
       <span className="tabular-nums" style={color ? { color } : undefined}>{value}</span>
-      {label && <span className="text-[#565f89]">{" "}{label}</span>}
+      {label && <span className="text-[color:var(--text-muted)]">{" "}{label}</span>}
     </span>
   );
 }
@@ -55,9 +55,9 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
   const topFile = s.topFiles[0];
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-[#c0caf5]", className)}>
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[length:var(--fs-body)] text-[color:var(--text)]", className)}>
       {s.model && (
-        <span className="rounded bg-[#7aa2f7]/15 px-1.5 py-0.5 font-mono text-[10px] text-[#7aa2f7]">{shortModel(s.model)}</span>
+        <span className="rounded bg-[color:var(--accent)]/15 px-1.5 py-0.5 font-mono text-[length:var(--fs-label)] text-[color:var(--accent)]">{shortModel(s.model)}</span>
       )}
       {s.durationMs > 0 && (
         <span
@@ -72,20 +72,23 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
           {formatDuration(s.durationMs)}
         </span>
       )}
+      {/* Stat values stay neutral (Stripe discipline): color in this strip is
+          reserved for meaning, not per-metric identity — the rainbow read as
+          noise. The model chip keeps the single interactive accent. */}
       {s.turnCount > 0 && <Stat label={s.turnCount === 1 ? "turn" : "turns"} value={String(s.turnCount)} />}
-      <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} color="#7dcfff" />
-      {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} color="#e0af68" />}
+      <Stat label={s.toolCount === 1 ? "tool" : "tools"} value={String(s.toolCount)} />
+      {s.totalTokens > 0 && <Stat label="tokens" value={kfmt(s.totalTokens)} />}
       {s.errorCount > 0 && (
         onJumpToError ? (
           <button
             type="button"
             data-testid="summary-errors"
             onClick={onJumpToError}
-            className="flex items-baseline gap-1 text-[#f7768e] hover:underline"
+            className="flex items-baseline gap-1 text-[color:var(--text-muted)] hover:underline"
             title="Jump to the first failure"
           >
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed →</span>
+            <span>{" "}failed tools →</span>
           </button>
         ) : s.firstErrorEventId && s.sessionId ? (
           // error→event: even without a scroll callback, "n failed" is a
@@ -93,16 +96,16 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
           <a
             href={`#/explore/${s.sessionId}/event/${s.firstErrorEventId}`}
             data-testid="summary-errors"
-            className="flex items-baseline gap-1 text-[#f7768e] hover:underline"
+            className="flex items-baseline gap-1 text-[color:var(--text-muted)] hover:underline"
             title="Open the first failure"
           >
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed →</span>
+            <span>{" "}failed tools →</span>
           </a>
         ) : (
-          <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[#f7768e]">
+          <span data-testid="summary-errors" className="flex items-baseline gap-1 text-[color:var(--text-muted)]">
             <span className="tabular-nums">{s.errorCount}</span>
-            <span>{" "}failed</span>
+            <span>{" "}failed tools</span>
           </span>
         )
       )}
@@ -110,29 +113,29 @@ export function SummaryStrip({ summary: s, className, onJumpToError, onFilterFil
         <a
           href={`#/explore/${s.parentSessionId}`}
           data-testid="parent-session-link"
-          className="text-[#bb9af7] hover:underline"
+          className="text-[color:var(--accent)] hover:underline"
           title={`Spawned by session ${s.parentSessionId}`}
         >
           ↑ parent session
         </a>
       )}
       {topFile && (
-        <span className="flex items-baseline gap-1 truncate text-[#565f89]">
-          <span className="text-[#565f89]">·</span>
+        <span className="flex items-baseline gap-1 truncate text-[color:var(--text-muted)]">
+          <span className="text-[color:var(--text-muted)]">·</span>
           {onFilterFile ? (
             <button
               type="button"
               data-testid="summary-top-file"
               onClick={() => onFilterFile(topFile.path)}
-              className="truncate text-[#a9b1d6] hover:text-[#7dcfff] hover:underline"
+              className="truncate text-[color:var(--text-bright)] hover:text-[color:var(--cyan-bright)] hover:underline"
               title={`Filter events to ${topFile.path}`}
             >
               {topFile.path.split("/").pop()}
             </button>
           ) : (
-            <span className="truncate text-[#a9b1d6]" title={topFile.path}>{topFile.path.split("/").pop()}</span>
+            <span className="truncate text-[color:var(--text-bright)]" title={topFile.path}>{topFile.path.split("/").pop()}</span>
           )}
-          {topFile.count > 1 && <span className="text-[#565f89]">×{topFile.count}</span>}
+          {topFile.count > 1 && <span className="text-[color:var(--text-muted)]">×{topFile.count}</span>}
         </span>
       )}
     </div>

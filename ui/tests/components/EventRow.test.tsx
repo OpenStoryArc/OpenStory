@@ -61,7 +61,7 @@ describe("EventRow", () => {
       <EventRow record={makeRecord()} selected={true} onClick={onClick} />,
     );
     const button = container.querySelector("button");
-    expect(button?.className).toContain("bg-[#2f3348]");
+    expect(button?.className).toContain("bg-[color:var(--bg-hover)]");
   });
 
   it("adds colored left border for git commands", () => {
@@ -99,7 +99,7 @@ describe("EventRow", () => {
       <EventRow record={gitRecord} selected={false} onClick={onClick} />,
     );
     const button = container.querySelector("button");
-    expect(button?.className).toContain("bg-[#f7768e]/10");
+    expect(button?.className).toContain("bg-[color:var(--red)]/10");
   });
 
   it("does not add git styling for non-git bash commands", () => {

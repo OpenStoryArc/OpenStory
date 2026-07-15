@@ -23,14 +23,20 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use open_story_core::cloud_event::CloudEvent;
+use open_story_store::event_store::EventStore;
 use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 
 /// State owned by the projections consumer actor.
 pub struct ProjectionsConsumer {
+    /// Durable event store — read to hydrate a cold session's full history
+    /// before appending a live event, so a non-resident session never gets a
+    /// partial projection built from only the new events.
+    event_store: Arc<dyn EventStore>,
     /// Shared materialized view per session. Actor 3 is the sole writer;
-    /// the API / WebSocket / other consumers read from the same map
-    /// without coordination.
-    projections: Arc<DashMap<String, SessionProjection>>,
+    /// the API / WebSocket / other consumers read from the same bounded
+    /// read-through cache without coordination.
+    projections: Arc<ProjectionCache>,
     /// Session → project_id mapping (used when wired as independent consumer).
     #[allow(dead_code)]
     session_projects: HashMap<String, String>,
@@ -54,14 +60,17 @@ pub struct ProjectionsResult {
 
 impl ProjectionsConsumer {
     /// Construct a projections consumer backed by shared `StoreState` maps.
-    /// Pass `state.store.projections.clone()` / `subagent_parents.clone()`
-    /// / `session_children.clone()` — Arc clones are cheap (refcount only).
+    /// Pass `state.store.event_store.clone()` / `state.store.projections.clone()`
+    /// / `subagent_parents.clone()` / `session_children.clone()` — Arc clones
+    /// are cheap (refcount only).
     pub fn new(
-        projections: Arc<DashMap<String, SessionProjection>>,
+        event_store: Arc<dyn EventStore>,
+        projections: Arc<ProjectionCache>,
         subagent_parents: Arc<DashMap<String, String>>,
         session_children: Arc<DashMap<String, Vec<String>>>,
     ) -> Self {
         Self {
+            event_store,
             projections,
             session_projects: HashMap::new(),
             session_project_names: HashMap::new(),
@@ -71,7 +80,17 @@ impl ProjectionsConsumer {
     }
 
     /// Process a batch of CloudEvents — update projections.
-    pub fn process_batch(&mut self, session_id: &str, events: &[CloudEvent]) -> ProjectionsResult {
+    ///
+    /// Async because a live event for a cold (evicted / never-seeded) session
+    /// must hydrate that session's full durable history from SQLite BEFORE the
+    /// in-place append (via `hydrate_and_append`), or the projection would be
+    /// rebuilt from only the new events and lose prior token/event/filter
+    /// totals. `seen_ids` dedups the reloaded history against re-delivery.
+    pub async fn process_batch(
+        &mut self,
+        session_id: &str,
+        events: &[CloudEvent],
+    ) -> ProjectionsResult {
         let mut label_changed = false;
 
         for ce in events {
@@ -87,13 +106,17 @@ impl ProjectionsConsumer {
                 &self.session_children,
             );
 
-            // Update projection (DashMap: entry().or_insert_with — same shape
-            // as HashMap, different guard type).
-            let mut proj = self
-                .projections
-                .entry(session_id.to_string())
-                .or_insert_with(|| SessionProjection::new(session_id));
-            let append_result = proj.append(&val);
+            // Hydrate cold history (if any) then append in place. The cache
+            // accessor re-accounts bytes + recency and evicts to budget after
+            // its shard-write guard is dropped. No `Ref` held across the await
+            // or the append (deadlock-safe).
+            let append_result = open_story_store::state::hydrate_and_append(
+                self.event_store.as_ref(),
+                &self.projections,
+                session_id,
+                |proj| proj.append(&val),
+            )
+            .await;
 
             if append_result.label_changed {
                 label_changed = true;
@@ -115,9 +138,9 @@ impl ProjectionsConsumer {
         self.projections.get(session_id).map(|r| r.value().clone())
     }
 
-    /// How many sessions have projections today. Intended for tests.
+    /// How many sessions have projections resident today. Intended for tests.
     pub fn projection_count(&self) -> usize {
-        self.projections.len()
+        self.projections.resident_sessions()
     }
 
     /// Get the parent session for a subagent.
@@ -164,8 +187,10 @@ mod tests {
         )
     }
 
-    fn empty_shared_map() -> Arc<DashMap<String, SessionProjection>> {
-        Arc::new(DashMap::new())
+    fn empty_shared_map() -> Arc<ProjectionCache> {
+        // Effectively unbounded (u64::MAX budget, no working-set window) so the
+        // consumer tests see the old always-resident DashMap behavior.
+        Arc::new(ProjectionCache::new(u64::MAX, 0))
     }
 
     fn empty_parents() -> Arc<DashMap<String, String>> {
@@ -176,8 +201,20 @@ mod tests {
         Arc::new(DashMap::new())
     }
 
+    /// An empty in-memory event store — hydration finds no prior history for
+    /// these fresh sessions, so the consumer seeds the projection from the
+    /// batch exactly as before the hydrate change.
+    fn empty_event_store() -> Arc<dyn EventStore> {
+        Arc::new(open_story_store::sqlite_store::SqliteStore::in_memory().unwrap())
+    }
+
     fn make_consumer() -> ProjectionsConsumer {
-        ProjectionsConsumer::new(empty_shared_map(), empty_parents(), empty_children())
+        ProjectionsConsumer::new(
+            empty_event_store(),
+            empty_shared_map(),
+            empty_parents(),
+            empty_children(),
+        )
     }
 
     #[test]
@@ -186,18 +223,24 @@ mod tests {
         assert_eq!(consumer.projection_count(), 0);
     }
 
-    #[test]
-    fn creates_projection_on_first_event() {
+    #[tokio::test]
+    async fn creates_projection_on_first_event() {
         let mut consumer = make_consumer();
-        consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
+        consumer
+            .process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")])
+            .await;
         assert!(consumer.projection("sess-1").is_some());
     }
 
-    #[test]
-    fn maintains_separate_projections_per_session() {
+    #[tokio::test]
+    async fn maintains_separate_projections_per_session() {
         let mut consumer = make_consumer();
-        consumer.process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")]);
-        consumer.process_batch("sess-2", &[make_event("sess-2", "message.user.prompt")]);
+        consumer
+            .process_batch("sess-1", &[make_event("sess-1", "message.user.prompt")])
+            .await;
+        consumer
+            .process_batch("sess-2", &[make_event("sess-2", "message.user.prompt")])
+            .await;
         assert!(consumer.projection("sess-1").is_some());
         assert!(consumer.projection("sess-2").is_some());
     }
@@ -205,31 +248,37 @@ mod tests {
     /// Commit 1.3 landing test: the consumer writes into the caller's
     /// shared DashMap, so an externally-held `Arc` sees the projection
     /// without a sync step. Retires the previous "dead-state" tests.
-    #[test]
-    fn writes_are_visible_via_shared_map() {
+    #[tokio::test]
+    async fn writes_are_visible_via_shared_map() {
         let shared = empty_shared_map();
-        let mut consumer =
-            ProjectionsConsumer::new(shared.clone(), empty_parents(), empty_children());
-        consumer.process_batch(
-            "sess-shared",
-            &[make_event("sess-shared", "message.user.prompt")],
+        let mut consumer = ProjectionsConsumer::new(
+            empty_event_store(),
+            shared.clone(),
+            empty_parents(),
+            empty_children(),
         );
+        consumer
+            .process_batch(
+                "sess-shared",
+                &[make_event("sess-shared", "message.user.prompt")],
+            )
+            .await;
 
         // The external holder of the Arc sees the same projection.
         assert!(
-            shared.contains_key("sess-shared"),
-            "external shared map should see the consumer's write without any sync step"
+            shared.contains("sess-shared"),
+            "external shared cache should see the consumer's write without any sync step"
         );
     }
 
-    #[test]
-    fn processing_the_same_event_twice_is_deduped_internally_by_seen_ids() {
+    #[tokio::test]
+    async fn processing_the_same_event_twice_is_deduped_internally_by_seen_ids() {
         // SessionProjection::append does dedup via its own seen_ids HashSet —
         // double-delivery from NATS at-least-once is absorbed transparently.
         let mut consumer = make_consumer();
         let ev = make_event("sess-dup", "message.user.prompt");
-        consumer.process_batch("sess-dup", &[ev.clone()]);
-        consumer.process_batch("sess-dup", &[ev]);
+        consumer.process_batch("sess-dup", &[ev.clone()]).await;
+        consumer.process_batch("sess-dup", &[ev]).await;
 
         let proj = consumer.projection("sess-dup").unwrap();
         assert_eq!(

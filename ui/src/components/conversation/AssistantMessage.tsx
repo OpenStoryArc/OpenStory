@@ -1,9 +1,12 @@
 import { memo, useState } from "react";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { Markdown } from "@/components/ui/Markdown";
+import { MessageImages } from "./MessageImages";
+import type { ResolvedImage } from "@/lib/message-images";
 
 interface AssistantMessageProps {
   text: string;
+  images?: readonly ResolvedImage[];
   model?: string;
   timestamp?: string;
   isThinking?: boolean;
@@ -13,6 +16,7 @@ const COLLAPSE_THRESHOLD = 300; // chars
 
 export const AssistantMessage = memo(function AssistantMessage({
   text,
+  images,
   model,
   timestamp,
   isThinking,
@@ -23,8 +27,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   return (
     <div className="flex gap-3 px-4 py-3">
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs text-[#1a1b26] font-bold flex-shrink-0 ${
-          isThinking ? "bg-[#565f89]" : "bg-[#bb9af7]"
+        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs text-[color:var(--bg)] font-bold flex-shrink-0 ${
+          isThinking ? "bg-[color:var(--text-muted)]" : "bg-[color:var(--purple)]"
         }`}
       >
         {isThinking ? "T" : "A"}
@@ -32,17 +36,17 @@ export const AssistantMessage = memo(function AssistantMessage({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span
-            className={`text-xs font-medium ${isThinking ? "text-[#565f89]" : "text-[#bb9af7]"}`}
+            className={`text-xs font-medium ${isThinking ? "text-[color:var(--text-muted)]" : "text-[color:var(--purple)]"}`}
           >
             {isThinking ? "Thinking" : "Assistant"}
           </span>
           {timestamp && (
-            <span className="text-xs text-[#565f89]">
+            <span className="text-xs text-[color:var(--text-muted)]">
               <span title={fullTimestamp(timestamp)}>{compactTime(timestamp)}</span>
             </span>
           )}
           {model && (
-            <span className="text-xs text-[#565f89]">{model}</span>
+            <span className="text-xs text-[color:var(--text-muted)]">{model}</span>
           )}
         </div>
         <div
@@ -52,17 +56,18 @@ export const AssistantMessage = memo(function AssistantMessage({
         >
           <Markdown>{text}</Markdown>
           {!expanded && (
-            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#1a1b26]" />
+            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[color:var(--bg)]" />
           )}
         </div>
         {isLong && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-xs text-[#7aa2f7] hover:underline mt-1"
+            className="text-xs text-[color:var(--accent)] hover:underline mt-1"
           >
             {expanded ? "Collapse" : "Expand"}
           </button>
         )}
+        <MessageImages images={images ?? []} />
       </div>
     </div>
   );

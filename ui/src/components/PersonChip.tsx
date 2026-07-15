@@ -13,6 +13,7 @@
 
 import { memo } from "react";
 import { personColor } from "@/lib/person-color";
+import { tint } from "@/lib/session-colors";
 
 export interface PersonChipProps {
   /** User identifier — used as the displayed name and for color derivation. */
@@ -42,7 +43,7 @@ export const PersonChip = memo(function PersonChip({
     "flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors text-left shrink-0";
   const stateClasses = selected
     ? "ring-1"
-    : "hover:bg-[#24283b]";
+    : "hover:bg-[color:var(--bg-surface)]";
 
   return (
     <button
@@ -54,7 +55,7 @@ export const PersonChip = memo(function PersonChip({
       style={
         selected
           ? {
-              backgroundColor: `${color}25`,
+              backgroundColor: tint(color, 15),
               borderColor: color,
               boxShadow: `inset 0 0 0 1px ${color}`,
             }
@@ -64,22 +65,22 @@ export const PersonChip = memo(function PersonChip({
     >
       <span
         className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold relative"
-        style={{ backgroundColor: `${color}30`, color }}
+        style={{ backgroundColor: tint(color, 18), color }}
       >
         {initial}
         {isActiveNow && (
           <span
-            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#9ece6a] pulse-live"
+            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[color:var(--green)] pulse-live"
             title="Currently active"
             aria-label="active now"
           />
         )}
       </span>
       <span className="flex flex-col items-start min-w-0">
-        <span className="text-[12px] font-medium text-[#c0caf5] truncate max-w-[120px]">
+        <span className="text-[12px] font-medium text-[color:var(--text)] truncate max-w-[120px]">
           @{user}
         </span>
-        <span className="text-[10px] text-[#565f89]">
+        <span className="text-[10px] text-[color:var(--text-muted)]">
           {sessionCount} session{sessionCount === 1 ? "" : "s"}
         </span>
       </span>

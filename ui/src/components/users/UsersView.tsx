@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 import { fetchUsers, type UserSummary, type UsersResponse } from "@/lib/users-api";
 import { compactTime, fullTimestamp } from "@/lib/time";
-import { sessionColor } from "@/lib/session-colors";
+import { sessionColor, tint } from "@/lib/session-colors";
 import { personColor } from "@/lib/person-color";
 import { projectColor } from "@/lib/project-color";
 import { ActivitySparkline } from "@/components/users/ActivitySparkline";
@@ -54,7 +54,7 @@ export function UsersView({ onNavigate }: UsersViewProps) {
 
   if (loading) {
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-[#565f89]">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-[color:var(--text-muted)]">
         Loading users…
       </div>
     );
@@ -62,7 +62,7 @@ export function UsersView({ onNavigate }: UsersViewProps) {
 
   if (error) {
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-[#f7768e]">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 text-sm text-[color:var(--red)]">
         Failed to load users: {error}
       </div>
     );
@@ -90,29 +90,29 @@ export function UsersView({ onNavigate }: UsersViewProps) {
           >
             {noData ? "👋" : "🪪"}
           </div>
-          <h2 className="text-base font-semibold text-[#c0caf5] mb-2">
+          <h2 className="text-base font-semibold text-[color:var(--text)] mb-2">
             {noData
               ? "Welcome to OpenStory"
               : "No stamped users yet"}
           </h2>
-          <p className="text-sm text-[#565f89] mb-3">
+          <p className="text-sm text-[color:var(--text-muted)] mb-3">
             {noData
               ? "Run an agent (Claude Code, pi-mono) and your sessions will appear here."
               : `${total} session${total === 1 ? "" : "s"} on disk, but none have a stamped user.`}
           </p>
           {!noData && (
-            <p className="text-xs text-[#565f89] mb-4">
+            <p className="text-xs text-[color:var(--text-muted)] mb-4">
               Sessions captured before user stamping shipped don't appear here
               (we don't invent an "Unknown" bucket). Going forward:
             </p>
           )}
           {!noData && (
-            <pre className="text-[11px] text-left bg-[#1a1b26] border border-[#2f3348] rounded p-3 text-[#9ece6a] mb-2 overflow-x-auto">
+            <pre className="text-[11px] text-left bg-[color:var(--bg)] border border-[color:var(--divider)] rounded p-3 text-[color:var(--green)] mb-2 overflow-x-auto">
               {`export OPEN_STORY_USER=$USER\nexport OPEN_STORY_HOST=$(scutil --get LocalHostName)\ndocker compose ... up -d --force-recreate`}
             </pre>
           )}
           {!noData && (
-            <p className="text-[10px] text-[#414868]">
+            <p className="text-[10px] text-[color:var(--border)]">
               New events from this point on will be stamped and surface here.
             </p>
           )}
@@ -123,7 +123,7 @@ export function UsersView({ onNavigate }: UsersViewProps) {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6" data-testid="users-view">
-      <div className="mb-4 text-xs text-[#565f89]">
+      <div className="mb-4 text-xs text-[color:var(--text-muted)]">
         {users.length} user{users.length === 1 ? "" : "s"} · {stamped} stamped
         session{stamped === 1 ? "" : "s"}
         {stamped < total && (
@@ -152,10 +152,10 @@ function UserCard({ user, onNavigate }: UserCardProps) {
 
   return (
     <div
-      className="rounded-xl border border-[#2f3348] bg-[#1f2335] overflow-hidden"
+      className="rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)] overflow-hidden"
       data-testid={`user-card-${user.user}`}
     >
-      <div className="px-4 py-3 border-b border-[#2f3348]">
+      <div className="px-4 py-3 border-b border-[color:var(--divider)]">
         <div className="flex items-baseline justify-between gap-2 mb-1">
           <button
             onClick={() =>
@@ -163,15 +163,15 @@ function UserCard({ user, onNavigate }: UserCardProps) {
               // URL becomes /#/live?user=katie — bookmarkable and shareable.
               onNavigate({ view: "live", userFilter: user.user })
             }
-            className="text-base font-semibold text-[#bb9af7] hover:text-[#c0caf5] transition-colors"
+            className="text-base font-semibold text-[color:var(--purple)] hover:text-[color:var(--text)] transition-colors"
             title={`View @${user.user}'s sessions in Live`}
             data-testid={`user-card-header-${user.user}`}
           >
             @{user.user}
           </button>
-          <span className="text-[10px] text-[#565f89]" title={user.last_active ? fullTimestamp(user.last_active) : undefined}>{lastActiveLabel}</span>
+          <span className="text-[10px] text-[color:var(--text-muted)]" title={user.last_active ? fullTimestamp(user.last_active) : undefined}>{lastActiveLabel}</span>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-[#565f89] flex-wrap">
+        <div className="flex items-center gap-3 text-[11px] text-[color:var(--text-muted)] flex-wrap">
           <span>
             {user.session_count} session{user.session_count === 1 ? "" : "s"}
           </span>
@@ -185,7 +185,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
               {user.hosts.map((h) => (
                 <span
                   key={h}
-                  className="text-[10px] text-[#7dcfff] bg-[#7dcfff15] px-1.5 py-0.5 rounded"
+                  className="text-[10px] text-[color:var(--cyan-bright)] bg-[color:var(--cyan-bright)]/8 px-1.5 py-0.5 rounded"
                   title="Host machine"
                 >
                   ⌂ {h}
@@ -196,7 +196,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
         </div>
         {user.projects.length > 0 && (
           <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-            <span className="text-[10px] text-[#414868]">projects:</span>
+            <span className="text-[10px] text-[color:var(--border)]">projects:</span>
             {user.projects.slice(0, 4).map((p) => {
               const c = projectColor(p);
               return (
@@ -215,7 +215,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
               );
             })}
             {user.projects.length > 4 && (
-              <span className="text-[10px] text-[#565f89]">
+              <span className="text-[10px] text-[color:var(--text-muted)]">
                 +{user.projects.length - 4}
               </span>
             )}
@@ -229,7 +229,7 @@ function UserCard({ user, onNavigate }: UserCardProps) {
             height={28}
             ariaLabel={`${user.user}'s activity over the last 24 hours`}
           />
-          <div className="flex justify-between text-[9px] text-[#414868] mt-0.5 px-0.5">
+          <div className="flex justify-between text-[9px] text-[color:var(--border)] mt-0.5 px-0.5">
             <span>24h ago</span>
             <span>12h</span>
             <span>now</span>
@@ -238,11 +238,11 @@ function UserCard({ user, onNavigate }: UserCardProps) {
       </div>
 
       <div className="px-2 py-2">
-        <div className="text-[10px] text-[#414868] uppercase tracking-wider px-2 py-1">
+        <div className="text-[10px] text-[color:var(--border)] uppercase tracking-wider px-2 py-1">
           Recent sessions
         </div>
         {user.recent_sessions.length === 0 ? (
-          <div className="px-2 py-1 text-[11px] text-[#565f89] italic">
+          <div className="px-2 py-1 text-[11px] text-[color:var(--text-muted)] italic">
             No recent activity.
           </div>
         ) : (
@@ -254,25 +254,25 @@ function UserCard({ user, onNavigate }: UserCardProps) {
                 onClick={() =>
                   onNavigate({ view: "live", sessionId: s.session_id })
                 }
-                className="w-full text-left px-2 py-1.5 rounded hover:bg-[#24283b] transition-colors"
+                className="w-full text-left px-2 py-1.5 rounded hover:bg-[color:var(--bg-surface)] transition-colors"
                 data-testid={`user-card-${user.user}-session-${s.session_id.slice(0, 8)}`}
               >
                 <div className="flex items-center gap-2">
                   <span
                     className="text-[9px] px-1 py-0.5 rounded shrink-0"
-                    style={{ color, backgroundColor: `${color}20` }}
+                    style={{ color, backgroundColor: tint(color, 12) }}
                   >
                     {s.session_id.slice(0, 8)}
                   </span>
-                  <span className="text-[11px] text-[#c0caf5] truncate flex-1">
+                  <span className="text-[11px] text-[color:var(--text)] truncate flex-1">
                     {s.label || (
-                      <span className="text-[#565f89] italic">
+                      <span className="text-[color:var(--text-muted)] italic">
                         no prompt yet
                       </span>
                     )}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#565f89]">
+                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[color:var(--text-muted)]">
                   <span>{s.event_count} events</span>
                   {s.last_event && (
                     <span title={fullTimestamp(s.last_event)}>{compactTime(s.last_event)}</span>

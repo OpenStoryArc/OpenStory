@@ -88,17 +88,17 @@ export function ToolFlowView({ sessions, width, height }: Props) {
     !hover || flow.links.some((l) => linkActive(l, hover) && (side === "from" ? l.from : l.to) === tool);
 
   return (
-    <div className="relative min-h-0 flex-1 bg-[#16171f]">
-      <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-[#565f89]">
+    <div className="relative min-h-0 flex-1 bg-[color:var(--bg)]">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] text-[color:var(--text-muted)]">
         <span>tool grammar ·</span>
         {agents.slice(0, 6).map((a) => (
-          <button key={a} onClick={() => setAgent(a)} className={`rounded px-1.5 py-0.5 text-[11px] ${agent === a ? "text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]"}`} style={agent === a ? { background: agentColor(a) } : undefined}>{a}</button>
+          <button key={a} onClick={() => setAgent(a)} className={`rounded px-1.5 py-0.5 text-[11px] ${agent === a ? "text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]"}`} style={agent === a ? { background: agentColor(a) } : undefined}>{a}</button>
         ))}
         <span className="ml-2">{loading ? "sampling recent sessions…" : `${sequences.length} sessions · ${flow.total} transitions${timedOut ? ` · ${timedOut} skipped (too large)` : ""}`}</span>
-        {!loading && flow.total > 0 && <span className="text-[#3b4261]">· hover a ribbon or tool to trace its path</span>}
+        {!loading && flow.total > 0 && <span className="text-[color:var(--border)]">· hover a ribbon or tool to trace its path</span>}
       </div>
       {!loading && flow.total === 0 ? (
-        <div className="flex h-40 items-center justify-center text-[12px] text-[#565f89]">No tool transitions for {agent} (may not log tool calls).</div>
+        <div className="flex h-40 items-center justify-center text-[12px] text-[color:var(--text-muted)]">No tool transitions for {agent} (may not log tool calls).</div>
       ) : (
         <svg width={width} height={height} className="block">
           {/* ribbons */}

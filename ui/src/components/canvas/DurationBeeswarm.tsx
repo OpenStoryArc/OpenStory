@@ -49,11 +49,11 @@ export function DurationBeeswarm({ sessions, onOpenSession }: {
     return { lanes, height: y + AXIS_H, ticks };
   }, [sessions]);
 
-  if (lanes.length === 0) return <div className="p-6 text-[12px] text-[#565f89]">No sessions with a measurable duration.</div>;
+  if (lanes.length === 0) return <div className="p-6 text-[12px] text-[color:var(--text-muted)]">No sessions with a measurable duration.</div>;
 
   return (
     <div className="overflow-auto p-3" style={{ maxHeight: "80vh" }}>
-      <div className="mb-2 text-[11px] text-[#565f89]">one dot = a session · x = duration (log) · lane + color = agent · {lanes.reduce((n, l) => n + l.count, 0)} sessions</div>
+      <div className="mb-2 text-[11px] text-[color:var(--text-muted)]">one dot = a session · x = duration (log) · lane + color = agent · {lanes.reduce((n, l) => n + l.count, 0)} sessions</div>
       <svg width={W} height={height} className="block">
         {/* x axis */}
         <line x1={LEFT} x2={W - 24} y1={height - AXIS_H} y2={height - AXIS_H} stroke="#2f3348" />

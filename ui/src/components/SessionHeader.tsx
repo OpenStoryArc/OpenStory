@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { personColor } from "@/lib/person-color";
+import { tint } from "@/lib/session-colors";
 import { projectColor } from "@/lib/project-color";
 
 export interface SessionHeaderInfo {
@@ -41,7 +42,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
 
   return (
     <div
-      className="border-b border-[#2f3348]"
+      className="border-b border-[color:var(--divider)]"
       data-testid="session-header"
       data-cross-user={isCrossUser ? "true" : "false"}
     >
@@ -50,9 +51,9 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
         <div
           className="px-4 py-1 text-[10px] flex items-center gap-1.5"
           style={{
-            backgroundColor: `${userColor}20`,
+            backgroundColor: tint(userColor, 12),
             color: userColor,
-            borderBottom: `1px solid ${userColor}55`,
+            borderBottom: `1px solid ${tint(userColor, 33)}`,
           }}
           data-testid="session-header-cross-user-band"
         >
@@ -75,7 +76,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
           >
             <span
               className="w-5 h-5 rounded-full flex items-center justify-center text-[9px]"
-              style={{ backgroundColor: `${userColor}30`, color: userColor }}
+              style={{ backgroundColor: tint(userColor, 18), color: userColor }}
               aria-hidden="true"
             >
               {session.user.slice(0, 2).toUpperCase()}
@@ -85,7 +86,7 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
         )}
         {session.host && (
           <span
-            className="text-[10px] text-[#7dcfff] bg-[#7dcfff15] px-1.5 py-0.5 rounded"
+            className="text-[10px] text-[color:var(--cyan-bright)] bg-[color:var(--cyan-bright)]/8 px-1.5 py-0.5 rounded"
             title="Origin host"
           >
             ⌂ {session.host}
@@ -105,11 +106,11 @@ export function SessionHeader({ session, localUser }: SessionHeaderProps) {
           </span>
         )}
         {session.branch && (
-          <span className="text-[10px] text-[#9ece6a]" title="Git branch">
+          <span className="text-[10px] text-[color:var(--green)]" title="Git branch">
             {session.branch}
           </span>
         )}
-        <span className="ml-auto text-[10px] text-[#414868] font-mono" title="Session ID">
+        <span className="ml-auto text-[10px] text-[color:var(--border)] font-mono" title="Session ID">
           {session.session_id.slice(0, 8)}
         </span>
       </div>

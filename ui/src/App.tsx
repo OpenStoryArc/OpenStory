@@ -7,6 +7,8 @@ import { useHashRoute } from "@/hooks/use-hash-route";
 import { Timeline } from "@/components/Timeline";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
+import { TextSizeControl } from "@/components/layout/TextSizeControl";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
@@ -18,9 +20,12 @@ import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
+import { EventSpotlight } from "@/components/control/EventSpotlight";
+import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
@@ -48,7 +53,13 @@ export function App() {
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
+  // Event Spotlight (presentation mode): one event full-screen, the rest dimmed.
+  const [spotlight, setSpotlight] = useState<{ sessionId: string; eventId: string; clipAt?: string } | null>(null);
+  // Title card: the message itself fills the screen (demo openers/closers).
+  const [titleCard, setTitleCard] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  // Live tab: the sessions sidebar folds away — a clear labeled control, persisted.
+  const [liveSidebar, setLiveSidebar] = usePersistedFlag("os.live.sidebar", true);
 
   // Durable overlay annotations: load existing on mount, append live ones.
   useEffect(() => { fetchAnnotations().then(setAnnotations); }, []);
@@ -71,9 +82,27 @@ export function App() {
       const action = interpretControl(msg.action, msg.params);
       if (action?.type === "navigate") {
         navigate(action.route);
+        setSpotlight(null); // any view-changing drive dismisses the spotlight
+        setTitleCard(null);
       } else if (action?.type === "present") {
-        if (action.route) navigate(action.route);
+        if (action.route) {
+          navigate(action.route);
+          setSpotlight(null);
+          setTitleCard(null);
+        }
         setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
+      } else if (action?.type === "spotlight") {
+        setSpotlight({ sessionId: action.sessionId, eventId: action.eventId, clipAt: action.clipAt });
+        setTitleCard(null);
+      } else if (action?.type === "title") {
+        setTitleCard(action.message);
+        setSpotlight(null);
+      } else if (action?.type === "toggle" && action.target === "spotlight") {
+        // The seam's explicit dismissal: toggle {target:"spotlight", value:"off"}.
+        if (action.value === "off") {
+          setSpotlight(null);
+          setTitleCard(null);
+        }
       }
       setDrivenBy(issuer);
     });
@@ -151,32 +180,34 @@ export function App() {
   }, [navigate]);
 
   return (
-    <div className="h-screen flex flex-col bg-[#1a1b26] text-[#c0caf5]">
+    <div className="h-screen flex flex-col bg-[color:var(--bg)] text-[color:var(--text)]">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 bg-[#24283b] border-b border-[#2f3348]">
+      <header className="flex items-center justify-between px-4 py-2 bg-[color:var(--bg-surface)]">
         <div className="flex min-w-0 flex-1 items-center gap-4">
           <h1 className="shrink-0 text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <ThemeToggle />
+          <TextSizeControl />
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
-            className="flex items-center gap-1.5 rounded border border-[#3b4261] px-2 py-1 text-[11px] text-[#565f89] hover:border-[#7aa2f7] hover:text-[#c0caf5] transition-colors"
+            className="flex items-center gap-1.5 rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:border-[color:var(--accent)] hover:text-[color:var(--text)] transition-colors"
             title="Command palette"
           >
             <span>Jump to…</span>
-            <kbd className="rounded bg-[#1a1b26] px-1 text-[10px]">⌘K</kbd>
+            <kbd className="rounded bg-[color:var(--bg)] px-1 text-[10px]">⌘K</kbd>
           </button>
           {drivenBy && (
             <div
-              className="flex items-center gap-1.5 rounded border border-[#7aa2f7]/50 bg-[#7aa2f7]/10 px-2 py-1 text-[11px] text-[#7aa2f7] animate-pulse"
+              className="flex items-center gap-1.5 rounded border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/10 px-2 py-1 text-[11px] text-[color:var(--accent)] animate-pulse"
               data-testid="driven-by"
               title="An agent is driving this view. Click anywhere or navigate to take back the wheel."
             >
               <span>▸</span> driven by {drivenBy}
             </div>
           )}
-          <div className="flex items-center gap-2 text-xs text-[#565f89]" data-testid="connection-status">
+          <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]" data-testid="connection-status">
             <span className={`w-2 h-2 rounded-full ${color}`} />
             {label}
           </div>
@@ -191,18 +222,40 @@ export function App() {
       {/* Live tab */}
       {viewMode === "live" && (
         <div className="flex flex-1 min-h-0">
-          <Sidebar
-            events={state.records}
-            selectedSession={selectedSession}
-            onSelectSession={handleSelectSession}
-            focusAgentId={focusAgentId}
-            onFocusAgent={setFocusAgentId}
-            sessionLabels={state.sessionLabels}
-            userFilter={userFilter}
-            onUserFilterChange={handleUserFilterChange}
-            timeFilter={timeFilter}
-            onTimeFilterChange={handleTimeFilterChange}
-          />
+          {liveSidebar ? (
+            <div className="relative flex min-h-0 shrink-0">
+              <Sidebar
+                events={state.records}
+                selectedSession={selectedSession}
+                onSelectSession={handleSelectSession}
+                focusAgentId={focusAgentId}
+                onFocusAgent={setFocusAgentId}
+                sessionLabels={state.sessionLabels}
+                userFilter={userFilter}
+                onUserFilterChange={handleUserFilterChange}
+                timeFilter={timeFilter}
+                onTimeFilterChange={handleTimeFilterChange}
+              />
+              {/* Clear, well-sized collapse control — pinned bottom of the rail. */}
+              <button
+                onClick={() => setLiveSidebar(false)}
+                className="absolute bottom-3 left-3 z-10 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-surface)] px-3 py-1.5 text-[length:var(--fs-body)] font-medium text-[color:var(--text-muted)] shadow-card transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+                title="Collapse the sessions sidebar"
+              >
+                ◂ hide sessions
+              </button>
+            </div>
+          ) : (
+            <div className="flex min-h-0 shrink-0 flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-1.5 pt-3">
+              <button
+                onClick={() => setLiveSidebar(true)}
+                className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-surface)] px-2 py-2 text-[length:var(--fs-body)] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)] [writing-mode:vertical-rl]"
+                title="Show the sessions sidebar"
+              >
+                ▸ sessions
+              </button>
+            </div>
+          )}
           <div className="flex-1 min-w-0 flex flex-col">
             <SessionHeaderForLive
               sessionId={selectedSession}
@@ -248,6 +301,19 @@ export function App() {
 
       {/* Admin tab */}
       {viewMode === "admin" && <AdminView />}
+
+      {/* Event Spotlight — presentation mode over everything (Esc / click closes) */}
+      {spotlight && (
+        <EventSpotlight
+          sessionId={spotlight.sessionId}
+          eventId={spotlight.eventId}
+          clipAt={spotlight.clipAt}
+          onClose={() => setSpotlight(null)}
+        />
+      )}
+
+      {/* Title card — the message itself as the full-screen shot */}
+      {titleCard && <TitleSpotlight message={titleCard} onClose={() => setTitleCard(null)} />}
 
       {/* Durable overlay annotations (agent/person notes) */}
       <AnnotationsOverlay

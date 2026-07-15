@@ -88,6 +88,18 @@ enum Command {
         #[arg(long, env = "OPEN_STORY_TRUNCATION_THRESHOLD")]
         truncation_threshold: Option<usize>,
 
+        /// Byte ceiling for resident session projections (LRU-evicted above this)
+        #[arg(long, env = "OPEN_STORY_PROJECTION_CACHE_BYTES")]
+        projection_cache_bytes: Option<u64>,
+
+        /// Sessions accessed within this many days are never evicted (0 = off)
+        #[arg(long, env = "OPEN_STORY_WORKING_SET_DAYS")]
+        working_set_days: Option<u32>,
+
+        /// Byte ceiling for the full-body (tool-output) cache
+        #[arg(long, env = "OPEN_STORY_PAYLOAD_CACHE_BYTES")]
+        payload_cache_bytes: Option<u64>,
+
         /// Seconds of inactivity before a session shows as stale
         #[arg(long, env = "OPEN_STORY_STALE_THRESHOLD_SECS")]
         stale_threshold_secs: Option<i64>,
@@ -346,6 +358,9 @@ async fn main() -> Result<()> {
                     max_initial_records,
                     watch_backfill_hours,
                     truncation_threshold,
+                    projection_cache_bytes,
+                    working_set_days,
+                    payload_cache_bytes,
                     stale_threshold_secs,
                     api_token,
                     db_key,
@@ -369,6 +384,9 @@ async fn main() -> Result<()> {
                         max_initial_records,
                         watch_backfill_hours,
                         truncation_threshold,
+                        projection_cache_bytes,
+                        working_set_days,
+                        payload_cache_bytes,
                         stale_threshold_secs,
                         api_token,
                         db_key,
@@ -385,26 +403,29 @@ async fn main() -> Result<()> {
                 _ => (
                     (
                         Role::Full,
-                        None,
-                        None,
-                        None,
-                        Vec::new(),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        false,
-                        None,
-                        None,
-                        None,
-                        false,
-                        false,
-                        None,
+                        None,       // host
+                        None,       // port
+                        None,       // data_dir
+                        Vec::new(), // watch_dir
+                        None,       // claude_watch_dir
+                        None,       // codex_watch_dir
+                        None,       // nats_url
+                        None,       // max_initial_records
+                        None,       // watch_backfill_hours
+                        None,       // truncation_threshold
+                        None,       // projection_cache_bytes
+                        None,       // working_set_days
+                        None,       // payload_cache_bytes
+                        None,       // stale_threshold_secs
+                        None,       // api_token
+                        None,       // db_key
+                        false,      // metrics
+                        None,       // data_backend
+                        None,       // mongo_uri
+                        None,       // mongo_db
+                        false,      // init_config
+                        false,      // manage_nats
+                        None,       // nats_bin
                     ),
                     None,
                 ),
@@ -421,6 +442,9 @@ async fn main() -> Result<()> {
                 cli_max_records,
                 cli_watch_backfill_hours,
                 cli_trunc,
+                cli_projection_cache_bytes,
+                cli_working_set_days,
+                cli_payload_cache_bytes,
                 cli_stale,
                 cli_api_token,
                 cli_db_key,
@@ -486,6 +510,15 @@ async fn main() -> Result<()> {
             }
             if let Some(v) = cli_trunc {
                 config.truncation_threshold = v;
+            }
+            if let Some(v) = cli_projection_cache_bytes {
+                config.projection_cache_bytes = v;
+            }
+            if let Some(v) = cli_working_set_days {
+                config.working_set_days = v;
+            }
+            if let Some(v) = cli_payload_cache_bytes {
+                config.payload_cache_bytes = v;
             }
             if let Some(v) = cli_stale {
                 config.stale_threshold_secs = v;
@@ -860,6 +893,11 @@ async fn main() -> Result<()> {
             };
 
             let mut store = StoreState::with_backend(&data_dir, key, backend).await?;
+            store.set_cache_budget(
+                config.projection_cache_bytes,
+                config.working_set_days,
+                config.payload_cache_bytes,
+            );
             let report =
                 open_story::server::reconcile::reconcile_local(&data_dir, &mut store).await?;
 

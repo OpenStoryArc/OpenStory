@@ -25,12 +25,12 @@
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use open_story::cloud_event::CloudEvent;
 use open_story::server::{SharedState, consumers};
 use open_story_patterns::PatternEvent;
 use open_story_store::persistence::SessionStore;
 use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 use tempfile::TempDir;
 
 use crate::helpers::test_state;
@@ -89,7 +89,7 @@ impl TestActors {
         };
         Self {
             persist: PersistConsumer::new(
-                event_store,
+                event_store.clone(),
                 session_store,
                 shared_projections.clone(),
                 shared_projects,
@@ -98,6 +98,7 @@ impl TestActors {
             ),
             patterns: PatternsConsumer::new(),
             projections: ProjectionsConsumer::new(
+                event_store,
                 shared_projections,
                 shared_parents,
                 shared_children,
@@ -127,7 +128,7 @@ impl TestActors {
             .persist
             .process_batch(session_id, events, project_id)
             .await;
-        let _projection_res = self.projections.process_batch(session_id, events);
+        let _projection_res = self.projections.process_batch(session_id, events).await;
         let patterns_res = self.patterns.process_batch(session_id, events);
 
         // Snapshot the projection *after* Actor 3 has updated it, then
@@ -166,7 +167,7 @@ impl TestActors {
     /// Callers must `.await` on `self.state.read()` themselves and call
     /// `.store.projections.clone()` on the guard. Direct access is
     /// preferred to keep the DashMap Arc lifetime explicit in tests.
-    pub async fn projections(&self) -> Arc<DashMap<String, SessionProjection>> {
+    pub async fn projections(&self) -> Arc<ProjectionCache> {
         self.state.read().await.store.projections.clone()
     }
 }

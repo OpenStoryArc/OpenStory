@@ -22,6 +22,9 @@ export interface ControlParams {
   message?: string;
   note?: string;
   sessionIds?: unknown;
+  /** focus_event: true = full-screen presentation spotlight of the event.
+   *  present: true = full-screen TITLE CARD of the message. */
+  spotlight?: unknown;
   [k: string]: unknown;
 }
 
@@ -43,6 +46,27 @@ export type UIControlAction =
       readonly type: "toggle";
       readonly target: string;
       readonly value: string;
+    }
+  | {
+      /** Presentation spotlight: fill the screen with ONE event and dim
+       *  everything else (narrated demos). Raised by `focus_event` with
+       *  `spotlight: true`; dismissed by Esc / backdrop click, any subsequent
+       *  view-changing action, or `toggle {target:"spotlight", value:"off"}`. */
+      readonly type: "spotlight";
+      readonly sessionId: string;
+      readonly eventId: string;
+      /** Presentation-side framing: render only the text BEFORE the first
+       *  occurrence of this marker (e.g. a trailing "## Where that leaves us"
+       *  section that doesn't belong in the shot). The record is untouched —
+       *  this crops the camera, not the data. */
+      readonly clipAt?: string;
+    }
+  | {
+      /** Title card: the message itself fills the screen (narrated demos —
+       *  openers and closers). Raised by `present` with `spotlight: true`;
+       *  dismissed exactly like an event spotlight. */
+      readonly type: "title";
+      readonly message: string;
     }
   | {
       /** Set a STRUCTURED view control — the multi-field sibling of `toggle`,
@@ -99,8 +123,21 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     const sessionId = typeof p.sessionId === "string" ? p.sessionId.trim() : "";
     const eventId = typeof p.eventId === "string" ? p.eventId.trim() : "";
     if (!sessionId || !eventId) return null;
+    // `spotlight: true` upgrades the focus to presentation mode — a full-screen
+    // overlay of that one event, instead of a navigation.
+    if (p.spotlight === true) {
+      const clipAt =
+        typeof p.clipAt === "string" && p.clipAt.trim() ? p.clipAt : undefined;
+      return { type: "spotlight", sessionId, eventId, clipAt };
+    }
     const view: HashRoute["view"] = p.view === "story" ? "story" : "explore";
-    return { type: "navigate", route: { view, sessionId, eventId } };
+    return {
+      type: "navigate",
+      route:
+        view === "explore"
+          ? { view, sessionId, eventId, detailView: "events" }
+          : { view, sessionId, eventId },
+    };
   }
   // The "present" class: an agent shows the human something — a message and/or a
   // spotlight on sessions, optionally with a jump. `announce`/`highlight` are
@@ -114,6 +151,9 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       : [];
     const route = typeof p.route === "string" && p.route.trim() ? resolveRoute(p.route) : null;
     if (!message.trim() && sessionIds.length === 0 && !route) return null;
+    // `spotlight: true` upgrades the message to a full-screen title card —
+    // the words themselves become the shot (demo openers/closers).
+    if (p.spotlight === true && message.trim()) return { type: "title", message };
     return { type: "present", message, sessionIds, route };
   }
   // The "query" class: narrow the data. Resolves to a filtered Overview route

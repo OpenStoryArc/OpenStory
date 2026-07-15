@@ -53,7 +53,7 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
 
   return (
     <div className={cn("relative", className)}>
-      <div className="flex items-center justify-between px-1 pb-1 text-[10px] text-[#565f89]">
+      <div className="flex items-center justify-between px-1 pb-1 text-[10px] text-[color:var(--text-muted)]">
         <span>{model.totalDays} active days · {model.totalSessions.toLocaleString()} sessions</span>
         <span className="flex items-center gap-1">
           Less
@@ -114,12 +114,12 @@ export function SessionCalendar({ sessions, selectedDay, onSelectDay, end, weeks
 
       {hover && hover.c.sessionCount > 0 && (
         <div
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded border border-[#2f3348] bg-[#1a1b26] px-2 py-1 text-[10px] text-[#c0caf5] shadow-lg"
+          className="pointer-events-none absolute z-10 whitespace-nowrap rounded border border-[color:var(--divider)] bg-[color:var(--bg)] px-2 py-1 text-[10px] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 14, width - 40), top: hover.y + TOP + 14 }}
         >
-          <span className="text-[#c0caf5]">{hover.c.date}</span>
-          <span className="ml-1 text-[#9ece6a]">{hover.c.sessionCount} sess</span>
-          <span className="ml-1 text-[#565f89]">{hover.c.eventCount.toLocaleString()} ev</span>
+          <span className="text-[color:var(--text)]">{hover.c.date}</span>
+          <span className="ml-1 text-[color:var(--green)]">{hover.c.sessionCount} sess</span>
+          <span className="ml-1 text-[color:var(--text-muted)]">{hover.c.eventCount.toLocaleString()} ev</span>
         </div>
       )}
     </div>

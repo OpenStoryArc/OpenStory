@@ -116,19 +116,43 @@ pub async fn ingest_events(
             // handled by the projection's own `seen_ids: HashSet<String>` —
             // `append()` returns `AppendResult::empty()` for duplicate IDs.
 
+            // Plan extraction — BEFORE the projection append: `append_hydrated`
+            // absorbs a cold session's durable history first, so an event
+            // that's already durable (seeded, redelivered, backfilled) dedups
+            // and would skip everything below. Plans must not be lost to that
+            // skip; `plan_store.save` is idempotent (deterministic plan_id →
+            // overwrite), so extracting for every incoming plan event is safe.
+            if is_plan_event(&val) {
+                let plan_content = extract_plan_content(&val).or_else(|| {
+                    val.get("data")
+                        .and_then(|d| d.get("agent_payload"))
+                        .and_then(|ap| ap.get("args"))
+                        .and_then(|a| a.get("plan"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                });
+                if let Some(content) = plan_content {
+                    let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
+                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
+                    // Dual-write plan to EventStore
+                    let plan_id = format!("plan:{}:{}", session_id, timestamp);
+                    let _ = state
+                        .store
+                        .event_store
+                        .upsert_plan(&plan_id, session_id, &content)
+                        .await;
+                }
+            }
+
             // Update projection (dedup happens here now via seen_ids).
-            // Scope the DashMap RefMut tightly: hold it only long enough
-            // to append, then drop before any later `.get()` or awaits
-            // on the same map. DashMap shards are RwLocks; two live
-            // guards on the same shard deadlock.
-            let append_result = {
-                let mut proj = state
-                    .store
-                    .projections
-                    .entry(session_id.to_string())
-                    .or_insert_with(|| projection::SessionProjection::new(session_id));
-                proj.append(&val)
-            };
+            // `append_hydrated` first loads the full durable history for a cold
+            // (evicted / never-seeded) session, so a live event never produces
+            // a partial projection holding only the new event. No DashMap `Ref`
+            // is held across its `.await`.
+            let append_result = state
+                .store
+                .append_hydrated(session_id, |proj| proj.append(&val))
+                .await;
             if append_result.is_empty() {
                 // Duplicate event (seen_ids caught it) or unparseable CloudEvent.
                 // Skip broadcast — Actor 1 handles persistence independently.
@@ -163,28 +187,6 @@ pub async fn ingest_events(
                 }
             }
 
-            // Plan extraction
-            if is_plan_event(&val) {
-                let plan_content = extract_plan_content(&val).or_else(|| {
-                    val.get("data")
-                        .and_then(|d| d.get("agent_payload"))
-                        .and_then(|ap| ap.get("args"))
-                        .and_then(|a| a.get("plan"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                });
-                if let Some(content) = plan_content {
-                    let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
-                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
-                    // Dual-write plan to EventStore
-                    let plan_id = format!("plan:{}:{}", session_id, timestamp);
-                    let _ = state
-                        .store
-                        .event_store
-                        .upsert_plan(&plan_id, session_id, &content)
-                        .await;
-                }
-            }
 
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
@@ -354,10 +356,10 @@ pub async fn ingest_events(
 /// (potentially long) rebuild.
 pub struct ReplayContext {
     pub event_store: Arc<dyn open_story_store::event_store::EventStore>,
-    pub projections: Arc<dashmap::DashMap<String, projection::SessionProjection>>,
+    pub projections: Arc<open_story_store::projection_cache::ProjectionCache>,
     pub subagent_parents: Arc<dashmap::DashMap<String, String>>,
     pub session_children: Arc<dashmap::DashMap<String, Vec<String>>>,
-    pub full_payloads: Arc<dashmap::DashMap<(String, String), String>>,
+    pub full_payloads: Arc<open_story_store::payload_cache::PayloadCache>,
     pub session_projects: Arc<dashmap::DashMap<String, String>>,
     pub session_project_names: Arc<dashmap::DashMap<String, String>>,
 }
@@ -402,13 +404,8 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 &ctx.session_children,
             );
 
-            {
-                let mut proj = ctx
-                    .projections
-                    .entry(sid.clone())
-                    .or_insert_with(|| projection::SessionProjection::new(sid));
-                proj.append(val);
-            }
+            ctx.projections
+                .append_or_insert(sid, |proj| proj.append(val));
 
             let view_records = match serde_json::from_value::<
                 open_story_core::cloud_event::CloudEvent,
@@ -652,7 +649,7 @@ mod tests {
         // But: projections SHOULD be populated (ingest_events still owns
         // in-memory projection state for wire-record enrichment).
         assert!(
-            state.store.projections.contains_key("sess-persist"),
+            state.store.projections.contains("sess-persist"),
             "ingest_events must still update projections for broadcast assembly"
         );
     }
@@ -1056,14 +1053,10 @@ mod tests {
 
         ingest_events(&mut state, "sess-dw", &[event], None).await;
 
-        // full_payloads is keyed on (session_id, event_id) now.
-        let has_any = state
-            .store
-            .full_payloads
-            .iter()
-            .any(|e| e.key().0 == "sess-dw");
+        // PayloadCache doesn't expose iteration; a non-zero resident byte count
+        // proves the big tool_result was cached (nothing else is inserted here).
         assert!(
-            has_any,
+            state.store.full_payloads.resident_bytes() >= big.len() as u64,
             "full_payloads cache should have an entry for the big tool_result"
         );
     }
@@ -1246,8 +1239,7 @@ mod tests {
         let cached = state
             .store
             .full_payloads
-            .get(&("sess-lazy".to_string(), "evt-big-lazy-1".to_string()))
-            .map(|r| r.value().clone());
+            .get(&("sess-lazy".to_string(), "evt-big-lazy-1".to_string()));
         assert_eq!(
             cached.as_ref().map(|s| s.len()),
             Some(big.len()),
@@ -1273,7 +1265,9 @@ mod tests {
         let event_store: Arc<dyn open_story_store::event_store::EventStore> =
             Arc::new(SqliteStore::new(tmp.path()).unwrap());
 
-        let projections_map = std::sync::Arc::new(dashmap::DashMap::new());
+        let projections_map = std::sync::Arc::new(
+            open_story_store::projection_cache::ProjectionCache::new(u64::MAX, 0),
+        );
         let session_projects = std::sync::Arc::new(dashmap::DashMap::new());
         let session_project_names = std::sync::Arc::new(dashmap::DashMap::new());
         let plan_store =
@@ -1287,6 +1281,7 @@ mod tests {
             plan_store,
         );
         let mut projections = ProjectionsConsumer::new(
+            event_store.clone(),
             projections_map,
             std::sync::Arc::new(dashmap::DashMap::new()),
             std::sync::Arc::new(dashmap::DashMap::new()),
@@ -1305,7 +1300,7 @@ mod tests {
 
         // Both subscribers see the same batch independently.
         let persist_result = persist.process_batch("sess-comp", &events, None).await;
-        let _ = projections.process_batch("sess-comp", &events);
+        let _ = projections.process_batch("sess-comp", &events).await;
 
         // EventStore side (Actor 1's side of the stream).
         let stored = event_store.session_events("sess-comp").await.unwrap();
@@ -1347,7 +1342,7 @@ mod tests {
         ingest_events(&mut state, "sess-proj-pop", &[event], None).await;
 
         assert!(
-            state.store.projections.contains_key("sess-proj-pop"),
+            state.store.projections.contains("sess-proj-pop"),
             "projection should be created for session"
         );
         let proj = state.store.projections.get("sess-proj-pop").unwrap();
@@ -1435,7 +1430,7 @@ mod tests {
         replay_boot_sessions(&ctx).await;
 
         assert!(
-            !state.store.projections.contains_key("sess-empty"),
+            !state.store.projections.contains("sess-empty"),
             "empty session should be skipped — no projection created"
         );
     }

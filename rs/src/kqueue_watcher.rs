@@ -46,9 +46,16 @@ use std::time::Instant;
 use walkdir::WalkDir;
 
 /// Cap on simultaneously-watched *file* descriptors. Dirs are unbounded (few).
-/// Well under the 256 default soft `RLIMIT_NOFILE`, leaving headroom for the
-/// DB, sockets, and dir fds.
-pub const DEFAULT_FILE_BUDGET: usize = 128;
+///
+/// Sized to cover the full transcript tree, not a small working set: an active
+/// session appended to right now must stay watched even when hundreds of older
+/// sessions exist, or its writes fire no vnode event and never stream. Matches
+/// `watcher::MAX_WATCH_STATES` (the per-file offset table also caps at 4096), so
+/// watching more files than this would be wasted anyway. 4096 open fds is
+/// trivial against a modern `RLIMIT_NOFILE` (1,048,576 soft on macOS); the old
+/// 128 assumed a 256 soft limit that no longer holds and silently dropped
+/// active sessions once the tree grew past it.
+pub const DEFAULT_FILE_BUDGET: usize = 4096;
 
 // ── kqueue / kevent FFI (the only unsafe surface) ───────────────────────────
 

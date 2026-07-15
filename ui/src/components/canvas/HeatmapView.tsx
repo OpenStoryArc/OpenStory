@@ -83,40 +83,40 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#16171f] text-[#c0caf5]" data-testid="heatmap-view">
+    <div className="flex min-h-0 flex-1 flex-col bg-[color:var(--bg)] text-[color:var(--text)]" data-testid="heatmap-view">
       {/* header */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[#2f3348] bg-[#1a1b26] px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[color:var(--divider)] bg-[color:var(--bg)] px-4 py-2.5">
         <div className="flex items-baseline gap-2">
           <span className="text-[15px] font-semibold">Contributions</span>
-          <span className="text-[11px] text-[#565f89]">{grid.totalSessions.toLocaleString()} sessions · {activeDays} active days · last {weeks} weeks</span>
+          <span className="text-[11px] text-[color:var(--text-muted)]">{grid.totalSessions.toLocaleString()} sessions · {activeDays} active days · last {weeks} weeks</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded border border-[#3b4261] p-0.5">
+          <div className="flex items-center gap-1 rounded border border-[color:var(--border)] p-0.5">
             {RANGES.map((r) => (
               <button key={r.weeks} onClick={() => setWeeks(r.weeks)}
-                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", weeks === r.weeks ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{r.label}</button>
+                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", weeks === r.weeks ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]")}>{r.label}</button>
             ))}
           </div>
-          <div className="flex items-center gap-0.5 rounded border border-[#3b4261] p-0.5">
+          <div className="flex items-center gap-0.5 rounded border border-[color:var(--border)] p-0.5">
             {([["2D", false], ["3D", true]] as const).map(([lbl, on]) => (
               <button key={lbl} onClick={() => setIs3D(on)}
-                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", is3D === on ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:text-[#c0caf5]")}>{lbl}</button>
+                className={cn("rounded px-2 py-0.5 text-[11px] transition-colors", is3D === on ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]")}>{lbl}</button>
             ))}
           </div>
         </div>
       </div>
 
       {/* filter bar */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[#2f3348]/60 bg-[#1a1b26] px-4 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[color:var(--divider)]/60 bg-[color:var(--bg)] px-4 py-2">
         {FILTER_DIMS.map((dim) => {
           const values = facets[dim.facet].slice(0, 6);
           if (!values.length) return null;
           return (
             <div key={dim.key} className="flex items-center gap-1">
-              <span className="text-[9px] uppercase tracking-wide text-[#565f89]">{dim.label}</span>
+              <span className="text-[9px] uppercase tracking-wide text-[color:var(--text-muted)]">{dim.label}</span>
               {values.map((v) => (
                 <button key={v.key} onClick={() => toggle(dim.key, v.key)}
-                  className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", filters[dim.key] === v.key ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]")}>
+                  className={cn("rounded px-1.5 py-0.5 text-[11px] transition-colors", filters[dim.key] === v.key ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]")}>
                   {v.key}<span className="ml-1 opacity-60">{v.count}</span>
                 </button>
               ))}
@@ -124,21 +124,21 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
           );
         })}
         {hasFilters && (
-          <button onClick={() => setFilters({})} className="rounded border border-[#3b4261] px-2 py-0.5 text-[11px] text-[#565f89] hover:text-[#c0caf5]">clear</button>
+          <button onClick={() => setFilters({})} className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[11px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]">clear</button>
         )}
       </div>
 
       {/* 3D stacks */}
       {is3D && (
         <div className="relative min-h-0 flex-1">
-          <Suspense fallback={<div className="flex h-full items-center justify-center text-[12px] text-[#565f89]">Loading 3D…</div>}>
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">Loading 3D…</div>}>
             <Heatmap3D
               grid={grid}
               onOpenSession={(id) => (onOpenSession ? onOpenSession(id) : onNavigate({ view: "explore", sessionId: id }))}
               onDayFilter={(date) => onNavigate({ view: "explore", explore: { filters: { day: date } } })}
             />
           </Suspense>
-          <div className="pointer-events-none absolute bottom-3 left-4 text-[10px] text-[#565f89]">
+          <div className="pointer-events-none absolute bottom-3 left-4 text-[10px] text-[color:var(--text-muted)]">
             each box = a session · warm (largest) → cool (smallest) · drag to orbit · hover a box to see it, click to open
           </div>
         </div>
@@ -148,7 +148,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
       {!is3D && (
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading ? (
-          <div className="text-[12px] text-[#565f89]">Loading…</div>
+          <div className="text-[12px] text-[color:var(--text-muted)]">Loading…</div>
         ) : (
           <svg width={svgW} height={svgH} className="block">
             {monthTicks.map((t, i) => (
@@ -176,7 +176,7 @@ export function HeatmapView({ onNavigate, onOpenSession }: {
         )}
 
         {/* legend */}
-        <div className="mt-3 flex items-center gap-1.5 text-[10px] text-[#565f89]">
+        <div className="mt-3 flex items-center gap-1.5 text-[10px] text-[color:var(--text-muted)]">
           <span>Less</span>
           {SCALE.map((c, i) => <span key={i} className="inline-block h-[11px] w-[11px] rounded-[2px]" style={{ background: c }} />)}
           <span>More</span>

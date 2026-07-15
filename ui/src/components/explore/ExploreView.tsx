@@ -15,7 +15,6 @@ import { SemanticSearch } from "./SemanticSearch";
 import { PlanViewer } from "@/components/plans/PlanViewer";
 import { ConstellationView } from "@/components/viz/ConstellationView";
 import { SessionVizLoader } from "@/components/viz/SessionVizLoader";
-import { SessionDetailPanel } from "@/components/session/SessionDetailPanel";
 import { useSessionsList } from "@/hooks/use-sessions-list";
 import { useRecents } from "@/hooks/use-recents";
 import { isSubagentSession } from "@/lib/subagents";
@@ -138,12 +137,12 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
 
   // View tab bar — shared between session and no-session states
   const tabBar = (
-    <div className="flex items-center gap-1 px-4 py-2 border-t border-[#2f3348]">
+    <div className="flex items-center gap-1 px-4 py-2 border-t border-[color:var(--divider)]">
       {/* Back to search button — shown when navigated from a search result */}
       {cameFromSearch.current && detailView !== "search" && (
         <button
           onClick={handleBackToSearch}
-          className="px-2 py-1 rounded text-xs text-[#7aa2f7] hover:bg-[#24283b] mr-1"
+          className="px-2 py-1 rounded text-xs text-[color:var(--accent)] hover:bg-[color:var(--bg-surface)] mr-1"
           data-testid="back-to-search"
         >
           &larr; Search
@@ -156,8 +155,8 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
           data-testid={`view-toggle-${key}`}
           className={`px-3 py-1 rounded text-xs transition-colors ${
             detailView === key
-              ? "bg-[#7aa2f7] text-[#1a1b26] font-medium"
-              : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b]"
+              ? "bg-[color:var(--accent)] text-[color:var(--bg)] font-medium"
+              : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
           }`}
         >
           {label}
@@ -173,7 +172,7 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
         <button
           onClick={() => setSidebarOpen(true)}
           data-testid="sidebar-toggle"
-          className="absolute bottom-3 left-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-[#3b4261] bg-[#24283b] text-sm text-[#7aa2f7] shadow-lg md:hidden"
+          className="absolute bottom-3 left-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--bg-surface)] text-sm text-[color:var(--accent)] shadow-lg md:hidden"
           title="Sessions"
         >
           ☰
@@ -210,26 +209,28 @@ export function ExploreView({ route, onNavigate }: ExploreViewProps) {
       </div>
       <div className="flex-1 min-w-0 overflow-y-auto flex flex-col">
         {selectedSessionId && (
-          <div style={{ display: detailView === "search" ? "none" : undefined }}>
+          <div
+            className="flex min-h-0 flex-1 flex-col"
+            style={{ display: detailView === "search" ? "none" : undefined }}
+          >
             {tabBar}
             {/* Default: conversation-forward — summary card + tokens on top +
                 transcript & writes. The busy Events/Tool-Journey/Files wall is
                 demoted behind the Events tab. */}
             {detailView === "session" && (
-              <>
-                <SessionVizLoader
-                  sessionId={selectedSessionId}
-                  onOpenStory={() => onNavigate({ view: "story", sessionId: selectedSessionId })}
-                  onOpenSubagent={(id) => handleSelectSession(id)}
-                />
-                {/* Synopsis / file-impact / error drills — the former Overview
-                    drill-in's deep links stay reachable here. */}
-                <SessionDetailPanel sessionId={selectedSessionId} />
-              </>
+              /* Synopsis / journey / files now live behind the loader's
+                 "Details" lens tab — nothing stacks below the transcript. */
+              <SessionVizLoader
+                sessionId={selectedSessionId}
+                onOpenStory={() => onNavigate({ view: "story", sessionId: selectedSessionId })}
+                onOpenSubagent={(id) => handleSelectSession(id)}
+              />
             )}
             {detailView === "events" && (
               <>
-                <ExploreDetail sessionId={selectedSessionId} />
+                {/* An event deep-link means THE EVENT — the stats/journey/files
+                    wall steps aside so the focused card is what you land on. */}
+                {!route.eventId && <ExploreDetail sessionId={selectedSessionId} />}
                 <SessionTimeline
                   sessionId={selectedSessionId}
                   scrollToEventId={route.eventId}

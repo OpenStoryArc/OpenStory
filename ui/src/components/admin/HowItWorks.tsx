@@ -13,8 +13,8 @@ export function HowItWorks({
   children: ReactNode;
 }) {
   return (
-    <details className="mt-3 rounded border border-[#24283b] bg-[#16161e]/60 text-xs text-[#9aa5ce]">
-      <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[#7aa2f7]">
+    <details className="mt-3 rounded border border-[color:var(--bg-surface)] bg-[color:var(--bg)]/60 text-xs text-[#9aa5ce]">
+      <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[color:var(--accent)]">
         {summary}
       </summary>
       <div className="space-y-2 px-3 pb-3 pt-1 leading-relaxed">{children}</div>

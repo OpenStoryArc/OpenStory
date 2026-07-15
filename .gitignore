@@ -78,3 +78,6 @@ captures/
 
 # Generated leaf-remote configs (contain hub tokens — never commit)
 deploy/*.generated.conf
+.superpowers/
+# symlinked node_modules (worktree dev servers) — the dir-only pattern above misses symlinks
+node_modules

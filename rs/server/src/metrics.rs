@@ -124,15 +124,57 @@ fn set_watcher_last_success_now(actor: &str) {
         .set(chrono::Utc::now().timestamp() as f64);
 }
 
-/// Build a Router with a single GET /metrics route, capturing the handle.
-pub fn metrics_router(handle: metrics_exporter_prometheus::PrometheusHandle) -> axum::Router {
-    axum::Router::new().route(
-        "/metrics",
-        axum::routing::get(move || {
-            let h = handle.clone();
-            async move { (StatusCode::OK, h.render()) }
-        }),
+/// Render the bounded read-through projection cache gauges as Prometheus
+/// exposition lines. Pure function — no I/O, no global recorder — so tests
+/// can assert on exact output without standing up a Prometheus handle.
+///
+/// One line per gauge/counter, `name value\n`. `evictions` is a monotonic
+/// counter (hence `_total`); the rest are point-in-time gauges.
+pub fn render_cache_metrics(
+    proj_bytes: u64,
+    proj_sessions: usize,
+    evictions: u64,
+    payload_bytes: u64,
+) -> String {
+    format!(
+        "openstory_projection_cache_bytes {proj_bytes}\n\
+         openstory_projection_resident_sessions {proj_sessions}\n\
+         openstory_projection_evictions_total {evictions}\n\
+         openstory_payload_cache_bytes {payload_bytes}\n"
     )
+}
+
+/// Build a Router with a single GET /metrics route, capturing the Prometheus
+/// handle plus a `SharedState` clone so the response can append live
+/// projection/payload cache gauges (see `render_cache_metrics`) after the
+/// standard `metrics` crate output.
+pub fn metrics_router(
+    handle: metrics_exporter_prometheus::PrometheusHandle,
+    state: crate::state::SharedState,
+) -> axum::Router {
+    axum::Router::new()
+        .route(
+            "/metrics",
+            axum::routing::get(
+                move |axum::extract::State(state): axum::extract::State<
+                    crate::state::SharedState,
+                >| {
+                    let h = handle.clone();
+                    async move {
+                        let s = state.read().await;
+                        let cache_metrics = render_cache_metrics(
+                            s.store.projections.resident_bytes(),
+                            s.store.projections.resident_sessions(),
+                            s.store.projections.evictions(),
+                            s.store.full_payloads.resident_bytes(),
+                        );
+                        let body = format!("{}{}", h.render(), cache_metrics);
+                        (StatusCode::OK, body)
+                    }
+                },
+            ),
+        )
+        .with_state(state)
 }
 
 #[cfg(test)]
@@ -183,5 +225,17 @@ mod tests {
         set_sessions_active(10);
         set_sessions_total(42);
         set_ws_clients(3);
+    }
+
+    #[test]
+    fn metrics_report_cache_gauges() {
+        let m = render_cache_metrics(
+            /*proj_bytes*/ 123, /*proj_sessions*/ 4, /*evictions*/ 2,
+            /*payload_bytes*/ 55,
+        );
+        assert!(m.contains("openstory_projection_cache_bytes 123"));
+        assert!(m.contains("openstory_projection_resident_sessions 4"));
+        assert!(m.contains("openstory_projection_evictions_total 2"));
+        assert!(m.contains("openstory_payload_cache_bytes 55"));
     }
 }

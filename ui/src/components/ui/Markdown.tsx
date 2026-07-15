@@ -28,7 +28,7 @@ const MD_COMPONENTS = {
       );
     }
     return (
-      <code className="rounded bg-[#1a1b26] px-1 py-0.5 font-mono text-[12px] text-[#7dcfff]" {...rest}>
+      <code className="rounded bg-[color:var(--bg)] px-1 py-0.5 font-mono text-[12px] text-[color:var(--cyan-bright)]" {...rest}>
         {children}
       </code>
     );

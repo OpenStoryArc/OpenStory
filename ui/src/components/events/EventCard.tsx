@@ -87,8 +87,8 @@ function FilePath({ path }: { path: string }) {
   const dir = parts.join("/");
   return (
     <span className="text-xs font-mono break-all">
-      {dir && <span className="text-[#565f89]">{dir}/</span>}
-      <span className="text-[#7aa2f7]">{file}</span>
+      {dir && <span className="text-[color:var(--text-muted)]">{dir}/</span>}
+      <span className="text-[color:var(--accent)]">{file}</span>
     </span>
   );
 }
@@ -212,7 +212,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
       const bash = ti as import("@/types/view-record").BashInput;
       return (
         <div className="space-y-1">
-          {bash.description && <span className="text-xs text-[#565f89] italic">{bash.description}</span>}
+          {bash.description && <span className="text-xs text-[color:var(--text-muted)] italic">{bash.description}</span>}
           <Code language="bash">{bash.command}</Code>
         </div>
       );
@@ -244,7 +244,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
       return (
         <div className="space-y-0.5">
           <Code language="regex">{pattern}</Code>
-          {path && <span className="text-[10px] text-[#565f89] font-mono">in {path}</span>}
+          {path && <span className="text-[10px] text-[color:var(--text-muted)] font-mono">in {path}</span>}
         </div>
       );
     }
@@ -256,14 +256,14 @@ export function CardBody({ row }: { row: TimelineRow }) {
     if (ti?.tool === "agent") {
       return (
         <div className="space-y-1">
-          {(ti as any).description && <span className="text-xs text-[#bb9af7]">{(ti as any).description}</span>}
-          <p className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words">{(ti as any).prompt}</p>
+          {(ti as any).description && <span className="text-xs text-[color:var(--purple)]">{(ti as any).description}</span>}
+          <p className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap break-words">{(ti as any).prompt}</p>
         </div>
       );
     }
 
     // Fallback
-    return <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words">{row.summary}</pre>;
+    return <pre className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap break-words">{row.summary}</pre>;
   }
 
   // ── Tool results — detect file content and syntax highlight ──
@@ -280,7 +280,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
       const lang = detectLanguage({ filePath: row.fileHint });
       return (
         <div className="space-y-1">
-          <span className="text-[10px] text-[#565f89] font-mono">
+          <span className="text-[10px] text-[color:var(--text-muted)] font-mono">
             Lines {startLine}-{endLine}
           </span>
           <Code language={lang} showLineNumbers startingLineNumber={startLine}>
@@ -295,8 +295,8 @@ export function CardBody({ row }: { row: TimelineRow }) {
     if (extracted && !isError) {
       return (
         <div className="flex items-start gap-1.5">
-          <span className="text-[#9ece6a] shrink-0 mt-0.5">{"\u2713"}</span>
-          <div className="text-sm text-[#a9b1d6] leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere] min-w-0">
+          <span className="text-[color:var(--green)] shrink-0 mt-0.5">{"\u2713"}</span>
+          <div className="text-sm text-[color:var(--text-bright)] leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere] min-w-0">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -310,7 +310,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
                       </SyntaxHighlighter>
                     );
                   }
-                  return <code className="bg-[#1a1b26] px-1 py-0.5 rounded text-xs break-all" {...props}>{children}</code>;
+                  return <code className="bg-[color:var(--bg)] px-1 py-0.5 rounded text-xs break-all" {...props}>{children}</code>;
                 },
                 pre({ children }) {
                   return <>{children}</>;
@@ -332,13 +332,13 @@ export function CardBody({ row }: { row: TimelineRow }) {
     if (structured && !isError) {
       return (
         <div className="flex items-start gap-1.5">
-          <span className="text-[#9ece6a] shrink-0 mt-0.5">{"\u2713"}</span>
+          <span className="text-[color:var(--green)] shrink-0 mt-0.5">{"\u2713"}</span>
           {structured.isJson ? (
             <div className="min-w-0 flex-1 overflow-x-auto">
               <Code language="json">{structured.pretty}</Code>
             </div>
           ) : (
-            <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words min-w-0">
+            <pre className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap break-words min-w-0">
               {structured.pretty}
             </pre>
           )}
@@ -348,10 +348,10 @@ export function CardBody({ row }: { row: TimelineRow }) {
 
     return (
       <div className="flex items-start gap-1.5">
-        <span className={isError ? "text-[#f7768e] shrink-0 mt-0.5" : "text-[#9ece6a] shrink-0 mt-0.5"}>
+        <span className={isError ? "text-[color:var(--red)] shrink-0 mt-0.5" : "text-[color:var(--green)] shrink-0 mt-0.5"}>
           {isError ? "\u2717" : "\u2713"}
         </span>
-        <pre className="text-xs text-[#a9b1d6] whitespace-pre-wrap break-words min-w-0">{text}</pre>
+        <pre className="text-xs text-[color:var(--text-bright)] whitespace-pre-wrap break-words min-w-0">{text}</pre>
       </div>
     );
   }
@@ -361,8 +361,8 @@ export function CardBody({ row }: { row: TimelineRow }) {
     const text = fullText(vr) ?? fullOutput(vr) ?? row.summary;
     return (
       <div className="flex items-start gap-1.5">
-        <span className="text-[#f7768e] shrink-0 mt-0.5">&#10007;</span>
-        <pre className="text-xs text-[#f7768e] whitespace-pre-wrap break-words min-w-0">{text}</pre>
+        <span className="text-[color:var(--red)] shrink-0 mt-0.5">&#10007;</span>
+        <pre className="text-xs text-[color:var(--red)] whitespace-pre-wrap break-words min-w-0">{text}</pre>
       </div>
     );
   }
@@ -370,13 +370,13 @@ export function CardBody({ row }: { row: TimelineRow }) {
   // ── Thinking — prefer full text from payload ──
   if (row.category === "thinking") {
     const text = fullText(vr) ?? row.summary;
-    return <p className="text-xs text-[#9ece6a] italic opacity-70 whitespace-pre-wrap break-words">{text}</p>;
+    return <p className="text-xs text-[color:var(--green)] italic opacity-70 whitespace-pre-wrap break-words">{text}</p>;
   }
 
   // ── System ──
   if (row.category === "system") {
     const text = fullText(vr) ?? row.summary;
-    return <p className="text-xs text-[#565f89] font-mono whitespace-pre-wrap break-words">{text}</p>;
+    return <p className="text-xs text-[color:var(--text-muted)] font-mono whitespace-pre-wrap break-words">{text}</p>;
   }
 
   // ── Prompts + responses: render as markdown — prefer full text from payload ──
@@ -388,7 +388,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
     return <HarnessMessageBlock text={content} />;
   }
 
-  const textColor = row.category === "prompt" ? "text-[#c0caf5]" : "text-[#a9b1d6]";
+  const textColor = row.category === "prompt" ? "text-[color:var(--text)]" : "text-[color:var(--text-bright)]";
   return (
     <div className={`text-sm ${textColor} leading-relaxed prose prose-invert prose-sm max-w-none break-words [overflow-wrap:anywhere]`}>
       <ReactMarkdown
@@ -404,7 +404,7 @@ export function CardBody({ row }: { row: TimelineRow }) {
                 </SyntaxHighlighter>
               );
             }
-            return <code className="bg-[#1a1b26] px-1 py-0.5 rounded text-xs break-all" {...props}>{children}</code>;
+            return <code className="bg-[color:var(--bg)] px-1 py-0.5 rounded text-xs break-all" {...props}>{children}</code>;
           },
           pre({ children }) {
             return <>{children}</>;
@@ -437,9 +437,9 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
   if (row.category === "turn") {
     return (
       <div className="flex items-center px-4 py-2">
-        <div className="flex-1 h-px bg-[#3b4261]" />
-        <span className="text-[10px] text-[#565f89] px-3 shrink-0 font-mono">{row.summary}</span>
-        <div className="flex-1 h-px bg-[#3b4261]" />
+        <div className="flex-1 h-px bg-[color:var(--border)]" />
+        <span className="text-[10px] text-[color:var(--text-muted)] px-3 shrink-0 font-mono">{row.summary}</span>
+        <div className="flex-1 h-px bg-[color:var(--border)]" />
       </div>
     );
   }
@@ -451,7 +451,7 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
 
   return (
     <div
-      className={`mx-3 my-1 rounded-xl border border-[#2f3348] overflow-hidden hover:border-[#414868] ${onClick ? "cursor-pointer" : ""}${selected ? " ring-1 ring-[#7aa2f7]" : ""}`}
+      className={`mx-3 my-1 rounded-xl border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)] ${onClick ? "cursor-pointer" : ""}${selected ? " ring-1 ring-[color:var(--accent)]" : ""}`}
       onClick={onClick}
     >
       <div className={compact ? "px-3 py-1.5" : "px-3 py-2"}>
@@ -474,15 +474,15 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
             {CATEGORY_LABELS[row.category] ?? row.category}
           </span>
           {row.toolName && (
-            <span className="text-xs font-semibold text-[#2ac3de]">{row.toolName}</span>
+            <span className="text-xs font-semibold text-[color:var(--cyan)]">{row.toolName}</span>
           )}
           {compact && (
-            <span className="text-xs text-[#a9b1d6] truncate min-w-0">
+            <span className="text-xs text-[color:var(--text-bright)] truncate min-w-0">
               {row.summary.length > 80 ? row.summary.slice(0, 80) + "..." : row.summary}
             </span>
           )}
           <span
-            className="ml-auto text-[10px] text-[#565f89] font-mono shrink-0"
+            className="ml-auto text-[10px] text-[color:var(--text-muted)] font-mono shrink-0"
             data-testid="event-time"
             title={fullTimestamp(row.timestamp)}
           >
@@ -504,7 +504,7 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
               })}
               data-testid="event-story-turn-link"
               onClick={(e) => e.stopPropagation()}
-              className="mt-1 inline-block text-[10px] text-[#bb9af7] hover:underline"
+              className="mt-1 inline-block text-[10px] text-[color:var(--purple)] hover:underline"
               title="Open this event's turn in Story"
             >
               ↑ Turn in Story
@@ -519,7 +519,7 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
                 })}
                 data-testid="event-pair-link"
                 onClick={(e) => e.stopPropagation()}
-                className="ml-3 mt-1 inline-block text-[10px] text-[#7dcfff] hover:underline"
+                className="ml-3 mt-1 inline-block text-[10px] text-[color:var(--cyan-bright)] hover:underline"
                 title="Jump across the tool round trip"
               >
                 ⇄ {row.record.record_type === "tool_call" ? "result" : "call"}

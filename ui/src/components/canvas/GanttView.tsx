@@ -79,8 +79,8 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
   const dBarW = plotW / density.length;
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-[#16171f]">
-      <AgentLegend agents={model.bars.map((b) => b.agent)} className="absolute right-3 top-1.5 z-10 rounded bg-[#1a1b26]/80 px-1.5 py-0.5" />
+    <div className="relative flex min-h-0 flex-1 flex-col bg-[color:var(--bg)]">
+      <AgentLegend agents={model.bars.map((b) => b.agent)} className="absolute right-3 top-1.5 z-10 rounded bg-[color:var(--bg)]/80 px-1.5 py-0.5" />
       {/* scrollable lane plot */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <svg width={width} height={Math.max(topH, vis.laneCount * LANE_H + 8)} className="block">
@@ -121,7 +121,7 @@ export function GanttView({ sessions, groupBy, width, height, nowMs, onOpenSessi
       </svg>
 
       {/* overview + brush */}
-      <svg width={width} height={OV_H} className="block shrink-0 border-t border-[#2f3348]">
+      <svg width={width} height={OV_H} className="block shrink-0 border-t border-[color:var(--divider)]">
         <text x={6} y={12} fontSize={9} fill="#565f89">overview · concurrent sessions · drag to window</text>
         {density.map((c, i) => {
           const bh = (c / maxD) * (OV_BOT - OV_TOP);

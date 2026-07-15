@@ -33,12 +33,12 @@ export function TabBar({ active, onSwitch }: TabBarProps) {
           aria-selected={active === mode}
           className={`shrink-0 px-3 py-1 rounded text-sm transition-colors ${
             active === mode
-              ? "bg-[#7aa2f7] text-[#1a1b26] font-medium"
-              : "text-[#565f89] hover:text-[#c0caf5] hover:bg-[#24283b]"
+              ? "bg-[color:var(--accent)] text-[color:var(--bg)] font-medium"
+              : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-surface)]"
           }`}
         >
           {active === mode && mode === "live" && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#1a1b26] mr-1.5 animate-pulse" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[color:var(--bg)] mr-1.5 animate-pulse" />
           )}
           {label}
         </button>

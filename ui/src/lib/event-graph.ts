@@ -4,6 +4,7 @@
  *  Enables faceted navigation: click a turn, file, or tool to filter events. */
 
 import type { WireRecord } from "@/types/wire-record";
+import { textFromContent } from "@/lib/message-images";
 import type { ToolCall } from "@/types/view-record";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +166,13 @@ export function splitIntoTurns(records: readonly WireRecord[]): Turn[] {
     if (r.record_type === "user_message") {
       flush();
       currentEvents = [r];
-      const text = (r.payload as Record<string, unknown>).text as string | undefined;
+      // user_message payloads carry `content` (string | ContentBlock[]), not
+      // `text` — the old read was always undefined, labelling EVERY turn
+      // "no prompt" (found via Katie's outline, 2026-07-14).
+      const payload = r.payload as Record<string, unknown>;
+      const rawText =
+        (payload.text as string | undefined) ?? textFromContent(payload.content as never);
+      const text = rawText?.trim() || undefined;
       currentPrompt = text ? (text.length > 100 ? text.slice(0, 100) + "..." : text) : null;
       currentPromptTs = r.timestamp;
     } else {

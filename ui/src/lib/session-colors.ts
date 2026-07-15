@@ -1,59 +1,55 @@
 /**
- * Deterministic session color assignment.
+ * Deterministic session color assignment — theme-aware.
  *
- * Same `session_id` → same color, every time, across every component that
- * displays it. The color set is the Tokyo Night palette + a few neighbours,
- * picked to be visually distinct against the dark background.
+ * Same `session_id` → same color slot, every time, across every component
+ * that displays it. Colors are CSS variables (`--sc-0`…`--sc-9`, defined for
+ * both themes in index.css): pastels on dark, darker same-hue inks on light —
+ * so session chips stay legible when the theme flips, live, with no rerender.
  *
- * Use the base `sessionColor()` for foreground/text colors. For background
- * tints and borders, suffix the hex with the alpha hex codes the rest of the
- * UI uses by convention:
- *
- *   const fg = sessionColor(sid);
- *   <span style={{ color: fg, background: `${fg}18`, border: `1px solid ${fg}33` }}>
- *
- * The `18` and `33` suffixes correspond to ~9% and ~20% alpha, matching the
- * existing chip styling in TurnCard / Sidebar.
+ * Because the value is a `var()` reference (not a hex), NEVER concatenate
+ * alpha suffixes onto it (`${fg}18` breaks). Use `sessionTint()` for
+ * backgrounds/borders — it wraps the color in a theme-correct `color-mix`.
  */
 
-const SESSION_COLORS = [
-  "#7aa2f7", // blue
-  "#bb9af7", // purple
-  "#2ac3de", // bright cyan
-  "#9ece6a", // green
-  "#e0af68", // yellow
-  "#f7768e", // pink
-  "#7dcfff", // cyan
-  "#ff9e64", // orange
-  "#c0caf5", // light gray
-  "#73daca", // teal
-] as const;
+const SLOT_COUNT = 10;
 
-/**
- * Pick a deterministic color from the palette for a given session_id.
- * Uses a simple djb2-style hash so same input always maps to same color.
- */
-export function sessionColor(sessionId: string): string {
+/** Pick a deterministic color slot for a session_id (djb2-style hash). */
+function slot(sessionId: string): number {
   let hash = 0;
   for (let i = 0; i < sessionId.length; i++) {
     hash = ((hash << 5) - hash + sessionId.charCodeAt(i)) | 0;
   }
-  return SESSION_COLORS[Math.abs(hash) % SESSION_COLORS.length]!;
+  return Math.abs(hash) % SLOT_COUNT;
+}
+
+/** Foreground/text color for a session — a CSS var() reference. */
+export function sessionColor(sessionId: string): string {
+  return `var(--sc-${slot(sessionId)})`;
+}
+
+/** Translucent wash of the session color, for chip backgrounds/borders.
+ *  `percent` ≈ the old hex-alpha conventions (18→9, 33→20, etc.). */
+export function sessionTint(sessionId: string, percent: number): string {
+  return `color-mix(in oklab, var(--sc-${slot(sessionId)}) ${percent}%, transparent)`;
+}
+
+/** Tint an arbitrary color string (hex or var()) — for components that
+ *  receive a color prop rather than a session id. */
+export function tint(color: string, percent: number): string {
+  return `color-mix(in oklab, ${color} ${percent}%, transparent)`;
 }
 
 /**
- * Convenience helper: return the {fg, bg, border} triple a chip needs.
- * Avoids string concatenation at every callsite.
+ * Convenience helper: the {fg, bg, border} triple a chip needs.
  */
 export function sessionChipStyle(sessionId: string): {
   readonly fg: string;
   readonly bg: string;
   readonly border: string;
 } {
-  const fg = sessionColor(sessionId);
   return {
-    fg,
-    bg: `${fg}18`,
-    border: `${fg}33`,
+    fg: sessionColor(sessionId),
+    bg: sessionTint(sessionId, 13),
+    border: sessionTint(sessionId, 26),
   };
 }

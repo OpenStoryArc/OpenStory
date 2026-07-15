@@ -35,7 +35,7 @@ use open_story_store::event_store::{EventStore, SessionRow};
 use open_story_store::ingest::{extract_plan_content, is_plan_event};
 use open_story_store::persistence::SessionStore;
 use open_story_store::plan_store::PlanStore;
-use open_story_store::projection::SessionProjection;
+use open_story_store::projection_cache::ProjectionCache;
 use open_story_views::from_cloud_event::from_cloud_event;
 
 /// True if the event's `time` is synthesized at translation (e.g.
@@ -57,8 +57,9 @@ pub struct PersistConsumer {
     event_store: Arc<dyn EventStore>,
     /// JSONL backup store (owned — only this actor writes).
     session_store: SessionStore,
-    /// Shared projection map (read-only from this consumer's POV).
-    projections: Arc<DashMap<String, SessionProjection>>,
+    /// Shared projection cache (read-only from this consumer's POV — it reads
+    /// label/branch/event_count to assemble the SessionRow).
+    projections: Arc<ProjectionCache>,
     /// Shared project-id map — written here when `project_id` arrives on
     /// the batch envelope; read by other consumers / API.
     session_projects: Arc<DashMap<String, String>>,
@@ -85,7 +86,7 @@ impl PersistConsumer {
     pub fn new(
         event_store: Arc<dyn EventStore>,
         session_store: SessionStore,
-        projections: Arc<DashMap<String, SessionProjection>>,
+        projections: Arc<ProjectionCache>,
         session_projects: Arc<DashMap<String, String>>,
         session_project_names: Arc<DashMap<String, String>>,
         plan_store: PlanStore,
@@ -344,7 +345,7 @@ mod tests {
             PersistConsumer::new(
                 event_store,
                 session_store,
-                Arc::new(DashMap::new()),
+                Arc::new(ProjectionCache::new(u64::MAX, 0)),
                 Arc::new(DashMap::new()),
                 Arc::new(DashMap::new()),
                 plan_store,
@@ -592,7 +593,7 @@ mod tests {
         let mut consumer = PersistConsumer::new(
             event_store.clone(),
             session_store,
-            Arc::new(DashMap::new()),
+            Arc::new(ProjectionCache::new(u64::MAX, 0)),
             Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
             plan_store,
@@ -635,7 +636,7 @@ mod tests {
         let plan_store = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
         let mut consumer = PersistConsumer::new(
             event_store, session_store,
-            Arc::new(DashMap::new()), Arc::new(DashMap::new()), Arc::new(DashMap::new()),
+            Arc::new(ProjectionCache::new(u64::MAX, 0)), Arc::new(DashMap::new()), Arc::new(DashMap::new()),
             plan_store,
         );
 

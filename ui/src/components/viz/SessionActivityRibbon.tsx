@@ -10,7 +10,8 @@
  *  marks render as JSX so the component stays React-idiomatic and testable.
  */
 
-import { useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import { controlActions$ } from "@/streams/control";
 import { scaleTime, scaleLinear, scaleSqrt } from "d3-scale";
 import { area, curveMonotoneX } from "d3-shape";
 import { timeFormat } from "d3-time-format";
@@ -21,6 +22,7 @@ import {
   type RibbonEvent,
 } from "@/lib/session-timeline";
 import { cn } from "@/lib/cn";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 
 interface Props {
   records: readonly WireRecord[];
@@ -39,8 +41,10 @@ const LANE_LABEL: Record<LaneKey, string> = {
   system: "system",
 };
 
-const LANE_ROW = 22; // px per swimlane
-const TOKEN_BAND = 34; // px for the token-burn area
+const LANE_ROW_FULL = 22; // px per swimlane
+const LANE_ROW_COMPACT = 13;
+const TOKEN_BAND_FULL = 34; // px for the token-burn area
+const TOKEN_BAND_COMPACT = 20;
 const AXIS_H = 18;
 const PAD_L = 76; // room for lane labels
 const PAD_R = 12;
@@ -89,6 +93,21 @@ export function SessionActivityRibbon({
   const model = useMemo(() => buildTimelineModel(records), [records]);
   const [containerRef, measuredW] = useMeasuredWidth(width);
   const [hover, setHover] = useState<{ ev: RibbonEvent; x: number; y: number } | null>(null);
+  const [collapsed, setCollapsed] = usePersistedFlag("os.ribbon.collapsed", false);
+  const [compact, setCompact] = usePersistedFlag("os.ribbon.compact", false);
+  const LANE_ROW = compact ? LANE_ROW_COMPACT : LANE_ROW_FULL;
+  const TOKEN_BAND = compact ? TOKEN_BAND_COMPACT : TOKEN_BAND_FULL;
+
+  // Agent-in-UI seam: ribbon.compact / ribbon.collapsed ("on"|"off").
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "toggle") return;
+      if (a.target === "ribbon.compact") setCompact(a.value === "on");
+      if (a.target === "ribbon.collapsed") setCollapsed(a.value === "on");
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const w = Math.max(measuredW, PAD_L + PAD_R + 40);
   const lanes = model.lanes;
@@ -123,7 +142,7 @@ export function SessionActivityRibbon({
 
   if (model.events.length === 0) {
     return (
-      <div ref={containerRef} className={cn("px-3 py-4 text-[11px] text-[#565f89]", className)}>
+      <div ref={containerRef} className={cn("px-3 py-4 text-[length:var(--fs-body)] text-[color:var(--text-muted)]", className)}>
         No activity to chart yet.
       </div>
     );
@@ -133,18 +152,44 @@ export function SessionActivityRibbon({
 
   return (
     <div ref={containerRef} className={cn("relative w-full select-none", className)}>
-      {/* Summary chips */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[10px] text-[#565f89]">
-        <span className="text-[#c0caf5]">{model.events.length} events</span>
+      {/* Summary chips + view controls */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
+        <span className="text-[color:var(--text)]">{model.events.length} events</span>
         <span>· {humanDuration(model.durationMs)}</span>
         {model.totalTokens > 0 && (
-          <span>· <span className="text-[#e0af68]">{model.totalTokens.toLocaleString()}</span> out-tokens</span>
+          <span>· <span className="text-[color:var(--orange)]">{model.totalTokens.toLocaleString()}</span> out-tokens</span>
         )}
+        {/* Failed tool calls are routine agent probing (a grep with no match,
+            a non-zero exit) — informative, not alarming. Muted, not red. */}
         {model.errorCount > 0 && (
-          <span className="text-[#f7768e]">· {model.errorCount} error{model.errorCount > 1 ? "s" : ""}</span>
+          <span title="Tool calls that returned an error — usually routine probing, not session failures">
+            · {model.errorCount} failed tool{model.errorCount > 1 ? "s" : ""}
+          </span>
         )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => setCompact(!compact)}
+              className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+              title={compact ? "Taller lane rows" : "Shorter lane rows to save space"}
+            >
+              {compact ? "↕ full height" : "↕ compact"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+            title={collapsed ? "Show the activity timeline" : "Hide the activity timeline"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? "▸ show timeline" : "▾ hide"}
+          </button>
+        </div>
       </div>
 
+      {!collapsed && (
       <svg width={w} height={height} className="block" role="img" aria-label="Session activity ribbon">
         {/* lane rows + labels */}
         {lanes.map((lane) => {
@@ -210,18 +255,19 @@ export function SessionActivityRibbon({
           );
         })}
       </svg>
+      )}
 
       {/* hover tooltip */}
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 rounded border border-[#2f3348] bg-[#1a1b26] px-2 py-1 text-[10px] text-[#c0caf5] shadow-lg"
+          className="pointer-events-none absolute z-10 rounded border border-[color:var(--divider)] bg-[color:var(--bg)] px-2 py-1 text-[length:var(--fs-label)] text-[color:var(--text)] shadow-lg"
           style={{ left: Math.min(hover.x + 8, w - 140), top: hover.y - 34 }}
         >
           <span className="font-medium" style={{ color: hover.ev.color }}>
             {hover.ev.label}
           </span>
-          <span className="ml-1 text-[#565f89]">{fmtFull(new Date(hover.ev.t))}</span>
-          {hover.ev.isError && <span className="ml-1 text-[#f7768e]">error</span>}
+          <span className="ml-1 text-[color:var(--text-muted)]">{fmtFull(new Date(hover.ev.t))}</span>
+          {hover.ev.isError && <span className="ml-1 text-[color:var(--red)]">error</span>}
         </div>
       )}
     </div>

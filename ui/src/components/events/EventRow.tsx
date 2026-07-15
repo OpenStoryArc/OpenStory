@@ -33,17 +33,17 @@ export const EventRow = memo(
     const gitBorderStyle = gitRisk
       ? { borderLeftWidth: "3px", borderLeftColor: GIT_RISK_COLORS[gitRisk] }
       : {};
-    const destructiveBg = gitRisk === "destructive" ? " bg-[#f7768e]/10" : "";
+    const destructiveBg = gitRisk === "destructive" ? " bg-[color:var(--red)]/10" : "";
 
     return (
       <button
         onClick={() => onClick(record.id)}
-        className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs font-mono border-b border-[#2f3348] transition-colors ${
-          selected ? "bg-[#2f3348]" : "hover:bg-[#24283b]"
+        className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-xs font-mono border-b border-[color:var(--divider)] transition-colors ${
+          selected ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
         } ${isNew ? "event-new" : ""}${destructiveBg}`}
         style={gitBorderStyle}
       >
-        <span className="w-16 text-[#565f89] flex-shrink-0">
+        <span className="w-16 text-[color:var(--text-muted)] flex-shrink-0">
           <span title={fullTimestamp(record.timestamp)}>{compactTime(record.timestamp)}</span>
         </span>
         {agentLabel && (
@@ -63,11 +63,11 @@ export const EventRow = memo(
           {label}
         </span>
         {subtype && (
-          <span className="w-24 flex-shrink-0 text-[#2ac3de] truncate">
+          <span className="w-24 flex-shrink-0 text-[color:var(--cyan)] truncate">
             {subtype}
           </span>
         )}
-        <span className="flex-1 text-[#c0caf5] truncate">
+        <span className="flex-1 text-[color:var(--text)] truncate">
           {viewRecordSummary(record)}
         </span>
       </button>

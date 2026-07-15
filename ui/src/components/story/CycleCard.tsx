@@ -42,30 +42,30 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
             style={{ color: colors.border, background: `${colors.border}20`, border: `1px solid ${colors.border}33` }}>
             {colors.label} {sessionId.replace("agent-", "")}
           </span>
-          <span className="text-[10px] text-[#565f89]">cycle {cycle.cycleNumber}</span>
+          <span className="text-[10px] text-[color:var(--text-muted)]">cycle {cycle.cycleNumber}</span>
           {cycle.tools.length > 0 && (
-            <span className="text-[10px] text-[#565f89]">{cycle.tools.length} tools</span>
+            <span className="text-[10px] text-[color:var(--text-muted)]">{cycle.tools.length} tools</span>
           )}
         </div>
         {cycle.isTerminal && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-[#9ece6a18] text-[#9ece6a] border border-[#9ece6a33]">
+          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-[color:var(--green)]/9 text-[color:var(--green)] border border-[color:var(--green)]/20">
             terminal
           </span>
         )}
       </div>
 
       {/* EVAL phase */}
-      <div className="mx-3 mb-1 py-1.5 px-2.5 rounded-r bg-[#24283b]" style={{ borderLeft: "3px solid #9ece6a" }}>
-        <span className="text-[9px] font-bold uppercase tracking-wide text-[#9ece6a]">eval</span>
-        <div className="text-[11px] text-[#a9b1d6] mt-0.5">
+      <div className="mx-3 mb-1 py-1.5 px-2.5 rounded-r bg-[color:var(--bg-surface)]" style={{ borderLeft: "3px solid #9ece6a" }}>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-[color:var(--green)]">eval</span>
+        <div className="text-[11px] text-[color:var(--text-bright)] mt-0.5">
           {cycle.evalText.slice(0, 150)}{cycle.evalText.length > 150 ? "..." : ""}
         </div>
       </div>
 
       {/* APPLY phase */}
       {cycle.tools.length > 0 && (
-        <div className="mx-3 mb-2 py-1.5 px-2.5 rounded-r bg-[#24283b]" style={{ borderLeft: "3px solid #e0af68" }}>
-          <span className="text-[9px] font-bold uppercase tracking-wide text-[#e0af68]">
+        <div className="mx-3 mb-2 py-1.5 px-2.5 rounded-r bg-[color:var(--bg-surface)]" style={{ borderLeft: "3px solid #e0af68" }}>
+          <span className="text-[9px] font-bold uppercase tracking-wide text-[color:var(--orange)]">
             apply ({cycle.tools.length})
           </span>
           {cycle.tools.map((tool, i) => (
@@ -97,13 +97,13 @@ function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sess
   return (
     <div className="mt-1">
       <div className="flex items-center gap-2 text-[11px]">
-        <span className="text-[#e0af68] font-bold min-w-[40px]">{tool.name}</span>
-        <span className="text-[#a9b1d6]">{tool.summary}</span>
+        <span className="text-[color:var(--orange)] font-bold min-w-[40px]">{tool.name}</span>
+        <span className="text-[color:var(--text-bright)]">{tool.summary}</span>
       </div>
       {isAgent && (
         <button
           onClick={() => setAgentExpanded(!agentExpanded)}
-          className="text-[10px] text-[#ff9e64] hover:text-[#c0caf5] transition-colors mt-1 ml-[48px]"
+          className="text-[10px] text-[color:var(--orange)] hover:text-[color:var(--text)] transition-colors mt-1 ml-[48px]"
         >
           {agentExpanded ? "▼" : "▶"} subagent: {tool.summary.slice(0, 40)}
         </button>
@@ -121,7 +121,7 @@ function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sess
         </div>
       )}
       {isAgent && agentExpanded && agentCycles && agentCycles.length === 0 && (
-        <div className="text-[10px] text-[#565f89] italic mt-1 ml-[48px]">
+        <div className="text-[10px] text-[color:var(--text-muted)] italic mt-1 ml-[48px]">
           subagent cycles not yet loaded (needs agent_id → records fetch)
         </div>
       )}

@@ -6,9 +6,11 @@ import type {
 } from "@/types/view-record";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { textFromContent, imagesFromContent } from "@/lib/message-images";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { FilterPills } from "@/components/ui/FilterPills";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { CONVERSATION_FACETS, conversationEntryMatches, facetCounts, type ConversationFacet } from "@/lib/conversation-facets";
 
 interface ConversationViewProps {
@@ -28,7 +30,8 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
-  const [facet, setFacet] = useState<ConversationFacet>("all");
+  // Default to the human conversation (Katie's call) — tool noise opt-in.
+  const [facet, setFacet] = useState<ConversationFacet>("conversation");
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Live-tab facet filtering over the paired entries (same experience as Live).
@@ -88,26 +91,16 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
         case "user_message":
           return (
             <UserMessage
-              text={
-                typeof entry.payload.content === "string"
-                  ? entry.payload.content
-                  : entry.payload.content
-                      ?.filter((b) => b.type === "text")
-                      .map((b) => b.text ?? "")
-                      .join("") ?? ""
-              }
+              text={textFromContent(entry.payload.content)}
+              images={imagesFromContent(entry.payload.content)}
               timestamp={entry.timestamp}
             />
           );
         case "assistant_message":
           return (
             <AssistantMessage
-              text={
-                entry.payload.content
-                  ?.filter((b) => b.type === "text")
-                  .map((b) => b.text ?? "")
-                  .join("") ?? ""
-              }
+              text={textFromContent(entry.payload.content)}
+              images={imagesFromContent(entry.payload.content)}
               model={entry.payload.model}
               timestamp={entry.timestamp}
             />
@@ -155,9 +148,10 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
 
   if (entries.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[#565f89] text-sm">
-        No conversation data
-      </div>
+      <EmptyState
+        title="No conversation yet"
+        hint="User and assistant messages will appear here as this session talks."
+      />
     );
   }
 
@@ -170,7 +164,7 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
           data-testid="load-older"
           onClick={loadOlder}
           disabled={loadingOlder}
-          className="w-full border-b border-[#2f3348] px-3 py-1.5 text-[11px] text-[#7aa2f7] hover:bg-[#2f3348] disabled:opacity-50"
+          className="w-full border-b border-[color:var(--divider)] px-3 py-1.5 text-[length:var(--fs-body)] text-[color:var(--accent)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50"
         >
           {loadingOlder ? "Loading older…" : "↑ Load older history"}
         </button>

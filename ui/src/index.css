@@ -1,19 +1,162 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Tokyonight color tokens */
+/* Tokyonight color tokens — dark (default theme).
+   --text-muted was #565f89 (≈2.8:1 on --bg); bumped to #737aa2 (≈4.2:1) so
+   labels, timestamps, and button text stay muted but readable. */
 :root {
+  color-scheme: dark;
   --bg: #1a1b26;
   --bg-surface: #24283b;
   --bg-hover: #2f3348;
-  --text: #c0caf5;
-  --text-muted: #565f89;
+  --text: #cdd6f9;
+  --text-muted: #737aa2;
   --accent: #7aa2f7;
   --green: #9ece6a;
   --red: #f7768e;
   --orange: #e0af68;
   --purple: #bb9af7;
   --cyan: #2ac3de;
+  --text-bright: #a9b1d6;
+  --border: #3b4261;
+  --cyan-bright: #7dcfff;
+  /* Section dividers. Same as --bg-hover in dark (its historical value), but
+     independently darker in light — a divider must READ against near-white
+     surfaces, while a hover wash must stay subtle. One var can't do both. */
+  --divider: #2f3348;
+
+  /* Session identity colors (sessionColor()) — pastels tuned for dark. The
+     light theme overrides each with a darker same-hue ink so session chips
+     stay legible on white. Consumed as var() so themes swap them live. */
+  --sc-0: #7aa2f7; /* blue */
+  --sc-1: #bb9af7; /* purple */
+  --sc-2: #2ac3de; /* bright cyan */
+  --sc-3: #9ece6a; /* green */
+  --sc-4: #e0af68; /* yellow */
+  --sc-5: #f7768e; /* pink */
+  --sc-6: #7dcfff; /* cyan */
+  --sc-7: #ff9e64; /* orange */
+  --sc-8: #c0caf5; /* light gray */
+  --sc-9: #73daca; /* teal */
+
+  /* The stream field — the dark canvas behind Live-feed event blocks (the
+     x.com idiom: entities float bright on a dark field). Ink in BOTH themes;
+     on-stream chrome (dividers, loading text) uses the fixed on-stream inks
+     below rather than theme text vars. */
+  --stream: #0e0f16;
+  --stream-text: #8f97bd;
+  --stream-line: #31364d;
+
+  /* Type scale — four steps instead of ad-hoc px. Use as
+     text-[length:var(--fs-*)]; change here to retune the whole app. */
+  --fs-label: 10px;    /* uppercase labels, timestamps, chips */
+  --fs-body: 12px;     /* default UI text */
+  --fs-emph: 13px;     /* emphasized values, list titles */
+  --fs-headline: 18px; /* headline numbers (tokens total) */
+}
+
+/* Tokyonight Day — light theme. Elevation matches the dark theme's direction
+   (surfaces get LIGHTER as they elevate): light-gray page, near-white panels,
+   strong slate text. v1 used gray-on-gray and washed out. */
+/* Light — calligrapher's ink on paper (user direction: "bold, like a
+   Japanese/Chinese calligrapher"). Near-black ink strokes on paper-white,
+   decisive dividers, no timid grays. Hues stay Tokyonight Day. */
+/* SEPIA experiment (Max, tonight): warm aged-paper page, cream cards, warm
+   ink. Keeps the calligrapher entity-distinction structure — page clearly
+   darker than components, decisive dividers, ink text. The prior cool-gray
+   ink palette lives in git history one commit back if we revert. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #d9cfbc;
+  --bg-surface: #faf6ea;
+  --bg-hover: #e6dcc6;
+  --text: #201709;
+  --text-muted: #63543a;
+  --accent: #1a5ab8;
+  --green: #55611c;
+  --red: #ab2f28;
+  --orange: #8a4a00;
+  --purple: #653e96;
+  --cyan: #0b5f6e;
+  --text-bright: #3a2e19;
+  --border: #93825f;
+  --cyan-bright: #0a5c6b;
+  --divider: #ab9a78;
+  /* The stream field goes WARM in sepia — the shared blue-black ink clashed
+     with aged paper (Max, from the Live tab). Deep umber keeps the dark-field
+     entity contrast while belonging to the same warm world. */
+  --stream: #57493a;
+  --stream-text: #e6dac2;
+  --stream-line: #7a6a52;
+
+  /* Session identity inks — deep enough to read on cream; hue variety kept. */
+  --sc-0: #1c48a8;
+  --sc-1: #63359f;
+  --sc-2: #08627a;
+  --sc-3: #56621d;
+  --sc-4: #7a5504;
+  --sc-5: #a52a3a;
+  --sc-6: #0a5a88;
+  --sc-7: #92470d;
+  --sc-8: #574a34;
+  --sc-9: #0c645d;
+}
+
+/* Calligrapher entity distinction (light): section labels become bold ink
+   strokes so the eye can find structure — weight, not gray, carries the
+   hierarchy on white paper. */
+:root[data-theme="light"] .uppercase {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Light shadows (sepia): cards lift off the paper with a soft, WARM-toned
+   shadow — cool gray shadows read as dirt on warm paper. Applied to the
+   Live event blocks; `.shadow-card` is the reusable utility for any other
+   surface that should float. Dark mode: none (elevation is value-based). */
+:root[data-theme="light"] [data-testid="timeline-row"],
+:root[data-theme="light"] .shadow-card {
+  box-shadow: 0 1px 2px rgba(74, 55, 24, 0.10);
+}
+
+/* Agent chat bubbles: each new message settles in like a sent text. */
+@keyframes chat-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.chat-enter { animation: chat-in 0.22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-enter { animation: none; }
+}
+
+/* Event Spotlight (presentation mode): backdrop fades in, card scales+fades. */
+@keyframes spotlight-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes spotlight-card-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.spotlight-backdrop { animation: spotlight-fade 0.18s ease-out; }
+.spotlight-card { animation: spotlight-card-in 0.22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-backdrop,
+  .spotlight-card { animation: none; }
+}
+
+/* Micro-motion: one quiet 120ms ease on every interactive surface, instead of
+   scattered per-component transition classes. Guarded for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  a,
+  [role="tab"] {
+    transition:
+      background-color 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease,
+      opacity 0.12s ease;
+  }
 }
 
 body {

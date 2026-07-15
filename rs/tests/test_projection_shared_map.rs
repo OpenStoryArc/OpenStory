@@ -11,12 +11,8 @@
 
 mod helpers;
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
 use helpers::{make_event_with_id, test_state};
 use open_story::server::consumers::projections::ProjectionsConsumer;
-use open_story_store::projection::SessionProjection;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -25,25 +21,22 @@ async fn consumer_writes_are_visible_on_store_state_projections() {
     let state = test_state(&tmp);
 
     // Production wiring: hand the shared maps to the consumer.
-    let (shared, parents, children): (
-        Arc<DashMap<String, SessionProjection>>,
-        Arc<DashMap<String, String>>,
-        Arc<DashMap<String, Vec<String>>>,
-    ) = {
+    let (event_store, shared, parents, children) = {
         let s = state.read().await;
         (
+            s.store.event_store.clone(),
             s.store.projections.clone(),
             s.store.subagent_parents.clone(),
             s.store.session_children.clone(),
         )
     };
-    let mut consumer = ProjectionsConsumer::new(shared.clone(), parents, children);
+    let mut consumer = ProjectionsConsumer::new(event_store, shared.clone(), parents, children);
 
     let events = vec![
         make_event_with_id("message.user.prompt", "sess-shared", "evt-1"),
         make_event_with_id("message.user.prompt", "sess-shared", "evt-2"),
     ];
-    consumer.process_batch("sess-shared", &events);
+    consumer.process_batch("sess-shared", &events).await;
 
     // Reading via the server's AppState sees the consumer's write.
     let s = state.read().await;
@@ -63,30 +56,29 @@ async fn api_layer_observes_consumer_updates_without_sync_step() {
     let tmp = TempDir::new().unwrap();
     let state = test_state(&tmp);
 
-    let (shared, parents, children) = {
+    let (event_store, shared, parents, children) = {
         let s = state.read().await;
         (
+            s.store.event_store.clone(),
             s.store.projections.clone(),
             s.store.subagent_parents.clone(),
             s.store.session_children.clone(),
         )
     };
-    let mut consumer = ProjectionsConsumer::new(shared, parents, children);
+    let mut consumer = ProjectionsConsumer::new(event_store, shared, parents, children);
 
-    consumer.process_batch(
-        "sess-api",
-        &[make_event_with_id(
-            "message.user.prompt",
+    consumer
+        .process_batch(
             "sess-api",
-            "evt-a",
-        )],
-    );
+            &[make_event_with_id("message.user.prompt", "sess-api", "evt-a")],
+        )
+        .await;
 
     // An API-shaped read (clone of the Arc, get by session_id) returns
     // the projection without reaching into ProjectionsConsumer at all.
     let api_view = state.read().await.store.projections.clone();
     assert!(
-        api_view.contains_key("sess-api"),
-        "API-side read of the shared map should observe the write without a sync step"
+        api_view.contains("sess-api"),
+        "API-side read of the shared cache should observe the write without a sync step"
     );
 }

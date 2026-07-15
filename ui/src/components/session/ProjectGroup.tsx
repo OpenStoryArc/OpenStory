@@ -45,16 +45,16 @@ export const ProjectGroup = memo(function ProjectGroup({
     <div>
       <button
         onClick={toggle}
-        className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-[#7aa2f7] hover:bg-[#24283b] transition-colors"
+        className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-[color:var(--accent)] hover:bg-[color:var(--bg-surface)] transition-colors"
       >
-        <span className="text-[#565f89]">{expanded ? "\u25BE" : "\u25B8"}</span>
+        <span className="text-[color:var(--text-muted)]">{expanded ? "\u25BE" : "\u25B8"}</span>
         <span className="truncate flex-1 text-left">
           {displayName}
           {ongoingCount > 0 && (
-            <span className="ml-1.5 text-[#9ece6a]">{"\u25CF"}</span>
+            <span className="ml-1.5 text-[color:var(--green)]">{"\u25CF"}</span>
           )}
         </span>
-        <span className="text-[#565f89] tabular-nums text-right">
+        <span className="text-[color:var(--text-muted)] tabular-nums text-right">
           <span>{sessions.length}</span>
           {latestTime && (
             <span className="ml-1.5 opacity-60">{relativeTimeFrom(latestTime, now)}</span>

@@ -11,7 +11,7 @@ import type { WireRecord } from "@/types/wire-record";
 import type { StorySession, Fleet } from "@/lib/story-api";
 import { Timestamp } from "@/components/ui/Timestamp";
 import { sampleDepthProfile } from "@/lib/depth-profile";
-import { sessionColor } from "@/lib/session-colors";
+import { sessionColor, tint } from "@/lib/session-colors";
 import { DepthSparkline } from "@/components/DepthSparkline";
 import { PersonRow } from "@/components/PersonRow";
 import { TimeFilter } from "@/components/TimeFilter";
@@ -471,12 +471,24 @@ export const Sidebar = memo(function Sidebar({
   // --- Horizontal resize (sidebar width) ---
   const [width, setWidth] = useState(() => {
     // Persisted like the other resizable panels — a chosen width survives reloads.
-    if (typeof window === "undefined") return DEFAULT_WIDTH;
-    const saved = Number(window.localStorage.getItem("live.sidebar.width"));
-    return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+    // Guarded like the rest of the persistence hooks (use-persisted-flag,
+    // ThemeToggle, lib/recents): storage can be absent even when `window`
+    // isn't (privacy modes, quota, or a test/SSR environment), so failing to
+    // read it should fall back to the default rather than throw.
+    try {
+      if (typeof window === "undefined") return DEFAULT_WIDTH;
+      const saved = Number(window.localStorage.getItem("live.sidebar.width"));
+      return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+    } catch {
+      return DEFAULT_WIDTH;
+    }
   });
   useEffect(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+    try {
+      if (typeof window !== "undefined") window.localStorage.setItem("live.sidebar.width", String(width));
+    } catch {
+      /* ignore quota/SSR/unavailable storage */
+    }
   }, [width]);
   const hDrag = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: 0 });
 
@@ -539,13 +551,13 @@ export const Sidebar = memo(function Sidebar({
     <div
       ref={sidebarRef}
       data-testid="sidebar"
-      className="flex flex-col bg-[#1a1b26] border-r border-[#2f3348] overflow-hidden relative"
+      className="flex flex-col bg-[color:var(--bg)] border-r border-[color:var(--divider)] overflow-hidden relative"
       style={{ width, minWidth: MIN_WIDTH, maxWidth: MAX_WIDTH }}
     >
       {/* Width resize handle (right edge) */}
       <div
         onMouseDown={onHDragStart}
-        className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[#7aa2f7] transition-colors z-10"
+        className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-[color:var(--accent)] transition-colors z-10"
       />
       {/* Person filter row — primary user-filter surface, hidden when 0/1 stamped users. */}
       <PersonRow userFilter={userFilter} onUserFilterChange={setUserFilter} />
@@ -554,9 +566,9 @@ export const Sidebar = memo(function Sidebar({
       <TimeFilter value={timeFilter} onChange={setTimeFilter} />
 
       {/* Sessions header */}
-      <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
+      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between">
         <span>Sessions</span>
-        <span className="text-[#7aa2f7]" data-testid="sidebar-session-count">
+        <span className="text-[color:var(--accent)]" data-testid="sidebar-session-count">
           {hostFilter || userFilter || timeFilter !== "all"
             ? `${filteredSessions.length} / ${sessions.length}`
             : sessions.length}
@@ -565,29 +577,29 @@ export const Sidebar = memo(function Sidebar({
 
       {/* Origin filter chips — only rendered when at least one filter is active. */}
       {(hostFilter || userFilter) && (
-        <div className="px-3 py-1.5 border-b border-[#2f3348] flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-chips">
+        <div className="px-3 py-1.5 border-b border-[color:var(--divider)] flex items-center gap-1.5 flex-wrap" data-testid="origin-filter-chips">
           {hostFilter && (
             <button
               type="button"
               onClick={() => setHostFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#7dcfff20] text-[#7dcfff] hover:bg-[#7dcfff40] transition-colors flex items-center gap-1"
+              className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear host filter"
               data-testid="filter-chip-host"
             >
               host: {hostFilter}
-              <span className="text-[#565f89]">×</span>
+              <span className="text-[color:var(--text-muted)]">×</span>
             </button>
           )}
           {userFilter && (
             <button
               type="button"
               onClick={() => setUserFilter(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[#bb9af720] text-[#bb9af7] hover:bg-[#bb9af740] transition-colors flex items-center gap-1"
+              className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors flex items-center gap-1"
               title="Clear user filter"
               data-testid="filter-chip-user"
             >
               user: {userFilter}
-              <span className="text-[#565f89]">×</span>
+              <span className="text-[color:var(--text-muted)]">×</span>
             </button>
           )}
         </div>
@@ -600,13 +612,13 @@ export const Sidebar = memo(function Sidebar({
             wasn't previously handled either; for now we show this when
             sessions.length > 0 to keep the message accurate. */}
         {filteredSessions.length === 0 && sessions.length > 0 && (hostFilter || userFilter || timeFilter !== "all") && (
-          <div className="px-4 py-6 text-center text-xs text-[#565f89]" data-testid="sidebar-no-matches">
-            <div className="mb-1 text-[#7aa2f7]">
+          <div className="px-4 py-6 text-center text-xs text-[color:var(--text-muted)]" data-testid="sidebar-no-matches">
+            <div className="mb-1 text-[color:var(--accent)]">
               No sessions match{userFilter ? ` @${userFilter}` : ""}
               {hostFilter ? ` ⌂ ${hostFilter}` : ""}
               {timeFilter !== "all" ? ` · ${TIME_FILTER_LABELS[timeFilter]}` : ""}
             </div>
-            <div className="text-[10px] mb-2">
+            <div className="text-[length:var(--fs-label)] mb-2">
               {sessions.length} stamped session{sessions.length === 1 ? "" : "s"} on this leaf,
               none from this filter yet.
             </div>
@@ -617,7 +629,7 @@ export const Sidebar = memo(function Sidebar({
                 setUserFilter(null);
                 setTimeFilter("all");
               }}
-              className="text-[10px] px-2 py-1 rounded bg-[#7aa2f720] text-[#7aa2f7] hover:bg-[#7aa2f740] transition-colors"
+              className="text-[length:var(--fs-label)] px-2 py-1 rounded bg-[color:var(--accent)]/13 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/25 transition-colors"
               data-testid="sidebar-clear-filters"
             >
               Clear filters
@@ -629,11 +641,11 @@ export const Sidebar = memo(function Sidebar({
             key={`group-${group.principalId ?? "unattributed"}`}
             data-testid={`fleet-group-${group.principalId ?? "unattributed"}`}
           >
-            <div className="px-3 py-1.5 text-[9px] font-semibold text-[#7aa2f7] bg-[#1a1b26] border-b border-[#2f3348] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
+            <div className="px-3 py-1.5 text-[length:var(--fs-label)] font-semibold text-[color:var(--accent)] bg-[color:var(--bg)] border-b border-[color:var(--divider)] uppercase tracking-wider sticky top-0 z-10 flex items-center justify-between">
               <span className="truncate" data-testid="fleet-group-name" title={group.principalName}>
                 {group.principalName}
               </span>
-              <span className="text-[#565f89] normal-case font-normal text-[9px]">
+              <span className="text-[color:var(--text-muted)] normal-case font-normal text-[length:var(--fs-label)]">
                 {group.sessions.length}
               </span>
             </div>
@@ -655,11 +667,11 @@ export const Sidebar = memo(function Sidebar({
                 setHighlightedIndex(i);
                 sessionListRef.current?.focus();
               }}
-              className={`w-full text-left px-3 py-2 border-b border-[#2f3348] transition-colors relative ${
+              className={`w-full text-left px-3 py-2 border-b border-[color:var(--divider)] transition-colors relative ${
                 isSelected
-                  ? "bg-[#24283b] border-l-2"
-                  : "hover:bg-[#1e2030] cursor-pointer"
-              }${sidebarFocused && isHighlighted ? " ring-1 ring-inset ring-[#7aa2f7]" : ""}`}
+                  ? "bg-[color:var(--bg-surface)] border-l-2"
+                  : "hover:bg-[color:var(--bg-surface)] cursor-pointer"
+              }${sidebarFocused && isHighlighted ? " ring-1 ring-inset ring-[color:var(--accent)]" : ""}`}
               style={isSelected ? { borderLeftColor: color } : undefined}
             >
               {/* Deselect button (only on selected session) */}
@@ -672,7 +684,7 @@ export const Sidebar = memo(function Sidebar({
                     onSelectSession(null);
                     onFocusAgent(null);
                   }}
-                  className="absolute top-1.5 right-2 text-[#565f89] hover:text-[#f7768e] text-xs cursor-pointer z-10"
+                  className="absolute top-1.5 right-2 text-[color:var(--text-muted)] hover:text-[color:var(--red)] text-xs cursor-pointer z-10"
                   title="Deselect session"
                 >
                   ×
@@ -686,8 +698,8 @@ export const Sidebar = memo(function Sidebar({
                     return agentLabel ? (
                       <div className="flex items-center mb-0.5">
                         <span
-                          className="text-[9px] px-1 py-0.5 rounded"
-                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          className="text-[length:var(--fs-label)] px-1 py-0.5 rounded"
+                          style={{ color: agentColor, backgroundColor: tint(agentColor, 12) }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
                         >
@@ -696,34 +708,34 @@ export const Sidebar = memo(function Sidebar({
                       </div>
                     ) : null;
                   })()}
-                  <div className="text-[11px] text-[#c0caf5] truncate leading-tight pr-4" title={s.label}>
+                  <div className="text-[length:var(--fs-body)] text-[color:var(--text)] truncate leading-tight pr-4" title={s.label}>
                     {s.label}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <span
-                      className="text-[9px] px-1 py-0.5 rounded shrink-0"
-                      style={{ color, backgroundColor: `${color}20` }}
+                      className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
+                      style={{ color, backgroundColor: tint(color, 12) }}
                     >
                       {s.id.slice(0, 8)}
                     </span>
                     {s.branch && (
-                      <span className="text-[9px] text-[#7dcfff] truncate" title={s.branch}>{s.branch}</span>
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--cyan-bright)] truncate" title={s.branch}>{s.branch}</span>
                     )}
-                    <span className="text-[9px] text-[#565f89]">
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                       {s.eventCount} · <Timestamp iso={s.latestTimestamp} />
                     </span>
                     {s.totalTokens > 0 && (
-                      <span className="text-[9px] text-[#e0af68]" title="Total tokens used">
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--orange)]" title="Total tokens used">
                         {formatTokenCount(s.totalTokens)}
                       </span>
                     )}
                     {s.subagents.length > 0 && (
-                      <span className="text-[9px] text-[#bb9af7]">
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--purple)]">
                         +{s.subagents.length}
                       </span>
                     )}
                     {s.planCount > 0 && (
-                      <span className="text-[9px] text-[#9ece6a]" title={`${s.planCount} plan${s.planCount !== 1 ? "s" : ""}`}>
+                      <span className="text-[length:var(--fs-label)] text-[color:var(--green)]" title={`${s.planCount} plan${s.planCount !== 1 ? "s" : ""}`}>
                         {s.planCount} plan{s.planCount !== 1 ? "s" : ""}
                       </span>
                     )}
@@ -740,7 +752,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setHostFilter(s.host);
                           }}
-                          className="text-[9px] text-[#7dcfff] hover:bg-[#7dcfff20] px-1 rounded cursor-pointer"
+                          className="text-[length:var(--fs-label)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to host: ${s.host}`}
                         >
                           ⌂ {s.host}
@@ -753,7 +765,7 @@ export const Sidebar = memo(function Sidebar({
                             e.stopPropagation();
                             setUserFilter(s.user);
                           }}
-                          className="text-[9px] text-[#bb9af7] hover:bg-[#bb9af720] px-1 rounded cursor-pointer"
+                          className="text-[length:var(--fs-label)] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/13 px-1 rounded cursor-pointer"
                           title={`Filter to user: ${s.user}`}
                         >
                           @{s.user}
@@ -771,8 +783,8 @@ export const Sidebar = memo(function Sidebar({
                       const agentColor = originAgentColor(s.originAgent);
                       return agentLabel ? (
                         <span
-                          className="text-[9px] px-1 py-0.5 rounded shrink-0"
-                          style={{ color: agentColor, backgroundColor: `${agentColor}20` }}
+                          className="text-[length:var(--fs-label)] px-1 py-0.5 rounded shrink-0"
+                          style={{ color: agentColor, backgroundColor: tint(agentColor, 12) }}
                           title={`Agent: ${agentLabel}`}
                           data-testid="session-agent-badge"
                         >
@@ -781,24 +793,24 @@ export const Sidebar = memo(function Sidebar({
                       ) : null;
                     })()}
                     <span
-                      className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{ color, backgroundColor: `${color}20` }}
+                      className="text-[length:var(--fs-label)] px-1.5 py-0.5 rounded shrink-0"
+                      style={{ color, backgroundColor: tint(color, 12) }}
                     >
                       {s.id.slice(0, 8)}
                     </span>
-                    <span className="text-[10px] text-[#565f89]">
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                       {s.eventCount} events
                     </span>
                   </div>
-                  <div className="text-[10px] text-[#565f89] mt-0.5">
+                  <div className="text-[length:var(--fs-label)] text-[color:var(--text-muted)] mt-0.5">
                     <Timestamp iso={s.latestTimestamp} />
                     {s.subagents.length > 0 && (
-                      <span className="ml-2 text-[#bb9af7]">
+                      <span className="ml-2 text-[color:var(--purple)]">
                         {s.subagents.length} subagent{s.subagents.length !== 1 ? "s" : ""}
                       </span>
                     )}
                     {s.planCount > 0 && (
-                      <span className="ml-2 text-[#9ece6a]">
+                      <span className="ml-2 text-[color:var(--green)]">
                         {s.planCount} plan{s.planCount !== 1 ? "s" : ""}
                       </span>
                     )}
@@ -819,12 +831,12 @@ export const Sidebar = memo(function Sidebar({
           {/* Vertical drag handle */}
           <div
             onMouseDown={onVDragStart}
-            className="h-1 cursor-row-resize hover:bg-[#7aa2f7] transition-colors shrink-0 border-t border-[#2f3348]"
+            className="h-1 cursor-row-resize hover:bg-[color:var(--accent)] transition-colors shrink-0 border-t border-[color:var(--divider)]"
           />
 
-          <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between shrink-0" data-testid="sidebar-agents-header">
+          <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between shrink-0" data-testid="sidebar-agents-header">
             <span>Agents</span>
-            <span className="text-[#bb9af7]">
+            <span className="text-[color:var(--purple)]">
               1{selectedInfo.subagents.length > 0 ? ` + ${selectedInfo.subagents.length}` : ""}
             </span>
           </div>
@@ -834,8 +846,8 @@ export const Sidebar = memo(function Sidebar({
             <button
               data-testid="agent-all"
               onClick={() => onFocusAgent(null)}
-              className={`w-full text-left px-3 py-1.5 text-xs border-b border-[#2f3348] transition-colors ${
-                !focusAgentId ? "bg-[#24283b] text-[#7aa2f7]" : "text-[#565f89] hover:bg-[#1e2030]"
+              className={`w-full text-left px-3 py-1.5 text-xs border-b border-[color:var(--divider)] transition-colors ${
+                !focusAgentId ? "bg-[color:var(--bg-surface)] text-[color:var(--accent)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface)]"
               }`}
             >
               All events ({selectedInfo.eventCount})
@@ -845,15 +857,15 @@ export const Sidebar = memo(function Sidebar({
             <button
               data-testid="agent-main"
               onClick={() => onFocusAgent("__main__")}
-              className={`w-full text-left px-3 py-1.5 border-b border-[#2f3348] transition-colors ${
+              className={`w-full text-left px-3 py-1.5 border-b border-[color:var(--divider)] transition-colors ${
                 focusAgentId === "__main__"
-                  ? "bg-[#24283b] border-l-2 border-l-[#7aa2f7]"
-                  : "hover:bg-[#1e2030]"
+                  ? "bg-[color:var(--bg-surface)] border-l-2 border-l-[color:var(--accent)]"
+                  : "hover:bg-[color:var(--bg-surface)]"
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-[#7aa2f7]">Main agent</span>
-                <span className="text-[10px] text-[#565f89]">
+                <span className="text-[length:var(--fs-body)] text-[color:var(--accent)]">Main agent</span>
+                <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
                   {selectedInfo.mainAgentCount} events
                 </span>
               </div>
@@ -867,19 +879,19 @@ export const Sidebar = memo(function Sidebar({
                   key={sub.agentId}
                   data-testid={`agent-${sub.agentId.slice(0, 16)}`}
                   onClick={() => onFocusAgent(isActive ? null : sub.agentId)}
-                  className={`w-full text-left pl-6 pr-3 py-1.5 border-b border-[#2f3348] transition-colors ${
+                  className={`w-full text-left pl-6 pr-3 py-1.5 border-b border-[color:var(--divider)] transition-colors ${
                     isActive
-                      ? "bg-[#1a1a3e] border-l-2 border-l-[#bb9af7]"
-                      : "hover:bg-[#1e2030]"
+                      ? "bg-[#1a1a3e] border-l-2 border-l-[color:var(--purple)]"
+                      : "hover:bg-[color:var(--bg-surface)]"
                   }`}
                 >
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-[#565f89]">└</span>
-                    <span className="text-[11px] text-[#bb9af7] truncate" title={sub.description ?? sub.agentId}>
+                    <span className="text-[length:var(--fs-label)] text-[color:var(--text-muted)]">└</span>
+                    <span className="text-[length:var(--fs-body)] text-[color:var(--purple)] truncate" title={sub.description ?? sub.agentId}>
                       {sub.description ?? sub.agentId.slice(0, 16)}
                     </span>
                   </div>
-                  <div className="text-[10px] text-[#565f89] pl-4">
+                  <div className="text-[length:var(--fs-label)] text-[color:var(--text-muted)] pl-4">
                     {sub.eventCount} events · <Timestamp iso={sub.firstTimestamp} />
                   </div>
                 </button>
@@ -887,7 +899,7 @@ export const Sidebar = memo(function Sidebar({
             })}
 
             {selectedInfo.subagents.length === 0 && (
-              <div className="px-3 py-2 text-[10px] text-[#565f89] italic">
+              <div className="px-3 py-2 text-[length:var(--fs-label)] text-[color:var(--text-muted)] italic">
                 No subagents spawned
               </div>
             )}

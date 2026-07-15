@@ -125,27 +125,27 @@ export function ExploreSidebar({
   };
 
   return (
-    <div className="w-72 shrink-0 flex flex-col border-r border-[#2f3348] bg-[#1a1b26] overflow-hidden" data-testid="explore-sidebar">
+    <div className="w-72 shrink-0 flex flex-col border-r border-[color:var(--divider)] bg-[color:var(--bg)] overflow-hidden" data-testid="explore-sidebar">
       {/* Header */}
-      <div className="px-3 py-2 text-xs text-[#565f89] uppercase tracking-wider border-b border-[#2f3348] flex items-center justify-between">
+      <div className="px-3 py-2 text-xs text-[color:var(--text-muted)] uppercase tracking-wider border-b border-[color:var(--divider)] flex items-center justify-between">
         <span>Sessions</span>
-        <span className="text-[#7aa2f7]">{hierarchy.length}</span>
+        <span className="text-[color:var(--accent)]">{hierarchy.length}</span>
       </div>
 
       {/* Search */}
-      <div className="px-2 py-1.5 border-b border-[#2f3348]">
+      <div className="px-2 py-1.5 border-b border-[color:var(--divider)]">
         <input
           type="text"
           value={filters.search ?? ""}
           onChange={(e) => onFiltersChange({ ...filters, search: e.target.value || undefined })}
           placeholder="Search..."
-          className="w-full bg-[#24283b] text-[#c0caf5] text-[11px] rounded px-2 py-1 border border-[#2f3348] focus:border-[#7aa2f7] focus:outline-none placeholder-[#565f89]"
+          className="w-full bg-[color:var(--bg-surface)] text-[color:var(--text)] text-[11px] rounded px-2 py-1 border border-[color:var(--divider)] focus:border-[color:var(--accent)] focus:outline-none placeholder-[color:var(--text-muted)]"
           data-testid="explore-search"
         />
       </div>
 
       {/* Sort chips */}
-      <div className="flex flex-wrap items-center gap-1 px-2 py-1 border-b border-[#2f3348]">
+      <div className="flex flex-wrap items-center gap-1 px-2 py-1 border-b border-[color:var(--divider)]">
         {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
           <button
             key={k}
@@ -153,7 +153,7 @@ export function ExploreSidebar({
             data-testid={`sort-${k}`}
             className={cn(
               "rounded px-1.5 py-0.5 text-[10px] transition-colors",
-              sortKey === k ? "bg-[#7aa2f7] text-[#1a1b26]" : "text-[#565f89] hover:bg-[#2f3348] hover:text-[#c0caf5]",
+              sortKey === k ? "bg-[color:var(--accent)] text-[color:var(--bg)]" : "text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]",
             )}
           >
             {SORT_LABELS[k]}
@@ -162,7 +162,7 @@ export function ExploreSidebar({
       </div>
 
       {/* Date-range chips — bookmarkable via filters.range */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-[#2f3348] text-[10px]">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-[color:var(--divider)] text-[10px]">
         {RANGE_CHIPS.map((r) => (
           <button
             key={r.key}
@@ -170,7 +170,7 @@ export function ExploreSidebar({
             data-testid={`date-range-${r.key}`}
             className={cn(
               "px-1.5 py-0.5 rounded transition-colors",
-              filters.range === r.key ? "bg-[#7aa2f7] text-[#1a1b26] font-medium" : "text-[#565f89] hover:text-[#c0caf5]",
+              filters.range === r.key ? "bg-[color:var(--accent)] text-[color:var(--bg)] font-medium" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
             )}
           >
             {r.label}
@@ -181,7 +181,7 @@ export function ExploreSidebar({
           data-testid="date-range-all"
           className={cn(
             "px-1.5 py-0.5 rounded transition-colors",
-            !filters.range ? "bg-[#7aa2f7] text-[#1a1b26] font-medium" : "text-[#565f89] hover:text-[#c0caf5]",
+            !filters.range ? "bg-[color:var(--accent)] text-[color:var(--bg)] font-medium" : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
           )}
         >
           All
@@ -190,12 +190,12 @@ export function ExploreSidebar({
 
       {/* Facets + active-filter controls */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="border-b border-[#2f3348]">
+        <div className="border-b border-[color:var(--divider)]">
           <div className="p-2 pb-0">
             {active && (
               <button
                 onClick={() => onFiltersChange({})}
-                className="mb-2 w-full rounded border border-[#f7768e]/40 px-2 py-0.5 text-[11px] text-[#f7768e] hover:bg-[#f7768e]/10"
+                className="mb-2 w-full rounded border border-[color:var(--red)]/40 px-2 py-0.5 text-[11px] text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
               >
                 Clear all filters
               </button>
@@ -203,7 +203,7 @@ export function ExploreSidebar({
             {filters.day && (
               <button
                 onClick={() => onFiltersChange({ ...filters, day: undefined })}
-                className="mb-2 flex w-full items-center justify-between rounded bg-[#7aa2f7] px-2 py-0.5 text-[11px] text-[#1a1b26]"
+                className="mb-2 flex w-full items-center justify-between rounded bg-[color:var(--accent)] px-2 py-0.5 text-[11px] text-[color:var(--bg)]"
               >
                 <span>📅 {filters.day}</span>
                 <span>✕</span>
@@ -213,12 +213,12 @@ export function ExploreSidebar({
           <button
             onClick={() => setFacetsOpen((o) => !o)}
             data-testid="facets-toggle"
-            className="flex w-full items-center gap-1 px-3 pb-1.5 pt-0.5 text-[10px] uppercase tracking-wide text-[#565f89] hover:text-[#c0caf5]"
+            className="flex w-full items-center gap-1 px-3 pb-1.5 pt-0.5 text-[10px] uppercase tracking-wide text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
           >
             <span>{facetsOpen ? "▾" : "▸"}</span>
             <span>Filters</span>
             {activeFacetCount > 0 && (
-              <span className="rounded-full bg-[#7aa2f7] px-1.5 text-[9px] font-medium text-[#1a1b26]">{activeFacetCount}</span>
+              <span className="rounded-full bg-[color:var(--accent)] px-1.5 text-[9px] font-medium text-[color:var(--bg)]">{activeFacetCount}</span>
             )}
           </button>
           {facetsOpen && (
@@ -242,9 +242,9 @@ export function ExploreSidebar({
           className="outline-none"
         >
           {loading ? (
-            <div className="p-3 text-xs text-[#565f89]">Loading sessions...</div>
+            <div className="p-3 text-xs text-[color:var(--text-muted)]">Loading sessions...</div>
           ) : hierarchy.length === 0 ? (
-            <div className="p-3 text-xs text-[#565f89]">
+            <div className="p-3 text-xs text-[color:var(--text-muted)]">
               {active ? "No sessions match filters" : "No sessions found"}
             </div>
           ) : (
@@ -287,7 +287,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
   const durMs = sessionDurationMs(s);
 
   return (
-    <div className="border-b border-[#2f3348]">
+    <div className="border-b border-[color:var(--divider)]">
       {/* Parent session */}
       <button
         onClick={() => onSelect(s.session_id)}
@@ -295,8 +295,8 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         data-session-row={s.session_id}
         className={cn(
           "w-full text-left px-3 py-2 transition-colors border-l-2",
-          isSelected ? "bg-[#24283b]" : "hover:bg-[#1e2030] border-l-transparent",
-          isHighlighted && "ring-1 ring-inset ring-[#7aa2f7]",
+          isSelected ? "bg-[color:var(--bg-surface)]" : "hover:bg-[color:var(--bg-surface)] border-l-transparent",
+          isHighlighted && "ring-1 ring-inset ring-[color:var(--accent)]",
         )}
         style={isSelected ? { borderLeftColor: color } : undefined}
       >
@@ -304,7 +304,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         {(() => {
           const title = sessionTitle(s);
           return title !== s.session_id.slice(0, 8) ? (
-            <div className="text-[11px] text-[#c0caf5] truncate leading-tight mb-0.5" title={title}>{title}</div>
+            <div className="text-[11px] text-[color:var(--text)] truncate leading-tight mb-0.5" title={title}>{title}</div>
           ) : null;
         })()}
 
@@ -321,11 +321,11 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
             style={{ backgroundColor: statusColor }}
             title={s.status ?? "unknown"}
           />
-          <span className="text-[9px] text-[#565f89]">{s.event_count ?? 0}</span>
+          <span className="text-[9px] text-[color:var(--text-muted)]">{s.event_count ?? 0}</span>
           {durMs > 0 && (
-            <span className="text-[9px] text-[#565f89]">{formatDuration(durMs)}</span>
+            <span className="text-[9px] text-[color:var(--text-muted)]">{formatDuration(durMs)}</span>
           )}
-          <span className="text-[9px] text-[#565f89] ml-auto tabular-nums" title="latest activity">
+          <span className="text-[9px] text-[color:var(--text-muted)] ml-auto tabular-nums" title="latest activity">
             {fullTimestamp(s.last_event ?? s.start_time ?? "")}
           </span>
         </div>
@@ -333,10 +333,10 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         {/* Project + agent count */}
         <div className="flex items-center gap-2 mt-0.5">
           {s.project_name && (
-            <span className="text-[9px] text-[#7dcfff] truncate" title={s.project_name}>{s.project_name}</span>
+            <span className="text-[9px] text-[color:var(--cyan-bright)] truncate" title={s.project_name}>{s.project_name}</span>
           )}
           {hasAgents && (
-            <span className="text-[9px] text-[#bb9af7] ml-auto shrink-0">
+            <span className="text-[9px] text-[color:var(--purple)] ml-auto shrink-0">
               {parent.agents.length} agent{parent.agents.length !== 1 ? "s" : ""}
             </span>
           )}
@@ -348,16 +348,16 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         <>
           <button
             onClick={onToggleExpand}
-            className="w-full px-3 py-1 text-[10px] text-[#bb9af7] hover:bg-[#1e2030] transition-colors flex items-center gap-1"
+            className="w-full px-3 py-1 text-[10px] text-[color:var(--purple)] hover:bg-[color:var(--bg-surface)] transition-colors flex items-center gap-1"
           >
             <span>{isExpanded ? "▾" : "▸"}</span>
             <span>{parent.agents.length} subagent{parent.agents.length !== 1 ? "s" : ""}</span>
-            <span className="text-[#565f89]">({parent.totalAgentEvents} events)</span>
+            <span className="text-[color:var(--text-muted)]">({parent.totalAgentEvents} events)</span>
           </button>
 
           {/* Agent list */}
           {isExpanded && (
-            <div className="bg-[#1e2030]">
+            <div className="bg-[color:var(--bg-surface)]">
               {parent.agents.map((a) => {
                 const agentColor = sessionColor(a.session_id);
                 const agentSelected = selectedSessionId === a.session_id;
@@ -367,11 +367,11 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
                     onClick={() => onSelect(a.session_id)}
                     className={cn(
                       "w-full text-left pl-6 pr-3 py-1.5 text-xs transition-colors border-l-2",
-                      agentSelected ? "bg-[#24283b]" : "hover:bg-[#24283b] border-l-transparent",
+                      agentSelected ? "bg-[color:var(--bg-surface)]" : "hover:bg-[color:var(--bg-surface)] border-l-transparent",
                     )}
                     style={agentSelected ? { borderLeftColor: agentColor } : undefined}
                   >
-                    <div className="text-[10px] text-[#a9b1d6] truncate" title={sessionTitle(a)}>
+                    <div className="text-[10px] text-[color:var(--text-bright)] truncate" title={sessionTitle(a)}>
                       {sessionTitle(a)}
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
@@ -381,7 +381,7 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
                       >
                         {a.session_id.slice(6, 14)}
                       </span>
-                      <span className="text-[9px] text-[#565f89]">{a.event_count ?? 0}</span>
+                      <span className="text-[9px] text-[color:var(--text-muted)]">{a.event_count ?? 0}</span>
                     </div>
                   </button>
                 );

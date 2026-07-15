@@ -136,25 +136,25 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
       data-testid="command-palette"
     >
       <div
-        className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-[#3b4261] bg-[#1f2335] shadow-2xl"
+        className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b border-[#2f3348] px-3">
-          <span className="text-[#565f89]">⌘</span>
+        <div className="flex items-center gap-2 border-b border-[color:var(--divider)] px-3">
+          <span className="text-[color:var(--text-muted)]">⌘</span>
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKey}
             placeholder="Jump to a session or view…"
-            className="w-full bg-transparent py-3 text-[14px] text-[#c0caf5] placeholder:text-[#565f89] focus:outline-none"
+            className="w-full bg-transparent py-3 text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-muted)] focus:outline-none"
           />
-          <kbd className="rounded bg-[#24283b] px-1.5 py-0.5 text-[10px] text-[#565f89]">esc</kbd>
+          <kbd className="rounded bg-[color:var(--bg-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-muted)]">esc</kbd>
         </div>
 
         <div className="max-h-[52vh] overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-[12px] text-[#565f89]">No matches.</div>
+            <div className="px-4 py-6 text-center text-[12px] text-[color:var(--text-muted)]">No matches.</div>
           ) : (
             results.map((item, i) => {
               const active = i === sel;
@@ -166,24 +166,24 @@ export function CommandPalette({ sessions, onNavigate, recentIds }: Props) {
                   onClick={() => run(item)}
                   className={cn(
                     "flex w-full items-center gap-3 px-3 py-2 text-left",
-                    active ? "bg-[#283549]" : "hover:bg-[#24283b]",
+                    active ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]",
                   )}
                 >
                   <span className="w-4 shrink-0 text-center text-[13px]" style={{ color: item.color ?? "#7aa2f7" }}>{item.icon}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] text-[#c0caf5]">{item.title}</span>
-                    {item.subtitle && <span className="block truncate text-[10px] text-[#565f89]">{item.subtitle}</span>}
+                    <span className="block truncate text-[13px] text-[color:var(--text)]">{item.title}</span>
+                    {item.subtitle && <span className="block truncate text-[10px] text-[color:var(--text-muted)]">{item.subtitle}</span>}
                   </span>
-                  <span className="shrink-0 text-[9px] uppercase tracking-wide text-[#565f89]">{item.group}</span>
+                  <span className="shrink-0 text-[9px] uppercase tracking-wide text-[color:var(--text-muted)]">{item.group}</span>
                 </button>
               );
             })
           )}
         </div>
 
-        <div className="flex items-center gap-3 border-t border-[#2f3348] px-3 py-1.5 text-[10px] text-[#565f89]">
-          <span><kbd className="text-[#7aa2f7]">↑↓</kbd> navigate</span>
-          <span><kbd className="text-[#7aa2f7]">↵</kbd> open</span>
+        <div className="flex items-center gap-3 border-t border-[color:var(--divider)] px-3 py-1.5 text-[10px] text-[color:var(--text-muted)]">
+          <span><kbd className="text-[color:var(--accent)]">↑↓</kbd> navigate</span>
+          <span><kbd className="text-[color:var(--accent)]">↵</kbd> open</span>
           <span className="ml-auto">{results.length} result{results.length === 1 ? "" : "s"}</span>
         </div>
       </div>

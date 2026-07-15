@@ -38,28 +38,28 @@ export function PlansList({ sessionId, onSelect, selectedId, onPlansLoaded }: Pl
 
   if (loading) {
     return (
-      <div className="p-4 text-sm text-[#565f89] animate-pulse">Loading plans...</div>
+      <div className="p-4 text-sm text-[color:var(--text-muted)] animate-pulse">Loading plans...</div>
     );
   }
 
   if (plans.length === 0) {
     return (
-      <div className="p-4 text-sm text-[#565f89]">No plans available</div>
+      <div className="p-4 text-sm text-[color:var(--text-muted)]">No plans available</div>
     );
   }
 
   return (
-    <div className="border-r border-[#2f3348] w-64 overflow-y-auto">
+    <div className="border-r border-[color:var(--divider)] w-64 overflow-y-auto">
       {plans.map((p) => (
         <button
           key={p.id}
           onClick={() => onSelect(p.id)}
-          className={`w-full text-left p-3 border-b border-[#2f3348] transition-colors ${
-            selectedId === p.id ? "bg-[#2f3348]" : "hover:bg-[#24283b]"
+          className={`w-full text-left p-3 border-b border-[color:var(--divider)] transition-colors ${
+            selectedId === p.id ? "bg-[color:var(--bg-hover)]" : "hover:bg-[color:var(--bg-surface)]"
           }`}
         >
-          <div className="text-sm text-[#c0caf5] mb-1 truncate">{p.title}</div>
-          <div className="text-xs text-[#565f89]">
+          <div className="text-sm text-[color:var(--text)] mb-1 truncate">{p.title}</div>
+          <div className="text-xs text-[color:var(--text-muted)]">
             {relativeTime(p.timestamp)}
           </div>
         </button>

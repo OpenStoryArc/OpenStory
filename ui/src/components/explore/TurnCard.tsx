@@ -31,36 +31,36 @@ export function TurnCard({ turn, index }: TurnCardProps) {
   };
 
   return (
-    <div className="border border-[#2f3348] rounded-xl overflow-hidden" data-testid="turn-card">
+    <div className="border border-[color:var(--divider)] rounded-xl overflow-hidden" data-testid="turn-card">
       {/* Prompt */}
       {turn.prompt && (
-        <div className="px-4 py-3 bg-[#24283b] border-b border-[#2f3348]">
+        <div className="px-4 py-3 bg-[color:var(--bg-surface)] border-b border-[color:var(--divider)]">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#7aa2f718] text-[#7aa2f7] font-medium">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--accent)]/9 text-[color:var(--accent)] font-medium">
               Turn {index + 1}
             </span>
             {turn.promptTimestamp && (
-              <span className="text-[10px] text-[#565f89] font-mono">
+              <span className="text-[10px] text-[color:var(--text-muted)] font-mono">
                 <span title={fullTimestamp(turn.promptTimestamp)}>{compactTime(turn.promptTimestamp)}</span>
               </span>
             )}
           </div>
-          <p className="text-sm text-[#c0caf5] whitespace-pre-wrap">{turn.prompt}</p>
+          <p className="text-sm text-[color:var(--text)] whitespace-pre-wrap">{turn.prompt}</p>
         </div>
       )}
 
       {/* Thinking (collapsed by default) */}
       {turn.thinking && (
-        <div className="border-b border-[#2f3348]">
+        <div className="border-b border-[color:var(--divider)]">
           <button
             onClick={() => setShowThinking((v) => !v)}
-            className="w-full px-4 py-1.5 text-left text-[11px] text-[#9ece6a] hover:bg-[#1a1b26] transition-colors flex items-center gap-1"
+            className="w-full px-4 py-1.5 text-left text-[11px] text-[color:var(--green)] hover:bg-[color:var(--bg)] transition-colors flex items-center gap-1"
           >
             <span className="text-[10px]">{showThinking ? "▾" : "▸"}</span>
             <span className="italic">Thinking...</span>
           </button>
           {showThinking && (
-            <div className="px-4 py-2 text-xs text-[#9ece6a] italic opacity-70 whitespace-pre-wrap">
+            <div className="px-4 py-2 text-xs text-[color:var(--green)] italic opacity-70 whitespace-pre-wrap">
               {turn.thinking}
             </div>
           )}
@@ -69,7 +69,7 @@ export function TurnCard({ turn, index }: TurnCardProps) {
 
       {/* Tool calls */}
       {turn.toolCalls.length > 0 && (
-        <div className="border-b border-[#2f3348]">
+        <div className="border-b border-[color:var(--divider)]">
           {turn.toolCalls.map((tc, i) => (
             <ToolCallRow
               key={i}
@@ -85,11 +85,11 @@ export function TurnCard({ turn, index }: TurnCardProps) {
       {turn.response && (
         <div className="px-4 py-3">
           {turn.responseTimestamp && (
-            <span className="text-[10px] text-[#565f89] font-mono mb-1 block">
+            <span className="text-[10px] text-[color:var(--text-muted)] font-mono mb-1 block">
               <span title={fullTimestamp(turn.responseTimestamp)}>{compactTime(turn.responseTimestamp)}</span>
             </span>
           )}
-          <p className="text-sm text-[#a9b1d6] whitespace-pre-wrap">
+          <p className="text-sm text-[color:var(--text-bright)] whitespace-pre-wrap">
             {turn.response.length > 500 ? turn.response.slice(0, 500) + "…" : turn.response}
           </p>
         </div>
@@ -114,10 +114,10 @@ function ToolCallRow({ entry, expanded, onToggle }: {
   const filePath = (tc.typed_input as { file_path?: string } | undefined)?.file_path;
 
   return (
-    <div className="border-b border-[#2f334830] last:border-b-0">
+    <div className="border-b border-[color:var(--divider)]/19 last:border-b-0">
       <button
         onClick={onToggle}
-        className="w-full px-4 py-1.5 text-left text-xs hover:bg-[#1a1b26] transition-colors flex items-center gap-2"
+        className="w-full px-4 py-1.5 text-left text-xs hover:bg-[color:var(--bg)] transition-colors flex items-center gap-2"
       >
         <span className="text-[10px]">{expanded ? "▾" : "▸"}</span>
         <span
@@ -125,11 +125,11 @@ function ToolCallRow({ entry, expanded, onToggle }: {
           style={{ backgroundColor: color }}
         />
         <span className="font-medium" style={{ color }}>{name}</span>
-        {summary && <span className="text-[#565f89] truncate">{summary}</span>}
-        {isError && <span className="text-[#f7768e] text-[10px] ml-auto">error</span>}
+        {summary && <span className="text-[color:var(--text-muted)] truncate">{summary}</span>}
+        {isError && <span className="text-[color:var(--red)] text-[10px] ml-auto">error</span>}
       </button>
       {expanded && resultOutput && (
-        <div className="mx-4 mb-2 rounded bg-[#1a1b26] overflow-hidden max-h-[200px] overflow-y-auto">
+        <div className="mx-4 mb-2 rounded bg-[color:var(--bg)] overflow-hidden max-h-[200px] overflow-y-auto">
           <ToolResultOutput
             output={resultOutput}
             toolName={name}
@@ -152,7 +152,7 @@ function ToolResultOutput({ output, toolName, filePath, isError }: {
 
   if (isError) {
     return (
-      <pre className="px-4 py-2 text-[11px] text-[#f7768e] whitespace-pre-wrap break-words">
+      <pre className="px-4 py-2 text-[11px] text-[color:var(--red)] whitespace-pre-wrap break-words">
         {truncated}
       </pre>
     );
@@ -172,7 +172,7 @@ function ToolResultOutput({ output, toolName, filePath, isError }: {
 
   if (language === "text") {
     return (
-      <pre className="px-4 py-2 text-[11px] text-[#a9b1d6] whitespace-pre-wrap break-words">
+      <pre className="px-4 py-2 text-[11px] text-[color:var(--text-bright)] whitespace-pre-wrap break-words">
         {cleaned}
       </pre>
     );

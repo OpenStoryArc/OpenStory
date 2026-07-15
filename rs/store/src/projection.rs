@@ -147,6 +147,51 @@ fn is_test_failure(record: &ViewRecord) -> bool {
     }
 }
 
+/// Byte length of the string content a `ViewRecord` carries, for heap-size
+/// budgeting. `ViewRecord` is defined in `open_story_views`, so this is a
+/// local trait (not an inherent impl) to stay within this crate — orphan
+/// rules allow `impl LocalTrait for ForeignType`.
+trait ApproxContentLen {
+    fn approx_content_len(&self) -> usize;
+}
+
+fn content_block_len(block: &open_story_views::unified::ContentBlock) -> usize {
+    use open_story_views::unified::ContentBlock;
+    match block {
+        ContentBlock::Text { text } => text.len(),
+        ContentBlock::CodeBlock { text, .. } => text.len(),
+        ContentBlock::Image { .. } => 0,
+    }
+}
+
+impl ApproxContentLen for ViewRecord {
+    fn approx_content_len(&self) -> usize {
+        match &self.body {
+            RecordBody::UserMessage(um) => match &um.content {
+                MessageContent::Text(t) => t.len(),
+                MessageContent::Blocks(blocks) => blocks.iter().map(content_block_len).sum(),
+            },
+            RecordBody::AssistantMessage(am) => am.content.iter().map(content_block_len).sum(),
+            RecordBody::Reasoning(r) => {
+                r.content.as_deref().map(str::len).unwrap_or(0)
+                    + r.summary.iter().map(String::len).sum::<usize>()
+            }
+            RecordBody::ToolResult(tr) => tr.output.as_deref().map(str::len).unwrap_or(0),
+            RecordBody::Error(e) => {
+                e.message.len() + e.details.as_deref().map(str::len).unwrap_or(0)
+            }
+            RecordBody::ContextCompaction(cc) => cc.message.as_deref().map(str::len).unwrap_or(0),
+            RecordBody::SystemEvent(se) => se.message.as_deref().map(str::len).unwrap_or(0),
+            RecordBody::FileSnapshot(fs) => fs.git_message.as_deref().map(str::len).unwrap_or(0),
+            RecordBody::SessionMeta(_)
+            | RecordBody::TurnStart(_)
+            | RecordBody::TurnEnd(_)
+            | RecordBody::ToolCall(_)
+            | RecordBody::TokenUsage(_) => 0,
+        }
+    }
+}
+
 // ── SessionProjection ───────────────────────────────────────────────
 
 /// Per-session incremental projection. Updated on every event append.
@@ -493,6 +538,21 @@ impl SessionProjection {
     /// O(1) instead of a whole-session rescan.
     pub fn summary(&self, session_id_hint: &str, now: Option<DateTime<Utc>>) -> SessionSummary {
         self.summary_acc.finish(session_id_hint, now)
+    }
+
+    /// Approximate resident heap footprint of this projection. Not exact —
+    /// sums the string content we hold (record bodies + overflow payloads)
+    /// plus a fixed per-record overhead. Good enough for byte budgeting.
+    pub fn heap_bytes(&self) -> u64 {
+        const PER_RECORD_OVERHEAD: u64 = 256;
+        let mut n = 0u64;
+        for r in &self.records {
+            n += PER_RECORD_OVERHEAD + r.approx_content_len() as u64;
+        }
+        for v in self.full_payloads.values() {
+            n += v.len() as u64;
+        }
+        n
     }
 }
 
@@ -919,6 +979,24 @@ mod tests {
         proj.append(&errored("err-2", 3));
 
         assert_eq!(proj.first_error_event_id(), Some("err-1"));
+    }
+
+    #[test]
+    fn heap_bytes_grows_with_content() {
+        // Uses the file's raw_event() helper to build a well-formed CloudEvent
+        // envelope — the brief's literal JSON lacked the required fields, so
+        // append() dropped it before producing any records (see task-2-report).
+        let mut p = SessionProjection::new("sess-x");
+        let base = p.heap_bytes();
+        let big = "x".repeat(10_000);
+        p.append(&raw_event(
+            "e1",
+            1,
+            "message.assistant.text",
+            json!({"raw": {"type": "assistant", "message": {"model": "claude-fable-5",
+                   "content": [{"type": "text", "text": big}]}}}),
+        ));
+        assert!(p.heap_bytes() > base + 8_000, "expected content to add ~10KB");
     }
 
     #[test]

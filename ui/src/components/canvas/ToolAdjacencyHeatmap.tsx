@@ -52,8 +52,8 @@ export function ToolAdjacencyHeatmap({ sessions }: { sessions: readonly StorySes
   const m = useMemo(() => buildAdjacencyMatrix(sequences, { topN: 10 }), [sequences]);
   const cellOf = (from: string, to: string) => m.cells.find((c) => c.from === from && c.to === to)?.count ?? 0;
 
-  if (loading) return <div className="p-6 text-[12px] text-[#565f89]">Sampling recent sessions…</div>;
-  if (m.tools.length === 0) return <div className="p-6 text-[12px] text-[#565f89]">No tool transitions found.</div>;
+  if (loading) return <div className="p-6 text-[12px] text-[color:var(--text-muted)]">Sampling recent sessions…</div>;
+  if (m.tools.length === 0) return <div className="p-6 text-[12px] text-[color:var(--text-muted)]">No tool transitions found.</div>;
 
   const n = m.tools.length;
   const w = LEFT + n * CELL + 16;
@@ -61,7 +61,7 @@ export function ToolAdjacencyHeatmap({ sessions }: { sessions: readonly StorySes
 
   return (
     <div className="overflow-auto p-3">
-      <div className="mb-2 text-[11px] text-[#565f89]">rows = from · columns = what came next · brighter = more frequent · {m.total} transitions</div>
+      <div className="mb-2 text-[11px] text-[color:var(--text-muted)]">rows = from · columns = what came next · brighter = more frequent · {m.total} transitions</div>
       <svg width={w} height={h} className="block">
         <text x={LEFT + (n * CELL) / 2} y={16} textAnchor="middle" fontSize={10} fill="#565f89">→ to</text>
         {/* column (to) labels, rotated */}

@@ -100,7 +100,7 @@ describe("SessionCard", () => {
       />,
     );
     const button = container.querySelector("button");
-    expect(button?.className).toContain("bg-[#2f3348]");
+    expect(button?.className).toContain("bg-[color:var(--bg-hover)]");
   });
 
   it("calls onSelect with session_id when clicked", () => {

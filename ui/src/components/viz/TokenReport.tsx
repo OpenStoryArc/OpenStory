@@ -7,10 +7,12 @@
  *  scale (and how much context was reused vs. re-sent) is finally visible.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { controlActions$ } from "@/streams/control";
 import type { WireRecord } from "@/types/wire-record";
 import { buildSessionSummary } from "@/lib/session-summary";
 import { cn } from "@/lib/cn";
+import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 
 interface CacheInput {
   inputTokens: number;
@@ -40,6 +42,16 @@ const CATS = [
 
 export function TokenReport({ records, className }: { records: readonly WireRecord[]; className?: string }) {
   const s = useMemo(() => buildSessionSummary(records), [records]);
+  const [collapsed, setCollapsed] = usePersistedFlag("os.tokens.collapsed", false);
+
+  // Agent-in-UI seam: tokens.collapsed ("on"|"off").
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle" && a.target === "tokens.collapsed") setCollapsed(a.value === "on");
+    });
+    return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const values: Record<string, number> = {
     output: s.outputTokens,
@@ -50,7 +62,7 @@ export function TokenReport({ records, className }: { records: readonly WireReco
   const total = s.totalTokens;
 
   if (total === 0) {
-    return <div className={cn("px-3 py-4 text-[11px] text-[#565f89]", className)}>No token data for this session.</div>;
+    return <div className={cn("px-3 py-4 text-[length:var(--fs-body)] text-[color:var(--text-muted)]", className)}>No token data for this session.</div>;
   }
 
   const hit = cacheHitRate(s);
@@ -59,48 +71,63 @@ export function TokenReport({ records, className }: { records: readonly WireReco
     <div className={cn("px-3 py-2", className)}>
       <div className="mb-2 flex items-baseline justify-between">
         <div>
-          <span className="text-[18px] font-semibold tabular-nums text-[#c0caf5]">{compact(total)}</span>
-          <span className="ml-1 text-[10px] text-[#565f89]">tokens total</span>
+          <span className="text-[length:var(--fs-headline)] font-semibold tabular-nums text-[color:var(--text)]">{compact(total)}</span>
+          <span className="ml-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">tokens total</span>
         </div>
-        <div className="text-right">
-          <span className="text-[13px] font-medium tabular-nums text-[#7dcfff]">{Math.round(hit * 100)}%</span>
-          <span className="ml-1 text-[10px] text-[#565f89]">from cache</span>
+        <div className="flex items-baseline gap-2">
+          <span className="text-right">
+            <span className="text-[length:var(--fs-emph)] font-medium tabular-nums text-[color:var(--cyan-bright)]">{Math.round(hit * 100)}%</span>
+            <span className="ml-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">from cache</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+            title={collapsed ? "Show the token breakdown" : "Hide the token breakdown"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? "▸ show" : "▾ hide"}
+          </button>
         </div>
       </div>
 
-      {/* proportional stacked bar (min-width so tiny categories stay visible) */}
-      <div className="flex h-3 w-full overflow-hidden rounded" role="img" aria-label="Token breakdown">
-        {CATS.map((c) => {
-          const v = values[c.key] ?? 0;
-          if (v <= 0) return null;
-          const pct = (v / total) * 100;
-          return (
-            <div
-              key={c.key}
-              data-token-seg={c.key}
-              className="h-full"
-              style={{ width: `${pct}%`, minWidth: 3, background: c.color }}
-              title={`${c.label}: ${v.toLocaleString()} (${pct.toFixed(pct < 1 ? 2 : 1)}%)`}
-            />
-          );
-        })}
-      </div>
+      {!collapsed && (
+        <>
+          {/* proportional stacked bar (min-width so tiny categories stay visible) */}
+          <div className="flex h-3 w-full overflow-hidden rounded" role="img" aria-label="Token breakdown">
+            {CATS.map((c) => {
+              const v = values[c.key] ?? 0;
+              if (v <= 0) return null;
+              const pct = (v / total) * 100;
+              return (
+                <div
+                  key={c.key}
+                  data-token-seg={c.key}
+                  className="h-full"
+                  style={{ width: `${pct}%`, minWidth: 3, background: c.color }}
+                  title={`${c.label}: ${v.toLocaleString()} (${pct.toFixed(pct < 1 ? 2 : 1)}%)`}
+                />
+              );
+            })}
+          </div>
 
-      {/* legend / exact counts */}
-      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
-        {CATS.map((c) => {
-          const v = values[c.key] ?? 0;
-          const pct = total > 0 ? (v / total) * 100 : 0;
-          return (
-            <div key={c.key} className="flex items-center gap-1.5 text-[11px]" title={c.hint}>
-              <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: c.color }} />
-              <span className="text-[#a9b1d6]">{c.label}</span>
-              <span className="ml-auto tabular-nums text-[#c0caf5]">{v.toLocaleString()}</span>
-              <span className="w-9 text-right tabular-nums text-[#565f89]">{pct.toFixed(pct < 1 && pct > 0 ? 2 : 0)}%</span>
-            </div>
-          );
-        })}
-      </div>
+          {/* legend / exact counts */}
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+            {CATS.map((c) => {
+              const v = values[c.key] ?? 0;
+              const pct = total > 0 ? (v / total) * 100 : 0;
+              return (
+                <div key={c.key} className="flex items-center gap-1.5 text-[length:var(--fs-body)]" title={c.hint}>
+                  <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: c.color }} />
+                  <span className="text-[color:var(--text-bright)]">{c.label}</span>
+                  <span className="ml-auto tabular-nums text-[color:var(--text)]">{v.toLocaleString()}</span>
+                  <span className="w-9 text-right tabular-nums text-[color:var(--text-muted)]">{pct.toFixed(pct < 1 && pct > 0 ? 2 : 0)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
