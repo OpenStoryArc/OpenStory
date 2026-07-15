@@ -137,7 +137,7 @@ pause 2
 # ---------------------------------------------------------------------------
 focus_event "$SID" "$E_RECAP"
 pause 1
-talk "Eighty-four seconds later: all of it. The exact June session, quoted back verbatim."
+talk "Eighty-four seconds later: all of it. The exact June session, quoted back verbatim: Hey fam — can you do some research on loop engineering practices for agents? Let's pause and do some learning and see if we need to adjust our approach."
 pause 2
 
 # ---------------------------------------------------------------------------
