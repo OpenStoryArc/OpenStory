@@ -13,6 +13,8 @@ import { FacetPanel } from "./FacetPanel";
 import { EventCardRow } from "@/components/events/EventCard";
 import { SessionActivityRibbon } from "@/components/viz/SessionActivityRibbon";
 import { TurnTraceView } from "@/components/viz/TurnTraceView";
+import { TIMELINE_FILTERS, FILTER_GROUPS } from "@/lib/timeline-filters";
+import { FILTER_LABELS } from "@/lib/ui-labels";
 import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { SessionSummaryHeader } from "@/components/viz/SessionSummaryHeader";
 import { SessionVizSkeleton } from "@/components/ui/skeletons";
@@ -30,6 +32,8 @@ interface SessionTimelineProps {
 export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }: SessionTimelineProps) {
   // The tool-call waterfall is a wall (Max: too busy) — folded by default.
   const [showTrace, setShowTrace] = usePersistedFlag("os.events.trace", false);
+  // The same category filters as the Live feed (Max's ask) — one language.
+  const [activeFilter, setActiveFilter] = useState("all");
   const { records: rawRecords, loading, capped } = useSessionRecords(sessionId);
   // The shared cache holds the raw truth; noise-filtering is this view's own lens.
   const records = useMemo(() => filterNoise(rawRecords), [rawRecords]);
@@ -90,7 +94,12 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
     [records, matchedIds],
   );
 
-  const rows = useMemo(() => toTimelineRows(filteredRecords), [filteredRecords]);
+  const categoryFiltered = useMemo(() => {
+    if (activeFilter === "all") return filteredRecords;
+    const predicate = TIMELINE_FILTERS[activeFilter] ?? TIMELINE_FILTERS["all"]!;
+    return filteredRecords.filter(predicate);
+  }, [filteredRecords, activeFilter]);
+  const rows = useMemo(() => toTimelineRows(categoryFiltered), [categoryFiltered]);
 
   const hasFacets = selectedTurn != null || selectedFile != null || selectedTool != null || selectedPlan != null;
 
@@ -295,6 +304,23 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
               <TurnTraceView records={records} onSelectSpan={selectSpan} selectedCallId={selectedCallId} />
             )}
           </div>
+        </div>
+
+        {/* Category filters — the Live feed's pills, same language here. */}
+        <div className="flex flex-wrap items-center gap-1 border-b border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-3 py-1.5">
+          {FILTER_GROUPS.flatMap((g) => g.filters).map((f) => (
+            <button
+              key={f}
+              onClick={() => setActiveFilter(f)}
+              className={
+                activeFilter === f
+                  ? "rounded bg-[color:var(--accent)] px-2 py-0.5 text-[length:var(--fs-label)] font-medium text-[color:var(--bg-surface)]"
+                  : "rounded px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)]/40 hover:text-[color:var(--text)]"
+              }
+            >
+              {FILTER_LABELS[f] ?? f}
+            </button>
+          ))}
         </div>
 
         {/* Toolbar */}

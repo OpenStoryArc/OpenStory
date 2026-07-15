@@ -30,7 +30,8 @@ export function ConversationView({ sessionId }: ConversationViewProps) {
   const [loading, setLoading] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [nextBeforeSeq, setNextBeforeSeq] = useState<number | null>(null);
-  const [facet, setFacet] = useState<ConversationFacet>("all");
+  // Default to the human conversation (Katie's call) — tool noise opt-in.
+  const [facet, setFacet] = useState<ConversationFacet>("conversation");
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Live-tab facet filtering over the paired entries (same experience as Live).
