@@ -15,6 +15,14 @@ import { fullTimestamp } from "@/lib/time";
 /** Code renders larger than the banner's 12px — this is a projector surface. */
 const MD_LARGE = markdownComponents(14);
 
+/** Crop the shot at the first occurrence of `marker` (case-insensitive).
+ *  Presentation-only — no marker match means the full text shows. */
+export function clipText(text: string, marker?: string): string {
+  if (!marker) return text;
+  const i = text.toLowerCase().indexOf(marker.toLowerCase());
+  return i > 0 ? text.slice(0, i).replace(/[#\s]+$/, "") : text;
+}
+
 const ROLE_LABEL: Record<SpotlightData["role"], string> = {
   user: "user",
   assistant: "assistant",
@@ -24,10 +32,14 @@ const ROLE_LABEL: Record<SpotlightData["role"], string> = {
 export function EventSpotlight({
   sessionId,
   eventId,
+  clipAt,
   onClose,
 }: {
   sessionId: string;
   eventId: string;
+  /** Frame the shot: render only text before this marker (camera crop — the
+   *  underlying record is never modified). */
+  clipAt?: string;
   onClose: () => void;
 }) {
   const [event, setEvent] = useState<SpotlightData | null>(null);
@@ -97,7 +109,7 @@ export function EventSpotlight({
           {event ? (
             <div className="prose prose-lg max-w-none max-h-[70vh] overflow-y-auto leading-relaxed text-[color:var(--text)] marker:text-[color:var(--text-muted)] prose-headings:text-[color:var(--text)] prose-strong:text-[color:var(--text-bright)] prose-a:text-[color:var(--accent)] prose-blockquote:text-[color:var(--text-bright)]">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_LARGE}>
-                {event.text}
+                {clipText(event.text, clipAt)}
               </ReactMarkdown>
             </div>
           ) : (

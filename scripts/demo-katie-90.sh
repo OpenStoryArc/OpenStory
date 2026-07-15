@@ -11,7 +11,7 @@
 #   t≈20  spotlight E_RECAP    — the recall, 84s later (2026-07-06 15:00:51)
 #   t≈40  spotlight E_PRSTATUS — the pull request, 39min later (2026-07-06 15:39:03)
 #   t≈55  spotlight E_MERGED   — merged (2026-07-06 15:45:12)
-#   t≈70  (still on the merge spotlight) — the closer.
+#   t≈70  title card — the closer line, full screen.
 #
 # Provenance: these four event ids were verified live against the store on
 # 2026-07-14 — all four resolve inside session ac9cf839-7b94-48e2-87e3-279fa8634f76
@@ -113,11 +113,17 @@ open_view() {
 }
 
 focus_event() {
-  # focus_event <sessionId> <eventId> — SPOTLIGHT an exact recorded moment:
+  # focus_event <sessionId> <eventId> [clipAt] — SPOTLIGHT an exact recorded
+  # moment; optional clipAt frames the shot before that marker (camera crop,
+  # record untouched):
   # spotlight:true upgrades the focus to presentation mode, so the one event
   # fills the screen and everything else dims (ui/src/lib/ui-control.ts).
-  local sid="$1" eid="$2"
-  post "{\"action\":\"focus_event\",\"params\":{\"sessionId\":\"${sid}\",\"eventId\":\"${eid}\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
+  local sid="$1" eid="$2" clip="${3:-}"
+  if [ -n "$clip" ]; then
+    post "{\"action\":\"focus_event\",\"params\":{\"sessionId\":\"${sid}\",\"eventId\":\"${eid}\",\"spotlight\":true,\"clipAt\":\"${clip}\"},\"issuer\":\"${ISSUER}\"}"
+  else
+    post "{\"action\":\"focus_event\",\"params\":{\"sessionId\":\"${sid}\",\"eventId\":\"${eid}\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
+  fi
 }
 
 echo "demo-katie-90: driving ${B} as issuer '${ISSUER}' (session ${SID})"
@@ -149,13 +155,20 @@ talk "Thirty nine minutes later, loop engineering delivered a pull request."
 pause 2
 
 # ---------------------------------------------------------------------------
-# Stop 4 — Merged, and the closer (spotlight stays up; no story zoom-out —
-# Max cut it: the demo ends on the record itself)
+# Stop 4 — Merged (shot framed before the trailing "Where that leaves us"
+# queue rundown — Max cut it from the highlight; the record is untouched)
 # ---------------------------------------------------------------------------
-focus_event "$SID" "$E_MERGED"
+focus_event "$SID" "$E_MERGED" "Where that leaves us"
 pause 1
 talk "Merged."
 pause 2
+
+# ---------------------------------------------------------------------------
+# Stop 5 — The closer, as a full-screen TITLE CARD: the words are the shot
+# (present {spotlight:true} → TitleSpotlight).
+# ---------------------------------------------------------------------------
+post "{\"action\":\"present\",\"params\":{\"message\":\"Have your agent read your agent history to you.\",\"spotlight\":true},\"issuer\":\"${ISSUER}\"}"
+pause 1
 talk "Have your agent read your agent history to you."
 pause 1
 

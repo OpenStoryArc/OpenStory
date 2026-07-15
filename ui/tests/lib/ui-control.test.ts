@@ -314,4 +314,45 @@ describe("interpretControl — spotlight (presentation mode)", () => {
       },
     );
   });
+
+  it("spotlight carries clipAt (shot framing); blank/missing clipAt is undefined", () => {
+    scenario(
+      () => ({
+        clipped: interpretControl("focus_event", {
+          sessionId: "s1",
+          eventId: "e9",
+          spotlight: true,
+          clipAt: "Where that leaves us",
+        }),
+        blank: interpretControl("focus_event", { sessionId: "s1", eventId: "e9", spotlight: true, clipAt: "  " }),
+        absent: interpretControl("focus_event", { sessionId: "s1", eventId: "e9", spotlight: true }),
+      }),
+      (r) => r,
+      (r) => {
+        expect(r.clipped?.type).toBe("spotlight");
+        if (r.clipped?.type === "spotlight") expect(r.clipped.clipAt).toBe("Where that leaves us");
+        if (r.blank?.type === "spotlight") expect(r.blank.clipAt).toBeUndefined();
+        if (r.absent?.type === "spotlight") expect(r.absent.clipAt).toBeUndefined();
+      },
+    );
+  });
+
+  it("present with spotlight:true becomes a full-screen title card", () => {
+    scenario(
+      () => ({
+        title: interpretControl("present", { message: "Have your agent read your agent history to you.", spotlight: true }),
+        banner: interpretControl("present", { message: "hello", spotlight: false }),
+        empty: interpretControl("present", { message: "   ", spotlight: true }),
+      }),
+      (r) => r,
+      (r) => {
+        expect(r.title?.type).toBe("title");
+        if (r.title?.type === "title") {
+          expect(r.title.message).toBe("Have your agent read your agent history to you.");
+        }
+        expect(r.banner?.type).toBe("present");
+        expect(r.empty).toBeNull();
+      },
+    );
+  });
 });

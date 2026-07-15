@@ -25,6 +25,7 @@ import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
 import { interpretControl } from "@/lib/ui-control";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import { EventSpotlight } from "@/components/control/EventSpotlight";
+import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
@@ -53,7 +54,9 @@ export function App() {
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
   // Event Spotlight (presentation mode): one event full-screen, the rest dimmed.
-  const [spotlight, setSpotlight] = useState<{ sessionId: string; eventId: string } | null>(null);
+  const [spotlight, setSpotlight] = useState<{ sessionId: string; eventId: string; clipAt?: string } | null>(null);
+  // Title card: the message itself fills the screen (demo openers/closers).
+  const [titleCard, setTitleCard] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   // Live tab: the sessions sidebar folds away — a clear labeled control, persisted.
   const [liveSidebar, setLiveSidebar] = usePersistedFlag("os.live.sidebar", true);
@@ -80,17 +83,26 @@ export function App() {
       if (action?.type === "navigate") {
         navigate(action.route);
         setSpotlight(null); // any view-changing drive dismisses the spotlight
+        setTitleCard(null);
       } else if (action?.type === "present") {
         if (action.route) {
           navigate(action.route);
           setSpotlight(null);
+          setTitleCard(null);
         }
         setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
       } else if (action?.type === "spotlight") {
-        setSpotlight({ sessionId: action.sessionId, eventId: action.eventId });
+        setSpotlight({ sessionId: action.sessionId, eventId: action.eventId, clipAt: action.clipAt });
+        setTitleCard(null);
+      } else if (action?.type === "title") {
+        setTitleCard(action.message);
+        setSpotlight(null);
       } else if (action?.type === "toggle" && action.target === "spotlight") {
         // The seam's explicit dismissal: toggle {target:"spotlight", value:"off"}.
-        if (action.value === "off") setSpotlight(null);
+        if (action.value === "off") {
+          setSpotlight(null);
+          setTitleCard(null);
+        }
       }
       setDrivenBy(issuer);
     });
@@ -295,9 +307,13 @@ export function App() {
         <EventSpotlight
           sessionId={spotlight.sessionId}
           eventId={spotlight.eventId}
+          clipAt={spotlight.clipAt}
           onClose={() => setSpotlight(null)}
         />
       )}
+
+      {/* Title card — the message itself as the full-screen shot */}
+      {titleCard && <TitleSpotlight message={titleCard} onClose={() => setTitleCard(null)} />}
 
       {/* Durable overlay annotations (agent/person notes) */}
       <AnnotationsOverlay
