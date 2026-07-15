@@ -25,11 +25,16 @@ toggle targets, recipes). Read it first if unsure. MCP path: `docs/agent-in-ui.m
 
 **1. Run an existing tour/demo** (all in `scripts/`):
 ```sh
+OS_TOUR_VOICE="Serena (Premium)" ./scripts/demo-katie-90.sh    # ⭐ FLAGSHIP: 90s spotlight cut
 OS_TOUR_VOICE="Serena (Premium)" ./scripts/ui-tour.sh          # 12-stop product tour
-OS_TOUR_VOICE="Serena (Premium)" ./scripts/demo-katie-loop.sh  # a user story from real data
+OS_TOUR_VOICE="Serena (Premium)" ./scripts/demo-katie-loop.sh  # long-form Katie user story
+OS_TOUR_VOICE="Serena (Premium)" ./scripts/demo-what-it-is.sh  # positioning pitch (<60s)
 ./scripts/ui-tour.sh --fast --silent                            # test without voice/pauses
 ```
 Run them in the background; they pace themselves on blocking `say`.
+When Max says "play the demo" / "play the Katie demo" with no qualifier, he
+means `demo-katie-90.sh` — the 90-second spotlight cut (its screenplay and
+on-screen display values are embedded as comments in the script itself).
 
 **2. Create a new story demo** — the two-phase pattern:
 - Dispatch a researcher subagent: mine `GET /api/sessions` +
