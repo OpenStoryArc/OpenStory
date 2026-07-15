@@ -58,8 +58,12 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   const applies = (m.applies as Apply[]) ?? [];
 
   const depthIndent = Math.min(scopeDepth * 16, 48);
-  const [detailOpen, setDetailOpen] = useState(false);
+  // detailsOpen — the ONE secondary affordance on the resting card (▾ details).
+  // eventsOpen / evalApplyOpen are nested toggles that only matter once the
+  // details footer is already unfolded.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [evalApplyOpen, setEvalApplyOpen] = useState(false);
 
   // Color the session chip deterministically — same session_id → same color
   // across the Sidebar AND the Story cards. This is the visual link that lets
@@ -97,102 +101,10 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
       className={cardClassName}
       style={{ marginLeft: `${depthIndent}px` }}
     >
-      {/* Header */}
-      <div className="flex justify-between items-center px-3 py-2.5 sm:px-3.5 sm:py-2 bg-[color:var(--bg-surface)]">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <button
-            type="button"
-            onClick={handleChipClick}
-            disabled={!chipClickable}
-            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink min-w-0 max-w-[42vw] truncate transition-all ${
-              chipClickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
-            } ${isSelectedSession ? "ring-1 ring-offset-0" : ""}`}
-            style={{
-              color: chipStyle.fg,
-              backgroundColor: chipStyle.bg,
-              borderColor: chipStyle.border,
-              ...(isSelectedSession ? { boxShadow: `0 0 0 1px ${chipStyle.fg}` } : {}),
-            }}
-            title={
-              chipClickable
-                ? `${pattern.session_id} — click to ${
-                    isSelectedSession ? "show all sessions" : "filter to this session only"
-                  }`
-                : pattern.session_id
-            }
-          >
-            {chipLabel}
-          </button>
-          <span className="text-[color:var(--accent)] font-bold text-xs font-mono shrink-0">Turn {turn}</span>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setEventsOpen(!eventsOpen); }}
-            className="text-[9px] font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent)] shrink-0 cursor-pointer transition-colors"
-            title={`${pattern.events.length} CloudEvents — click to ${eventsOpen ? "hide" : "show"} ids`}
-          >
-            {pattern.events.length} events {eventsOpen ? "▾" : "▸"}
-          </button>
-          {pattern.events.length > 0 && !eventsOpen && (
-            <span className="text-[9px] font-mono text-[color:var(--border)] truncate" title={pattern.events.join("\n")}>
-              {pattern.events[0]?.slice(0, 8)}..{pattern.events[pattern.events.length - 1]?.slice(0, 8)}
-            </span>
-          )}
-          {onOpenEvent && turnDrillTarget(pattern) && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); const t = turnDrillTarget(pattern); if (t) onOpenEvent(t); }}
-              className="text-[9px] font-mono text-[color:var(--accent)] hover:text-[color:var(--purple)] shrink-0 cursor-pointer transition-colors"
-              title="Open this turn's source event in Explore"
-              data-testid="turn-drill-source"
-            >
-              source&nbsp;↗
-            </button>
-          )}
-        </div>
-        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
-          isTerminal
-            ? "bg-[color:var(--green)]/9 text-[color:var(--green)] border border-[color:var(--green)]/20"
-            : "bg-[color:var(--orange)]/9 text-[color:var(--orange)] border border-[color:var(--orange)]/20"
-        }`}>
-          {isTerminal ? "terminate" : "continue"}
-        </span>
-      </div>
-
-      {/* Event IDs panel — toggles via the "N events ▸" button in the header.
-          Shows full UUIDs in a compact list, each individually selectable so
-          they can be copied with a single double-click. */}
-      {eventsOpen && pattern.events.length > 0 && (
-        <div className="px-3.5 py-1.5 bg-[color:var(--bg)] border-y border-[color:var(--divider)]">
-          <div className="text-[9px] uppercase tracking-wide text-[color:var(--text-muted)] mb-1">
-            event ids ({pattern.events.length})
-          </div>
-          <div className="font-mono text-[10px] text-[color:var(--text-bright)] space-y-0.5 max-h-40 overflow-y-auto">
-            {pattern.events.map((eid, i) => (
-              <div key={eid} className="flex items-baseline gap-1.5">
-                <span className="text-[color:var(--border)] w-6 text-right shrink-0">{i + 1}</span>
-                {onOpenEvent ? (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onOpenEvent(eid); }}
-                    className="text-left break-all text-[color:var(--text-bright)] hover:text-[color:var(--accent)] hover:underline cursor-pointer transition-colors"
-                    title="Open this event in Explore"
-                  >
-                    {eid}
-                  </button>
-                ) : (
-                  <span className="select-all break-all hover:text-[color:var(--accent)] transition-colors" title="Double-click to select, ⌘C to copy">
-                    {eid}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Always visible: diagram + domain facts */}
-      <div className="px-3.5 py-2.5 space-y-1">
-        {/* Diagram — always shown */}
+      {/* Resting state: the sentence diagram — full width, generous padding,
+          nothing else. This is the gold; everything that used to surround it
+          now lives one quiet click away, behind ▾ details below. */}
+      <div className="px-4 py-4 sm:px-5 sm:py-4">
         <DiagramInline
           subject={subject}
           verb={verb}
@@ -202,67 +114,172 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
           subordinates={subordinates}
           predicate={predicate}
         />
+      </div>
 
-        {/* Domain badges — always visible */}
-        {applies.length > 0 && <DomainStrip applies={applies} />}
-
-        {/* Detail toggle — eval-apply phases */}
+      {/* The one secondary affordance on the resting card. */}
+      <div className="flex justify-end px-3.5 pb-2">
         <button
-          onClick={(e) => { e.stopPropagation(); setDetailOpen(!detailOpen); }}
-          className="text-[11px] py-1.5 px-2 -mx-1 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[color:var(--bg-surface)] transition-colors cursor-pointer"
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setDetailsOpen(!detailsOpen); }}
+          className="rounded border border-[color:var(--border)] px-2 py-0.5 text-[length:var(--fs-label)] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--accent)] hover:text-[color:var(--text)]"
+          title={detailsOpen ? "Hide turn details" : "Show turn details — time, events, env, source"}
+          aria-expanded={detailsOpen}
         >
-          {detailOpen ? "▼ hide eval-apply" : "▶ eval-apply detail"}
+          {detailsOpen ? "▴ less" : "▾ details"}
         </button>
+      </div>
 
-        {detailOpen && (
-          <div className="space-y-1 border-t border-[color:var(--divider)] pt-2 mt-1">
-            {/* Sentence one-liner */}
-            <p className="text-[12px] italic text-[color:var(--text-bright)] pb-1">
-              {pattern.label}
-            </p>
-
-            {human?.content && (
-              <PhaseBlock label="actor" color="#7dcfff">
-                <ExpandableText text={human.content} />
-              </PhaseBlock>
+      {detailsOpen && (
+        <div className="border-t border-[color:var(--divider)] bg-[color:var(--bg)] px-3.5 py-2.5 space-y-2">
+          {/* Meta row: session · turn · events · source · terminate state */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleChipClick}
+              disabled={!chipClickable}
+              className={`text-[length:var(--fs-label)] font-mono px-1.5 py-0.5 rounded border shrink min-w-0 max-w-[42vw] truncate transition-all ${
+                chipClickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
+              } ${isSelectedSession ? "ring-1 ring-offset-0" : ""}`}
+              style={{
+                color: chipStyle.fg,
+                backgroundColor: chipStyle.bg,
+                borderColor: chipStyle.border,
+                ...(isSelectedSession ? { boxShadow: `0 0 0 1px ${chipStyle.fg}` } : {}),
+              }}
+              title={
+                chipClickable
+                  ? `${pattern.session_id} — click to ${
+                      isSelectedSession ? "show all sessions" : "filter to this session only"
+                    }`
+                  : pattern.session_id
+              }
+            >
+              {chipLabel}
+            </button>
+            <span className="text-[color:var(--accent)] font-bold text-[length:var(--fs-label)] font-mono shrink-0">Turn {turn}</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setEventsOpen(!eventsOpen); }}
+              className="text-[length:var(--fs-label)] font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent)] shrink-0 cursor-pointer transition-colors"
+              title={`${pattern.events.length} CloudEvents — click to ${eventsOpen ? "hide" : "show"} ids`}
+            >
+              {pattern.events.length} events {eventsOpen ? "▾" : "▸"}
+            </button>
+            {onOpenEvent && turnDrillTarget(pattern) && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); const t = turnDrillTarget(pattern); if (t) onOpenEvent(t); }}
+                className="text-[length:var(--fs-label)] font-mono text-[color:var(--accent)] hover:text-[color:var(--purple)] shrink-0 cursor-pointer transition-colors"
+                title="Open this turn's source event in Explore"
+                data-testid="turn-drill-source"
+              >
+                source&nbsp;↗
+              </button>
             )}
-
-            {thinking?.summary && (
-              <PhaseBlock label="thinking" color="#bb9af7">
-                <ExpandableText text={thinking.summary} maxLines={2} />
-              </PhaseBlock>
-            )}
-
-            <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
-
-            {eval_ && (
-              <PhaseBlock label="eval" color="#9ece6a">
-                <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
-                  eval_.decision === "text_only"
-                    ? "bg-[color:var(--green)]/13 text-[color:var(--green)]"
-                    : "bg-[color:var(--orange)]/13 text-[color:var(--orange)]"
-                }`}>
-                  {eval_.decision === "text_only" ? "text" : "tool use"}
-                </span>
-                <ExpandableText text={eval_.content || "(empty)"} />
-              </PhaseBlock>
-            )}
+            <span className={`ml-auto text-[length:var(--fs-label)] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide ${
+              isTerminal
+                ? "bg-[color:var(--green)]/9 text-[color:var(--green)] border border-[color:var(--green)]/20"
+                : "bg-[color:var(--orange)]/9 text-[color:var(--orange)] border border-[color:var(--orange)]/20"
+            }`}>
+              {isTerminal ? "terminate" : "continue"}
+            </span>
           </div>
-        )}
-      </div>
 
-      {/* Footer */}
-      <div className="flex justify-between px-3.5 py-1.5 text-[11px] text-[color:var(--text-muted)]">
-        <span>
-          env: {envSize} messages
-          {envDelta > 0 && <span className="text-[color:var(--green)]"> (+{envDelta})</span>}
-        </span>
-        <span className={isTerminal ? "text-[color:var(--green)]" : "text-[color:var(--orange)]"}>
-          {stopReason} → {isTerminal ? "TERMINATE" : "CONTINUE"}
-          {applies.length > 0 && ` · ${applies.length} applies`}
-          {durationMs != null && ` · ${Math.round(durationMs)}ms`}
-        </span>
-      </div>
+          {/* Event IDs panel — toggles via the "N events ▸" button above.
+              Shows full UUIDs in a compact list, each individually selectable
+              so they can be copied with a single double-click. */}
+          {eventsOpen && pattern.events.length > 0 && (
+            <div className="rounded border border-[color:var(--divider)] px-2.5 py-1.5 bg-[color:var(--bg-surface)]">
+              <div className="text-[length:var(--fs-label)] uppercase tracking-wide text-[color:var(--text-muted)] mb-1">
+                event ids ({pattern.events.length})
+              </div>
+              <div className="font-mono text-[length:var(--fs-label)] text-[color:var(--text-bright)] space-y-0.5 max-h-40 overflow-y-auto">
+                {pattern.events.map((eid, i) => (
+                  <div key={eid} className="flex items-baseline gap-1.5">
+                    <span className="text-[color:var(--border)] w-6 text-right shrink-0">{i + 1}</span>
+                    {onOpenEvent ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onOpenEvent(eid); }}
+                        className="text-left break-all text-[color:var(--text-bright)] hover:text-[color:var(--accent)] hover:underline cursor-pointer transition-colors"
+                        title="Open this event in Explore"
+                      >
+                        {eid}
+                      </button>
+                    ) : (
+                      <span className="select-all break-all hover:text-[color:var(--accent)] transition-colors" title="Double-click to select, ⌘C to copy">
+                        {eid}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Env growth + stop reason */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[length:var(--fs-label)] text-[color:var(--text-muted)]">
+            <span>
+              env: {envSize} messages
+              {envDelta > 0 && <span className="text-[color:var(--green)]"> (+{envDelta})</span>}
+            </span>
+            <span className={isTerminal ? "text-[color:var(--green)]" : "text-[color:var(--orange)]"}>
+              {stopReason} → {isTerminal ? "TERMINATE" : "CONTINUE"}
+              {applies.length > 0 && ` · ${applies.length} applies`}
+              {durationMs != null && ` · ${Math.round(durationMs)}ms`}
+            </span>
+          </div>
+
+          {/* Domain badges */}
+          {applies.length > 0 && <DomainStrip applies={applies} />}
+
+          {/* Nested toggle — eval-apply phases (thinking, applies, eval). This
+              content was already opt-in before the redesign; it stays a step
+              deeper than the meta above since it's substance, not chrome. */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setEvalApplyOpen(!evalApplyOpen); }}
+            className="text-[length:var(--fs-body)] py-1.5 px-2 -mx-1 rounded text-[color:var(--text-muted)] hover:text-[color:var(--accent)] hover:bg-[color:var(--bg-surface)] transition-colors cursor-pointer"
+          >
+            {evalApplyOpen ? "▼ hide eval-apply" : "▶ eval-apply detail"}
+          </button>
+
+          {evalApplyOpen && (
+            <div className="space-y-1 border-t border-[color:var(--divider)] pt-2 mt-1">
+              {/* Sentence one-liner */}
+              <p className="text-[length:var(--fs-body)] italic text-[color:var(--text-bright)] pb-1">
+                {pattern.label}
+              </p>
+
+              {human?.content && (
+                <PhaseBlock label="actor" color="#7dcfff">
+                  <ExpandableText text={human.content} />
+                </PhaseBlock>
+              )}
+
+              {thinking?.summary && (
+                <PhaseBlock label="thinking" color="#bb9af7">
+                  <ExpandableText text={thinking.summary} maxLines={2} />
+                </PhaseBlock>
+              )}
+
+              <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
+
+              {eval_ && (
+                <PhaseBlock label="eval" color="#9ece6a">
+                  <span className={`inline-block text-[9px] px-1 py-0.5 rounded ml-1 ${
+                    eval_.decision === "text_only"
+                      ? "bg-[color:var(--green)]/13 text-[color:var(--green)]"
+                      : "bg-[color:var(--orange)]/13 text-[color:var(--orange)]"
+                  }`}>
+                    {eval_.decision === "text_only" ? "text" : "tool use"}
+                  </span>
+                  <ExpandableText text={eval_.content || "(empty)"} />
+                </PhaseBlock>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
