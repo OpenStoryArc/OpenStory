@@ -1,6 +1,7 @@
 # Grok ↔ Claude parity — confidence gates
 
-Last updated: 2026-07-17 (feat/grok-build-support)
+Last updated: 2026-07-17 (feat/grok-build-support)  
+**Last green re-verify (loop fire):** 2026-07-17 — L1–L6 gates re-run locally, all pass; API `:3002` 200.
 
 ## Objective
 
