@@ -320,54 +320,46 @@ impl NatsBus {
     /// `pattern`, deserialize each message as an `IngestBatch`, and pump
     /// into `tx`. Used by both solo (one consumer on `events`) and
     /// federation (two consumers: `events` + `events-mirror`).
+    ///
+    /// **Reconnect loop (citizenship).** During large Grok/Claude backfills the
+    /// watcher can publish faster than persist can write. NATS then marks the
+    /// push consumer a "slow consumer", drops the delivery connection, and
+    /// `messages.next()` returns `None`. The previous implementation exited the
+    /// task forever — JetStream still accepted publishes (watcher diagnostics
+    /// green) but no consumer drained them, so live sessions never appeared in
+    /// the store (disk full, Explore empty). We resubscribe with exponential
+    /// backoff; `DeliverPolicy::All` + event-id PK dedup makes redelivery safe.
     async fn spawn_consumer(
         &self,
         tx: mpsc::Sender<IngestBatch>,
         stream_name: &str,
         pattern: &str,
     ) -> Result<()> {
-        let stream = self
+        // Fail boot if the stream is missing; the background loop then keeps
+        // the subscription alive across slow-consumer disconnects.
+        let _ = self
             .jetstream
             .get_stream(stream_name)
             .await
             .with_context(|| format!("failed to get '{stream_name}' stream"))?;
 
-        let consumer = stream
-            .create_consumer(jetstream::consumer::push::Config {
-                filter_subject: pattern.to_string(),
-                deliver_subject: format!("_deliver.{}", uuid_short()),
-                // Catch-up subscription semantics: deliver the full backlog,
-                // then continue live. See federation-boot-window-loss memory
-                // for the race this closes. PK dedup makes redelivery safe.
-                // Ephemeral consumer → O(stream) per subscribe (acceptable
-                // for boot; production refinement is a durable named
-                // consumer resuming from last ack).
-                deliver_policy: jetstream::consumer::DeliverPolicy::All,
-                ..Default::default()
-            })
-            .await
-            .with_context(|| format!("failed to create push consumer on '{stream_name}'"))?;
-
-        let mut messages = consumer
-            .messages()
-            .await
-            .with_context(|| format!("failed to get message stream on '{stream_name}'"))?;
-
+        let jetstream = self.jetstream.clone();
         let label = stream_name.to_string();
+        let stream_name = stream_name.to_string();
+        let pattern = pattern.to_string();
+
         tokio::spawn(async move {
-            while let Some(Ok(msg)) = messages.next().await {
-                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
-                    Ok(batch) => {
-                        if tx.send(batch).await.is_err() {
-                            break; // receiver dropped
-                        }
+            let mut backoff_ms: u64 = 250;
+            loop {
+                match run_consumer_session(&jetstream, &stream_name, &pattern, &tx, &label).await {
+                    ConsumerSessionEnd::ReceiverDropped => break,
+                    ConsumerSessionEnd::Disconnected { reason } => {
+                        eprintln!(
+                            "bus[{label}]: delivery ended ({reason}); resubscribing in {backoff_ms}ms"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+                        backoff_ms = consumer_reconnect_backoff_ms(backoff_ms);
                     }
-                    Err(e) => {
-                        eprintln!("bus[{label}]: failed to deserialize IngestBatch: {e}");
-                    }
-                }
-                if let Err(e) = msg.ack().await {
-                    eprintln!("bus[{label}]: failed to ack message: {e}");
                 }
             }
         });
@@ -387,10 +379,100 @@ impl NatsBus {
         stream_name: &str,
         pattern: &str,
     ) -> Result<mpsc::Receiver<IngestBatch>> {
-        let (tx, rx) = mpsc::channel(256);
+        let (tx, rx) = mpsc::channel(2048);
         self.spawn_consumer(tx, stream_name, pattern).await?;
         Ok(rx)
     }
+}
+
+/// Why a single push-consumer session ended.
+enum ConsumerSessionEnd {
+    /// Downstream `mpsc` receiver was dropped — stop reconnecting.
+    ReceiverDropped,
+    /// NATS closed delivery (slow consumer, network, server restart, …).
+    Disconnected { reason: String },
+}
+
+/// One attach→drain cycle for a push consumer. Returns when delivery ends.
+async fn run_consumer_session(
+    jetstream: &jetstream::Context,
+    stream_name: &str,
+    pattern: &str,
+    tx: &mpsc::Sender<IngestBatch>,
+    label: &str,
+) -> ConsumerSessionEnd {
+    let stream = match jetstream.get_stream(stream_name).await {
+        Ok(s) => s,
+        Err(e) => {
+            return ConsumerSessionEnd::Disconnected {
+                reason: format!("get_stream: {e}"),
+            };
+        }
+    };
+
+    let consumer = match stream
+        .create_consumer(jetstream::consumer::push::Config {
+            filter_subject: pattern.to_string(),
+            deliver_subject: format!("_deliver.{}", uuid_short()),
+            // Catch-up: full backlog then live. PK dedup makes redelivery safe
+            // after reconnect (see spawn_consumer doc).
+            deliver_policy: jetstream::consumer::DeliverPolicy::All,
+            max_ack_pending: 4096,
+            ..Default::default()
+        })
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return ConsumerSessionEnd::Disconnected {
+                reason: format!("create_consumer: {e}"),
+            };
+        }
+    };
+
+    let mut messages = match consumer.messages().await {
+        Ok(m) => m,
+        Err(e) => {
+            return ConsumerSessionEnd::Disconnected {
+                reason: format!("messages(): {e}"),
+            };
+        }
+    };
+
+    loop {
+        match messages.next().await {
+            Some(Ok(msg)) => {
+                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
+                    Ok(batch) => {
+                        if tx.send(batch).await.is_err() {
+                            return ConsumerSessionEnd::ReceiverDropped;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("bus[{label}]: failed to deserialize IngestBatch: {e}");
+                    }
+                }
+                if let Err(e) = msg.ack().await {
+                    eprintln!("bus[{label}]: failed to ack message: {e}");
+                }
+            }
+            Some(Err(e)) => {
+                return ConsumerSessionEnd::Disconnected {
+                    reason: format!("message error: {e}"),
+                };
+            }
+            None => {
+                return ConsumerSessionEnd::Disconnected {
+                    reason: "message stream ended (often NATS slow-consumer disconnect)".into(),
+                };
+            }
+        }
+    }
+}
+
+/// Next reconnect delay (ms), capped at 30s. Pure — unit-tested.
+fn consumer_reconnect_backoff_ms(current: u64) -> u64 {
+    (current.saturating_mul(2)).min(30_000)
 }
 
 #[async_trait]
@@ -424,7 +506,12 @@ impl Bus for NatsBus {
         // `events` (own host's namespace) and `events-mirror` (fleet sourced
         // from the hub aggregate). Both pump into one shared mpsc so callers
         // see a single unified stream.
-        let (tx, rx) = mpsc::channel(256);
+        //
+        // Buffer sized for backfill bursts: a 256-slot channel filled with
+        // 100-event batches while SQLite lags is how we hit NATS slow-consumer
+        // disconnects. 2048 absorbs multi-second persist stalls without
+        // dropping the push delivery socket.
+        let (tx, rx) = mpsc::channel(2048);
         self.spawn_consumer(tx.clone(), "events", pattern).await
             .context("failed to spawn 'events' consumer")?;
         // Own local-only events (`publish_sessions = false`) live in the
@@ -906,6 +993,25 @@ mod url_credential_tests {
     fn token_and_bare_urls_yield_no_user_pass() {
         assert!(NatsBus::extract_user_pass("nats://token@localhost:4222").is_none());
         assert!(NatsBus::extract_user_pass("nats://localhost:4222").is_none());
+    }
+
+    #[test]
+    fn consumer_reconnect_backoff_doubles_and_caps() {
+        // Boundary table: current_ms → next_ms
+        let cases: &[(u64, u64)] = &[
+            (250, 500),
+            (500, 1000),
+            (15_000, 30_000),
+            (30_000, 30_000), // already at cap
+            (20_000, 30_000), // would overflow 40k without cap
+        ];
+        for &(cur, want) in cases {
+            assert_eq!(
+                consumer_reconnect_backoff_ms(cur),
+                want,
+                "backoff from {cur}"
+            );
+        }
     }
 }
 
