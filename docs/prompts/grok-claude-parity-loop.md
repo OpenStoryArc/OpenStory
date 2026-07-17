@@ -65,7 +65,9 @@ in every PR (use real session extracts + seed_tree).
       reconstruct from typed payload / views — ACP has no Hermes-style role)
 - [x] session_story + subscribe_session smoke on fixture or live session
   - live dogfood this night; unit gates cover transcript path
-- [ ] Optional: grok-maxxxing outbound journal ⊆ inbound tools for this session
+- [x] Optional: grok-maxxxing outbound journal ⊆ inbound tools for this session
+  - gate: `cd ../grok-maxxxing && cargo test && cargo run --release -- reconcile --session $SID`
+  - MCP tools match as `use_tool::*` / `search_tool::*`
 
 ### L5 — UI E2E (medium)
 - [x] origin-agent label/color for "grok-build" → "Grok" (ui/src/lib/origin-agent.ts)
