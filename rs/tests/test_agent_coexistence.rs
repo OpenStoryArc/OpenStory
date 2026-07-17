@@ -30,7 +30,7 @@ fn write_cloud_event_session(dir: &std::path::Path, file_stem: &str, agent: &str
                 "session_id": file_stem,
                 "raw": {},
                 "agent_payload": {
-                    "_variant": if agent == "grok-build" { "grok-build" } else { "claude-code" },
+                    "_variant": if agent == "grok" { "grok" } else { "claude-code" },
                     "meta": { "agent": agent },
                     "text": text
                 }
@@ -50,10 +50,10 @@ fn write_cloud_event_session(dir: &std::path::Path, file_stem: &str, agent: &str
                 "session_id": file_stem,
                 "raw": {},
                 "agent_payload": {
-                    "_variant": if agent == "grok-build" { "grok-build" } else { "claude-code" },
+                    "_variant": if agent == "grok" { "grok" } else { "claude-code" },
                     "meta": { "agent": agent },
                     "text": format!("Reply from {agent}: acknowledged."),
-                    "model": if agent == "grok-build" { "grok-4.5" } else { "claude-sonnet-4" }
+                    "model": if agent == "grok" { "grok-4.5" } else { "claude-sonnet-4" }
                 }
             }
         }),
@@ -71,7 +71,7 @@ fn write_cloud_event_session(dir: &std::path::Path, file_stem: &str, agent: &str
                 "session_id": file_stem,
                 "raw": {},
                 "agent_payload": {
-                    "_variant": if agent == "grok-build" { "grok-build" } else { "claude-code" },
+                    "_variant": if agent == "grok" { "grok" } else { "claude-code" },
                     "meta": { "agent": agent },
                     "stop_reason": "end_turn"
                 }
@@ -99,7 +99,7 @@ fn coexistence_fixture_dir() -> PathBuf {
     write_cloud_event_session(
         tmp.path(),
         "grok-coexist",
-        "grok-build",
+        "grok",
         "Hello from Grok coexistence fixture",
     );
     let path = tmp.path().to_path_buf();
@@ -161,7 +161,7 @@ async fn container_lists_claude_and_grok_without_agent_cross_contamination() {
     );
     assert_eq!(
         grok_agent,
-        Some("grok-build"),
+        Some("grok"),
         "Grok session origin_agent wrong: {grok:?}"
     );
     assert_ne!(
@@ -194,7 +194,7 @@ async fn container_lists_claude_and_grok_without_agent_cross_contamination() {
         let oa = r.get("origin_agent").and_then(|v| v.as_str());
         assert_eq!(
             oa,
-            Some("grok-build"),
+            Some("grok"),
             "Grok record leaked foreign origin_agent: {r}"
         );
     }

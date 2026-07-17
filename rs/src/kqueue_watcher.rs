@@ -138,6 +138,27 @@ fn is_jsonl(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()) == Some("jsonl")
 }
 
+/// JSONL transcripts plus Grok L2 artifacts (terminal logs, session meta, media).
+fn is_watchable_file(path: &Path) -> bool {
+    if is_jsonl(path) {
+        return true;
+    }
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if matches!(name, "summary.json" | "signals.json") {
+        return open_story_core::paths::grok_session_id_from_path(path).is_some();
+    }
+    if open_story_core::translate_grok_l2::tool_call_id_from_terminal_path(path).is_some() {
+        return true;
+    }
+    if let Some(parent) = path.parent() {
+        let parent_name = parent.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if matches!(parent_name, "images" | "assets") {
+            return open_story_core::paths::grok_session_id_from_path(path).is_some();
+        }
+    }
+    false
+}
+
 // ── watch table ─────────────────────────────────────────────────────────────
 
 struct WatchEntry {
@@ -265,7 +286,7 @@ fn register_tree(w: &mut KqueueWatcher, root: &Path) {
         .follow_links(true)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_jsonl(e.path()))
+        .filter(|e| e.file_type().is_file() && is_watchable_file(e.path()))
         .filter_map(|e| {
             let m = e.metadata().ok()?.modified().ok()?;
             Some((e.path().to_path_buf(), m))
@@ -295,7 +316,7 @@ fn rescan_dir(w: &mut KqueueWatcher, dir: &Path) -> Vec<PathBuf> {
         if ft.is_dir() {
             let _ = w.register(&path, true);
         } else if ft.is_file()
-            && is_jsonl(&path)
+            && is_watchable_file(&path)
             && !w.by_path.contains_key(&path)
             && w.register(&path, false).is_ok()
         {
@@ -378,6 +399,17 @@ mod tests {
         assert!(is_jsonl(Path::new("/x/a.jsonl")));
         assert!(!is_jsonl(Path::new("/x/a.json")));
         assert!(!is_jsonl(Path::new("/x/a")));
+    }
+
+    #[test]
+    fn is_watchable_includes_grok_terminal_logs() {
+        let p = Path::new(
+            "/Users/me/.grok/sessions/p/019f6d6e-ada9-7240-b26c-036ec49af2a7/terminal/call-1.log",
+        );
+        assert!(is_watchable_file(p));
+        assert!(is_watchable_file(Path::new(
+            "/Users/me/.grok/sessions/p/019f6d6e-ada9-7240-b26c-036ec49af2a7/summary.json"
+        )));
     }
 
     #[test]

@@ -117,7 +117,7 @@ async fn container_loads_grok_seed_tree_as_grok_build_session() {
     );
 
     let grok = sessions.iter().find(|s| {
-        s.get("origin_agent").and_then(|v| v.as_str()) == Some("grok-build")
+        s.get("origin_agent").and_then(|v| v.as_str()) == Some("grok")
             || s.get("session_id")
                 .and_then(|v| v.as_str())
                 .is_some_and(|id| id.starts_with("019f6cb5"))
@@ -129,8 +129,8 @@ async fn container_loads_grok_seed_tree_as_grok_build_session() {
     let grok = grok.unwrap();
     assert_eq!(
         grok.get("origin_agent").and_then(|v| v.as_str()),
-        Some("grok-build"),
-        "origin_agent must be grok-build"
+        Some("grok"),
+        "origin_agent must be grok"
     );
 
     let sid = grok

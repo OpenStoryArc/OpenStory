@@ -236,7 +236,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            if agent == "hermes" || agent == "codex" || agent == "grok-build" {
+            if agent == "hermes" || agent == "codex" || is_grok_agent(agent) {
                 // Hermes, Codex, and Grok tool results carry call_id and
                 // content on the typed payload; there are no Claude-style
                 // raw content blocks to parse.
@@ -377,7 +377,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             status: None,
                         })),
                     }]
-                } else if agent == "grok-build" {
+                } else if is_grok_agent(agent) {
                     let call_id = match ap {
                         Some(AgentPayload::Grok(g)) => g.tool_call_id.clone().unwrap_or_default(),
                         _ => String::new(),
@@ -467,7 +467,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         s if s.starts_with("message.assistant.thinking") => {
             // Codex + Grok: thinking text lives on the typed payload, not Claude
             // raw thinking blocks. Same path as hermes/codex assistant text.
-            if (agent == "codex" || agent == "grok-build") && !text.is_empty() {
+            if (agent == "codex" || is_grok_agent(agent)) && !text.is_empty() {
                 vec![ViewRecord {
                     id,
                     seq,
@@ -491,7 +491,7 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
             // Hermes/Codex/Grok: content is on the typed payload (text accessor),
             // not in Claude-style raw content blocks. pi-mono uses raw blocks
             // that extract_content_blocks parses.
-            let content = if agent == "hermes" || agent == "codex" || agent == "grok-build" {
+            let content = if agent == "hermes" || agent == "codex" || is_grok_agent(agent) {
                 // Wrap it as a single Text content block for the views layer.
                 if text.is_empty() {
                     vec![]
@@ -663,6 +663,68 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
             }]
         }
 
+        // Grok L2: hunk_records.jsonl → surface path (+/- lines) as a
+        // FileSnapshot so Explore/file impact can see the edit without a
+        // new RecordBody variant.
+        "file.hunk" => {
+            let tracked = match ap {
+                Some(AgentPayload::Grok(gp)) => {
+                    let path = gp
+                        .extra
+                        .get("file_path")
+                        .and_then(|v| v.as_str())
+                        .or(gp.text.as_deref())
+                        .unwrap_or("");
+                    Some(serde_json::json!({
+                        "file_path": path,
+                        "hunk_id": gp.extra.get("hunk_id"),
+                        "hunk_start": gp.extra.get("hunk_start"),
+                        "hunk_end": gp.extra.get("hunk_end"),
+                        "lines_added": gp.extra.get("lines_added"),
+                        "lines_removed": gp.extra.get("lines_removed"),
+                    }))
+                }
+                _ => raw.get("filePath").map(|p| {
+                    serde_json::json!({"file_path": p})
+                }),
+            };
+            vec![ViewRecord {
+                id,
+                seq,
+                session_id,
+                timestamp: time,
+                origin_agent: None,
+                agent_id: None,
+                is_sidechain: false,
+                body: RecordBody::FileSnapshot(FileSnapshot {
+                    git_commit: None,
+                    git_message: None,
+                    tracked_files: tracked,
+                }),
+            }]
+        }
+
+        "file.attachment" => {
+            let tracked = match ap {
+                Some(AgentPayload::Grok(gp)) => gp.extra.get("attachment").cloned(),
+                _ => None,
+            };
+            vec![ViewRecord {
+                id,
+                seq,
+                session_id,
+                timestamp: time,
+                origin_agent: None,
+                agent_id: None,
+                is_sidechain: false,
+                body: RecordBody::FileSnapshot(FileSnapshot {
+                    git_commit: None,
+                    git_message: None,
+                    tracked_files: tracked,
+                }),
+            }]
+        }
+
         _ => {
             // Fuzzy pipe: unknown subtypes still produce a record so the
             // event flows through the broadcast path. The raw data is on
@@ -699,6 +761,11 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
     records
 }
 
+/// Canonical agent id is `"grok"`; `"grok-build"` remains as a read alias.
+fn is_grok_agent(agent: &str) -> bool {
+    agent == "grok" || agent == "grok-build"
+}
+
 /// Map agent-native token_usage JSON into a TokenUsage view body.
 /// Returns None when neither input nor output counts are present.
 fn token_usage_from_agent_map(agent: &str, usage: &Value) -> Option<TokenUsage> {
@@ -710,8 +777,8 @@ fn token_usage_from_agent_map(agent: &str, usage: &Value) -> Option<TokenUsage> 
             usage.get("cacheWrite").and_then(|v| v.as_u64()),
             usage.get("cacheRead").and_then(|v| v.as_u64()),
         ),
-        // Grok Build ACP turn_completed.usage (camelCase).
-        "grok-build" | "grok" => (
+        // Grok ACP turn_completed.usage (camelCase).
+        a if is_grok_agent(a) => (
             usage
                 .get("inputTokens")
                 .or_else(|| usage.get("input_tokens"))
@@ -2286,8 +2353,8 @@ mod tests {
         let raw = obj.remove("raw").unwrap_or(json!({}));
 
         let mut payload = serde_json::Map::new();
-        payload.insert("_variant".to_string(), json!("grok-build"));
-        payload.insert("meta".to_string(), json!({"agent": "grok-build"}));
+        payload.insert("_variant".to_string(), json!("grok"));
+        payload.insert("meta".to_string(), json!({"agent": "grok"}));
         for (k, v) in obj {
             payload.insert(k, v);
         }
@@ -2300,7 +2367,7 @@ mod tests {
             "time": "2026-07-17T00:16:55Z",
             "datacontenttype": "application/json",
             "subtype": subtype,
-            "agent": "grok-build",
+            "agent": "grok",
             "data": {
                 "raw": raw,
                 "seq": seq,

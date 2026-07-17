@@ -17,7 +17,7 @@ class ActSpec:
     id: str
     verb: str  # tool name or speech act
     kind: str  # explore | mutate | execute | search | coordinate | speak | fail
-    subject: str = "grok-build"
+    subject: str = "grok"
     # Human-readable object pattern (for MANIFEST / sentences)
     object_pattern: str = ""
     # ACP tool meta kind

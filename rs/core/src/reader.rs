@@ -12,9 +12,11 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
+use crate::paths::grok_session_id_from_path;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
 use crate::translate_codex::{is_codex_rollout_format, translate_codex_line};
 use crate::translate_grok::{is_grok_format, translate_grok_line};
+use crate::translate_grok_l2::{is_hunk_record, translate_hunk_record};
 use crate::translate_hermes::{is_hermes_format, translate_hermes_line};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
@@ -94,6 +96,26 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
                 events.push(ce);
                 continue;
             }
+        }
+
+        // Grok L2: hunk_records.jsonl is not ACP — path-dispatch by basename
+        // or hunk shape so we never lock the file as ClaudeCode.
+        let is_hunk_file = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            == Some("hunk_records.jsonl");
+        if is_hunk_file || is_hunk_record(&obj) {
+            let sid = grok_session_id_from_path(file_path)
+                .unwrap_or_else(|| state.session_id.clone());
+            if !sid.is_empty() {
+                state.session_id = sid;
+            }
+            let session_id = state.session_id.clone();
+            let seq = state.next_seq();
+            if let Some(ev) = translate_hunk_record(&obj, &session_id, seq) {
+                events.push(ev);
+            }
+            continue;
         }
 
         // Detect format once per file, then lock.

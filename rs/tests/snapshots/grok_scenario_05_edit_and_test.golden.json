@@ -9,7 +9,7 @@
           "depth": 0,
           "id": "uuid-0-40",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "content": "Bump the version and run tests.",
@@ -35,9 +35,38 @@
       "records": [
         {
           "depth": 0,
+          "id": "uuid-0-41",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "content": "Edit Cargo.toml then cargo test.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 1,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_05_edit_and_test",
+      "session_label": "Bump the version and run tests.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
           "id": "uuid-0-42",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-edit-01",
@@ -84,7 +113,7 @@
           "depth": 0,
           "id": "uuid-0-43",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-edit-01",
@@ -117,7 +146,7 @@
           "depth": 0,
           "id": "uuid-0-44",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-test-01",
@@ -161,7 +190,7 @@
           "depth": 0,
           "id": "uuid-0-45",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-test-01",
@@ -195,10 +224,15 @@
           "depth": 0,
           "id": "uuid-0-46",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": [
+              {
+                "text": "Bumped version to 0.1.1; cargo test passed.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -223,7 +257,7 @@
           "depth": 0,
           "id": "uuid-0-47",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -234,22 +268,42 @@
           "session_id": "uuid-0",
           "timestamp": "2023-11-14T22:13:20.000Z",
           "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-0-47:usage",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "cache_read_input_tokens": 0,
+            "input_tokens": 500,
+            "output_tokens": 80,
+            "scope": "turn",
+            "total_tokens": 580
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 8,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
         }
       ],
       "session_id": "grok_scenario_05_edit_and_test",
       "session_label": "Bump the version and run tests.",
-      "total_input_tokens": 0,
-      "total_output_tokens": 0
+      "total_input_tokens": 500,
+      "total_output_tokens": 80
     }
   ],
   "events": [
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "model": "grok-4.5",
           "text": "Bump the version and run tests."
@@ -290,12 +344,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-05",
           "text": "Edit Cargo.toml then cargo test."
@@ -334,17 +388,17 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "file_path": "/workspace/demo/Cargo.toml",
             "new_string": "version = \"0.1.1\"",
             "old_string": "version = \"0.1.0\""
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-05",
           "tool": "search_replace",
@@ -402,10 +456,10 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "file_path": "/workspace/demo/Cargo.toml",
             "new_string": "version = \"0.1.1\"",
@@ -413,7 +467,7 @@
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "The file /workspace/demo/Cargo.toml has been updated.",
           "tool": "search_replace",
@@ -459,16 +513,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "command": "cargo test -q",
             "description": "Run cargo tests"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-05",
           "tool": "run_terminal_command",
@@ -525,17 +579,17 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "command": "cargo test -q",
             "description": "Run cargo tests"
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "running 3 tests\nall tests passed\n",
           "tool": "run_terminal_command",
@@ -582,12 +636,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-05",
           "text": "Bumped version to 0.1.1; cargo test passed."
@@ -626,12 +680,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-05",
           "stop_reason": "end_turn",
@@ -712,8 +766,8 @@
     "branch": null,
     "event_count": 8,
     "label": "Bump the version and run tests.",
-    "total_input_tokens": 0,
-    "total_output_tokens": 0
+    "total_input_tokens": 500,
+    "total_output_tokens": 80
   },
   "sessions": [
     {

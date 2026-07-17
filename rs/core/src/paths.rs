@@ -21,19 +21,53 @@ pub fn session_id_from_path(path: &Path) -> String {
     codex_rollout_thread_id(&stem).unwrap_or(stem)
 }
 
-/// Grok Build stores ACP streams as `{cwd}/{session-id}/updates.jsonl`.
-/// The file stem would be `"updates"` — wrong. Use the parent directory when
-/// it looks like a UUID (Grok session ids are UUIDv7 strings).
-fn grok_session_id_from_path(path: &Path) -> Option<String> {
+/// Grok Build stores sessions as `{cwd}/{session-id}/…`.
+///
+/// L1 ACP stream: `{session-id}/updates.jsonl`  
+/// L2 artifacts: `{session-id}/hunk_records.jsonl`, `summary.json`,
+/// `signals.json`, `terminal/{call}.log`, `images/*`, `assets/*`.
+///
+/// File stems are not session ids — walk to the UUID parent.
+pub fn grok_session_id_from_path(path: &Path) -> Option<String> {
     let file_name = path.file_name().and_then(|s| s.to_str())?;
-    if file_name != "updates.jsonl" {
-        return None;
+
+    // updates.jsonl / session-root JSONL & JSON → parent is session id
+    if matches!(
+        file_name,
+        "updates.jsonl"
+            | "hunk_records.jsonl"
+            | "summary.json"
+            | "signals.json"
+            | "chat_history.jsonl"
+    ) {
+        let parent = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())?;
+        return looks_like_uuid(parent).then(|| parent.to_string());
     }
-    let parent = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|s| s.to_str())?;
-    looks_like_uuid(parent).then(|| parent.to_string())
+
+    // terminal/{callId}.log → session is parent of `terminal/`
+    if file_name.ends_with(".log") {
+        let terminal_dir = path.parent()?;
+        if terminal_dir.file_name().and_then(|s| s.to_str()) == Some("terminal") {
+            let session_dir = terminal_dir.parent()?;
+            let name = session_dir.file_name().and_then(|s| s.to_str())?;
+            return looks_like_uuid(name).then(|| name.to_string());
+        }
+    }
+
+    // images/* or assets/* → session is grandparent
+    if let Some(media_dir) = path.parent() {
+        let media_name = media_dir.file_name().and_then(|s| s.to_str())?;
+        if matches!(media_name, "images" | "assets") {
+            let session_dir = media_dir.parent()?;
+            let name = session_dir.file_name().and_then(|s| s.to_str())?;
+            return looks_like_uuid(name).then(|| name.to_string());
+        }
+    }
+
+    None
 }
 
 fn looks_like_uuid(s: &str) -> bool {
@@ -176,9 +210,19 @@ mod tests {
                 "abc123",
             ),
             (
-                "chat_history sibling is NOT remapped (stem)",
+                "chat_history sibling remaps to session uuid (L2)",
                 "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/chat_history.jsonl",
-                "chat_history",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "hunk_records remaps to session uuid",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/hunk_records.jsonl",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "terminal log remaps to session uuid",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/terminal/call-abc-1.log",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
             ),
             (
                 "non-uuid parent of updates.jsonl falls through to stem",

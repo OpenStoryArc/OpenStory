@@ -164,7 +164,7 @@ fn session_update_to_subtype_boundary_table() {
                     Some(sub),
                     "case `{name}` subtype"
                 );
-                assert_eq!(events[0].agent.as_deref(), Some("grok-build"));
+                assert_eq!(events[0].agent.as_deref(), Some("grok"));
                 assert_eq!(
                     events[0].data.raw, line,
                     "case `{name}`: raw must equal source line"
@@ -301,7 +301,7 @@ fn reader_detects_grok_format_and_locks_it() {
     let events = read_new_lines(file.path(), &mut state).expect("read");
     assert_eq!(state.format, TranscriptFormat::Grok);
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].agent.as_deref(), Some("grok-build"));
+    assert_eq!(events[0].agent.as_deref(), Some("grok"));
     assert_eq!(events[0].subtype.as_deref(), Some("message.user.prompt"));
     assert_eq!(state.session_id, "abc");
 }
@@ -326,7 +326,7 @@ fn fixture_sample_produces_tool_pairs_and_turn_boundaries() {
 
     // Every event carries the Grok discriminator + io.arc.event type.
     for e in &events {
-        assert_eq!(e.agent.as_deref(), Some("grok-build"));
+        assert_eq!(e.agent.as_deref(), Some("grok"));
         assert_eq!(e.event_type, "io.arc.event");
         assert!(e.source.starts_with("grok://session/"));
     }

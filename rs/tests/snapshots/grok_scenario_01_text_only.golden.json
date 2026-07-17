@@ -9,7 +9,7 @@
           "depth": 0,
           "id": "uuid-0-01",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "content": "What is a TUI?",
@@ -35,12 +35,46 @@
       "records": [
         {
           "depth": 0,
-          "id": "uuid-0-03",
+          "id": "uuid-0-02",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": "User wants a short definition of TUI.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 1,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_01_text_only",
+      "session_label": "What is a TUI?",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-03",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "content": [
+              {
+                "text": "A TUI is a text user interface that runs in the terminal.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -65,7 +99,7 @@
           "depth": 0,
           "id": "uuid-0-04",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -76,22 +110,42 @@
           "session_id": "uuid-0",
           "timestamp": "2023-11-14T22:13:20.000Z",
           "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-0-04:usage",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "cache_read_input_tokens": 0,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "scope": "turn",
+            "total_tokens": 120
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 4,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
         }
       ],
       "session_id": "grok_scenario_01_text_only",
       "session_label": "What is a TUI?",
-      "total_input_tokens": 0,
-      "total_output_tokens": 0
+      "total_input_tokens": 100,
+      "total_output_tokens": 20
     }
   ],
   "events": [
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "model": "grok-4.5",
           "text": "What is a TUI?"
@@ -132,12 +186,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-01",
           "text": "User wants a short definition of TUI."
@@ -176,12 +230,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-01",
           "text": "A TUI is a text user interface that runs in the terminal."
@@ -220,12 +274,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-01",
           "stop_reason": "end_turn",
@@ -306,8 +360,8 @@
     "branch": null,
     "event_count": 4,
     "label": "What is a TUI?",
-    "total_input_tokens": 0,
-    "total_output_tokens": 0
+    "total_input_tokens": 100,
+    "total_output_tokens": 20
   },
   "sessions": [
     {

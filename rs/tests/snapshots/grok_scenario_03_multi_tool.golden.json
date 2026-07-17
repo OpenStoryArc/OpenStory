@@ -9,7 +9,7 @@
           "depth": 0,
           "id": "uuid-0-20",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "content": "What's in Cargo.toml and the git status?",
@@ -35,9 +35,38 @@
       "records": [
         {
           "depth": 0,
+          "id": "uuid-0-21",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "content": "Read Cargo.toml then run git status.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 1,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_03_multi_tool",
+      "session_label": "What's in Cargo.toml and the git status?",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
           "id": "uuid-0-22",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-01",
@@ -78,7 +107,7 @@
           "depth": 0,
           "id": "uuid-0-23",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-01",
@@ -111,7 +140,7 @@
           "depth": 0,
           "id": "uuid-0-24",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-bash-01",
@@ -155,7 +184,7 @@
           "depth": 0,
           "id": "uuid-0-25",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-bash-01",
@@ -189,10 +218,15 @@
           "depth": 0,
           "id": "uuid-0-26",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": [
+              {
+                "text": "Cargo.toml names package demo; git shows a modified Cargo.toml and untracked main.rs.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -217,7 +251,7 @@
           "depth": 0,
           "id": "uuid-0-27",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -228,22 +262,42 @@
           "session_id": "uuid-0",
           "timestamp": "2023-11-14T22:13:20.000Z",
           "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-0-27:usage",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "cache_read_input_tokens": 0,
+            "input_tokens": 400,
+            "output_tokens": 60,
+            "scope": "turn",
+            "total_tokens": 460
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 8,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
         }
       ],
       "session_id": "grok_scenario_03_multi_tool",
       "session_label": "What's in Cargo.toml and the git status?",
-      "total_input_tokens": 0,
-      "total_output_tokens": 0
+      "total_input_tokens": 400,
+      "total_output_tokens": 60
     }
   ],
   "events": [
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "model": "grok-4.5",
           "text": "What's in Cargo.toml and the git status?"
@@ -284,12 +338,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-03",
           "text": "Read Cargo.toml then run git status."
@@ -328,15 +382,15 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/Cargo.toml"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-03",
           "tool": "read_file",
@@ -392,16 +446,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/Cargo.toml"
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
           "tool": "read_file",
@@ -447,16 +501,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "command": "git status --short",
             "description": "Show short git status"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-03",
           "tool": "run_terminal_command",
@@ -513,17 +567,17 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "command": "git status --short",
             "description": "Show short git status"
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": " M Cargo.toml\n?? src/main.rs\n",
           "tool": "run_terminal_command",
@@ -570,12 +624,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-03",
           "text": "Cargo.toml names package demo; git shows a modified Cargo.toml and untracked main.rs."
@@ -614,12 +668,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-03",
           "stop_reason": "end_turn",
@@ -700,8 +754,8 @@
     "branch": null,
     "event_count": 8,
     "label": "What's in Cargo.toml and the git status?",
-    "total_input_tokens": 0,
-    "total_output_tokens": 0
+    "total_input_tokens": 400,
+    "total_output_tokens": 60
   },
   "sessions": [
     {

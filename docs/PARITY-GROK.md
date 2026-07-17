@@ -21,6 +21,11 @@ cd rs && cargo test -p open-story-mcp --lib transcript_entry
 # L2 — single + multi-turn real fixtures → Grok sentences + pattern goldens
 cd rs && cargo test -p open-story --test test_grok_storytelling
 
+# L2 enrich — session artifacts (terminal logs, hunks, summary) match CloudEvents
+# BDD: when session dir is backfilled / it should emit text equal to log body
+cd rs && cargo test -p open-story --test test_grok_l2_enrichment
+cd rs && cargo test -p open-story-core --lib when_bash when_terminal when_hunk
+
 # L3 — Docker container: seed_tree → origin_agent=grok-build + non-empty assistant
 # Requires: docker build -t open-story:test ./rs
 cd rs && cargo test -p open-story --test test_grok_container
@@ -39,6 +44,7 @@ cd e2e && npx playwright test grok-parity.spec.ts
 |-------|------|------|
 | L1 | tool join, text, thinking, tokens | `cargo test -p open-story-views --lib grok_` |
 | L2 | multi-turn real fixture patterns | `test_grok_storytelling` |
+| L2+ | terminal/hunk/summary → CloudEvents (log text = event text) | `test_grok_l2_enrichment` |
 | L3 | container seed_tree + FTS soft | `test_grok_container` |
 | L4 | MCP transcript | `transcript_entry` |
 | L5 | UI label + Playwright | `origin-agent` + `grok-parity.spec.ts` |
@@ -54,3 +60,5 @@ Typical tool-heavy Grok session after views fix:
 - `token_usage` on turns (camelCase ACP → views)
 - `turn.sentence` summaries start with **"Grok"**
 - Explore sidebar shows **Grok** agent badge; seed prose readable
+- Bash `tool_result` text is readable (not rawOutput byte-array JSON)
+- L2: `terminal/{call}.log` body equals tool_result text; hunks → `file.hunk`

@@ -2,7 +2,7 @@
  * Grok Build agent parity (UI surface — Explore shell).
  *
  * Seed: e2e/fixtures/seed-data/grok-session.jsonl (CloudEvent passthrough,
- * agent=grok-build). Watcher session_id is the filename stem: "grok-session".
+ * agent=grok). Watcher session_id is the filename stem: "grok-session".
  *
  * Asserts: session listed, Grok-origin content selectable, assistant prose visible.
  */

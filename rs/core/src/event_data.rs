@@ -223,7 +223,7 @@ pub enum AgentPayload {
     Hermes(HermesPayload),
     #[serde(rename = "codex")]
     Codex(CodexPayload),
-    #[serde(rename = "grok-build")]
+    #[serde(rename = "grok", alias = "grok-build")]
     Grok(GrokPayload),
 }
 
@@ -728,7 +728,7 @@ impl GrokPayload {
     pub fn new() -> Self {
         Self {
             meta: PayloadMeta {
-                agent: "grok-build".to_string(),
+                agent: "grok".to_string(),
             },
             text: None,
             model: None,

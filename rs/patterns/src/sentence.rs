@@ -921,8 +921,8 @@ mod tests {
     fn subject_follows_agent_discriminator_boundary_table() {
         // (agent field, expected subject)
         let cases: Vec<(Option<&str>, &str)> = vec![
-            (Some("grok-build"), "Grok"),
             (Some("grok"), "Grok"),
+            (Some("grok-build"), "Grok"),
             (Some("hermes"), "Hermes"),
             (Some("pi-mono"), "Pi"),
             (Some("codex"), "Codex"),

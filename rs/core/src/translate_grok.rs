@@ -26,7 +26,7 @@ use crate::event_data::{
 };
 use crate::translate::{TranscriptState, IO_ARC_EVENT};
 
-const AGENT: &str = "grok-build";
+const AGENT: &str = "grok";
 
 /// Detect a Grok Build ACP updates.jsonl line.
 pub fn is_grok_format(line: &Value) -> bool {
@@ -330,6 +330,16 @@ fn tool_name_from_update(update: &Value) -> String {
 }
 
 fn raw_output_text(update: &Value) -> Option<String> {
+    // Prefer human-readable ACP content blocks when present. Grok Bash tools
+    // often put a UTF-8 byte array in rawOutput.output while the same text
+    // already lives in content[].content.text — using the byte-array JSON
+    // dump makes tool_result unreadable in OpenStory.
+    if let Some(s) = content_text(update) {
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+
     let raw = update.get("rawOutput")?;
     if let Some(s) = raw.as_str() {
         return Some(s.to_string());
@@ -341,8 +351,36 @@ fn raw_output_text(update: &Value) -> Option<String> {
     if let Some(s) = raw.get("content").and_then(|v| v.as_str()) {
         return Some(s.to_string());
     }
+    // Bash: rawOutput.output is a JSON array of byte values.
+    if let Some(s) = decode_byte_array_output(raw.get("output")) {
+        return Some(s);
+    }
+    if let Some(s) = raw
+        .get("output_for_prompt")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return Some(s.to_string());
+    }
     // Last resort: compact JSON (keeps sovereignty of the result).
     Some(raw.to_string())
+}
+
+/// Decode Grok Bash `rawOutput.output: [u8, …]` into a UTF-8 string.
+fn decode_byte_array_output(output: Option<&Value>) -> Option<String> {
+    let arr = output?.as_array()?;
+    if arr.is_empty() {
+        return Some(String::new());
+    }
+    let mut bytes = Vec::with_capacity(arr.len());
+    for v in arr {
+        let b = v.as_u64().or_else(|| v.as_i64().map(|i| i as u64))?;
+        if b > 255 {
+            return None;
+        }
+        bytes.push(b as u8);
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn grok_timestamp(line: &Value) -> Option<String> {
@@ -499,7 +537,7 @@ mod tests {
         let events = translate_grok_line(&line, &mut st);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].subtype.as_deref(), Some("message.user.prompt"));
-        assert_eq!(events[0].agent.as_deref(), Some("grok-build"));
+        assert_eq!(events[0].agent.as_deref(), Some("grok"));
         assert_eq!(events[0].data.raw, line);
         assert_eq!(events[0].data.agent_payload.as_ref().unwrap().text(), Some("hello"));
         assert_eq!(st.session_id, "abc");
@@ -570,6 +608,110 @@ mod tests {
 
         let e3 = translate_grok_line(&turn, &mut st);
         assert_eq!(e3[0].subtype.as_deref(), Some("system.turn.complete"));
+    }
+
+    // describe("when Grok Bash tool_call_update completes")
+    // OpenStory must show the same readable shell output the log/chat show —
+    // never a JSON dump of rawOutput.output byte arrays.
+    mod when_bash_tool_result_completes {
+        use super::*;
+
+        fn tool_call(id: &str, event_id: &str) -> serde_json::Value {
+            json!({
+                "timestamp": 1,
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": id,
+                        "title": "run_terminal_command",
+                        "rawInput": {"command": "echo hi"},
+                        "_meta": {"x.ai/tool": {"name": "run_terminal_command"}}
+                    },
+                    "_meta": {"eventId": event_id}
+                }
+            })
+        }
+
+        #[test]
+        fn it_should_prefer_content_text_over_byte_array_raw_output() {
+            let mut st = state();
+            let done = json!({
+                "timestamp": 2,
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "call-bash-1",
+                        "status": "completed",
+                        "content": [{
+                            "type": "content",
+                            "content": {"type": "text", "text": "hi\n"}
+                        }],
+                        "rawOutput": {
+                            "type": "Bash",
+                            "output": [104, 105, 10],
+                            "command": "echo hi",
+                            "exit_code": 0
+                        }
+                    },
+                    "_meta": {"eventId": "e-bash-done"}
+                }
+            });
+            let _ = translate_grok_line(&tool_call("call-bash-1", "e-bash-call"), &mut st);
+            let events = translate_grok_line(&done, &mut st);
+            assert_eq!(events.len(), 1);
+            let text = events[0]
+                .data
+                .agent_payload
+                .as_ref()
+                .unwrap()
+                .text()
+                .unwrap();
+            assert_eq!(
+                text, "hi\n",
+                "tool_result text must match ACP content block (and the terminal log)"
+            );
+            assert!(
+                !text.contains("\"output\":["),
+                "must not dump rawOutput.output byte array JSON, got {text:?}"
+            );
+            assert!(!text.starts_with("{\"command\":"), "must not dump whole rawOutput object");
+        }
+
+        #[test]
+        fn it_should_decode_byte_array_when_content_block_is_missing() {
+            let mut st = state();
+            let done = json!({
+                "timestamp": 2,
+                "method": "session/update",
+                "params": {
+                    "sessionId": "s1",
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "call-bash-2",
+                        "status": "completed",
+                        "rawOutput": {
+                            "type": "Bash",
+                            "output": [120, 10]
+                        }
+                    },
+                    "_meta": {"eventId": "e-bash2-done"}
+                }
+            });
+            let _ = translate_grok_line(&tool_call("call-bash-2", "e-bash2-call"), &mut st);
+            let events = translate_grok_line(&done, &mut st);
+            let text = events[0]
+                .data
+                .agent_payload
+                .as_ref()
+                .unwrap()
+                .text()
+                .unwrap();
+            assert_eq!(text, "x\n");
+        }
     }
 
     #[test]

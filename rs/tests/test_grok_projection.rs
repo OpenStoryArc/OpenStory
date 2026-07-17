@@ -32,7 +32,7 @@ fn grok_single_tool_projects_into_view_records_and_session_label() {
     let mut projection = SessionProjection::new(&session_id);
     let mut bodies = Vec::new();
     for event in &events {
-        assert_eq!(event.agent.as_deref(), Some("grok-build"));
+        assert_eq!(event.agent.as_deref(), Some("grok"));
         let event_json: Value = serde_json::to_value(event).expect("serialize");
         let result = projection.append(&event_json);
         bodies.extend(result.records.into_iter().map(|r| r.body));

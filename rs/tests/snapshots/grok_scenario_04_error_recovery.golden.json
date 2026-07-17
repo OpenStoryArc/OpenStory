@@ -9,7 +9,7 @@
           "depth": 0,
           "id": "uuid-0-30",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "content": "Open missing.rs please.",
@@ -35,9 +35,38 @@
       "records": [
         {
           "depth": 0,
+          "id": "uuid-0-31",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "content": "Try reading the path the user gave.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 1,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
           "id": "uuid-0-32",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-missing",
@@ -78,7 +107,7 @@
           "depth": 0,
           "id": "uuid-0-33",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-missing",
@@ -112,10 +141,15 @@
           "depth": 0,
           "id": "uuid-0-34",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": [
+              {
+                "text": "That path doesn't exist. Checking src/main.rs instead.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -140,7 +174,7 @@
           "depth": 0,
           "id": "uuid-0-35",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-ok",
@@ -181,7 +215,7 @@
           "depth": 0,
           "id": "uuid-0-36",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-read-ok",
@@ -214,10 +248,15 @@
           "depth": 0,
           "id": "uuid-0-37",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": [
+              {
+                "text": "Found main.rs with a hello world entrypoint.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -242,7 +281,7 @@
           "depth": 0,
           "id": "uuid-0-38",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -253,22 +292,42 @@
           "session_id": "uuid-0",
           "timestamp": "2023-11-14T22:13:20.000Z",
           "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-0-38:usage",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "cache_read_input_tokens": 0,
+            "input_tokens": 300,
+            "output_tokens": 50,
+            "scope": "turn",
+            "total_tokens": 350
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 9,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
         }
       ],
       "session_id": "grok_scenario_04_error_recovery",
       "session_label": "Open missing.rs please.",
-      "total_input_tokens": 0,
-      "total_output_tokens": 0
+      "total_input_tokens": 300,
+      "total_output_tokens": 50
     }
   ],
   "events": [
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "model": "grok-4.5",
           "text": "Open missing.rs please."
@@ -309,12 +368,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "text": "Try reading the path the user gave."
@@ -353,15 +412,15 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/missing.rs"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "tool": "read_file",
@@ -417,16 +476,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/missing.rs"
           },
           "is_error": true,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "Error: File not found: /workspace/demo/missing.rs",
           "tool": "read_file",
@@ -474,12 +533,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "text": "That path doesn't exist. Checking src/main.rs instead."
@@ -518,15 +577,15 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/src/main.rs"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "tool": "read_file",
@@ -582,16 +641,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_file": "/workspace/demo/src/main.rs"
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "fn main() {\n    println!(\"hello\");\n}\n",
           "tool": "read_file",
@@ -637,12 +696,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "text": "Found main.rs with a hello world entrypoint."
@@ -681,12 +740,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-04",
           "stop_reason": "end_turn",
@@ -767,8 +826,8 @@
     "branch": null,
     "event_count": 9,
     "label": "Open missing.rs please.",
-    "total_input_tokens": 0,
-    "total_output_tokens": 0
+    "total_input_tokens": 300,
+    "total_output_tokens": 50
   },
   "sessions": [
     {

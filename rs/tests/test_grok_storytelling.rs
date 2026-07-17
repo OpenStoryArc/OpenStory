@@ -36,8 +36,8 @@ fn assert_story_from_fixture(name: &str) {
     for e in &events {
         assert_eq!(
             e.agent.as_deref(),
-            Some("grok-build"),
-            "{name}: every event must carry agent=grok-build"
+            Some("grok"),
+            "{name}: every event must carry agent=grok"
         );
     }
 
@@ -162,7 +162,7 @@ fn grok_real_turns_multi_turn_pattern_shape_is_stable() {
     );
 
     for e in &events {
-        assert_eq!(e.agent.as_deref(), Some("grok-build"));
+        assert_eq!(e.agent.as_deref(), Some("grok"));
     }
 
     let turn_completes = events

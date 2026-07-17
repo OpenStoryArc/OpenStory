@@ -9,7 +9,7 @@
           "depth": 0,
           "id": "uuid-0-10",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "content": "List the project root.",
@@ -35,12 +35,46 @@
       "records": [
         {
           "depth": 0,
-          "id": "uuid-0-12",
+          "id": "uuid-0-11",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": "I should list the directory.",
+            "encrypted": false,
+            "summary": []
+          },
+          "payload_bytes": 0,
+          "record_type": "reasoning",
+          "seq": 1,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-12",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "content": [
+              {
+                "text": "I'll list the root for you.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -65,7 +99,7 @@
           "depth": 0,
           "id": "uuid-0-13",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-list-01",
@@ -106,7 +140,7 @@
           "depth": 0,
           "id": "uuid-0-15",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "call_id": "call-list-01",
@@ -140,10 +174,15 @@
           "depth": 0,
           "id": "uuid-0-16",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
-            "content": [],
+            "content": [
+              {
+                "text": "The project root has README.md and a src/ directory.",
+                "type": "text"
+              }
+            ],
             "model": "unknown"
           },
           "payload_bytes": 0,
@@ -168,7 +207,7 @@
           "depth": 0,
           "id": "uuid-0-17",
           "is_sidechain": false,
-          "origin_agent": "grok-build",
+          "origin_agent": "grok",
           "parent_uuid": null,
           "payload": {
             "reason": "end_turn"
@@ -179,22 +218,42 @@
           "session_id": "uuid-0",
           "timestamp": "2023-11-14T22:13:20.000Z",
           "truncated": false
+        },
+        {
+          "depth": 0,
+          "id": "uuid-0-17:usage",
+          "is_sidechain": false,
+          "origin_agent": "grok",
+          "parent_uuid": null,
+          "payload": {
+            "cache_read_input_tokens": 0,
+            "input_tokens": 200,
+            "output_tokens": 40,
+            "scope": "turn",
+            "total_tokens": 240
+          },
+          "payload_bytes": 0,
+          "record_type": "token_usage",
+          "seq": 7,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
         }
       ],
       "session_id": "grok_scenario_02_single_tool",
       "session_label": "List the project root.",
-      "total_input_tokens": 0,
-      "total_output_tokens": 0
+      "total_input_tokens": 200,
+      "total_output_tokens": 40
     }
   ],
   "events": [
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "model": "grok-4.5",
           "text": "List the project root."
@@ -235,12 +294,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-02",
           "text": "I should list the directory."
@@ -279,12 +338,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-02",
           "text": "I'll list the root for you."
@@ -323,15 +382,15 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_directory": "/workspace/demo"
           },
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-02",
           "tool": "list_dir",
@@ -387,16 +446,16 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "args": {
             "target_directory": "/workspace/demo"
           },
           "is_error": false,
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "text": "- /workspace/demo/\n  - README.md\n  - src/\n",
           "tool": "list_dir",
@@ -443,12 +502,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-02",
           "text": "The project root has README.md and a src/ directory."
@@ -487,12 +546,12 @@
       "user": "<user>"
     },
     {
-      "agent": "grok-build",
+      "agent": "grok",
       "data": {
         "agent_payload": {
-          "_variant": "grok-build",
+          "_variant": "grok",
           "meta": {
-            "agent": "grok-build"
+            "agent": "grok"
           },
           "prompt_id": "prompt-02",
           "stop_reason": "end_turn",
@@ -573,8 +632,8 @@
     "branch": null,
     "event_count": 7,
     "label": "List the project root.",
-    "total_input_tokens": 0,
-    "total_output_tokens": 0
+    "total_input_tokens": 200,
+    "total_output_tokens": 40
   },
   "sessions": [
     {

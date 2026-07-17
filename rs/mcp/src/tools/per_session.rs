@@ -323,7 +323,7 @@ mod transcript_entry_tests {
             "type": "io.arc.event",
             "time": "2026-07-17T00:16:55Z",
             "subtype": subtype,
-            "agent": "grok-build",
+            "agent": "grok",
             "data": {
                 "seq": 1,
                 "session_id": "sess-g",
@@ -332,8 +332,8 @@ mod transcript_entry_tests {
                     "params": {"update": {"sessionUpdate": "agent_message_chunk"}}
                 },
                 "agent_payload": {
-                    "_variant": "grok-build",
-                    "meta": {"agent": "grok-build"},
+                    "_variant": "grok",
+                    "meta": {"agent": "grok"},
                     "text": text
                 }
             }

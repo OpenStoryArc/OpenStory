@@ -51,7 +51,7 @@ fn agent_for_watch_dir(
 ) -> &'static str {
     let path_text = path.to_string_lossy();
     if !grok_watch_dir.is_empty() && path == Path::new(grok_watch_dir) {
-        return "grok-build";
+        return "grok";
     }
     if !codex_watch_dir.is_empty() && path == Path::new(codex_watch_dir) {
         return "codex";
@@ -60,7 +60,7 @@ fn agent_for_watch_dir(
         return "claude-code";
     }
     if path_text.contains(".grok") && path_text.contains("sessions") {
-        "grok-build"
+        "grok"
     } else if path_text.contains(".codex") && path_text.contains("sessions") {
         "codex"
     } else {
