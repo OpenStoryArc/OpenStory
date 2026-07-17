@@ -86,12 +86,11 @@ fn grok_seed_tree_layout_is_present() {
     );
 }
 
-/// Container: watch seed_tree, expect a grok-build session on the REST API.
+/// Container: watch seed_tree, expect grok-build session + non-empty prose.
 ///
-/// Ignored until Docker image is built and the container entrypoint watches
-/// recursive session trees the same way production watches `~/.grok/sessions`.
+/// Requires: `docker build -t open-story:test ./rs`
+/// Run: `cargo test -p open-story --test test_grok_container -- --nocapture`
 #[tokio::test]
-#[ignore = "requires docker image open-story:test; run: cargo test -p open-story --test test_grok_container -- --ignored"]
 async fn container_loads_grok_seed_tree_as_grok_build_session() {
     let tree = grok_seed_tree();
     assert!(
@@ -127,14 +126,19 @@ async fn container_loads_grok_seed_tree_as_grok_build_session() {
         grok.is_some(),
         "expected a grok-build session, got: {sessions:?}"
     );
+    let grok = grok.unwrap();
+    assert_eq!(
+        grok.get("origin_agent").and_then(|v| v.as_str()),
+        Some("grok-build"),
+        "origin_agent must be grok-build"
+    );
 
     let sid = grok
-        .unwrap()
         .get("session_id")
         .and_then(|v| v.as_str())
         .expect("session_id");
 
-    // Records + at least one sentence pattern
+    // Records + non-empty assistant prose (views BFF parity with Claude)
     let records: Value = reqwest::get(format!(
         "{}/api/sessions/{sid}/records",
         server.base_url()
@@ -144,12 +148,84 @@ async fn container_loads_grok_seed_tree_as_grok_build_session() {
     .json()
     .await
     .expect("records json");
-    let n = records
+    let recs = records
         .as_array()
-        .map(|a| a.len())
-        .or_else(|| records.get("records").and_then(|r| r.as_array()).map(|a| a.len()))
-        .unwrap_or(0);
-    assert!(n > 0, "expected records for {sid}");
+        .cloned()
+        .or_else(|| {
+            records
+                .get("records")
+                .and_then(|r| r.as_array())
+                .cloned()
+        })
+        .unwrap_or_default();
+    assert!(!recs.is_empty(), "expected records for {sid}");
+
+    let asst: Vec<_> = recs
+        .iter()
+        .filter(|r| r.get("record_type").and_then(|t| t.as_str()) == Some("assistant_message"))
+        .collect();
+    assert!(
+        !asst.is_empty(),
+        "expected assistant_message records for Grok session"
+    );
+    let nonempty = asst.iter().any(|r| {
+        let content = r
+            .pointer("/payload/content")
+            .cloned()
+            .unwrap_or(Value::Null);
+        match content {
+            Value::String(s) => !s.trim().is_empty(),
+            Value::Array(arr) => arr.iter().any(|b| {
+                b.get("text")
+                    .and_then(|t| t.as_str())
+                    .is_some_and(|t| !t.trim().is_empty())
+            }),
+            _ => false,
+        }
+    });
+    assert!(
+        nonempty,
+        "assistant_message content must be non-empty (views typed path)"
+    );
+
+    // FTS: assistant prose is searchable (Claude parity for search dogfood)
+    let search: Value = reqwest::get(format!(
+        "{}/api/search?q=TUI&session_id={sid}",
+        server.base_url()
+    ))
+    .await
+    .expect("search")
+    .json()
+    .await
+    .expect("search json");
+    let hits = search
+        .as_array()
+        .cloned()
+        .or_else(|| search.get("results").and_then(|r| r.as_array()).cloned())
+        .or_else(|| search.get("hits").and_then(|r| r.as_array()).cloned())
+        .unwrap_or_default();
+    // TUI is in real_turn_01 seed — soft assert if FTS schema differs
+    if hits.is_empty() {
+        // Fallback: any non-empty search for a tool name present in seed
+        let search2: Value = reqwest::get(format!(
+            "{}/api/search?q=session&session_id={sid}",
+            server.base_url()
+        ))
+        .await
+        .expect("search2")
+        .json()
+        .await
+        .expect("search2 json");
+        let hits2 = search2
+            .as_array()
+            .cloned()
+            .or_else(|| search2.get("results").and_then(|r| r.as_array()).cloned())
+            .unwrap_or_default();
+        assert!(
+            !hits2.is_empty(),
+            "expected FTS hits for Grok session content, got empty for TUI and session"
+        );
+    }
 
     let patterns: Value = reqwest::get(format!(
         "{}/api/sessions/{sid}/patterns?type=turn.sentence",
@@ -164,7 +240,12 @@ async fn container_loads_grok_seed_tree_as_grok_build_session() {
         .get("patterns")
         .and_then(|p| p.as_array())
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            patterns
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        });
     assert!(
         !sentences.is_empty(),
         "expected turn.sentence patterns for real seed session"

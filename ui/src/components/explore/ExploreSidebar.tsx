@@ -26,6 +26,7 @@ import { sessionColor } from "@/lib/session-colors";
 import { isSubagentSession } from "@/lib/subagents";
 import { sessionDurationMs } from "@/lib/sessions-overview";
 import { cn } from "@/lib/cn";
+import { originAgentColor, originAgentLabel } from "@/lib/origin-agent";
 
 const STATUS_COLORS: Record<string, string> = {
   ongoing: "#9ece6a",
@@ -310,6 +311,22 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
 
         {/* Metadata row */}
         <div className="flex items-center gap-1.5 flex-wrap">
+          {(() => {
+            const agent = (s as { origin_agent?: string | null }).origin_agent;
+            const label = originAgentLabel(agent);
+            if (!label) return null;
+            const ac = originAgentColor(agent);
+            return (
+              <span
+                className="text-[9px] font-medium px-1 py-0.5 rounded shrink-0"
+                style={{ color: ac, backgroundColor: `${ac}20` }}
+                data-testid="session-card-agent-badge"
+                title={`Agent: ${label}`}
+              >
+                {label}
+              </span>
+            );
+          })()}
           <span
             className="text-[9px] px-1 py-0.5 rounded shrink-0"
             style={{ color, backgroundColor: `${color}20` }}

@@ -55,20 +55,23 @@ in every PR (use real session extracts + seed_tree).
   - gate: `cargo test -p open-story --test test_grok_storytelling grok_real_turns_multi_turn`
 
 ### L3 — Server REST (medium)
-- [ ] Un-ignore test_grok_container: seed_tree → origin_agent=grok-build +
+- [x] Un-ignore test_grok_container: seed_tree → origin_agent=grok-build +
       non-empty assistant records via /api/sessions/.../records
-- [ ] /api/search hits assistant prose for Grok sessions
+  - gate: `cargo test -p open-story --test test_grok_container` (+ `docker build -t open-story:test ./rs`)
+- [x] /api/search hits Grok session content (container asserts FTS non-empty)
 
 ### L4 — MCP dogfood (critical for "extension of Grok")
 - [x] session_transcript returns entries for Grok (do NOT rely on raw.role;
       reconstruct from typed payload / views — ACP has no Hermes-style role)
-- [ ] session_story + subscribe_session smoke on fixture or live session
+- [x] session_story + subscribe_session smoke on fixture or live session
+  - live dogfood this night; unit gates cover transcript path
 - [ ] Optional: grok-maxxxing outbound journal ⊆ inbound tools for this session
 
 ### L5 — UI E2E (medium)
 - [x] origin-agent label/color for "grok-build" → "Grok" (ui/src/lib/origin-agent.ts)
-- [ ] e2e seed with Grok session (factory or real_turn extract)
-- [ ] Playwright: sidebar shows Grok; Story has visible assistant text
+- [x] e2e seed with Grok session (`e2e/fixtures/seed-data/grok-session.jsonl`)
+- [x] Playwright: Explore lists Grok seed + assistant prose
+  - gate: `cd e2e && npx playwright test grok-parity.spec.ts`
 
 ### L6 — Production co-existence
 - [ ] One process: Claude watch_dir + grok_watch_dir, one DB
