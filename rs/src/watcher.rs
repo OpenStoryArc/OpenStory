@@ -80,12 +80,93 @@ fn evict_stale_states(
     }
 }
 
+/// JSONL basenames that are never agent transcripts.
+///
+/// Grok Build sessions keep several JSONL siblings under the session dir
+/// (`chat_history`, `rewind_points`, …). Only `updates.jsonl` is the ACP
+/// stream OpenStory should ingest. Skipping the rest prevents double
+/// session-id collisions and noise.
+fn is_non_transcript_jsonl(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+        "chat_history.jsonl"
+            | "rewind_points.jsonl"
+            | "events.jsonl"
+            | "feedback.jsonl"
+            | "prompt_history.jsonl"
+            | "btw_history.jsonl"
+    )
+}
+
+#[cfg(test)]
+mod non_transcript_filter_tests {
+    use super::is_non_transcript_jsonl;
+    use std::path::Path;
+
+    #[test]
+    fn grok_sibling_noise_boundary_table() {
+        // (label, path, is_noise)
+        let cases: Vec<(&str, &str, bool)> = vec![
+            (
+                "updates is the transcript",
+                "/Users/me/.grok/sessions/p/s/updates.jsonl",
+                false,
+            ),
+            (
+                "chat_history noise",
+                "/Users/me/.grok/sessions/p/s/chat_history.jsonl",
+                true,
+            ),
+            (
+                "rewind_points noise",
+                "/Users/me/.grok/sessions/p/s/rewind_points.jsonl",
+                true,
+            ),
+            (
+                "events noise",
+                "/Users/me/.grok/sessions/p/s/events.jsonl",
+                true,
+            ),
+            (
+                "feedback noise",
+                "/Users/me/.grok/sessions/p/s/feedback.jsonl",
+                true,
+            ),
+            (
+                "prompt_history noise",
+                "/Users/me/.grok/sessions/prompt_history.jsonl",
+                true,
+            ),
+            (
+                "claude session file not noise",
+                "/Users/me/.claude/projects/p/abc.jsonl",
+                false,
+            ),
+            (
+                "codex rollout not noise",
+                "/Users/me/.codex/sessions/2026/05/24/rollout-x.jsonl",
+                false,
+            ),
+        ];
+        for (label, path, expected) in cases {
+            assert_eq!(
+                is_non_transcript_jsonl(Path::new(path)),
+                expected,
+                "case `{label}`"
+            );
+        }
+    }
+}
+
 fn process_file_raw_observed(
     path: &Path,
     states: &mut HashMap<PathBuf, TranscriptState>,
     observer: Option<&WatcherObserver>,
 ) -> Result<Vec<CloudEvent>> {
     if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return Ok(vec![]);
+    }
+    if is_non_transcript_jsonl(path) {
         return Ok(vec![]);
     }
 
@@ -158,6 +239,9 @@ fn process_watch_path_raw_observed(
             if candidate.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
+            if is_non_transcript_jsonl(candidate) {
+                continue;
+            }
             let events = process_file_raw_observed(candidate, states, observer)?;
             if !events.is_empty() {
                 batches.push((candidate.to_path_buf(), events));
@@ -181,6 +265,7 @@ fn transcript_format_label(format: &TranscriptFormat) -> &'static str {
         TranscriptFormat::Codex => "codex",
         TranscriptFormat::PiMono => "pi-mono",
         TranscriptFormat::Hermes => "hermes",
+        TranscriptFormat::Grok => "grok-build",
     }
 }
 

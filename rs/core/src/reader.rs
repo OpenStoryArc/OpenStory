@@ -14,6 +14,7 @@ use serde_json::Value;
 use crate::cloud_event::CloudEvent;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
 use crate::translate_codex::{is_codex_rollout_format, translate_codex_line};
+use crate::translate_grok::{is_grok_format, translate_grok_line};
 use crate::translate_hermes::{is_hermes_format, translate_hermes_line};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
@@ -97,11 +98,13 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
         // Detect format once per file, then lock.
         // Order matters: Hermes check first (envelope.source == "hermes" is
-        // unambiguous), then pi-mono (has its own signals), then Claude Code
-        // as the default fallback.
+        // unambiguous), then Grok ACP (method session/update), then Codex,
+        // then pi-mono, then Claude Code as the default fallback.
         if state.format == TranscriptFormat::Unknown {
             state.format = if is_hermes_format(&obj) {
                 TranscriptFormat::Hermes
+            } else if is_grok_format(&obj) {
+                TranscriptFormat::Grok
             } else if is_codex_rollout_format(&obj) {
                 TranscriptFormat::Codex
             } else if is_pi_mono_format(&obj) {
@@ -113,6 +116,7 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
         let new_events = match state.format {
             TranscriptFormat::Hermes => translate_hermes_line(&obj, state),
+            TranscriptFormat::Grok => translate_grok_line(&obj, state),
             TranscriptFormat::Codex => translate_codex_line(&obj, state),
             TranscriptFormat::PiMono => translate_pi_line(&obj, state),
             _ => translate_line(&obj, state),

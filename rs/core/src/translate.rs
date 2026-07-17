@@ -46,6 +46,7 @@ pub enum TranscriptFormat {
     PiMono,
     Hermes,
     Codex,
+    Grok,
 }
 
 /// A pending tool call: name + input, keyed by tool_use_id.
@@ -84,6 +85,25 @@ impl TranscriptState {
     pub fn next_seq(&mut self) -> u64 {
         self.seq += 1;
         self.seq
+    }
+
+    /// Remember a tool call so a later tool_result can derive ToolOutcome.
+    /// Used by Claude Code and Grok Build translators.
+    pub fn remember_tool_call(&mut self, id: &str, name: &str, input: Value) {
+        self.pending_tool_calls.insert(
+            id.to_string(),
+            PendingToolCall {
+                name: name.to_string(),
+                input,
+            },
+        );
+    }
+
+    /// Take a previously remembered tool call (name + input).
+    pub fn take_tool_call(&mut self, id: &str) -> Option<(String, Value)> {
+        self.pending_tool_calls
+            .remove(id)
+            .map(|p| (p.name, p.input))
     }
 }
 

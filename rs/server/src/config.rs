@@ -231,6 +231,10 @@ pub struct Config {
     /// The hermes-openstory plugin writes per-session JSONL here; the watcher
     /// auto-detects the format via `envelope.source == "hermes"`.
     pub hermes_watch_dir: String,
+    /// Directory to watch for Grok Build session trees
+    /// (`~/.grok/sessions/{urlencoded-cwd}/{session-id}/updates.jsonl`).
+    /// Empty = disabled. Default is resolved to `~/.grok/sessions` when present.
+    pub grok_watch_dir: String,
     /// Persistence backend: "sqlite" (default) or "mongo".
     /// `mongo` requires building with `--features open-story-store/mongo`.
     pub data_backend: DataBackend,
@@ -382,6 +386,7 @@ impl Default for Config {
             watch_dirs: Vec::new(),
             pi_watch_dir: String::new(),     // disabled by default
             hermes_watch_dir: String::new(), // disabled by default
+            grok_watch_dir: default_home_subdir(&[".grok", "sessions"]),
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".to_string(),
             mongo_db: "openstory".to_string(),
@@ -877,6 +882,7 @@ mod tests {
             watch_dirs: vec!["/tmp/watch".into(), "/tmp/codex".into()],
             pi_watch_dir: String::new(),
             hermes_watch_dir: String::new(),
+            grok_watch_dir: "/tmp/grok-sessions".into(),
             data_backend: DataBackend::Sqlite,
             mongo_uri: "mongodb://localhost:27017".into(),
             mongo_db: "openstory".into(),

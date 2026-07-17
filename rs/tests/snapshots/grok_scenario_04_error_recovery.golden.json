@@ -1,0 +1,786 @@
+{
+  "broadcast_messages": [
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-30",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": "Open missing.rs please.",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 0,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-32",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-read-missing",
+            "input": {
+              "target_file": "/workspace/demo/missing.rs"
+            },
+            "name": "read_file",
+            "raw_input": {
+              "target_file": "/workspace/demo/missing.rs"
+            },
+            "typed_input": {
+              "name": "read_file",
+              "raw": {
+                "target_file": "/workspace/demo/missing.rs"
+              },
+              "tool": "unknown"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 2,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-33",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-read-missing",
+            "is_error": true,
+            "output": "Error: File not found: /workspace/demo/missing.rs",
+            "tool_outcome": {
+              "path": "/workspace/demo/missing.rs",
+              "reason": "Error: File not found: /workspace/demo/missing.rs",
+              "type": "FileReadFailed"
+            }
+          },
+          "payload_bytes": 49,
+          "record_type": "tool_result",
+          "seq": 3,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-34",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": [],
+            "model": "unknown"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 4,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-35",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-read-ok",
+            "input": {
+              "target_file": "/workspace/demo/src/main.rs"
+            },
+            "name": "read_file",
+            "raw_input": {
+              "target_file": "/workspace/demo/src/main.rs"
+            },
+            "typed_input": {
+              "name": "read_file",
+              "raw": {
+                "target_file": "/workspace/demo/src/main.rs"
+              },
+              "tool": "unknown"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 5,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-36",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-read-ok",
+            "is_error": false,
+            "output": "fn main() {\n    println!(\"hello\");\n}\n",
+            "tool_outcome": {
+              "path": "/workspace/demo/src/main.rs",
+              "type": "FileRead"
+            }
+          },
+          "payload_bytes": 37,
+          "record_type": "tool_result",
+          "seq": 6,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-37",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": [],
+            "model": "unknown"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 7,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-38",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 8,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_04_error_recovery",
+      "session_label": "Open missing.rs please.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    }
+  ],
+  "events": [
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "model": "grok-4.5",
+          "text": "Open missing.rs please."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "agentTimestampMs": 1700000000000,
+              "eventId": "uuid-0-30"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "_meta": {
+                "modelId": "grok-4.5",
+                "promptIndex": 0
+              },
+              "content": {
+                "text": "Open missing.rs please.",
+                "type": "text"
+              },
+              "sessionUpdate": "user_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 0,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-30",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "text": "Try reading the path the user gave."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-31",
+              "promptId": "prompt-04",
+              "totalTokens": 1000,
+              "updateType": "AgentThoughtChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "Try reading the path the user gave.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_thought_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 1,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-31",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.thinking",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_file": "/workspace/demo/missing.rs"
+          },
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "tool": "read_file",
+          "tool_call_id": "call-read-missing"
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-32",
+              "promptId": "prompt-04",
+              "updateParams": {
+                "kind": "Other",
+                "status": "Pending",
+                "title": "read_file",
+                "toolCallId": "call-read-missing"
+              },
+              "updateType": "ToolCall"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "_meta": {
+                "x.ai/tool": {
+                  "kind": "read",
+                  "label": "read_file",
+                  "name": "read_file",
+                  "namespace": "grok_build",
+                  "read_only": true,
+                  "version": 1
+                }
+              },
+              "rawInput": {
+                "target_file": "/workspace/demo/missing.rs"
+              },
+              "sessionUpdate": "tool_call",
+              "title": "read_file",
+              "toolCallId": "call-read-missing"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 2,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-32",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_file": "/workspace/demo/missing.rs"
+          },
+          "is_error": true,
+          "meta": {
+            "agent": "grok-build"
+          },
+          "text": "Error: File not found: /workspace/demo/missing.rs",
+          "tool": "read_file",
+          "tool_call_id": "call-read-missing",
+          "tool_outcome": {
+            "path": "/workspace/demo/missing.rs",
+            "reason": "Error: File not found: /workspace/demo/missing.rs",
+            "type": "FileReadFailed"
+          }
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-33",
+              "updateType": "ToolCallUpdate"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "isError": true,
+              "rawOutput": {
+                "Content": {
+                  "content": "Error: File not found: /workspace/demo/missing.rs"
+                },
+                "type": "Text"
+              },
+              "sessionUpdate": "tool_call_update",
+              "status": "completed",
+              "toolCallId": "call-read-missing"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 3,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-33",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "text": "That path doesn't exist. Checking src/main.rs instead."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-34",
+              "promptId": "prompt-04",
+              "totalTokens": 1200,
+              "updateType": "AgentMessageChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "That path doesn't exist. Checking src/main.rs instead.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 4,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-34",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_file": "/workspace/demo/src/main.rs"
+          },
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "tool": "read_file",
+          "tool_call_id": "call-read-ok"
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-35",
+              "promptId": "prompt-04",
+              "updateParams": {
+                "kind": "Other",
+                "status": "Pending",
+                "title": "read_file",
+                "toolCallId": "call-read-ok"
+              },
+              "updateType": "ToolCall"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "_meta": {
+                "x.ai/tool": {
+                  "kind": "read",
+                  "label": "read_file",
+                  "name": "read_file",
+                  "namespace": "grok_build",
+                  "read_only": true,
+                  "version": 1
+                }
+              },
+              "rawInput": {
+                "target_file": "/workspace/demo/src/main.rs"
+              },
+              "sessionUpdate": "tool_call",
+              "title": "read_file",
+              "toolCallId": "call-read-ok"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 5,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-35",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_file": "/workspace/demo/src/main.rs"
+          },
+          "is_error": false,
+          "meta": {
+            "agent": "grok-build"
+          },
+          "text": "fn main() {\n    println!(\"hello\");\n}\n",
+          "tool": "read_file",
+          "tool_call_id": "call-read-ok",
+          "tool_outcome": {
+            "path": "/workspace/demo/src/main.rs",
+            "type": "FileRead"
+          }
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-36",
+              "updateType": "ToolCallUpdate"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "rawOutput": {
+                "Content": {
+                  "content": "fn main() {\n    println!(\"hello\");\n}\n"
+                },
+                "type": "Text"
+              },
+              "sessionUpdate": "tool_call_update",
+              "status": "completed",
+              "toolCallId": "call-read-ok"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 6,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-36",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "text": "Found main.rs with a hello world entrypoint."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-37",
+              "promptId": "prompt-04",
+              "totalTokens": 1200,
+              "updateType": "AgentMessageChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "Found main.rs with a hello world entrypoint.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 7,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-37",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-04",
+          "stop_reason": "end_turn",
+          "token_usage": {
+            "apiDurationMs": 500,
+            "cachedReadTokens": 0,
+            "inputTokens": 300,
+            "modelCalls": 1,
+            "modelUsage": {
+              "grok-4.5": {
+                "apiDurationMs": 500,
+                "cachedReadTokens": 0,
+                "inputTokens": 300,
+                "modelCalls": 1,
+                "outputTokens": 50,
+                "reasoningTokens": 5,
+                "totalTokens": 350
+              }
+            },
+            "numTurns": 1,
+            "outputTokens": 50,
+            "reasoningTokens": 5,
+            "totalTokens": 350
+          }
+        },
+        "raw": {
+          "method": "_x.ai/session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-38"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "prompt_id": "prompt-04",
+              "sessionUpdate": "turn_completed",
+              "stop_reason": "end_turn",
+              "usage": {
+                "apiDurationMs": 500,
+                "cachedReadTokens": 0,
+                "inputTokens": 300,
+                "modelCalls": 1,
+                "modelUsage": {
+                  "grok-4.5": {
+                    "apiDurationMs": 500,
+                    "cachedReadTokens": 0,
+                    "inputTokens": 300,
+                    "modelCalls": 1,
+                    "outputTokens": 50,
+                    "reasoningTokens": 5,
+                    "totalTokens": 350
+                  }
+                },
+                "numTurns": 1,
+                "outputTokens": 50,
+                "reasoningTokens": 5,
+                "totalTokens": 350
+              }
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 8,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-38",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    }
+  ],
+  "full_payloads_keys": [],
+  "projection": {
+    "branch": null,
+    "event_count": 9,
+    "label": "Open missing.rs please.",
+    "total_input_tokens": 0,
+    "total_output_tokens": 0
+  },
+  "sessions": [
+    {
+      "branch": null,
+      "custom_label": null,
+      "event_count": 8,
+      "first_event": "2023-11-14T22:13:20.000Z",
+      "id": "grok_scenario_04_error_recovery",
+      "label": "Open missing.rs please.",
+      "last_event": "2023-11-14T22:13:20.000Z",
+      "project_id": null,
+      "project_name": null
+    }
+  ]
+}

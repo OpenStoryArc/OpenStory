@@ -236,14 +236,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            if agent == "hermes" || agent == "codex" {
-                // Hermes and Codex tool results carry call_id and content on
-                // the typed payload; there are no Claude-style raw content
-                // blocks to parse.
-                let (call_id, content_text) = match ap {
+            if agent == "hermes" || agent == "codex" || agent == "grok-build" {
+                // Hermes, Codex, and Grok tool results carry call_id and
+                // content on the typed payload; there are no Claude-style
+                // raw content blocks to parse.
+                let (call_id, content_text, is_error, tool_outcome) = match ap {
                     Some(AgentPayload::Hermes(h)) => (
                         h.tool_call_id.clone().unwrap_or_default(),
                         h.text.clone().unwrap_or_default(),
+                        false,
+                        None,
                     ),
                     Some(AgentPayload::Codex(c)) => (
                         c.call_id.clone().unwrap_or_default(),
@@ -251,8 +253,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             .clone()
                             .or_else(|| c.text.clone())
                             .unwrap_or_default(),
+                        false,
+                        None,
                     ),
-                    _ => (String::new(), text.to_string()),
+                    Some(AgentPayload::Grok(g)) => (
+                        g.tool_call_id.clone().unwrap_or_default(),
+                        g.text.clone().unwrap_or_default(),
+                        g.is_error.unwrap_or(false),
+                        g.tool_outcome.clone(),
+                    ),
+                    _ => (String::new(), text.to_string(), false, None),
                 };
                 vec![ViewRecord {
                     id,
@@ -265,8 +275,8 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                     body: RecordBody::ToolResult(ToolResult {
                         call_id,
                         output: Some(content_text),
-                        is_error: false,
-                        tool_outcome: None,
+                        is_error,
+                        tool_outcome,
                     }),
                 }]
             } else {
@@ -367,6 +377,29 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             status: None,
                         })),
                     }]
+                } else if agent == "grok-build" {
+                    let call_id = match ap {
+                        Some(AgentPayload::Grok(g)) => g.tool_call_id.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    vec![ViewRecord {
+                        id,
+                        seq,
+                        session_id,
+                        timestamp: time,
+                        origin_agent: None,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolCall(Box::new(ToolCall {
+                            call_id,
+                            name: tool_name.to_string(),
+                            input: tool_args.clone(),
+                            raw_input: tool_args.clone(),
+                            typed_input: Some(typed),
+                            status: None,
+                        })),
+                    }]
                 } else {
                     // Claude Code: check raw for multiple tool_use blocks
                     let content = raw.get("message").and_then(|m| m.get("content"));
@@ -432,7 +465,9 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant.thinking") => {
-            if agent == "codex" && !text.is_empty() {
+            // Codex + Grok: thinking text lives on the typed payload, not Claude
+            // raw thinking blocks. Same path as hermes/codex assistant text.
+            if (agent == "codex" || agent == "grok-build") && !text.is_empty() {
                 vec![ViewRecord {
                     id,
                     seq,
@@ -453,10 +488,10 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant") => {
-            // Hermes/Codex: content is on the typed payload (text accessor), not
-            // in raw content blocks. Claude Code and pi-mono use raw content
-            // blocks that extract_content_blocks parses.
-            let content = if agent == "hermes" || agent == "codex" {
+            // Hermes/Codex/Grok: content is on the typed payload (text accessor),
+            // not in Claude-style raw content blocks. pi-mono uses raw blocks
+            // that extract_content_blocks parses.
+            let content = if agent == "hermes" || agent == "codex" || agent == "grok-build" {
                 // Wrap it as a single Text content block for the views layer.
                 if text.is_empty() {
                     vec![]
@@ -2159,6 +2194,136 @@ mod tests {
                     );
                 }
                 _ => panic!("expected ToolCall"),
+            }
+        }
+    }
+
+    /// Grok Build ACP: text lives on typed GrokPayload, not Claude raw blocks.
+    fn make_grok_event(subtype: &str, data: serde_json::Value) -> CloudEvent {
+        let mut obj = data.as_object().cloned().unwrap_or_default();
+        let seq = obj.remove("seq").unwrap_or(json!(1));
+        let session_id = obj.remove("session_id").unwrap_or(json!("sess-grok"));
+        let raw = obj.remove("raw").unwrap_or(json!({}));
+
+        let mut payload = serde_json::Map::new();
+        payload.insert("_variant".to_string(), json!("grok-build"));
+        payload.insert("meta".to_string(), json!({"agent": "grok-build"}));
+        for (k, v) in obj {
+            payload.insert(k, v);
+        }
+
+        serde_json::from_value(json!({
+            "specversion": "1.0",
+            "id": "evt-grok-001",
+            "source": "grok://session/sess-grok",
+            "type": "io.arc.event",
+            "time": "2026-07-17T00:16:55Z",
+            "datacontenttype": "application/json",
+            "subtype": subtype,
+            "agent": "grok-build",
+            "data": {
+                "raw": raw,
+                "seq": seq,
+                "session_id": session_id,
+                "agent_payload": payload,
+            },
+        }))
+        .expect("grok-build test fixture should deserialize")
+    }
+
+    // describe("when event is grok-build message.assistant.text")
+    // Behavior: typed GrokPayload.text must become AssistantMessage content
+    // even when raw is ACP-shaped (no Claude message.content blocks).
+    mod grok_assistant_text {
+        use super::*;
+
+        #[test]
+        fn it_should_surface_typed_payload_text_when_raw_has_no_claude_blocks() {
+            let event = make_grok_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-grok",
+                    "text": "Yes — OpenStory MCP is already connected.",
+                    "model": "grok-4.5",
+                    "raw": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {
+                                    "type": "text",
+                                    "text": "Yes — OpenStory MCP is already connected."
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            let asst = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::AssistantMessage(_)))
+                .expect("expected AssistantMessage");
+            match &asst.body {
+                RecordBody::AssistantMessage(a) => {
+                    let text = a
+                        .content
+                        .iter()
+                        .find_map(|b| match b {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("");
+                    assert_eq!(
+                        text, "Yes — OpenStory MCP is already connected.",
+                        "grok-build assistant text must come from typed payload, got content={:?}",
+                        a.content
+                    );
+                    assert_eq!(a.model, "grok-4.5");
+                }
+                other => panic!("expected AssistantMessage, got {:?}", other),
+            }
+        }
+    }
+
+    // describe("when event is grok-build message.assistant.thinking")
+    mod grok_assistant_thinking {
+        use super::*;
+
+        #[test]
+        fn it_should_surface_typed_payload_thinking_as_reasoning() {
+            let event = make_grok_event(
+                "message.assistant.thinking",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-grok",
+                    "text": "The user wants OpenStory MCP — tools are connected.",
+                    "raw": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_thought_chunk",
+                                "content": {
+                                    "type": "text",
+                                    "text": "The user wants OpenStory MCP — tools are connected."
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            assert_eq!(records.len(), 1, "expected one Reasoning record");
+            match &records[0].body {
+                RecordBody::Reasoning(r) => {
+                    assert_eq!(
+                        r.content.as_deref(),
+                        Some("The user wants OpenStory MCP — tools are connected."),
+                        "grok-build thinking must come from typed payload"
+                    );
+                }
+                other => panic!("expected Reasoning, got {:?}", other),
             }
         }
     }

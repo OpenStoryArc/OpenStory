@@ -57,10 +57,26 @@ pub struct TurnSentence {
 // Tool classification — pure function
 // ═══════════════════════════════════════════════════════════════════
 
-const PREPARATORY_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
-const CREATIVE_TOOLS: &[&str] = &["Write", "Edit"];
-const DELEGATORY_TOOLS: &[&str] = &["Agent"];
-const INTERACTIVE_TOOLS: &[&str] = &["AskUserQuestion", "ToolSearch", "ExitPlanMode"];
+const PREPARATORY_TOOLS: &[&str] = &[
+    "Read",
+    "Grep",
+    "Glob",
+    "WebSearch",
+    "WebFetch",
+    "read_file",
+    "list_dir",
+    "grep",
+    "web_search",
+    "search_tool",
+];
+const CREATIVE_TOOLS: &[&str] = &["Write", "Edit", "search_replace", "write"];
+const DELEGATORY_TOOLS: &[&str] = &["Agent", "spawn_subagent", "task"];
+const INTERACTIVE_TOOLS: &[&str] = &[
+    "AskUserQuestion",
+    "ToolSearch",
+    "ExitPlanMode",
+    "ask_user_question",
+];
 
 /// Classify a tool call by its role in the turn's narrative.
 /// Case-insensitive matching to support both Claude Code (PascalCase)
@@ -91,8 +107,8 @@ pub fn classify_tool(name: &str, input: &str) -> ToolRole {
         return ToolRole::Interactive;
     }
 
-    // Bash depends on the command
-    if lower == "bash" {
+    // Bash / Grok run_terminal_command depends on the command text
+    if lower == "bash" || lower == "run_terminal_command" {
         let lower = input.to_lowercase();
         if regex_match_any(
             &lower,
@@ -140,6 +156,8 @@ pub fn build_sentence(turn: &StructuralTurn) -> TurnSentence {
     let subject = match turn.agent.as_deref() {
         Some("hermes") => "Hermes".to_string(),
         Some("pi-mono") => "Pi".to_string(),
+        Some("grok-build") | Some("grok") => "Grok".to_string(),
+        Some("codex") => "Codex".to_string(),
         _ => "Claude".to_string(),
     };
 
@@ -853,6 +871,89 @@ mod tests {
     #[test]
     fn pimono_ls_is_preparatory() {
         assert_eq!(classify_tool("ls", "/src"), ToolRole::Preparatory);
+    }
+
+    // ── Grok Build tool names (boundary table) ──
+
+    #[test]
+    fn grok_tool_role_boundary_table() {
+        // (name, tool, input, expected role)
+        let cases: Vec<(&str, &str, &str, ToolRole)> = vec![
+            ("read_file", "read_file", "/a.rs", ToolRole::Preparatory),
+            ("list_dir", "list_dir", "/tmp", ToolRole::Preparatory),
+            ("grep", "grep", "TODO", ToolRole::Preparatory),
+            (
+                "search_replace",
+                "search_replace",
+                "/a.rs",
+                ToolRole::Creative,
+            ),
+            ("write", "write", "/a.rs", ToolRole::Creative),
+            (
+                "run_terminal_command test",
+                "run_terminal_command",
+                "cargo test",
+                ToolRole::Verificatory,
+            ),
+            (
+                "run_terminal_command git commit",
+                "run_terminal_command",
+                "git commit -m x",
+                ToolRole::Creative,
+            ),
+            (
+                "spawn_subagent",
+                "spawn_subagent",
+                "explore",
+                ToolRole::Delegatory,
+            ),
+        ];
+        for (label, tool, input, expected) in cases {
+            assert_eq!(
+                classify_tool(tool, input),
+                expected,
+                "case `{label}`: classify_tool({tool:?}, {input:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn subject_follows_agent_discriminator_boundary_table() {
+        // (agent field, expected subject)
+        let cases: Vec<(Option<&str>, &str)> = vec![
+            (Some("grok-build"), "Grok"),
+            (Some("grok"), "Grok"),
+            (Some("hermes"), "Hermes"),
+            (Some("pi-mono"), "Pi"),
+            (Some("codex"), "Codex"),
+            (Some("claude-code"), "Claude"),
+            (None, "Claude"),
+        ];
+        for (agent, expected) in cases {
+            let turn = make_turn(|t| {
+                t.agent = agent.map(str::to_string);
+                t.human = Some(HumanInput {
+                    content: "hi".into(),
+                    timestamp: String::new(),
+                });
+                t.eval = Some(EvalOutput {
+                    content: "hello there friend".into(),
+                    timestamp: String::new(),
+                    stop_reason: Some("end_turn".into()),
+                    decision: "text_only".into(),
+                });
+            });
+            let s = build_sentence(&turn);
+            assert_eq!(
+                s.subject, expected,
+                "agent={agent:?} should yield subject {expected}"
+            );
+            assert!(
+                s.one_liner.starts_with(expected),
+                "one_liner should start with subject: {}",
+                s.one_liner
+            );
+        }
     }
 
     // ── Sentence building (8 tests) ──

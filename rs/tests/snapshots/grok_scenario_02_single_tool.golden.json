@@ -1,0 +1,592 @@
+{
+  "broadcast_messages": [
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-10",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": "List the project root.",
+            "images": []
+          },
+          "payload_bytes": 0,
+          "record_type": "user_message",
+          "seq": 0,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-12",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": [],
+            "model": "unknown"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 2,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-13",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-list-01",
+            "input": {
+              "target_directory": "/workspace/demo"
+            },
+            "name": "list_dir",
+            "raw_input": {
+              "target_directory": "/workspace/demo"
+            },
+            "typed_input": {
+              "name": "list_dir",
+              "raw": {
+                "target_directory": "/workspace/demo"
+              },
+              "tool": "unknown"
+            }
+          },
+          "payload_bytes": 0,
+          "record_type": "tool_call",
+          "seq": 3,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-15",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "call_id": "call-list-01",
+            "is_error": false,
+            "output": "- /workspace/demo/\n  - README.md\n  - src/\n",
+            "tool_outcome": {
+              "pattern": "/workspace/demo",
+              "source": "filesystem",
+              "type": "SearchPerformed"
+            }
+          },
+          "payload_bytes": 42,
+          "record_type": "tool_result",
+          "seq": 4,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-16",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "content": [],
+            "model": "unknown"
+          },
+          "payload_bytes": 0,
+          "record_type": "assistant_message",
+          "seq": 5,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    },
+    {
+      "ephemeral": [],
+      "filter_deltas": {},
+      "kind": "enriched",
+      "records": [
+        {
+          "depth": 0,
+          "id": "uuid-0-17",
+          "is_sidechain": false,
+          "origin_agent": "grok-build",
+          "parent_uuid": null,
+          "payload": {
+            "reason": "end_turn"
+          },
+          "payload_bytes": 0,
+          "record_type": "turn_end",
+          "seq": 6,
+          "session_id": "uuid-0",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "truncated": false
+        }
+      ],
+      "session_id": "grok_scenario_02_single_tool",
+      "session_label": "List the project root.",
+      "total_input_tokens": 0,
+      "total_output_tokens": 0
+    }
+  ],
+  "events": [
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "model": "grok-4.5",
+          "text": "List the project root."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "agentTimestampMs": 1700000000000,
+              "eventId": "uuid-0-10"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "_meta": {
+                "modelId": "grok-4.5",
+                "promptIndex": 1
+              },
+              "content": {
+                "text": "List the project root.",
+                "type": "text"
+              },
+              "sessionUpdate": "user_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 0,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-10",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.user.prompt",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-02",
+          "text": "I should list the directory."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-11",
+              "promptId": "prompt-02",
+              "totalTokens": 1000,
+              "updateType": "AgentThoughtChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "I should list the directory.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_thought_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 1,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-11",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.thinking",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-02",
+          "text": "I'll list the root for you."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-12",
+              "promptId": "prompt-02",
+              "totalTokens": 1200,
+              "updateType": "AgentMessageChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "I'll list the root for you.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 2,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-12",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_directory": "/workspace/demo"
+          },
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-02",
+          "tool": "list_dir",
+          "tool_call_id": "call-list-01"
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-13",
+              "promptId": "prompt-02",
+              "updateParams": {
+                "kind": "Other",
+                "status": "Pending",
+                "title": "list_dir",
+                "toolCallId": "call-list-01"
+              },
+              "updateType": "ToolCall"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "_meta": {
+                "x.ai/tool": {
+                  "kind": "list",
+                  "label": "list_dir",
+                  "name": "list_dir",
+                  "namespace": "grok_build",
+                  "read_only": true,
+                  "version": 1
+                }
+              },
+              "rawInput": {
+                "target_directory": "/workspace/demo"
+              },
+              "sessionUpdate": "tool_call",
+              "title": "list_dir",
+              "toolCallId": "call-list-01"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 3,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-13",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.tool_use",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "args": {
+            "target_directory": "/workspace/demo"
+          },
+          "is_error": false,
+          "meta": {
+            "agent": "grok-build"
+          },
+          "text": "- /workspace/demo/\n  - README.md\n  - src/\n",
+          "tool": "list_dir",
+          "tool_call_id": "call-list-01",
+          "tool_outcome": {
+            "pattern": "/workspace/demo",
+            "source": "filesystem",
+            "type": "SearchPerformed"
+          }
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-15",
+              "updateType": "ToolCallUpdate"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "rawOutput": {
+                "Content": {
+                  "content": "- /workspace/demo/\n  - README.md\n  - src/\n"
+                },
+                "type": "Text"
+              },
+              "sessionUpdate": "tool_call_update",
+              "status": "completed",
+              "toolCallId": "call-list-01"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 4,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-15",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.user.tool_result",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-02",
+          "text": "The project root has README.md and a src/ directory."
+        },
+        "raw": {
+          "method": "session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-16",
+              "promptId": "prompt-02",
+              "totalTokens": 1200,
+              "updateType": "AgentMessageChunk"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "content": {
+                "text": "The project root has README.md and a src/ directory.",
+                "type": "text"
+              },
+              "sessionUpdate": "agent_message_chunk"
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 5,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-16",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "message.assistant.text",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    },
+    {
+      "agent": "grok-build",
+      "data": {
+        "agent_payload": {
+          "_variant": "grok-build",
+          "meta": {
+            "agent": "grok-build"
+          },
+          "prompt_id": "prompt-02",
+          "stop_reason": "end_turn",
+          "token_usage": {
+            "apiDurationMs": 500,
+            "cachedReadTokens": 0,
+            "inputTokens": 200,
+            "modelCalls": 1,
+            "modelUsage": {
+              "grok-4.5": {
+                "apiDurationMs": 500,
+                "cachedReadTokens": 0,
+                "inputTokens": 200,
+                "modelCalls": 1,
+                "outputTokens": 40,
+                "reasoningTokens": 5,
+                "totalTokens": 240
+              }
+            },
+            "numTurns": 1,
+            "outputTokens": 40,
+            "reasoningTokens": 5,
+            "totalTokens": 240
+          }
+        },
+        "raw": {
+          "method": "_x.ai/session/update",
+          "params": {
+            "_meta": {
+              "eventId": "uuid-0-17"
+            },
+            "sessionId": "uuid-0",
+            "update": {
+              "prompt_id": "prompt-02",
+              "sessionUpdate": "turn_completed",
+              "stop_reason": "end_turn",
+              "usage": {
+                "apiDurationMs": 500,
+                "cachedReadTokens": 0,
+                "inputTokens": 200,
+                "modelCalls": 1,
+                "modelUsage": {
+                  "grok-4.5": {
+                    "apiDurationMs": 500,
+                    "cachedReadTokens": 0,
+                    "inputTokens": 200,
+                    "modelCalls": 1,
+                    "outputTokens": 40,
+                    "reasoningTokens": 5,
+                    "totalTokens": 240
+                  }
+                },
+                "numTurns": 1,
+                "outputTokens": 40,
+                "reasoningTokens": 5,
+                "totalTokens": 240
+              }
+            }
+          },
+          "timestamp": 1700000000
+        },
+        "seq": 6,
+        "session_id": "uuid-0"
+      },
+      "datacontenttype": "application/json",
+      "host": "<host>",
+      "id": "uuid-0-17",
+      "source": "grok://session/uuid-0",
+      "specversion": "1.0",
+      "subtype": "system.turn.complete",
+      "time": "2023-11-14T22:13:20.000Z",
+      "type": "io.arc.event",
+      "user": "<user>"
+    }
+  ],
+  "full_payloads_keys": [],
+  "projection": {
+    "branch": null,
+    "event_count": 7,
+    "label": "List the project root.",
+    "total_input_tokens": 0,
+    "total_output_tokens": 0
+  },
+  "sessions": [
+    {
+      "branch": null,
+      "custom_label": null,
+      "event_count": 6,
+      "first_event": "2023-11-14T22:13:20.000Z",
+      "id": "grok_scenario_02_single_tool",
+      "label": "List the project root.",
+      "last_event": "2023-11-14T22:13:20.000Z",
+      "project_id": null,
+      "project_name": null
+    }
+  ]
+}
