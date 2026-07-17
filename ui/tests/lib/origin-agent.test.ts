@@ -7,6 +7,8 @@ describe("originAgentLabel", () => {
     expect(originAgentLabel("codex")).toBe("Codex");
     expect(originAgentLabel("pi-mono")).toBe("pi-mono");
     expect(originAgentLabel("hermes")).toBe("Hermes");
+    expect(originAgentLabel("grok-build")).toBe("Grok");
+    expect(originAgentLabel("grok")).toBe("Grok");
   });
 
   it("hides empty origin agents and preserves unknown ones", () => {

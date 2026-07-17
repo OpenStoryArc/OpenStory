@@ -8,6 +8,9 @@ export function originAgentLabel(agent: string | null | undefined): string | nul
       return "pi-mono";
     case "hermes":
       return "Hermes";
+    case "grok-build":
+    case "grok":
+      return "Grok";
     case null:
     case undefined:
     case "":
@@ -27,6 +30,9 @@ export function originAgentColor(agent: string | null | undefined): string {
       return "#9ece6a";
     case "hermes":
       return "#e0af68";
+    case "grok-build":
+    case "grok":
+      return "#f7768e";
     default:
       return "#565f89";
   }

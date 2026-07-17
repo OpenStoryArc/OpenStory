@@ -2287,6 +2287,54 @@ mod tests {
         }
     }
 
+    // describe("when event is grok-build tool_use then tool_result")
+    mod grok_tool_call_join {
+        use super::*;
+
+        #[test]
+        fn it_should_preserve_matching_call_id_on_use_and_result() {
+            let use_ev = make_grok_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-grok",
+                    "tool": "read_file",
+                    "tool_call_id": "call-join-42",
+                    "args": {"target_file": "/workspace/demo/src/main.rs"},
+                    "raw": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call"}}}
+                }),
+            );
+            let result_ev = make_grok_event(
+                "message.user.tool_result",
+                json!({
+                    "seq": 5,
+                    "session_id": "sess-grok",
+                    "tool": "read_file",
+                    "tool_call_id": "call-join-42",
+                    "text": "fn main() {}",
+                    "raw": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call_update"}}}
+                }),
+            );
+            let use_recs = from_cloud_event(&use_ev);
+            let res_recs = from_cloud_event(&result_ev);
+            let call_id = match &use_recs[0].body {
+                RecordBody::ToolCall(tc) => {
+                    assert_eq!(tc.name, "read_file");
+                    assert_eq!(tc.call_id, "call-join-42");
+                    tc.call_id.clone()
+                }
+                other => panic!("expected ToolCall, got {:?}", other),
+            };
+            match &res_recs[0].body {
+                RecordBody::ToolResult(tr) => {
+                    assert_eq!(tr.call_id, call_id, "tool_result must join on call_id");
+                    assert_eq!(tr.output.as_deref(), Some("fn main() {}"));
+                }
+                other => panic!("expected ToolResult, got {:?}", other),
+            }
+        }
+    }
+
     // describe("when event is grok-build message.assistant.thinking")
     mod grok_assistant_thinking {
         use super::*;
