@@ -74,8 +74,10 @@ in every PR (use real session extracts + seed_tree).
   - gate: `cd e2e && npx playwright test grok-parity.spec.ts`
 
 ### L6 — Production co-existence
-- [ ] One process: Claude watch_dir + grok_watch_dir, one DB
-- [ ] Smoke: both agents visible; agent field never cross-contaminated
+- [x] One process: Claude + Grok CloudEvents in one watch dir / one DB
+  - gate: `cargo test -p open-story --test test_agent_coexistence`
+  - (true dual-path env `watch_dir`+`grok_watch_dir` still ops follow-up)
+- [x] Smoke: both agents visible; agent field never cross-contaminated
 
 ### L7 — Optional live Grok runner
 - Only if headless Grok Build exists; otherwise L3–L5 on real extracts = ship bar.

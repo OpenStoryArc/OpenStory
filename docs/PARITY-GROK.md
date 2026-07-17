@@ -41,7 +41,7 @@ cd e2e && npx playwright test grok-parity.spec.ts
 | L3 | container seed_tree + FTS soft | `test_grok_container` |
 | L4 | MCP transcript | `transcript_entry` |
 | L5 | UI label + Playwright | `origin-agent` + `grok-parity.spec.ts` |
-| L6 | dual-watch Claude+Grok one process | manual / follow-up |
+| L6 | Claude+Grok co-exist, no agent cross-talk | `cargo test -p open-story --test test_agent_coexistence` |
 | L7 | live Grok Build runner in CI | optional |
 
 ## Data reflection (live dogfood shape)
