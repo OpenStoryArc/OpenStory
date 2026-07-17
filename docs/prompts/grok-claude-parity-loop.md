@@ -51,7 +51,8 @@ in every PR (use real session extracts + seed_tree).
 
 ### L2 — Pipeline story (cheap)
 - [x] Fixture → eval-apply → turn.sentence starts with "Grok"
-- [ ] Multi-turn real_turn fixtures → stable pattern/golden assertions
+- [x] Multi-turn real_turn fixtures → stable pattern/golden assertions
+  - gate: `cargo test -p open-story --test test_grok_storytelling grok_real_turns_multi_turn`
 
 ### L3 — Server REST (medium)
 - [ ] Un-ignore test_grok_container: seed_tree → origin_agent=grok-build +
