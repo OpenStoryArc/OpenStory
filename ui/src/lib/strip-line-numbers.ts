@@ -12,13 +12,30 @@
 /** Pattern: optional whitespace + digits + (arrow with optional tab | tab). */
 const LINE_NUM_RE = /^ *\d+(?:→\t?|\t)/;
 
-/** Check if text appears to be cat -n formatted (first few lines match the pattern). */
+/** Check if text appears to be cat -n / agent line-numbered file content.
+ *
+ *  Dense Claude Code Read: most lines match `N→` / tab form.
+ *  Sparse Grok Build read_file: often only the first line (and every ~Nth)
+ *  carries `N→`, with intervening lines bare — still strip-and-highlight.
+ */
 export function isCatNumbered(text: string): boolean {
-  const lines = text.split("\n").slice(0, 5);
+  if (!text) return false;
+  const lines = text.split("\n");
   if (lines.length === 0) return false;
-  const matchCount = lines.filter((l) => LINE_NUM_RE.test(l)).length;
-  // At least 60% of sampled lines should match
-  return matchCount >= Math.ceil(lines.length * 0.6);
+
+  // Strong signal: first non-empty line is numbered (Grok + Claude openers).
+  const first = lines.find((l) => l.length > 0);
+  if (first && LINE_NUM_RE.test(first)) return true;
+
+  // Dense cat -n: sample first 5 lines, require ≥60% match.
+  const sample = lines.slice(0, 5);
+  const matchCount = sample.filter((l) => LINE_NUM_RE.test(l)).length;
+  if (matchCount >= Math.ceil(sample.length * 0.6)) return true;
+
+  // Sparse numbering deeper in the file (Grok every ~10 lines).
+  const window = lines.slice(0, Math.min(lines.length, 40));
+  const deep = window.filter((l) => LINE_NUM_RE.test(l)).length;
+  return deep >= 2;
 }
 
 /** Strip cat -n line number prefixes from every line. */

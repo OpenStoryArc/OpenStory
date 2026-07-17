@@ -128,6 +128,36 @@ function formatMs(ms: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
+/** Extract a file path from a tool_call for result syntax highlighting.
+ *
+ *  Claude: typed_input.file_path / path
+ *  Grok Build: input.target_file (and typed_input.raw.target_file when
+ *  parse_tool leaves the tool as unknown).
+ */
+export function toolCallFilePath(payload: ToolCall): string | undefined {
+  const keys = ["file_path", "target_file", "path"] as const;
+
+  const fromObj = (obj: unknown): string | undefined => {
+    if (!obj || typeof obj !== "object") return undefined;
+    const rec = obj as Record<string, unknown>;
+    for (const k of keys) {
+      const v = rec[k];
+      if (typeof v === "string" && v.trim()) return v;
+    }
+    return undefined;
+  };
+
+  const ti = payload.typed_input as Record<string, unknown> | undefined;
+  if (ti) {
+    const direct = fromObj(ti);
+    if (direct) return direct;
+    const fromRaw = fromObj(ti.raw);
+    if (fromRaw) return fromRaw;
+  }
+
+  return fromObj(payload.input) ?? fromObj(payload.raw_input);
+}
+
 /**
  * Transform a flat array of records into sorted timeline rows.
  *
@@ -145,16 +175,9 @@ export function toTimelineRows(
   let lastToolFilePath: string | undefined;
 
   for (const r of records) {
-    // Track file path from tool_calls
+    // Track file path from tool_calls (Claude file_path, Grok target_file, …)
     if (r.record_type === "tool_call") {
-      const payload = r.payload as ToolCall;
-      const ti = payload.typed_input;
-      if (ti) {
-        const fp = (ti as Record<string, unknown>).file_path as string | undefined;
-        lastToolFilePath = fp ?? undefined;
-      } else {
-        lastToolFilePath = undefined;
-      }
+      lastToolFilePath = toolCallFilePath(r.payload as ToolCall);
     }
 
     const row = recordToRow(r);

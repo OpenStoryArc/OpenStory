@@ -37,8 +37,12 @@ const EXT_MAP: Record<string, string> = {
 
 const TOOL_MAP: Record<string, string> = {
   Bash: "bash",
+  bash: "bash",
+  run_terminal_command: "bash",
   Grep: "regex",
+  grep: "regex",
   Glob: "bash",
+  // File tools don't pin a language — extension / content detection does.
 };
 
 export function detectLanguage(options: {
