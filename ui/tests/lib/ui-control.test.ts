@@ -356,3 +356,172 @@ describe("interpretControl — spotlight (presentation mode)", () => {
     );
   });
 });
+
+describe("when agent opens any hash-routable state", () => {
+  it("should produce HashRoute with filePath from structured open_view params", () => {
+    scenario(
+      () =>
+        controlToRoute("open_view", {
+          view: "explore",
+          sessionId: "s1",
+          filePath: "src/lib/ui-control.ts",
+        }),
+      (r) => r,
+      (r) => {
+        expect(r?.view).toBe("explore");
+        expect(r?.sessionId).toBe("s1");
+        expect(r?.filePath).toBe("src/lib/ui-control.ts");
+      },
+    );
+  });
+
+  it("should carry Live userFilter and timeFilter via structured params", () => {
+    scenario(
+      () =>
+        controlToRoute("open_view", {
+          view: "live",
+          sessionId: "s1",
+          userFilter: "katie",
+          timeFilter: "today",
+        }),
+      (r) => r,
+      (r) => {
+        expect(r?.view).toBe("live");
+        expect(r?.userFilter).toBe("katie");
+        expect(r?.timeFilter).toBe("today");
+      },
+    );
+  });
+
+  it("should carry explore facet filters + sort on open_view", () => {
+    scenario(
+      () =>
+        controlToRoute("open_view", {
+          view: "explore",
+          agent: "grok",
+          project: "OpenStory",
+          sort: "tokens",
+          range: "7d",
+        }),
+      (r) => r,
+      (r) => {
+        expect(r?.view).toBe("explore");
+        expect(r?.explore?.filters).toEqual({ agent: "grok", project: "OpenStory", range: "7d" });
+        expect(r?.explore?.sort).toBe("tokens");
+      },
+    );
+  });
+
+  it("should open explore conversation detailView via structured params", () => {
+    scenario(
+      () =>
+        interpretControl("open_view", {
+          view: "explore",
+          sessionId: "SES",
+          detailView: "conversation",
+        }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.detailView).toBe("conversation");
+          expect(a.route.sessionId).toBe("SES");
+        }
+      },
+    );
+  });
+
+  it("should treat a full hash string as an escape hatch for any bookmarkable state", () => {
+    scenario(
+      () =>
+        interpretControl("open_view", {
+          route: "#/explore/SES/conversation?agent=grok&sort=recent",
+        }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.view).toBe("explore");
+          expect(a.route.sessionId).toBe("SES");
+          expect(a.route.detailView).toBe("conversation");
+          expect(a.route.explore?.filters.agent).toBe("grok");
+          expect(a.route.explore?.sort).toBe("recent");
+        }
+      },
+    );
+  });
+
+  it("should drop invalid timeFilter values silently", () => {
+    scenario(
+      () => controlToRoute("open_view", { view: "live", timeFilter: "bogus" }),
+      (r) => r?.timeFilter,
+      (t) => expect(t).toBeUndefined(),
+    );
+  });
+});
+
+describe("when agent runs a storytelling tour sequence", () => {
+  it("should map open_view story → present → focus_event spotlight → query → explore conversation", () => {
+    scenario(
+      () => [
+        interpretControl("open_view", { view: "story", sessionId: "tour-s1" }),
+        interpretControl("present", {
+          message: "Here is the arc of this session",
+          spotlight: true,
+        }),
+        interpretControl("focus_event", {
+          sessionId: "tour-s1",
+          eventId: "evt-peak",
+          spotlight: true,
+        }),
+        interpretControl("query", { agent: "grok" }),
+        interpretControl("open_view", {
+          view: "explore",
+          sessionId: "tour-s1",
+          detailView: "conversation",
+        }),
+      ],
+      (steps) => steps,
+      (steps) => {
+        expect(steps[0]?.type).toBe("navigate");
+        if (steps[0]?.type === "navigate") {
+          expect(steps[0].route).toEqual({ view: "story", sessionId: "tour-s1" });
+        }
+        expect(steps[1]?.type).toBe("title");
+        if (steps[1]?.type === "title") {
+          expect(steps[1].message).toBe("Here is the arc of this session");
+        }
+        expect(steps[2]?.type).toBe("spotlight");
+        if (steps[2]?.type === "spotlight") {
+          expect(steps[2].sessionId).toBe("tour-s1");
+          expect(steps[2].eventId).toBe("evt-peak");
+        }
+        expect(steps[3]?.type).toBe("navigate");
+        if (steps[3]?.type === "navigate") {
+          expect(steps[3].route.explore?.filters.agent).toBe("grok");
+        }
+        expect(steps[4]?.type).toBe("navigate");
+        if (steps[4]?.type === "navigate") {
+          expect(steps[4].route.detailView).toBe("conversation");
+        }
+      },
+    );
+  });
+});
+
+describe("when agent queries with a range window", () => {
+  it("should include range in explore filters", () => {
+    scenario(
+      () => interpretControl("query", { agent: "claude-code", range: "30d", sort: "events" }),
+      (a) => a,
+      (a) => {
+        expect(a?.type).toBe("navigate");
+        if (a?.type === "navigate") {
+          expect(a.route.explore?.filters.range).toBe("30d");
+          expect(a.route.explore?.filters.agent).toBe("claude-code");
+          expect(a.route.explore?.sort).toBe("events");
+        }
+      },
+    );
+  });
+});

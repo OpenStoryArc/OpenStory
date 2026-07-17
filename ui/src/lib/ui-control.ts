@@ -9,9 +9,25 @@
 import { parseHash, type HashRoute } from "@/lib/hash-route";
 import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
 
-/** Facet keys an agent can filter by (Query class). */
+/** Facet keys an agent can filter by (Query class + open_view structured params). */
 const QUERY_KEYS = ["project", "agent", "user", "status", "host", "branch", "day"] as const;
 const SORTS: readonly SortKey[] = ["recent", "events", "tokens", "duration"];
+const RANGES = new Set(["today", "7d", "30d"]);
+const TIME_FILTERS = new Set(["1h", "today", "week", "all"]);
+
+/** Full verb set the MCP schema and docs should advertise. */
+export const CONTROL_VERBS = [
+  "open_view",
+  "focus_event",
+  "present",
+  "announce",
+  "highlight",
+  "query",
+  "filter",
+  "set_filter",
+  "toggle",
+  "set",
+] as const;
 
 export interface ControlParams {
   route?: string;
@@ -19,6 +35,10 @@ export interface ControlParams {
   sessionId?: string;
   eventId?: string;
   detailView?: string;
+  filePath?: string;
+  searchQuery?: string;
+  userFilter?: string;
+  timeFilter?: string;
   message?: string;
   note?: string;
   sessionIds?: unknown;
@@ -26,6 +46,26 @@ export interface ControlParams {
    *  present: true = full-screen TITLE CARD of the message. */
   spotlight?: unknown;
   [k: string]: unknown;
+}
+
+/** Pull OverviewFilters + optional sort from flat params (query / open_view). */
+function exploreFromParams(p: Record<string, unknown>): HashRoute["explore"] | undefined {
+  const filters: OverviewFilters = {};
+  for (const k of QUERY_KEYS) {
+    const v = p[k];
+    if (typeof v === "string" && v.trim()) filters[k] = v.trim();
+  }
+  const search = typeof p.search === "string" ? p.search : typeof p.q === "string" ? p.q : "";
+  if (search.trim()) filters.search = search.trim();
+  if (typeof p.range === "string" && RANGES.has(p.range)) {
+    filters.range = p.range as OverviewFilters["range"];
+  }
+  const sort =
+    typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)
+      ? (p.sort as SortKey)
+      : undefined;
+  if (Object.keys(filters).length === 0 && !sort) return undefined;
+  return { filters, ...(sort ? { sort } : {}) };
 }
 
 /** A typed UI action, ready to apply. The discriminated union grows as the
@@ -85,8 +125,10 @@ function resolveRoute(route: string): HashRoute {
   return parseHash(hash);
 }
 
-/** For `open_view`, the navigation route (or null if malformed). Accepts a hash
- *  `route` string or structured `{ view, sessionId, detailView }`. */
+/** For `open_view`, the navigation route (or null if malformed). Accepts a full
+ *  hash `route` string (escape hatch for any bookmarkable state) or structured
+ *  params covering every HashRoute field: view, sessionId, detailView, eventId,
+ *  filePath, searchQuery, userFilter, timeFilter, explore filters/sort. */
 export function controlToRoute(action: string, params: unknown): HashRoute | null {
   if (action !== "open_view") return null;
   const p = (params ?? {}) as ControlParams;
@@ -103,6 +145,15 @@ export function controlToRoute(action: string, params: unknown): HashRoute | nul
     if (typeof p.searchQuery === "string" && p.searchQuery.trim()) {
       r.searchQuery = p.searchQuery;
     }
+    if (typeof p.filePath === "string" && p.filePath.trim()) r.filePath = p.filePath;
+    if (typeof p.userFilter === "string" && p.userFilter.trim()) r.userFilter = p.userFilter;
+    if (typeof p.timeFilter === "string" && TIME_FILTERS.has(p.timeFilter)) {
+      r.timeFilter = p.timeFilter as HashRoute["timeFilter"];
+    }
+    // Flat facet keys / sort / range compose into explore so open_view can land
+    // on a filtered Explore without a separate query intent.
+    const explore = exploreFromParams(p as Record<string, unknown>);
+    if (explore) r.explore = explore;
     return r;
   }
   return null;
@@ -156,21 +207,14 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     if (p.spotlight === true && message.trim()) return { type: "title", message };
     return { type: "present", message, sessionIds, route };
   }
-  // The "query" class: narrow the data. Resolves to a filtered Overview route
-  // (Overview hydrates filters + sort straight from the route, so no extra UI
-  // handler is needed). `filter`/`set_filter` are aliases.
+  // The "query" class: narrow the data. Resolves to a filtered Explore route
+  // (Explore hydrates filters + sort straight from the route, so no extra UI
+  // handler is needed). `filter`/`set_filter` are aliases. At least one facet
+  // (or free-text / range) must be set — sort alone is not a query.
   if (action === "query" || action === "filter" || action === "set_filter") {
     const p = (params ?? {}) as Record<string, unknown>;
-    const filters: OverviewFilters = {};
-    for (const k of QUERY_KEYS) {
-      const v = p[k];
-      if (typeof v === "string" && v.trim()) filters[k] = v.trim();
-    }
-    const search = typeof p.search === "string" ? p.search : typeof p.q === "string" ? p.q : "";
-    if (search.trim()) filters.search = search.trim();
-    if (Object.keys(filters).length === 0) return null;
-    const explore: HashRoute["explore"] = { filters };
-    if (typeof p.sort === "string" && SORTS.includes(p.sort as SortKey)) explore.sort = p.sort as SortKey;
+    const explore = exploreFromParams(p);
+    if (!explore || Object.keys(explore.filters).length === 0) return null;
     return { type: "navigate", route: { view: "explore", explore } };
   }
   // The "toggle" class: set a component-local view control. `target` names the

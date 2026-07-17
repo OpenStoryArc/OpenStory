@@ -95,15 +95,22 @@ author flows on the `ui.*` namespace ONLY, never the observed read-only `events.
 stream (agent activity is never mutated).
 
 DRIVE the dashboard (write) via the `ui_control` tool → POST /api/control:
-  • open_view {view|route, sessionId?, eventId?} — navigate; carries eventId to \
-deep-link a single event (the map principle, down to the source).
-  • focus_event {sessionId, eventId, view?} — open exactly one event in Explore/Story.
-  • present {message, sessionIds?, route?} — show the human a message/spotlight.
-  • query {project|agent|user|status|host|branch|day|search} — narrow the Overview.
-  • toggle {target, value} — set a view-local control (e.g. canvas.mode).
+  • open_view {view|route, sessionId?, detailView?, eventId?, filePath?, \
+searchQuery?, userFilter?, timeFilter?, agent?, …} — navigate any bookmarkable \
+hash state (or pass route: '#/explore/SES/conversation?agent=grok').
+  • focus_event {sessionId, eventId, view?, spotlight?} — one event in Explore/Story; \
+spotlight:true = full-screen presentation.
+  • present|announce|highlight {message, sessionIds?, route?, spotlight?} — banner \
+or title card (spotlight:true).
+  • query|filter {project|agent|user|status|host|branch|day|range|search|sort} — \
+narrow Explore.
+  • toggle {target, value} — registered view knobs (canvas.mode, story.sort, theme, \
+session.lens, spotlight=off, …).
+  • set {target, …fields} — structured controls (e.g. scatter.brush).
 
 FOLLOW the human (read):
-  • where_is_user — point-read of the current view state (GET /api/ui-state).
+  • where_is_user — full UI state (view, session, event, detail tab, filters, \
+spotlight if reported).
   • subscribe_ui_state — live stream of the human's interactions as they navigate \
 (notifications/openstory/ui_state).
   • GET /api/ui-state/journey?n=N — the recent interaction slice (their path).
