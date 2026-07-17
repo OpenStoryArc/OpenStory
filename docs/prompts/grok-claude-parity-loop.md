@@ -46,7 +46,8 @@ in every PR (use real session extracts + seed_tree).
 ### L1 — Unit truth (cheap)
 - [x] Views: tool_use ↔ tool_result call_id join on Grok fixtures
 - [x] Views: assistant text + thinking non-empty (typed GrokPayload)
-- [ ] Token usage fields from turn_completed → views/analytics usable
+- [x] Token usage fields from turn_completed → views/analytics usable
+  - gate: `cargo test -p open-story-views --lib grok_turn_token_usage`
 
 ### L2 — Pipeline story (cheap)
 - [x] Fixture → eval-apply → turn.sentence starts with "Grok"

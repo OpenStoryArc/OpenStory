@@ -571,20 +571,41 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "system.turn.complete" => {
-            vec![ViewRecord {
-                id,
+            let reason = stop_reason
+                .map(|s| s.to_string())
+                .or_else(|| Some("end_turn".into()));
+            let mut records = vec![ViewRecord {
+                id: id.clone(),
                 seq,
-                session_id,
-                timestamp: time,
+                session_id: session_id.clone(),
+                timestamp: time.clone(),
                 origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::TurnEnd(TurnEnd {
                     turn_id: None,
-                    reason: Some("end_turn".into()),
+                    reason,
                     duration_ms,
                 }),
-            }]
+            }];
+            // Grok (and others) attach turn-scoped usage on turn_completed.
+            // Field names differ: Claude snake_case, pi-mono camel input/output,
+            // Grok ACP camelCase inputTokens/outputTokens/cachedReadTokens.
+            if let Some(usage) = token_usage {
+                if let Some(tu) = token_usage_from_agent_map(agent, usage) {
+                    records.push(ViewRecord {
+                        id: format!("{id}:usage"),
+                        seq: seq + 1,
+                        session_id,
+                        timestamp: time,
+                        origin_agent: None,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::TokenUsage(tu),
+                    });
+                }
+            }
+            records
         }
 
         s if s.starts_with("system.") => {
@@ -676,6 +697,65 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         record.is_sidechain = is_sidechain;
     }
     records
+}
+
+/// Map agent-native token_usage JSON into a TokenUsage view body.
+/// Returns None when neither input nor output counts are present.
+fn token_usage_from_agent_map(agent: &str, usage: &Value) -> Option<TokenUsage> {
+    let (input_tokens, output_tokens, total_tokens, cache_creation, cache_read) = match agent {
+        "pi-mono" => (
+            usage.get("input").and_then(|v| v.as_u64()),
+            usage.get("output").and_then(|v| v.as_u64()),
+            usage.get("totalTokens").and_then(|v| v.as_u64()),
+            usage.get("cacheWrite").and_then(|v| v.as_u64()),
+            usage.get("cacheRead").and_then(|v| v.as_u64()),
+        ),
+        // Grok Build ACP turn_completed.usage (camelCase).
+        "grok-build" | "grok" => (
+            usage
+                .get("inputTokens")
+                .or_else(|| usage.get("input_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("outputTokens")
+                .or_else(|| usage.get("output_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("totalTokens")
+                .or_else(|| usage.get("total_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cachedWriteTokens")
+                .or_else(|| usage.get("cache_creation_input_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cachedReadTokens")
+                .or_else(|| usage.get("cache_read_input_tokens"))
+                .and_then(|v| v.as_u64()),
+        ),
+        _ => (
+            usage.get("input_tokens").and_then(|v| v.as_u64()),
+            usage.get("output_tokens").and_then(|v| v.as_u64()),
+            usage.get("total_tokens").and_then(|v| v.as_u64()),
+            usage
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cache_read_input_tokens")
+                .and_then(|v| v.as_u64()),
+        ),
+    };
+    if input_tokens.is_none() && output_tokens.is_none() {
+        return None;
+    }
+    Some(TokenUsage {
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        cache_creation_input_tokens: cache_creation,
+        cache_read_input_tokens: cache_read,
+        scope: TokenScope::Turn,
+    })
 }
 
 /// Extract tool_use content blocks into individual ToolCall ViewRecords.
@@ -2283,6 +2363,66 @@ mod tests {
                     assert_eq!(a.model, "grok-4.5");
                 }
                 other => panic!("expected AssistantMessage, got {:?}", other),
+            }
+        }
+    }
+
+    // describe("when event is grok-build system.turn.complete with ACP usage")
+    // Grok ACP uses camelCase: inputTokens/outputTokens/cachedReadTokens on
+    // the typed payload of turn_completed → system.turn.complete.
+    mod grok_turn_token_usage {
+        use super::*;
+
+        #[test]
+        fn it_should_emit_token_usage_from_turn_complete_camel_case_fields() {
+            let event = make_grok_event(
+                "system.turn.complete",
+                json!({
+                    "seq": 10,
+                    "session_id": "sess-grok",
+                    "stop_reason": "end_turn",
+                    "token_usage": {
+                        "inputTokens": 36458,
+                        "outputTokens": 313,
+                        "totalTokens": 36771,
+                        "cachedReadTokens": 35456,
+                        "reasoningTokens": 57
+                    },
+                    "raw": {
+                        "method": "_x.ai/session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "turn_completed",
+                                "usage": {
+                                    "inputTokens": 36458,
+                                    "outputTokens": 313,
+                                    "totalTokens": 36771,
+                                    "cachedReadTokens": 35456
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            assert!(
+                records.iter().any(|r| matches!(&r.body, RecordBody::TurnEnd(_))),
+                "expected TurnEnd, got {:?}",
+                records.iter().map(|r| format!("{:?}", r.body)).collect::<Vec<_>>()
+            );
+            let usage = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::TokenUsage(_)))
+                .expect("expected TokenUsage from Grok turn_completed usage");
+            match &usage.body {
+                RecordBody::TokenUsage(tu) => {
+                    assert_eq!(tu.input_tokens, Some(36458));
+                    assert_eq!(tu.output_tokens, Some(313));
+                    assert_eq!(tu.total_tokens, Some(36771));
+                    assert_eq!(tu.cache_read_input_tokens, Some(35456));
+                    assert_eq!(tu.scope, TokenScope::Turn);
+                }
+                other => panic!("expected TokenUsage, got {:?}", other),
             }
         }
     }
