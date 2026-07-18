@@ -134,7 +134,12 @@ mod when_an_mcp_client_calls_tools_list {
         let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
         // Stage A seed surface — these are the tools we ship first.
-        for required in ["list_sessions", "session_synopsis", "project_pulse"] {
+        for required in [
+            "list_sessions",
+            "session_synopsis",
+            "session_citizenship",
+            "project_pulse",
+        ] {
             assert!(
                 names.contains(&required),
                 "tools/list must include {required}, got: {names:?}"

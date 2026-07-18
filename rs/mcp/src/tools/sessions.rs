@@ -170,3 +170,96 @@ pub async fn project_pulse(store: &Arc<dyn EventStore>, args: Value) -> Result<V
     let pulse = store.query_project_pulse(days).await;
     serde_json::to_value(pulse).map_err(|e| format!("serialize pulse: {e}"))
 }
+
+// ── session_citizenship ───────────────────────────────────────────
+// Live (disk + watcher) vs Explore (store). Thin client over REST so
+// disk/watcher probes stay on the server (same as scripts/session_citizenship.py).
+
+pub fn session_citizenship_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {
+                "type": "string",
+                "description": "Session UUID — ask \"am I a citizen?\" for this session"
+            },
+        },
+        "required": ["session_id"],
+        "additionalProperties": false
+    })
+}
+
+/// Pure: validate args and build the citizenship URL.
+pub fn citizenship_request(api_base: &str, args: &Value) -> Result<String, String> {
+    if api_base.trim().is_empty() {
+        return Err(
+            "session_citizenship unavailable: set OPENSTORY_API_URL (MCP has no API base)"
+                .to_string(),
+        );
+    }
+    let session_id = args
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "session_citizenship requires `session_id`".to_string())?;
+    Ok(format!(
+        "{}/api/sessions/{session_id}/citizenship",
+        api_base.trim_end_matches('/')
+    ))
+}
+
+/// GET `{api_base}/api/sessions/{id}/citizenship`.
+/// Returns verdict: citizen | ghost | orphan-store | absent + disk/store/watcher.
+pub async fn session_citizenship(api_base: &str, args: Value) -> Result<Value, String> {
+    let url = citizenship_request(api_base, &args)?;
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("citizenship GET failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "citizenship GET {} → HTTP {}",
+            url,
+            resp.status()
+        ));
+    }
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("citizenship response parse failed: {e}"))
+}
+
+#[cfg(test)]
+mod citizenship_tests {
+    use super::*;
+
+    #[test]
+    fn when_session_id_missing_it_should_error() {
+        let err = citizenship_request("http://127.0.0.1:3002", &json!({})).unwrap_err();
+        assert!(err.contains("session_id"), "{err}");
+    }
+
+    #[test]
+    fn when_api_base_empty_it_should_error() {
+        let err = citizenship_request(
+            "",
+            &json!({"session_id": "019f71cd-aaaa-bbbb-cccc-dddddddddddd"}),
+        )
+        .unwrap_err();
+        assert!(err.contains("OPENSTORY_API_URL") || err.contains("API base"), "{err}");
+    }
+
+    #[test]
+    fn when_args_valid_it_should_build_citizenship_url() {
+        let url = citizenship_request(
+            "http://127.0.0.1:3002/",
+            &json!({"session_id": "ghost-session-1"}),
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "http://127.0.0.1:3002/api/sessions/ghost-session-1/citizenship"
+        );
+    }
+}

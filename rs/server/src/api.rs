@@ -309,6 +309,13 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
         .map(|v| v.len())
         .unwrap_or(0);
     let projections = s.store.projections.resident_sessions();
+    let watcher_snaps = s.watcher_diagnostics.snapshots();
+    let watcher_cloud_events_emitted: u64 = watcher_snaps
+        .iter()
+        .map(|w| w.counters.cloud_events_emitted)
+        .sum();
+    let ghost_risk =
+        crate::citizenship::ghost_risk(watcher_cloud_events_emitted, sessions);
 
     Json(json!({
         "status": "ok",
@@ -326,7 +333,14 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
             // source-less sessions (run `reproject`).
             "fresh": projections >= sessions,
         },
-        "watchers": s.watcher_diagnostics.snapshots().len(),
+        "watchers": watcher_snaps.len(),
+        // Sovereignty: Live (watcher emit) without Explore (store sessions).
+        // See docs/research/session-citizenship-ghosts.md.
+        "citizenship": {
+            "ghost_risk": ghost_risk,
+            "watcher_cloud_events_emitted": watcher_cloud_events_emitted,
+            "store_sessions": sessions,
+        },
     }))
 }
 
@@ -1492,6 +1506,98 @@ pub async fn get_session_synopsis(
         .await
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(serde_json::to_value(synopsis).unwrap_or(json!({}))))
+}
+
+/// GET /api/sessions/{session_id}/citizenship
+///
+/// Live (disk + watcher) vs Explore (store) sovereignty health for one session.
+/// Always 200 — `verdict` is `citizen` | `ghost` | `orphan-store` | `absent`.
+/// See `docs/research/session-citizenship-ghosts.md`.
+pub async fn get_session_citizenship(
+    State(state): State<SharedState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Json<Value> {
+    log_event(
+        "api",
+        &format!("GET /api/sessions/{}/citizenship", short_id(&session_id)),
+    );
+    let s = state.read().await;
+    let grok_root = Path::new(&s.config.grok_watch_dir);
+
+    let (on_disk, disk_path, updates_bytes, updates_lines) =
+        match crate::citizenship::find_disk_session(&session_id, grok_root) {
+            Some(dir) => {
+                let (bytes, lines) = crate::citizenship::disk_updates_stats(&dir);
+                (
+                    true,
+                    Some(dir.to_string_lossy().to_string()),
+                    bytes,
+                    lines,
+                )
+            }
+            None => (false, None, 0u64, 0u64),
+        };
+
+    let events = s
+        .store
+        .event_store
+        .session_events(&session_id)
+        .await
+        .unwrap_or_default();
+    let store_event_count = events.len() as u64;
+    let store_last_event = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .ok()
+        .and_then(|rows| {
+            rows.into_iter()
+                .find(|r| r.id == session_id)
+                .and_then(|r| r.last_event)
+        });
+
+    // Watcher diagnostics: prefer a snapshot whose last_processed_path mentions
+    // this session; else first grok watcher; else empty.
+    let snapshots = s.watcher_diagnostics.snapshots();
+    let watcher = snapshots
+        .iter()
+        .find(|w| {
+            w.last_processed_path
+                .as_ref()
+                .is_some_and(|p| p.contains(&session_id))
+        })
+        .or_else(|| snapshots.iter().find(|w| w.agent == "grok" || w.agent == "grok-build"));
+
+    let (
+        watcher_last_path,
+        watcher_last_event_at,
+        watcher_publish_failures,
+        watcher_cloud_events_emitted,
+    ) = match watcher {
+        Some(w) => (
+            w.last_processed_path.clone(),
+            w.last_event_at.clone(),
+            w.counters.publish_failures,
+            w.counters.cloud_events_emitted,
+        ),
+        None => (None, None, 0u64, 0u64),
+    };
+
+    let report = crate::citizenship::build_report(
+        &session_id,
+        on_disk,
+        disk_path,
+        updates_bytes,
+        updates_lines,
+        store_event_count,
+        store_last_event,
+        watcher_last_path,
+        watcher_last_event_at,
+        watcher_publish_failures,
+        watcher_cloud_events_emitted,
+    );
+    Json(report.to_json())
 }
 
 /// GET /api/sessions/{session_id}/tool-journey

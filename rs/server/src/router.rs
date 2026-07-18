@@ -213,6 +213,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::get_session_synopsis),
         )
         .route(
+            "/api/sessions/{session_id}/citizenship",
+            axum::routing::get(crate::api::get_session_citizenship),
+        )
+        .route(
             "/api/sessions/{session_id}/tool-journey",
             axum::routing::get(crate::api::get_tool_journey),
         )

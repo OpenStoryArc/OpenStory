@@ -85,6 +85,15 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: sessions::session_synopsis_schema,
     },
     ToolDef {
+        name: "session_citizenship",
+        description: "Sovereignty health for one session: is it a citizen of the durable \
+                      mirror? Returns verdict (citizen | ghost | orphan-store | absent) plus \
+                      disk/store/watcher signals. A ghost is live on disk (and maybe published) \
+                      but missing from Explore/store — the agent cannot self-reflect on it. \
+                      Args: session_id. Use when asking \"am I a citizen?\" or diagnosing missing Story.",
+        input_schema: sessions::session_citizenship_schema,
+    },
+    ToolDef {
         name: "project_pulse",
         description: "Activity summary across projects over a window. \
                       Args: days (default 7). Returns project_id, project_name, session_count, \
@@ -262,6 +271,7 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "where_is_user" => control::where_is_user(&server.api_base, args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
+        "session_citizenship" => sessions::session_citizenship(&server.api_base, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,
         "tool_journey" => per_session::tool_journey(&server.store, args).await,
         "file_impact" => per_session::file_impact(&server.store, args).await,
