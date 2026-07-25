@@ -5,69 +5,46 @@
 
 **Read your agent history.**
 
-Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and makes that history legible **across the whens**: what *is writing* (watch this session live), what *has written* so far (reflect mid-session), and what *wrote* (story, cost, the command that fixed it). Same mission, different tense. Your data stays on your machine, in open formats, fully portable.
+Your coding agents already write everything down — tool calls, edits, commands, decisions. Open Story watches those local transcripts and makes the history legible: **live** as work happens, **mid-session** while a session is still open, and **after** when you need the story, the cost, or the exact command that fixed it. Data stays on your machine, open formats, portable.
 
-It is a **mirror, not a leash**. Open Story never writes back to the agent, never modifies transcripts, never blocks execution.
-
-> **What does this look like in practice?** **[Read the report of the session that built this feature](docs/research/sessions/06907d46-feat-story-tab-data.md)** — a 21-hour, $212, 4001-record working session, narrated entirely from data the project collected about itself. *"OpenStory pointed at itself."*
-
-```
-┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│    NATS      │
-│  (JSONL files)   │     │  Watcher     │     │  (CloudEvent)│     │  JetStream   │
-└─────────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
-                                                                         │
-                                                          ┌──────────────┼──────────────┐
-                                                          │              │              │
-                                                          ▼              ▼              ▼
-                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
-                                                   │ persist  │  │ patterns │  │broadcast │
-                                                   │ consumer │  │ consumer │  │ consumer │
-                                                   └────┬─────┘  └────┬─────┘  └────┬─────┘
-                                                        │              │              │
-                                                        ▼              ▼              ▼
-                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
-                                                   │  SQLite  │  │ Patterns │  │   React  │
-                                                   │ + JSONL  │  │ + Turns  │  │Dashboard │
-                                                   └──────────┘  └──────────┘  └──────────┘
-```
+A **mirror, not a leash** — never writes back to the agent, never modifies transcripts, never blocks execution.
 
 ## Quickstart
 
-**1. Install & run** (Homebrew — launches its own JetStream NATS and serves the API **and** dashboard from one process):
+**1. Install & open the dashboard**
 
 ```sh
 brew install openstoryarc/openstory/openstory
-brew services run openstory          # → dashboard at http://localhost:3002
+brew services run openstory          # → http://localhost:3002
 ```
 
-Prefer to pick the watch dir / port / history window first? Run `open-story init` for a guided wizard.
+Run a Claude Code (or other watched) session as usual. History appears as the agent works. Prefer a guided setup (watch dir, port, history window)? `open-story init`.
 
-**2. Read history in-session** *(optional)* — wire the MCP so the current session can reflect across the whens (`subscribe_session` = *is writing*; query tools = *has written* / *wrote*). The [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) plugin wraps that into slash commands:
+**2. Optional — read history from inside a session** (MCP + skills)
 
 ```sh
-brew install openstoryarc/openstory/openstory-mcp   # MCP: live + query tools over your store
-# then, inside Claude Code:
+brew install openstoryarc/openstory/openstory-mcp
+# then, in Claude Code:
 /plugin marketplace add openstoryarc/openstory-skills
 /plugin install openstory@openstory-skills
-/openstory:cost      # what sessions cost — also: recap, recall, time, coach, team…
+/openstory:cost      # also: recap, recall, time, coach, team…
 ```
 
-Full prerequisites, dev modes, and storage backends are in the [detailed Quick Start](#quick-start); the MCP tool surface and [skills catalog](#natural-language-skills-the-openstory-skills-plugin) are below.
+MCP is how a session reads its own history while it runs (live stream + query tools). Details: [MCP](#mcp-server--24-tools-all-rust), [skills](#natural-language-skills-the-openstory-skills-plugin). Dev modes and backends: [detailed Quick Start](#quick-start).
 
 ## What you can read
 
-Same history, different lenses — and different tenses:
+Same history, different lenses:
 
-**Live** — *is writing.* History as it is written. Every tool call, file read, command, and model response appears as the agent works. A session can watch itself; this is self-reflection while the work is still open. The session sidebar shows active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by who produced them** (your laptop, a teammate's machine, an agent on a VPS).
+**Live** — as it happens. Tool calls, file reads, commands, model responses stream in. Sessions are grouped by who produced them (laptop, teammate, agent on a VPS). Mid-session, a session can also read itself via MCP (see Quickstart §2).
 
-**Story** — *has written / wrote.* History as narrative (mid-session or after). Each turn is a card: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain facts (files touched, commands run, searches), and eval-apply detail. Subagent work expands inline — same structure at every depth.
+**Story** — narrative. Each turn is a sentence card (“edited X, after reading N files, because … → answered”), with domain facts and eval-apply detail. Subagent work expands inline.
 
-**Explore** — *wrote.* History across sessions. Full-text search, event filters, comparison when you need the source, not the summary.
+**Explore** — after the fact, across sessions. Search, filters, comparison when you need the source, not the summary.
 
-**Admin** — a **read-only** view of federation and identity: this node's topology (solo / leaf / hub), fleet roster, live sources, person clusters. It observes state; it never changes it. Beta.
+**Admin** — read-only federation and identity (topology, fleet, sources). Beta.
 
-**Subagents** — when the agent delegates (Explore, Plan, …), parent–child is structural. NATS subjects encode it (`events.{host}.{project}.{session}.agent.{agent_id}`); Story cards badge `main` vs `sub` and expand the nested eval-apply history.
+**Subagents** — parent–child is structural in the data and in Story (main vs sub, nested cycles).
 
 ### The Story tab — surface and depth
 
@@ -104,13 +81,34 @@ inside the EVAL phase below:
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Open Story sits beside your agents and makes their transcripts legible — *is writing*, *has written*, *wrote*. Self-reflection mid-session is the same mission as recap after; looking at history does not rewrite the actor. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
+Open Story sits beside your agents and makes their transcripts legible — live, mid-session, and after. Self-reflection while a session is open is the same mission as recap later; looking at history does not rewrite the actor. It is not a runtime, memory injector, or control plane for the agent. Data is yours: CloudEvents 1.0, JSONL, Markdown.
 
 **Sovereignty escape hatch:** whichever backend you choose (SQLite or MongoDB), every event is also appended to a per-session JSONL file in `data/`. Always `grep`-able from outside the database, never locked in.
 
-See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, and patterns we've learned building this system.
+Deeper: [docs/soul/](docs/soul/) (mission, “across the whens,” attention layer vs reading history).
 
 ## How it works
+
+```
+┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Coding Agent    │────▶│  Transcript  │────▶│  Translate   │────▶│    NATS      │
+│  (JSONL files)   │     │  Watcher     │     │  (CloudEvent)│     │  JetStream   │
+└─────────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
+                                                                         │
+                                                          ┌──────────────┼──────────────┐
+                                                          │              │              │
+                                                          ▼              ▼              ▼
+                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
+                                                   │ persist  │  │ patterns │  │broadcast │
+                                                   │ consumer │  │ consumer │  │ consumer │
+                                                   └────┬─────┘  └────┬─────┘  └────┬─────┘
+                                                        │              │              │
+                                                        ▼              ▼              ▼
+                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
+                                                   │  SQLite  │  │ Patterns │  │   React  │
+                                                   │ + JSONL  │  │ + Turns  │  │Dashboard │
+                                                   └──────────┘  └──────────┘  └──────────┘
+```
 
 The file watcher detects JSONL transcript changes, auto-detects the agent format (Claude Code, pi-mono, or Hermes), translates each line into CloudEvents via agent-specific translators, and publishes to NATS JetStream with hierarchical, host-prefixed subjects (`events.{host}.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
 
