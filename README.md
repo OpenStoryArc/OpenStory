@@ -43,14 +43,14 @@ brew services run openstory          # → dashboard at http://localhost:3002
 
 Prefer to pick the watch dir / port / history window first? Run `open-story init` for a guided wizard.
 
-**2. Read history in natural language** *(optional)* — the [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) Claude Code plugin turns the store into slash commands:
+**2. Read history in-session** *(optional)* — wire the MCP so the current session can reflect across the whens (`subscribe_session` = *is writing*; query tools = *has written* / *wrote*). The [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) plugin wraps that into slash commands:
 
 ```sh
-brew install openstoryarc/openstory/openstory-mcp   # the MCP binary the skills read
+brew install openstoryarc/openstory/openstory-mcp   # MCP: live + query tools over your store
 # then, inside Claude Code:
 /plugin marketplace add openstoryarc/openstory-skills
 /plugin install openstory@openstory-skills
-/openstory:cost      # what your sessions cost — also: recap, recall, time, coach, team…
+/openstory:cost      # what sessions cost — also: recap, recall, time, coach, team…
 ```
 
 Full prerequisites, dev modes, and storage backends are in the [detailed Quick Start](#quick-start); the MCP tool surface and [skills catalog](#natural-language-skills-the-openstory-skills-plugin) are below.
@@ -197,7 +197,7 @@ GET /api/search?q=...                              — full-text search across e
 
 ### MCP server — 24 tools, all Rust
 
-`rs/mcp/` is the agent-facing edge of OpenStory: a single-binary Rust MCP (Model Context Protocol) server that handles both **live streaming subscriptions** (the agent watches its own session in real time) and **query tools** (sessions, search, analytics, transcripts, …). JSON-RPC 2.0 over stdio. Built and tested as a first-class workspace crate.
+`rs/mcp/` is how a session **reads its own history across the whens** without grepping transcripts: a single-binary Rust MCP (Model Context Protocol) server. **Live streaming** (`subscribe_session`, `subscribe_tokens`) is *is writing* — watch this session as it unfolds. **Query tools** (sessions, story, transcript, search, analytics, …) are *has written* and *wrote* — mid-session reflection and after. Same store as the dashboard and REST; read-only; never mutates the agent. JSON-RPC 2.0 over stdio. First-class workspace crate.
 
 **It reads OpenStory over its REST API — it never opens your database.** The
 query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
@@ -251,17 +251,17 @@ a remote or token-secured instance, add an `env` block with a **literal** value
 (`"OPENSTORY_API_URL": "https://your-host"`) — Claude Code does not reliably expand
 `${VAR:-default}` syntax here, so a literal avoids a silently-empty result.
 
-**The 24-tool surface:**
+**The 24-tool surface** (tense = mission conjugation):
 
-| Group | Tools |
-|---|---|
-| Sessions | `list_sessions` (with days/project/limit/after), `session_synopsis`, `session_activity`, `session_story` |
-| Per-session detail | `tool_journey`, `file_impact`, `session_errors`, `session_plans`, `session_patterns`, `session_transcript`, `session_sentences` |
-| Search | `search`, `agent_search` (FTS + per-session grouping) |
-| Projects | `project_pulse`, `project_context`, `recent_files` |
-| Analytics | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
-| Streaming | `subscribe_session`, `subscribe_tokens`, `subscribe_ui_state` — push notifications via `notifications/openstory/{stream,tokens,ui_state}` |
-| Agent-in-UI | `ui_control` (drive the dashboard — navigate/present/toggle/query), `where_is_user` (point-read the human's current view) — the full-duplex `ui.*` seam, never touches `events.*` |
+| Group | Tense | Tools |
+|---|---|---|
+| Streaming | *is writing* | `subscribe_session`, `subscribe_tokens` — push via `notifications/openstory/{stream,tokens}`; `subscribe_ui_state` for the UI seam |
+| Sessions | *has written* / *wrote* | `list_sessions` (days/project/limit/after), `session_synopsis`, `session_activity`, `session_story` |
+| Per-session detail | *has written* / *wrote* | `tool_journey`, `file_impact`, `session_errors`, `session_plans`, `session_patterns`, `session_transcript`, `session_sentences` |
+| Search | *wrote* | `search`, `agent_search` (FTS + per-session grouping) |
+| Projects | *wrote* | `project_pulse`, `project_context`, `recent_files` |
+| Analytics | *wrote* | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
+| Agent-in-UI | (drives dashboard, not events) | `ui_control` (navigate/present/toggle/query), `where_is_user` — full-duplex `ui.*` seam, never touches `events.*` |
 
 Manual smoke (against a running NATS + OpenStory server). Query tools read
 the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only

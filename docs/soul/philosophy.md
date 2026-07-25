@@ -22,6 +22,8 @@ The mission is not only archaeology. **Tense matters.** The same history can be 
 
 Self-reflection is just the mission conjugated: a session may read **what it is doing**, **what it has done so far**, and **what it did**. That is journaling — the transcript already is the journal; Open Story makes it readable while the work is still open, and after it is closed. It is not memory injection. Looking at the journal does not rewrite the actor.
 
+**How a session reads itself:** the MCP (`open-story-mcp`) is the in-session surface for the same three tenses — `subscribe_session` / `subscribe_tokens` for *is writing*, session/query tools for *has written*, search and list tools for *wrote*. Dashboard and REST are the same history; MCP is how the work in flight holds the mirror without leaving the loop. Still read-only. Still not the agent runtime.
+
 ## Constraint
 
 **Observe, never interfere.** This is a mirror, not a leash.

@@ -5,12 +5,13 @@
 ## What it is
 
 `open-story-mcp` is a small, single-binary [Model Context Protocol](https://modelcontextprotocol.io/)
-server that exposes OpenStory history over MCP — query and watch the same store
-the dashboard and REST API use. It is one surface among several for the same
-mission (**read your agent history**), not a separate product for a different
-audience. Wired in, a session can answer "what did I do yesterday?", "have I hit
-this error before?", "what did this cost?", and "watch this session as it
-unfolds" — all from your own store, all read-only.
+server that exposes OpenStory history over MCP — the same store the dashboard and
+REST API use. It is how a session **reads itself across the whens**: *is writing*
+(`subscribe_session`, `subscribe_tokens` — watch this session as it unfolds),
+*has written* (story, transcript, sentences, patterns mid-session), *wrote*
+(search, list, cost, “what did I do yesterday?”). One surface among several for
+the same mission (**read your agent history**); all from your own store; all
+read-only.
 
 The crate lives at `rs/mcp/` and ships the `open-story-mcp` binary
 (`rs/mcp/Cargo.toml:8`). It is a first-class member of the Rust workspace, built
