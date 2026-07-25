@@ -41,3 +41,32 @@ describe("interactionFromRoute", () => {
     );
   });
 });
+
+describe("when route carries full bookmarkable state", () => {
+  it("should report filePath, userFilter, timeFilter, and searchQuery for where_is_user parity", () => {
+    scenario(
+      () =>
+        interactionFromRoute({
+          view: "explore",
+          sessionId: "s1",
+          filePath: "src/a.ts",
+          detailView: "events",
+          searchQuery: "auth",
+          userFilter: "katie",
+          timeFilter: "today",
+          explore: { filters: { agent: "grok" } },
+        }),
+      (p) => p,
+      (p) => {
+        expect(p.kind).toBe("navigate");
+        expect(p.session_id).toBe("s1");
+        expect(p.filePath).toBe("src/a.ts");
+        expect(p.detailView).toBe("events");
+        expect(p.searchQuery).toBe("auth");
+        expect(p.userFilter).toBe("katie");
+        expect(p.timeFilter).toBe("today");
+        expect(p.filters).toEqual({ agent: "grok" });
+      },
+    );
+  });
+});

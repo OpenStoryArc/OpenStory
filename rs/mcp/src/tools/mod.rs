@@ -37,28 +37,35 @@ pub const TOOLS: &[ToolDef] = &[
         name: "ui_control",
         description: "Drive the OpenStory dashboard live (the agent-in-UI WRITE seam): steer what every open \
                       dashboard SHOWS — never the observed sources. Broadcasts to all connected dashboards. \
-                      Args: action (open_view | present | toggle | set | query) + params. Examples: \
-                      {action:'open_view', params:{route:'/canvas'}} — navigate; \
-                      {action:'toggle', params:{target:'canvas.mode', value:'delegation'}} — flip a view control; \
-                      {action:'present', params:{message:'…', sessionIds:['…'], route:'/story/…'}} — show a banner + spotlight. \
-                      Returns {ok, delivered} (how many dashboards received it). Pair with where_is_user to drive from where the user is.",
+                      Args: action + params. Verbs: open_view | focus_event | present | announce | highlight | \
+                      query | filter | set_filter | toggle | set. Examples: \
+                      {action:'open_view', params:{route:'#/explore/SES/conversation?agent=grok'}} — any hash; \
+                      {action:'open_view', params:{view:'explore', sessionId, detailView:'conversation'}} — structured; \
+                      {action:'focus_event', params:{sessionId, eventId, spotlight:true}} — full-screen event; \
+                      {action:'present', params:{message:'…', spotlight:true}} — title card; \
+                      {action:'query', params:{agent:'grok', range:'7d'}} — fleet filters; \
+                      {action:'toggle', params:{target:'canvas.mode', value:'delegation'}} — view knob; \
+                      {action:'set', params:{target:'scatter.brush', ev0:10, ev1:100}}. \
+                      Returns {ok, delivered}. Pair with where_is_user to confirm the drive. \
+                      Docs: resources/read openstory://docs/agent-in-ui.",
         input_schema: control::ui_control_schema,
     },
     ToolDef {
         name: "subscribe_ui_state",
         description: "STREAMING. Live-follow WHERE THE USER IS in the dashboard (the READ half of the \
                       agent-in-UI seam): emits a ui_state notification each time the user navigates/clicks, \
-                      shaped like where_is_user ({present, view, session_id?, summary}). No args. Subscribes \
-                      to the authored ui.* stream — never the observed sources. Pair with ui_control to drive \
-                      FROM where the user just moved (follow → act in their context).",
+                      shaped like where_is_user ({present, view, session_id?, event_id?, detail_view?, filters?, summary}). \
+                      No args. Subscribes to the authored ui.* stream — never the observed sources. \
+                      Pair with ui_control to drive FROM where the user just moved (follow → act in their context).",
         input_schema: control::where_is_user_schema,
     },
     ToolDef {
         name: "where_is_user",
         description: "Read where the user is right now in the dashboard (the agent-in-UI READ seam): \
-                      returns their latest interaction as {present, view, kind, session_id?, at, summary}. \
+                      returns {present, view, kind, session_id?, event_id?, detail_view?, file_path?, \
+                      filters?, user_filter?, time_filter?, search_query?, spotlight?, present_message?, at, summary}. \
                       No args. Pair with ui_control to drive FROM where the user is (e.g. see they're on a \
-                      session, then open_view its Story). For a live feed, use subscribe_ui_state.",
+                      session's conversation tab, then focus_event a peak moment). For a live feed, use subscribe_ui_state.",
         input_schema: control::where_is_user_schema,
     },
     // Query tools (routed through dispatch_query_tool).

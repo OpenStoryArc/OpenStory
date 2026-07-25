@@ -10,19 +10,34 @@
 
 use serde_json::{json, Value};
 
+/// Full verb set the dashboard's `interpretControl` accepts (plus aliases).
+/// Kept in the schema description so agents discover the map without grepping.
+pub const CONTROL_VERBS: &str = "open_view | focus_event | present | announce | highlight | query | filter | set_filter | toggle | set";
+
 pub fn ui_control_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "description": "open_view | present | toggle | set | query"
+                "description": format!(
+                    "{CONTROL_VERBS}. \
+                     open_view: navigate (route hash OR structured view/sessionId/detailView/eventId/filePath/searchQuery/userFilter/timeFilter + explore facets). \
+                     focus_event: open one event in Explore/Story; spotlight:true = full-screen presentation. \
+                     present|announce|highlight: banner + optional sessionIds/route; spotlight:true = title card. \
+                     query|filter|set_filter: fleet facets (project|agent|user|status|host|branch|day|range|search|sort). \
+                     toggle: {{target, value}} view knobs (canvas.mode, story.sort, theme, session.lens, spotlight=off, …). \
+                     set: {{target, …fields}} structured controls (e.g. scatter.brush)."
+                ),
             },
             "params": {
                 "type": "object",
-                "description": "action params — e.g. {route:'/canvas'} for open_view, \
-                                {target:'canvas.mode', value:'delegation'} for toggle, \
-                                {message, sessionIds, route} for present"
+                "description": "action params. open_view: {route} OR {view, sessionId?, detailView?, eventId?, filePath?, \
+                                searchQuery?, userFilter?, timeFilter?, agent?, project?, …}. \
+                                focus_event: {sessionId, eventId, view?, spotlight?, clipAt?}. \
+                                present: {message|note, sessionIds?, route?, spotlight?}. \
+                                query: {project|agent|user|status|host|branch|day|range|search|q|sort}. \
+                                toggle: {target, value}. set: {target, …fields}."
             }
         },
         "required": ["action"]
@@ -31,11 +46,13 @@ pub fn ui_control_schema() -> Value {
 
 /// Pure: validate + assemble the `/api/control` request body. Errors if
 /// `action` is missing/blank; defaults `params` to `{}`; stamps the issuer so
-/// the dashboard's "▸ driven by" indicator names the agent.
+/// the dashboard's "▸ driven by" indicator names the agent. Any non-blank
+/// action is accepted at the HTTP boundary — the UI's interpretControl is the
+/// open vocabulary sink (unknown actions no-op on the dashboard).
 pub fn build_control_body(args: &Value) -> Result<Value, String> {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("").trim();
     if action.is_empty() {
-        return Err("ui_control requires `action` (open_view | present | toggle | set | query)".to_string());
+        return Err(format!("ui_control requires `action` ({CONTROL_VERBS})"));
     }
     let params = args.get("params").cloned().unwrap_or_else(|| json!({}));
     Ok(json!({ "action": action, "params": params, "issuer": "agent:mcp" }))
@@ -69,6 +86,11 @@ pub fn where_is_user_schema() -> Value {
 /// Pure: turn the raw `ui_state` projection into an agent-friendly shape with a
 /// one-line summary, so an agent can reason about "where is the user" without
 /// digging. `Null` (no interaction recorded) → `present: false`.
+///
+/// Passes through HashRoute-parity fields the client reports (detailView,
+/// eventId, filters, filePath, Live filters, searchQuery, optional spotlight /
+/// present_message) so where_is_user can confirm a full drive — not just the
+/// coarse tab. Privacy: navigation state only; no raw secrets or tool payloads.
 pub fn summarize_ui_state(state: Value) -> Value {
     if state.is_null() {
         return json!({
@@ -80,11 +102,67 @@ pub fn summarize_ui_state(state: Value) -> Value {
     let kind = state.get("kind").and_then(|v| v.as_str()).unwrap_or("view");
     let session_id = state.get("session_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty());
     let at = state.get("at").and_then(|v| v.as_str()).unwrap_or("");
-    let summary = match session_id {
+
+    // Accept both camelCase (client Interaction) and snake_case (any legacy).
+    let str_field = |camel: &str, snake: &str| -> Option<String> {
+        state
+            .get(camel)
+            .or_else(|| state.get(snake))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
+    let event_id = str_field("eventId", "event_id");
+    let detail_view = str_field("detailView", "detail_view");
+    let file_path = str_field("filePath", "file_path");
+    let search_query = str_field("searchQuery", "search_query");
+    let user_filter = str_field("userFilter", "user_filter");
+    let time_filter = str_field("timeFilter", "time_filter");
+    let present_message = str_field("present_message", "present_message");
+    let filters = state.get("filters").cloned().filter(|v| !v.is_null());
+    let spotlight = state
+        .get("spotlight")
+        .and_then(|v| v.as_bool())
+        .filter(|&b| b);
+
+    let mut summary = match session_id {
         Some(sid) => format!("the user is on '{view}' viewing session {sid}"),
         None => format!("the user is on '{view}'"),
     };
-    json!({ "present": true, "view": view, "kind": kind, "session_id": session_id, "at": at, "summary": summary })
+    if let Some(ref dv) = detail_view {
+        summary.push_str(&format!(" / {dv}"));
+    }
+    if let Some(ref eid) = event_id {
+        summary.push_str(&format!(" focused on event {eid}"));
+    }
+    if let Some(ref fp) = file_path {
+        summary.push_str(&format!(" file {fp}"));
+    }
+    if spotlight == Some(true) {
+        summary.push_str(" (spotlight on)");
+    }
+    if let Some(ref msg) = present_message {
+        let clip: String = msg.chars().take(40).collect();
+        summary.push_str(&format!(" present: \"{clip}\""));
+    }
+
+    json!({
+        "present": true,
+        "view": view,
+        "kind": kind,
+        "session_id": session_id,
+        "event_id": event_id,
+        "detail_view": detail_view,
+        "file_path": file_path,
+        "search_query": search_query,
+        "user_filter": user_filter,
+        "time_filter": time_filter,
+        "filters": filters,
+        "spotlight": spotlight,
+        "present_message": present_message,
+        "at": at,
+        "summary": summary
+    })
 }
 
 /// Pure: build the `subscribe_ui_state` stream notification payload from a
@@ -187,6 +265,84 @@ mod tests {
     fn summarize_treats_empty_session_id_as_none() {
         let s = summarize_ui_state(json!({ "view": "overview", "session_id": "" }));
         assert_eq!(s["session_id"], Value::Null);
+    }
+
+    #[test]
+    fn summarize_passes_through_hash_route_parity_fields() {
+        // Client interactionFromRoute reports camelCase; agent needs full
+        // where_is_user parity with bookmarkable UI state.
+        let s = summarize_ui_state(json!({
+            "view": "explore",
+            "kind": "navigate",
+            "session_id": "s1",
+            "detailView": "conversation",
+            "eventId": "e9",
+            "filePath": "src/a.ts",
+            "filters": { "agent": "grok" },
+            "userFilter": "katie",
+            "timeFilter": "today",
+            "searchQuery": "auth",
+            "spotlight": true,
+            "at": "t"
+        }));
+        assert_eq!(s["present"], true);
+        assert_eq!(s["event_id"], "e9");
+        assert_eq!(s["detail_view"], "conversation");
+        assert_eq!(s["file_path"], "src/a.ts");
+        assert_eq!(s["filters"]["agent"], "grok");
+        assert_eq!(s["user_filter"], "katie");
+        assert_eq!(s["time_filter"], "today");
+        assert_eq!(s["search_query"], "auth");
+        assert_eq!(s["spotlight"], true);
+        let summary = s["summary"].as_str().unwrap();
+        assert!(summary.contains("conversation"), "summary: {summary}");
+        assert!(summary.contains("e9"), "summary: {summary}");
+        assert!(summary.contains("spotlight"), "summary: {summary}");
+    }
+
+    #[test]
+    fn summarize_accepts_snake_case_aliases() {
+        let s = summarize_ui_state(json!({
+            "view": "explore",
+            "session_id": "s1",
+            "event_id": "evt-1",
+            "detail_view": "events"
+        }));
+        assert_eq!(s["event_id"], "evt-1");
+        assert_eq!(s["detail_view"], "events");
+    }
+
+    #[test]
+    fn build_body_accepts_full_verb_set() {
+        for verb in [
+            "open_view",
+            "focus_event",
+            "present",
+            "announce",
+            "highlight",
+            "query",
+            "filter",
+            "set_filter",
+            "toggle",
+            "set",
+        ] {
+            let body = build_control_body(&json!({ "action": verb, "params": {} })).unwrap();
+            assert_eq!(body["action"], verb, "verb {verb}");
+            assert_eq!(body["issuer"], "agent:mcp");
+        }
+    }
+
+    #[test]
+    fn schema_documents_focus_event_and_full_verb_set() {
+        let schema = ui_control_schema();
+        let desc = schema["properties"]["action"]["description"]
+            .as_str()
+            .expect("action description");
+        assert!(desc.contains("focus_event"), "schema must list focus_event");
+        assert!(desc.contains("open_view"), "schema must list open_view");
+        assert!(desc.contains("query"), "schema must list query");
+        assert!(desc.contains("announce"), "schema must list present aliases");
+        assert!(desc.contains("spotlight"), "schema should document spotlight");
     }
 
     #[test]

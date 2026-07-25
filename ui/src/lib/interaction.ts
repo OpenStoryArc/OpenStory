@@ -15,7 +15,21 @@ export type InteractionKind = "navigate" | "filter" | "select" | "zoom" | "view"
 /** Typed interaction schema — one shape per kind. Grow a variant's fields for
  *  higher replay fidelity without touching the others. */
 export type Interaction =
-  | { kind: "navigate"; view: string; session_id?: string; detailView?: string; eventId?: string; filters?: unknown }
+  | {
+      kind: "navigate";
+      view: string;
+      session_id?: string;
+      detailView?: string;
+      eventId?: string;
+      filePath?: string;
+      searchQuery?: string;
+      userFilter?: string;
+      timeFilter?: string;
+      filters?: unknown;
+      /** Ephemeral presentation state (spotlight/title) when the client reports it. */
+      spotlight?: boolean;
+      present_message?: string;
+    }
   | { kind: "filter"; view: string; filters: unknown; session_id?: string }
   | { kind: "select"; view: string; session_id: string; turn?: number; eventId?: string; eval?: string }
   | { kind: "zoom"; view: string; mode?: string; zoom?: number }
@@ -23,12 +37,17 @@ export type Interaction =
 
 /** A navigation interaction from the current route. Coarse but enough to
  *  reconstruct "where you were" and replay the journey (finer kinds — filter/
- *  select/zoom — are emitted by the individual views). */
+ *  select/zoom — are emitted by the individual views). Parity with HashRoute
+ *  so where_is_user can confirm detail tab, filters, file path, Live filters. */
 export function interactionFromRoute(route: HashRoute): Extract<Interaction, { kind: "navigate" }> {
   const p: Extract<Interaction, { kind: "navigate" }> = { kind: "navigate", view: route.view };
   if (route.sessionId) p.session_id = route.sessionId;
   if (route.detailView) p.detailView = route.detailView;
   if (route.eventId) p.eventId = route.eventId;
+  if (route.filePath) p.filePath = route.filePath;
+  if (route.searchQuery) p.searchQuery = route.searchQuery;
+  if (route.userFilter) p.userFilter = route.userFilter;
+  if (route.timeFilter) p.timeFilter = route.timeFilter;
   if (route.explore?.filters && Object.keys(route.explore.filters).length > 0) {
     p.filters = route.explore.filters;
   }

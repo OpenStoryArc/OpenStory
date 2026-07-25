@@ -91,12 +91,37 @@ export function App() {
           setTitleCard(null);
         }
         setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
+        // Report present so where_is_user can confirm the banner (navigation
+        // still comes from the route effect when route is set).
+        if (action.message.trim()) {
+          postInteraction({
+            kind: "navigate",
+            view: action.route?.view ?? "live",
+            ...(action.route?.sessionId ? { session_id: action.route.sessionId } : {}),
+            present_message: action.message,
+          });
+        }
       } else if (action?.type === "spotlight") {
         setSpotlight({ sessionId: action.sessionId, eventId: action.eventId, clipAt: action.clipAt });
         setTitleCard(null);
+        // Spotlight does not change the hash — stamp presentation state so
+        // where_is_user can confirm the drive (map principle, read half).
+        postInteraction({
+          kind: "navigate",
+          view: "spotlight",
+          session_id: action.sessionId,
+          eventId: action.eventId,
+          spotlight: true,
+        });
       } else if (action?.type === "title") {
         setTitleCard(action.message);
         setSpotlight(null);
+        postInteraction({
+          kind: "navigate",
+          view: "title",
+          present_message: action.message,
+          spotlight: true,
+        });
       } else if (action?.type === "toggle" && action.target === "spotlight") {
         // The seam's explicit dismissal: toggle {target:"spotlight", value:"off"}.
         if (action.value === "off") {

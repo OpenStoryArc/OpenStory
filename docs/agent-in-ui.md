@@ -19,21 +19,26 @@ POST a control *intent*; the server broadcasts it; every dashboard reacts.
 (`delivered` = how many dashboards received it).
 **HTTP:** `POST /api/control { action, params, issuer? }`.
 
-The command vocabulary is four shapes (`interpretControl` in the UI resolves
-each into a typed `UIControlAction`):
+The command vocabulary (`interpretControl` in the UI resolves each into a typed
+`UIControlAction`). Full map: `docs/research/agent-ui-control-map.md`.
 
 | action | params | effect |
 |--------|--------|--------|
-| `open_view` | `{ route }` or `{ view, sessionId? }` | navigate (route = `/canvas`, `/story/<id>`, `/explore?project=…`; legacy `/overview?…` still aliases onto Explore) |
-| `present` / `announce` / `highlight` | `{ message, sessionIds?, route? }` | show a banner + spotlight sessions, with an optional jump |
-| `toggle` | `{ target, value }` | flip a component-local control (`canvas.mode`, `heatmap.dim`, `story.sort`, `lab.open`, …) |
-| `set` | `{ target, params }` | structured multi-field change (a brush box, a camera pose, a drill path) |
+| `open_view` | `{ route }` **or** `{ view, sessionId?, detailView?, eventId?, filePath?, searchQuery?, userFilter?, timeFilter?, agent?, project?, … }` | navigate any bookmarkable hash state (legacy `/overview?…` aliases onto Explore) |
+| `focus_event` | `{ sessionId, eventId, view?, spotlight?, clipAt? }` | open one event in Explore/Story; `spotlight:true` = full-screen presentation |
+| `present` / `announce` / `highlight` | `{ message\|note, sessionIds?, route?, spotlight? }` | banner + session spotlight, optional jump; `spotlight:true` = title card |
+| `query` / `filter` / `set_filter` | `{ project\|agent\|user\|status\|host\|branch\|day\|range\|search\|q\|sort }` | narrow Explore |
+| `toggle` | `{ target, value }` | flip a registered view knob (`canvas.mode`, `story.sort`, `theme`, `session.lens`, `spotlight=off`, …) |
+| `set` | `{ target, …fields }` | structured multi-field change (e.g. `scatter.brush`) |
 
 Examples:
 
 ```jsonc
-{ "action": "open_view", "params": { "route": "/canvas" } }
-{ "action": "toggle",    "params": { "target": "canvas.mode", "value": "delegation" } }
+{ "action": "open_view", "params": { "route": "#/explore/SES/conversation?agent=grok" } }
+{ "action": "open_view", "params": { "view": "explore", "sessionId": "SES", "detailView": "conversation" } }
+{ "action": "focus_event", "params": { "sessionId": "SES", "eventId": "EVT", "spotlight": true } }
+{ "action": "toggle",    "params": { "target": "canvas.mode", "value": "sunburst" } }
+{ "action": "query",     "params": { "agent": "grok", "range": "7d" } }
 { "action": "present",   "params": { "message": "Look here →",
                                      "sessionIds": ["0375729d-…"],
                                      "route": "/story/0375729d-…" } }
@@ -55,18 +60,23 @@ When the user navigates, the UI emits a typed `Interaction`
 server stores it as a CloudEvent in the synthetic `openstory-ui` viewing session
 and exposes the latest.
 
-**MCP:** `where_is_user {}` (no args) → an agent-friendly shape:
+**MCP:** `where_is_user {}` (no args) → an agent-friendly shape with HashRoute
+parity fields when the client reported them:
 
 ```jsonc
 { "present": true, "view": "explore", "kind": "navigate",
-  "session_id": null, "at": "2026-07-02T12:42:27.507Z",
-  "summary": "the user is on 'explore'" }
+  "session_id": "…", "event_id": "…", "detail_view": "conversation",
+  "filters": { "agent": "grok" }, "file_path": null,
+  "user_filter": null, "time_filter": null, "search_query": null,
+  "spotlight": null, "present_message": null,
+  "at": "2026-07-02T12:42:27.507Z",
+  "summary": "the user is on 'explore' viewing session … / conversation" }
 ```
 
 `present: false` means no interaction has been recorded yet (position unknown).
 
 **HTTP:**
-- **Poll:** `GET /api/ui-state` → `{ ui_state: { at, kind, view, session_id? } }`.
+- **Poll:** `GET /api/ui-state` → `{ ui_state: { at, kind, view, session_id?, detailView?, eventId?, filters?, … }, tempo }`.
 - **Follow (live, MCP):** `subscribe_ui_state` (no args) — a streaming tool that
   emits a `notifications/openstory/ui_state` frame each time the user moves:
 
