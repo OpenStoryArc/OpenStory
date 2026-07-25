@@ -599,6 +599,80 @@
             "meta"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "description": "Typed extraction for Grok Build ACP `updates.jsonl` events.\n\nGrok streams session/update notifications (and `_x.ai/session/update` for turn_completed). Fields here are a pure lift of what we need for story rendering; the original ACP line is preserved in `EventData::raw`.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "grok"
+              ],
+              "type": "string"
+            },
+            "args": true,
+            "is_error": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "meta": {
+              "$ref": "#/definitions/PayloadMeta"
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "prompt_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stop_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token_usage": true,
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_call_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tool_outcome": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ToolOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "_variant",
+            "meta"
+          ],
+          "type": "object"
         }
       ]
     },
