@@ -1,11 +1,11 @@
 # Agent-in-UI seam
 
 **Mission fit:** Open Story's mission is **read your agent history**. Agent-in-UI
-is not a peer mission — it is the **attention layer** on top of that journal.
+is not a peer mission — it is the **attention layer** on top of that history.
 Driving the UI is aligned when it **shows or navigates history** (focus an
 event, open Story/Explore, present a finding, filter the fleet). Chrome for its
 own sake fails mission fit. Doctrine: **the agent may steer the mirror; it may
-not rewrite the journal.**
+not rewrite history.**
 
 OpenStory's dashboard is a **sink**: it reacts to a stream of messages and
 redraws. That makes it drivable and observable through two mirror-image halves —

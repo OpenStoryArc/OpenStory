@@ -5,7 +5,7 @@
 
 **Read your agent history.**
 
-Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and makes the journal legible **across the whens**: what *is writing* (watch this session live), what *has written* so far (reflect mid-session), and what *wrote* (story, cost, the command that fixed it). Same mission, different tense. Your data stays on your machine, in open formats, fully portable.
+Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and makes that history legible **across the whens**: what *is writing* (watch this session live), what *has written* so far (reflect mid-session), and what *wrote* (story, cost, the command that fixed it). Same mission, different tense. Your data stays on your machine, in open formats, fully portable.
 
 It is a **mirror, not a leash**. Open Story never writes back to the agent, never modifies transcripts, never blocks execution.
 
@@ -104,7 +104,7 @@ inside the EVAL phase below:
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Open Story sits beside your agents and makes their transcripts legible — *is writing*, *has written*, *wrote*. Self-reflection mid-session is the same mission as recap after; looking at the journal does not rewrite the actor. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
+Open Story sits beside your agents and makes their transcripts legible — *is writing*, *has written*, *wrote*. Self-reflection mid-session is the same mission as recap after; looking at history does not rewrite the actor. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
 
 **Sovereignty escape hatch:** whichever backend you choose (SQLite or MongoDB), every event is also appended to a per-session JSONL file in `data/`. Always `grep`-able from outside the database, never locked in.
 
@@ -204,10 +204,10 @@ query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
 `GET`s instead of holding a SQLite handle), so the binary needs only a URL and
 runs from any directory. Observe/query tools are the mission (history across the
 whens). Agent-in-UI tools (`ui_control`, `where_is_user`, `subscribe_ui_state`)
-are an **attention layer on top**: steer the mirror to show or navigate the
-journal — not a second purpose, not remote-control for its own sake. Full-duplex
-but sovereignty-partitioned: authors on `ui.*` only, never `events.*`. The agent
-may steer the mirror; it may not rewrite the journal. Architecture:
+are an **attention layer on top**: steer the mirror to show or navigate history
+— not a second purpose, not remote-control for its own sake. Full-duplex but
+sovereignty-partitioned: authors on `ui.*` only, never `events.*`. The agent may
+steer the mirror; it may not rewrite history. Architecture:
 **[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**; seam reference:
 **[`docs/agent-in-ui.md`](docs/agent-in-ui.md)**.
 
@@ -263,7 +263,7 @@ a remote or token-secured instance, add an `env` block with a **literal** value
 | Search | *wrote* | `search`, `agent_search` (FTS + per-session grouping) |
 | Projects | *wrote* | `project_pulse`, `project_context`, `recent_files` |
 | Analytics | *wrote* | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
-| Attention layer | (steer mirror, not mission peer) | `ui_control` (focus event / open view / present / query filters), `where_is_user`, `subscribe_ui_state` — show or navigate the journal; `ui.*` only, never `events.*` |
+| Attention layer | (steer mirror, not mission peer) | `ui_control` (focus event / open view / present / query filters), `where_is_user`, `subscribe_ui_state` — show or navigate history; `ui.*` only, never `events.*` |
 
 Manual smoke (against a running NATS + OpenStory server). Query tools read
 the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only

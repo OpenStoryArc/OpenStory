@@ -4,7 +4,7 @@
 
 **Read your agent history.**
 
-Coding agents already write everything down. Open Story makes that journal legible. The point isn't surveillance. It's understanding and owning the story of the work.
+Coding agents already write everything down. Open Story makes that history legible. The point isn't surveillance. It's understanding and owning the story of the work.
 
 Who reads that history is not a design axis. Dashboard, API, MCP, scripts — same mission. The load-bearing line is not audience; it is **read, don't rewrite**.
 
@@ -20,11 +20,11 @@ The mission is not only archaeology. **Tense matters.** The same history can be 
 | **So far** | the open session's trail | *has written* — reflect mid-flight without closing the work |
 | **After** | finished sessions, fleet, search | *wrote* — story, cost, the command that fixed it |
 
-Self-reflection is just the mission conjugated: a session may read **what it is doing**, **what it has done so far**, and **what it did**. That is journaling — the transcript already is the journal; Open Story makes it readable while the work is still open, and after it is closed. It is not memory injection. Looking at the journal does not rewrite the actor.
+Self-reflection is just the mission conjugated: a session may read **what it is doing**, **what it has done so far**, and **what it did**. The transcript already is that history; Open Story makes it readable while the work is still open, and after it is closed. It is not memory injection. Looking at history does not rewrite the actor.
 
 **How a session reads itself:** the MCP (`open-story-mcp`) is the in-session surface for the same three tenses — `subscribe_session` / `subscribe_tokens` for *is writing*, session/query tools for *has written*, search and list tools for *wrote*. Dashboard and REST are the same history; MCP is how the work in flight holds the mirror without leaving the loop. Still read-only. Still not the agent runtime.
 
-**Attention layer (agent-in-UI), not a second mission:** `ui_control` / `where_is_user` / `subscribe_ui_state` let a session *steer the mirror* — open a view, focus an event, present a finding, follow where attention already is. That is aligned with the mission when it **shows or navigates the journal**. It is not co-equal with reading history; chrome for chrome's sake fails mission fit. Partition: everything authored lands on `ui.*` only, never `events.*`. Doctrine: **the agent may steer the mirror; it may not rewrite the journal.**
+**Attention layer (agent-in-UI), not a second mission:** `ui_control` / `where_is_user` / `subscribe_ui_state` let a session *steer the mirror* — open a view, focus an event, present a finding, follow where attention already is. That is aligned with the mission when it **shows or navigates history**. It is not co-equal with reading history; chrome for chrome's sake fails mission fit. Partition: everything authored lands on `ui.*` only, never `events.*`. Doctrine: **the agent may steer the mirror; it may not rewrite history.**
 
 ## Constraint
 

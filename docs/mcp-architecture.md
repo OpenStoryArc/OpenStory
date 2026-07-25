@@ -11,10 +11,10 @@ REST API use. It is how a session **reads itself across the whens**: *is writing
 *has written* (story, transcript, sentences, patterns mid-session), *wrote*
 (search, list, cost, “what did I do yesterday?”). One surface among several for
 the same mission (**read your agent history**); all from your own store; all
-read-only on the journal.
+read-only on history.
 
 **Attention layer (not a second mission):** `ui_control`, `where_is_user`, and
-`subscribe_ui_state` steer the dashboard to show or navigate that journal —
+`subscribe_ui_state` steer the dashboard to show or navigate that history —
 shared attention, tours, focus. They author `ui.*` only, never `events.*`. Aligned
 when pointing at history; not co-equal with reading it. Full seam:
 [`docs/agent-in-ui.md`](agent-in-ui.md).
