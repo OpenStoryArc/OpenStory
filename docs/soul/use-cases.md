@@ -2,6 +2,8 @@
 
 These are concrete examples from the codebase demonstrating each principle. They are living references — when the code changes, these must be updated. If a use case points to a file or line that no longer exists, the use case is stale and must be refreshed.
 
+**Mission:** read your agent history. **Constraint:** observe, never interfere. Every use case below should serve one or both.
+
 Last verified: 2026-04-06
 
 ---
@@ -10,7 +12,7 @@ Last verified: 2026-04-06
 
 **Where to look:** `rs/core/src/reader.rs`
 
-The `read_new_lines()` function advances through transcript files using byte-offset seeking. It reads forward, translates what it finds into CloudEvents, and never writes back. When it encounters a partial line (no trailing newline), it refuses to consume it — the byte offset stays put for the next read (line 50-52):
+The mission is reading history; the constraint is that reading must never rewrite it. The `read_new_lines()` function advances through transcript files using byte-offset seeking. It reads forward, translates what it finds into CloudEvents, and never writes back. When it encounters a partial line (no trailing newline), it refuses to consume it — the byte offset stays put for the next read (line 50-52):
 
 ```rust
 // Partial line check: if the line doesn't end with \n, it's incomplete.

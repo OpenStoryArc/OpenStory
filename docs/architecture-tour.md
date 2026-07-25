@@ -11,7 +11,7 @@ Claude will read the referenced files and explain them. Ask questions at any sto
 
 ## The Big Picture
 
-Open Story is a **real-time observer** for AI coding agents. It watches what coding agents do — every tool call, every file edit, every decision — and surfaces it in a live dashboard. It never interferes with the agent. It just watches.
+Open Story's mission is **read your agent history**. Coding agents already write transcripts; Open Story makes that history legible — every tool call, file edit, and decision — in a live dashboard and in searchable store. Constraint: **observe, never interfere**. It never writes back to the agent. It just watches.
 
 ```
                     ┌────────────────── NATS JetStream ──────────────────┐
@@ -518,7 +518,7 @@ When you change docs or architecture, run `scripts/check_docs.py` to verify the 
 
 ### The principle
 
-OpenStory exists so humans can see what their agents are actually doing. **Applied inward, the same principle says: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
+OpenStory exists so humans can **read their agent history**. **Applied inward, the same mission says: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
 
 ---
 

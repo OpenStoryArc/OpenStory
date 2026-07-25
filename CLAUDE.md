@@ -2,11 +2,12 @@
 
 ## Soul
 
-Open Story exists to enable **personal sovereignty** for humans working with AI agents.
+**Mission:** read your agent history.  
+**Constraint:** observe, never interfere.
 
-When you use a coding agent, it acts on your behalf — reading your files, running commands, making decisions. Open Story gives you full visibility into that process, in real time. You don't have to trust blindly. You can observe, understand, and decide.
+Open Story exists so humans working with AI agents can read what those agents did — and own that story. When a coding agent acts on your behalf — reading files, running commands, making decisions — you shouldn't have to trust blindly. You can observe, understand, and decide.
 
-This is a mirror, not a leash. The listener watches but never interferes. It never mutates the source, never injects behavior, never stands between the user and their agent. It translates what happens into a form you can see, search, and reason about — and the data is yours, in open formats, portable and unencumbered.
+This is a **mirror, not a leash**. The listener watches but never interferes. It never mutates the source, never injects behavior, never stands between the user and their agent. It translates what happens into a form you can see, search, and reason about — and the data is yours, in open formats, portable and unencumbered. That ownership is personal sovereignty.
 
 ## Principles as Constraints
 
@@ -14,7 +15,7 @@ These principles flow from the soul above. They are the rules that shape every d
 
 ### 1. Observe, never interfere
 - The listener is read-only. It watches transcript files for all agent activity. It never writes back, never modifies agent behavior, never blocks execution.
-- If a proposed feature would require mutating the source or inserting the listener into the agent's execution path, it does not belong here.
+- If a proposed feature would require mutating the source or inserting the listener into the agent's execution path, it does not belong here. Ask: does this help someone *read* history, or does it try to *change* the agent?
 
 ### 2. Behavior-Driven Development (BDD)
 - Start from behavior: describe what the system *should do* from the user's perspective, then make it real.

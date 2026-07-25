@@ -1,5 +1,7 @@
 # Architecture
 
+Open Story's job is to make agent history readable. Everything below is how transcripts become something a human (or another agent) can search, narrate, and reason about — without ever writing back into the agent.
+
 ## The pipeline
 
 Events flow one direction through a series of independent actors connected by NATS JetStream:
@@ -136,7 +138,7 @@ Core domain logic lives in `core`, `views`, `patterns`, and `store`. Infrastruct
 
 ## How agents use this data
 
-OpenStory exists so humans can see what their agents are doing. Applied inward, the same principle says: agents working in this repo should use OpenStory to see what *past* agents were doing — not by grepping transcript files, but by querying the live API.
+OpenStory exists so humans can **read their agent history**. Applied inward, the same mission says: agents working in this repo should read what *past* agents did — not by grepping transcript files, but by querying the live API.
 
 The two everyday entry points:
 

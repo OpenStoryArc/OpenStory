@@ -3,9 +3,13 @@
 [![CI](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStoryArc/OpenStory/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Real-time observability for AI coding agents. Open Story watches what your agents do — every tool call, file edit, command, and decision — translates it into [CloudEvents 1.0](https://cloudevents.io/) via NATS JetStream, and serves a live dashboard with narrative visualization. Your data stays local, in open formats, fully portable.
+**Read your agent history.**
 
-> **What does this look like in practice?** **[Read the report of the session that built this feature](docs/research/sessions/06907d46-feat-story-tab-data.md)** — a 21-hour, $212, 4001-record working session, narrated entirely from data the project collected about itself, using its own scripts. *"OpenStory pointed at itself."*
+Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and gives you a place to *read* what happened: live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. Your data stays on your machine, in open formats, fully portable.
+
+It is a **mirror, not a leash**. Open Story never writes back to the agent, never modifies transcripts, never blocks execution.
+
+> **What does this look like in practice?** **[Read the report of the session that built this feature](docs/research/sessions/06907d46-feat-story-tab-data.md)** — a 21-hour, $212, 4001-record working session, narrated entirely from data the project collected about itself. *"OpenStory pointed at itself."*
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -39,7 +43,7 @@ brew services run openstory          # → dashboard at http://localhost:3002
 
 Prefer to pick the watch dir / port / history window first? Run `open-story init` for a guided wizard.
 
-**2. Ask your history in natural language** *(optional)* — the [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) Claude Code plugin turns your store into slash commands:
+**2. Read history in natural language** *(optional)* — the [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) Claude Code plugin turns the store into slash commands:
 
 ```sh
 brew install openstoryarc/openstory/openstory-mcp   # the MCP binary the skills read
@@ -51,19 +55,19 @@ brew install openstoryarc/openstory/openstory-mcp   # the MCP binary the skills 
 
 Full prerequisites, dev modes, and storage backends are in the [detailed Quick Start](#quick-start); the MCP tool surface and [skills catalog](#natural-language-skills-the-openstory-skills-plugin) are below.
 
-## What you see
+## What you can read
 
-The dashboard's views, each a different lens on the same data:
+Same history, different lenses:
 
-**Live** — real-time event stream as your agent works. Every tool call, file read, command execution, and model response appears as it happens. The session sidebar shows all active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by the fleet member that produced them** (your laptop, a teammate's machine, an agent on a VPS), so the mirror reflects not just *what* happened but *who* did it.
+**Live** — history as it is written. Every tool call, file read, command, and model response appears as the agent works. The session sidebar shows active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by who produced them** (your laptop, a teammate's machine, an agent on a VPS).
 
-**Story** — narrative view of agent work. Each turn is a card showing what Claude did and why: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain fact badges (files created/modified, commands run, searches performed), and eval-apply phase detail. Subagent delegations expand inline — click an Agent apply to see the subagent's eval-apply cycles nested recursively. The same structure at every depth.
+**Story** — history as narrative. Each turn is a card: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain facts (files touched, commands run, searches), and eval-apply detail. Subagent work expands inline — same structure at every depth.
 
-**Explore** — historical browse and search across sessions. Full-text search, event filtering, session comparison.
+**Explore** — history across sessions. Full-text search, event filters, comparison when you need the source, not the summary.
 
-**Admin** — a **read-only** view of the federation and identity model: this node's topology (solo / leaf / hub), the fleet roster, live sources, and person clusters. It *observes* state; it never changes it. Beta.
+**Admin** — a **read-only** view of federation and identity: this node's topology (solo / leaf / hub), fleet roster, live sources, person clusters. It observes state; it never changes it. Beta.
 
-**Subagent visibility** — when Claude delegates to subagents (Explore, Plan, etc.), the parent-child relationship is structural. NATS subjects encode it (`events.{host}.{project}.{session}.agent.{agent_id}`), Story cards show `main` vs `sub` badges, and inline expansion reveals the subagent's complete eval-apply cycle history.
+**Subagents** — when the agent delegates (Explore, Plan, …), parent–child is structural. NATS subjects encode it (`events.{host}.{project}.{session}.agent.{agent_id}`); Story cards badge `main` vs `sub` and expand the nested eval-apply history.
 
 ### The Story tab — surface and depth
 
@@ -97,9 +101,12 @@ inside the EVAL phase below:
 
 ## Philosophy
 
-Open Story is a mirror, not a leash. It observes but never interferes — it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours: CloudEvents 1.0, JSONL, Markdown. Open formats, portable, unencumbered.
+**Mission:** read your agent history.  
+**Constraint:** observe, never interfere.
 
-**The sovereignty escape hatch:** regardless of which backend you choose (SQLite or MongoDB), every event is always appended to a per-session JSONL file in `data/`. Your data is always `grep`-able from outside the database, always portable, never locked in.
+Open Story sits beside your agents and makes their transcripts legible. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
+
+**Sovereignty escape hatch:** whichever backend you choose (SQLite or MongoDB), every event is also appended to a per-session JSONL file in `data/`. Always `grep`-able from outside the database, never locked in.
 
 See [docs/soul/](docs/soul/) for the full philosophy, architecture narrative, and patterns we've learned building this system.
 
@@ -166,9 +173,9 @@ Four auditable principles from `CLAUDE.md` have executable test guards:
 
 Run with `cargo test --test test_principle_observe_never_interfere` (etc.) or `-- --ignored` for the live-data recursion test.
 
-### For agents: using OpenStory
+### For agents: reading history
 
-Agents working on this project (or any project with OpenStory running) should use the API to understand session context. From experience building this system, here's what works best:
+Agents working on this project (or any project with OpenStory running) should read session history through the API — not by grepping raw transcripts. From experience building this system:
 
 **REST API is your primary tool.** Fast, structured, reliable:
 ```
@@ -275,8 +282,8 @@ Test it with `cargo test -p open-story-mcp`. Design notes for the streaming subs
 
 ### Natural-language skills (the `openstory-skills` plugin)
 
-Don't want to call the MCP tools by hand? The **[openstory-skills](https://github.com/OpenStoryArc/openstory-skills)**
-Claude Code plugin wraps them into slash commands that read your own store:
+Don't want to call MCP tools by hand? The **[openstory-skills](https://github.com/OpenStoryArc/openstory-skills)**
+Claude Code plugin wraps them into slash commands for reading your agent history:
 
 ```sh
 /plugin marketplace add openstoryarc/openstory-skills
@@ -298,9 +305,9 @@ command traces prompt → skill → MCP tool → REST endpoint → source in the
 [`CITATIONS.md`](https://github.com/OpenStoryArc/openstory-skills/blob/master/CITATIONS.md),
 and the manifest + citation tree are contract-tested in CI.
 
-### Deployed agent observability (OpenClaw)
+### Reading history from deployed agents (OpenClaw)
 
-Open Story can observe autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
+Open Story can read transcripts from autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
 
 ```
 claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API/dashboard)
@@ -361,7 +368,7 @@ The tap ships two formulae:
 | Formula | Installs | What it provides |
 |---|---|---|
 | `openstory` | `open-story` | The server + CLI — the whole stack (watcher, API, dashboard, managed NATS). |
-| `openstory-mcp` | `open-story-mcp` | **Optional companion.** The MCP server so a coding agent can query its own OpenStory history. `depends_on "openstory"`. |
+| `openstory-mcp` | `open-story-mcp` | **Optional companion.** MCP server so a coding agent can read its own OpenStory history. `depends_on "openstory"`. |
 
 The MCP companion is optional — install it only if you want to wire OpenStory
 into a coding agent's tool set:

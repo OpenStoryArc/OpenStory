@@ -1,20 +1,28 @@
 # Philosophy
 
-## Personal sovereignty
+## Mission
 
-OpenStory is about personal sovereignty over your own creative process. Humans and AI agents are co-creators. Agents read, think, edit, test, and makes decisions alongside you. OpenStory makes that collaboration visible and navigable. The point isn't surveillance — it's understanding and owning the story of the work.
+**Read your agent history.**
 
-This is a mirror, not a leash. The system watches but never interferes. It never writes back to the agent, never modifies transcripts, never blocks execution. It translates what happens into a form you can see, search, and reason about.
+Your coding agents already write everything down. Open Story makes that history legible — live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. Humans and AI agents are co-creators; agents read, think, edit, test, and make decisions alongside you. The point isn't surveillance. It's understanding and owning the story of the work.
 
-The data is yours. Open formats (CloudEvents, JSONL, Markdown), portable, unencumbered. Own your data, own your story. 
+That ownership is **personal sovereignty**: you can observe, understand, and decide. The data is yours. Open formats (CloudEvents, JSONL, Markdown), portable, unencumbered. Own your data, own your story.
+
+## Constraint
+
+**Observe, never interfere.** This is a mirror, not a leash.
+
+The system watches but never interferes. It never writes back to the agent, never modifies transcripts, never blocks execution. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. It translates what happens into a form you can see, search, and reason about.
+
+This principle prevents scope creep. Features that would require mutating the source, inserting into the agent's execution path, or blocking agent behavior do not belong here. Session data is immutable — no CRUD on events. The dashboard is read-only. The value of observation comes from its purity: if the observer affects the observed, the observation is compromised.
 
 ## Own your data source
 
-The interface has two fundamentally different relationships with the data:
+The interface has two fundamentally different relationships with the same history:
 
-**Live** is a stream — an immutable, lazy sequence you listen to. Events arrive, you see them flow by. When you refresh, it starts fresh. This is push, real-time, ephemeral. The stream is the truth for "what is happening now."
+**Live** is a stream — an immutable, lazy sequence you listen to. Events arrive, you see them flow by. When you refresh, it starts fresh. This is push, real-time, ephemeral. The stream is the truth for "what is being written now."
 
-**Explore** is an atom — persisted state that is constantly refreshed but always consistent and queryable. Sessions can be viewed, searched, interpreted, sliced by facet. This is pull, on-demand, authoritative. The atom is the truth for "what happened."
+**Explore** is an atom — persisted state that is constantly refreshed but always consistent and queryable. Sessions can be viewed, searched, interpreted, sliced by facet. This is pull, on-demand, authoritative. The atom is the truth for "what was written."
 
 Each view owns exactly one data source. Merging them creates a view that's "sort of live and sort of complete but actually neither." Keep views honest about what they know and where their data comes from.
 
@@ -40,14 +48,8 @@ This prevented us from building a tree UI for data that isn't a tree. It reveale
 
 The prototype is the spec. If it works on real data, the production implementation has a clear target.
 
-## Observe, never interfere
-
-This principle prevents scope creep. Features that would require mutating the source, inserting into the agent's execution path, or blocking agent behavior do not belong here. Session data is immutable — no CRUD on events. The dashboard is read-only.
-
-The value of observation comes from its purity. If the observer affects the observed, the observation is compromised.
-
 ## Minimal, honest code
 
 No abstractions without justification. Three clear lines beat a clever helper. Don't build for hypothetical futures. Solve the problem in front of you.
 
-If you're adding complexity, articulate what sovereignty benefit it provides. If you can't, it doesn't belong here.
+If you're adding complexity, ask: does this help someone **read their agent history**, without compromising the observe-only constraint? If you can't articulate that sovereignty benefit, it doesn't belong here.

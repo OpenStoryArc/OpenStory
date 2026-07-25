@@ -2,6 +2,9 @@
 
 These documents describe what Open Story believes, why it was built the way it was, and what we've learned works. Read them before contributing — they're more important than the code.
 
+**Mission:** read your agent history.  
+**Constraint:** observe, never interfere.
+
 | Document | What it covers |
 |----------|---------------|
 | [Philosophy](philosophy.md) | Why things are the way they are |
