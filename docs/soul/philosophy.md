@@ -24,6 +24,8 @@ Self-reflection is just the mission conjugated: a session may read **what it is 
 
 **How a session reads itself:** the MCP (`open-story-mcp`) is the in-session surface for the same three tenses — `subscribe_session` / `subscribe_tokens` for *is writing*, session/query tools for *has written*, search and list tools for *wrote*. Dashboard and REST are the same history; MCP is how the work in flight holds the mirror without leaving the loop. Still read-only. Still not the agent runtime.
 
+**Attention layer (agent-in-UI), not a second mission:** `ui_control` / `where_is_user` / `subscribe_ui_state` let a session *steer the mirror* — open a view, focus an event, present a finding, follow where attention already is. That is aligned with the mission when it **shows or navigates the journal**. It is not co-equal with reading history; chrome for chrome's sake fails mission fit. Partition: everything authored lands on `ui.*` only, never `events.*`. Doctrine: **the agent may steer the mirror; it may not rewrite the journal.**
+
 ## Constraint
 
 **Observe, never interfere.** This is a mirror, not a leash.

@@ -202,12 +202,14 @@ GET /api/search?q=...                              — full-text search across e
 **It reads OpenStory over its REST API — it never opens your database.** The
 query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
 `GET`s instead of holding a SQLite handle), so the binary needs only a URL and
-runs from any directory. The observe tools are read-only; the agent-in-UI tools
-(`ui_control`, `where_is_user`, `subscribe_ui_state`) are full-duplex but
-sovereignty-partitioned — everything the agent authors flows on the `ui.*`
-namespace **only**, never the observed `events.*` stream. Agent activity is
-never mutated. For the full architecture and the trust story, see
-**[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**.
+runs from any directory. Observe/query tools are the mission (history across the
+whens). Agent-in-UI tools (`ui_control`, `where_is_user`, `subscribe_ui_state`)
+are an **attention layer on top**: steer the mirror to show or navigate the
+journal — not a second purpose, not remote-control for its own sake. Full-duplex
+but sovereignty-partitioned: authors on `ui.*` only, never `events.*`. The agent
+may steer the mirror; it may not rewrite the journal. Architecture:
+**[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**; seam reference:
+**[`docs/agent-in-ui.md`](docs/agent-in-ui.md)**.
 
 The recommended way to install it is the `openstory-mcp` Homebrew formula
 (see [With Homebrew](#with-homebrew-recommended) below). To build from source:
@@ -261,7 +263,7 @@ a remote or token-secured instance, add an `env` block with a **literal** value
 | Search | *wrote* | `search`, `agent_search` (FTS + per-session grouping) |
 | Projects | *wrote* | `project_pulse`, `project_context`, `recent_files` |
 | Analytics | *wrote* | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
-| Agent-in-UI | (drives dashboard, not events) | `ui_control` (navigate/present/toggle/query), `where_is_user` — full-duplex `ui.*` seam, never touches `events.*` |
+| Attention layer | (steer mirror, not mission peer) | `ui_control` (focus event / open view / present / query filters), `where_is_user`, `subscribe_ui_state` — show or navigate the journal; `ui.*` only, never `events.*` |
 
 Manual smoke (against a running NATS + OpenStory server). Query tools read
 the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only

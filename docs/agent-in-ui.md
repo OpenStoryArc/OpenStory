@@ -1,15 +1,22 @@
 # Agent-in-UI seam
 
+**Mission fit:** Open Story's mission is **read your agent history**. Agent-in-UI
+is not a peer mission — it is the **attention layer** on top of that journal.
+Driving the UI is aligned when it **shows or navigates history** (focus an
+event, open Story/Explore, present a finding, filter the fleet). Chrome for its
+own sake fails mission fit. Doctrine: **the agent may steer the mirror; it may
+not rewrite the journal.**
+
 OpenStory's dashboard is a **sink**: it reacts to a stream of messages and
-redraws. That makes it drivable and observable by an agent through two mirror-
-image halves — **control** (drive what the dashboard shows) and **ui-state**
-(read where the user is). Both flow over the one WebSocket every dashboard is
-tuned to. Neither touches the *observed sources* — this steers the mirror, never
-the watched.
+redraws. That makes it drivable and observable through two mirror-image halves —
+**control** (what the dashboard shows) and **ui-state** (where attention is).
+Both flow over the one WebSocket every dashboard is tuned to. Neither touches
+the *observed sources* — this steers the mirror, never the watched.
 
 > Sovereignty: control only changes what the dashboard *displays*. It never
-> mutates a transcript, an agent, or a file. Every command is visible in the UI
-> ("▸ driven by X"), dismissible, and itself an event (auditable/replayable).
+> mutates a transcript, an agent, or a file. Commands land on `ui.*` only, never
+> `events.*`. Every command is visible in the UI ("▸ driven by X"), dismissible,
+> and itself auditable/replayable.
 
 ## WRITE — drive the dashboard (`ui_control` MCP tool)
 
