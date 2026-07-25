@@ -4,9 +4,11 @@
 
 **Read your agent history.**
 
-Your coding agents already write everything down. Open Story makes that history legible — live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. Humans and AI agents are co-creators; agents read, think, edit, test, and make decisions alongside you. The point isn't surveillance. It's understanding and owning the story of the work.
+Coding agents already write everything down. Open Story makes that history legible — live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. The point isn't surveillance. It's understanding and owning the story of the work.
 
-That ownership is **personal sovereignty**: you can observe, understand, and decide. The data is yours. Open formats (CloudEvents, JSONL, Markdown), portable, unencumbered. Own your data, own your story.
+Who reads that history is not a design axis. Dashboard, API, MCP, scripts — same mission. The load-bearing line is not audience; it is **read, don't rewrite**.
+
+That ownership is **personal sovereignty**: observe, understand, decide. The data is yours. Open formats (CloudEvents, JSONL, Markdown), portable, unencumbered. Own your data, own your story.
 
 ## Constraint
 
@@ -31,7 +33,7 @@ Each view owns exactly one data source. Merging them creates a view that's "sort
 Agent transcripts have a `parent_uuid` field on each event, which might suggest a tree structure. In practice, this creates a sequential chain — each event simply points to the previous one. A session with 300 events can have a chain 177 levels deep, with almost no branching.
 
 The useful structures are:
-- **Turns** — one human prompt, the agent's work in response, and the final answer. This matches how humans think about what happened.
+- **Turns** — one user prompt, the agent's work in response, and the final answer. This matches how sessions are actually experienced.
 - **Inverted indexes** — "which events touched this file?" or "show me all bash commands." These let you slice the data any way you need.
 
 We built a tree view, looked at real data, and deleted it. The data model should match the data, not our assumptions about it.
@@ -52,4 +54,4 @@ The prototype is the spec. If it works on real data, the production implementati
 
 No abstractions without justification. Three clear lines beat a clever helper. Don't build for hypothetical futures. Solve the problem in front of you.
 
-If you're adding complexity, ask: does this help someone **read their agent history**, without compromising the observe-only constraint? If you can't articulate that sovereignty benefit, it doesn't belong here.
+If you're adding complexity, ask: does this help **read agent history**, without compromising the observe-only constraint? If you can't articulate that sovereignty benefit, it doesn't belong here.

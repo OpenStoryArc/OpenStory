@@ -13,5 +13,5 @@ Open Story's mission is **read your agent history** — under the constraint **o
 - **[Soul — Patterns](soul/patterns.md)** — what works, what doesn't
 - **[Soul — SICP Lessons](soul/sicp-lessons.md)** — lessons from Structure and Interpretation
 
-## For agents
+## Working in this repo
 Read the tour first — it walks through every module with questions to explore. Then check [`BACKLOG.md`](BACKLOG.md) for current priorities and CLAUDE.md for build commands, configuration, and conventions. When you need to know what happened in a session, **read history through the API** — don't grep raw transcripts.

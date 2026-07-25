@@ -1,6 +1,6 @@
 # Architecture
 
-Open Story's job is to make agent history readable. Everything below is how transcripts become something a human (or another agent) can search, narrate, and reason about — without ever writing back into the agent.
+Open Story's job is to make agent history readable. Everything below is how transcripts become something you can search, narrate, and reason about — without ever writing back into the agent.
 
 ## The pipeline
 
@@ -136,14 +136,14 @@ Core domain logic lives in `core`, `views`, `patterns`, and `store`. Infrastruct
 
 > A directory at `rs/semantic/` exists with its own `Cargo.toml` but is **not** a workspace member — it's vestigial Qdrant-based search code from before SQLite FTS5 replaced it. See `BACKLOG.md` for the removal plan.
 
-## How agents use this data
+## How to read this data
 
-OpenStory exists so humans can **read their agent history**. Applied inward, the same mission says: agents working in this repo should read what *past* agents did — not by grepping transcript files, but by querying the live API.
+**Mission:** read your agent history. Applied here: read what past sessions did — not by grepping transcript files, but by querying the live API (dashboard, MCP, scripts: same store).
 
 The two everyday entry points:
 
 ```bash
-# Tell the story of a session — fact sheet for the model to narrate from
+# Tell the story of a session — fact sheet to narrate from
 python3 scripts/sessionstory.py SESSION_ID
 python3 scripts/sessionstory.py latest
 python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
@@ -152,7 +152,7 @@ python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant 
 python3 scripts/check_docs.py
 ```
 
-Both follow the same shape: a script collects deterministic facts (records, patterns, file lists, workspace members), and the model interprets them. There are project-level Claude Code skills at `.claude/skills/sessionstory/` and `.claude/skills/check-docs/` so any agent in this repo can invoke them.
+Both follow the same shape: a script collects deterministic facts (records, patterns, file lists, workspace members); interpretation comes after. There are project-level Claude Code skills at `.claude/skills/sessionstory/` and `.claude/skills/check-docs/` so anything working in this repo can invoke them.
 
 The four REST endpoints worth memorizing:
 

@@ -13,7 +13,7 @@ Read [docs/soul/philosophy.md](docs/soul/philosophy.md) before contributing. The
 
 These are hard boundaries, not suggestions. PRs that violate them will be declined.
 
-1. **Mission fit** — Does this help someone read their agent history? If not, it doesn't belong here.
+1. **Mission fit** — Does this help read agent history without rewriting the agent? If not, it doesn't belong here.
 2. **Observe, never interfere** — No features that write back to the agent, modify transcripts, or block execution
 3. **BDD** — No production code without a failing spec first
 4. **Functional purity in core** — Side effects at the edges only. Core crates (core, views, patterns) have no I/O dependencies.

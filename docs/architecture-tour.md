@@ -470,9 +470,9 @@ cd e2e && npx playwright test          # E2E (~70 tests)
 
 ---
 
-## Stop 15: Using OpenStory as an agent
+## Stop 15: Reading history while you work
 
-If you're an AI agent working in this repo, OpenStory is *for you* as much as it is for the human. You should be using it to answer questions about past sessions, not grepping transcript files. The principle is **dogfood the API** — every observation about session behavior should come from the live REST API or from a script that reads it.
+OpenStory is for reading agent history — including history produced in this repo. Use it to answer questions about past sessions, not grepping transcript files. The principle is **dogfood the API** — every observation about session behavior should come from the live REST API or from a script that reads it.
 
 ### The first thing to reach for: `scripts/sessionstory.py`
 
@@ -487,7 +487,7 @@ python3 scripts/sessionstory.py --list                # list recent sessions
 
 `sessionstory.py` is the entry point for "what happened in this session." It hits three endpoints (`/api/sessions`, `/api/sessions/{id}/records`, `/api/sessions/{id}/patterns`), aggregates them deterministically, and emits a structured fact sheet — record-type histogram, tool histogram, eval-apply patterns, turn phases, verbatim sample sentences from the `turn.sentence` detector, and a noise-filtered prompt timeline. **It does not narrate.** Narration is the model's job; the script provides the facts.
 
-There's a Claude Code skill at `.claude/skills/sessionstory/SKILL.md` that documents the full collect-then-narrate workflow. Project-level skills travel with the repo, so any agent in this directory can invoke it.
+There's a Claude Code skill at `.claude/skills/sessionstory/SKILL.md` that documents the full collect-then-narrate workflow. Project-level skills travel with the repo, so anything working in this directory can invoke them.
 
 ### REST API directly
 
@@ -518,7 +518,7 @@ When you change docs or architecture, run `scripts/check_docs.py` to verify the 
 
 ### The principle
 
-OpenStory exists so humans can **read their agent history**. **Applied inward, the same mission says: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
+**Mission:** read your agent history. **Applied inward: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
 
 ---
 

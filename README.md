@@ -173,9 +173,9 @@ Four auditable principles from `CLAUDE.md` have executable test guards:
 
 Run with `cargo test --test test_principle_observe_never_interfere` (etc.) or `-- --ignored` for the live-data recursion test.
 
-### For agents: reading history
+### Reading history via the API
 
-Agents working on this project (or any project with OpenStory running) should read session history through the API — not by grepping raw transcripts. From experience building this system:
+With OpenStory running, read session history through the API — not by grepping raw transcripts. From experience building this system:
 
 **REST API is your primary tool.** Fast, structured, reliable:
 ```
