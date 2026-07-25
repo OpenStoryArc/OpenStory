@@ -312,6 +312,9 @@ Existing tests use small fixtures where replay completes before the first API re
 
 ## Observability
 
+### Session citizenship — ghosts visible, then rare
+**Live** (disk + NATS) and **Explore** (SQLite / Story / MCP) can diverge: a session’s transcript grows and the watcher looks green while the store has zero events for that id — a **ghost**. That is a sovereignty failure (blank mirror, false trust in self-reflection). Slice 0–1 ship on branch `feat/session-citizenship-from-loop` (bus reconnect after slow-consumer drop; pure classify; `GET /api/sessions/{id}/citizenship`; health `citizenship.ghost_risk`; MCP `session_citizenship`; script `scripts/session_citizenship.py`). **Remaining:** durable named JetStream consumers (resume from last ack), watcher backfill rate-limit, persist-lag / reconnect metrics, finer ghost_risk (emitted climbing while store count flat), optional list endpoint + UI Live-vs-Citizen honesty, multi-agent disk probes beyond Grok. Full plan, acceptance criteria, and dogfood notes: **`docs/research/session-citizenship-plan.md`**. Observe only — never mutate agent transcripts or inject into harnesses.
+
 ### Cost & Token Tracking
 Surface token usage (input, output, cache reads/writes) per session with estimated cost calculations based on model pricing. Token timelines and cache hit ratios give financial visibility into agent work. Token usage analytics scripts exist (`scripts/token_usage.py`); this is about surfacing it in the UI.
 

@@ -37,6 +37,11 @@ Future fields (designed, not v1): NATS stream bytes vs the 1 GB limit (eviction
 risk), boot `reconcile`/`reproject` reports, ingest rate + persist latency,
 schema-migration state, store-degraded (JSONL-fallback) flag.
 
+**Citizenship (related):** when Live (watcher emit) and Explore (store sessions)
+diverge, health should surface `citizenship.ghost_risk` and per-session
+verdicts via `/api/sessions/{id}/citizenship`. Spec and remaining work:
+[`session-citizenship-plan.md`](session-citizenship-plan.md).
+
 `/health` stays the dumb liveness probe; `/api/health` is the detailed read.
 
 ### Network health — "does the *fleet* agree?"  → `GET /api/fleet` (designed)

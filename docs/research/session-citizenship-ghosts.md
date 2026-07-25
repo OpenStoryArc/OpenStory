@@ -1,8 +1,8 @@
 # Session citizenship: ghosts (Live without Explore)
 
 **Date:** 2026-07-17  
-**Branch origin:** self-reflective Grok loop on OpenStory MCP  
-**Status:** diagnosed; bus reconnect fix + `scripts/session_citizenship.py`
+**Branch:** `feat/session-citizenship-from-loop`  
+**Status:** diagnosed + Slice 0–1 implemented on this branch; remaining work in **[session-citizenship-plan.md](session-citizenship-plan.md)**
 
 ## What we saw
 
