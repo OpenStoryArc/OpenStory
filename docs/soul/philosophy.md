@@ -16,7 +16,7 @@ That ownership is **personal sovereignty**: observe, understand, decide. The dat
 
 The system watches but never interferes. It never writes back to the agent, never modifies transcripts, never blocks execution. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. It translates what happens into a form you can see, search, and reason about.
 
-This principle prevents scope creep. Features that would require mutating the source, inserting into the agent's execution path, or blocking agent behavior do not belong here. Session data is immutable — no CRUD on events. The dashboard is read-only. The value of observation comes from its purity: if the observer affects the observed, the observation is compromised.
+This principle prevents scope creep. Features that would require mutating the source, inserting into the agent's execution path, or blocking agent behavior do not belong here. The load-bearing rule is **don't change what the agent wrote** — not a blanket ban on store lifecycle. Append-only ingest, session delete, retention sweeps: those operate on *your* copy of history. They never rewrite the agent's transcripts. Views that display history are read-only over the observed source. The value of observation comes from its purity: if the observer affects the observed, the observation is compromised.
 
 ## Own your data source
 

@@ -84,7 +84,7 @@ SICP doesn't say "never use assignment." It says: **understand what you're givin
 
 This is why functional-first architectures work for event-driven systems. Events are values. They don't change. You don't update an event — you emit a new one. The stream of events IS the state, and the state at any point is a pure function of the events that preceded it. The substitution model works because nothing mutates.
 
-**In this project:** Session data is immutable. Events are append-only. The store accumulates, never updates. The UI renders views that are pure functions of the event stream. These aren't arbitrary design decisions — they're consequences of choosing to pay the costs of assignment as rarely as possible.
+**In this project:** Observed events are values on the write path — append-only ingest, no in-place rewrite of what the agent wrote. Lifecycle ops (session delete, retention) remove *your* stored copy; they do not mutate the source transcripts. The UI renders views that are pure functions of the event stream. These aren't arbitrary design decisions — they're consequences of choosing to pay the costs of assignment as rarely as possible, and of never letting the observer rewrite the observed.
 
 ---
 

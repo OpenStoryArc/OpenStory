@@ -12,7 +12,7 @@ Last verified: 2026-04-06
 
 **Where to look:** `rs/core/src/reader.rs`
 
-The mission is reading history; the constraint is that reading must never rewrite it. The `read_new_lines()` function advances through transcript files using byte-offset seeking. It reads forward, translates what it finds into CloudEvents, and never writes back. When it encounters a partial line (no trailing newline), it refuses to consume it — the byte offset stays put for the next read (line 50-52):
+The mission is reading history; the constraint is that observation must never rewrite the *source*. The `read_new_lines()` function advances through transcript files using byte-offset seeking. It reads forward, translates what it finds into CloudEvents, and never writes back. When it encounters a partial line (no trailing newline), it refuses to consume it — the byte offset stays put for the next read (line 50-52):
 
 ```rust
 // Partial line check: if the line doesn't end with \n, it's incomplete.
