@@ -1,17 +1,17 @@
 # Open Story Architecture Tour
 
-A guided walkthrough of the open-story codebase. Open this with Claude Code and follow along — read each file, ask questions, and build your mental model step by step.
+A guided walkthrough of the open-story codebase for **contributors** (not the install path). Product quickstart: [root README](../README.md#quickstart). Beliefs first: [soul/philosophy.md](soul/philosophy.md).
 
-**How to use this tour:** Open Claude Code in the project directory and say:
+**How to use this tour:** In the project directory:
 > "I'm reading docs/architecture-tour.md — let's start at Stop 1."
 
-Claude will read the referenced files and explain them. Ask questions at any stop before moving on.
+Read each referenced file, ask questions at any stop, then move on.
 
 ---
 
 ## The Big Picture
 
-Open Story's mission is **read your agent history**. Coding agents already write transcripts; Open Story makes that history legible — every tool call, file edit, and decision — in a live dashboard and in searchable store. Constraint: **observe, never interfere**. It never writes back to the agent. It just watches.
+Open Story's mission is **read your agent history**. Coding agents already write transcripts; Open Story makes that history legible — live, mid-session, and after — in the dashboard and store. Constraint: **observe, never interfere**. It never writes back to the agent.
 
 ```
                     ┌────────────────── NATS JetStream ──────────────────┐

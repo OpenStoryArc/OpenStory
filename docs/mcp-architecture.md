@@ -1,6 +1,8 @@
 # MCP Server Architecture
 
-*How the agent-facing edge of OpenStory works — and why you can trust it.*
+*How `open-story-mcp` works — and why you can trust it.*
+
+**Start here if you only need install + wire-up:** [README — Using Open Story](../README.md#using-open-story). This page is the trust model, tool surface, and source citations.
 
 ## What it is
 

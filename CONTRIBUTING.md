@@ -5,9 +5,12 @@
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Open Story makes agent transcripts legible — live and after the fact. It is a mirror, not a leash: it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours, in open formats, portable and unencumbered.
+Open Story makes agent transcripts legible — live, mid-session, and after. It is a mirror, not a leash: it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours, in open formats, portable and unencumbered.
 
-Read [docs/soul/philosophy.md](docs/soul/philosophy.md) before contributing. Then read [docs/soul/use-cases.md](docs/soul/use-cases.md) to see each principle demonstrated in real code. These are more important than the code.
+**Doc paths:**
+- **Run the product:** [README quickstart](README.md#quickstart)
+- **Full doc map:** [docs/README.md](docs/README.md)
+- **Before you design:** [docs/soul/philosophy.md](docs/soul/philosophy.md) then [use-cases](docs/soul/use-cases.md) — more important than the code for scope decisions
 
 ## Non-negotiables
 

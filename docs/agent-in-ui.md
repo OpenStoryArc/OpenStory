@@ -1,5 +1,7 @@
 # Agent-in-UI seam
 
+**Product path first:** [README — Using Open Story](../README.md#using-open-story). This page is the control/ui-state seam.
+
 **Mission fit:** Open Story's mission is **read your agent history**. Agent-in-UI
 is not a peer mission — it is the **attention layer** on top of that history.
 Driving the UI is aligned when it **shows or navigates history** (focus an

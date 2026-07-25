@@ -9,6 +9,17 @@ Your coding agents already write everything down — tool calls, edits, commands
 
 A **mirror, not a leash** — never writes back to the agent, never modifies transcripts, never blocks execution.
 
+| I want to… | Go to |
+|------------|--------|
+| Install and open the dashboard | [Quickstart](#quickstart) |
+| See what the UI shows | [What you can read](#what-you-can-read) |
+| Read history from inside a session (MCP) | [Using Open Story](#using-open-story) |
+| Run from source / Docker / more agents | [Install & run (all options)](#install--run-all-options) |
+| Understand design / contribute | [Philosophy](#philosophy) · [docs/](docs/README.md) · [CONTRIBUTING](CONTRIBUTING.md) |
+| Look up CLI / API / layout | [Reference](#reference) |
+
+---
+
 ## Quickstart
 
 **1. Install & open the dashboard**
@@ -18,74 +29,119 @@ brew install openstoryarc/openstory/openstory
 brew services run openstory          # → http://localhost:3002
 ```
 
-Run a Claude Code (or other watched) session as usual. History appears as the agent works. Prefer a guided setup (watch dir, port, history window)? `open-story init`.
+Run a Claude Code session as usual (default watch dir: `~/.claude/projects/`). History appears as the agent works.
 
-**2. Optional — read history from inside a session** (MCP + skills)
+Guided setup (watch dir, port, history window): `open-story init`.
+
+**Empty dashboard?** Expected until a coding agent writes a transcript. Not a bug.
+
+**2. Optional — read history from inside a session**
 
 ```sh
 brew install openstoryarc/openstory/openstory-mcp
-# then, in Claude Code:
+# in Claude Code:
 /plugin marketplace add openstoryarc/openstory-skills
 /plugin install openstory@openstory-skills
 /openstory:cost      # also: recap, recall, time, coach, team…
 ```
 
-MCP is how a session reads its own history while it runs (live stream + query tools). Details: [MCP](#mcp-server--24-tools-all-rust), [skills](#natural-language-skills-the-openstory-skills-plugin). Dev modes and backends: [detailed Quick Start](#quick-start).
+That wires MCP so the current session can stream live events and query past ones — same history as the dashboard. Details under [Using Open Story](#using-open-story).
+
+---
 
 ## What you can read
 
-Same history, different lenses:
-
-**Live** — as it happens. Tool calls, file reads, commands, model responses stream in. Sessions are grouped by who produced them (laptop, teammate, agent on a VPS). Mid-session, a session can also read itself via MCP (see Quickstart §2).
-
-**Story** — narrative. Each turn is a sentence card (“edited X, after reading N files, because … → answered”), with domain facts and eval-apply detail. Subagent work expands inline.
-
-**Explore** — after the fact, across sessions. Search, filters, comparison when you need the source, not the summary.
-
-**Admin** — read-only federation and identity (topology, fleet, sources). Beta.
-
-**Subagents** — parent–child is structural in the data and in Story (main vs sub, nested cycles).
-
-### The Story tab — surface and depth
-
-Each completed turn becomes a parsed English sentence:
-**subject → verb → subordinates → adverbial → predicate.** One line, the
-whole turn.
+Same history, different lenses.
 
 <p align="center">
   <img src="docs/img/sentence-card.png" alt="A turn rendered as a sentence diagram" width="780">
 </p>
 
-> *Claude → **committed** → after reading 1 source, while running 10 checks,
-> because "committing is great, we should clean up and get this merged." → answered*
+**Live** — as it happens. Tool calls, file reads, commands, model responses stream in. Sessions group by who produced them (laptop, teammate, agent on a VPS).
 
-Click the card and the eval-apply trace unfolds — the actor input, the tool
-applications, and the model's final eval. Same turn, two abstraction layers,
-both derived from the same CloudEvents:
+**Story** — narrative. Each turn becomes a sentence (“edited X, after reading N files, because … → answered”), with domain facts and expandable eval-apply detail. Subagent work nests inline.
+
+**Explore** — after the fact, across sessions. Search, filters, comparison when you need the source, not the summary.
+
+**Admin** — read-only federation and identity (topology, fleet, sources). Beta.
+
+Click a Story card and the structure under the sentence unfolds:
 
 <p align="center">
   <img src="docs/img/eval-apply-detail.png" alt="The eval-apply detail behind the sentence" width="700">
 </p>
 
-And sometimes the story is *itself*. Here is Open Story watching the agent
-prepare this very README — three `Bash` calls inspecting the file, captured
-as a sentence, while the agent's plan to "make this section *shine*" sits
-inside the EVAL phase below:
-
 <p align="center">
-  <img src="docs/img/mirror.png" alt="Open Story rendering the turn that wrote this README section" width="720">
+  <img src="docs/img/mirror.png" alt="Open Story rendering a turn that inspected this README" width="720">
 </p>
+
+Keyboard shortcuts: [Keyboard navigation](#keyboard-navigation).
+
+---
 
 ## Philosophy
 
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Open Story sits beside your agents and makes their transcripts legible — live, mid-session, and after. Self-reflection while a session is open is the same mission as recap later; looking at history does not rewrite the actor. It is not a runtime, memory injector, or control plane for the agent. Data is yours: CloudEvents 1.0, JSONL, Markdown.
+Open Story sits beside your agents and makes transcripts legible — live, mid-session, and after. Looking at history does not rewrite the actor. Not a runtime, memory injector, or control plane for the agent.
 
-**Sovereignty escape hatch:** whichever backend you choose (SQLite or MongoDB), every event is also appended to a per-session JSONL file in `data/`. Always `grep`-able from outside the database, never locked in.
+**Sovereignty:** whichever backend you use (SQLite default, Mongo optional), events are also appended as per-session JSONL under `data/` — always `grep`-able outside the database.
 
-Deeper: [docs/soul/](docs/soul/) (mission, “across the whens,” attention layer vs reading history).
+Deeper (mission tenses, attention layer vs reading history, principles in code): **[docs/soul/](docs/soul/)**.
+
+---
+
+## Using Open Story
+
+### Dashboard
+
+After install, open **http://localhost:3002**. Use Live while work is running, Story for narrative, Explore for search.
+
+### From inside a session (MCP + skills)
+
+The optional **`open-story-mcp`** binary is how a session reads the **same** history without grepping transcripts:
+
+| Need | How |
+|------|-----|
+| Watch this session as it runs | MCP streaming: `subscribe_session`, `subscribe_tokens` |
+| What happened so far / in the past | MCP query tools + REST (story, transcript, search, cost, …) |
+| Slash commands | [`openstory-skills`](https://github.com/OpenStoryArc/openstory-skills) plugin (`/openstory:cost`, `recap`, `recall`, …) |
+
+Wire MCP into Claude Code:
+
+```bash
+claude mcp add --transport stdio openstory -- open-story-mcp
+# or: claude mcp add ... -- /opt/homebrew/opt/openstory-mcp/bin/open-story-mcp
+```
+
+Defaults to `http://localhost:3002`. Remote/token: set `OPENSTORY_API_URL` / `OPENSTORY_API_TOKEN`. Streaming tools also need `OPENSTORY_NATS_URL` (default `nats://localhost:4222`).
+
+**Attention layer (optional):** `ui_control` / `where_is_user` / `subscribe_ui_state` steer the dashboard to *show or navigate* history — not a second mission. May steer the mirror; may not rewrite history. Full map: [`docs/agent-in-ui.md`](docs/agent-in-ui.md). Trust/architecture: [`docs/mcp-architecture.md`](docs/mcp-architecture.md). Tool catalog: that doc + the skills plugin.
+
+### REST API (essentials)
+
+Prefer the API over raw JSONL or ad-hoc SQLite JSON paths:
+
+```
+GET /api/sessions
+GET /api/sessions/{id}/records
+GET /api/sessions/{id}/patterns?type=turn.sentence
+GET /api/search?q=...
+```
+
+Full table: [API Endpoints](#api-endpoints). Scripts that wrap the API: [Scripts](#scripts) (`sessionstory.py` first).
+
+### More agents & machines
+
+| Goal | How |
+|------|-----|
+| pi-mono | `OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions` or `pi_watch_dir` in config |
+| Hermes | `OPEN_STORY_HERMES_WATCH_DIR=...` or `hermes_watch_dir` |
+| Multi-machine fleet | `OPEN_STORY_NATS_LEAF_URL=...` — see [`docs/deploy/distributed.md`](docs/deploy/distributed.md) |
+| Deployed container agents | `docker compose -f docker-compose.openclaw.yml` |
+
+---
 
 ## How it works
 
@@ -96,461 +152,98 @@ Deeper: [docs/soul/](docs/soul/) (mission, “across the whens,” attention lay
 └─────────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
                                                                          │
                                                           ┌──────────────┼──────────────┐
-                                                          │              │              │
                                                           ▼              ▼              ▼
-                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
-                                                   │ persist  │  │ patterns │  │broadcast │
-                                                   │ consumer │  │ consumer │  │ consumer │
-                                                   └────┬─────┘  └────┬─────┘  └────┬─────┘
-                                                        │              │              │
-                                                        ▼              ▼              ▼
-                                                   ┌──────────┐  ┌──────────┐  ┌──────────┐
-                                                   │  SQLite  │  │ Patterns │  │   React  │
-                                                   │ + JSONL  │  │ + Turns  │  │Dashboard │
-                                                   └──────────┘  └──────────┘  └──────────┘
+                                                   persist       patterns      broadcast
+                                                   → store       → turns       → UI (WS)
 ```
 
-The file watcher detects JSONL transcript changes, auto-detects the agent format (Claude Code, pi-mono, or Hermes), translates each line into CloudEvents via agent-specific translators, and publishes to NATS JetStream with hierarchical, host-prefixed subjects (`events.{host}.{project}.{session}.agent.{agent_id}`). Four independent actor-consumers process events in parallel:
+Watch local JSONL → translate to [CloudEvents](https://cloudevents.io/) → NATS JetStream → independent consumers (persist, patterns, projections, broadcast). Supported agents include Claude Code, pi-mono, and Hermes (auto-detected per file).
 
-- **persist** — dedup + durable event store (SQLite default, MongoDB optional via `--features mongo`) + JSONL sovereignty backup + full-text search index
-- **patterns** — eval-apply cycle detection → sentence generation → PatternEvents (2 streaming detectors: EvalApplyDetector + SentenceDetector)
-- **projections** — session metadata (tokens, labels, branches, agent relationships)
-- **broadcast** — CloudEvent → ViewRecord → WireRecord → WebSocket to UI
+Narrative structure: **turns** (one prompt → response) containing **eval-apply** cycles; Story renders that hierarchy. Architecture narrative: [`docs/soul/architecture.md`](docs/soul/architecture.md). Code walk: [`docs/architecture-tour.md`](docs/architecture-tour.md).
 
-The pipeline is a **fuzzy pipe**: events with unknown subtypes flow through as SystemEvent passthroughs rather than being silently dropped. Runtime envelope schema validation classifies events into three tiers — full enrichment (known subtypes), passthrough (valid envelope, unknown content), or broken (below the sovereignty floor). See `schemas/cloud_event_envelope.schema.json` for the minimum viable CloudEvent contract.
+Schemas live under `schemas/` (generated from Rust types). Principle tests guard observe-only and purity — see `CLAUDE.md` and `cargo test --test test_principle_*`.
 
-Each actor is an independent tokio task with its own state and NATS subscription. No shared locks between actors — if pattern detection is slow, persistence and broadcast continue unblocked. NATS JetStream provides durable delivery, replay on restart, and hierarchical subject filtering. `just up` starts NATS automatically; `nats.conf` at the project root configures JetStream with 8MB max payload for large sessions.
+---
 
-### The eval-apply model
+## Install & run (all options)
 
-Agent sessions have recursive structure. A **turn** (one human prompt → complete response) contains multiple **eval-apply cycles** — each cycle is the model evaluating what it knows, dispatching tools, and processing results. Subagents spawned via the Agent tool have the same recursive cycle structure, just nested one level deeper.
+Requires for source builds: [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) 20+, [NATS](https://nats.io/) (`brew install nats-server`), [just](https://github.com/casey/just) recommended. Docker/Podman for E2E only.
 
-The Story tab renders this as paragraphs (turns) containing sentences (cycles). Subagent work nests inside parent turns. The same `CycleCard` component renders at every depth — it's the recursive visual unit of agent work.
+> **NATS** is strongly preferred: four actor-consumers (persist, patterns, projections, broadcast) subscribe to the same stream so the UI stays live and failure domains stay separate. Without NATS, a single inline pipeline works for demos but drops durable replay and clean boundaries.
 
-### Multi-agent support
-
-Open Story observes multiple coding agents simultaneously. Each agent has its own translator and watch directory. The `agent` field on every CloudEvent identifies the source platform:
-
-- **`claude-code`** — Claude Code sessions from `~/.claude/projects/`
-- **`pi-mono`** — pi-mono (OpenClaw) sessions from `~/.pi/agent/sessions/`
-- **`hermes`** — Hermes agent sessions
-
-Format detection is automatic (per-file, based on the first JSONL line). Pi-mono bundles multiple content blocks per line (`[thinking, text, toolCall]`); the translator decomposes these into N CloudEvents and synthesizes `system.turn.complete` boundaries from `stopReason` so the sentence detector can narrate pi-mono sessions. All agents' sessions appear in the same dashboard with full sentence rendering.
-
-### Schema registry
-
-Every serialization boundary has a committed JSON Schema at `/schemas/`. The schemas are **generated from the Rust types** (`open-story-schemas` crate) — they're artifacts, not hand-authored. Drift is caught by test: regenerate and diff.
-
-```
-schemas/
-├── cloud_event.schema.json          — full CloudEvent envelope + AgentPayload variants
-├── cloud_event_envelope.schema.json — minimum viable (id + type + time + data.raw)
-├── view_record.schema.json          — BFF output (13 RecordBody variants)
-├── wire_record.schema.json          — WebSocket payload (ViewRecord + tree metadata)
-├── broadcast_message.schema.json    — WS envelope (3 message kinds)
-├── subtype.schema.json              — closed enum of 21 event subtypes
-├── pattern_event.schema.json        — detected behavioral patterns
-├── structural_turn.schema.json      — eval-apply turn data
-├── ingest_batch.schema.json         — NATS message envelope
-├── session_row.schema.json          — session list entry
-└── fts_search_result.schema.json    — full-text search result
-```
-
-The `Subtype` enum in `open-story-core` is the typed source of truth for the 21 event subtypes (`message.user.prompt`, `message.assistant.tool_use`, etc.). Dogfood-validated against live production data.
-
-### Principle tests
-
-Four auditable principles from `CLAUDE.md` have executable test guards:
-
-| Principle | Test | What it checks |
-|-----------|------|----------------|
-| Observe, never interfere | `test_principle_observe_never_interfere` | No write operations on watch_dir paths in production code |
-| Functional purity | `test_principle_functional_purity` | No filesystem/network I/O in 20 declared-pure modules |
-| Actor isolation | `test_principle_actor_isolation` | No cross-actor imports in consumer modules |
-| Recursive observability | `test_principle_recursive_observability` | OpenStory produces legible sentences for its own development sessions |
-
-Run with `cargo test --test test_principle_observe_never_interfere` (etc.) or `-- --ignored` for the live-data recursion test.
-
-### Reading history via the API
-
-With OpenStory running, read session history through the API — not by grepping raw transcripts. From experience building this system:
-
-**REST API is your primary tool.** Fast, structured, reliable:
-```
-GET /api/sessions                                  — list all sessions with metadata
-GET /api/sessions/{id}/records                     — all events for a session
-GET /api/sessions/{id}/patterns?type=turn.sentence — narrative turns with sentence diagrams
-GET /api/search?q=...                              — full-text search across events
-```
-
-**Patterns API for narrative understanding.** The `turn.sentence` patterns carry the sentence diagram (verb/object/subordinates), domain facts (files touched, commands run), eval-apply phases, and subagent delegations. Use this to understand WHAT happened, not just the raw events.
-
-**Records API for ground truth.** When you need the actual tool output, file contents, or exact sequence of events, fetch the records. The `extractCycles()` function in `ui/src/lib/eval-apply.ts` derives eval-apply cycles from records — same structure at every depth (main agent and subagents).
-
-**Scripts for data science.** `scripts/analyze_eval_apply_shape.py --all` maps the structural shape of every session. `scripts/query_store.py` inspects SQLite directly. Write scripts for questions — don't guess.
-
-**Avoid raw JSONL grep.** The raw transcript files are Claude Code's native format, not CloudEvents. The translate layer adds `agent_payload`, `tool_outcome`, `agent_id`. Always query through the API to get the translated, typed data.
-
-**Avoid direct SQLite JSON queries.** The internal serde structure (`AgentPayload` with `#[serde(tag = "_variant")]`) makes JSON path queries brittle. Use the API.
-
-### MCP server — 24 tools, all Rust
-
-`rs/mcp/` is how a session **reads its own history across the whens** without grepping transcripts: a single-binary Rust MCP (Model Context Protocol) server. **Live streaming** (`subscribe_session`, `subscribe_tokens`) is *is writing* — watch this session as it unfolds. **Query tools** (sessions, story, transcript, search, analytics, …) are *has written* and *wrote* — mid-session reflection and after. Same store as the dashboard and REST; read-only; never mutates the agent. JSON-RPC 2.0 over stdio. First-class workspace crate.
-
-**It reads OpenStory over its REST API — it never opens your database.** The
-query tools go through an `HttpEventStore` (an `EventStore` that issues HTTP
-`GET`s instead of holding a SQLite handle), so the binary needs only a URL and
-runs from any directory. Observe/query tools are the mission (history across the
-whens). Agent-in-UI tools (`ui_control`, `where_is_user`, `subscribe_ui_state`)
-are an **attention layer on top**: steer the mirror to show or navigate history
-— not a second purpose, not remote-control for its own sake. Full-duplex but
-sovereignty-partitioned: authors on `ui.*` only, never `events.*`. The agent may
-steer the mirror; it may not rewrite history. Architecture:
-**[`docs/mcp-architecture.md`](docs/mcp-architecture.md)**; seam reference:
-**[`docs/agent-in-ui.md`](docs/agent-in-ui.md)**.
-
-The recommended way to install it is the `openstory-mcp` Homebrew formula
-(see [With Homebrew](#with-homebrew-recommended) below). To build from source:
-
-```bash
-cargo build --release -p open-story-mcp
-./rs/target/release/open-story-mcp
-```
-
-**Environment** — the binary reads exactly three variables:
-
-| Var | Default | Used by |
-|---|---|---|
-| `OPENSTORY_API_URL` | `http://localhost:3002` | Every query tool — the REST origin it reads from. |
-| `OPENSTORY_API_TOKEN` | *(none)* | Optional bearer token, if the server has `api_token` set. |
-| `OPENSTORY_NATS_URL` | `nats://localhost:4222` | The two `subscribe_*` streaming tools only. |
-
-**Wiring it into an agent.** Two ways:
-
-```bash
-# 1. Direct — register the Homebrew-installed binary with Claude Code
-claude mcp add --transport stdio openstory -- /opt/homebrew/opt/openstory-mcp/bin/open-story-mcp
-#    Defaults to http://localhost:3002. For a remote/token-secured instance, add
-#    env vars before the name: `-e OPENSTORY_API_URL=https://your-host`
-#    (`open-story init` offers to run this for you.)
-```
-
-```jsonc
-// 2. Via a Claude Code plugin .mcp.json (binary on PATH as `open-story-mcp`)
-{
-  "mcpServers": {
-    "openstory": {
-      "command": "open-story-mcp"
-    }
-  }
-}
-```
-
-The binary defaults to `http://localhost:3002`, so no `env` is needed locally. For
-a remote or token-secured instance, add an `env` block with a **literal** value
-(`"OPENSTORY_API_URL": "https://your-host"`) — Claude Code does not reliably expand
-`${VAR:-default}` syntax here, so a literal avoids a silently-empty result.
-
-**The 24-tool surface** (tense = mission conjugation):
-
-| Group | Tense | Tools |
-|---|---|---|
-| Streaming | *is writing* | `subscribe_session`, `subscribe_tokens` — push via `notifications/openstory/{stream,tokens}`; `subscribe_ui_state` for the UI seam |
-| Sessions | *has written* / *wrote* | `list_sessions` (days/project/limit/after), `session_synopsis`, `session_activity`, `session_story` |
-| Per-session detail | *has written* / *wrote* | `tool_journey`, `file_impact`, `session_errors`, `session_plans`, `session_patterns`, `session_transcript`, `session_sentences` |
-| Search | *wrote* | `search`, `agent_search` (FTS + per-session grouping) |
-| Projects | *wrote* | `project_pulse`, `project_context`, `recent_files` |
-| Analytics | *wrote* | `token_usage` (with cache fields), `daily_token_usage`, `productivity` |
-| Attention layer | (steer mirror, not mission peer) | `ui_control` (focus event / open view / present / query filters), `where_is_user`, `subscribe_ui_state` — show or navigate history; `ui.*` only, never `events.*` |
-
-Manual smoke (against a running NATS + OpenStory server). Query tools read
-the REST API at `OPENSTORY_API_URL` (default `http://localhost:3002`); only
-the streaming tools need NATS:
-
-```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscribe_tokens","arguments":{"session_id":"<your-session-id>"}}}' \
-  | OPENSTORY_API_URL=http://localhost:3002 OPENSTORY_NATS_URL=nats://localhost:4222 ./rs/target/release/open-story-mcp
-```
-
-Because the MCP reads through the API rather than opening the store on disk,
-it works from any directory — there's no `OPENSTORY_DATA_DIR` to resolve
-relative to your shell's working directory.
-
-Test it with `cargo test -p open-story-mcp`. Design notes for the streaming substrate live in `docs/research/streaming-mcp/`.
-
-### Natural-language skills (the `openstory-skills` plugin)
-
-Don't want to call MCP tools by hand? The **[openstory-skills](https://github.com/OpenStoryArc/openstory-skills)**
-Claude Code plugin wraps them into slash commands for reading your agent history:
-
-```sh
-/plugin marketplace add openstoryarc/openstory-skills
-/plugin install openstory@openstory-skills
-```
-
-| Command | Answers |
-|---|---|
-| `/openstory:cost` | what your agent sessions have cost |
-| `/openstory:recap` | what you worked on this week, by project |
-| `/openstory:recall <topic>` | the last time you solved X, with the exact commands |
-| `/openstory:time` · `/openstory:tools` | where your time goes · what you reach for |
-| `/openstory:coach` | honest feedback on how you work |
-| `/openstory:team` · `/openstory:watch` | who's working on what · a live branch tail |
-| `/openstory:standup` · `/openstory:scan` · `/openstory:arc` · `/openstory:prime` | …and more (12 total) |
-
-Each is a thin `SKILL.md` over the MCP tools above — no scripts to install. Every
-command traces prompt → skill → MCP tool → REST endpoint → source in the plugin's
-[`CITATIONS.md`](https://github.com/OpenStoryArc/openstory-skills/blob/master/CITATIONS.md),
-and the manifest + citation tree are contract-tested in CI.
-
-### Reading history from deployed agents (OpenClaw)
-
-Open Story can read transcripts from autonomous agents running in containers. The `docker-compose.openclaw.yml` defines a split deployment:
-
-```
-claude-runner ──transcripts──► listener (publisher) ──NATS──► consumer (API/dashboard)
-```
-
-The listener runs as root (to read Claude's mode-600 transcript files), watches the shared volume, translates events, and publishes to NATS. The consumer runs separately with its own data volume, subscribes from NATS, and serves the dashboard. Start with:
-
-```bash
-docker compose -f docker-compose.openclaw.yml up -d
-```
-
-See `docker-compose.openclaw.yml` for full setup including API key configuration and volume management.
-
-## Quick Start
-
-Requires:
-- [Rust](https://rustup.rs/) (stable, edition 2021)
-- [Node.js](https://nodejs.org/) 20+
-- [NATS Server](https://nats.io/) — `brew install nats-server` (event bus — strongly preferred, see below)
-- [just](https://github.com/casey/just) — command runner (recommended)
-- [Docker](https://docker.com/) or [Podman](https://podman.io/) — for E2E/container tests only
-
-> **Why NATS is strongly preferred.** Open Story is a *reactive* system: four
-> independent actor-consumers (persist, patterns, projections, broadcast) each
-> own one responsibility and subscribe to the same `events.>` stream. That
-> decomposition is what makes the dashboard feel live, what lets pattern
-> detection run unblocked while persistence is slow, and what gives you
-> JetStream replay on restart. Without NATS, Open Story falls back to a
-> single inline pipeline suitable for a quick demo — it still works, but
-> the reactive actor model is collapsed into one synchronous path and you
-> lose durable replay, distributed deployments, and the clean boundaries
-> that make the system auditable.
-
-### With Homebrew (recommended)
+### Homebrew (recommended)
 
 ```sh
 brew tap OpenStoryArc/openstory
 brew install openstory
 open-story init --data-dir "$(brew --prefix)/var/openstory"
+brew services run openstory      # background for this login; not at-login
+# at login: brew services start openstory
 ```
 
-`open-story init` is a guided setup wizard: it asks how many days of session history to load on boot, which directory holds your Claude Code transcripts, and which port to use — then offers to start OpenStory and open the dashboard. OpenStory launches its own JetStream NATS automatically and serves the API **and** dashboard from one process, so a single command brings up the whole stack — no separate NATS step.
+Dashboard: <http://localhost:3002>. Data: `$(brew --prefix)/var/openstory` (survives uninstall). First install may build from source (~1–3 min).
 
-Run it in the background for this login session (prefer to skip the wizard? this is all you need):
-
-```sh
-brew services run openstory      # background now; does NOT auto-start at login
-```
-
-Want it to launch automatically at login instead, use `brew services start openstory`.
-
-Open <http://localhost:3002>. The dashboard loads as soon as your first Claude Code session writes to `~/.claude/projects/`. Data lives at `$(brew --prefix)/var/openstory`; uninstalling preserves it.
-
-Installing builds from source (~1–3 min on first install); `nats-server`, Rust, and Node come along as dependencies. Prebuilt bottles for seconds-fast installs are planned — see `docs/BACKLOG.md`.
-
-The tap ships two formulae:
-
-| Formula | Installs | What it provides |
-|---|---|---|
-| `openstory` | `open-story` | The server + CLI — the whole stack (watcher, API, dashboard, managed NATS). |
-| `openstory-mcp` | `open-story-mcp` | **Optional companion.** MCP server so a coding agent can read its own OpenStory history. `depends_on "openstory"`. |
-
-The MCP companion is optional — install it only if you want to wire OpenStory
-into a coding agent's tool set:
+| Formula | Provides |
+|---|---|
+| `openstory` | Server + CLI + managed NATS + dashboard |
+| `openstory-mcp` | Optional MCP companion (`depends_on openstory`) |
 
 ```sh
 brew install openstoryarc/openstory/openstory-mcp
 ```
 
-The binary lands at `/opt/homebrew/opt/openstory-mcp/bin/open-story-mcp` and is
-symlinked onto your PATH as `open-story-mcp`. It reads OpenStory over the REST
-API at `OPENSTORY_API_URL` (default `http://localhost:3002`) — point it at the
-`openstory` instance you're already running. To wire it into an agent, see
-[MCP server](#mcp-server--21-tools-all-rust) above for the two methods, and
-[`docs/mcp-architecture.md`](docs/mcp-architecture.md) for how it works and why
-it's safe to trust.
+### From a git checkout
 
-### With `openstory` command
+```bash
+just up          # NATS + server + UI (Ctrl+C to stop)
+just test        # Rust + UI tests
+```
 
-For a `code .`-style experience, copy the launcher script to your PATH:
+Launcher script (optional):
 
 ```bash
 cp scripts/openstory ~/.local/bin/openstory
-chmod +x ~/.local/bin/openstory
-# Edit OPEN_STORY_ROOT in the script to match your checkout location
+# edit OPEN_STORY_ROOT in the script
+openstory .      # server + UI, watch current dir
+openstory stop
 ```
 
-Then from any project directory:
+### Manual (three terminals)
 
 ```bash
-openstory .          # Start server + UI, watching the current directory
-openstory            # Start with default watch dir (~/.claude/projects/)
-openstory stop       # Kill server + UI
-openstory test       # Run all tests
-```
-
-### With `just` (recommended)
-
-```bash
-just up          # Start NATS + server + UI (Ctrl+C to stop)
-just test        # Run all tests (Rust + UI)
-```
-
-### Manual setup
-
-```bash
-# 1. Start NATS JetStream
 nats-server -c nats.conf &
-
-# 2. Build and run the server
-cd rs
-cargo build --release -p open-story-cli
-cargo run -p open-story-cli -- serve
-
-# 3. Start the UI dev server (in another terminal)
-cd ui
-npm install
-npm run dev
+cd rs && cargo run -p open-story-cli -- serve
+cd ui && npm install && npm run dev    # :5173 proxies to :3002
 ```
 
-The server starts on `http://localhost:3002` and watches `~/.claude/projects/` for transcript files. The UI dev server runs on `http://localhost:5173` and proxies API requests to the server.
-
-### Watch pi-mono sessions (optional)
-
-Open Story can observe multiple coding agents simultaneously. To add pi-mono alongside Claude Code, set the watch directory:
+### Docker / Podman
 
 ```bash
-# Via environment variable
-OPEN_STORY_PI_WATCH_DIR=~/.pi/agent/sessions just up
-
-# Or add to data/config.toml
-# pi_watch_dir = "/Users/you/.pi/agent/sessions"
+docker compose up        # NATS :4222, API :3002, UI :5173
 ```
 
-Both watchers run simultaneously — sessions from all configured coding agents appear in the same dashboard. Format detection is automatic (per-file, based on the first JSONL line). Each event carries an `agent` field identifying its source.
+Mounts `~/.claude/projects/` read-only. Podman works as a Docker-compatible runtime on Windows/WSL2.
 
-### Watch Hermes sessions (optional)
+### Optional: MongoDB backend
+
+SQLite is default. Mongo: build with `--features mongo`, set `OPEN_STORY_DATA_BACKEND=mongo` (and URI/DB). Same `EventStore` contract; JSONL backup still written.
+
+### Verify
 
 ```bash
-OPEN_STORY_HERMES_WATCH_DIR=/path/to/hermes/sessions just up
-# Or add to data/config.toml:
-# hermes_watch_dir = "/path/to/hermes/sessions"
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3002/api/sessions   # expect 200
+# then run a coding-agent session — events should appear in the dashboard
 ```
 
-### Federation — multi-device & multi-person (optional)
+Federation, leaf NATS, and identity (`person_id` / principals): [`docs/deploy/distributed.md`](docs/deploy/distributed.md). OpenClaw split deploy: `docker-compose.openclaw.yml`.
 
-Out of the box OpenStory is single-machine and loopback-only — no networking. To
-see sessions from several machines (your laptop, a teammate's, a VPS agent) in one
-dashboard, point the managed NATS at a shared hub:
+---
 
-```bash
-OPEN_STORY_NATS_LEAF_URL="nats://<token>@hub-host:7422" just up
-# Or add to data/config.toml:
-# nats_leaf_url = "nats://<token>@hub-host:7422"
-```
+## Reference
 
-With `--manage-nats` (the Homebrew service uses it), this turns the local NATS
-into a JetStream leaf node: your sessions stream up to the hub and everyone else's
-stream back down, so the local dashboard becomes a shared team view. Empty =
-single-machine.
+### Keyboard navigation
 
-**Identity.** Every event is stamped with a `person_id` (the human who owns it)
-and a `principal_id` (the device or agent that produced it), derived from a
-`[person]` block in `config.toml`. That's what powers the fleet-grouped sidebar
-and the Admin view's person clusters. This is *attribution* — "whose activity is
-this" — not authentication; human-to-human login is future work.
-
-**Sharing means joining a network — secure the network, not the session.**
-OpenStory does **not** enforce per-session or per-person sharing permissions, and
-it can't: once an event is on the NATS bus, every connected node has a full copy.
-Propagation is bidirectional — if you're on the bus, you see what's published to
-it, and others see what you publish. Access is enforced at two real layers, both
-outside the app: **Tailscale** network membership decides who can reach the NATS
-port at all, and **NATS token / accounts** decide who can connect and which
-subjects a credential may pub/sub.
-
-There is one node-level switch over your *own* data: `publish_sessions` (default
-`true`; env `OPEN_STORY_PUBLISH_SESSIONS`). Left `true`, this node publishes its
-observed sessions into the network and stores them locally. Set `false`, its
-sessions are stored locally only and never leave the machine — but it still
-receives and sees everyone else's. This is a node-level choice, not a permission
-enforced on readers. The honest guidance: **don't put a node on a network with
-people who shouldn't see its sessions.** If a machine has sensitive sessions, run
-it solo (no `nats_leaf_url`) or set `publish_sessions = false`.
-
-Federation subjects are host-prefixed (`events.{host}.{project}.{session}`) so
-each leaf owns its own namespace and the hub aggregate never double-counts.
-
-Full hub + leaf + Tailscale setup, the `publish_sessions` switch, and **upgrade
-notes for the host-in-subject change** live in [`docs/deploy/distributed.md`](docs/deploy/distributed.md).
-
-### MongoDB backend (optional)
-
-SQLite is the default. For distributed or high-volume deployments, switch to MongoDB:
-
-```bash
-# Build with mongo support
-cd rs && cargo build --release -p open-story-cli --features mongo
-
-# Configure
-export OPEN_STORY_DATA_BACKEND=mongo
-export OPEN_STORY_MONGO_URI=mongodb://localhost:27017
-export OPEN_STORY_MONGO_DB=openstory
-
-# Or add to data/config.toml:
-# data_backend = "mongo"
-# mongo_uri = "mongodb://localhost:27017"
-# mongo_db = "openstory"
-```
-
-Both backends implement the same `EventStore` trait — the conformance suite (56 helpers run against both backends) covers writes, reads, lifecycle, FTS, and all 12 analytics queries.
-
-### With Docker/Podman
-
-Run the full stack (server + UI + NATS) in containers:
-
-```bash
-docker compose up        # or: podman compose up
-```
-
-This starts NATS on `:4222`/`:8222`, the server on `:3002`, and the UI on `:5173`. The server watches `~/.claude/projects/` (mounted read-only).
-
-**Container runtime:** [Podman](https://podman.io/) is recommended on Windows — it's a drop-in Docker replacement that runs on WSL2 without Docker Desktop. Install with `winget install RedHat.Podman`, then `podman machine init --rootful && podman machine start`. Existing Dockerfiles and docker-compose files work as-is.
-
-### Event ingestion
-
-Events arrive via the **file watcher** — the primary and only ingestion path. The watcher polls transcript directories for JSONL changes and translates them into CloudEvents, which flow through NATS JetStream to the consumer actors. No additional configuration needed beyond setting the watch directory.
-
-### Verify it works
-
-```bash
-# Check the server is running
-curl http://localhost:3002/api/sessions
-
-# Start a Claude Code session — events should appear in the dashboard
-claude
-```
-
-## Keyboard Navigation
-
-The dashboard supports full keyboard navigation across panels.
-
-### Live tab
+#### Live tab
 
 | Key | Sidebar (sessions) | Timeline (events) |
 |-----|--------------------|--------------------|
@@ -560,9 +253,9 @@ The dashboard supports full keyboard navigation across panels.
 | `Enter` | Select highlighted session | Open selected card in Explore |
 | Click | Select session + start keyboard nav | Select card + start keyboard nav |
 
-Only the focused panel shows the selection ring. Your position is remembered when switching between panels.
+Only the focused panel shows the selection ring. Position is remembered when switching panels.
 
-### Explore tab
+#### Explore tab
 
 | Key | Sidebar (turns/facets) | Event list |
 |-----|------------------------|------------|
@@ -571,12 +264,9 @@ Only the focused panel shows the selection ring. Your position is remembered whe
 | `←` | — | Jump focus to sidebar |
 | Click | — | Select card + expand/collapse |
 
-### Cross-linking
+**Cross-linking:** Explore ↗ on a Live card (or Enter on a selected Live card) deep-links that event in Explore.
 
-- **Explore ↗** button on each Live card deep-links directly to that event in the Explore view
-- **Enter** on a selected Live card does the same thing via keyboard
-
-## CLI Reference
+### CLI Reference
 
 ```
 open-story init [OPTIONS]      Interactive first-run setup wizard
@@ -609,7 +299,7 @@ open-story context <PROJECT>   Recent sessions for a project
   --format <FMT>                 Output format: text or json [default: text]
 ```
 
-## API Endpoints
+### API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -653,124 +343,76 @@ open-story context <PROJECT>   Recent sessions for a project
 | GET | `/health` | Health check (no auth) |
 | GET | `/ws` | WebSocket for live event streaming |
 
-## Project Layout
+### Project Layout
 
 ```
 open-story/
 ├── rs/                          Rust workspace (10 crates)
-│   ├── core/                    open-story-core (CloudEvent types, translators, Subtype enum)
-│   ├── bus/                     open-story-bus (NATS JetStream event bus)
-│   ├── store/                   open-story-store (persistence, projection, FTS5 search)
-│   ├── views/                   open-story-views (BFF: CloudEvent → ViewRecord, runtime schema validation)
-│   ├── patterns/                open-story-patterns (eval-apply + sentence detection)
-│   ├── schemas/                 open-story-schemas (JSON Schema generation, drift tests, dogfood)
-│   ├── server/                  open-story-server (HTTP/WS, API, consumer actors)
-│   ├── src/                     open-story lib (watcher + server orchestration, workspace root)
-│   ├── cli/                     open-story-cli binary (thin CLI wrapper)
-│   ├── mcp/                     open-story-mcp (Rust MCP server — 24 tools: queries + streaming + dashboard control)
+│   ├── core/                    open-story-core (CloudEvent types, translators)
+│   ├── bus/                     open-story-bus (NATS JetStream)
+│   ├── store/                   open-story-store (persistence, projection, FTS5)
+│   ├── views/                   open-story-views (CloudEvent → ViewRecord)
+│   ├── patterns/                open-story-patterns (eval-apply + sentence)
+│   ├── schemas/                 open-story-schemas (JSON Schema generation)
+│   ├── server/                  open-story-server (HTTP/WS, API, consumers)
+│   ├── src/                     open-story lib (orchestration)
+│   ├── cli/                     open-story-cli
+│   ├── mcp/                     open-story-mcp
 │   └── tests/                   Integration + principle tests
-├── schemas/                     Committed JSON Schema files (11 — source of truth)
+├── schemas/                     Committed JSON Schema files
 ├── ui/                          React dashboard
-│   ├── src/
-│   │   ├── streams/             RxJS observable state management
-│   │   ├── components/          React components
-│   │   └── hooks/               Custom React hooks
-│   └── ...
-├── scripts/                     Analysis tools and data exploration
-├── docs/                        Stories, backlog, and architecture docs
+├── scripts/                     Analysis tools
+├── docs/                        Philosophy, deploy, research
 └── e2e/                         Playwright E2E tests
 ```
 
-## Scripts
+### Scripts
 
-`scripts/` is a working library of Python tools for inspecting OpenStory data. They hit the REST API or read SQLite directly, and exist so questions can be answered with reproducible queries instead of one-off shell commands. Most have a `--test` flag and a clear `Usage:` header.
+`scripts/` answers questions with reproducible queries (REST or SQLite). Most support `--test`.
 
-**Tell the story of a session** (the entry point — start here):
+**Start here:**
 
 ```bash
 python3 scripts/sessionstory.py SESSION_ID            # markdown fact sheet
-python3 scripts/sessionstory.py latest                # most recent session
-python3 scripts/sessionstory.py SESSION_ID --json     # machine-readable
-python3 scripts/sessionstory.py SESSION_ID --unfinished  # + trailing assistant messages
-python3 scripts/sessionstory.py --list                # recent sessions
-python3 scripts/sessionstory.py --test                # self-tests
+python3 scripts/sessionstory.py latest
+python3 scripts/sessionstory.py SESSION_ID --unfinished
+python3 scripts/sessionstory.py --list
 ```
 
-`sessionstory.py` collects deterministic facts (record types, tool histogram, patterns, prompt timeline, sample sentences from the `turn.sentence` detector) and emits a structured fact sheet. It does not narrate — narration is the agent's job. There's a Claude Code skill at `.claude/skills/sessionstory/` that documents the full workflow.
+| Area | Scripts |
+|------|---------|
+| Structure | `analyze_eval_apply_shape.py`, `analyze_turn_shapes.py`, `analyze_event_groups.py`, `analyze_session_hierarchy.py` |
+| Cost | `token_usage.py` (`--session-id`, `--by-session`, `--by-day`) |
+| Direct query | `query_store.py`, `query_session.py`, `session_conversation.py`, `event_viewer.py` |
 
-**Analyze session structure:**
+Prefer the REST API over grepping raw agent JSONL. See `docs/research/sessions/` for example reports.
 
-| Script | What it shows |
-|---|---|
-| `analyze_eval_apply_shape.py --session SID` | Eval-apply cycle counts, with-tools vs terminal, tools per cycle |
-| `analyze_turn_shapes.py SID` | Distinct turn shapes + probability classes (multi_eval_apply, with_thinking, parallel_tools, …) |
-| `analyze_event_groups.py --session SID` | Per-prompt event windows, phase distribution, common tool sequences, tool runs |
-| `analyze_session_hierarchy.py` | Main vs subagent linking — how agent sessions relate to parents |
-| `analyze_payload_sizes.py` | Truncation impact across sessions |
-| `analyze_plan_events.py` | Where ExitPlanMode events live (main / subagent / hooks) |
+### Development commands
 
-**Cost and tokens:**
-
-| Script | What it shows |
-|---|---|
-| `token_usage.py --session-id SID` | Input / output / cache tokens + estimated cost |
-| `token_usage.py --by-session` | Per-session breakdown |
-| `token_usage.py --by-day` | Daily trend |
-
-**Direct queries:**
-
-| Script | What it does |
-|---|---|
-| `query_store.py` | SQL queries over the live SQLite store (sessions, events, patterns) |
-| `query_session.py` | Single-session record fetch + filter |
-| `session_conversation.py SID` | Reconstruct user/assistant/tool flow in reading order |
-| `event_viewer.py` | Live pretty-printer for the event log |
-
-**Data and tooling:**
-
-- `scrub_check.py` — flag potential secrets in fixture data
-- `story_html.py` — render a session as a static HTML story
-- `synth_transcripts.py` — generate synthetic transcript fixtures for tests
-- `translate_pi_mono.py` — translator prototype for pi-mono format
-- `load_transcripts.py` — bulk load JSONL into SQLite
-- `prototype_event_graph.py` — graph-layout exploration (matplotlib)
-- `explore.ipynb` — Jupyter notebook scratchpad
-
-**Conventions:** scripts use stdlib only where possible (`urllib.request`, `sqlite3`, `argparse`). Scripts with `--test` self-validate against synthetic fixtures or a running server. New scripts should follow the same shape: docstring `Usage:` header, dataclasses for structured output, pure functions for the core logic, side effects at the edges.
-
-See also: `docs/research/sessions/` for example reports built from these scripts, and `docs/research/scheme/daystory.sh` for the day-scoped narration companion.
-
-## Development Commands
-
-Run `just` to see all available commands. Key ones:
+Run `just` for the full list.
 
 | Command | Description |
 |---------|-------------|
-| `just up` | Start NATS + server + UI (Ctrl+C to stop) |
-| `just nats` | Start NATS JetStream standalone |
-| `just nats-stop` | Stop NATS |
-| `just test` | Run all tests (Rust + UI) |
-| `just test-rs` | Run Rust tests only |
-| `just test-ui` | Run UI tests only |
-| `just e2e` | Run Playwright E2E tests |
-| `just docker-build` | Build the test Docker image |
-| `just test-container` | Run container integration tests |
-| `just test-compose` | Run compose tests (full NATS bus path) |
-| `just observe` | Start full stack + Prometheus + Grafana |
-| `just mongo` | Start MongoDB container |
-| `just explore` | Launch Jupyter notebook for data exploration |
-| `just events` | Live event viewer (pretty-print event log) |
+| `just up` | NATS + server + UI |
+| `just test` | Rust + UI tests |
+| `just test-rs` / `just test-ui` | Split |
+| `just e2e` | Playwright |
+| `just docker-build` / `just test-container` / `just test-compose` | Container path |
+| `just observe` | Stack + Prometheus + Grafana |
+| `just mongo` | MongoDB container |
+| `just explore` | Jupyter |
+| `just events` | Live event viewer |
 
-## Security Notes
+### Security notes
 
-- **Authentication** is off by default (suitable for localhost). For non-localhost deployments, set `api_token` in `data/config.toml` to require bearer token auth on all API/WS requests.
-- **`/metrics`** endpoint intentionally bypasses auth so Prometheus can scrape without a token.
-- **`docker-compose.observe.yml`** sets the Grafana password to `openstory` — this is for local development only. Change it for any shared or exposed deployment.
+- **Auth** is off by default (localhost). Set `api_token` in `data/config.toml` for non-local deployments (bearer on API/WS).
+- **`/metrics`** bypasses auth for Prometheus scrapes.
+- **`docker-compose.observe.yml`** Grafana password `openstory` is local-dev only.
 
-## Contributing
+### Contributing
 
-Start with the [soul documents](docs/soul/) to understand what this project believes. Then see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and PR guidelines.
+Read [docs/soul/philosophy.md](docs/soul/philosophy.md) and [CONTRIBUTING.md](CONTRIBUTING.md). Doc map: [docs/README.md](docs/README.md).
 
-## License
+### License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see [LICENSE](LICENSE).
