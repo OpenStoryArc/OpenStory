@@ -4,11 +4,23 @@
 
 **Read your agent history.**
 
-Coding agents already write everything down. Open Story makes that history legible — live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. The point isn't surveillance. It's understanding and owning the story of the work.
+Coding agents already write everything down. Open Story makes that journal legible. The point isn't surveillance. It's understanding and owning the story of the work.
 
 Who reads that history is not a design axis. Dashboard, API, MCP, scripts — same mission. The load-bearing line is not audience; it is **read, don't rewrite**.
 
 That ownership is **personal sovereignty**: observe, understand, decide. The data is yours. Open formats (CloudEvents, JSONL, Markdown), portable, unencumbered. Own your data, own your story.
+
+## Across the whens
+
+The mission is not only archaeology. **Tense matters.** The same history can be read in every aspect of the work:
+
+| When | What you read | Conjugation |
+|------|----------------|-------------|
+| **Now** | the session as it is writing | *is writing* — watch this session live |
+| **So far** | the open session's trail | *has written* — reflect mid-flight without closing the work |
+| **After** | finished sessions, fleet, search | *wrote* — story, cost, the command that fixed it |
+
+Self-reflection is just the mission conjugated: a session may read **what it is doing**, **what it has done so far**, and **what it did**. That is journaling — the transcript already is the journal; Open Story makes it readable while the work is still open, and after it is closed. It is not memory injection. Looking at the journal does not rewrite the actor.
 
 ## Constraint
 

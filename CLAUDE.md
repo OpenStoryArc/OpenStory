@@ -5,7 +5,7 @@
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Coding agents already write everything down — files read, commands run, decisions made. Open Story makes that history legible and yours. You don't have to trust a black box; you can observe, understand, and decide. Who does the reading (you, a teammate, another agent, a script) is not the point. Readable history is.
+Coding agents already write everything down — files read, commands run, decisions made. Open Story makes that journal legible and yours: what *is writing* (live), what *has written* so far (mid-session reflection), what *wrote* (after). Who does the reading is not the point. Readable history across the whens is.
 
 This is a **mirror, not a leash**. The listener watches but never interferes. It never mutates the source, never injects behavior, never stands between anyone and the agent. It translates what happens into a form you can see, search, and reason about — and the data is yours, in open formats, portable and unencumbered. That ownership is personal sovereignty.
 

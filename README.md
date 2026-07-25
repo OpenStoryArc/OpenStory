@@ -5,7 +5,7 @@
 
 **Read your agent history.**
 
-Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and gives you a place to *read* what happened: live as work unfolds, and later when you need the story, the cost, or the exact command that fixed it. Your data stays on your machine, in open formats, fully portable.
+Your coding agents already write everything down — every tool call, file edit, command, and decision. Open Story watches those local transcripts, turns them into [CloudEvents 1.0](https://cloudevents.io/), and makes the journal legible **across the whens**: what *is writing* (watch this session live), what *has written* so far (reflect mid-session), and what *wrote* (story, cost, the command that fixed it). Same mission, different tense. Your data stays on your machine, in open formats, fully portable.
 
 It is a **mirror, not a leash**. Open Story never writes back to the agent, never modifies transcripts, never blocks execution.
 
@@ -57,13 +57,13 @@ Full prerequisites, dev modes, and storage backends are in the [detailed Quick S
 
 ## What you can read
 
-Same history, different lenses:
+Same history, different lenses — and different tenses:
 
-**Live** — history as it is written. Every tool call, file read, command, and model response appears as the agent works. The session sidebar shows active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by who produced them** (your laptop, a teammate's machine, an agent on a VPS).
+**Live** — *is writing.* History as it is written. Every tool call, file read, command, and model response appears as the agent works. A session can watch itself; this is self-reflection while the work is still open. The session sidebar shows active sessions — event counts, token usage, depth sparklines, subagent hierarchy — **grouped by who produced them** (your laptop, a teammate's machine, an agent on a VPS).
 
-**Story** — history as narrative. Each turn is a card: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain facts (files touched, commands run, searches), and eval-apply detail. Subagent work expands inline — same structure at every depth.
+**Story** — *has written / wrote.* History as narrative (mid-session or after). Each turn is a card: a sentence diagram ("Claude edited TurnCard.tsx, after reading 3 files, while testing 1 check, because 'Can we start with surfacing UUIDs?' → answered"), domain facts (files touched, commands run, searches), and eval-apply detail. Subagent work expands inline — same structure at every depth.
 
-**Explore** — history across sessions. Full-text search, event filters, comparison when you need the source, not the summary.
+**Explore** — *wrote.* History across sessions. Full-text search, event filters, comparison when you need the source, not the summary.
 
 **Admin** — a **read-only** view of federation and identity: this node's topology (solo / leaf / hub), fleet roster, live sources, person clusters. It observes state; it never changes it. Beta.
 
@@ -104,7 +104,7 @@ inside the EVAL phase below:
 **Mission:** read your agent history.  
 **Constraint:** observe, never interfere.
 
-Open Story sits beside your agents and makes their transcripts legible. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
+Open Story sits beside your agents and makes their transcripts legible — *is writing*, *has written*, *wrote*. Self-reflection mid-session is the same mission as recap after; looking at the journal does not rewrite the actor. It does not become the agent runtime, does not inject memory or policy, and does not stand between you and the tools you already use. The data is yours: CloudEvents 1.0, JSONL, Markdown — open formats, portable, unencumbered.
 
 **Sovereignty escape hatch:** whichever backend you choose (SQLite or MongoDB), every event is also appended to a per-session JSONL file in `data/`. Always `grep`-able from outside the database, never locked in.
 
