@@ -12,8 +12,11 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::cloud_event::CloudEvent;
+use crate::paths::grok_session_id_from_path;
 use crate::translate::{translate_line, TranscriptFormat, TranscriptState};
 use crate::translate_codex::{is_codex_rollout_format, translate_codex_line};
+use crate::translate_grok::{is_grok_format, translate_grok_line};
+use crate::translate_grok_l2::{is_hunk_record, translate_hunk_record};
 use crate::translate_hermes::{is_hermes_format, translate_hermes_line};
 use crate::translate_pi::{is_pi_mono_format, translate_pi_line};
 
@@ -95,13 +98,35 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             }
         }
 
+        // Grok L2: hunk_records.jsonl is not ACP — path-dispatch by basename
+        // or hunk shape so we never lock the file as ClaudeCode.
+        let is_hunk_file = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            == Some("hunk_records.jsonl");
+        if is_hunk_file || is_hunk_record(&obj) {
+            let sid = grok_session_id_from_path(file_path)
+                .unwrap_or_else(|| state.session_id.clone());
+            if !sid.is_empty() {
+                state.session_id = sid;
+            }
+            let session_id = state.session_id.clone();
+            let seq = state.next_seq();
+            if let Some(ev) = translate_hunk_record(&obj, &session_id, seq) {
+                events.push(ev);
+            }
+            continue;
+        }
+
         // Detect format once per file, then lock.
         // Order matters: Hermes check first (envelope.source == "hermes" is
-        // unambiguous), then pi-mono (has its own signals), then Claude Code
-        // as the default fallback.
+        // unambiguous), then Grok ACP (method session/update), then Codex,
+        // then pi-mono, then Claude Code as the default fallback.
         if state.format == TranscriptFormat::Unknown {
             state.format = if is_hermes_format(&obj) {
                 TranscriptFormat::Hermes
+            } else if is_grok_format(&obj) {
+                TranscriptFormat::Grok
             } else if is_codex_rollout_format(&obj) {
                 TranscriptFormat::Codex
             } else if is_pi_mono_format(&obj) {
@@ -113,6 +138,7 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
         let new_events = match state.format {
             TranscriptFormat::Hermes => translate_hermes_line(&obj, state),
+            TranscriptFormat::Grok => translate_grok_line(&obj, state),
             TranscriptFormat::Codex => translate_codex_line(&obj, state),
             TranscriptFormat::PiMono => translate_pi_line(&obj, state),
             _ => translate_line(&obj, state),

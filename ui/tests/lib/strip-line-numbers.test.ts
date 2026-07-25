@@ -17,6 +17,17 @@ const DETECT_TABLE: [string, string, boolean][] = [
   ["tab-separated (no arrow)", "1\t[package]\n2\tname = \"foo\"\n3\tversion = \"0.1\"", true],
   ["tab-separated single line", "1\thello", true],
   ["tab-separated large numbers", "100\tline hundred\n101\tline 101", true],
+  // Grok Build read_file: sparse N→ prefixes (first line + every ~10th), not dense cat -n
+  [
+    "grok sparse arrow numbering",
+    "1→//! End-to-end module doc\n//!\n//! more doc\n\nuse foo::bar;\n\nfn x() {}\n\n\n10→use std::path::PathBuf;\n",
+    true,
+  ],
+  [
+    "grok first line only numbered in sample window",
+    "1→//! End-to-end: Grok Build ACP → translator\n//!\n//! Mirrors test_pi\n//! turn.complete\n//! sentence\n",
+    true,
+  ],
 ];
 
 describe("isCatNumbered — boundary table", () => {

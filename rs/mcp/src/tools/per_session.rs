@@ -216,30 +216,72 @@ pub async fn session_transcript(store: &Arc<dyn EventStore>, args: Value) -> Res
 
     let entries: Vec<Value> = events
         .iter()
-        .filter_map(|ev| {
-            // Reconstruct message-like entries from stored events.
-            // Hermes/agent-style: data.raw carries the original message
-            // shape with role + content. Skip events with no role.
-            let raw = ev.get("data").and_then(|d| d.get("raw")).unwrap_or(ev);
-            let inner = raw.get("data").unwrap_or(raw);
-            let role = inner.get("role").and_then(|v| v.as_str())?.to_string();
-            if assistant_only && role != "assistant" {
-                return None;
-            }
-            let content = inner
-                .get("content")
-                .cloned()
-                .unwrap_or(Value::String(String::new()));
-            Some(json!({
-                "role": role,
-                "content": content,
-                "time": ev.get("time").cloned().unwrap_or(Value::Null),
-                "id": ev.get("id").cloned().unwrap_or(Value::Null),
-            }))
-        })
+        .filter_map(|ev| transcript_entry_from_event(ev, assistant_only))
         .take(limit)
         .collect();
     Ok(json!({ "entries": entries }))
+}
+
+/// Reconstruct a message-like transcript entry from a stored CloudEvent.
+///
+/// Paths (in order):
+/// 1. Hermes / role-in-raw: `data.raw` (or nested) carries `role` + `content`.
+/// 2. Subtype + typed payload (Grok ACP, Claude, …): map
+///    `message.user.prompt` → user, `message.assistant.text` → assistant,
+///    `message.assistant.thinking` → assistant (thinking text), using
+///    `data.agent_payload.text` when present.
+///
+/// Tool events are omitted (not chat turns). Empty content is still emitted
+/// when a role is known so callers can see turn structure.
+pub(crate) fn transcript_entry_from_event(ev: &Value, assistant_only: bool) -> Option<Value> {
+    // Path 1: Hermes / agent raw message shape with role.
+    let raw = ev.get("data").and_then(|d| d.get("raw")).unwrap_or(ev);
+    let inner = raw.get("data").unwrap_or(raw);
+    if let Some(role) = inner.get("role").and_then(|v| v.as_str()) {
+        if assistant_only && role != "assistant" {
+            return None;
+        }
+        let content = inner
+            .get("content")
+            .cloned()
+            .unwrap_or(Value::String(String::new()));
+        return Some(json!({
+            "role": role,
+            "content": content,
+            "time": ev.get("time").cloned().unwrap_or(Value::Null),
+            "id": ev.get("id").cloned().unwrap_or(Value::Null),
+        }));
+    }
+
+    // Path 2: CloudEvent subtype + typed agent_payload.text (Grok Build ACP).
+    let subtype = ev.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+    let (role, content) = match subtype {
+        "message.user.prompt" => (
+            "user",
+            typed_payload_text(ev).unwrap_or_else(|| Value::String(String::new())),
+        ),
+        "message.assistant.text" | "message.assistant.thinking" => (
+            "assistant",
+            typed_payload_text(ev).unwrap_or_else(|| Value::String(String::new())),
+        ),
+        _ => return None,
+    };
+    if assistant_only && role != "assistant" {
+        return None;
+    }
+    Some(json!({
+        "role": role,
+        "content": content,
+        "time": ev.get("time").cloned().unwrap_or(Value::Null),
+        "id": ev.get("id").cloned().unwrap_or(Value::Null),
+    }))
+}
+
+fn typed_payload_text(ev: &Value) -> Option<Value> {
+    let text = ev
+        .pointer("/data/agent_payload/text")
+        .and_then(|v| v.as_str())?;
+    Some(Value::String(text.to_string()))
 }
 
 // ── session_activity ───────────────────────────────────────────
@@ -266,4 +308,104 @@ pub async fn session_activity(store: &Arc<dyn EventStore>, args: Value) -> Resul
     // uses. Drop-in shape match.
     let summary = activity_summary(&events);
     serde_json::to_value(summary).map_err(|e| format!("serialize: {e}"))
+}
+
+#[cfg(test)]
+mod transcript_entry_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn grok_cloud_event(subtype: &str, text: &str, id: &str) -> Value {
+        json!({
+            "specversion": "1.0",
+            "id": id,
+            "source": "grok://session/sess-g",
+            "type": "io.arc.event",
+            "time": "2026-07-17T00:16:55Z",
+            "subtype": subtype,
+            "agent": "grok",
+            "data": {
+                "seq": 1,
+                "session_id": "sess-g",
+                "raw": {
+                    "method": "session/update",
+                    "params": {"update": {"sessionUpdate": "agent_message_chunk"}}
+                },
+                "agent_payload": {
+                    "_variant": "grok",
+                    "meta": {"agent": "grok"},
+                    "text": text
+                }
+            }
+        })
+    }
+
+    // describe("when stored event is grok-build message.user.prompt")
+    #[test]
+    fn it_should_emit_user_role_from_typed_payload_without_raw_role() {
+        let ev = grok_cloud_event(
+            "message.user.prompt",
+            "can you see this session?",
+            "evt-user",
+        );
+        let entry = transcript_entry_from_event(&ev, false).expect("entry");
+        assert_eq!(entry["role"], "user");
+        assert_eq!(entry["content"], "can you see this session?");
+        assert_eq!(entry["id"], "evt-user");
+    }
+
+    // describe("when stored event is grok-build message.assistant.text")
+    #[test]
+    fn it_should_emit_assistant_role_from_typed_payload() {
+        let ev = grok_cloud_event(
+            "message.assistant.text",
+            "Yes — OpenStory MCP is already connected.",
+            "evt-asst",
+        );
+        let entry = transcript_entry_from_event(&ev, false).expect("entry");
+        assert_eq!(entry["role"], "assistant");
+        assert_eq!(
+            entry["content"],
+            "Yes — OpenStory MCP is already connected."
+        );
+    }
+
+    // describe("when assistant_only and event is user prompt")
+    #[test]
+    fn it_should_skip_user_when_assistant_only() {
+        let ev = grok_cloud_event("message.user.prompt", "hi", "evt-u");
+        assert!(transcript_entry_from_event(&ev, true).is_none());
+    }
+
+    // describe("when event is tool_use")
+    #[test]
+    fn it_should_skip_tool_events() {
+        let mut ev = grok_cloud_event("message.assistant.tool_use", "", "evt-t");
+        ev["subtype"] = json!("message.assistant.tool_use");
+        assert!(transcript_entry_from_event(&ev, false).is_none());
+    }
+
+    // describe("when Hermes-style raw has role")
+    #[test]
+    fn it_should_still_prefer_raw_role_path() {
+        let ev = json!({
+            "id": "evt-h",
+            "time": "2026-01-01T00:00:00Z",
+            "subtype": "message.assistant.text",
+            "data": {
+                "raw": {
+                    "data": {
+                        "role": "assistant",
+                        "content": "from raw role path"
+                    }
+                },
+                "agent_payload": {
+                    "text": "should not win if raw role present"
+                }
+            }
+        });
+        let entry = transcript_entry_from_event(&ev, false).expect("entry");
+        assert_eq!(entry["role"], "assistant");
+        assert_eq!(entry["content"], "from raw role path");
+    }
 }

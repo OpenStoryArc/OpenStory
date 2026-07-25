@@ -422,4 +422,30 @@ describe("toTimelineRows — file hint propagation", () => {
     const resultRow = rows.find(r => r.category === "result");
     expect(resultRow!.fileHint).toBeUndefined();
   });
+
+  // describe("when Grok read_file uses target_file (not Claude file_path)")
+  it("attaches fileHint from Grok target_file on input/raw_input/typed raw", () => {
+    const path = "/Users/me/projects/OpenStory/rs/tests/test_grok_storytelling.rs";
+    const records = [
+      makeRecord("tool_call", {
+        call_id: "c-g",
+        name: "read_file",
+        input: { limit: 80, target_file: path },
+        raw_input: { limit: 80, target_file: path },
+        typed_input: {
+          name: "read_file",
+          tool: "unknown",
+          raw: { limit: 80, target_file: path },
+        },
+      }, { id: "tcg", timestamp: "2025-01-09T10:00:00Z" }),
+      makeRecord("tool_result", {
+        call_id: "c-g",
+        output: "1→//! module\n//!\nfn x() {}\n",
+        is_error: false,
+      }, { id: "trg", timestamp: "2025-01-09T10:00:01Z" }),
+    ];
+    const rows = toTimelineRows(records);
+    const resultRow = rows.find((r) => r.id === "trg");
+    expect(resultRow?.fileHint).toBe(path);
+  });
 });

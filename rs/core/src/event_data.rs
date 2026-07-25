@@ -223,6 +223,8 @@ pub enum AgentPayload {
     Hermes(HermesPayload),
     #[serde(rename = "codex")]
     Codex(CodexPayload),
+    #[serde(rename = "grok", alias = "grok-build")]
+    Grok(GrokPayload),
 }
 
 // ── Claude Code Payload ────────────────────────────────────────────
@@ -680,6 +682,69 @@ impl CodexPayload {
     }
 }
 
+// ── Grok Build Payload ────────────────────────────────────────────
+
+/// Typed extraction for Grok Build ACP `updates.jsonl` events.
+///
+/// Grok streams session/update notifications (and `_x.ai/session/update` for
+/// turn_completed). Fields here are a pure lift of what we need for story
+/// rendering; the original ACP line is preserved in `EventData::raw`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GrokPayload {
+    pub meta: PayloadMeta,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_outcome: Option<ToolOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<Value>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+impl Default for GrokPayload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GrokPayload {
+    pub fn new() -> Self {
+        Self {
+            meta: PayloadMeta {
+                agent: "grok".to_string(),
+            },
+            text: None,
+            model: None,
+            tool: None,
+            args: None,
+            tool_call_id: None,
+            tool_outcome: None,
+            is_error: None,
+            prompt_id: None,
+            stop_reason: None,
+            token_usage: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+}
+
 // ── Convenience accessors ──────────────────────────────────────────
 
 impl AgentPayload {
@@ -690,6 +755,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => &p.meta.agent,
             AgentPayload::Hermes(p) => &p.meta.agent,
             AgentPayload::Codex(p) => &p.meta.agent,
+            AgentPayload::Grok(p) => &p.meta.agent,
         }
     }
 
@@ -700,6 +766,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.text.as_deref(),
             AgentPayload::Hermes(p) => p.text.as_deref(),
             AgentPayload::Codex(p) => p.text.as_deref(),
+            AgentPayload::Grok(p) => p.text.as_deref(),
         }
     }
 
@@ -710,6 +777,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.model.as_deref(),
             AgentPayload::Hermes(p) => p.model.as_deref(),
             AgentPayload::Codex(p) => p.model.as_deref(),
+            AgentPayload::Grok(p) => p.model.as_deref(),
         }
     }
 
@@ -720,6 +788,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.tool.as_deref(),
             AgentPayload::Hermes(p) => p.tool.as_deref(),
             AgentPayload::Codex(p) => p.tool.as_deref(),
+            AgentPayload::Grok(p) => p.tool.as_deref(),
         }
     }
 
@@ -730,6 +799,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.args.as_ref(),
             AgentPayload::Hermes(p) => p.args.as_ref(),
             AgentPayload::Codex(p) => p.args.as_ref(),
+            AgentPayload::Grok(p) => p.args.as_ref(),
         }
     }
 
@@ -745,6 +815,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.token_usage.as_ref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(p) => p.token_usage.as_ref(),
+            AgentPayload::Grok(p) => p.token_usage.as_ref(),
         }
     }
 
@@ -759,6 +830,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.uuid.as_deref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
+            AgentPayload::Grok(_) => None,
         }
     }
 
@@ -772,6 +844,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.parent_uuid.as_deref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
+            AgentPayload::Grok(_) => None,
         }
     }
 
@@ -785,6 +858,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.cwd.as_deref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(p) => p.cwd.as_deref(),
+            AgentPayload::Grok(_) => None,
         }
     }
 
@@ -795,6 +869,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.stop_reason.as_deref(),
             AgentPayload::Hermes(p) => p.stop_reason.as_deref(),
             AgentPayload::Codex(_) => None,
+            AgentPayload::Grok(p) => p.stop_reason.as_deref(),
         }
     }
 
@@ -808,6 +883,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.content_types.as_deref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
+            AgentPayload::Grok(_) => None,
         }
     }
 
@@ -822,6 +898,7 @@ impl AgentPayload {
             AgentPayload::PiMono(p) => p.tool_outcome.as_ref(),
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
+            AgentPayload::Grok(p) => p.tool_outcome.as_ref(),
         }
     }
 }

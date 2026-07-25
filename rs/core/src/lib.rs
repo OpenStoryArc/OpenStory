@@ -19,6 +19,8 @@ pub mod strings;
 pub mod subtype;
 pub mod translate;
 pub mod translate_codex;
+pub mod translate_grok;
+pub mod translate_grok_l2;
 pub mod translate_hermes;
 pub mod translate_pi;
 pub mod user;

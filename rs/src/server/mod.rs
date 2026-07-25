@@ -43,15 +43,25 @@ pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
 pub use state::{AppState, SharedState, create_state, create_state_with_watch_dirs};
 
-fn agent_for_watch_dir(path: &Path, claude_watch_dir: &str, codex_watch_dir: &str) -> &'static str {
+fn agent_for_watch_dir(
+    path: &Path,
+    claude_watch_dir: &str,
+    codex_watch_dir: &str,
+    grok_watch_dir: &str,
+) -> &'static str {
     let path_text = path.to_string_lossy();
+    if !grok_watch_dir.is_empty() && path == Path::new(grok_watch_dir) {
+        return "grok";
+    }
     if !codex_watch_dir.is_empty() && path == Path::new(codex_watch_dir) {
         return "codex";
     }
     if !claude_watch_dir.is_empty() && path == Path::new(claude_watch_dir) {
         return "claude-code";
     }
-    if path_text.contains(".codex") && path_text.contains("sessions") {
+    if path_text.contains(".grok") && path_text.contains("sessions") {
+        "grok"
+    } else if path_text.contains(".codex") && path_text.contains("sessions") {
         "codex"
     } else {
         "claude-code"
@@ -93,6 +103,7 @@ pub async fn run_server(
     let hermes_watch_dir = config.hermes_watch_dir.clone();
     let claude_watch_dir = config.claude_watch_dir.clone();
     let codex_watch_dir = config.codex_watch_dir.clone();
+    let grok_watch_dir = config.grok_watch_dir.clone();
 
     let primary_watch_dir = watch_dirs
         .first()
@@ -546,6 +557,7 @@ pub async fn run_server(
                 watcher_dir,
                 claude_watch_dir.as_str(),
                 codex_watch_dir.as_str(),
+                grok_watch_dir.as_str(),
             );
             let actor = diagnostics.register_actor(&WatcherActorConfig::new(
                 agent,

@@ -7,7 +7,7 @@
 
 import type { TimelineRow } from "@/lib/timeline";
 import type { ViewRecord, ToolCall } from "@/types/view-record";
-import { detectLanguage } from "@/lib/detect-language";
+import { detectLanguage, detectLanguageFromContent } from "@/lib/detect-language";
 import { compactTime, fullTimestamp } from "@/lib/time";
 import { buildHash } from "@/lib/hash-route";
 import { isCatNumbered, stripLineNumbers, extractStartLineNumber } from "@/lib/strip-line-numbers";
@@ -271,23 +271,46 @@ export function CardBody({ row }: { row: TimelineRow }) {
     const text = fullOutput(vr) ?? row.summary;
     const isError = (vr.payload as Record<string, unknown>).is_error;
 
-    // Detect cat -n formatted file content (from Read tool)
+    // Detect cat -n / sparse N→ file content (Claude Read, Grok read_file)
     if (!isError && isCatNumbered(text)) {
       const startLine = extractStartLineNumber(text);
       const cleaned = stripLineNumbers(text);
       const lineCount = cleaned.split("\n").length;
       const endLine = startLine + lineCount - 1;
-      const lang = detectLanguage({ filePath: row.fileHint });
+      let lang = detectLanguage({ filePath: row.fileHint, toolName: row.toolName });
+      if (lang === "text") {
+        lang = detectLanguageFromContent(cleaned);
+      }
       return (
         <div className="space-y-1">
           <span className="text-[10px] text-[color:var(--text-muted)] font-mono">
             Lines {startLine}-{endLine}
+            {row.fileHint ? ` · ${row.fileHint.split(/[/\\]/).pop()}` : ""}
           </span>
           <Code language={lang} showLineNumbers startingLineNumber={startLine}>
             {cleaned}
           </Code>
         </div>
       );
+    }
+
+    // File-like results without line prefixes (full-file dumps, some agents):
+    // still highlight when we know the path or content screams a language.
+    if (!isError && text.length > 40) {
+      let lang = detectLanguage({ filePath: row.fileHint, toolName: row.toolName });
+      if (lang === "text") lang = detectLanguageFromContent(text);
+      if (lang !== "text") {
+        return (
+          <div className="flex items-start gap-1.5">
+            <span className="text-[color:var(--green)] shrink-0 mt-0.5">{"\u2713"}</span>
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <Code language={lang} showLineNumbers={Boolean(row.fileHint)}>
+                {text}
+              </Code>
+            </div>
+          </div>
+        );
+      }
     }
 
     // Detect JSON content-block arrays and render as markdown

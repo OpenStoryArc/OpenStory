@@ -3,8 +3,15 @@
 use std::path::Path;
 
 /// Derive a session ID from a JSONL file path.
-/// Uses the file stem (filename without extension).
+///
+/// Grok Build: `…/{session-uuid}/updates.jsonl` → parent directory name.
+/// Codex: `rollout-…-{uuid}.jsonl` → trailing UUID.
+/// Everyone else: file stem (filename without extension).
 pub fn session_id_from_path(path: &Path) -> String {
+    if let Some(id) = grok_session_id_from_path(path) {
+        return id;
+    }
+
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -12,6 +19,66 @@ pub fn session_id_from_path(path: &Path) -> String {
         .to_string();
 
     codex_rollout_thread_id(&stem).unwrap_or(stem)
+}
+
+/// Grok Build stores sessions as `{cwd}/{session-id}/…`.
+///
+/// L1 ACP stream: `{session-id}/updates.jsonl`  
+/// L2 artifacts: `{session-id}/hunk_records.jsonl`, `summary.json`,
+/// `signals.json`, `terminal/{call}.log`, `images/*`, `assets/*`.
+///
+/// File stems are not session ids — walk to the UUID parent.
+pub fn grok_session_id_from_path(path: &Path) -> Option<String> {
+    let file_name = path.file_name().and_then(|s| s.to_str())?;
+
+    // updates.jsonl / session-root JSONL & JSON → parent is session id
+    if matches!(
+        file_name,
+        "updates.jsonl"
+            | "hunk_records.jsonl"
+            | "summary.json"
+            | "signals.json"
+            | "chat_history.jsonl"
+    ) {
+        let parent = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())?;
+        return looks_like_uuid(parent).then(|| parent.to_string());
+    }
+
+    // terminal/{callId}.log → session is parent of `terminal/`
+    if file_name.ends_with(".log") {
+        let terminal_dir = path.parent()?;
+        if terminal_dir.file_name().and_then(|s| s.to_str()) == Some("terminal") {
+            let session_dir = terminal_dir.parent()?;
+            let name = session_dir.file_name().and_then(|s| s.to_str())?;
+            return looks_like_uuid(name).then(|| name.to_string());
+        }
+    }
+
+    // images/* or assets/* → session is grandparent
+    if let Some(media_dir) = path.parent() {
+        let media_name = media_dir.file_name().and_then(|s| s.to_str())?;
+        if matches!(media_name, "images" | "assets") {
+            let session_dir = media_dir.parent()?;
+            let name = session_dir.file_name().and_then(|s| s.to_str())?;
+            return looks_like_uuid(name).then(|| name.to_string());
+        }
+    }
+
+    None
+}
+
+fn looks_like_uuid(s: &str) -> bool {
+    if s.len() != 36 {
+        return false;
+    }
+    let bytes = s.as_bytes();
+    [8, 13, 18, 23]
+        .iter()
+        .all(|idx| bytes.get(*idx) == Some(&b'-'))
+        && s.chars().all(|ch| ch == '-' || ch.is_ascii_hexdigit())
 }
 
 fn codex_rollout_thread_id(stem: &str) -> Option<String> {
@@ -126,7 +193,72 @@ pub fn nats_subject_from_path(path: &Path, watch_dir: &Path, host: &str) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn session_id_from_path_boundary_table() {
+        // (label, path, expected session id)
+        let cases: Vec<(&str, &str, &str)> = vec![
+            (
+                "grok updates.jsonl uses parent uuid",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/updates.jsonl",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "claude session file uses stem",
+                "/home/user/.claude/projects/my-project/abc123.jsonl",
+                "abc123",
+            ),
+            (
+                "chat_history sibling remaps to session uuid (L2)",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/chat_history.jsonl",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "hunk_records remaps to session uuid",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/hunk_records.jsonl",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "terminal log remaps to session uuid",
+                "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/terminal/call-abc-1.log",
+                "019f6cb5-f7e4-7bc1-bb25-9985af59619e",
+            ),
+            (
+                "non-uuid parent of updates.jsonl falls through to stem",
+                "/data/not-a-uuid/updates.jsonl",
+                "updates",
+            ),
+            (
+                "codex rollout stem extracts uuid",
+                "/Users/me/.codex/sessions/2026/05/24/rollout-2026-05-24T09-01-22-019e5a13-69cf-7b13-baeb-d6891eafd55e.jsonl",
+                "019e5a13-69cf-7b13-baeb-d6891eafd55e",
+            ),
+        ];
+        for (label, path, expected) in cases {
+            assert_eq!(
+                session_id_from_path(Path::new(path)),
+                expected,
+                "case `{label}`"
+            );
+        }
+    }
+
+    #[test]
+    fn grok_path_project_and_nats_subject() {
+        let path = PathBuf::from(
+            "/Users/me/.grok/sessions/%2Fproj/019f6cb5-f7e4-7bc1-bb25-9985af59619e/updates.jsonl",
+        );
+        let watch = PathBuf::from("/Users/me/.grok/sessions");
+        assert_eq!(
+            project_id_from_path(&path, &watch).as_deref(),
+            Some("%2Fproj")
+        );
+        assert_eq!(
+            nats_subject_from_path(&path, &watch, "host1"),
+            "events.host1.%2Fproj.019f6cb5-f7e4-7bc1-bb25-9985af59619e.main"
+        );
+    }
 
     // -- session_id_from_path --
 

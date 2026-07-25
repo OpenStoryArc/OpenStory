@@ -236,14 +236,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "message.user.tool_result" => {
-            if agent == "hermes" || agent == "codex" {
-                // Hermes and Codex tool results carry call_id and content on
-                // the typed payload; there are no Claude-style raw content
-                // blocks to parse.
-                let (call_id, content_text) = match ap {
+            if agent == "hermes" || agent == "codex" || is_grok_agent(agent) {
+                // Hermes, Codex, and Grok tool results carry call_id and
+                // content on the typed payload; there are no Claude-style
+                // raw content blocks to parse.
+                let (call_id, content_text, is_error, tool_outcome) = match ap {
                     Some(AgentPayload::Hermes(h)) => (
                         h.tool_call_id.clone().unwrap_or_default(),
                         h.text.clone().unwrap_or_default(),
+                        false,
+                        None,
                     ),
                     Some(AgentPayload::Codex(c)) => (
                         c.call_id.clone().unwrap_or_default(),
@@ -251,8 +253,16 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             .clone()
                             .or_else(|| c.text.clone())
                             .unwrap_or_default(),
+                        false,
+                        None,
                     ),
-                    _ => (String::new(), text.to_string()),
+                    Some(AgentPayload::Grok(g)) => (
+                        g.tool_call_id.clone().unwrap_or_default(),
+                        g.text.clone().unwrap_or_default(),
+                        g.is_error.unwrap_or(false),
+                        g.tool_outcome.clone(),
+                    ),
+                    _ => (String::new(), text.to_string(), false, None),
                 };
                 vec![ViewRecord {
                     id,
@@ -265,8 +275,8 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                     body: RecordBody::ToolResult(ToolResult {
                         call_id,
                         output: Some(content_text),
-                        is_error: false,
-                        tool_outcome: None,
+                        is_error,
+                        tool_outcome,
                     }),
                 }]
             } else {
@@ -367,6 +377,29 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
                             status: None,
                         })),
                     }]
+                } else if is_grok_agent(agent) {
+                    let call_id = match ap {
+                        Some(AgentPayload::Grok(g)) => g.tool_call_id.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                    let typed = tool_input::parse_tool_input(tool_name, tool_args.clone());
+                    vec![ViewRecord {
+                        id,
+                        seq,
+                        session_id,
+                        timestamp: time,
+                        origin_agent: None,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::ToolCall(Box::new(ToolCall {
+                            call_id,
+                            name: tool_name.to_string(),
+                            input: tool_args.clone(),
+                            raw_input: tool_args.clone(),
+                            typed_input: Some(typed),
+                            status: None,
+                        })),
+                    }]
                 } else {
                     // Claude Code: check raw for multiple tool_use blocks
                     let content = raw.get("message").and_then(|m| m.get("content"));
@@ -432,7 +465,9 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant.thinking") => {
-            if agent == "codex" && !text.is_empty() {
+            // Codex + Grok: thinking text lives on the typed payload, not Claude
+            // raw thinking blocks. Same path as hermes/codex assistant text.
+            if (agent == "codex" || is_grok_agent(agent)) && !text.is_empty() {
                 vec![ViewRecord {
                     id,
                     seq,
@@ -453,10 +488,10 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         s if s.starts_with("message.assistant") => {
-            // Hermes/Codex: content is on the typed payload (text accessor), not
-            // in raw content blocks. Claude Code and pi-mono use raw content
-            // blocks that extract_content_blocks parses.
-            let content = if agent == "hermes" || agent == "codex" {
+            // Hermes/Codex/Grok: content is on the typed payload (text accessor),
+            // not in Claude-style raw content blocks. pi-mono uses raw blocks
+            // that extract_content_blocks parses.
+            let content = if agent == "hermes" || agent == "codex" || is_grok_agent(agent) {
                 // Wrap it as a single Text content block for the views layer.
                 if text.is_empty() {
                     vec![]
@@ -536,20 +571,41 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         }
 
         "system.turn.complete" => {
-            vec![ViewRecord {
-                id,
+            let reason = stop_reason
+                .map(|s| s.to_string())
+                .or_else(|| Some("end_turn".into()));
+            let mut records = vec![ViewRecord {
+                id: id.clone(),
                 seq,
-                session_id,
-                timestamp: time,
+                session_id: session_id.clone(),
+                timestamp: time.clone(),
                 origin_agent: None,
                 agent_id: None,
                 is_sidechain: false,
                 body: RecordBody::TurnEnd(TurnEnd {
                     turn_id: None,
-                    reason: Some("end_turn".into()),
+                    reason,
                     duration_ms,
                 }),
-            }]
+            }];
+            // Grok (and others) attach turn-scoped usage on turn_completed.
+            // Field names differ: Claude snake_case, pi-mono camel input/output,
+            // Grok ACP camelCase inputTokens/outputTokens/cachedReadTokens.
+            if let Some(usage) = token_usage {
+                if let Some(tu) = token_usage_from_agent_map(agent, usage) {
+                    records.push(ViewRecord {
+                        id: format!("{id}:usage"),
+                        seq: seq + 1,
+                        session_id,
+                        timestamp: time,
+                        origin_agent: None,
+                        agent_id: None,
+                        is_sidechain: false,
+                        body: RecordBody::TokenUsage(tu),
+                    });
+                }
+            }
+            records
         }
 
         s if s.starts_with("system.") => {
@@ -607,6 +663,68 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
             }]
         }
 
+        // Grok L2: hunk_records.jsonl → surface path (+/- lines) as a
+        // FileSnapshot so Explore/file impact can see the edit without a
+        // new RecordBody variant.
+        "file.hunk" => {
+            let tracked = match ap {
+                Some(AgentPayload::Grok(gp)) => {
+                    let path = gp
+                        .extra
+                        .get("file_path")
+                        .and_then(|v| v.as_str())
+                        .or(gp.text.as_deref())
+                        .unwrap_or("");
+                    Some(serde_json::json!({
+                        "file_path": path,
+                        "hunk_id": gp.extra.get("hunk_id"),
+                        "hunk_start": gp.extra.get("hunk_start"),
+                        "hunk_end": gp.extra.get("hunk_end"),
+                        "lines_added": gp.extra.get("lines_added"),
+                        "lines_removed": gp.extra.get("lines_removed"),
+                    }))
+                }
+                _ => raw.get("filePath").map(|p| {
+                    serde_json::json!({"file_path": p})
+                }),
+            };
+            vec![ViewRecord {
+                id,
+                seq,
+                session_id,
+                timestamp: time,
+                origin_agent: None,
+                agent_id: None,
+                is_sidechain: false,
+                body: RecordBody::FileSnapshot(FileSnapshot {
+                    git_commit: None,
+                    git_message: None,
+                    tracked_files: tracked,
+                }),
+            }]
+        }
+
+        "file.attachment" => {
+            let tracked = match ap {
+                Some(AgentPayload::Grok(gp)) => gp.extra.get("attachment").cloned(),
+                _ => None,
+            };
+            vec![ViewRecord {
+                id,
+                seq,
+                session_id,
+                timestamp: time,
+                origin_agent: None,
+                agent_id: None,
+                is_sidechain: false,
+                body: RecordBody::FileSnapshot(FileSnapshot {
+                    git_commit: None,
+                    git_message: None,
+                    tracked_files: tracked,
+                }),
+            }]
+        }
+
         _ => {
             // Fuzzy pipe: unknown subtypes still produce a record so the
             // event flows through the broadcast path. The raw data is on
@@ -641,6 +759,70 @@ pub fn from_cloud_event(event: &CloudEvent) -> Vec<ViewRecord> {
         record.is_sidechain = is_sidechain;
     }
     records
+}
+
+/// Canonical agent id is `"grok"`; `"grok-build"` remains as a read alias.
+fn is_grok_agent(agent: &str) -> bool {
+    agent == "grok" || agent == "grok-build"
+}
+
+/// Map agent-native token_usage JSON into a TokenUsage view body.
+/// Returns None when neither input nor output counts are present.
+fn token_usage_from_agent_map(agent: &str, usage: &Value) -> Option<TokenUsage> {
+    let (input_tokens, output_tokens, total_tokens, cache_creation, cache_read) = match agent {
+        "pi-mono" => (
+            usage.get("input").and_then(|v| v.as_u64()),
+            usage.get("output").and_then(|v| v.as_u64()),
+            usage.get("totalTokens").and_then(|v| v.as_u64()),
+            usage.get("cacheWrite").and_then(|v| v.as_u64()),
+            usage.get("cacheRead").and_then(|v| v.as_u64()),
+        ),
+        // Grok ACP turn_completed.usage (camelCase).
+        a if is_grok_agent(a) => (
+            usage
+                .get("inputTokens")
+                .or_else(|| usage.get("input_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("outputTokens")
+                .or_else(|| usage.get("output_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("totalTokens")
+                .or_else(|| usage.get("total_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cachedWriteTokens")
+                .or_else(|| usage.get("cache_creation_input_tokens"))
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cachedReadTokens")
+                .or_else(|| usage.get("cache_read_input_tokens"))
+                .and_then(|v| v.as_u64()),
+        ),
+        _ => (
+            usage.get("input_tokens").and_then(|v| v.as_u64()),
+            usage.get("output_tokens").and_then(|v| v.as_u64()),
+            usage.get("total_tokens").and_then(|v| v.as_u64()),
+            usage
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64()),
+            usage
+                .get("cache_read_input_tokens")
+                .and_then(|v| v.as_u64()),
+        ),
+    };
+    if input_tokens.is_none() && output_tokens.is_none() {
+        return None;
+    }
+    Some(TokenUsage {
+        input_tokens,
+        output_tokens,
+        total_tokens,
+        cache_creation_input_tokens: cache_creation,
+        cache_read_input_tokens: cache_read,
+        scope: TokenScope::Turn,
+    })
 }
 
 /// Extract tool_use content blocks into individual ToolCall ViewRecords.
@@ -2159,6 +2341,244 @@ mod tests {
                     );
                 }
                 _ => panic!("expected ToolCall"),
+            }
+        }
+    }
+
+    /// Grok Build ACP: text lives on typed GrokPayload, not Claude raw blocks.
+    fn make_grok_event(subtype: &str, data: serde_json::Value) -> CloudEvent {
+        let mut obj = data.as_object().cloned().unwrap_or_default();
+        let seq = obj.remove("seq").unwrap_or(json!(1));
+        let session_id = obj.remove("session_id").unwrap_or(json!("sess-grok"));
+        let raw = obj.remove("raw").unwrap_or(json!({}));
+
+        let mut payload = serde_json::Map::new();
+        payload.insert("_variant".to_string(), json!("grok"));
+        payload.insert("meta".to_string(), json!({"agent": "grok"}));
+        for (k, v) in obj {
+            payload.insert(k, v);
+        }
+
+        serde_json::from_value(json!({
+            "specversion": "1.0",
+            "id": "evt-grok-001",
+            "source": "grok://session/sess-grok",
+            "type": "io.arc.event",
+            "time": "2026-07-17T00:16:55Z",
+            "datacontenttype": "application/json",
+            "subtype": subtype,
+            "agent": "grok",
+            "data": {
+                "raw": raw,
+                "seq": seq,
+                "session_id": session_id,
+                "agent_payload": payload,
+            },
+        }))
+        .expect("grok-build test fixture should deserialize")
+    }
+
+    // describe("when event is grok-build message.assistant.text")
+    // Behavior: typed GrokPayload.text must become AssistantMessage content
+    // even when raw is ACP-shaped (no Claude message.content blocks).
+    mod grok_assistant_text {
+        use super::*;
+
+        #[test]
+        fn it_should_surface_typed_payload_text_when_raw_has_no_claude_blocks() {
+            let event = make_grok_event(
+                "message.assistant.text",
+                json!({
+                    "seq": 3,
+                    "session_id": "sess-grok",
+                    "text": "Yes — OpenStory MCP is already connected.",
+                    "model": "grok-4.5",
+                    "raw": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {
+                                    "type": "text",
+                                    "text": "Yes — OpenStory MCP is already connected."
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            let asst = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::AssistantMessage(_)))
+                .expect("expected AssistantMessage");
+            match &asst.body {
+                RecordBody::AssistantMessage(a) => {
+                    let text = a
+                        .content
+                        .iter()
+                        .find_map(|b| match b {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("");
+                    assert_eq!(
+                        text, "Yes — OpenStory MCP is already connected.",
+                        "grok-build assistant text must come from typed payload, got content={:?}",
+                        a.content
+                    );
+                    assert_eq!(a.model, "grok-4.5");
+                }
+                other => panic!("expected AssistantMessage, got {:?}", other),
+            }
+        }
+    }
+
+    // describe("when event is grok-build system.turn.complete with ACP usage")
+    // Grok ACP uses camelCase: inputTokens/outputTokens/cachedReadTokens on
+    // the typed payload of turn_completed → system.turn.complete.
+    mod grok_turn_token_usage {
+        use super::*;
+
+        #[test]
+        fn it_should_emit_token_usage_from_turn_complete_camel_case_fields() {
+            let event = make_grok_event(
+                "system.turn.complete",
+                json!({
+                    "seq": 10,
+                    "session_id": "sess-grok",
+                    "stop_reason": "end_turn",
+                    "token_usage": {
+                        "inputTokens": 36458,
+                        "outputTokens": 313,
+                        "totalTokens": 36771,
+                        "cachedReadTokens": 35456,
+                        "reasoningTokens": 57
+                    },
+                    "raw": {
+                        "method": "_x.ai/session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "turn_completed",
+                                "usage": {
+                                    "inputTokens": 36458,
+                                    "outputTokens": 313,
+                                    "totalTokens": 36771,
+                                    "cachedReadTokens": 35456
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            assert!(
+                records.iter().any(|r| matches!(&r.body, RecordBody::TurnEnd(_))),
+                "expected TurnEnd, got {:?}",
+                records.iter().map(|r| format!("{:?}", r.body)).collect::<Vec<_>>()
+            );
+            let usage = records
+                .iter()
+                .find(|r| matches!(&r.body, RecordBody::TokenUsage(_)))
+                .expect("expected TokenUsage from Grok turn_completed usage");
+            match &usage.body {
+                RecordBody::TokenUsage(tu) => {
+                    assert_eq!(tu.input_tokens, Some(36458));
+                    assert_eq!(tu.output_tokens, Some(313));
+                    assert_eq!(tu.total_tokens, Some(36771));
+                    assert_eq!(tu.cache_read_input_tokens, Some(35456));
+                    assert_eq!(tu.scope, TokenScope::Turn);
+                }
+                other => panic!("expected TokenUsage, got {:?}", other),
+            }
+        }
+    }
+
+    // describe("when event is grok-build tool_use then tool_result")
+    mod grok_tool_call_join {
+        use super::*;
+
+        #[test]
+        fn it_should_preserve_matching_call_id_on_use_and_result() {
+            let use_ev = make_grok_event(
+                "message.assistant.tool_use",
+                json!({
+                    "seq": 4,
+                    "session_id": "sess-grok",
+                    "tool": "read_file",
+                    "tool_call_id": "call-join-42",
+                    "args": {"target_file": "/workspace/demo/src/main.rs"},
+                    "raw": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call"}}}
+                }),
+            );
+            let result_ev = make_grok_event(
+                "message.user.tool_result",
+                json!({
+                    "seq": 5,
+                    "session_id": "sess-grok",
+                    "tool": "read_file",
+                    "tool_call_id": "call-join-42",
+                    "text": "fn main() {}",
+                    "raw": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call_update"}}}
+                }),
+            );
+            let use_recs = from_cloud_event(&use_ev);
+            let res_recs = from_cloud_event(&result_ev);
+            let call_id = match &use_recs[0].body {
+                RecordBody::ToolCall(tc) => {
+                    assert_eq!(tc.name, "read_file");
+                    assert_eq!(tc.call_id, "call-join-42");
+                    tc.call_id.clone()
+                }
+                other => panic!("expected ToolCall, got {:?}", other),
+            };
+            match &res_recs[0].body {
+                RecordBody::ToolResult(tr) => {
+                    assert_eq!(tr.call_id, call_id, "tool_result must join on call_id");
+                    assert_eq!(tr.output.as_deref(), Some("fn main() {}"));
+                }
+                other => panic!("expected ToolResult, got {:?}", other),
+            }
+        }
+    }
+
+    // describe("when event is grok-build message.assistant.thinking")
+    mod grok_assistant_thinking {
+        use super::*;
+
+        #[test]
+        fn it_should_surface_typed_payload_thinking_as_reasoning() {
+            let event = make_grok_event(
+                "message.assistant.thinking",
+                json!({
+                    "seq": 2,
+                    "session_id": "sess-grok",
+                    "text": "The user wants OpenStory MCP — tools are connected.",
+                    "raw": {
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "agent_thought_chunk",
+                                "content": {
+                                    "type": "text",
+                                    "text": "The user wants OpenStory MCP — tools are connected."
+                                }
+                            }
+                        }
+                    }
+                }),
+            );
+            let records = from_cloud_event(&event);
+            assert_eq!(records.len(), 1, "expected one Reasoning record");
+            match &records[0].body {
+                RecordBody::Reasoning(r) => {
+                    assert_eq!(
+                        r.content.as_deref(),
+                        Some("The user wants OpenStory MCP — tools are connected."),
+                        "grok-build thinking must come from typed payload"
+                    );
+                }
+                other => panic!("expected Reasoning, got {:?}", other),
             }
         }
     }

@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use open_story::cloud_event::CloudEvent;
 use open_story::translate::{translate_line, TranscriptFormat, TranscriptState};
 use open_story_core::translate_codex::{is_codex_rollout_format, translate_codex_line};
+use open_story_core::translate_grok::{is_grok_format, translate_grok_line};
 use open_story_core::translate_hermes::{is_hermes_format, translate_hermes_line};
 use open_story_core::translate_pi::{is_pi_mono_format, translate_pi_line};
 use serde_json::{json, Value};
@@ -43,16 +44,19 @@ fn translate_for_format(
 ) -> Vec<CloudEvent> {
     match format {
         TranscriptFormat::Hermes => translate_hermes_line(line, state),
+        TranscriptFormat::Grok => translate_grok_line(line, state),
         TranscriptFormat::Codex => translate_codex_line(line, state),
         TranscriptFormat::PiMono => translate_pi_line(line, state),
         _ => translate_line(line, state),
     }
 }
 
-/// Same detection order as `rs/core/src/reader.rs:101-108`.
+/// Same detection order as `rs/core/src/reader.rs` (Hermes → Grok → Codex → pi → Claude).
 fn detect_format(first_line: &Value) -> TranscriptFormat {
     if is_hermes_format(first_line) {
         TranscriptFormat::Hermes
+    } else if is_grok_format(first_line) {
+        TranscriptFormat::Grok
     } else if is_codex_rollout_format(first_line) {
         TranscriptFormat::Codex
     } else if is_pi_mono_format(first_line) {
@@ -444,4 +448,66 @@ async fn golden_codex_scenario_05_big_output() {
     )
     .await;
     assert_or_update_snapshot("codex_scenario_05_big_output", &actual);
+}
+
+// ── Grok Build golden replays ──
+//
+// Synthetic ACP `updates.jsonl` fixtures from `scripts/gen_grok_fixtures.py`
+// (see `tests/fixtures/grok/PROVENANCE.md`). Freeze Grok's path:
+// updates.jsonl → translate_grok (incl. synthetic system.turn.complete) →
+// four-actor pipeline → broadcast. Parity with Codex/pi-mono goldens.
+
+/// Text-only turn: no tools, thought + answer + turn_completed.
+#[tokio::test]
+async fn golden_grok_scenario_01_text_only() {
+    let actual = capture_snapshot(
+        &fixtures_root().join("grok/scenario_01_text_only.jsonl"),
+        "grok_scenario_01_text_only",
+    )
+    .await;
+    assert_or_update_snapshot("grok_scenario_01_text_only", &actual);
+}
+
+/// Single list_dir apply with in_progress (dropped) + completed + answer.
+#[tokio::test]
+async fn golden_grok_scenario_02_single_tool() {
+    let actual = capture_snapshot(
+        &fixtures_root().join("grok/scenario_02_single_tool.jsonl"),
+        "grok_scenario_02_single_tool",
+    )
+    .await;
+    assert_or_update_snapshot("grok_scenario_02_single_tool", &actual);
+}
+
+/// Multi-tool chain: read_file then run_terminal_command.
+#[tokio::test]
+async fn golden_grok_scenario_03_multi_tool() {
+    let actual = capture_snapshot(
+        &fixtures_root().join("grok/scenario_03_multi_tool.jsonl"),
+        "grok_scenario_03_multi_tool",
+    )
+    .await;
+    assert_or_update_snapshot("grok_scenario_03_multi_tool", &actual);
+}
+
+/// Error recovery: failed read_file then successful read.
+#[tokio::test]
+async fn golden_grok_scenario_04_error_recovery() {
+    let actual = capture_snapshot(
+        &fixtures_root().join("grok/scenario_04_error_recovery.jsonl"),
+        "grok_scenario_04_error_recovery",
+    )
+    .await;
+    assert_or_update_snapshot("grok_scenario_04_error_recovery", &actual);
+}
+
+/// Edit + cargo test — Story verb / ToolOutcome coverage.
+#[tokio::test]
+async fn golden_grok_scenario_05_edit_and_test() {
+    let actual = capture_snapshot(
+        &fixtures_root().join("grok/scenario_05_edit_and_test.jsonl"),
+        "grok_scenario_05_edit_and_test",
+    )
+    .await;
+    assert_or_update_snapshot("grok_scenario_05_edit_and_test", &actual);
 }

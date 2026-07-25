@@ -208,6 +208,33 @@ fn hermes_fixtures_preserve_data_raw_byte_for_byte() {
 }
 
 #[test]
+fn grok_fixtures_preserve_data_raw_byte_for_byte() {
+    let dir = fixtures_dir().join("grok");
+    let files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|_| panic!("read {}", dir.display()))
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|x| x == "jsonl").unwrap_or(false))
+        .collect();
+    assert!(!files.is_empty(), "no grok fixtures under {}", dir.display());
+
+    let mut all_failures: Vec<(PathBuf, String)> = Vec::new();
+    for path in &files {
+        for f in raw_passthrough_failures(path) {
+            all_failures.push((path.clone(), f));
+        }
+    }
+
+    if !all_failures.is_empty() {
+        eprintln!("\n❌ raw-passthrough failures in grok fixtures:");
+        for (path, msg) in &all_failures {
+            eprintln!("  {}: {}", path.file_name().unwrap().to_string_lossy(), msg);
+        }
+        panic!("{} grok raw mutation(s)", all_failures.len());
+    }
+}
+
+#[test]
 fn codex_fixtures_preserve_data_raw_byte_for_byte() {
     let dir = fixtures_dir().join("codex");
     let files: Vec<PathBuf> = match std::fs::read_dir(&dir) {

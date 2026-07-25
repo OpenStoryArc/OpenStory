@@ -550,6 +550,7 @@ async fn main() -> Result<()> {
                 for candidate in [
                     config.claude_watch_dir.clone(),
                     config.codex_watch_dir.clone(),
+                    config.grok_watch_dir.clone(),
                     config.watch_dir.clone(),
                 ] {
                     if !candidate.is_empty() && !config.watch_dirs.contains(&candidate) {
@@ -569,6 +570,13 @@ async fn main() -> Result<()> {
             if config.hermes_watch_dir.is_empty() {
                 if let Ok(v) = std::env::var("OPEN_STORY_HERMES_WATCH_DIR") {
                     config.hermes_watch_dir = v;
+                }
+            }
+
+            // Grok Build watch dir from env var (config.toml also works)
+            if config.grok_watch_dir.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_GROK_WATCH_DIR") {
+                    config.grok_watch_dir = v;
                 }
             }
 

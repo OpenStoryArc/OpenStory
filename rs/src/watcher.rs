@@ -25,6 +25,10 @@ use crate::output::emit_events;
 use crate::paths::{nats_subject_from_path, project_id_from_path, session_id_from_path};
 use crate::reader::read_new_lines;
 use crate::translate::{TranscriptFormat, TranscriptState};
+use open_story_core::translate_grok_l2::{
+    tool_call_id_from_terminal_path, translate_attachment, translate_signals_json,
+    translate_summary_json, translate_terminal_log,
+};
 
 #[derive(Clone)]
 pub struct WatcherObserver {
@@ -80,12 +84,98 @@ fn evict_stale_states(
     }
 }
 
+/// JSONL basenames that are never agent transcripts.
+///
+/// Grok Build sessions keep several JSONL siblings under the session dir
+/// (`chat_history`, `rewind_points`, …). Only `updates.jsonl` is the ACP
+/// stream OpenStory should ingest. Skipping the rest prevents double
+/// session-id collisions and noise.
+fn is_non_transcript_jsonl(path: &Path) -> bool {
+    matches!(
+        path.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+        "chat_history.jsonl"
+            | "rewind_points.jsonl"
+            | "events.jsonl"
+            | "feedback.jsonl"
+            | "prompt_history.jsonl"
+            | "btw_history.jsonl"
+    )
+}
+
+#[cfg(test)]
+mod non_transcript_filter_tests {
+    use super::is_non_transcript_jsonl;
+    use std::path::Path;
+
+    #[test]
+    fn grok_sibling_noise_boundary_table() {
+        // (label, path, is_noise)
+        let cases: Vec<(&str, &str, bool)> = vec![
+            (
+                "updates is the transcript",
+                "/Users/me/.grok/sessions/p/s/updates.jsonl",
+                false,
+            ),
+            (
+                "chat_history noise",
+                "/Users/me/.grok/sessions/p/s/chat_history.jsonl",
+                true,
+            ),
+            (
+                "rewind_points noise",
+                "/Users/me/.grok/sessions/p/s/rewind_points.jsonl",
+                true,
+            ),
+            (
+                "events noise",
+                "/Users/me/.grok/sessions/p/s/events.jsonl",
+                true,
+            ),
+            (
+                "feedback noise",
+                "/Users/me/.grok/sessions/p/s/feedback.jsonl",
+                true,
+            ),
+            (
+                "prompt_history noise",
+                "/Users/me/.grok/sessions/prompt_history.jsonl",
+                true,
+            ),
+            (
+                "claude session file not noise",
+                "/Users/me/.claude/projects/p/abc.jsonl",
+                false,
+            ),
+            (
+                "codex rollout not noise",
+                "/Users/me/.codex/sessions/2026/05/24/rollout-x.jsonl",
+                false,
+            ),
+        ];
+        for (label, path, expected) in cases {
+            assert_eq!(
+                is_non_transcript_jsonl(Path::new(path)),
+                expected,
+                "case `{label}`"
+            );
+        }
+    }
+}
+
 fn process_file_raw_observed(
     path: &Path,
     states: &mut HashMap<PathBuf, TranscriptState>,
     observer: Option<&WatcherObserver>,
 ) -> Result<Vec<CloudEvent>> {
+    // Grok L2 non-JSONL artifacts (terminal logs, summary/signals JSON, images).
+    if is_grok_l2_artifact(path) {
+        return process_grok_l2_artifact(path, states, observer);
+    }
+
     if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return Ok(vec![]);
+    }
+    if is_non_transcript_jsonl(path) {
         return Ok(vec![]);
     }
 
@@ -135,6 +225,129 @@ fn process_file_raw_observed(
     Ok(events)
 }
 
+/// Grok L2: terminal logs, session meta JSON, image/asset attachments.
+fn is_grok_l2_artifact(path: &Path) -> bool {
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if matches!(name, "summary.json" | "signals.json") {
+        return open_story_core::paths::grok_session_id_from_path(path).is_some();
+    }
+    if tool_call_id_from_terminal_path(path).is_some() {
+        return true;
+    }
+    // images/foo.png or assets/bar.png under a Grok session dir
+    if let Some(parent) = path.parent() {
+        let parent_name = parent.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if matches!(parent_name, "images" | "assets") {
+            return open_story_core::paths::grok_session_id_from_path(path).is_some();
+        }
+    }
+    false
+}
+
+/// Process a Grok L2 artifact once per content identity (offset = full file).
+///
+/// Terminal logs: re-read when the file grows (byte_offset tracks size seen).
+/// Summary/signals/images: emit when mtime/size changes (offset 0→len).
+fn process_grok_l2_artifact(
+    path: &Path,
+    states: &mut HashMap<PathBuf, TranscriptState>,
+    observer: Option<&WatcherObserver>,
+) -> Result<Vec<CloudEvent>> {
+    let sid = session_id_from_path(path);
+    if sid == "unknown" || sid.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return Ok(vec![]),
+    };
+    let len = meta.len();
+
+    let canonical = canonicalize_path(path);
+    let grew = !states.contains_key(&canonical);
+    let state = states
+        .entry(canonical.clone())
+        .or_insert_with(|| TranscriptState::new(sid.clone()));
+    state.session_id = sid.clone();
+
+    // Incremental for append-only terminal logs; snapshot files re-emit on growth only.
+    if len <= state.byte_offset {
+        return Ok(vec![]);
+    }
+    let byte_offset_before = state.byte_offset;
+
+    let mut events = Vec::new();
+    let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+    if let Some(tool_call_id) = tool_call_id_from_terminal_path(path) {
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        // Emit one event for the full content at this size (stable id includes content hash).
+        let ev = translate_terminal_log(&sid, &tool_call_id, path, &content, state.next_seq());
+        events.push(ev);
+        state.byte_offset = len;
+    } else if name == "summary.json" {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Ok(value) = serde_json::from_str(&text) {
+                events.push(translate_summary_json(&sid, &value, state.next_seq()));
+                state.byte_offset = len;
+            }
+        }
+    } else if name == "signals.json" {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Ok(value) = serde_json::from_str(&text) {
+                events.push(translate_signals_json(&sid, &value, state.next_seq()));
+                state.byte_offset = len;
+            }
+        }
+    } else if let Some(parent) = path.parent() {
+        let parent_name = parent.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if matches!(parent_name, "images" | "assets") {
+            let rel = format!("{parent_name}/{}", name);
+            events.push(translate_attachment(
+                &sid,
+                &rel,
+                path,
+                len,
+                state.next_seq(),
+            ));
+            state.byte_offset = len;
+        }
+    }
+
+    if let Some(observer) = observer {
+        let subtypes = events
+            .iter()
+            .filter_map(|event| event.subtype.clone())
+            .collect::<Vec<_>>();
+        observer.diagnostics.record_file(
+            &observer.actor,
+            FileProcessObservation {
+                path: path.to_path_buf(),
+                canonical_path: canonical,
+                byte_offset_before,
+                byte_offset_after: state.byte_offset,
+                line_count_before: 0,
+                line_count_after: events.len() as u64,
+                format: "grok-l2".to_string(),
+                events_emitted: events.len(),
+                subtypes,
+            },
+        );
+        metrics::record_watcher_file_processed(
+            &observer.actor,
+            events.len() as u64,
+            state.byte_offset == byte_offset_before,
+        );
+    }
+
+    if grew {
+        evict_stale_states(states, MAX_WATCH_STATES, WATCH_STATES_LOW_WATER);
+    }
+
+    Ok(events)
+}
+
 fn process_watch_path_raw(
     path: &Path,
     states: &mut HashMap<PathBuf, TranscriptState>,
@@ -155,7 +368,12 @@ fn process_watch_path_raw_observed(
             .filter_map(|entry| entry.ok())
         {
             let candidate = entry.path();
-            if candidate.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            let is_jsonl = candidate.extension().and_then(|e| e.to_str()) == Some("jsonl");
+            if is_jsonl {
+                if is_non_transcript_jsonl(candidate) {
+                    continue;
+                }
+            } else if !is_grok_l2_artifact(candidate) {
                 continue;
             }
             let events = process_file_raw_observed(candidate, states, observer)?;
@@ -181,6 +399,7 @@ fn transcript_format_label(format: &TranscriptFormat) -> &'static str {
         TranscriptFormat::Codex => "codex",
         TranscriptFormat::PiMono => "pi-mono",
         TranscriptFormat::Hermes => "hermes",
+        TranscriptFormat::Grok => "grok",
     }
 }
 
@@ -227,7 +446,8 @@ pub fn backfill(
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+        let is_jsonl = path.extension().and_then(|e| e.to_str()) == Some("jsonl");
+        if is_jsonl || is_grok_l2_artifact(path) {
             let events = process_file(path, states, output_file, stdout)?;
             total += events.len() as u64;
         }
@@ -285,7 +505,11 @@ where
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            let is_jsonl = path.extension().and_then(|e| e.to_str()) == Some("jsonl");
+            if !is_jsonl && !is_grok_l2_artifact(path) {
+                continue;
+            }
+            if is_jsonl && is_non_transcript_jsonl(path) {
                 continue;
             }
             files_seen += 1;
