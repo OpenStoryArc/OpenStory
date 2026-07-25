@@ -6,11 +6,12 @@ dashboard gave its own narrated tour.*
 ## What happened
 
 An agent drove the OpenStory dashboard through its **control seam** — the
-same write path any MCP/operator agent uses — while narrating aloud through
+attention layer for showing/navigating history (not a second product;
+mission remains *read your agent history*) — while narrating aloud through
 macOS text-to-speech. Nothing touched the DOM; the UI is a pure sink that
 reacts to `control` messages broadcast over its WebSocket, and every drive is
-visibly attributed ("driven by ui-tour") so the human can always seize the
-wheel by simply navigating.
+visibly attributed ("driven by ui-tour") so attention can always be seized
+by simply navigating.
 
 ## The moving parts
 

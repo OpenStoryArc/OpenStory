@@ -1,6 +1,6 @@
 # Patterns
 
-What we've learned works — and what doesn't — from building Open Story.
+What we've learned works — and what doesn't — from building Open Story to **read agent history** without interfering.
 
 ## Patterns that work
 
@@ -86,7 +86,7 @@ Two examples in this codebase:
 - **`scripts/sessionstory.py`** exposed a vocabulary collision between two existing analysis scripts: one counted "turn" as `system.turn.complete` events (63 in a sample session), the other counted "turn" as user-prompt windows (155 in the same session). Both scripts called the variable "Turn N". Reading either script in isolation gave you a coherent picture. Comparing them surfaced the lie. Filed in BACKLOG as "Turn Vocabulary Collision".
 - **`scripts/check_docs.py`** caught that four docs (`README.md`, `CLAUDE.md`, `architecture-tour.md`, `soul/architecture.md`) all claimed "9 crates" while `rs/Cargo.toml`'s workspace `members` array had 8. The orphaned 9th crate (`rs/semantic/`) existed on disk with its own `Cargo.toml` but was never wired into the workspace. Every doc was internally consistent with every other doc. None of them were consistent with the build. Filed in BACKLOG as "Remove Orphaned Semantic Crate".
 
-The principle: **OpenStory exists because the agent's internal narrative isn't the same as what the agent actually does.** Applied inward, the same principle says: the project's internal narrative isn't the same as what the project actually is. Internal consistency is not truth. Mechanical comparison against the source-of-truth side (the code, the build, the filesystem) is the only thing that catches it.
+The principle: **you read agent history because the agent's internal narrative isn't the same as what the agent actually did.** Applied inward, the same principle says: the project's internal narrative isn't the same as what the project actually is. Internal consistency is not truth. Mechanical comparison against the source-of-truth side (the code, the build, the filesystem) is the only thing that catches it.
 
 How to apply it:
 

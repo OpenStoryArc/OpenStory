@@ -1,17 +1,17 @@
 # Open Story Architecture Tour
 
-A guided walkthrough of the open-story codebase. Open this with Claude Code and follow along — read each file, ask questions, and build your mental model step by step.
+A guided walkthrough of the open-story codebase for **contributors** (not the install path). Product quickstart: [root README](../README.md#quickstart). Beliefs first: [soul/philosophy.md](soul/philosophy.md).
 
-**How to use this tour:** Open Claude Code in the project directory and say:
+**How to use this tour:** In the project directory:
 > "I'm reading docs/architecture-tour.md — let's start at Stop 1."
 
-Claude will read the referenced files and explain them. Ask questions at any stop before moving on.
+Read each referenced file, ask questions at any stop, then move on.
 
 ---
 
 ## The Big Picture
 
-Open Story is a **real-time observer** for AI coding agents. It watches what coding agents do — every tool call, every file edit, every decision — and surfaces it in a live dashboard. It never interferes with the agent. It just watches.
+Open Story's mission is **read your agent history**. Coding agents already write transcripts; Open Story makes that history legible — live, mid-session, and after — in the dashboard and store. Constraint: **observe, never interfere**. It never writes back to the agent.
 
 ```
                     ┌────────────────── NATS JetStream ──────────────────┐
@@ -470,9 +470,9 @@ cd e2e && npx playwright test          # E2E (~70 tests)
 
 ---
 
-## Stop 15: Using OpenStory as an agent
+## Stop 15: Reading history while you work
 
-If you're an AI agent working in this repo, OpenStory is *for you* as much as it is for the human. You should be using it to answer questions about past sessions, not grepping transcript files. The principle is **dogfood the API** — every observation about session behavior should come from the live REST API or from a script that reads it.
+OpenStory is for reading agent history — including history produced in this repo. Use it to answer questions about past sessions, not grepping transcript files. The principle is **dogfood the API** — every observation about session behavior should come from the live REST API or from a script that reads it.
 
 ### The first thing to reach for: `scripts/sessionstory.py`
 
@@ -487,7 +487,7 @@ python3 scripts/sessionstory.py --list                # list recent sessions
 
 `sessionstory.py` is the entry point for "what happened in this session." It hits three endpoints (`/api/sessions`, `/api/sessions/{id}/records`, `/api/sessions/{id}/patterns`), aggregates them deterministically, and emits a structured fact sheet — record-type histogram, tool histogram, eval-apply patterns, turn phases, verbatim sample sentences from the `turn.sentence` detector, and a noise-filtered prompt timeline. **It does not narrate.** Narration is the model's job; the script provides the facts.
 
-There's a Claude Code skill at `.claude/skills/sessionstory/SKILL.md` that documents the full collect-then-narrate workflow. Project-level skills travel with the repo, so any agent in this directory can invoke it.
+There's a Claude Code skill at `.claude/skills/sessionstory/SKILL.md` that documents the full collect-then-narrate workflow. Project-level skills travel with the repo, so anything working in this directory can invoke them.
 
 ### REST API directly
 
@@ -518,7 +518,7 @@ When you change docs or architecture, run `scripts/check_docs.py` to verify the 
 
 ### The principle
 
-OpenStory exists so humans can see what their agents are actually doing. **Applied inward, the same principle says: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
+**Mission:** read your agent history. **Applied inward: give yourself visibility into what the codebase actually is, not what it claims.** If a script exists that answers your question, run it. If one doesn't, write it (and add a `--test` flag). Don't grep transcript files when there's an API. Don't assume the docs are right — verify.
 
 ---
 

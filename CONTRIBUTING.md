@@ -2,19 +2,26 @@
 
 ## What this project believes
 
-Open Story gives humans full visibility into AI coding agent behavior, in real time. It watches but never interferes — a mirror, not a leash. The data is yours, in open formats, portable and unencumbered.
+**Mission:** read your agent history.  
+**Constraint:** observe, never interfere.
 
-Read [docs/soul/philosophy.md](docs/soul/philosophy.md) before contributing. Then read [docs/soul/use-cases.md](docs/soul/use-cases.md) to see each principle demonstrated in real code. These are more important than the code.
+Open Story makes agent transcripts legible — live, mid-session, and after. It is a mirror, not a leash: it never writes back to the agent, never modifies transcripts, never blocks execution. The data is yours, in open formats, portable and unencumbered.
+
+**Doc paths:**
+- **Run the product:** [README quickstart](README.md#quickstart)
+- **Full doc map:** [docs/README.md](docs/README.md)
+- **Before you design:** [docs/soul/philosophy.md](docs/soul/philosophy.md) then [use-cases](docs/soul/use-cases.md) — more important than the code for scope decisions
 
 ## Non-negotiables
 
 These are hard boundaries, not suggestions. PRs that violate them will be declined.
 
-1. **Observe, never interfere** — No features that write back to the agent, modify transcripts, or block execution
-2. **BDD** — No production code without a failing spec first
-3. **Functional purity in core** — Side effects at the edges only. Core crates (core, views, patterns) have no I/O dependencies.
-4. **Open formats** — CloudEvents 1.0, JSONL, Markdown. No proprietary formats.
-5. **Atomic documentation** — Code and docs change together in the same commit
+1. **Mission fit** — Does this help read agent history without rewriting the agent? If not, it doesn't belong here.
+2. **Observe, never interfere** — No features that write back to the agent, modify transcripts, or block execution
+3. **BDD** — No production code without a failing spec first
+4. **Functional purity in core** — Side effects at the edges only. Core crates (core, views, patterns) have no I/O dependencies.
+5. **Open formats** — CloudEvents 1.0, JSONL, Markdown. No proprietary formats.
+6. **Atomic documentation** — Code and docs change together in the same commit
 
 ## Mistakes we've already made
 

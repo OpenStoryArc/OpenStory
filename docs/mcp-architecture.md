@@ -1,15 +1,25 @@
 # MCP Server Architecture
 
-*How the agent-facing edge of OpenStory works — and why you can trust it.*
+*How `open-story-mcp` works — and why you can trust it.*
+
+**Start here if you only need install + wire-up:** [README — Using Open Story](../README.md#using-open-story). This page is the trust model, tool surface, and source citations.
 
 ## What it is
 
 `open-story-mcp` is a small, single-binary [Model Context Protocol](https://modelcontextprotocol.io/)
-server that lets a coding agent query and watch **its own** OpenStory history.
-It is the agent-facing edge of the system: where the dashboard is for humans,
-the MCP is for the agent. An agent wired to it can answer "what did I do
-yesterday?", "have I hit this error before?", "what did this cost?", and "watch
-this session as it unfolds" — all from your own session store, all read-only.
+server that exposes OpenStory history over MCP — the same store the dashboard and
+REST API use. It is how a session **reads itself across the whens**: *is writing*
+(`subscribe_session`, `subscribe_tokens` — watch this session as it unfolds),
+*has written* (story, transcript, sentences, patterns mid-session), *wrote*
+(search, list, cost, “what did I do yesterday?”). One surface among several for
+the same mission (**read your agent history**); all from your own store; all
+read-only on history.
+
+**Attention layer (not a second mission):** `ui_control`, `where_is_user`, and
+`subscribe_ui_state` steer the dashboard to show or navigate that history —
+shared attention, tours, focus. They author `ui.*` only, never `events.*`. Aligned
+when pointing at history; not co-equal with reading it. Full seam:
+[`docs/agent-in-ui.md`](agent-in-ui.md).
 
 The crate lives at `rs/mcp/` and ships the `open-story-mcp` binary
 (`rs/mcp/Cargo.toml:8`). It is a first-class member of the Rust workspace, built
