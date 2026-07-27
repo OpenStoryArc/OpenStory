@@ -139,10 +139,24 @@ Two distinct paths, two distinct dependencies:
 
 ## The tool catalog
 
-The tool surface is a static table (`rs/mcp/src/tools/mod.rs:33-184`); the
-dispatcher matches `tools/call` names against it
-(`rs/mcp/src/tools/mod.rs:218-248`). There are **21 tools** — 19 query tools and
-2 streaming tools.
+The tool surface is a static table (`rs/mcp/src/tools/mod.rs`); the
+dispatcher matches `tools/call` names against it. There are **26 tools** —
+including `navigate_to` (click-parity hand: any event / canvas graph),
+`openstory_help` (in-band curriculum), the agent-in-UI seam (`ui_control`,
+`where_is_user`, `subscribe_ui_state`), history/analytics query tools, and
+streaming `subscribe_session` / `subscribe_tokens`.
+
+**Agent-facing body schema (no git repo required):** `initialize.instructions`
+lists motions; `resources/list` + `resources/read` serve embedded docs
+(`openstory://docs/hands`, `physics`, `agent-in-ui`, examples under
+`rs/mcp/agent-docs/`); `openstory_help` routes need/topic → the same curriculum.
+
+### Curriculum + attention (no history mutation)
+
+| Tool | What it returns |
+|------|-----------------|
+| `openstory_help` | In-band body schema: `{ need?, topic? }` → motion/tool cards + resource URIs. Pure; no HTTP. |
+| `navigate_to` | Click-parity: `{ kind, id, sessionId?, canvasMode?, details? }` → dashboard plans multi-step drive (any event, any canvas mode + session select). |
 
 ### Query tools (REST, via `HttpEventStore` / `HttpPlanSource`)
 
@@ -216,7 +230,7 @@ have no NATS, that is the one rough edge to know about today.
 The MCP is built to the same soul as the rest of OpenStory — *observe, never
 interfere* — and the code makes that auditable:
 
-- **Read-only by construction.** All 19 query tools go through `HttpEventStore`,
+- **Read-only by construction.** History query tools go through `HttpEventStore`,
   whose write methods are unimplemented errors
   (`rs/mcp/src/http_store.rs:357-382`). The streaming tools only `subscribe`
   (`rs/mcp/src/stdio.rs:170`, `:250`). There is no write path.

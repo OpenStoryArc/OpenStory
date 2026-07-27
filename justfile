@@ -31,6 +31,14 @@ test-rs:
 test-ui:
     cd ui && npm test -- --run
 
+# Attention / click-parity pure algebra tests
+test-attention:
+    cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts
+
+# Live land survey (needs :3002 + :5173). ActionGraph edges + canvas modes.
+nav-path:
+    node scripts/nav_path.mjs
+
 # Open Vitest UI — interactive test browser for UI specs
 test-ui-dev:
     cd ui && npx vitest --ui

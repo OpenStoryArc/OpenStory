@@ -13,6 +13,7 @@
 
 pub mod analytics;
 pub mod control;
+pub mod help;
 pub mod per_session;
 pub mod projects;
 pub mod search;
@@ -32,190 +33,215 @@ pub struct ToolDef {
 /// The static tool surface. `tools/list` serializes this; `tools/call`
 /// matches names against it.
 pub const TOOLS: &[ToolDef] = &[
+    // In-band curriculum (no store) — agents without resources/read still get hands.
+    ToolDef {
+        name: "openstory_help",
+        description: "WHEN: you are stuck or need the body schema without reading the repo. \
+                      MOTION: stuck / any. CALL: { need?: orient|what-touched|find|cost|live|show-human, \
+                      topic?: hands|physics|ui|session_story|… }. \
+                      RETURNS: markdown card + resource URIs (no store I/O). \
+                      NEXT: call the suggested tools; resources/read openstory://docs/hands for full curriculum. \
+                      LAW: history is read-only; sentences are projections not intent.",
+        input_schema: help::openstory_help_schema,
+    },
     // Agent-in-UI WRITE seam — drive the dashboard (never the observed sources).
     ToolDef {
+        name: "navigate_to",
+        description: "WHEN: put attention on ANY event, session, file, or canvas graph (primary click-parity hand). \
+                      MOTION: show-human. CALL: { kind, id?, sessionId?, eventId?, view?, details?, canvasMode?, spotlight? }. \
+                      kind=event + sessionId → focus that event (story/explore); details:true expands sentence depth. \
+                      kind=session → open explore/story; canvasMode → open that chart then select session. \
+                      kind=canvas + canvasMode → switch graph mode; + sessionId → click that session on the chart. \
+                      kind=file|person|project → search/filter. \
+                      RETURNS: {ok, delivered, ui_state, hint}. Steers ui.* only. \
+                      NEXT: where_is_user. Prefer this over assembling ui_control steps by hand.",
+        input_schema: control::navigate_to_schema,
+    },
+    ToolDef {
         name: "ui_control",
-        description: "Drive the OpenStory dashboard live (the agent-in-UI WRITE seam): steer what every open \
-                      dashboard SHOWS — never the observed sources. Broadcasts to all connected dashboards. \
-                      Args: action + params. Verbs: open_view | focus_event | present | announce | highlight | \
-                      query | filter | set_filter | toggle | set. Examples: \
-                      {action:'open_view', params:{route:'#/explore/SES/conversation?agent=grok'}} — any hash; \
-                      {action:'open_view', params:{view:'explore', sessionId, detailView:'conversation'}} — structured; \
-                      {action:'focus_event', params:{sessionId, eventId, spotlight:true}} — full-screen event; \
-                      {action:'present', params:{message:'…', spotlight:true}} — title card; \
-                      {action:'query', params:{agent:'grok', range:'7d'}} — fleet filters; \
-                      {action:'toggle', params:{target:'canvas.mode', value:'delegation'}} — view knob; \
-                      {action:'set', params:{target:'scatter.brush', ev0:10, ev1:100}}. \
-                      Returns {ok, delivered}. Pair with where_is_user to confirm the drive. \
-                      Docs: resources/read openstory://docs/agent-in-ui.",
+        description: "WHEN: low-level dashboard drive (or navigate_to is not enough). MOTION: show-human. \
+                      CALL: { action, params }. Verbs: open_view | focus_event | navigate_to | present | query | toggle | set. \
+                      Prefer navigate_to for events/graphs. set canvas.select_session {sessionId} = chart click. \
+                      set story.details {open, sessionId, eventId}. toggle canvas.mode. \
+                      RETURNS: {ok, delivered}. NEXT: where_is_user. Docs: openstory://docs/agent-in-ui.",
         input_schema: control::ui_control_schema,
     },
     ToolDef {
         name: "subscribe_ui_state",
-        description: "STREAMING. Live-follow WHERE THE USER IS in the dashboard (the READ half of the \
-                      agent-in-UI seam): emits a ui_state notification each time the user navigates/clicks, \
-                      shaped like where_is_user ({present, view, session_id?, event_id?, detail_view?, filters?, summary}). \
-                      No args. Subscribes to the authored ui.* stream — never the observed sources. \
-                      Pair with ui_control to drive FROM where the user just moved (follow → act in their context).",
+        description: "WHEN: live-follow the human on the dashboard. MOTION: show-human. STREAMING. \
+                      CALL: {} (no args). Emits notifications/openstory/ui_state (same shape as where_is_user). \
+                      Subscribes to authored ui.* only — never observed events.*. \
+                      NEXT: ui_control from where they just moved. Docs: openstory://docs/agent-in-ui.",
         input_schema: control::where_is_user_schema,
     },
     ToolDef {
         name: "where_is_user",
-        description: "Read where the user is right now in the dashboard (the agent-in-UI READ seam): \
-                      returns {present, view, kind, session_id?, event_id?, detail_view?, file_path?, \
-                      filters?, user_filter?, time_filter?, search_query?, spotlight?, present_message?, at, summary}. \
-                      No args. Pair with ui_control to drive FROM where the user is (e.g. see they're on a \
-                      session's conversation tab, then focus_event a peak moment). For a live feed, use subscribe_ui_state.",
+        description: "WHEN: follow the human before/after driving the UI. MOTION: show-human. \
+                      CALL: {} (no args). RETURNS: {present, view, session_id?, event_id?, detail_view?, \
+                      filters?, summary, …}. NEXT: ui_control from that context; subscribe_ui_state for live. \
+                      Prefer driving when the user is idle (tempo on GET /api/ui-state).",
         input_schema: control::where_is_user_schema,
     },
     // Query tools (routed through dispatch_query_tool).
     ToolDef {
         name: "list_sessions",
-        description: "List coding sessions with optional filters. \
-                      Args: days (window in days back from now), project, limit (max rows, default 100), after \
-                      (ISO-8601, only sessions with last_event >= after). \
-                      Returns a trim shape (id, label, project_id, project_name, start, last_event, event_count) — \
-                      use session_synopsis for full per-session data.",
+        description: "WHEN: find sessions to inspect / resume. MOTION: orient. \
+                      CALL: { days?, project?, limit?, after? }. \
+                      RETURNS: trim rows (id, label, project, times, event_count). \
+                      NEXT: session_story | session_synopsis on a chosen id.",
         input_schema: sessions::list_sessions_schema,
     },
     ToolDef {
         name: "session_synopsis",
-        description: "Structured overview of one session: counts, time range, top tools. \
-                      First tool to call when investigating a specific session id.",
+        description: "WHEN: quick structured overview of one session. MOTION: orient. \
+                      CALL: { session_id }. RETURNS: counts, time range, top tools. \
+                      NEXT: session_story for the full fact sheet.",
         input_schema: sessions::session_synopsis_schema,
     },
     ToolDef {
         name: "project_pulse",
-        description: "Activity summary across projects over a window. \
-                      Args: days (default 7). Returns project_id, project_name, session_count, \
-                      event_count, last_activity per project.",
+        description: "WHEN: activity across projects over a window. MOTION: orient (fleet). \
+                      CALL: { days? default 7 }. RETURNS: per-project session/event counts. \
+                      NEXT: list_sessions | project_context.",
         input_schema: sessions::project_pulse_schema,
     },
     // Per-session detail tools.
     ToolDef {
         name: "tool_journey",
-        description: "Tool-call sequence for a session, in timestamp order. \
-                      Each entry: {tool, file, timestamp}.",
+        description: "WHEN: chronological tool sequence for a session. MOTION: what-touched. \
+                      CALL: { session_id }. RETURNS: {tool, file, timestamp}[]. \
+                      NEXT: file_impact | session_story.",
         input_schema: per_session::tool_journey_schema,
     },
     ToolDef {
         name: "file_impact",
-        description: "Files read or written in a session, with per-file read/write counts. \
-                      Sorted by total operations.",
+        description: "WHEN: which files were read/written in a session. MOTION: what-touched. \
+                      CALL: { session_id }. RETURNS: per-file read/write counts (sorted). \
+                      NEXT: session_sentences | search path across fleet.",
         input_schema: per_session::file_impact_schema,
     },
     ToolDef {
         name: "session_errors",
-        description: "Error events from a session (system.error subtype). \
-                      Each entry: {timestamp, message}.",
+        description: "WHEN: error events in a session. MOTION: find / orient. \
+                      CALL: { session_id }. RETURNS: {timestamp, message}[] system.error. \
+                      NEXT: search for the message across fleet.",
         input_schema: per_session::session_errors_schema,
     },
     ToolDef {
         name: "session_patterns",
-        description: "Detected patterns for a session. Optional `pattern_type` arg \
-                      filters (e.g., turn.sentence, eval_apply.eval, git.workflow).",
+        description: "WHEN: raw detected patterns (eval-apply, sentences, …). MOTION: what-touched. \
+                      CALL: { session_id, pattern_type? e.g. turn.sentence }. \
+                      RETURNS: pattern list. NEXT: session_sentences for SVO projection view. \
+                      LIMITS: may be empty without turn boundaries — see openstory://docs/physics.",
         input_schema: per_session::session_patterns_schema,
     },
     ToolDef {
         name: "session_sentences",
-        description: "Narrative sentences extracted from a session's turn.sentence \
-                      patterns. Each carries verb/object/human_prompt for agent-level \
-                      'what was the agent doing' reasoning.",
+        description: "WHEN: turn-level SVO coordinates of what tools did. MOTION: what-touched / orient. \
+                      CALL: { session_id }. RETURNS: verb/object/human_prompt from turn.sentence \
+                      (deterministic projection — NOT an intent label or monologue). \
+                      NEXT: session_story | file_impact. \
+                      LIMITS: empty if no turn.complete / turn boundaries — try session_activity.",
         input_schema: per_session::session_sentences_schema,
     },
     ToolDef {
         name: "session_plans",
-        description: "List `/plan` documents written during a session, newest first. \
-                      Each: {id, session_id, title, timestamp}.",
+        description: "WHEN: /plan documents from a session. MOTION: orient. \
+                      CALL: { session_id }. RETURNS: {id, session_id, title, timestamp}[]. \
+                      NEXT: session_story.",
         input_schema: per_session::session_plans_schema,
     },
     ToolDef {
         name: "session_transcript",
-        description: "Reconstructed message-like transcript of a session. \
-                      Args: assistant_only (default false), limit (default 500). \
-                      Entries: {role, content, time, id}.",
+        description: "WHEN: reconstructed message transcript (heavier than story). MOTION: orient. \
+                      CALL: { session_id, assistant_only?, limit? }. RETURNS: {role, content, time, id}[]. \
+                      NEXT: prefer session_story first to avoid dumping the territory.",
         input_schema: per_session::session_transcript_schema,
     },
     ToolDef {
         name: "session_activity",
-        description: "Rich single-shot activity summary: first_prompt, files_touched, \
-                      tool_breakdown, error_messages, last_response, conversation_turns, \
-                      plan_count, duration_ms, start_time. Lower-level than session_story.",
+        description: "WHEN: rich single-shot activity without full story shape. MOTION: orient. \
+                      CALL: { session_id }. RETURNS: first_prompt, files_touched, tool_breakdown, \
+                      errors, duration, …. NEXT: session_story if available; fallback when sentences empty.",
         input_schema: per_session::session_activity_schema,
     },
     // Search tools.
     ToolDef {
         name: "search",
-        description: "Full-text search across indexed events. Args: query (FTS5 syntax), \
-                      limit (default 10), session_id (optional scope). Returns raw FTS hits.",
+        description: "WHEN: full-text find across events. MOTION: find. \
+                      CALL: { query, limit?, session_id? }. RETURNS: raw FTS hits. \
+                      NEXT: session_story on hit sessions; agent_search for session-grouped ranking.",
         input_schema: search::search_schema,
     },
     ToolDef {
         name: "agent_search",
-        description: "FTS results grouped by session, agent-friendly. Args: query, \
-                      project (optional, case-insensitive substring), limit (default 5). \
-                      Returns top sessions by best_rank with matching events per session.",
+        description: "WHEN: find across fleet, grouped by session (agent-friendly). MOTION: find. \
+                      CALL: { query, project?, limit? }. RETURNS: top sessions by rank + matching events. \
+                      NEXT: session_story on a hit session_id.",
         input_schema: search::agent_search_schema,
     },
     // Project-scoped tools.
     ToolDef {
         name: "project_context",
-        description: "Recent sessions for a project. Args: project (id), limit (default 5).",
+        description: "WHEN: recent sessions for one project. MOTION: orient. \
+                      CALL: { project, limit? }. RETURNS: recent session rows. \
+                      NEXT: session_story.",
         input_schema: projects::project_context_schema,
     },
     ToolDef {
         name: "recent_files",
-        description: "Files touched in the most recent sessions of a project. \
-                      Args: project (id), session_limit (default 5).",
+        description: "WHEN: files touched in a project's recent sessions. MOTION: what-touched. \
+                      CALL: { project, session_limit? }. RETURNS: file list. \
+                      NEXT: file_impact on a session | search path.",
         input_schema: projects::recent_files_schema,
     },
     // Analytics tools.
     ToolDef {
         name: "token_usage",
-        description: "Aggregated token usage with cost estimate. Args: days (optional), \
-                      session_id (optional scope), model (sonnet/opus/haiku, default sonnet). \
-                      Includes prompt-cache fields (cache_creation, cache_read) — the silent \
-                      4-5-order-of-magnitude undercount that PR #55 fixed at the views layer.",
+        description: "WHEN: aggregated token spend / cache. MOTION: cost. \
+                      CALL: { days?, session_id?, model? }. RETURNS: usage + cost estimate (incl. cache). \
+                      NEXT: daily_token_usage for trends.",
         input_schema: analytics::token_usage_schema,
     },
     ToolDef {
         name: "daily_token_usage",
-        description: "Per-day token usage over a window. Args: days (default 7). \
-                      Returns one entry per UTC date with the same TokenUsage shape.",
+        description: "WHEN: per-day token spend over a window. MOTION: cost. \
+                      CALL: { days? default 7 }. RETURNS: one TokenUsage-shaped row per UTC date. \
+                      NEXT: token_usage for session scope.",
         input_schema: analytics::daily_token_usage_schema,
     },
     ToolDef {
         name: "productivity",
-        description: "Hourly activity density: event counts per hour-of-day (0–23) \
-                      over a window. Args: days (default 30).",
+        description: "WHEN: hourly activity density. MOTION: orient (fleet rhythm). \
+                      CALL: { days? default 30 }. RETURNS: event counts per hour-of-day 0–23.",
         input_schema: analytics::productivity_schema,
     },
     // Narrative tool.
     ToolDef {
         name: "session_story",
-        description: "Structured fact-sheet for a session — record types, tool histogram, \
-                      pattern counts, turn-phase mix, sample sentences (verb/object), \
-                      opening + closing prompts, duration. Native Rust port of \
-                      scripts/sessionstory.py; same JSON schema.",
+        description: "WHEN: best single fact sheet for a session (prefer before full transcript). \
+                      MOTION: orient. CALL: { session_id }. \
+                      RETURNS: record types, tool histogram, pattern counts, sample sentences \
+                      (verb/object projections), opening+closing prompts, duration. \
+                      NEXT: session_sentences | tool_journey | session_errors. \
+                      NOT: an LLM interpretation of intent.",
         input_schema: story::session_story_schema,
     },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
         name: "subscribe_session",
-        description: "Subscribe to a session's events as they happen. \
-                      Returns {stream_id, status: 'started'} immediately; subsequent \
-                      `notifications/openstory/stream` messages carry events tagged \
-                      with stream_id. Cancel via `notifications/cancelled`.",
+        description: "WHEN: watch a session live as events land. MOTION: live. \
+                      CALL: { session_id }. RETURNS: {stream_id, status:started} then \
+                      notifications/openstory/stream. Cancel via notifications/cancelled. \
+                      Read-only observation stream.",
         input_schema: subscribe_session_schema,
     },
     ToolDef {
         name: "subscribe_tokens",
-        description: "Self-reflective token watcher. Subscribes to a session and streams \
-                      a running token tally (input, output, cache_read, cache_create) per \
-                      assistant message. Useful for an agent to watch its own context \
-                      consumption. Emits `notifications/openstory/tokens` with delta + \
-                      running total. Cancel via `notifications/cancelled`.",
+        description: "WHEN: watch running token tally for a session (self-reflection). MOTION: live. \
+                      CALL: { session_id }. RETURNS: started then notifications/openstory/tokens \
+                      (input/output/cache). Cancel via notifications/cancelled.",
         input_schema: subscribe_session_schema,
     },
 ];
@@ -258,6 +284,8 @@ pub async fn dispatch_query_tool<S: Subscribe>(
     args: Value,
 ) -> Value {
     let result: Result<Value, String> = match name {
+        "openstory_help" => help::openstory_help(args),
+        "navigate_to" => control::navigate_to(&server.api_base, args).await,
         "ui_control" => control::ui_control(&server.api_base, args).await,
         "where_is_user" => control::where_is_user(&server.api_base, args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,

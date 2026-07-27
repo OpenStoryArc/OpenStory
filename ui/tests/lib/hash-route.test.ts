@@ -117,6 +117,52 @@ describe("explore — bookmarkable filter state (query tail on any explore route
   });
 });
 
+describe("story expand flags — details / eval / events / apply", () => {
+  it("round-trips details + eval + events + apply indices", () => {
+    const route: HashRoute = {
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyEventsOpen: true,
+      storyApplyOpen: [0, 2],
+    };
+    const hash = buildHash(route);
+    expect(hash).toContain("details=1");
+    expect(hash).toContain("eval=1");
+    expect(hash).toContain("events=1");
+    expect(hash).toContain("apply=0%2C2") || expect(hash).toContain("apply=0,2");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("parses apply=all as full apply expand", () => {
+    expect(
+      parseHash("#/story/SES/event/EVT?details=1&eval=1&apply=all"),
+    ).toMatchObject({
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyApplyOpen: "all",
+    });
+  });
+
+  it("buildHash writes apply=all", () => {
+    expect(
+      buildHash({
+        view: "story",
+        sessionId: "S",
+        eventId: "E",
+        storyDetails: true,
+        storyEvalOpen: true,
+        storyApplyOpen: "all",
+      }),
+    ).toMatch(/apply=all/);
+  });
+});
+
 describe("legacy #/overview links — parse-time alias onto Explore", () => {
   it("lands a bare #/overview on the Explore tab", () => {
     expect(parseHash("#/overview")).toEqual({ view: "explore" });

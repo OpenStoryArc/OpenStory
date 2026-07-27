@@ -53,6 +53,16 @@ export const CONTROL_TARGETS: Readonly<Record<string, ControlTargetDef>> = {
     description: "Ascend one level in canvas drill path",
     actions: ["toggle"],
   },
+  "canvas.select_session": {
+    description:
+      "Open a session from any canvas chart (same as clicking a bar/dot/cell). set { sessionId }",
+    actions: ["set"],
+  },
+  "canvas.flow.agent": {
+    description: "Tool-flow chart agent filter (same as tapping an agent chip). set { agent }",
+    actions: ["set"],
+  },
+
   "heatmap.dim": {
     description: "Heatmap 2D vs 3D",
     values: ["2d", "3d"],
@@ -66,6 +76,11 @@ export const CONTROL_TARGETS: Readonly<Record<string, ControlTargetDef>> = {
     description: "Story session list sort",
     values: ["latest", "active", "tokens"],
     actions: ["toggle"],
+  },
+  "story.details": {
+    description:
+      "Expand ▾ details on a Story turn card (sentence depth). set { open: true, sessionId, eventId } → hash ?details=1",
+    actions: ["set", "toggle"],
   },
   "ask.question": {
     description: "Select an Ask view question id",

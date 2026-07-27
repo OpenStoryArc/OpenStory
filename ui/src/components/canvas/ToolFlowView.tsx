@@ -11,6 +11,8 @@ import type { ToolCall } from "@/types/view-record";
 import { buildToolFlow, linkActive, type FlowHover } from "@/lib/tool-flow";
 import { toolColor } from "@/lib/tool-colors";
 import { agentColor } from "@/lib/agent-color";
+import { controlActions$ } from "@/streams/control";
+import { canvasAttention$ } from "@/streams/attention";
 
 interface Props {
   sessions: readonly StorySession[];
@@ -29,6 +31,27 @@ export function ToolFlowView({ sessions, width, height }: Props) {
   }, [sessions]);
   const [agent, setAgent] = useState<string>("claude-code");
   useEffect(() => { if (agents.length && !agents.includes(agent)) setAgent(agents[0]!); }, [agents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Click-parity: control$ + Attention tree both drive the agent chip.
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type !== "set" || a.target !== "canvas.flow.agent") return;
+      const next =
+        typeof a.params.agent === "string"
+          ? a.params.agent.trim()
+          : typeof a.params.value === "string"
+            ? a.params.value.trim()
+            : "";
+      if (next) setAgent(next);
+    });
+    return () => sub.unsubscribe();
+  }, []);
+  useEffect(() => {
+    const sub = canvasAttention$().subscribe((c) => {
+      if (c.flowAgent) setAgent(c.flowAgent);
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   const sample = useMemo(
     () => sessions.filter((s) => (s.origin_agent || "unknown") === agent)

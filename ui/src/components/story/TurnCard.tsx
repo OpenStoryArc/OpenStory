@@ -35,9 +35,27 @@ interface TurnCardProps {
   /** Drill a turn (or one of its events) to its SOURCE in Explore. When set,
    *  event ids become clickable links — the map principle, no dead end. */
   onOpenEvent?: (eventId: string) => void;
+  /**
+   * Agent-in-UI / hash deep-link: force ▾ details open (sentence depth).
+   * Set when route carries ?details=1 for this turn's event.
+   */
+  forceDetailsOpen?: boolean;
+  /** Force ▶ eval-apply detail open (`&eval=1`). */
+  forceEvalOpen?: boolean;
+  /** Force event-id list open (`&events=1`). */
+  forceEventsOpen?: boolean;
 }
 
-export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSession, onOpenEvent }: TurnCardProps) {
+export function TurnCard({
+  pattern,
+  allPatterns,
+  onSelectSession,
+  isSelectedSession,
+  onOpenEvent,
+  forceDetailsOpen,
+  forceEvalOpen,
+  forceEventsOpen,
+}: TurnCardProps) {
   const m = pattern.metadata ?? {};
   const turn = (m.turn as number) ?? 0;
   const isTerminal = (m.is_terminal as boolean) ?? true;
@@ -61,9 +79,26 @@ export function TurnCard({ pattern, allPatterns, onSelectSession, isSelectedSess
   // detailsOpen — the ONE secondary affordance on the resting card (▾ details).
   // eventsOpen / evalApplyOpen are nested toggles that only matter once the
   // details footer is already unfolded.
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [eventsOpen, setEventsOpen] = useState(false);
-  const [evalApplyOpen, setEvalApplyOpen] = useState(false);
+  // Force-* props: Attention/hash parity — agent can open without a click.
+  const [detailsOpen, setDetailsOpen] = useState(!!forceDetailsOpen);
+  const [eventsOpen, setEventsOpen] = useState(!!forceEventsOpen);
+  const [evalApplyOpen, setEvalApplyOpen] = useState(!!forceEvalOpen);
+
+  useEffect(() => {
+    if (forceDetailsOpen) setDetailsOpen(true);
+  }, [forceDetailsOpen]);
+  useEffect(() => {
+    if (forceEventsOpen) {
+      setDetailsOpen(true);
+      setEventsOpen(true);
+    }
+  }, [forceEventsOpen]);
+  useEffect(() => {
+    if (forceEvalOpen) {
+      setDetailsOpen(true);
+      setEvalApplyOpen(true);
+    }
+  }, [forceEvalOpen]);
 
   // Color the session chip deterministically — same session_id → same color
   // across the Sidebar AND the Story cards. This is the visual link that lets

@@ -8,6 +8,7 @@
 
 import { parseHash, type HashRoute } from "@/lib/hash-route";
 import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
+import { planNavigateTo, type ControlStep, type NavigateToParams } from "@/lib/nav-path";
 
 /** Facet keys an agent can filter by (Query class + open_view structured params). */
 const QUERY_KEYS = ["project", "agent", "user", "status", "host", "branch", "day"] as const;
@@ -19,6 +20,7 @@ const TIME_FILTERS = new Set(["1h", "today", "week", "all"]);
 export const CONTROL_VERBS = [
   "open_view",
   "focus_event",
+  "navigate_to",
   "present",
   "announce",
   "highlight",
@@ -116,6 +118,14 @@ export type UIControlAction =
       readonly type: "set";
       readonly target: string;
       readonly params: Record<string, unknown>;
+    }
+  | {
+      /**
+       * High-level hand: planNav / planNavigateTo → ordered control steps.
+       * App executes them in sequence (full click-parity entry point).
+       */
+      readonly type: "navigate_sequence";
+      readonly steps: readonly ControlStep[];
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -165,6 +175,36 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   if (action === "open_view") {
     const route = controlToRoute(action, params);
     return route ? { type: "navigate", route } : null;
+  }
+  // High-level: any entity / canvas → planned control sequence (agent primary hand).
+  if (action === "navigate_to") {
+    const p = (params ?? {}) as NavigateToParams & Record<string, unknown>;
+    const kind = typeof p.kind === "string" ? p.kind.trim() : "";
+    const id = typeof p.id === "string" ? p.id.trim() : kind === "canvas" ? "canvas" : "";
+    if (!kind) return null;
+    const steps = planNavigateTo({
+      kind: kind as NavigateToParams["kind"],
+      id: id || "canvas",
+      sessionId: typeof p.sessionId === "string" ? p.sessionId : undefined,
+      eventId: typeof p.eventId === "string" ? p.eventId : undefined,
+      user: typeof p.user === "string" ? p.user : undefined,
+      project: typeof p.project === "string" ? p.project : undefined,
+      filePath: typeof p.filePath === "string" ? p.filePath : undefined,
+      parentSessionId: typeof p.parentSessionId === "string" ? p.parentSessionId : undefined,
+      view: p.view === "explore" || p.view === "story" ? p.view : undefined,
+      details: p.details === true || p.details === "true" || p.expandAll === true,
+      evalOpen: p.evalOpen === true || p.evalOpen === "true" || p.expandAll === true,
+      eventsOpen: p.eventsOpen === true || p.eventsOpen === "true" || p.expandAll === true,
+      expandAll: p.expandAll === true || p.expandAll === "true",
+      canvasMode: typeof p.canvasMode === "string" ? p.canvasMode : undefined,
+      spotlight: p.spotlight === true,
+      day: typeof p.day === "string" ? p.day : undefined,
+      agent: typeof p.agent === "string" ? p.agent : undefined,
+      groupBy: typeof p.groupBy === "string" ? p.groupBy : undefined,
+      metric: p.metric === "events" || p.metric === "tokens" ? p.metric : undefined,
+    });
+    if (!steps || steps.length === 0) return null;
+    return { type: "navigate_sequence", steps };
   }
   // The "focus_event" class: navigate-to-THING — open exactly one event in a
   // detail view (Explore or Story), which both consume `route.eventId` to scroll

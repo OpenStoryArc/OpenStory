@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 
 /// Full verb set the dashboard's `interpretControl` accepts (plus aliases).
 /// Kept in the schema description so agents discover the map without grepping.
-pub const CONTROL_VERBS: &str = "open_view | focus_event | present | announce | highlight | query | filter | set_filter | toggle | set";
+pub const CONTROL_VERBS: &str = "open_view | focus_event | navigate_to | present | announce | highlight | query | filter | set_filter | toggle | set";
 
 pub fn ui_control_schema() -> Value {
     json!({
@@ -22,26 +22,155 @@ pub fn ui_control_schema() -> Value {
                 "type": "string",
                 "description": format!(
                     "{CONTROL_VERBS}. \
-                     open_view: navigate (route hash OR structured view/sessionId/detailView/eventId/filePath/searchQuery/userFilter/timeFilter + explore facets). \
-                     focus_event: open one event in Explore/Story; spotlight:true = full-screen presentation. \
-                     present|announce|highlight: banner + optional sessionIds/route; spotlight:true = title card. \
-                     query|filter|set_filter: fleet facets (project|agent|user|status|host|branch|day|range|search|sort). \
-                     toggle: {{target, value}} view knobs (canvas.mode, story.sort, theme, session.lens, spotlight=off, …). \
-                     set: {{target, …fields}} structured controls (e.g. scatter.brush)."
+                     open_view: navigate (route hash OR structured view/sessionId/detailView/eventId/…). \
+                     focus_event: one event in Explore/Story; spotlight:true = full-screen. \
+                     navigate_to: HIGH-LEVEL hand — {{kind, id, sessionId?, canvasMode?, details?, view?}} plans a multi-step drive (any event, any canvas mode + session click). Prefer this for click-parity. \
+                     present|announce|highlight: banner / title card. \
+                     query|filter: fleet facets. \
+                     toggle: canvas.mode, story.sort, theme, …. \
+                     set: story.details, canvas.select_session, scatter.brush, …."
                 ),
             },
             "params": {
                 "type": "object",
-                "description": "action params. open_view: {route} OR {view, sessionId?, detailView?, eventId?, filePath?, \
-                                searchQuery?, userFilter?, timeFilter?, agent?, project?, …}. \
-                                focus_event: {sessionId, eventId, view?, spotlight?, clipAt?}. \
-                                present: {message|note, sessionIds?, route?, spotlight?}. \
-                                query: {project|agent|user|status|host|branch|day|range|search|q|sort}. \
-                                toggle: {target, value}. set: {target, …fields}."
+                "description": "action params. navigate_to: {kind: event|session|file|person|project|turn|sentence|canvas|subagent, id, sessionId?, eventId?, view?, details?, canvasMode?, spotlight?}. \
+                                open_view: {route} OR {view, sessionId?, …}. focus_event: {sessionId, eventId, view?, spotlight?}. \
+                                set: {target: canvas.select_session|story.details|…, …fields}. toggle: {target, value}."
             }
         },
         "required": ["action"]
     })
+}
+
+/// `navigate_to` — primary agent hand for full click-parity.
+/// Posts `action: navigate_to` so the dashboard plans + runs the control sequence.
+pub fn navigate_to_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "description": "event | session | file | person | project | turn | sentence | canvas | subagent | day"
+            },
+            "day": { "type": "string", "description": "YYYY-MM-DD heatmap day → explore filter (kind=day or with heatmap)" },
+            "agent": { "type": "string", "description": "canvas flow agent chip (with canvasMode=flow)" },
+            "groupBy": { "type": "string", "description": "canvas hierarchy: user|day|agent|status|host|project" },
+            "metric": { "type": "string", "description": "canvas sunburst/treemap size: events|tokens" },
+            "id": {
+                "type": "string",
+                "description": "Entity id (event UUID, session UUID, file path, user, project, …). For kind=canvas may be omitted if only switching mode."
+            },
+            "sessionId": { "type": "string", "description": "Required for kind=event (and helpful for turn/sentence)" },
+            "eventId": { "type": "string", "description": "Optional; for turn/sentence if id is not the event id" },
+            "view": { "type": "string", "description": "story | explore (events default story)" },
+            "details": { "type": "boolean", "description": "Expand Story ▾ details (sentence depth)" },
+            "canvasMode": {
+                "type": "string",
+                "description": "sunburst|board|treemap|gantt|scatter|flow|tool-adjacency|agent-project|durations|heatmap"
+            },
+            "spotlight": { "type": "boolean", "description": "Full-screen event presentation" }
+        },
+        "required": ["kind"]
+    })
+}
+
+pub async fn navigate_to(api_base: &str, args: Value) -> Result<Value, String> {
+    let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if kind.is_empty() {
+        return Err("navigate_to requires `kind` (event|session|file|person|project|turn|sentence|canvas|subagent|day)".to_string());
+    }
+    // Flatten tool args into navigate_to params (id optional for canvas-only mode).
+    let mut params = args.clone();
+    let mut resolved_session: Option<String> = None;
+    if let Some(obj) = params.as_object_mut() {
+        // keep kind inside params for the UI planner
+        obj.insert("kind".into(), json!(kind));
+        if !obj.contains_key("id") {
+            obj.insert("id".into(), json!(kind));
+        }
+        // P4: event without sessionId → resolve via FTS (pure join of search hits).
+        let needs_session = matches!(kind, "event" | "turn" | "sentence");
+        let has_session = obj
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        if needs_session && !has_session {
+            let eid = obj
+                .get("id")
+                .or_else(|| obj.get("eventId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !eid.is_empty() {
+                if let Some(sid) = resolve_session_for_event(api_base, &eid).await {
+                    obj.insert("sessionId".into(), json!(sid));
+                    resolved_session = Some(sid);
+                }
+            }
+        }
+    }
+    let result = ui_control(
+        api_base,
+        json!({ "action": "navigate_to", "params": params }),
+    )
+    .await?;
+    // Best-effort where_is_user so the agent sees land without a second call.
+    let ui = where_is_user(api_base, json!({})).await.ok();
+    Ok(json!({
+        "ok": result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true),
+        "delivered": result.get("delivered"),
+        "action": "navigate_to",
+        "kind": kind,
+        "params": params,
+        "resolved_sessionId": resolved_session,
+        "ui_state": ui,
+        "hint": "Prefer navigate_to for any event / canvas graph click. Event ids auto-resolve sessionId via search when omitted."
+    }))
+}
+
+/// Look up which session owns an event id (FTS). Pure join of search results.
+async fn resolve_session_for_event(api_base: &str, event_id: &str) -> Option<String> {
+    let base = api_base.trim_end_matches('/');
+    let url = format!(
+        "{}/api/search?q={}&limit=5",
+        base,
+        urlencoding_loose(event_id)
+    );
+    let resp = reqwest::Client::new().get(&url).send().await.ok()?;
+    let body: Value = resp.json().await.ok()?;
+    // Accept { results: [...] } or bare array
+    let hits = body
+        .get("results")
+        .and_then(|v| v.as_array())
+        .or_else(|| body.as_array())?;
+    // Prefer exact event_id match
+    for h in hits {
+        let eid = h
+            .get("event_id")
+            .or_else(|| h.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let sid = h.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        if eid == event_id && !sid.is_empty() {
+            return Some(sid.to_string());
+        }
+    }
+    hits.first()
+        .and_then(|h| h.get("session_id"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn urlencoding_loose(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            _ => format!("%{:02X}", c as u8),
+        })
+        .collect()
 }
 
 /// Pure: validate + assemble the `/api/control` request body. Errors if

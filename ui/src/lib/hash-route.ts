@@ -69,6 +69,15 @@ export interface HashRoute {
    *  user filter (logical AND). Valid values: "1h", "today", "week",
    *  "all" — anything else is silently dropped on parse. */
   timeFilter?: "1h" | "today" | "week" | "all";
+  /**
+   * Story: open ▾ details on the focused turn card (`#/story/SES/event/ID?details=1`).
+   * Click-parity: agent can expand sentence depth without a human click.
+   */
+  storyDetails?: boolean;
+  /** Story: expand eval-apply detail under the turn (`&eval=1`). */
+  storyEvalOpen?: boolean;
+  /** Story: expand event-id list under the turn (`&events=1`). */
+  storyEventsOpen?: boolean;
 }
 
 const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin"]);
@@ -144,6 +153,12 @@ export function parseHash(hash: string): HashRoute {
     }
     if (userFilter) route.userFilter = userFilter;
     if (timeFilter) route.timeFilter = timeFilter;
+    // Story expand flags — agent click-parity for turn card interiors.
+    if (view === "story" && queryParams) {
+      if (queryParams.get("details") === "1") route.storyDetails = true;
+      if (queryParams.get("eval") === "1") route.storyEvalOpen = true;
+      if (queryParams.get("events") === "1") route.storyEventsOpen = true;
+    }
     return route;
   }
 
@@ -210,6 +225,11 @@ export function buildHash(route: HashRoute): string {
     if (route.timeFilter && route.timeFilter !== "all") {
       // "all" is the implicit default — omit it to keep the URL clean.
       params.set("time", route.timeFilter);
+    }
+    if (route.view === "story") {
+      if (route.storyDetails) params.set("details", "1");
+      if (route.storyEvalOpen) params.set("eval", "1");
+      if (route.storyEventsOpen) params.set("events", "1");
     }
   }
   // Explore's filter state rides every explore path so filters survive

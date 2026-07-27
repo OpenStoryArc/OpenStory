@@ -77,48 +77,53 @@ pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Default MCP protocol version we speak when the client doesn't specify.
 pub const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// The agent-in-UI doc, embedded at compile time so it's readable as an MCP
-/// resource with no filesystem dependency at runtime. Path is relative to this
-/// source file (rs/mcp/src/ → project root).
+/// Embedded agent-facing docs (no filesystem at runtime). Paths relative to
+/// this source file (`rs/mcp/src/`).
 pub const AGENT_IN_UI_DOC: &str = include_str!("../../../docs/agent-in-ui.md");
-/// Stable URI for the doc resource (resources/list + resources/read).
+pub const HANDS_DOC: &str = include_str!("../agent-docs/hands.md");
+pub const PHYSICS_DOC: &str = include_str!("../agent-docs/physics.md");
+pub const EXAMPLE_PICKUP_DOC: &str = include_str!("../agent-docs/examples/pickup.md");
+pub const EXAMPLE_FILE_LOCUS_DOC: &str = include_str!("../agent-docs/examples/file-locus.md");
+pub const EXAMPLE_SHOW_HUMAN_DOC: &str = include_str!("../agent-docs/examples/show-human.md");
+
 pub const AGENT_IN_UI_URI: &str = "openstory://docs/agent-in-ui";
+pub const HANDS_URI: &str = "openstory://docs/hands";
+pub const PHYSICS_URI: &str = "openstory://docs/physics";
+pub const EXAMPLE_PICKUP_URI: &str = "openstory://examples/pickup";
+pub const EXAMPLE_FILE_LOCUS_URI: &str = "openstory://examples/file-locus";
+pub const EXAMPLE_SHOW_HUMAN_URI: &str = "openstory://examples/show-human";
 
-/// Agent-facing self-documentation returned in `initialize`. A connecting client
-/// learns the whole agent-in-UI seam from the protocol itself — no source dive.
-/// Kept terse: the verbs + the two read tools + the full doc pointer.
+/// Agent-facing self-documentation returned in `initialize`. History hands +
+/// dashboard seam — no git repo required. Depth via resources / openstory_help.
 pub const INSTRUCTIONS: &str = "\
-OpenStory MCP — observe your fleet AND drive/follow this dashboard.
+OpenStory MCP — read your fleet's coding history (observe, never rewrite) and \
+optionally drive the dashboard (ui.* only). You do not need the OpenStory repo; \
+this protocol surface is the body schema.
 
-The agent-in-UI seam is full-duplex and sovereignty-partitioned: everything you \
-author flows on the `ui.*` namespace ONLY, never the observed read-only `events.*` \
-stream (agent activity is never mutated).
+LAW: Prefer these tools over memory for past work. Cite session_id / paths / \
+event ids. Do not invent events. Sentences are SVO projections of acts, not \
+intent labels. ui_control never mutates observed history.
 
-DRIVE the dashboard (write) via the `ui_control` tool → POST /api/control:
-  • open_view {view|route, sessionId?, detailView?, eventId?, filePath?, \
-searchQuery?, userFilter?, timeFilter?, agent?, …} — navigate any bookmarkable \
-hash state (or pass route: '#/explore/SES/conversation?agent=grok').
-  • focus_event {sessionId, eventId, view?, spotlight?} — one event in Explore/Story; \
-spotlight:true = full-screen presentation.
-  • present|announce|highlight {message, sessionIds?, route?, spotlight?} — banner \
-or title card (spotlight:true).
-  • query|filter {project|agent|user|status|host|branch|day|range|search|sort} — \
-narrow Explore.
-  • toggle {target, value} — registered view knobs (canvas.mode, story.sort, theme, \
-session.lens, spotlight=off, …).
-  • set {target, …fields} — structured controls (e.g. scatter.brush).
+MOTIONS (need → first tools):
+  orient       list_sessions → session_synopsis | session_story
+  what-touched file_impact | tool_journey | session_sentences
+  find         search | agent_search  (then session_story on hits)
+  cost         token_usage | daily_token_usage
+  live         subscribe_session | subscribe_tokens
+  show-human   where_is_user → navigate_to (prefer) | ui_control
+  stuck        openstory_help { need | topic }
 
-FOLLOW the human (read):
-  • where_is_user — full UI state (view, session, event, detail tab, filters, \
-spotlight if reported).
-  • subscribe_ui_state — live stream of the human's interactions as they navigate \
-(notifications/openstory/ui_state).
-  • GET /api/ui-state/journey?n=N — the recent interaction slice (their path).
+SHOW-HUMAN (attention layer — steers the mirror only):
+  navigate_to {kind, id, sessionId?, canvasMode?, details?} — ANY event / graph click
+  ui_control: open_view | focus_event | present | query | toggle | set
+  where_is_user / subscribe_ui_state — follow the human; drive in rests (tempo).
 
-REPLAY: interaction ↔ command are inverses, so a captured journey feeds back \
-through the control seam — forward retraces, backward rewinds.
-
-Full reference: resources/read openstory://docs/agent-in-ui.";
+DEPTH (resources/read):
+  openstory://docs/hands          — motions + default flows (start here)
+  openstory://docs/physics        — events/turns/outcomes/sentences + soft holes
+  openstory://docs/agent-in-ui    — full dashboard drive/follow map
+  openstory://examples/pickup | file-locus | show-human
+Or call tool openstory_help.";
 
 /// Handle one incoming JSON-RPC message.
 ///
@@ -177,34 +182,76 @@ fn handle_initialize(id: Value, params: Value) -> Value {
     JsonRpcResponse::success(id, result)
 }
 
-/// `resources/list` — the readable docs this MCP exposes. Currently the one
-/// agent-facing doc (the full agent-in-UI reference); grows as we add more.
-fn resources_list_result() -> Value {
-    serde_json::json!({
-        "resources": [
-            {
-                "uri": AGENT_IN_UI_URI,
-                "name": "Agent-in-UI seam",
-                "description": "How to drive, follow, and replay the OpenStory dashboard.",
-                "mimeType": "text/markdown",
-            }
-        ]
-    })
+/// Catalog of embedded agent docs: (uri, name, description, body).
+fn agent_resources() -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
+    &[
+        (
+            HANDS_URI,
+            "Hands — how to use this MCP",
+            "Start here. Motions: orient, what-touched, find, cost, live, show-human. Read-only history; cite IDs.",
+            HANDS_DOC,
+        ),
+        (
+            PHYSICS_URI,
+            "Physics — what is ground truth",
+            "Events, turns, outcomes, sentences as projections; soft holes; citation path. No interpretation.",
+            PHYSICS_DOC,
+        ),
+        (
+            AGENT_IN_UI_URI,
+            "Agent-in-UI seam",
+            "How to drive, follow, and replay the OpenStory dashboard (ui.* only).",
+            AGENT_IN_UI_DOC,
+        ),
+        (
+            EXAMPLE_PICKUP_URI,
+            "Example: pickup / resume",
+            "Worked flow: list_sessions → session_story.",
+            EXAMPLE_PICKUP_DOC,
+        ),
+        (
+            EXAMPLE_FILE_LOCUS_URI,
+            "Example: file locus",
+            "Worked flow: file_impact / search → sentences.",
+            EXAMPLE_FILE_LOCUS_DOC,
+        ),
+        (
+            EXAMPLE_SHOW_HUMAN_URI,
+            "Example: show the human",
+            "Worked flow: where_is_user → ui_control (views, canvas, focus).",
+            EXAMPLE_SHOW_HUMAN_DOC,
+        ),
+    ]
 }
 
-/// `resources/read` — return an embedded doc's content by URI. Unknown URIs are
-/// an invalid-params error (the only readable resource is the agent-in-UI doc).
+/// `resources/list` — agent curriculum readable without the git repo.
+fn resources_list_result() -> Value {
+    let resources: Vec<Value> = agent_resources()
+        .iter()
+        .map(|(uri, name, description, _)| {
+            serde_json::json!({
+                "uri": uri,
+                "name": name,
+                "description": description,
+                "mimeType": "text/markdown",
+            })
+        })
+        .collect();
+    serde_json::json!({ "resources": resources })
+}
+
+/// `resources/read` — return an embedded doc's content by URI.
 fn handle_resources_read(id: Value, params: Value) -> Value {
     let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-    if uri != AGENT_IN_UI_URI {
+    let Some((_, _, _, body)) = agent_resources().iter().find(|(u, _, _, _)| *u == uri) else {
         return JsonRpcResponse::failure(id, error_code::INVALID_PARAMS, "Unknown resource uri");
-    }
+    };
     let result = serde_json::json!({
         "contents": [
             {
-                "uri": AGENT_IN_UI_URI,
+                "uri": uri,
                 "mimeType": "text/markdown",
-                "text": AGENT_IN_UI_DOC,
+                "text": body,
             }
         ]
     });
@@ -319,18 +366,22 @@ mod tests {
         assert_eq!(resp["id"], 7);
     }
 
-    // ── MCP self-documentation (Phase 1e of the agent-in-UI seam) ──
-    // A connecting agent should learn the whole seam from the protocol itself:
-    // `instructions` in initialize + the agent-in-ui doc as a readable resource.
+    // ── MCP self-documentation (agent hands + UI seam) ──
+    // A connecting agent learns body schema from the protocol — no git repo.
 
     #[test]
     fn initialize_carries_agent_facing_instructions() {
         let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();
         let instr = resp["result"]["instructions"].as_str().expect("instructions present");
-        // Names the load-bearing verbs so an agent knows what it can drive/observe.
         assert!(instr.contains("open_view"), "mentions a control verb");
-        assert!(instr.contains("subscribe_ui_state"), "mentions the live-follow tool");
         assert!(instr.contains("where_is_user"), "mentions the point-read tool");
+        assert!(instr.contains("session_story"), "mentions history orient tool");
+        assert!(instr.contains("openstory://docs/hands"), "points at hands curriculum");
+        assert!(instr.contains("openstory_help"), "points at help tool");
+        assert!(
+            instr.contains("Do not invent") || instr.contains("do not invent"),
+            "states scientific law"
+        );
     }
 
     #[test]
@@ -343,29 +394,40 @@ mod tests {
     }
 
     #[test]
-    fn resources_list_includes_the_agent_in_ui_doc() {
+    fn resources_list_includes_hands_physics_and_ui() {
         let resp = handle_message("{\"id\":2,\"method\":\"resources/list\"}").unwrap();
         let list = resp["result"]["resources"].as_array().expect("resources array");
-        let doc = list
-            .iter()
-            .find(|r| r["uri"] == AGENT_IN_UI_URI)
-            .expect("agent-in-ui doc listed");
-        assert_eq!(doc["mimeType"], "text/markdown");
-        assert!(doc["name"].is_string());
+        for uri in [HANDS_URI, PHYSICS_URI, AGENT_IN_UI_URI, EXAMPLE_PICKUP_URI] {
+            let doc = list
+                .iter()
+                .find(|r| r["uri"] == uri)
+                .unwrap_or_else(|| panic!("missing resource {uri}"));
+            assert_eq!(doc["mimeType"], "text/markdown");
+            assert!(doc["name"].is_string());
+        }
     }
 
     #[test]
-    fn resources_read_returns_the_doc_content() {
-        let req = format!(
-            "{{\"id\":3,\"method\":\"resources/read\",\"params\":{{\"uri\":\"{AGENT_IN_UI_URI}\"}}}}"
-        );
-        let resp = handle_message(&req).unwrap();
-        let contents = resp["result"]["contents"].as_array().expect("contents array");
-        let first = &contents[0];
-        assert_eq!(first["uri"], AGENT_IN_UI_URI);
-        assert_eq!(first["mimeType"], "text/markdown");
-        let text = first["text"].as_str().expect("doc text");
-        assert!(text.contains("agent-in-UI") || text.contains("agent-in-ui") || text.len() > 500);
+    fn resources_read_returns_hands_and_ui_docs() {
+        for (uri, needle) in [
+            (HANDS_URI, "Motions"),
+            (PHYSICS_URI, "Soft holes"),
+            (AGENT_IN_UI_URI, "agent-in-UI"),
+            (EXAMPLE_SHOW_HUMAN_URI, "ui_control"),
+        ] {
+            let req = format!(
+                "{{\"id\":3,\"method\":\"resources/read\",\"params\":{{\"uri\":\"{uri}\"}}}}"
+            );
+            let resp = handle_message(&req).unwrap();
+            let contents = resp["result"]["contents"].as_array().expect("contents array");
+            let first = &contents[0];
+            assert_eq!(first["uri"], uri);
+            let text = first["text"].as_str().expect("doc text");
+            assert!(
+                text.contains(needle) || text.len() > 200,
+                "uri {uri} should contain {needle:?} or be substantial"
+            );
+        }
     }
 
     #[test]

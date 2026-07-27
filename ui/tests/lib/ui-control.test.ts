@@ -231,6 +231,35 @@ describe("interpretControl — set (structured) action", () => {
   });
 });
 
+describe("interpretControl — navigate_to (high-level hand)", () => {
+  it("plans event focus as navigate_sequence", () => {
+    const a = interpretControl("navigate_to", {
+      kind: "event",
+      id: "EVT-1",
+      sessionId: "SES-1",
+      details: true,
+    });
+    expect(a?.type).toBe("navigate_sequence");
+    if (a?.type === "navigate_sequence") {
+      expect(a.steps.length).toBeGreaterThanOrEqual(2);
+      expect(a.steps[0]?.action).toBe("focus_event");
+    }
+  });
+
+  it("plans canvas mode + session select", () => {
+    const a = interpretControl("navigate_to", {
+      kind: "session",
+      id: "SES-1",
+      canvasMode: "gantt",
+    });
+    expect(a?.type).toBe("navigate_sequence");
+    if (a?.type === "navigate_sequence") {
+      expect(a.steps.some((s) => s.params.value === "gantt")).toBe(true);
+      expect(a.steps.some((s) => s.params.target === "canvas.select_session")).toBe(true);
+    }
+  });
+});
+
 describe("interpretControl — focus_event (navigate-to-thing)", () => {
   it("focuses an event in Explore by default", () => {
     scenario(

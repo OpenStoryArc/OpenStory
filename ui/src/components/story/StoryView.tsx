@@ -54,6 +54,15 @@ interface StoryViewProps {
   /** Deep-link target: scroll to + highlight the turn whose events include this
    *  id (`#/story/SES/event/ID`). The map principle for the Story view. */
   eventId?: string;
+  /**
+   * When true with eventId, force ▾ details open on the focused turn
+   * (`?details=1` — agent click-parity for sentence depth).
+   */
+  storyDetails?: boolean;
+  /** Expand eval-apply under the focused turn (`&eval=1`). */
+  storyEvalOpen?: boolean;
+  /** Expand event-id list under the focused turn (`&events=1`). */
+  storyEventsOpen?: boolean;
   /** Drill a turn to its SOURCE — open the event in Explore. Closes the Story
    *  dead end (the map principle: every turn navigates to where it came from). */
   onOpenEvent?: (sessionId: string, eventId: string) => void;
@@ -121,7 +130,16 @@ function formatRecency(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function StoryView({ livePatterns, selectedSession, onSelectSession, eventId, onOpenEvent }: StoryViewProps) {
+export function StoryView({
+  livePatterns,
+  selectedSession,
+  onSelectSession,
+  eventId,
+  storyDetails,
+  storyEvalOpen,
+  storyEventsOpen,
+  onOpenEvent,
+}: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
   // Left sidebar with a right-edge grip; width survives reloads.
   const sidebarPanel = useResizablePanel("story.sidebar.width", 300, 200, 480, "left");
@@ -828,6 +846,17 @@ export function StoryView({ livePatterns, selectedSession, onSelectSession, even
                       onSelectSession={onSelectSession}
                       isSelectedSession={selectedSession === p.session_id}
                       onOpenEvent={onOpenEvent ? (eid) => onOpenEvent(p.session_id, eid) : undefined}
+                      forceDetailsOpen={
+                        !!(storyDetails || storyEvalOpen || storyEventsOpen) &&
+                        !!eventId &&
+                        (p.events ?? []).includes(eventId)
+                      }
+                      forceEvalOpen={
+                        !!storyEvalOpen && !!eventId && (p.events ?? []).includes(eventId)
+                      }
+                      forceEventsOpen={
+                        !!storyEventsOpen && !!eventId && (p.events ?? []).includes(eventId)
+                      }
                     />
                   </div>
                 );
