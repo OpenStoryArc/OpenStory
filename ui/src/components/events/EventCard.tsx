@@ -104,8 +104,10 @@ function fullText(record: ViewRecord): string | null {
   // Flat text field (thinking, system events)
   const text = payload.text as string | undefined;
   if (text) return text;
-  // Content blocks (user_message, assistant_message)
-  const content = payload.content as { type: string; text: string }[] | undefined;
+  // Content blocks (user_message, assistant_message) — or a plain string,
+  // which some records store directly (the summary clamp must not win then).
+  const content = payload.content as string | { type: string; text: string }[] | undefined;
+  if (typeof content === "string" && content) return content;
   if (Array.isArray(content)) {
     for (const block of content) {
       if (block.type === "text" && block.text) return block.text;
