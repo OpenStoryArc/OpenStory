@@ -48,7 +48,7 @@ export interface ControlStep {
 }
 
 export interface NavigateToParams {
-  readonly kind: EntityKind | "canvas" | "day";
+  readonly kind: EntityKind | "canvas" | "day" | "reel";
   readonly id: string;
   readonly sessionId?: string;
   readonly eventId?: string;
@@ -72,6 +72,8 @@ export interface NavigateToParams {
   readonly groupBy?: string;
   /** Canvas size metric for sunburst/treemap. */
   readonly metric?: "events" | "tokens";
+  /** Reel: start playback immediately on landing. */
+  readonly autoplay?: boolean;
 }
 
 /** FTS hit shape used only for pure context resolution (no network here). */
@@ -492,6 +494,13 @@ export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
   // Canvas graphs
   if (target.kind === "canvas" || target.canvasMode) {
     return planCanvas(target);
+  }
+
+  // Reel — bookmarkable spine (#/reels/REEL_ID[?autoplay=1]), one open_view step.
+  if (target.kind === "reel") {
+    const params: Record<string, unknown> = { view: "reels", reelId: id };
+    if (target.autoplay) params.autoplay = true;
+    return [{ action: "open_view", params }];
   }
 
   // Event

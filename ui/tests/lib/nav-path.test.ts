@@ -178,3 +178,18 @@ describe("ENTITY_EDGES canopy", () => {
     expect(navigabilityReport(ENTITY_EDGES).coverage).toBe(1);
   });
 });
+
+describe("when navigating to a reel", () => {
+  it("should plan a single open_view step to the reels tab with autoplay", () => {
+    const steps = planNavigateTo({ kind: "reel", id: "reel-abc123", autoplay: true });
+    expect(steps).toEqual([
+      { action: "open_view", params: { view: "reels", reelId: "reel-abc123", autoplay: true } },
+    ]);
+  });
+  it("should plan without autoplay when not requested", () => {
+    const steps = planNavigateTo({ kind: "reel", id: "reel-abc123" });
+    expect(steps).toEqual([
+      { action: "open_view", params: { view: "reels", reelId: "reel-abc123" } },
+    ]);
+  });
+});

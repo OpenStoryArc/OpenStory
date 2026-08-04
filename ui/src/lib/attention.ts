@@ -139,6 +139,8 @@ export function attentionSatisfies(
         !!a.route.eventId &&
         (intent.details === false || !!a.route.storyDetails)
       );
+    case "reel":
+      return a.route.view === "reels" && a.route.reelId === id;
     default:
       return false;
   }
@@ -272,6 +274,22 @@ export function foldIntent(
     return {
       ...base,
       route: { view, sessionId: id },
+      spotlight: null,
+      presentMessage: null,
+      canvas: {},
+    };
+  }
+
+  // Reel — bookmarkable spine (#/reels/REEL_ID[?autoplay=1]); mirrors the
+  // Session branch above (route built directly, no canvas/spotlight state).
+  if (intent.kind === "reel") {
+    return {
+      ...base,
+      route: {
+        view: "reels",
+        reelId: id,
+        ...(intent.autoplay ? { reelAutoplay: true } : {}),
+      },
       spotlight: null,
       presentMessage: null,
       canvas: {},

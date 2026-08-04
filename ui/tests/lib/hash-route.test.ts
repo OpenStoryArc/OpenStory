@@ -295,3 +295,24 @@ describe("timeFilter — Live tab query param", () => {
     ).toBe("#/explore");
   });
 });
+
+describe("when parsing reels routes", () => {
+  it("should parse #/reels as the reels tab", () => {
+    expect(parseHash("#/reels")).toEqual({ view: "reels" });
+  });
+  it("should parse #/reels/REEL_ID with the reel selected", () => {
+    expect(parseHash("#/reels/reel-abc123")).toEqual({ view: "reels", reelId: "reel-abc123" });
+  });
+  it("should parse ?autoplay=1 into reelAutoplay", () => {
+    expect(parseHash("#/reels/reel-abc123?autoplay=1")).toEqual({
+      view: "reels",
+      reelId: "reel-abc123",
+      reelAutoplay: true,
+    });
+  });
+  it("should round-trip build(parse(x)) for all three shapes", () => {
+    for (const h of ["#/reels", "#/reels/reel-abc123", "#/reels/reel-abc123?autoplay=1"]) {
+      expect(buildHash(parseHash(h))).toBe(h);
+    }
+  });
+});

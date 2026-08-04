@@ -138,6 +138,7 @@ describe("foldIntent — denotational navigate_to", () => {
       { kind: "file" as const, id: "foo.rs" },
       { kind: "person" as const, id: "max" },
       { kind: "project" as const, id: "OpenStory" },
+      { kind: "reel" as const, id: "reel-abc123" },
     ];
     for (const intent of intents) {
       const next = foldIntent(base, intent);
@@ -157,6 +158,21 @@ describe("foldIntent — denotational navigate_to", () => {
       view: "explore",
       detailView: "search",
       searchQuery: "c.rs",
+    });
+  });
+
+  it("reel → reels route with reelId", () => {
+    const next = foldIntent(base, { kind: "reel", id: "reel-abc123" });
+    expect(next?.route).toEqual({ view: "reels", reelId: "reel-abc123" });
+    expect(attentionSatisfies(next!, { kind: "reel", id: "reel-abc123" })).toBe(true);
+  });
+
+  it("reel + autoplay → reelAutoplay set on the route", () => {
+    const next = foldIntent(base, { kind: "reel", id: "reel-abc123", autoplay: true });
+    expect(next?.route).toEqual({
+      view: "reels",
+      reelId: "reel-abc123",
+      reelAutoplay: true,
     });
   });
 

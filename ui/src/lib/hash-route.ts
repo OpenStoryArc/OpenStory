@@ -51,7 +51,7 @@ function buildExploreQuery(e: ExploreQuery): URLSearchParams {
 }
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin";
+  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -78,9 +78,14 @@ export interface HashRoute {
   storyEvalOpen?: boolean;
   /** Story: expand event-id list under the turn (`&events=1`). */
   storyEventsOpen?: boolean;
+  /** Reels: the selected reel (`#/reels/REEL_ID`). */
+  reelId?: string;
+  /** Reels: autoplay the selected reel (`&autoplay=1`). Only meaningful
+   *  alongside `reelId` — reels routes never carry a sessionId. */
+  reelAutoplay?: boolean;
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin", "reels"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
@@ -135,11 +140,21 @@ export function parseHash(hash: string): HashRoute {
   }
 
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin")
+    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels")
     : "live";
 
   if (view === "users" || view === "admin" || view === "canvas" || view === "ask") {
     return { view };
+  }
+
+  // Reels: #/reels, #/reels/REEL_ID, #/reels/REEL_ID?autoplay=1 — a
+  // standalone spine that never carries sessionId, so it's handled before
+  // the generic live/story session-id branch below.
+  if (view === "reels") {
+    const route: HashRoute = { view };
+    if (parts[1]) route.reelId = parts[1];
+    if (route.reelId && queryParams?.get("autoplay") === "1") route.reelAutoplay = true;
+    return route;
   }
 
   if (view === "live" || view === "story") {
@@ -200,7 +215,11 @@ export function buildHash(route: HashRoute): string {
 
   const parts: string[] = [route.view];
 
-  if (route.sessionId) {
+  if (route.view === "reels") {
+    // Reels routes never carry sessionId — handled first so the generic
+    // session-id branch below never runs for this view.
+    if (route.reelId) parts.push(route.reelId);
+  } else if (route.sessionId) {
     parts.push(route.sessionId);
 
     if (route.eventId) {
@@ -236,6 +255,9 @@ export function buildHash(route: HashRoute): string {
   // selecting a session or switching detail tabs.
   if (route.view === "explore" && route.explore) {
     params = buildExploreQuery(route.explore);
+  }
+  if (route.view === "reels" && route.reelAutoplay) {
+    params.set("autoplay", "1");
   }
   const query = params.toString() ? `?${params.toString()}` : "";
 
