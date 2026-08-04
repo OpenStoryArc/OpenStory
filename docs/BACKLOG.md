@@ -969,6 +969,23 @@ render (`ui/src/lib/harness-message.ts`), but the source-of-truth label is still
 lossy (affects API consumers, search, exports). Fix: derive the label from the
 first *human* prompt, skipping harness-wrapper content, at ingest.
 
+## Publish reels across the fleet
+
+Once Reels ship (see `docs/superpowers/specs/2026-08-04-reels-design.md`), let
+one person *publish* a reel so a teammate can view it: Katie publishes the cut
+she made of her loop-engineering week; it appears in Max's Reels tab, marked
+with her principal. Why: reels are the first artifact in the product built to
+be *watched by someone else* — sharing is their natural completion, and it
+turns session history into team communication. Design sketch (preserve): reels
+are already portable JSON files referencing events by id; publishing = a
+`reel.published` CloudEvent on the existing federated leaf/hub stream (reuse
+the `events.>` dataflow, no new transport), receiver lands the file in its own
+`data_dir/reels/` tagged with the author principal. Playback on the receiving
+side degrades gracefully when referenced events aren't in the local store
+(caption-only stops, or fetch-on-demand from the hub — decide then). "Send" is
+deliberately not the verb: nothing is pushed at a person; it's published to
+the fleet and appears in the mirror.
+
 ---
 
 ## Done (not tracked here)
