@@ -17,6 +17,7 @@ use crate::persistence::{EventLog, SessionStore};
 use crate::plan_store::PlanStore;
 use crate::projection::SessionProjection;
 use crate::projection_cache::ProjectionCache;
+use crate::reel_store::ReelStore;
 use crate::sqlite_store::SqliteStore;
 
 // ── default cache budgets ────────────────────────────────────────────────
@@ -79,6 +80,7 @@ pub struct StoreState {
     pub session_store: SessionStore,
     pub event_log: EventLog,
     pub plan_store: PlanStore,
+    pub reel_store: ReelStore,
 
     // ── projections + patterns ──
     // Shared across actor-consumers (Actor 3 owns writes, API + ws +
@@ -150,13 +152,14 @@ impl StoreState {
     /// If `key` is Some and non-empty, the SQLite database is encrypted.
     /// Empty or None key = unencrypted (backward compatible).
     pub fn new_with_key(data_dir: &Path, key: Option<&str>) -> Result<Self> {
-        let (event_store, session_store, event_log, plan_store) =
+        let (event_store, session_store, event_log, plan_store, reel_store) =
             init_sidecar_stores(data_dir, key)?;
         Ok(Self::assemble(
             event_store,
             session_store,
             event_log,
             plan_store,
+            reel_store,
             data_dir.to_path_buf(),
         ))
     }
@@ -184,6 +187,7 @@ impl StoreState {
         let session_store = SessionStore::new(data_dir)?;
         let event_log = EventLog::new(data_dir)?;
         let plan_store = PlanStore::new(&plans_dir)?;
+        let reel_store = ReelStore::new(&data_dir.join("reels"))?;
 
         let event_store: Arc<dyn EventStore> = match backend {
             BackendChoice::Sqlite => match SqliteStore::new_with_key(data_dir, key) {
@@ -220,6 +224,7 @@ impl StoreState {
             session_store,
             event_log,
             plan_store,
+            reel_store,
             data_dir.to_path_buf(),
         ))
     }
@@ -230,6 +235,7 @@ impl StoreState {
         session_store: SessionStore,
         event_log: EventLog,
         plan_store: PlanStore,
+        reel_store: ReelStore,
         data_dir: PathBuf,
     ) -> Self {
         Self {
@@ -237,6 +243,7 @@ impl StoreState {
             session_store,
             event_log,
             plan_store,
+            reel_store,
             projections: Arc::new(ProjectionCache::new(
                 DEFAULT_PROJECTION_CACHE_BYTES,
                 DEFAULT_WORKING_SET_DAYS,
@@ -373,12 +380,13 @@ where
 fn init_sidecar_stores(
     data_dir: &Path,
     key: Option<&str>,
-) -> Result<(Arc<dyn EventStore>, SessionStore, EventLog, PlanStore)> {
+) -> Result<(Arc<dyn EventStore>, SessionStore, EventLog, PlanStore, ReelStore)> {
     let plans_dir = data_dir.join("plans");
     std::fs::create_dir_all(&plans_dir)?;
     let session_store = SessionStore::new(data_dir)?;
     let event_log = EventLog::new(data_dir)?;
     let plan_store = PlanStore::new(&plans_dir)?;
+    let reel_store = ReelStore::new(&data_dir.join("reels"))?;
 
     let event_store: Arc<dyn EventStore> = match SqliteStore::new_with_key(data_dir, key) {
         Ok(store) => Arc::new(store),
@@ -392,7 +400,7 @@ fn init_sidecar_stores(
             ))
         }
     };
-    Ok((event_store, session_store, event_log, plan_store))
+    Ok((event_store, session_store, event_log, plan_store, reel_store))
 }
 
 #[cfg(test)]

@@ -26,5 +26,6 @@ pub mod projection;
 pub mod projection_cache;
 pub mod queries;
 pub mod rebuild;
+pub mod reel_store;
 pub mod sqlite_store;
 pub mod state;
