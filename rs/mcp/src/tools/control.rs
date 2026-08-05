@@ -34,7 +34,7 @@ pub fn ui_control_schema() -> Value {
             "params": {
                 "type": "object",
                 "description": "action params. navigate_to: {kind: event|session|file|person|project|turn|sentence|canvas|subagent, id, sessionId?, eventId?, view?, details?, canvasMode?, spotlight?}. \
-                                open_view: {route} OR {view, sessionId?, …}. focus_event: {sessionId, eventId, view?, spotlight?}. \
+                                open_view: {route} OR {view, sessionId?, …}. focus_event: {sessionId, eventId, view?, spotlight?, clipAt?}. \
                                 set: {target: canvas.select_session|story.details|…, …fields}. toggle: {target, value}."
             }
         },

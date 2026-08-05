@@ -111,11 +111,16 @@ MOTIONS (need → first tools):
   cost         token_usage | daily_token_usage
   live         subscribe_session | subscribe_tokens
   show-human   where_is_user → navigate_to (prefer) | ui_control
+  tell-story   search/session_story → save_reel → play_reel
   stuck        openstory_help { need | topic }
 
 SHOW-HUMAN (attention layer — steers the mirror only):
-  navigate_to {kind, id, sessionId?, canvasMode?, details?} — ANY event / graph click
+  navigate_to {kind, id, sessionId?, canvasMode?, details?, spotlight?} — ANY event / graph click;
+    spotlight:true = Event Spotlight (full-screen one-event presentation)
   ui_control: open_view | focus_event | present | query | toggle | set
+    (focus_event {spotlight:true} = Event Spotlight; present {spotlight:true} = title card)
+  REELS (tell a story): save_reel {title, stops:[{sessionId,eventId,line}]} → play_reel {id}
+    — saved, replayable narrated sequences; stops must be real events.
   where_is_user / subscribe_ui_state — follow the human; drive in rests (tempo).
 
 DEPTH (resources/read):
@@ -382,6 +387,15 @@ mod tests {
             instr.contains("Do not invent") || instr.contains("do not invent"),
             "states scientific law"
         );
+    }
+
+    #[test]
+    fn instructions_name_spotlight_and_reels() {
+        let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();
+        let instr = resp["result"]["instructions"].as_str().expect("instructions present");
+        assert!(instr.contains("Event Spotlight"), "spotlight must be discoverable at first contact");
+        assert!(instr.contains("save_reel"), "reel authoring verb must be at first contact");
+        assert!(instr.contains("play_reel"));
     }
 
     #[test]

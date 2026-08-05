@@ -28,6 +28,7 @@ resources listed at the end.
 | **cost** | `token_usage` / `daily_token_usage` |
 | **live** — watch as it unfolds | `subscribe_session` / `subscribe_tokens` |
 | **show-human** — shared attention on the dashboard | **`navigate_to`** (primary) → `where_is_user`; low-level: `ui_control` |
+| **tell-story** — narrate a saved sequence | `search` / `session_story` → `save_reel` → `play_reel` |
 | **stuck** | `openstory_help` with `need` or `topic` |
 
 ### navigate_to — primary click-parity hand
@@ -56,7 +57,8 @@ resources listed at the end.
 Prefer `navigate_to` over assembling multi-step `ui_control` by hand.
 
 **Attention tree (UI architecture):** the dashboard is a pure tree of what is
-shown (`Attention` = route + canvas selection + spotlight). `navigate_to` folds
+shown (`Attention` = route + canvas selection + spotlight — the **Event
+Spotlight**, full-screen one-event presentation). `navigate_to` folds
 an Intent into Attention, then materializes it. Agents express data; pixels follow.
 
 Pure algebra: `foldIntent` / `realizeIntent` (attention), `planNav` (nav-path).
@@ -97,6 +99,19 @@ Survey: `node scripts/nav_path.mjs`.
 1. `where_is_user` — are they idle? (`GET` tempo: drive in rests when possible)
 2. `ui_control` — e.g. open Story, focus an event, present a banner
 3. Confirm with `where_is_user` again
+
+### Tell a story (reel)
+
+1. Find and verify the events — `agent_search` / `session_story`. Quote
+   display values verbatim (session ids, event ids, file paths); never invent
+   an id you didn't see in a tool result.
+2. `save_reel` — `{ title, stops: [{ sessionId, eventId, line }, …], closer? }`.
+   If the response reports `invalid_stops`, re-search for the real ids — do
+   not guess a fix.
+3. `play_reel` — `{ id }`. Runs `navigate_to { kind: "reel" }` with autoplay
+   so the dashboard plays the sequence for the human.
+4. `where_is_user` and hand back the wheel — the reel is saved and
+   replayable; you don't need to keep driving after it starts.
 
 Full verb map: `openstory://docs/agent-in-ui`.
 

@@ -38,6 +38,18 @@
 
 // 6. Confirm
 { "tool": "where_is_user", "args": {} }
+
+// 7. Save + play a reel (tell-story: search/session_story → save_reel → play_reel)
+{ "tool": "save_reel", "args": {
+    "title": "Fixing the sentence detector",
+    "stops": [
+        { "sessionId": "9c2f1a44-session", "eventId": "evt_0091", "line": "It finds the failing test first." },
+        { "sessionId": "9c2f1a44-session", "eventId": "evt_0142", "line": "Then it rewrites the SVO extraction." }
+    ],
+    "closer": "Two events, one fix."
+}}
+// If the response has "invalid_stops", re-search for real ids — don't guess.
+{ "tool": "play_reel", "args": { "id": "REEL_ID" } }
 ```
 
 **Views:** `live` \| `explore` \| `story` \| `canvas` \| `ask` \| `users` \| `admin`  
