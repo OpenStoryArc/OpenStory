@@ -37,6 +37,8 @@ export interface ControlParams {
   sessionId?: string;
   eventId?: string;
   detailView?: string;
+  reelId?: string;
+  autoplay?: unknown;
   filePath?: string;
   searchQuery?: string;
   userFilter?: string;
@@ -147,6 +149,13 @@ export function controlToRoute(action: string, params: unknown): HashRoute | nul
     const r: HashRoute = { view: p.view as HashRoute["view"] };
     if (typeof p.sessionId === "string") r.sessionId = p.sessionId;
     if (typeof p.detailView === "string") r.detailView = p.detailView as HashRoute["detailView"];
+    // Carry reelId/autoplay — planNavigateTo({kind:"reel", ...}) emits
+    // {view:"reels", reelId, autoplay} (nav-path.ts), and every
+    // planned-step consumer (runControlSequence fallback, foldSteps,
+    // raw ui_control calls) goes through this open_view branch. Without
+    // it, a planned reel navigation silently lands on the reels list.
+    if (typeof p.reelId === "string" && p.reelId.trim()) r.reelId = p.reelId;
+    if (p.autoplay === true) r.reelAutoplay = true;
     // Carry eventId so an open_view can deep-link to a single event — replay
     // retraces to the EXACT event the human was on, not just the session.
     if (typeof p.eventId === "string" && p.eventId.trim()) r.eventId = p.eventId;

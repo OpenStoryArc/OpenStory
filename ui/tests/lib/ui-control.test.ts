@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
 import { controlToRoute, interpretControl } from "@/lib/ui-control";
+import { planNavigateTo } from "@/lib/nav-path";
 
 describe("controlToRoute", () => {
   it("resolves open_view with a hash route to a parsed route", () => {
@@ -61,6 +62,28 @@ describe("controlToRoute", () => {
         expect(r?.view).toBe("explore");
         expect(r?.sessionId).toBe("s-9");
         expect(r?.eventId).toBe("e-42");
+      },
+    );
+  });
+
+  it("carries reelId + reelAutoplay so a planned reel navigate_to round-trips through open_view", () => {
+    // FINDING 3: planNavigateTo({kind:"reel", ...}) emits
+    // {action:"open_view", params:{view:"reels", reelId, autoplay}} (see
+    // nav-path.ts's reel branch), but controlToRoute previously only
+    // carried sessionId/detailView/eventId/etc — every planned-step
+    // consumer (runControlSequence fallback, foldSteps in realizeIntent,
+    // raw ui_control open_view calls) landed on the reels LIST, silently
+    // dropping which reel and whether to autoplay it.
+    scenario(
+      () => {
+        const steps = planNavigateTo({ kind: "reel", id: "reel-abc", autoplay: true });
+        return steps?.[0]?.params;
+      },
+      (params) => controlToRoute("open_view", params),
+      (r) => {
+        expect(r?.view).toBe("reels");
+        expect(r?.reelId).toBe("reel-abc");
+        expect(r?.reelAutoplay).toBe(true);
       },
     );
   });

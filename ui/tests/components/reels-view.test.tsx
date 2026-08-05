@@ -8,12 +8,15 @@
  *  guards against. */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { ReelsView } from "@/components/reels/ReelsView";
 import type { HashRoute } from "@/lib/hash-route";
 import type { Reel, ReelMeta } from "@/lib/reels-api";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 /** Minimal, non-firing speechSynthesis stub. The narration effect takes the
  *  Web Speech branch when `"speechSynthesis" in window`, but this stub's
@@ -25,6 +28,36 @@ afterEach(() => vi.unstubAllGlobals());
  *  from an explicit click, Space, or Esc in test code. */
 function stubSpeechSynthesis() {
   vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), speak: vi.fn() });
+  vi.stubGlobal(
+    "SpeechSynthesisUtterance",
+    class {
+      rate = 1;
+      onend: (() => void) | null = null;
+      constructor(public text: string) {}
+    },
+  );
+}
+
+/** Simulates the Chrome TTS quirk behind FINDING 2: `cancel()` doesn't
+ *  invoke the outgoing utterance's `onend` synchronously within the call
+ *  — it's the browser that fires it, as a queued task that lands AFTER
+ *  the current synchronous work (including React's effect cleanup) has
+ *  already returned. A plain `vi.fn()` can't reproduce that ordering, so
+ *  `cancel()` here defers the callback via `setTimeout(..., 0)`, which
+ *  only runs once the test explicitly advances fake timers — letting the
+ *  spec prove the late callback lands on a *dead* effect closure. */
+function stubSpeechSynthesisCancelFiresOnendLate() {
+  let current: { onend: (() => void) | null } | null = null;
+  vi.stubGlobal("speechSynthesis", {
+    speak: vi.fn((u: { onend: (() => void) | null }) => {
+      current = u;
+    }),
+    cancel: vi.fn(() => {
+      const outgoing = current;
+      current = null;
+      if (outgoing) setTimeout(() => outgoing.onend?.(), 0);
+    }),
+  });
   vi.stubGlobal(
     "SpeechSynthesisUtterance",
     class {
@@ -68,6 +101,19 @@ const TWO_STOP_REEL: Reel = {
   stops: [
     { sessionId: "s1", eventId: "e1", line: "First, the bug was found." },
     { sessionId: "s1", eventId: "e2", line: "Then, the fix landed." },
+  ],
+};
+
+const THREE_STOP_REEL: Reel = {
+  id: "r3",
+  title: "Three Stop Reel",
+  created: "2026-08-01T12:00:00Z",
+  author: "max",
+  closer: "Done",
+  stops: [
+    { sessionId: "s1", eventId: "e1", line: "Stop one." },
+    { sessionId: "s1", eventId: "e2", line: "Stop two." },
+    { sessionId: "s1", eventId: "e3", line: "Stop three." },
   ],
 };
 
@@ -180,5 +226,38 @@ describe("when the last stop's ADVANCE lands on a reel with a closer", () => {
 
     await waitFor(() => expect(screen.getByTestId("title-spotlight")).toBeInTheDocument());
     expect(screen.getByText("That's a wrap")).toBeInTheDocument();
+  });
+});
+
+describe("when a TTS engine fires onend on cancellation (Chrome quirk)", () => {
+  it("should not phantom-double-advance a stop after a manual advance", async () => {
+    stubSpeechSynthesisCancelFiresOnendLate();
+    stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
+    render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+
+    vi.useFakeTimers();
+    try {
+      // Manual advance: one click, 1 -> 2. This runs React's effect
+      // cleanup for stop 1 (which calls cancel(), deferring stop 1's
+      // utterance onend per the stub above) before mounting stop 2's
+      // narration effect.
+      fireEvent.click(screen.getByTestId("reels-playback-surface"));
+      expect(screen.getByText("2 / 3")).toBeInTheDocument();
+
+      // Drain every pending timer, including the deferred onend for the
+      // now-dead stop-1 closure. Buggy code has no way to know that
+      // closure is dead: it schedules a fresh 2s ADVANCE timer and never
+      // clears it, landing on stop 3 despite only one manual click.
+      act(() => {
+        vi.runAllTimers();
+      });
+
+      expect(screen.getByText("2 / 3")).toBeInTheDocument();
+      expect(screen.queryByText("3 / 3")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

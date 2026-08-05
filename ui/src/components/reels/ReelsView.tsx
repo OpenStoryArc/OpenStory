@@ -185,6 +185,15 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     if (!stop) return;
     const line = stop.line;
     let fallback: number | undefined;
+    // Some engines (observed in Chrome) fire the outgoing utterance's
+    // `onend` on cancellation as a queued task — AFTER this effect's own
+    // cleanup below has already run and returned (see the `cancel()` call
+    // there). When that late `onend` fires, it belongs to a dead closure:
+    // nothing will ever read or clear the `fallback` timer it schedules,
+    // so a manual click/Space advance is silently followed ~2s later by a
+    // phantom ADVANCE that skips a stop. `disposed` makes the late onend
+    // a no-op instead of scheduling that orphaned timer.
+    let disposed = false;
     // Note: `window.setTimeout`/`clearTimeout` inside the `"speechSynthesis"
     // in window` narrowing would type the `else` branch as `never` (Window's
     // DOM lib type declares speechSynthesis as always-present) — use the
@@ -193,6 +202,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
       const u = new SpeechSynthesisUtterance(line);
       u.rate = 1.0;
       u.onend = () => {
+        if (disposed) return;
         fallback = setTimeout(() => dispatch({ type: "ADVANCE" }), 2000);
       };
       window.speechSynthesis.cancel();
@@ -203,6 +213,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
       fallback = setTimeout(() => dispatch({ type: "ADVANCE" }), ms);
     }
     return () => {
+      disposed = true;
       window.speechSynthesis?.cancel();
       if (fallback) clearTimeout(fallback);
     };
