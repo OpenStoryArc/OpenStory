@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
+import { ReelsView } from "@/components/reels/ReelsView";
 import { AskView } from "@/components/ask/AskView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
@@ -451,6 +452,9 @@ export function App() {
 
       {/* Canvas tab */}
       {viewMode === "canvas" && <SessionsCanvas onNavigate={navigate} />}
+
+      {/* Reels tab */}
+      {viewMode === "reels" && <ReelsView route={route} onNavigate={navigate} />}
 
       {/* Ask tab */}
       {viewMode === "ask" && <AskView onNavigate={navigate} />}
