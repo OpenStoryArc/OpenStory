@@ -47,6 +47,19 @@ pub struct ReelMeta {
     pub stop_count: usize,
 }
 
+/// A client-supplied (non-empty) reel id is interpolated straight into a
+/// filesystem path (`{dir}/{id}.json`). Without validation, `"../../x"`
+/// escapes the reels dir and an absolute path replaces the base entirely —
+/// path traversal on save (write) and load/delete (read/unlink). Restrict
+/// non-empty ids to the shape we ourselves generate: `reel-` followed by
+/// hex digits and hyphens (a UUID), nothing else — no `/`, no `.`, no `\`.
+fn valid_reel_id(id: &str) -> bool {
+    match id.strip_prefix("reel-") {
+        Some(rest) => !rest.is_empty() && rest.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
+        None => false,
+    }
+}
+
 #[derive(Clone)]
 pub struct ReelStore {
     dir: PathBuf,
@@ -59,9 +72,14 @@ impl ReelStore {
     }
 
     /// Save a reel; assigns a `reel-<uuid>` id when empty. Same id = overwrite.
+    /// A non-empty, client-supplied id must match `valid_reel_id` — anything
+    /// else (path traversal, absolute paths) is rejected before it ever
+    /// reaches the filesystem.
     pub fn save(&self, reel: &mut Reel) -> Result<String> {
         if reel.id.is_empty() {
             reel.id = format!("reel-{}", Uuid::new_v4());
+        } else if !valid_reel_id(&reel.id) {
+            anyhow::bail!("invalid reel id: {}", reel.id);
         }
         let text = serde_json::to_string_pretty(reel)?;
         fs::write(self.dir.join(format!("{}.json", reel.id)), text)?;
@@ -95,11 +113,17 @@ impl ReelStore {
     }
 
     pub fn load(&self, id: &str) -> Option<Reel> {
+        if !valid_reel_id(id) {
+            return None;
+        }
         let text = fs::read_to_string(self.dir.join(format!("{id}.json"))).ok()?;
         serde_json::from_str(&text).ok()
     }
 
     pub fn delete(&self, id: &str) -> bool {
+        if !valid_reel_id(id) {
+            return false;
+        }
         fs::remove_file(self.dir.join(format!("{id}.json"))).is_ok()
     }
 }
@@ -199,5 +223,48 @@ mod tests {
         std::fs::write(tmp.path().join("notes.txt"), "not a reel").unwrap();
         assert!(store.load("nope").is_none());
         assert!(store.list().is_empty());
+    }
+
+    // ── Path traversal via client-supplied id (FINDING 1) ──────────────
+
+    #[test]
+    fn save_rejects_path_traversal_id_and_writes_no_file_outside_dir() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let mut reel = sample("../escape");
+        let result = store.save(&mut reel);
+        assert!(result.is_err(), "path-traversal id must be rejected, got {result:?}");
+
+        // The dir passed to ReelStore::new is itself inside `tmp`, so
+        // "../escape" would resolve to a sibling of the reels dir — list
+        // the tempdir's parent to prove nothing landed there.
+        let parent = tmp.path().parent().expect("tempdir has a parent");
+        let escaped = parent.join("escape.json");
+        assert!(!escaped.exists(), "must not write outside the reels dir: {escaped:?}");
+    }
+
+    #[test]
+    fn save_rejects_absolute_path_id() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let evil = tmp.path().parent().unwrap().join("absolute-escape.json");
+        let mut reel = sample(evil.to_str().unwrap());
+        let result = store.save(&mut reel);
+        assert!(result.is_err(), "absolute-path id must be rejected, got {result:?}");
+        assert!(!evil.exists(), "must not write to an absolute path: {evil:?}");
+    }
+
+    #[test]
+    fn load_rejects_path_traversal_id() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        assert!(store.load("../x").is_none());
+    }
+
+    #[test]
+    fn delete_rejects_path_traversal_id() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        assert!(!store.delete("../x"));
     }
 }

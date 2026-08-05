@@ -2464,8 +2464,12 @@ pub async fn post_reel(
     }
     match s.store.reel_store.save(&mut reel) {
         Ok(id) => Json(json!({"ok": true, "id": id})).into_response(),
+        // ReelStore::save's only failure mode today is a rejected client id
+        // (path traversal / absolute path) — that's a bad request, not a
+        // server fault, so it gets the same 4xx family as the invalid_stops
+        // arm above rather than 500.
         Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({"ok": false, "error": e.to_string()})),
         )
             .into_response(),

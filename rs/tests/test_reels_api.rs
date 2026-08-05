@@ -114,3 +114,25 @@ async fn get_missing_reel_404_and_delete_round_trip() {
     let resp = send_request(state.clone(), req).await;
     assert_eq!(resp.status(), 404);
 }
+
+/// FINDING 1 — a client-supplied `id` in the POST body must not be
+/// interpolated straight into a filesystem path. "../escape" would, prior
+/// to the ReelStore::save fix, write `{data_dir}/escape.json` — a sibling
+/// of the reels/ directory, outside where reels are meant to live.
+#[tokio::test]
+async fn post_reel_with_path_traversal_id_is_4xx_and_writes_no_file_outside_reels_dir() {
+    let data_dir = TempDir::new().unwrap();
+    let state = test_state(&data_dir);
+    let (sid, eid) = seed_event(&state).await;
+    let body = json!({
+        "id": "../escape",
+        "title": "Malicious reel",
+        "stops": [{"sessionId": sid, "eventId": eid, "line": "one line"}]
+    });
+    let resp = send_request(state.clone(), post_json("/api/reels", &body)).await;
+    assert!(resp.status().is_client_error(), "got {}", resp.status());
+
+    // "../escape" relative to {data_dir}/reels/ resolves to {data_dir}/escape.json.
+    let escaped = data_dir.path().join("escape.json");
+    assert!(!escaped.exists(), "must not write outside data_dir/reels/: {escaped:?}");
+}
