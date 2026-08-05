@@ -16,6 +16,7 @@ pub mod control;
 pub mod help;
 pub mod per_session;
 pub mod projects;
+pub mod reels;
 pub mod search;
 pub mod sessions;
 pub mod story;
@@ -65,6 +66,28 @@ pub const TOOLS: &[ToolDef] = &[
                       set story.details {open, sessionId, eventId}. toggle canvas.mode. \
                       RETURNS: {ok, delivered}. NEXT: where_is_user. Docs: openstory://docs/agent-in-ui.",
         input_schema: control::ui_control_schema,
+    },
+    ToolDef {
+        name: "save_reel",
+        description: "WHEN: you have a story to keep — turn verified events into a saved, replayable reel. \
+                      MOTION: show-human. CALL: { title, stops: [{sessionId, eventId, line, clipAt?}], closer?, author? }. \
+                      Every stop must reference a REAL recorded event — invented ids are rejected with invalid_stops. \
+                      RETURNS: {ok, id} | {ok:false, invalid_stops}. NEXT: play_reel {id}. \
+                      LAW: reels are curation about history; they never mutate events.",
+        input_schema: reels::save_reel_schema,
+    },
+    ToolDef {
+        name: "list_reels",
+        description: "WHEN: see saved reels (yours and others'). MOTION: orient / show-human. \
+                      CALL: {}. RETURNS: [{id, title, created, author, stopCount}]. NEXT: play_reel.",
+        input_schema: reels::list_reels_schema,
+    },
+    ToolDef {
+        name: "play_reel",
+        description: "WHEN: play a saved reel on the human's dashboard (Reels tab, Event Spotlight per stop, \
+                      caption + voice). MOTION: show-human. CALL: { id }. RETURNS: {ok, delivered}. \
+                      NEXT: where_is_user — the human can take the wheel any time.",
+        input_schema: reels::play_reel_schema,
     },
     ToolDef {
         name: "subscribe_ui_state",
@@ -288,6 +311,9 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "navigate_to" => control::navigate_to(&server.api_base, args).await,
         "ui_control" => control::ui_control(&server.api_base, args).await,
         "where_is_user" => control::where_is_user(&server.api_base, args).await,
+        "save_reel" => reels::save_reel(&server.api_base, args).await,
+        "list_reels" => reels::list_reels(&server.api_base, args).await,
+        "play_reel" => reels::play_reel(&server.api_base, args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,

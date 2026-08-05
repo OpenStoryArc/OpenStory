@@ -50,7 +50,7 @@ pub fn navigate_to_schema() -> Value {
         "properties": {
             "kind": {
                 "type": "string",
-                "description": "event | session | file | person | project | turn | sentence | canvas | subagent | day"
+                "description": "event | session | file | person | project | turn | sentence | canvas | subagent | day | reel"
             },
             "day": { "type": "string", "description": "YYYY-MM-DD heatmap day → explore filter (kind=day or with heatmap)" },
             "agent": { "type": "string", "description": "canvas flow agent chip (with canvasMode=flow)" },
@@ -68,7 +68,8 @@ pub fn navigate_to_schema() -> Value {
                 "type": "string",
                 "description": "sunburst|board|treemap|gantt|scatter|flow|tool-adjacency|agent-project|durations|heatmap"
             },
-            "spotlight": { "type": "boolean", "description": "Full-screen event presentation" }
+            "spotlight": { "type": "boolean", "description": "Full-screen event presentation" },
+            "autoplay": { "type": "boolean", "description": "kind=reel only: start playback on arrival" }
         },
         "required": ["kind"]
     })
