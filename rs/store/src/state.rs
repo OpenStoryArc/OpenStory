@@ -375,12 +375,14 @@ where
     projections.append_or_insert(session_id, f)
 }
 
+/// The event store plus the disk-backed sidecars it's assembled alongside —
+/// named so `init_sidecar_stores`'s signature stays legible under clippy's
+/// `type_complexity` lint (5-tuple trips the default threshold).
+type SidecarStores = (Arc<dyn EventStore>, SessionStore, EventLog, PlanStore, ReelStore);
+
 /// Internal helper used by the legacy sync constructors. Creates the
 /// SQLite-backed event store and the disk-backed sidecars in one shot.
-fn init_sidecar_stores(
-    data_dir: &Path,
-    key: Option<&str>,
-) -> Result<(Arc<dyn EventStore>, SessionStore, EventLog, PlanStore, ReelStore)> {
+fn init_sidecar_stores(data_dir: &Path, key: Option<&str>) -> Result<SidecarStores> {
     let plans_dir = data_dir.join("plans");
     std::fs::create_dir_all(&plans_dir)?;
     let session_store = SessionStore::new(data_dir)?;
