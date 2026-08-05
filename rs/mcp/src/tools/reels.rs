@@ -44,12 +44,25 @@ pub fn play_reel_schema() -> Value {
     })
 }
 
+/// Mirror `control.rs`'s api_base guard: reject a blank base up front (clear
+/// error naming the missing env var) and trim a trailing '/' so joined URLs
+/// never double up on slashes.
+fn require_api_base(api_base: &str, tool: &str) -> Result<String, String> {
+    if api_base.trim().is_empty() {
+        return Err(format!(
+            "{tool} unavailable: the MCP has no API base configured (set OPENSTORY_API_URL)"
+        ));
+    }
+    Ok(api_base.trim_end_matches('/').to_string())
+}
+
 pub async fn save_reel(api_base: &str, mut args: Value) -> Result<Value, String> {
+    let base = require_api_base(api_base, "save_reel")?;
     if args.get("author").and_then(|a| a.as_str()).unwrap_or("").is_empty() {
         args["author"] = json!("mcp");
     }
     let resp = reqwest::Client::new()
-        .post(format!("{api_base}/api/reels"))
+        .post(format!("{base}/api/reels"))
         .json(&args)
         .send()
         .await
@@ -67,8 +80,9 @@ pub async fn save_reel(api_base: &str, mut args: Value) -> Result<Value, String>
 }
 
 pub async fn list_reels(api_base: &str, _args: Value) -> Result<Value, String> {
+    let base = require_api_base(api_base, "list_reels")?;
     reqwest::Client::new()
-        .get(format!("{api_base}/api/reels"))
+        .get(format!("{base}/api/reels"))
         .send()
         .await
         .map_err(|e| format!("list_reels: {e}"))?
@@ -78,6 +92,7 @@ pub async fn list_reels(api_base: &str, _args: Value) -> Result<Value, String> {
 }
 
 pub async fn play_reel(api_base: &str, args: Value) -> Result<Value, String> {
+    let base = require_api_base(api_base, "play_reel")?;
     let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err("play_reel: 'id' is required".to_string());
@@ -88,7 +103,7 @@ pub async fn play_reel(api_base: &str, args: Value) -> Result<Value, String> {
         "issuer": "mcp"
     });
     reqwest::Client::new()
-        .post(format!("{api_base}/api/control"))
+        .post(format!("{base}/api/control"))
         .json(&control)
         .send()
         .await

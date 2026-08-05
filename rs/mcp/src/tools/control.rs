@@ -78,7 +78,7 @@ pub fn navigate_to_schema() -> Value {
 pub async fn navigate_to(api_base: &str, args: Value) -> Result<Value, String> {
     let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").trim();
     if kind.is_empty() {
-        return Err("navigate_to requires `kind` (event|session|file|person|project|turn|sentence|canvas|subagent|day)".to_string());
+        return Err("navigate_to requires `kind` (event|session|file|person|project|turn|sentence|canvas|subagent|day|reel)".to_string());
     }
     // Flatten tool args into navigate_to params (id optional for canvas-only mode).
     let mut params = args.clone();
