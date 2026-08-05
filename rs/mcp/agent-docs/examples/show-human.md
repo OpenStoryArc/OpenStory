@@ -43,8 +43,8 @@
 { "tool": "save_reel", "args": {
     "title": "Fixing the sentence detector",
     "stops": [
-        { "sessionId": "9c2f1a44-session", "eventId": "evt_0091", "line": "It finds the failing test first." },
-        { "sessionId": "9c2f1a44-session", "eventId": "evt_0142", "line": "Then it rewrites the SVO extraction." }
+        { "sessionId": "SESSION_ID", "eventId": "EVENT_ID", "line": "It finds the failing test first." },
+        { "sessionId": "SESSION_ID", "eventId": "EVENT_ID_2", "line": "Then it rewrites the SVO extraction." }
     ],
     "closer": "Two events, one fix."
 }}
