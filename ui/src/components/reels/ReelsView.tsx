@@ -208,9 +208,13 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     };
   }, [state, reel]);
 
-  // Space advances (click advances via the caption bar below); Esc exits —
-  // EventSpotlight/TitleSpotlight already wire Esc + backdrop click to
-  // `onClose`, which we pass `exit`.
+  // Space advances; Esc exits. Click semantics need a deliberate seam:
+  // EventSpotlight/TitleSpotlight wire their OWN backdrop click to
+  // `onClose`, so passing `onClose={exit}` (needed so their internal Esc
+  // listener exits, not advances — see the click-surface comment below)
+  // means a plain click on the spotlight body would incorrectly exit the
+  // reel instead of advancing it. Space is unaffected by that trap — it's
+  // handled entirely here, never routed through the child's `onClose`.
   useEffect(() => {
     if (state.phase !== "stop" && state.phase !== "closer") return;
     const onKey = (e: KeyboardEvent) => {
@@ -285,8 +289,12 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     return (
       <>
         <EventSpotlight sessionId={stop.sessionId} eventId={stop.eventId} clipAt={stop.clipAt} onClose={exit} />
-        {/* Caption bar rides above EventSpotlight's z-50 backdrop so it stays
-         *  readable and clickable while the spotlight is open. */}
+        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
+        {/* Caption bar rides above the click surface (z-[60] > z-[55]) so it
+         *  stays readable and clickable while the spotlight is open — its own
+         *  onClick also advances, which is consistent (never double-fires:
+         *  a click only ever hits ONE topmost element per the browser's hit
+         *  test, so a caption-bar click never reaches the surface beneath). */}
         <div
           className="fixed inset-x-0 bottom-0 z-[60] flex cursor-pointer items-center justify-center gap-3 border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 py-3 backdrop-blur-sm"
           onClick={() => dispatch({ type: "ADVANCE" })}
@@ -302,10 +310,50 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   }
 
   if (state.phase === "closer" && reel.closer) {
-    return <TitleSpotlight message={reel.closer} onClose={exit} />;
+    return (
+      <>
+        <TitleSpotlight message={reel.closer} onClose={exit} />
+        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
+      </>
+    );
   }
 
   // phase === "done" (or a closer-less closer edge case) — the effect above
   // navigates back to the list; render nothing for this frame.
   return null;
+}
+
+/** Click-to-advance contract for reel playback: click anywhere on the
+ *  playback surface = ADVANCE, Esc = EXIT.
+ *
+ *  EventSpotlight and TitleSpotlight both wire their OWN full-screen
+ *  backdrop to `onClick={onClose}` — correct for their normal, non-reel use
+ *  (a click dismisses the spotlight), but wrong here: during reel playback
+ *  a click should move to the next stop, not leave the reel. We can't just
+ *  pass `onClose={advance}` instead of `onClose={exit}` — both components
+ *  also route their internal Esc-keydown listener through that same
+ *  `onClose` prop, so swapping it would make Esc advance instead of exit
+ *  (the interaction trap this component exists to avoid). And we can't
+ *  safely edit EventSpotlight/TitleSpotlight's click behavior in place —
+ *  they're shared, used elsewhere (agent-driven spotlight/present control
+ *  actions) with the click-to-dismiss semantics intact.
+ *
+ *  So instead: `onClose={exit}` stays wired for Esc, and this component lays
+ *  a transparent, fixed, full-viewport hit-target on top of the spotlight's
+ *  backdrop (z-[55], above its z-50 backdrop) that intercepts the click
+ *  before it ever reaches the spotlight's own `onClick={onClose}` handler —
+ *  the browser only dispatches a click to the topmost element under the
+ *  pointer, so the spotlight's backdrop click handler never fires while
+ *  this surface is stacked over it. Esc is unaffected: keydown listeners
+ *  aren't scoped by stacking context, so the spotlight's own Esc listener
+ *  still reaches `onClose={exit}` directly. */
+function PlaybackClickSurface({ onAdvance }: { onAdvance: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[55] cursor-pointer"
+      onClick={onAdvance}
+      aria-hidden="true"
+      data-testid="reels-playback-surface"
+    />
+  );
 }
