@@ -978,13 +978,46 @@ with her principal. Why: reels are the first artifact in the product built to
 be *watched by someone else* — sharing is their natural completion, and it
 turns session history into team communication. Design sketch (preserve): reels
 are already portable JSON files referencing events by id; publishing = a
-`reel.published` CloudEvent on the existing federated leaf/hub stream (reuse
-the `events.>` dataflow, no new transport), receiver lands the file in its own
+`reel.published` CloudEvent, receiver lands the file in its own
 `data_dir/reels/` tagged with the author principal. Playback on the receiving
 side degrades gracefully when referenced events aren't in the local store
 (caption-only stops, or fetch-on-demand from the hub — decide then). "Send" is
 deliberately not the verb: nothing is pushed at a person; it's published to
 the fleet and appears in the mirror.
+
+**Taxonomy sketch (2026-08-06 design session).** Reels are *authored
+artifacts*, not observed history — they must NOT ride `events.>` (that stream
+is the mirror of what agents did; publishing annotations onto it pollutes the
+record). The precedent is sentences: derived/authored things get their own
+stream (`patterns` carries PatternEvents with `pattern_type: turn.sentence`,
+durable, bus-propagated, persisted to their own table). Reels follow the same
+shape one level up:
+
+- **Event:** `type: io.arc.event`, subtype `reel.published`, data = the full
+  reel JSON (small, pure text; cap stops/line/title lengths at POST — see the
+  final-review note on unbounded writes) + `principal_id` of the author.
+  Re-publish of the same reel id = overwrite (id is the idempotency key,
+  matching save semantics).
+- **Subject:** a new authored-artifact family, e.g.
+  `artifacts.{principal}.reel.{reel_id}` — sibling to the "Unify the
+  interaction/control seam onto NATS" entry's `ui.{principal}.*` proposal;
+  same authored-vs-observed boundary, one bus, one set of sinks.
+- **Stream:** durable JetStream (like `events`/`patterns`, NOT the
+  interest-based `changes`) so machines that are offline when Katie publishes
+  catch up on reconnect — late joiners replay, nothing is lost.
+- **Federation:** TODAY only `events.>` traverses the leaf/hub link — ui/
+  authored artifacts do not replicate at all. The leaf and hub configs must
+  export/import `artifacts.>` too; that change lands in the openstory-deploy
+  repo (box-only edits get clobbered by deploy.sh).
+- **Receiver:** a small artifacts consumer (or the persist consumer) on each
+  node subscribes `artifacts.>`, writes the reel file into local
+  `data_dir/reels/`, tags author principal. It must NOT gate on local event
+  validation (Katie's store won't have Max's events) — mark unresolved stops
+  instead; the Reels tab shows "published by <principal>" and plays
+  caption-only where the spotlight can't resolve. The broadcast consumer
+  relays the same event so the Reels tab updates live.
+- Publishing stays explicit: a reel saved locally is local; `publish_reel`
+  (API + MCP verb) is the deliberate act that puts it on the bus.
 
 ---
 
