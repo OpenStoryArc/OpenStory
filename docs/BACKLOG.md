@@ -1034,3 +1034,29 @@ the human-salient fields (path written, command run, output text) — while
 keeping raw JSON one click away (no dead ends). Reuse the views-layer/
 EventCard extraction rather than inventing a second renderer. Interim
 mitigation lives in the reel skill (prefer prose events, clipAt).
+
+### Reels v1 follow-ups (from the 2026-08-07 dogfooding session)
+The first iteration shipped: reel format (opener/stops/closer), Reels tab
+with a spotlight player (BLUF opener card, cinema captions, back/jump/
+segmented progress, TTS narration), MCP verbs, /openstory:reel skill with
+narrative shapes (pyramid, ABT, story spine, kishōtenketsu, sparkline) and
+the BLUF rule. Next, in rough priority order:
+- **Video export.** Render a reel to an actual video file (the
+  record-tour-video pipeline is precedent) — shareable outside the
+  dashboard; a real timeline slider becomes honest once the artifact is
+  time-based rather than beat-based.
+- **Reel editing UI.** v1 is agents-author/humans-replay; a human should be
+  able to reorder stops, edit lines, and trim clipAt in place.
+- **Reel size caps at POST.** stops count / line / title length — the store
+  writes unbounded client JSON today (final-review recommendation).
+- **Validation: store-error ≠ not-found.** session_events read errors
+  currently classify stops as invented (422); surface a 500-family error
+  instead so agents aren't told their real event is fake (deferred T2
+  minor).
+- **E2E: seed-reel fixture.** click reel → opener → spotlight advances →
+  title card, per the spec's deferred test (needs a seed fixture in
+  e2e/fixtures/seed-data).
+- **Narration voice/rate controls.** Web Speech voice picker + speed,
+  per-user preference.
+- **ReelMeta could carry opener/closer presence** so the list view can badge
+  BLUF-compliant reels.
