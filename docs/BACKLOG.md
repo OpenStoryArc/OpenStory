@@ -1024,3 +1024,13 @@ shape one level up:
 ## Done (not tracked here)
 
 Completed work lives in git history. For reference, major completed features include: pattern detection pipeline (5 detectors), SQLite event store, pub/sub via NATS, live timeline, explore view split, subagent enrichment, stateful BFF projection, enriched event envelopes, view model crate, testcontainers E2E, configurable projects dir, syntax highlighting, and open-source licensing cleanup.
+
+### Event Spotlight renders tool events as raw JSON
+Dogfooding reels surfaced it: spotlighting a tool_call/tool_result projects
+the raw payload JSON full-screen — honest, but unreadable as a story beat
+(a FileCreated result is a wall of braces). The spotlight is a projector
+surface; it should render tool events the way EventCard does — tool name +
+the human-salient fields (path written, command run, output text) — while
+keeping raw JSON one click away (no dead ends). Reuse the views-layer/
+EventCard extraction rather than inventing a second renderer. Interim
+mitigation lives in the reel skill (prefer prose events, clipAt).
