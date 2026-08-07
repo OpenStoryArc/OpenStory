@@ -117,6 +117,28 @@ describe("explore — bookmarkable filter state (query tail on any explore route
   });
 });
 
+describe("story expand flags — details / eval / events", () => {
+  it("round-trips details + eval + events", () => {
+    const route: HashRoute = {
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyEventsOpen: true,
+    };
+    const hash = buildHash(route);
+    expect(hash).toContain("details=1");
+    expect(hash).toContain("eval=1");
+    expect(hash).toContain("events=1");
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  // NOTE: apply=… (per-apply-row expansion) specs were committed ahead of
+  // their implementation on the base branch — trimmed to committed reality;
+  // they return with the apply-open feature itself.
+});
+
 describe("legacy #/overview links — parse-time alias onto Explore", () => {
   it("lands a bare #/overview on the Explore tab", () => {
     expect(parseHash("#/overview")).toEqual({ view: "explore" });
@@ -247,5 +269,26 @@ describe("timeFilter — Live tab query param", () => {
     expect(
       buildHash({ view: "explore", timeFilter: "today" } as HashRoute),
     ).toBe("#/explore");
+  });
+});
+
+describe("when parsing reels routes", () => {
+  it("should parse #/reels as the reels tab", () => {
+    expect(parseHash("#/reels")).toEqual({ view: "reels" });
+  });
+  it("should parse #/reels/REEL_ID with the reel selected", () => {
+    expect(parseHash("#/reels/reel-abc123")).toEqual({ view: "reels", reelId: "reel-abc123" });
+  });
+  it("should parse ?autoplay=1 into reelAutoplay", () => {
+    expect(parseHash("#/reels/reel-abc123?autoplay=1")).toEqual({
+      view: "reels",
+      reelId: "reel-abc123",
+      reelAutoplay: true,
+    });
+  });
+  it("should round-trip build(parse(x)) for all three shapes", () => {
+    for (const h of ["#/reels", "#/reels/reel-abc123", "#/reels/reel-abc123?autoplay=1"]) {
+      expect(buildHash(parseHash(h))).toBe(h);
+    }
   });
 });

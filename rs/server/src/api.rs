@@ -6,7 +6,7 @@ use std::path::Path;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -2405,4 +2405,81 @@ pub async fn export_session(
         [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
         jsonl,
     ))
+}
+
+// ── Reels — saved, replayable story sequences (curation, never mutation) ──
+
+pub async fn list_reels(State(state): State<SharedState>) -> Json<Value> {
+    let s = state.read().await;
+    Json(serde_json::to_value(s.store.reel_store.list()).unwrap_or_else(|_| json!([])))
+}
+
+pub async fn get_reel(
+    State(state): State<SharedState>,
+    AxumPath(reel_id): AxumPath<String>,
+) -> Response {
+    let s = state.read().await;
+    match s.store.reel_store.load(&reel_id) {
+        Some(reel) => Json(serde_json::to_value(reel).unwrap_or_default()).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(json!({"error": "reel not found"}))).into_response(),
+    }
+}
+
+pub async fn post_reel(
+    State(state): State<SharedState>,
+    Json(mut reel): Json<open_story_store::reel_store::Reel>,
+) -> Response {
+    let s = state.read().await;
+    // Validate every stop against the record — "do not invent events".
+    // Session events are fetched once per distinct sessionId.
+    let mut invalid: Vec<Value> = Vec::new();
+    let mut cache: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for stop in &reel.stops {
+        if !cache.contains_key(&stop.session_id) {
+            let events = s
+                .store
+                .event_store
+                .session_events(&stop.session_id)
+                .await
+                .unwrap_or_default();
+            let ids = events
+                .iter()
+                .filter_map(|e| e.get("id").and_then(|i| i.as_str()).map(String::from))
+                .collect();
+            cache.insert(stop.session_id.clone(), ids);
+        }
+        if !cache[&stop.session_id].contains(&stop.event_id) {
+            invalid.push(json!({"sessionId": stop.session_id, "eventId": stop.event_id}));
+        }
+    }
+    if !invalid.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"ok": false, "invalid_stops": invalid})),
+        )
+            .into_response();
+    }
+    if reel.created.is_empty() {
+        reel.created = Utc::now().to_rfc3339();
+    }
+    match s.store.reel_store.save(&mut reel) {
+        Ok(id) => Json(json!({"ok": true, "id": id})).into_response(),
+        // ReelStore::save's only failure mode today is a rejected client id
+        // (path traversal / absolute path) — that's a bad request, not a
+        // server fault, so it gets the same 4xx family as the invalid_stops
+        // arm above rather than 500.
+        Err(e) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"ok": false, "error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
+pub async fn delete_reel(
+    State(state): State<SharedState>,
+    AxumPath(reel_id): AxumPath<String>,
+) -> Json<Value> {
+    let s = state.read().await;
+    Json(json!({"ok": s.store.reel_store.delete(&reel_id)}))
 }

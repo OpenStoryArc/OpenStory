@@ -19,6 +19,7 @@ import { buildHierarchy, type GroupDim, type HNode } from "@/lib/sessions-canvas
 import { fitTransform } from "@/lib/canvas-fit";
 import { CANVAS_MODES, MODE_META, modeUsesGroupBy, type CanvasMode, DEFAULT_CANVAS_MODE } from "@/lib/canvas-modes";
 import { controlActions$ } from "@/streams/control";
+import { canvasAttention$ } from "@/streams/attention";
 import { postInteraction, selectInteraction } from "@/lib/interaction";
 import type { Metric } from "@/lib/session-hierarchy-tree";
 import { sessionColor } from "@/lib/session-colors";
@@ -75,23 +76,6 @@ export function SessionsCanvas({ onNavigate }: Props) {
   const panel = useResizablePanel("canvas.detail.width", 420, 320, 760);
   const [query, setQuery] = useState("");
   const nowMs = useMemo(() => Date.now(), []);
-
-  // Agent-in-UI: apply `canvas.*` toggle intents (component-local state that
-  // isn't in the URL). The Canvas is a sink — it reacts to control$, validating
-  // each value before applying so the vocabulary stays open but safe.
-  useEffect(() => {
-    const sub = controlActions$().subscribe((a) => {
-      if (a.type !== "toggle") return;
-      if (a.target === "canvas.mode" && (CANVAS_MODES as readonly string[]).includes(a.value)) {
-        setViewMode(a.value as ViewMode);
-      } else if (a.target === "canvas.groupBy" && DIMS.some((d) => d.key === a.value)) {
-        setGroupBy(a.value as GroupDim);
-      } else if (a.target === "canvas.metric" && (a.value === "events" || a.value === "tokens")) {
-        setMetric(a.value as Metric);
-      }
-    });
-    return () => sub.unsubscribe();
-  }, []);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -165,6 +149,51 @@ export function SessionsCanvas({ onNavigate }: Props) {
     // Canvas (every mode routes through here), so the journey is replayable.
     postInteraction(selectInteraction("canvas", id));
   };
+
+  // Agent-in-UI: canvas.* toggles + select_session (same as human click on bar/dot).
+  useEffect(() => {
+    const sub = controlActions$().subscribe((a) => {
+      if (a.type === "toggle") {
+        if (a.target === "canvas.mode" && (CANVAS_MODES as readonly string[]).includes(a.value)) {
+          setViewMode(a.value as ViewMode);
+        } else if (a.target === "canvas.groupBy" && DIMS.some((d) => d.key === a.value)) {
+          setGroupBy(a.value as GroupDim);
+        } else if (a.target === "canvas.metric" && (a.value === "events" || a.value === "tokens")) {
+          setMetric(a.value as Metric);
+        }
+        return;
+      }
+      if (a.type === "set" && a.target === "canvas.select_session") {
+        const sid =
+          typeof a.params.sessionId === "string"
+            ? a.params.sessionId.trim()
+            : typeof a.params.id === "string"
+              ? a.params.id.trim()
+              : "";
+        if (sid) openSessionPanel(sid);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [universe]);
+
+  // Attention tree (reactive): mode / groupBy / metric / selection from foldIntent.
+  useEffect(() => {
+    const sub = canvasAttention$().subscribe((c) => {
+      if (c.mode && (CANVAS_MODES as readonly string[]).includes(c.mode)) {
+        setViewMode(c.mode as ViewMode);
+      }
+      if (c.groupBy && DIMS.some((d) => d.key === c.groupBy)) {
+        setGroupBy(c.groupBy as GroupDim);
+      }
+      if (c.metric === "events" || c.metric === "tokens") {
+        setMetric(c.metric);
+      }
+      if (c.selectedSessionId) {
+        openSessionPanel(c.selectedSessionId);
+      }
+    });
+    return () => sub.unsubscribe();
+  }, [universe]);
 
   const q = query.trim().toLowerCase();
   const dim = (n: HNode) => Boolean(q) && !`${n.label} ${n.sessionId ?? ""}`.toLowerCase().includes(q);

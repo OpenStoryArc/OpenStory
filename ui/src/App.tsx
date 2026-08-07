@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
+import { ReelsView } from "@/components/reels/ReelsView";
 import { AskView } from "@/components/ask/AskView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
@@ -22,7 +23,16 @@ import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
-import { interpretControl } from "@/lib/ui-control";
+import { interpretControl, type UIControlAction } from "@/lib/ui-control";
+import { injectControl } from "@/streams/control";
+import {
+  attentionFromRoute,
+  materializeAttention,
+  realizeIntent,
+  type AttentionPorts,
+} from "@/lib/attention";
+import { commitAttention, syncAttentionFromRoute } from "@/streams/attention";
+import type { NavigateToParams } from "@/lib/nav-path";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
@@ -31,6 +41,7 @@ import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, 
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 import { switchTabRoute } from "@/lib/navigation";
+import type { ControlStep } from "@/lib/nav-path";
 
 const STATUS_INDICATOR = {
   connected: { color: "bg-green-400", label: "Connected" },
@@ -61,6 +72,21 @@ export function App() {
   // Live tab: the sessions sidebar folds away — a clear labeled control, persisted.
   const [liveSidebar, setLiveSidebar] = usePersistedFlag("os.live.sidebar", true);
 
+  // Keep reactive Attention spine in sync with the bookmarkable hash.
+  useEffect(() => {
+    syncAttentionFromRoute(route);
+  }, [route]);
+
+  const attentionPorts: AttentionPorts = useMemo(
+    () => ({
+      navigate,
+      setSpotlight,
+      setTitleCard,
+      injectControl,
+    }),
+    [navigate],
+  );
+
   // Durable overlay annotations: load existing on mount, append live ones.
   useEffect(() => { fetchAnnotations().then(setAnnotations); }, []);
   useEffect(() => {
@@ -71,28 +97,26 @@ export function App() {
     return () => sub.unsubscribe();
   }, []);
 
-  // Agent-in-UI WRITE seam: react to `control` view-intents broadcast over the
-  // WebSocket (an MCP/operator posts to /api/control). The UI is a sink — it
-  // reacts; it never drives itself. Every drive is made visible ("driven by X"
-  // + a dismissible present banner) so the mirror stays seizable, not a leash.
-  useEffect(() => {
-    const sub = wsMessages$().subscribe((msg) => {
-      if (msg.kind !== "control") return;
-      const issuer = typeof msg.issuer === "string" && msg.issuer ? msg.issuer : "an agent";
-      const action = interpretControl(msg.action, msg.params);
-      if (action?.type === "navigate") {
+  // Apply one interpreted control action (navigate / present / set / …).
+  // Shared by single-intent drives and navigate_to sequences.
+  const applyControlAction = useCallback(
+    (action: UIControlAction, issuer: string) => {
+      if (action.type === "navigate") {
         navigate(action.route);
-        setSpotlight(null); // any view-changing drive dismisses the spotlight
+        setSpotlight(null);
         setTitleCard(null);
-      } else if (action?.type === "present") {
+      } else if (action.type === "present") {
         if (action.route) {
           navigate(action.route);
           setSpotlight(null);
           setTitleCard(null);
         }
-        setPresent({ issuer, message: action.message, sessionIds: action.sessionIds, route: action.route });
-        // Report present so where_is_user can confirm the banner (navigation
-        // still comes from the route effect when route is set).
+        setPresent({
+          issuer,
+          message: action.message,
+          sessionIds: action.sessionIds,
+          route: action.route,
+        });
         if (action.message.trim()) {
           postInteraction({
             kind: "navigate",
@@ -101,11 +125,13 @@ export function App() {
             present_message: action.message,
           });
         }
-      } else if (action?.type === "spotlight") {
-        setSpotlight({ sessionId: action.sessionId, eventId: action.eventId, clipAt: action.clipAt });
+      } else if (action.type === "spotlight") {
+        setSpotlight({
+          sessionId: action.sessionId,
+          eventId: action.eventId,
+          clipAt: action.clipAt,
+        });
         setTitleCard(null);
-        // Spotlight does not change the hash — stamp presentation state so
-        // where_is_user can confirm the drive (map principle, read half).
         postInteraction({
           kind: "navigate",
           view: "spotlight",
@@ -113,7 +139,7 @@ export function App() {
           eventId: action.eventId,
           spotlight: true,
         });
-      } else if (action?.type === "title") {
+      } else if (action.type === "title") {
         setTitleCard(action.message);
         setSpotlight(null);
         postInteraction({
@@ -122,17 +148,123 @@ export function App() {
           present_message: action.message,
           spotlight: true,
         });
-      } else if (action?.type === "toggle" && action.target === "spotlight") {
-        // The seam's explicit dismissal: toggle {target:"spotlight", value:"off"}.
+      } else if (action.type === "toggle" && action.target === "spotlight") {
         if (action.value === "off") {
           setSpotlight(null);
           setTitleCard(null);
         }
+      } else if (action.type === "set" && action.target === "story.details") {
+        const p = action.params;
+        const sessionId =
+          typeof p.sessionId === "string" && p.sessionId.trim()
+            ? p.sessionId.trim()
+            : route.sessionId;
+        const eventId =
+          typeof p.eventId === "string" && p.eventId.trim()
+            ? p.eventId.trim()
+            : route.eventId;
+        const open =
+          p.open === true ||
+          p.open === "true" ||
+          p.open === 1 ||
+          p.value === "open" ||
+          p.value === "on" ||
+          p.value === true;
+        if (sessionId && eventId && open) {
+          navigate({
+            view: "story",
+            sessionId,
+            eventId,
+            storyDetails: true,
+            storyEvalOpen: p.evalOpen === true || p.evalOpen === "true",
+            storyEventsOpen: p.eventsOpen === true || p.eventsOpen === "true",
+          });
+          setSpotlight(null);
+          setTitleCard(null);
+        } else if (sessionId && eventId && !open) {
+          navigate({
+            view: "story",
+            sessionId,
+            eventId,
+            storyDetails: false,
+            storyEvalOpen: false,
+            storyEventsOpen: false,
+          });
+        }
+      } else if (
+        action.type === "toggle" &&
+        action.target === "story.details" &&
+        (action.value === "open" || action.value === "on")
+      ) {
+        if (route.view === "story" && route.sessionId && route.eventId) {
+          navigate({
+            view: "story",
+            sessionId: route.sessionId,
+            eventId: route.eventId,
+            storyDetails: true,
+          });
+        }
+      }
+      // toggle/set for canvas etc. flow via controlActions$ → view sinks
+    },
+    [navigate, route.sessionId, route.eventId, route.view],
+  );
+
+  /** Run a planned multi-step drive (navigate_to) with a short gap so sinks land.
+   *  Toggle/set for canvas etc. are injectControl'd so controlActions$ sinks fire. */
+  const runControlSequence = useCallback(
+    async (steps: readonly ControlStep[], issuer: string) => {
+      for (const step of steps) {
+        const action = interpretControl(step.action, step.params);
+        if (!action || action.type === "navigate_sequence") continue;
+        // Route-level actions stay in App; component knobs go through control$.
+        if (action.type === "toggle" || action.type === "set") {
+          injectControl(step.action, step.params, issuer);
+          // story.details is also handled in App (hash)
+          if (action.type === "set" && action.target === "story.details") {
+            applyControlAction(action, issuer);
+          }
+        } else {
+          applyControlAction(action, issuer);
+        }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    },
+    [applyControlAction],
+  );
+
+  // Agent-in-UI WRITE seam: control intents → pure Attention fold → materialize.
+  // Prefer realizeIntent (denotational) for navigate_to; fall back to step sequence.
+  useEffect(() => {
+    const sub = wsMessages$().subscribe((msg) => {
+      if (msg.kind !== "control") return;
+      const issuer = typeof msg.issuer === "string" && msg.issuer ? msg.issuer : "an agent";
+
+      // High-level hand: Intent → Attention → pixels (artful expression of data)
+      if (msg.action === "navigate_to") {
+        const intent = (msg.params ?? {}) as NavigateToParams;
+        const base = attentionFromRoute(route);
+        const next = realizeIntent(base, intent, interpretControl);
+        if (next) {
+          commitAttention(next);
+          materializeAttention(next, attentionPorts, issuer);
+          setDrivenBy(issuer);
+          return;
+        }
+      }
+
+      const action = interpretControl(msg.action, msg.params);
+      if (!action) return;
+      if (action.type === "navigate_sequence") {
+        // Fallback multi-step path (canvas sinks + injectControl)
+        void runControlSequence(action.steps, issuer);
+      } else {
+        applyControlAction(action, issuer);
       }
       setDrivenBy(issuer);
     });
     return () => sub.unsubscribe();
-  }, [navigate]);
+  }, [applyControlAction, runControlSequence, route, attentionPorts]);
   useEffect(() => {
     if (!drivenBy) return;
     const t = setTimeout(() => setDrivenBy(null), 4000);
@@ -311,12 +443,18 @@ export function App() {
           selectedSession={storySession}
           onSelectSession={(sid) => navigate({ view: "story", ...(sid ? { sessionId: sid } : {}) })}
           eventId={route.eventId}
+          storyDetails={route.storyDetails}
+          storyEvalOpen={route.storyEvalOpen}
+          storyEventsOpen={route.storyEventsOpen}
           onOpenEvent={(sid, eid) => navigate({ view: "explore", sessionId: sid, eventId: eid })}
         />
       )}
 
       {/* Canvas tab */}
       {viewMode === "canvas" && <SessionsCanvas onNavigate={navigate} />}
+
+      {/* Reels tab */}
+      {viewMode === "reels" && <ReelsView route={route} onNavigate={navigate} />}
 
       {/* Ask tab */}
       {viewMode === "ask" && <AskView onNavigate={navigate} />}

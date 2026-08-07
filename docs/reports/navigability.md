@@ -10,17 +10,17 @@ _The MCP surveyor drives every drivable edge through the control seam and checks
 |---|---|:--:|---|
 | person→session | query | ✅ | `#/explore?user=max` |
 | project→session | query | ✅ | `#/explore?project=OpenStory` |
-| session→subagent | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/graph` |
-| session→turn | open_view | ✅ | `#/story/feb9e902-b5b3-49fb-827c-150cd38e0b4f` |
-| session→plan | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/plans` |
-| session→event | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f` |
-| turn→event | focus_event | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/event/b7cb30c4-7cb3-429f-a5d4-ac8bfab8bd59` |
-| event→turn | focus_event | ✅ | `#/story/feb9e902-b5b3-49fb-827c-150cd38e0b4f/event/b7cb30c4-7cb3-429f-a5d4-ac8bfab8bd59` |
+| session→subagent | open_view | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77/graph` |
+| session→turn | open_view | ✅ | `#/story/019fa1ba-47ad-77a2-a0b8-63f069d46d77` |
+| session→plan | open_view | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77/plans` |
+| session→event | open_view | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77` |
+| turn→event | focus_event | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77/event/9b32dd80-3166-5281-bc78-046be1144354` |
+| event→turn | focus_event | ✅ | `#/story/019fa1ba-47ad-77a2-a0b8-63f069d46d77/event/9b32dd80-3166-5281-bc78-046be1144354` |
 | file→session | query | ✅ | `#/search?q=App.tsx` |
-| subagent→session | open_view | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f` |
-| toolcall→result | focus_event | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/event/b7cb30c4-7cb3-429f-a5d4-ac8bfab8bd59` |
-| error→event | focus_event | ✅ | `#/explore/feb9e902-b5b3-49fb-827c-150cd38e0b4f/event/b7cb30c4-7cb3-429f-a5d4-ac8bfab8bd59` |
-| plan→turn | focus_event | ✅ | `#/story/feb9e902-b5b3-49fb-827c-150cd38e0b4f/event/b7cb30c4-7cb3-429f-a5d4-ac8bfab8bd59` |
+| subagent→session | open_view | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77` |
+| toolcall→result | focus_event | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77/event/9b32dd80-3166-5281-bc78-046be1144354` |
+| error→event | focus_event | ✅ | `#/explore/019fa1ba-47ad-77a2-a0b8-63f069d46d77/event/9b32dd80-3166-5281-bc78-046be1144354` |
+| plan→turn | focus_event | ✅ | `#/story/019fa1ba-47ad-77a2-a0b8-63f069d46d77/event/9b32dd80-3166-5281-bc78-046be1144354` |
 
 ## Dead ends (no verb walks them — the branches to grow)
 

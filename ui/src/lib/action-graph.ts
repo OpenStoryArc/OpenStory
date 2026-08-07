@@ -21,7 +21,7 @@ export type EntityKind =
 /** How the UI walks an edge today. A real control verb is drivable via the seam;
  *  `inherent` means the destination is already on-screen (no navigation needed);
  *  `null` is a DEAD END — the data connects, the UI doesn't. */
-export type NavVerb = "open_view" | "focus_event" | "toggle" | "query" | "inherent";
+export type NavVerb = "open_view" | "focus_event" | "toggle" | "query" | "set" | "inherent";
 
 export interface DataEdge {
   readonly from: EntityKind;
@@ -42,13 +42,14 @@ export const ENTITY_EDGES: readonly DataEdge[] = [
   { from: "session", to: "turn", label: "has", via: "open_view", note: "story" },
   { from: "session", to: "plan", label: "produces", via: "open_view", note: "explore plans" },
   { from: "session", to: "event", label: "has", via: "open_view", note: "explore / live" },
-  { from: "turn", to: "sentence", label: "summarized", via: "inherent", note: "both on Story" },
+  // Sentence is on the turn card; walking here also expands ▾ details (story.details).
+  { from: "turn", to: "sentence", label: "summarized", via: "set", note: "focus turn + set story.details open (?details=1)" },
   { from: "turn", to: "event", label: "source ↗", via: "focus_event", note: "just closed" },
   { from: "event", to: "turn", label: "its turn ↑", via: "focus_event", note: "#/story/SES/event/ID — card link + seam" },
-  // ── the branches that stop in mid-air (data connected, UI isn't) ──
   { from: "subagent", to: "session", label: "parent ↑", via: "open_view", note: "summary strip ↑ parent (parent_session_id on /summary)" },
   { from: "toolcall", to: "result", label: "paired ⇄", via: "focus_event", note: "card ⇄ link jumps the round trip (tool-pair map)" },
-  { from: "toolcall", to: "file", label: "writes", via: null },
+  // Closed for click-parity: tool write → file search locus (same as file→session optics).
+  { from: "toolcall", to: "file", label: "writes", via: "open_view", note: "#/search?q=basename — file locus from tool write" },
   { from: "file", to: "session", label: "impact ↺", via: "query", note: "#/search?q=path — facet link + seam searchQuery" },
   { from: "error", to: "event", label: "locus", via: "focus_event", note: "summary \"failed →\" deep-links the first-error event everywhere" },
   { from: "plan", to: "turn", label: "authored by ↑", via: "focus_event", note: "PlanViewer link → #/story/SES/event/{ExitPlanMode id}" },

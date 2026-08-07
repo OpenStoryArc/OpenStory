@@ -65,17 +65,26 @@ describe("ENTITY_EDGES — the real data model", () => {
     expect(e?.via).toBe("focus_event");
   });
 
-  it("has ONE dead end left (data connected, UI isn't)", () => {
+  it("has ZERO dead ends — full ActionGraph click-parity canopy", () => {
     const report = navigabilityReport(ENTITY_EDGES);
-    const deadLabels = report.deadEnds.map((e) => `${e.from}->${e.to}`);
-    expect(deadLabels).toEqual(["toolcall->file"]);
+    expect(report.deadEnds).toEqual([]);
+    expect(report.coverage).toBe(1);
   });
 
-  it("reports the canopy's growth — 14/15 realized, one branch left", () => {
+  it("toolcall→file walks via open_view (search locus)", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "toolcall" && x.to === "file");
+    expect(e?.via).toBe("open_view");
+  });
+
+  it("turn→sentence is driveable (set story.details), not inherent-only", () => {
+    const e = ENTITY_EDGES.find((x) => x.from === "turn" && x.to === "sentence");
+    expect(e?.via).toBe("set");
+  });
+
+  it("reports 15/15 realized", () => {
     const r = navigabilityReport(ENTITY_EDGES);
     expect(r.total).toBe(15);
-    expect(r.realized.length).toBe(14);
-    expect(r.deadEnds.length).toBe(1);
-    expect(r.coverage).toBeCloseTo(14 / 15);
+    expect(r.realized.length).toBe(15);
+    expect(r.deadEnds.length).toBe(0);
   });
 });

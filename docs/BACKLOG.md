@@ -969,8 +969,94 @@ render (`ui/src/lib/harness-message.ts`), but the source-of-truth label is still
 lossy (affects API consumers, search, exports). Fix: derive the label from the
 first *human* prompt, skipping harness-wrapper content, at ingest.
 
+## Publish reels across the fleet
+
+Once Reels ship (see `docs/superpowers/specs/2026-08-04-reels-design.md`), let
+one person *publish* a reel so a teammate can view it: Katie publishes the cut
+she made of her loop-engineering week; it appears in Max's Reels tab, marked
+with her principal. Why: reels are the first artifact in the product built to
+be *watched by someone else* — sharing is their natural completion, and it
+turns session history into team communication. Design sketch (preserve): reels
+are already portable JSON files referencing events by id; publishing = a
+`reel.published` CloudEvent, receiver lands the file in its own
+`data_dir/reels/` tagged with the author principal. Playback on the receiving
+side degrades gracefully when referenced events aren't in the local store
+(caption-only stops, or fetch-on-demand from the hub — decide then). "Send" is
+deliberately not the verb: nothing is pushed at a person; it's published to
+the fleet and appears in the mirror.
+
+**Taxonomy sketch (2026-08-06 design session).** Reels are *authored
+artifacts*, not observed history — they must NOT ride `events.>` (that stream
+is the mirror of what agents did; publishing annotations onto it pollutes the
+record). The precedent is sentences: derived/authored things get their own
+stream (`patterns` carries PatternEvents with `pattern_type: turn.sentence`,
+durable, bus-propagated, persisted to their own table). Reels follow the same
+shape one level up:
+
+- **Event:** `type: io.arc.event`, subtype `reel.published`, data = the full
+  reel JSON (small, pure text; cap stops/line/title lengths at POST — see the
+  final-review note on unbounded writes) + `principal_id` of the author.
+  Re-publish of the same reel id = overwrite (id is the idempotency key,
+  matching save semantics).
+- **Subject:** a new authored-artifact family, e.g.
+  `artifacts.{principal}.reel.{reel_id}` — sibling to the "Unify the
+  interaction/control seam onto NATS" entry's `ui.{principal}.*` proposal;
+  same authored-vs-observed boundary, one bus, one set of sinks.
+- **Stream:** durable JetStream (like `events`/`patterns`, NOT the
+  interest-based `changes`) so machines that are offline when Katie publishes
+  catch up on reconnect — late joiners replay, nothing is lost.
+- **Federation:** TODAY only `events.>` traverses the leaf/hub link — ui/
+  authored artifacts do not replicate at all. The leaf and hub configs must
+  export/import `artifacts.>` too; that change lands in the openstory-deploy
+  repo (box-only edits get clobbered by deploy.sh).
+- **Receiver:** a small artifacts consumer (or the persist consumer) on each
+  node subscribes `artifacts.>`, writes the reel file into local
+  `data_dir/reels/`, tags author principal. It must NOT gate on local event
+  validation (Katie's store won't have Max's events) — mark unresolved stops
+  instead; the Reels tab shows "published by <principal>" and plays
+  caption-only where the spotlight can't resolve. The broadcast consumer
+  relays the same event so the Reels tab updates live.
+- Publishing stays explicit: a reel saved locally is local; `publish_reel`
+  (API + MCP verb) is the deliberate act that puts it on the bus.
+
 ---
 
 ## Done (not tracked here)
 
 Completed work lives in git history. For reference, major completed features include: pattern detection pipeline (5 detectors), SQLite event store, pub/sub via NATS, live timeline, explore view split, subagent enrichment, stateful BFF projection, enriched event envelopes, view model crate, testcontainers E2E, configurable projects dir, syntax highlighting, and open-source licensing cleanup.
+
+### Event Spotlight renders tool events as raw JSON
+Dogfooding reels surfaced it: spotlighting a tool_call/tool_result projects
+the raw payload JSON full-screen — honest, but unreadable as a story beat
+(a FileCreated result is a wall of braces). The spotlight is a projector
+surface; it should render tool events the way EventCard does — tool name +
+the human-salient fields (path written, command run, output text) — while
+keeping raw JSON one click away (no dead ends). Reuse the views-layer/
+EventCard extraction rather than inventing a second renderer. Interim
+mitigation lives in the reel skill (prefer prose events, clipAt).
+
+### Reels v1 follow-ups (from the 2026-08-07 dogfooding session)
+The first iteration shipped: reel format (opener/stops/closer), Reels tab
+with a spotlight player (BLUF opener card, cinema captions, back/jump/
+segmented progress, TTS narration), MCP verbs, /openstory:reel skill with
+narrative shapes (pyramid, ABT, story spine, kishōtenketsu, sparkline) and
+the BLUF rule. Next, in rough priority order:
+- **Video export.** Render a reel to an actual video file (the
+  record-tour-video pipeline is precedent) — shareable outside the
+  dashboard; a real timeline slider becomes honest once the artifact is
+  time-based rather than beat-based.
+- **Reel editing UI.** v1 is agents-author/humans-replay; a human should be
+  able to reorder stops, edit lines, and trim clipAt in place.
+- **Reel size caps at POST.** stops count / line / title length — the store
+  writes unbounded client JSON today (final-review recommendation).
+- **Validation: store-error ≠ not-found.** session_events read errors
+  currently classify stops as invented (422); surface a 500-family error
+  instead so agents aren't told their real event is fake (deferred T2
+  minor).
+- **E2E: seed-reel fixture.** click reel → opener → spotlight advances →
+  title card, per the spec's deferred test (needs a seed fixture in
+  e2e/fixtures/seed-data).
+- **Narration voice/rate controls.** Web Speech voice picker + speed,
+  per-user preference.
+- **ReelMeta could carry opener/closer presence** so the list view can badge
+  BLUF-compliant reels.

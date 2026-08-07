@@ -8,6 +8,7 @@
 
 import { parseHash, type HashRoute } from "@/lib/hash-route";
 import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
+import { planNavigateTo, type ControlStep, type NavigateToParams } from "@/lib/nav-path";
 
 /** Facet keys an agent can filter by (Query class + open_view structured params). */
 const QUERY_KEYS = ["project", "agent", "user", "status", "host", "branch", "day"] as const;
@@ -19,6 +20,7 @@ const TIME_FILTERS = new Set(["1h", "today", "week", "all"]);
 export const CONTROL_VERBS = [
   "open_view",
   "focus_event",
+  "navigate_to",
   "present",
   "announce",
   "highlight",
@@ -35,6 +37,8 @@ export interface ControlParams {
   sessionId?: string;
   eventId?: string;
   detailView?: string;
+  reelId?: string;
+  autoplay?: unknown;
   filePath?: string;
   searchQuery?: string;
   userFilter?: string;
@@ -116,6 +120,14 @@ export type UIControlAction =
       readonly type: "set";
       readonly target: string;
       readonly params: Record<string, unknown>;
+    }
+  | {
+      /**
+       * High-level hand: planNav / planNavigateTo → ordered control steps.
+       * App executes them in sequence (full click-parity entry point).
+       */
+      readonly type: "navigate_sequence";
+      readonly steps: readonly ControlStep[];
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -137,6 +149,13 @@ export function controlToRoute(action: string, params: unknown): HashRoute | nul
     const r: HashRoute = { view: p.view as HashRoute["view"] };
     if (typeof p.sessionId === "string") r.sessionId = p.sessionId;
     if (typeof p.detailView === "string") r.detailView = p.detailView as HashRoute["detailView"];
+    // Carry reelId/autoplay — planNavigateTo({kind:"reel", ...}) emits
+    // {view:"reels", reelId, autoplay} (nav-path.ts), and every
+    // planned-step consumer (runControlSequence fallback, foldSteps,
+    // raw ui_control calls) goes through this open_view branch. Without
+    // it, a planned reel navigation silently lands on the reels list.
+    if (typeof p.reelId === "string" && p.reelId.trim()) r.reelId = p.reelId;
+    if (p.autoplay === true) r.reelAutoplay = true;
     // Carry eventId so an open_view can deep-link to a single event — replay
     // retraces to the EXACT event the human was on, not just the session.
     if (typeof p.eventId === "string" && p.eventId.trim()) r.eventId = p.eventId;
@@ -165,6 +184,40 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   if (action === "open_view") {
     const route = controlToRoute(action, params);
     return route ? { type: "navigate", route } : null;
+  }
+  // High-level: any entity / canvas → planned control sequence (agent primary hand).
+  if (action === "navigate_to") {
+    const raw = (params ?? {}) as Record<string, unknown>;
+    const p = raw as NavigateToParams & Record<string, unknown>;
+    // Wire params arrive as JSON — booleans may be stringly ("true"); read
+    // them through the untyped record so the tolerance is type-legal.
+    const flag = (v: unknown): boolean => v === true || v === "true";
+    const kind = typeof p.kind === "string" ? p.kind.trim() : "";
+    const id = typeof p.id === "string" ? p.id.trim() : kind === "canvas" ? "canvas" : "";
+    if (!kind) return null;
+    const steps = planNavigateTo({
+      kind: kind as NavigateToParams["kind"],
+      id: id || "canvas",
+      sessionId: typeof p.sessionId === "string" ? p.sessionId : undefined,
+      eventId: typeof p.eventId === "string" ? p.eventId : undefined,
+      user: typeof p.user === "string" ? p.user : undefined,
+      project: typeof p.project === "string" ? p.project : undefined,
+      filePath: typeof p.filePath === "string" ? p.filePath : undefined,
+      parentSessionId: typeof p.parentSessionId === "string" ? p.parentSessionId : undefined,
+      view: p.view === "explore" || p.view === "story" ? p.view : undefined,
+      details: flag(raw.details) || raw.expandAll === true,
+      evalOpen: flag(raw.evalOpen) || raw.expandAll === true,
+      eventsOpen: flag(raw.eventsOpen) || raw.expandAll === true,
+      expandAll: flag(raw.expandAll),
+      canvasMode: typeof p.canvasMode === "string" ? p.canvasMode : undefined,
+      spotlight: p.spotlight === true,
+      day: typeof p.day === "string" ? p.day : undefined,
+      agent: typeof p.agent === "string" ? p.agent : undefined,
+      groupBy: typeof p.groupBy === "string" ? p.groupBy : undefined,
+      metric: p.metric === "events" || p.metric === "tokens" ? p.metric : undefined,
+    });
+    if (!steps || steps.length === 0) return null;
+    return { type: "navigate_sequence", steps };
   }
   // The "focus_event" class: navigate-to-THING — open exactly one event in a
   // detail view (Explore or Story), which both consume `route.eventId` to scroll

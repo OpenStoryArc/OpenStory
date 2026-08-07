@@ -154,7 +154,7 @@ docker build -f Dockerfile.openclaw -t openclaw-mcp:latest .
 docker build -f Dockerfile.prod -t open-story:prod .
 ```
 
-**`openclaw-mcp:latest`** extends `openclaw:latest` with the native Rust `open-story-mcp` binary (multi-stage build — Stage 1 compiles Rust 1.88; Stage 2 copies the binary into `/usr/local/bin/` on the openclaw runtime). It's the image the `openclaw` service in `docker-compose.agent.yml` actually runs — the OpenClaw agent spawns the Rust binary as a stdio subprocess and queries its local Open Story instance via the 21 MCP tools (19 queries + `subscribe_session`/`subscribe_tokens` streaming). The binary subscribes to NATS for the two streaming tools and reads its local Open Story instance over the REST API for the 19 query tools (as of the REST migration — see `docs/mcp-architecture.md`) — native Rust, no Python. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
+**`openclaw-mcp:latest`** extends `openclaw:latest` with the native Rust `open-story-mcp` binary (multi-stage build — Stage 1 compiles Rust 1.88; Stage 2 copies the binary into `/usr/local/bin/` on the openclaw runtime). It's the image the `openclaw` service in `docker-compose.agent.yml` actually runs — the OpenClaw agent spawns the Rust binary as a stdio subprocess and queries its local Open Story instance via the OpenStory MCP tools (history + analytics + UI seam + streaming; see `docs/mcp-architecture.md`). The binary subscribes to NATS for the two streaming tools and reads its local Open Story instance over the REST API for the 19 query tools (as of the REST migration — see `docs/mcp-architecture.md`) — native Rust, no Python. See `Dockerfile.openclaw` and the `mcp.servers.openstory` block in the compose file.
 
 **Warning**: Docker builds create millions of temporary files that consume filesystem inodes. If you see "no space left on device" errors but `df -h` shows free space, check `df -i /` for inode exhaustion. Fix with `docker system prune -a --force`.
 
@@ -286,7 +286,7 @@ docker exec <openclaw-container-id> sh -c 'test -x /usr/local/bin/open-story-mcp
 
 You should see `OK`. The binary itself has no `--version` flag; it expects stdio JSON-RPC.
 
-The agent itself doesn't need any configuration — when it starts a turn, OpenClaw reads `openclaw.json`, sees the `mcp.servers.openstory` block, and spawns `/usr/local/bin/open-story-mcp` as a stdio subprocess. The binary connects to NATS (`OPENSTORY_NATS_URL`) and the SQLite store at `/os-data` (read-only mount of `openstory-os-data`). Tools from the `openstory` server automatically appear in the agent's tool list alongside its built-in ones — 21 tools total, including the streaming `subscribe_session` and `subscribe_tokens`.
+The agent itself doesn't need any configuration — when it starts a turn, OpenClaw reads `openclaw.json`, sees the `mcp.servers.openstory` block, and spawns `/usr/local/bin/open-story-mcp` as a stdio subprocess. The binary connects to NATS (`OPENSTORY_NATS_URL`) and the SQLite store at `/os-data` (read-only mount of `openstory-os-data`). Tools from the `openstory` server automatically appear in the agent's tool list alongside its built-in ones — including `openstory_help`, history/analytics tools, the UI attention seam, and streaming `subscribe_session` / `subscribe_tokens`.
 
 ## Operations
 

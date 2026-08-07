@@ -294,9 +294,17 @@ async fn openclaw_mcp_initialize_handshake() {
     );
     assert_eq!(
         tools.len(),
-        21,
-        "Rust MCP ships 21 tools; got {}",
+        26,
+        "Rust MCP ships 26 tools (incl. navigate_to + openstory_help + UI seam); got {}",
         tools.len()
+    );
+    assert!(
+        names.contains(&"openstory_help"),
+        "expected openstory_help (in-band curriculum); got: {names:?}"
+    );
+    assert!(
+        names.contains(&"navigate_to"),
+        "expected navigate_to (click-parity hand); got: {names:?}"
     );
 }
 

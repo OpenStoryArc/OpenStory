@@ -5,12 +5,26 @@ description: Query your own coding sessions via the OpenStory MCP tools — find
 
 # OpenStory — self-awareness via your own session history
 
-OpenStory observes every session you run. You can query that history in real time through the `openstory` MCP server, which exposes 21 read-only tools — 19 query tools plus 2 streaming tools that pump live events. The server is a native Rust binary (`open-story-mcp`) that reads OpenStory over its REST API (the query tools) and subscribes to the NATS event bus (the streaming tools) — no Python, no proxy. It never opens your database and never writes.
+OpenStory observes every session you run. You can query that history in real time through the `openstory` MCP server (~25 tools: help + history + analytics + UI attention + streaming). The server is a native Rust binary (`open-story-mcp`) that reads OpenStory over its REST API and subscribes to NATS for live streams — no Python, no proxy. It never opens your database and never writes history.
+
+**You do not need the OpenStory git repo.** On connect, read `initialize.instructions`, call `openstory_help`, or `resources/read openstory://docs/hands`. Physics limits: `openstory://docs/physics`. Dashboard drive/follow: `openstory://docs/agent-in-ui`.
+
+## Motions (prefer these over dumping tools)
+
+| Need | Tools |
+|------|--------|
+| orient | `list_sessions` → `session_story` / `session_synopsis` |
+| what-touched | `file_impact`, `tool_journey`, `session_sentences` |
+| find | `search`, `agent_search` |
+| cost | `token_usage`, `daily_token_usage` |
+| live | `subscribe_session`, `subscribe_tokens` |
+| show-human | `where_is_user` → `ui_control` |
+| stuck | `openstory_help` |
 
 ## When to use these tools
 
-- **User asks "what did you do earlier?" or "what happened in session X?"** → `session_story`, `session_synopsis`, `session_transcript`
-- **User asks about a file** ("have I touched auth.rs recently?") → `file_impact`, `recent_files`
+- **User asks "what did you do earlier?" or "what happened in session X?"** → `session_story`, `session_synopsis` (prefer before full `session_transcript`)
+- **User asks about a file** ("have I touched auth.rs recently?") → `file_impact`, `recent_files`, `search`
 - **User asks about token spend or cost** → `token_usage`, `daily_token_usage`
 - **User wants to find something across history** ("that bug with the translator") → `search`, `agent_search`
 - **User asks "what am I working on?"** → `list_sessions`, `project_context`, `project_pulse`
@@ -18,6 +32,8 @@ OpenStory observes every session you run. You can query that history in real tim
 - **You hit an error that looks familiar** → `session_errors` to see if it's recurred before
 - **You want to watch a live session as it unfolds** → `subscribe_session` (streams CloudEvents as they happen)
 - **You want a running token tally** → `subscribe_tokens` (streams usage deltas as turns complete)
+- **Show the human on the dashboard** → `where_is_user` then `ui_control` (steers display only)
+- **You're stuck** → `openstory_help` with `need` or `topic`
 
 ## Key tools
 
