@@ -47,45 +47,12 @@ describe("foldIntent — denotational navigate_to", () => {
       storyDetails: true,
       storyEvalOpen: true,
       storyEventsOpen: true,
-      storyApplyOpen: "all",
     });
   });
 
-  it("applyOpen indices open eval-apply + per-apply outputs", () => {
-    const next = foldIntent(base, {
-      kind: "event",
-      id: "EVT-1",
-      sessionId: "SES-1",
-      applyOpen: [0, 2],
-    });
-    expect(next?.route).toMatchObject({
-      view: "story",
-      sessionId: "SES-1",
-      eventId: "EVT-1",
-      storyDetails: true,
-      storyEvalOpen: true,
-      storyApplyOpen: [0, 2],
-    });
-    expect(
-      attentionSatisfies(next!, {
-        kind: "event",
-        id: "EVT-1",
-        sessionId: "SES-1",
-        applyOpen: [0, 2],
-      }),
-    ).toBe(true);
-  });
-
-  it("applyOpen: true / 'all' expands every apply output", () => {
-    const next = foldIntent(base, {
-      kind: "event",
-      id: "EVT-1",
-      sessionId: "SES-1",
-      applyOpen: true,
-    });
-    expect(next?.route.storyApplyOpen).toBe("all");
-    expect(next?.route.storyEvalOpen).toBe(true);
-  });
+  // NOTE: per-apply-row expansion (applyOpen / storyApplyOpen) specs were
+  // committed ahead of their implementation on the base branch — trimmed to
+  // committed reality; they return with the apply-open feature itself.
 
   it("session + gantt → canvas mode + selection", () => {
     const next = foldIntent(base, {

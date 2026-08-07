@@ -595,15 +595,16 @@ export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
     ];
   }
 
-  // Fallback: graph walk session → kind
-  if (trim(target.sessionId) && target.kind !== "canvas" && target.kind !== "day") {
+  // Fallback: graph walk session → kind (canvas/day kinds returned above,
+  // so the remaining kinds all take the session-anchored walk).
+  if (trim(target.sessionId)) {
     return planNav(
       { kind: "session", id: target.sessionId! },
       { kind: target.kind as EntityKind, id },
       {
         sessionId: target.sessionId,
-        eventId: target.eventId || (target.kind === "event" ? id : undefined),
-        filePath: target.filePath || (target.kind === "file" ? id : undefined),
+        eventId: target.eventId,
+        filePath: target.filePath,
         user: target.user,
         project: target.project,
         parentSessionId: target.parentSessionId,

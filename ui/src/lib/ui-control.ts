@@ -187,7 +187,11 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   }
   // High-level: any entity / canvas → planned control sequence (agent primary hand).
   if (action === "navigate_to") {
-    const p = (params ?? {}) as NavigateToParams & Record<string, unknown>;
+    const raw = (params ?? {}) as Record<string, unknown>;
+    const p = raw as NavigateToParams & Record<string, unknown>;
+    // Wire params arrive as JSON — booleans may be stringly ("true"); read
+    // them through the untyped record so the tolerance is type-legal.
+    const flag = (v: unknown): boolean => v === true || v === "true";
     const kind = typeof p.kind === "string" ? p.kind.trim() : "";
     const id = typeof p.id === "string" ? p.id.trim() : kind === "canvas" ? "canvas" : "";
     if (!kind) return null;
@@ -201,10 +205,10 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       filePath: typeof p.filePath === "string" ? p.filePath : undefined,
       parentSessionId: typeof p.parentSessionId === "string" ? p.parentSessionId : undefined,
       view: p.view === "explore" || p.view === "story" ? p.view : undefined,
-      details: p.details === true || p.details === "true" || p.expandAll === true,
-      evalOpen: p.evalOpen === true || p.evalOpen === "true" || p.expandAll === true,
-      eventsOpen: p.eventsOpen === true || p.eventsOpen === "true" || p.expandAll === true,
-      expandAll: p.expandAll === true || p.expandAll === "true",
+      details: flag(raw.details) || raw.expandAll === true,
+      evalOpen: flag(raw.evalOpen) || raw.expandAll === true,
+      eventsOpen: flag(raw.eventsOpen) || raw.expandAll === true,
+      expandAll: flag(raw.expandAll),
       canvasMode: typeof p.canvasMode === "string" ? p.canvasMode : undefined,
       spotlight: p.spotlight === true,
       day: typeof p.day === "string" ? p.day : undefined,
