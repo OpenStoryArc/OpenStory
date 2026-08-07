@@ -45,6 +45,27 @@ describe("when a reel plays", () => {
       expect(reelPlayerReduce(from, { type: "EXIT" }, ctx)).toEqual({ phase: "idle" });
     }
   });
+  it("should open with the opener card when the reel has one (BLUF first)", () => {
+    const withOpener = { stopCount: 3, hasCloser: true, hasOpener: true };
+    expect(reelPlayerReduce(initialReelPlayerState, { type: "PLAY" }, withOpener)).toEqual({
+      phase: "opener",
+    });
+    expect(reelPlayerReduce({ phase: "opener" }, { type: "ADVANCE" }, withOpener)).toEqual({
+      phase: "stop",
+      index: 0,
+    });
+    expect(reelPlayerReduce({ phase: "opener" }, { type: "EXIT" }, withOpener)).toEqual({
+      phase: "idle",
+    });
+  });
+
+  it("should skip straight to stop 0 when there is no opener", () => {
+    expect(reelPlayerReduce(initialReelPlayerState, { type: "PLAY" }, ctx)).toEqual({
+      phase: "stop",
+      index: 0,
+    });
+  });
+
   it("should ignore ADVANCE while idle and PLAY restarts from done", () => {
     expect(reelPlayerReduce({ phase: "idle" }, { type: "ADVANCE" }, ctx)).toEqual({
       phase: "idle",

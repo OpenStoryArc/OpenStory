@@ -32,6 +32,9 @@ pub struct Reel {
     pub created: String,
     #[serde(default)]
     pub author: String,
+    /// BLUF title card shown (and narrated) before stop 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opener: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closer: Option<String>,
     pub stops: Vec<ReelStop>,
@@ -139,6 +142,7 @@ mod tests {
             title: "The Launch pitch".to_string(),
             created: "2026-08-04T18:00:00Z".to_string(),
             author: "test-issuer".to_string(),
+            opener: Some("The point up front.".to_string()),
             closer: Some("Three weeks. One pitch.".to_string()),
             stops: vec![ReelStop {
                 session_id: "sess-1".to_string(),
@@ -172,6 +176,7 @@ mod tests {
         assert_eq!(loaded.title, "The Launch pitch");
         assert_eq!(loaded.stops.len(), 1);
         assert_eq!(loaded.stops[0].event_id, "evt-1");
+        assert_eq!(loaded.opener.as_deref(), Some("The point up front."));
         assert_eq!(loaded.closer.as_deref(), Some("Three weeks. One pitch."));
     }
 

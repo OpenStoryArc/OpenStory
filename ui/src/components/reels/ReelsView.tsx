@@ -143,7 +143,11 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
 
   const [state, dispatch] = useReducer(
     (s: ReelPlayerState, e: ReelPlayerEvent) =>
-      reelPlayerReduce(s, e, { stopCount: reel?.stops.length ?? 0, hasCloser: !!reel?.closer }),
+      reelPlayerReduce(s, e, {
+        stopCount: reel?.stops.length ?? 0,
+        hasCloser: !!reel?.closer,
+        hasOpener: !!reel?.opener,
+      }),
     initialReelPlayerState,
   );
 
@@ -180,10 +184,11 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   // auto-advance. speechSynthesis is guarded for non-browser/test
   // environments; unmount (or stop change) cancels any in-flight speech.
   useEffect(() => {
-    if (state.phase !== "stop" || !reel) return;
-    const stop = reel.stops[state.index];
-    if (!stop) return;
-    const line = stop.line;
+    if ((state.phase !== "stop" && state.phase !== "opener") || !reel) return;
+    // Opener narrates its own card text (the BLUF); stops narrate their line.
+    const line =
+      state.phase === "opener" ? reel.opener : reel.stops[state.index]?.line;
+    if (!line) return;
     let fallback: number | undefined;
     // Some engines (observed in Chrome) fire the outgoing utterance's
     // `onend` on cancellation as a queued task — AFTER this effect's own
@@ -227,7 +232,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   // reel instead of advancing it. Space is unaffected by that trap — it's
   // handled entirely here, never routed through the child's `onClose`.
   useEffect(() => {
-    if (state.phase !== "stop" && state.phase !== "closer") return;
+    if (state.phase !== "stop" && state.phase !== "closer" && state.phase !== "opener") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.key === " ") {
         e.preventDefault();
@@ -291,6 +296,15 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (state.phase === "opener" && reel.opener) {
+    return (
+      <>
+        <TitleSpotlight message={reel.opener} onClose={exit} />
+        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
+      </>
     );
   }
 

@@ -23,6 +23,7 @@ pub fn save_reel_schema() -> Value {
                     "additionalProperties": false
                 }
             },
+            "opener": {"type": "string", "description": "Optional BLUF title card shown and narrated BEFORE stop 1 — one breath stating what the story is and why it matters"},
             "closer": {"type": "string", "description": "Optional full-screen title-card line after the last stop"},
             "author": {"type": "string", "description": "Attribution (defaults to 'mcp')"}
         },

@@ -12,6 +12,8 @@ export interface Reel {
   title: string;
   created: string;
   author: string;
+  /** BLUF title card shown (and narrated) before stop 0. */
+  opener?: string;
   closer?: string;
   stops: ReelStop[];
 }
