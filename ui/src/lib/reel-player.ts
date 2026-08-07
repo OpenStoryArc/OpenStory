@@ -9,7 +9,12 @@ export type ReelPlayerState =
   | { readonly phase: "closer" }
   | { readonly phase: "done" };
 
-export type ReelPlayerEvent = { type: "PLAY" } | { type: "ADVANCE" } | { type: "EXIT" };
+export type ReelPlayerEvent =
+  | { type: "PLAY" }
+  | { type: "ADVANCE" }
+  | { type: "BACK" }
+  | { type: "JUMP"; index: number }
+  | { type: "EXIT" };
 
 export interface ReelPlayerCtx {
   readonly stopCount: number;
@@ -30,6 +35,23 @@ export function reelPlayerReduce(
   if (event.type === "PLAY") {
     if (ctx.stopCount === 0) return { phase: "idle" };
     return ctx.hasOpener ? { phase: "opener" } : { phase: "stop", index: 0 };
+  }
+  if (event.type === "JUMP") {
+    if (event.index >= 0 && event.index < ctx.stopCount) {
+      return { phase: "stop", index: event.index };
+    }
+    return state;
+  }
+  if (event.type === "BACK") {
+    switch (state.phase) {
+      case "stop":
+        if (state.index > 0) return { phase: "stop", index: state.index - 1 };
+        return ctx.hasOpener ? { phase: "opener" } : state;
+      case "closer":
+        return ctx.stopCount > 0 ? { phase: "stop", index: ctx.stopCount - 1 } : state;
+      default:
+        return state;
+    }
   }
   // ADVANCE
   switch (state.phase) {

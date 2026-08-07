@@ -234,9 +234,12 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   useEffect(() => {
     if (state.phase !== "stop" && state.phase !== "closer" && state.phase !== "opener") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space" || e.key === " ") {
+      if (e.code === "Space" || e.key === " " || e.key === "ArrowRight") {
         e.preventDefault();
         dispatch({ type: "ADVANCE" });
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        dispatch({ type: "BACK" });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -315,20 +318,61 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
       <>
         <EventSpotlight sessionId={stop.sessionId} eventId={stop.eventId} clipAt={stop.clipAt} onClose={exit} />
         <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
-        {/* Caption bar rides above the click surface (z-[60] > z-[55]) so it
-         *  stays readable and clickable while the spotlight is open — its own
-         *  onClick also advances, which is consistent (never double-fires:
-         *  a click only ever hits ONE topmost element per the browser's hit
-         *  test, so a caption-bar click never reaches the surface beneath). */}
+        {/* Subtitle chrome rides above the click surface (z-[60] > z-[55]):
+         *  cinema-style caption, prev/next, and a clickable segmented
+         *  progress bar (one segment per stop — reels are discrete beats,
+         *  not continuous video, so segments ARE the honest scrubber).
+         *  Clicks inside this chrome never double-fire the surface beneath —
+         *  the browser hit-tests only the topmost element. */}
         <div
-          className="fixed inset-x-0 bottom-0 z-[60] flex cursor-pointer items-center justify-center gap-3 border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 py-3 backdrop-blur-sm"
-          onClick={() => dispatch({ type: "ADVANCE" })}
+          className="fixed inset-x-0 bottom-0 z-[60] border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 pb-4 pt-3 backdrop-blur-sm"
           data-testid="reels-caption-bar"
         >
-          <span className="max-w-3xl text-center text-sm text-[color:var(--text)]">{stop.line}</span>
-          <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-muted)]">
-            {state.index + 1} / {reel.stops.length}
-          </span>
+          <p
+            className="mx-auto max-w-4xl cursor-pointer text-center text-lg leading-relaxed text-[color:var(--text)]"
+            onClick={() => dispatch({ type: "ADVANCE" })}
+          >
+            {stop.line}
+          </p>
+          <div className="mx-auto mt-3 flex max-w-4xl items-center justify-center gap-4">
+            <button
+              onClick={() => dispatch({ type: "BACK" })}
+              className="rounded px-2 py-1 text-sm text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
+              aria-label="Previous stop"
+              data-testid="reels-back"
+            >
+              ‹ back
+            </button>
+            <div className="flex items-center gap-1.5" data-testid="reels-progress">
+              {reel.stops.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => dispatch({ type: "JUMP", index: i })}
+                  aria-label={`Go to stop ${i + 1}`}
+                  data-testid={`reels-segment-${i}`}
+                  className={
+                    "h-1.5 w-8 rounded-full transition-colors " +
+                    (i === state.index
+                      ? "bg-[color:var(--accent)]"
+                      : i < state.index
+                        ? "bg-[color:var(--accent)]/40"
+                        : "bg-[color:var(--divider)] hover:bg-[color:var(--text-muted)]")
+                  }
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => dispatch({ type: "ADVANCE" })}
+              className="rounded px-2 py-1 text-sm text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
+              aria-label="Next stop"
+              data-testid="reels-next"
+            >
+              next ›
+            </button>
+            <span className="absolute right-6 text-[11px] tabular-nums text-[color:var(--text-muted)]">
+              {state.index + 1} / {reel.stops.length}
+            </span>
+          </div>
         </div>
       </>
     );

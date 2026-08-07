@@ -261,3 +261,37 @@ describe("when a TTS engine fires onend on cancellation (Chrome quirk)", () => {
     }
   });
 });
+
+describe("when navigating a playing reel with the new controls", () => {
+  it("should step back with the back button", async () => {
+    stubSpeechSynthesis();
+    stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
+    render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("reels-next"));
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("reels-back"));
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+  });
+
+  it("should jump straight to a stop via its progress segment", async () => {
+    stubSpeechSynthesis();
+    stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
+    render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("reels-segment-2"));
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    expect(screen.getByText("Stop three.")).toBeInTheDocument();
+  });
+
+  it("should honor ArrowRight / ArrowLeft", async () => {
+    stubSpeechSynthesis();
+    stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
+    render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+  });
+});

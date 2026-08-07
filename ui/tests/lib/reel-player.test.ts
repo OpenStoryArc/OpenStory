@@ -66,6 +66,44 @@ describe("when a reel plays", () => {
     });
   });
 
+  it("should step BACK through stops, into the opener, and from the closer", () => {
+    const withOpener = { stopCount: 3, hasCloser: true, hasOpener: true };
+    expect(reelPlayerReduce({ phase: "stop", index: 2 }, { type: "BACK" }, withOpener)).toEqual({
+      phase: "stop",
+      index: 1,
+    });
+    expect(reelPlayerReduce({ phase: "stop", index: 0 }, { type: "BACK" }, withOpener)).toEqual({
+      phase: "opener",
+    });
+    expect(reelPlayerReduce({ phase: "stop", index: 0 }, { type: "BACK" }, ctx)).toEqual({
+      phase: "stop",
+      index: 0,
+    });
+    expect(reelPlayerReduce({ phase: "closer" }, { type: "BACK" }, ctx)).toEqual({
+      phase: "stop",
+      index: 2,
+    });
+  });
+
+  it("should JUMP to a valid stop and ignore out-of-range targets", () => {
+    expect(reelPlayerReduce({ phase: "stop", index: 0 }, { type: "JUMP", index: 2 }, ctx)).toEqual({
+      phase: "stop",
+      index: 2,
+    });
+    expect(reelPlayerReduce({ phase: "closer" }, { type: "JUMP", index: 1 }, ctx)).toEqual({
+      phase: "stop",
+      index: 1,
+    });
+    expect(reelPlayerReduce({ phase: "stop", index: 1 }, { type: "JUMP", index: 9 }, ctx)).toEqual({
+      phase: "stop",
+      index: 1,
+    });
+    expect(reelPlayerReduce({ phase: "stop", index: 1 }, { type: "JUMP", index: -1 }, ctx)).toEqual({
+      phase: "stop",
+      index: 1,
+    });
+  });
+
   it("should ignore ADVANCE while idle and PLAY restarts from done", () => {
     expect(reelPlayerReduce({ phase: "idle" }, { type: "ADVANCE" }, ctx)).toEqual({
       phase: "idle",
