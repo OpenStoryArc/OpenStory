@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   chainEdges,
+  contrastStretch,
+  dualEdgeTrace,
   edgeTraceImageData,
+  filterStrokesToEllipse,
   sobelMagnitude,
   stippleFromImageData,
   syntheticFaceImageData,
@@ -46,5 +49,34 @@ describe("edge trace pure pipeline", () => {
     const a = chainEdges(mag, 40, 40, 50, 1, 40, 4);
     const b = chainEdges(mag, 40, 40, 50, 1, 40, 4);
     expect(a).toEqual(b);
+  });
+
+  it("contrastStretch expands dynamic range", () => {
+    const g = new Float32Array([50, 100, 150]);
+    const c = contrastStretch(g, 1.2);
+    expect(c[0]).toBeLessThan(c[2]!);
+    expect(Math.min(...c)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...c)).toBeLessThanOrEqual(255);
+  });
+
+  it("dualEdgeTrace returns more ink than a sparse single pass", () => {
+    const img = syntheticFaceImageData(64);
+    const dual = dualEdgeTrace(img, { edgeThreshold: 100, softThreshold: 50, maxPaths: 40 });
+    expect(dual.length).toBeGreaterThan(3);
+    expect(dual.every((s) => s.type === "path")).toBe(true);
+  });
+
+  it("filterStrokesToEllipse drops far-away paths", () => {
+    const kept = filterStrokesToEllipse(
+      [
+        { type: "path", points: [{ x: 0.5, y: 0.5 }, { x: 0.51, y: 0.51 }], stroke: "#fff" },
+        { type: "path", points: [{ x: 0.05, y: 0.05 }, { x: 0.06, y: 0.06 }], stroke: "#fff" },
+      ],
+      0.5,
+      0.5,
+      0.2,
+      0.2,
+    );
+    expect(kept).toHaveLength(1);
   });
 });

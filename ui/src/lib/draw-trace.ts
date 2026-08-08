@@ -51,6 +51,60 @@ export function toGray(data: PixelBuffer): Float32Array {
   return out;
 }
 
+/**
+ * Stretch grayscale contrast so face detail pops (pure).
+ * Maps [pLow, pHigh] percentiles roughly via min/max with soft floor.
+ */
+export function contrastStretch(gray: Float32Array, strength = 1.15): Float32Array {
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < gray.length; i++) {
+    const v = gray[i]!;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  const span = Math.max(1, max - min);
+  const out = new Float32Array(gray.length);
+  for (let i = 0; i < gray.length; i++) {
+    const t = (gray[i]! - min) / span;
+    const boosted = Math.pow(t, 1 / strength);
+    out[i] = Math.min(255, Math.max(0, boosted * 255));
+  }
+  return out;
+}
+
+/** Keep only strokes whose centroid lies inside an ellipse (cuts brick-wall noise). */
+export function filterStrokesToEllipse(
+  strokes: readonly DrawStroke[],
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+): DrawStroke[] {
+  return strokes.filter((s) => {
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    if (s.type === "path") {
+      for (const p of s.points) {
+        sx += p.x;
+        sy += p.y;
+        n++;
+      }
+    } else if (s.type === "circle") {
+      sx = s.cx;
+      sy = s.cy;
+      n = 1;
+    } else {
+      return true; // keep text / frame
+    }
+    if (n === 0) return false;
+    const x = (sx / n - cx) / rx;
+    const y = (sy / n - cy) / ry;
+    return x * x + y * y <= 1.05;
+  });
+}
+
 /** Sobel magnitude per pixel. Border = 0. */
 export function sobelMagnitude(gray: Float32Array, w: number, h: number): Float32Array {
   const mag = new Float32Array(w * h);
@@ -225,10 +279,44 @@ export function edgeTraceImageData(data: PixelBuffer, opts?: TraceOptions): Draw
   const color = opts?.color ?? "#2f4a3e";
   const strokeWidth = opts?.strokeWidth ?? 1.6;
   const rect = opts?.rect ?? DEFAULT_RECT;
-  const gray = toGray(data);
+  const gray = contrastStretch(toGray(data), 1.2);
   const mag = sobelMagnitude(gray, data.width, data.height);
   const paths = chainEdges(mag, data.width, data.height, threshold, stride, maxPaths, minPathLen);
   return pathsToStrokes(paths, data.width, data.height, rect, color, strokeWidth);
+}
+
+/**
+ * Dual-pass edges: strong contours (thick) + softer detail (thin).
+ * Handsomer portraits than a single threshold.
+ */
+export function dualEdgeTrace(
+  data: PixelBuffer,
+  opts?: TraceOptions & { readonly softThreshold?: number; readonly softWidth?: number },
+): DrawStroke[] {
+  const rect = opts?.rect ?? DEFAULT_RECT;
+  const color = opts?.color ?? "#e7e5e4";
+  const strong = edgeTraceImageData(data, {
+    ...opts,
+    rect,
+    color,
+    edgeThreshold: opts?.edgeThreshold ?? 110,
+    maxPaths: opts?.maxPaths ?? 70,
+    minPathLen: opts?.minPathLen ?? 8,
+    stride: opts?.stride ?? 1,
+    strokeWidth: opts?.strokeWidth ?? 2.2,
+  });
+  const soft = edgeTraceImageData(data, {
+    ...opts,
+    rect,
+    color: opts?.color ?? "#a8a29e",
+    edgeThreshold: opts?.softThreshold ?? 55,
+    maxPaths: 90,
+    minPathLen: 4,
+    stride: 1,
+    strokeWidth: opts?.softWidth ?? 0.9,
+  });
+  // Strong first so detail doesn't bury the silhouette
+  return [...soft, ...strong];
 }
 
 /**
