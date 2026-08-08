@@ -5,6 +5,7 @@
 
 import type { DrawStroke } from "@/lib/draw";
 import {
+  centerCropSquare,
   dualEdgeTrace,
   filterStrokesToEllipse,
   stippleFromImageData,
@@ -12,13 +13,14 @@ import {
   type TraceRect,
 } from "@/lib/draw-trace";
 
-/** Tighter portrait frame — more face, less wall. */
-const MAX_FACE: TraceRect = { x: 0.3, y: 0.05, w: 0.4, h: 0.48 };
+/** Portrait frame in viewport — slightly larger face, room for caption. */
+const MAX_FACE: TraceRect = { x: 0.29, y: 0.04, w: 0.42, h: 0.5 };
 
-/** Load URL into pixel buffer (browser). Uses crossOrigin anonymous for canvas read. */
+/** Load URL into pixel buffer (browser). Center-crops face region. */
 export async function loadImageData(
   href: string,
-  maxSide = 200,
+  maxSide = 220,
+  cropFrac = 0.78,
 ): Promise<PixelBuffer> {
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -35,15 +37,15 @@ export async function loadImageData(
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2d context unavailable");
-  // Slight upscale sharpen: draw then mild contrast is in edge pipeline
   ctx.drawImage(img, 0, 0, w, h);
   const id = ctx.getImageData(0, 0, w, h);
-  return { width: id.width, height: id.height, data: id.data };
+  const full: PixelBuffer = { width: id.width, height: id.height, data: id.data };
+  return centerCropSquare(full, cropFrac);
 }
 
 /**
- * Handsomer ink portrait: dual edges + soft stipple, ellipse-masked to face.
- * No type:image paste — only path/circle/text/ellipse ink.
+ * Handsome ink portrait v0.3: crop → dual edges (RDP-smoothed) + soft stipple,
+ * ellipse-masked. Pure path/circle/text ink — never a pasted photo.
  */
 export async function portraitInkStrokes(
   href: string,
@@ -54,46 +56,58 @@ export async function portraitInkStrokes(
   },
 ): Promise<DrawStroke[]> {
   const rect = opts?.rect ?? MAX_FACE;
-  const data = await loadImageData(href, 200);
+  const data = await loadImageData(href, 220, 0.8);
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
-  const rx = rect.w * 0.46;
-  const ry = rect.h * 0.48;
+  const rx = rect.w * 0.47;
+  const ry = rect.h * 0.49;
 
+  // Contour + detail
   const edges = dualEdgeTrace(data, {
     rect,
-    edgeThreshold: 105,
-    softThreshold: 52,
-    maxPaths: 80,
-    minPathLen: 7,
+    edgeThreshold: 95,
+    softThreshold: 48,
+    maxPaths: 95,
+    minPathLen: 6,
     stride: 1,
-    color: "#e7e5e4",
-    strokeWidth: 2.1,
-    softWidth: 0.85,
+    color: "#f5f5f4",
+    strokeWidth: 2.35,
+    softWidth: 1.0,
   });
 
-  // Form shadow: sparse, soft dots only (less brick noise)
+  // Form: denser in shadows, still face-masked later
   const stipple = stippleFromImageData(data, {
     rect,
-    step: 4,
-    maxDots: 420,
-    darkBelow: 95,
-    color: "#78716c",
+    step: 3,
+    maxDots: 550,
+    darkBelow: 110,
+    color: "#a8a29e",
   });
 
-  const ink = filterStrokesToEllipse([...stipple, ...edges], cx, cy, rx, ry);
+  // Weight longer edge paths as "hero" lines (already mixed soft/strong)
+  const ink = filterStrokesToEllipse([...stipple, ...edges], cx, cy, rx * 1.02, ry * 1.02);
 
   const caption = opts?.caption ?? opts?.label ?? "portrait";
-  const strokes: DrawStroke[] = [
-    // soft vignette ring (handsome frame)
+  return [
+    // dark matte behind face (reads as intentional portrait)
     {
       type: "ellipse",
       cx,
       cy,
-      rx: rx * 1.02,
-      ry: ry * 1.02,
-      stroke: "#44403c",
-      strokeWidth: 6,
+      rx: rx * 1.08,
+      ry: ry * 1.08,
+      stroke: "none",
+      strokeWidth: 0,
+      fill: "#1c1917",
+    },
+    {
+      type: "ellipse",
+      cx,
+      cy,
+      rx: rx * 1.03,
+      ry: ry * 1.03,
+      stroke: "#57534e",
+      strokeWidth: 3,
       fill: "none",
     },
     {
@@ -102,95 +116,88 @@ export async function portraitInkStrokes(
       cy,
       rx,
       ry,
-      stroke: "#a8a29e",
-      strokeWidth: 1.5,
+      stroke: "#d6d3d1",
+      strokeWidth: 1.2,
       fill: "none",
     },
     ...ink,
     {
       type: "text",
       x: 0.5,
-      y: Math.min(0.92, rect.y + rect.h + 0.07),
+      y: Math.min(0.9, rect.y + rect.h + 0.065),
       text: caption,
       fill: "#fafaf9",
-      fontSize: 26,
+      fontSize: 28,
     },
     {
       type: "text",
       x: 0.5,
-      y: Math.min(0.96, rect.y + rect.h + 0.12),
-      text: "dual-edge + stipple ink · handsome mode v0.2",
+      y: Math.min(0.95, rect.y + rect.h + 0.115),
+      text: "handsome mode v0.3 · crop · dual-edge · stipple",
       fill: "#a8a29e",
       fontSize: 11,
     },
   ];
-  return strokes;
 }
 
 /** Geometric “Max” caricature — pure vectors, no network (fallback). */
 export function geometricMaxStrokes(): DrawStroke[] {
-  const color = "#e7e5e4";
+  const color = "#f5f5f4";
   const cx = 0.5;
   const cy = 0.32;
   return [
-    { type: "ellipse", cx, cy, rx: 0.14, ry: 0.17, stroke: color, strokeWidth: 2.5, fill: "none" },
-    // hair
+    { type: "ellipse", cx, cy, rx: 0.145, ry: 0.175, stroke: color, strokeWidth: 2.6, fill: "#1c1917" },
     {
       type: "path",
       stroke: color,
-      strokeWidth: 2.2,
+      strokeWidth: 2.3,
       points: [
-        { x: 0.38, y: 0.28 },
-        { x: 0.4, y: 0.17 },
-        { x: 0.5, y: 0.13 },
-        { x: 0.6, y: 0.17 },
-        { x: 0.62, y: 0.28 },
+        { x: 0.37, y: 0.28 },
+        { x: 0.39, y: 0.16 },
+        { x: 0.5, y: 0.12 },
+        { x: 0.61, y: 0.16 },
+        { x: 0.63, y: 0.28 },
       ],
     },
-    // eyes — slightly smiling
-    { type: "ellipse", cx: 0.44, cy: 0.3, rx: 0.028, ry: 0.014, fill: color, stroke: color },
-    { type: "ellipse", cx: 0.56, cy: 0.3, rx: 0.028, ry: 0.014, fill: color, stroke: color },
-    // brows
-    { type: "line", x1: 0.4, y1: 0.255, x2: 0.47, y2: 0.25, stroke: color, strokeWidth: 2 },
-    { type: "line", x1: 0.53, y1: 0.25, x2: 0.6, y2: 0.255, stroke: color, strokeWidth: 2 },
-    // nose
+    { type: "ellipse", cx: 0.44, cy: 0.3, rx: 0.03, ry: 0.014, fill: color, stroke: color },
+    { type: "ellipse", cx: 0.56, cy: 0.3, rx: 0.03, ry: 0.014, fill: color, stroke: color },
+    { type: "line", x1: 0.395, y1: 0.252, x2: 0.47, y2: 0.248, stroke: color, strokeWidth: 2.2 },
+    { type: "line", x1: 0.53, y1: 0.248, x2: 0.605, y2: 0.252, stroke: color, strokeWidth: 2.2 },
     {
       type: "path",
       stroke: color,
-      strokeWidth: 1.5,
+      strokeWidth: 1.6,
       points: [
         { x: 0.5, y: 0.3 },
-        { x: 0.49, y: 0.355 },
-        { x: 0.52, y: 0.365 },
+        { x: 0.488, y: 0.355 },
+        { x: 0.52, y: 0.368 },
       ],
     },
-    // smile — a bit wider (handsome mode)
     {
       type: "path",
       stroke: color,
-      strokeWidth: 2.2,
+      strokeWidth: 2.4,
       points: [
-        { x: 0.42, y: 0.395 },
-        { x: 0.46, y: 0.43 },
-        { x: 0.5, y: 0.445 },
-        { x: 0.54, y: 0.43 },
-        { x: 0.58, y: 0.395 },
+        { x: 0.415, y: 0.392 },
+        { x: 0.46, y: 0.432 },
+        { x: 0.5, y: 0.448 },
+        { x: 0.54, y: 0.432 },
+        { x: 0.585, y: 0.392 },
       ],
     },
-    // collar / suit
     {
       type: "path",
       stroke: color,
-      strokeWidth: 2,
+      strokeWidth: 2.1,
       points: [
-        { x: 0.39, y: 0.47 },
-        { x: 0.45, y: 0.52 },
+        { x: 0.38, y: 0.47 },
+        { x: 0.45, y: 0.525 },
         { x: 0.5, y: 0.5 },
-        { x: 0.55, y: 0.52 },
-        { x: 0.61, y: 0.47 },
+        { x: 0.55, y: 0.525 },
+        { x: 0.62, y: 0.47 },
       ],
     },
-    { type: "text", x: 0.5, y: 0.62, text: "Max Glassie", fill: color, fontSize: 26 },
+    { type: "text", x: 0.5, y: 0.62, text: "Max Glassie", fill: color, fontSize: 28 },
     {
       type: "text",
       x: 0.5,

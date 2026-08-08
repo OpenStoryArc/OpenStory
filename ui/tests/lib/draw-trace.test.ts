@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  centerCropSquare,
   chainEdges,
   contrastStretch,
   dualEdgeTrace,
   edgeTraceImageData,
   filterStrokesToEllipse,
+  simplifyPathFlat,
   sobelMagnitude,
   stippleFromImageData,
   syntheticFaceImageData,
@@ -78,5 +80,21 @@ describe("edge trace pure pipeline", () => {
       0.2,
     );
     expect(kept).toHaveLength(1);
+  });
+
+  it("centerCropSquare shrinks to square", () => {
+    const img = syntheticFaceImageData(40);
+    const c = centerCropSquare(img, 0.5);
+    expect(c.width).toBe(c.height);
+    expect(c.width).toBe(20);
+  });
+
+  it("simplifyPathFlat reduces collinear points", () => {
+    // horizontal line with midpoints
+    const path = [0, 0, 1, 0, 2, 0, 3, 0, 4, 0];
+    const s = simplifyPathFlat(path, 0.5);
+    expect(s.length).toBeLessThan(path.length);
+    expect(s[0]).toBe(0);
+    expect(s[s.length - 2]).toBe(4);
   });
 });

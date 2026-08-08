@@ -41,6 +41,92 @@ function luminance(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+/**
+ * Center-crop to a square fraction of the shorter side (face usually centered).
+ * Pure. frac=0.72 keeps head/shoulders, drops more brick wall.
+ */
+export function centerCropSquare(data: PixelBuffer, frac = 0.72): PixelBuffer {
+  const { width: w, height: h, data: px } = data;
+  const side = Math.max(8, Math.floor(Math.min(w, h) * Math.min(1, Math.max(0.3, frac))));
+  const x0 = Math.floor((w - side) / 2);
+  const y0 = Math.floor((h - side) / 2);
+  const out = new Uint8ClampedArray(side * side * 4);
+  for (let y = 0; y < side; y++) {
+    for (let x = 0; x < side; x++) {
+      const si = ((y0 + y) * w + (x0 + x)) * 4;
+      const di = (y * side + x) * 4;
+      out[di] = px[si]!;
+      out[di + 1] = px[si + 1]!;
+      out[di + 2] = px[si + 2]!;
+      out[di + 3] = px[si + 3]!;
+    }
+  }
+  return { width: side, height: side, data: out };
+}
+
+/** Perpendicular distance from point to segment (for RDP). */
+function perpDist(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * Ramer–Douglas–Peucker path simplification on flat [x,y,x,y,…] pixel paths.
+ * Cleaner ink, fewer wiggles.
+ */
+export function simplifyPathFlat(path: number[], epsilon: number): number[] {
+  if (path.length < 6) return path;
+  const n = path.length / 2;
+  const keep = new Uint8Array(n);
+  keep[0] = 1;
+  keep[n - 1] = 1;
+
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [start, end] = stack.pop()!;
+    let maxD = 0;
+    let maxI = start;
+    const ax = path[start * 2]!;
+    const ay = path[start * 2 + 1]!;
+    const bx = path[end * 2]!;
+    const by = path[end * 2 + 1]!;
+    for (let i = start + 1; i < end; i++) {
+      const d = perpDist(path[i * 2]!, path[i * 2 + 1]!, ax, ay, bx, by);
+      if (d > maxD) {
+        maxD = d;
+        maxI = i;
+      }
+    }
+    if (maxD > epsilon) {
+      keep[maxI] = 1;
+      if (maxI - start > 1) stack.push([start, maxI]);
+      if (end - maxI > 1) stack.push([maxI, end]);
+    }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) {
+      out.push(path[i * 2]!, path[i * 2 + 1]!);
+    }
+  }
+  return out.length >= 4 ? out : path;
+}
+
+/** Simplify every flat path in a list. */
+export function simplifyPaths(paths: readonly number[][], epsilon = 1.4): number[][] {
+  return paths.map((p) => simplifyPathFlat(p, epsilon));
+}
+
 /** Grayscale float buffer [0,255] length w*h. */
 export function toGray(data: PixelBuffer): Float32Array {
   const { width: w, height: h, data: px } = data;
@@ -279,9 +365,10 @@ export function edgeTraceImageData(data: PixelBuffer, opts?: TraceOptions): Draw
   const color = opts?.color ?? "#2f4a3e";
   const strokeWidth = opts?.strokeWidth ?? 1.6;
   const rect = opts?.rect ?? DEFAULT_RECT;
-  const gray = contrastStretch(toGray(data), 1.2);
+  const gray = contrastStretch(toGray(data), 1.25);
   const mag = sobelMagnitude(gray, data.width, data.height);
-  const paths = chainEdges(mag, data.width, data.height, threshold, stride, maxPaths, minPathLen);
+  const rawPaths = chainEdges(mag, data.width, data.height, threshold, stride, maxPaths, minPathLen);
+  const paths = simplifyPaths(rawPaths, 1.35);
   return pathsToStrokes(paths, data.width, data.height, rect, color, strokeWidth);
 }
 
