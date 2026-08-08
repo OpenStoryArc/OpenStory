@@ -42,16 +42,31 @@ resources listed at the end.
 // or mode only:
 { "kind": "canvas", "id": "canvas", "canvasMode": "sunburst" }
 
+// Board drill (group → project expand keys, same as clicking hierarchy circles)
+{ "kind": "canvas", "id": "canvas", "canvasMode": "board", "groupBy": "user",
+  "expandKeys": ["g:maxglassie", "p:maxglassie:OpenStory"] }
+// low-level: set { target: "canvas.expand", keys: ["g:…"] }
+
 // File / person / project / heatmap day
 { "kind": "file", "id": "sentence.rs" }
 { "kind": "person", "id": "max" }
 { "kind": "day", "id": "2026-07-27" }
 
+// Sidebar facet chip (same as clicking facet-{group}-{value} in Explore)
+{ "kind": "facet", "id": "facet-host-Katies-Mac-mini" }
+// or structured:
+{ "kind": "facet", "facet": "status", "id": "ongoing" }
+
 // Event without sessionId — MCP resolves session via search automatically
 { "kind": "event", "id": "EVENT_ID", "details": true }
 
-// Full Story card expand (details + eval-apply + event list)
+// Full Story card expand (details + eval-apply + event list + all apply outputs)
 { "kind": "event", "id": "EVENT_ID", "sessionId": "SESSION_ID", "expandAll": true }
+
+// Per-apply output expand (0-based indices inside eval-apply; implies details+eval)
+{ "kind": "event", "id": "EVENT_ID", "sessionId": "SESSION_ID", "applyOpen": [0, 2] }
+// or every apply row:
+{ "kind": "event", "id": "EVENT_ID", "sessionId": "SESSION_ID", "applyOpen": "all" }
 ```
 
 Prefer `navigate_to` over assembling multi-step `ui_control` by hand.

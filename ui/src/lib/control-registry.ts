@@ -58,6 +58,11 @@ export const CONTROL_TARGETS: Readonly<Record<string, ControlTargetDef>> = {
       "Open a session from any canvas chart (same as clicking a bar/dot/cell). set { sessionId }",
     actions: ["set"],
   },
+  "canvas.expand": {
+    description:
+      "Board hierarchy expand keys (g:group / p:group:project). set { keys: string[] } replaces; toggle { value: key } flips one node",
+    actions: ["set", "toggle"],
+  },
   "canvas.flow.agent": {
     description: "Tool-flow chart agent filter (same as tapping an agent chip). set { agent }",
     actions: ["set"],

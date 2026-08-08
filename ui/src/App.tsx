@@ -32,7 +32,12 @@ import {
   type AttentionPorts,
 } from "@/lib/attention";
 import { commitAttention, syncAttentionFromRoute } from "@/streams/attention";
-import type { NavigateToParams } from "@/lib/nav-path";
+import {
+  normalizeApplyOpen,
+  normalizeAgentOpen,
+  type ControlStep,
+  type NavigateToParams,
+} from "@/lib/nav-path";
 import { PresentBanner, type Presentation } from "@/components/control/PresentBanner";
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
@@ -41,7 +46,6 @@ import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, 
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 import { switchTabRoute } from "@/lib/navigation";
-import type { ControlStep } from "@/lib/nav-path";
 
 const STATUS_INDICATOR = {
   connected: { color: "bg-green-400", label: "Connected" },
@@ -171,13 +175,30 @@ export function App() {
           p.value === "on" ||
           p.value === true;
         if (sessionId && eventId && open) {
+          const applyOpen = normalizeApplyOpen(
+            p.applyOpen as NavigateToParams["applyOpen"],
+          );
+          const agentOpen = normalizeAgentOpen(
+            Array.isArray(p.agentOpen)
+              ? (p.agentOpen as string[])
+              : typeof p.agentOpen === "string"
+                ? (p.agentOpen as string).split(",")
+                : undefined,
+          );
+          const evalOpen =
+            p.evalOpen === true ||
+            p.evalOpen === "true" ||
+            applyOpen !== undefined ||
+            agentOpen !== undefined;
           navigate({
             view: "story",
             sessionId,
             eventId,
             storyDetails: true,
-            storyEvalOpen: p.evalOpen === true || p.evalOpen === "true",
+            storyEvalOpen: evalOpen,
             storyEventsOpen: p.eventsOpen === true || p.eventsOpen === "true",
+            ...(applyOpen !== undefined ? { storyApplyOpen: applyOpen } : {}),
+            ...(agentOpen !== undefined ? { storyAgentOpen: agentOpen } : {}),
           });
           setSpotlight(null);
           setTitleCard(null);
@@ -189,6 +210,8 @@ export function App() {
             storyDetails: false,
             storyEvalOpen: false,
             storyEventsOpen: false,
+            storyApplyOpen: undefined,
+            storyAgentOpen: undefined,
           });
         }
       } else if (
@@ -446,6 +469,8 @@ export function App() {
           storyDetails={route.storyDetails}
           storyEvalOpen={route.storyEvalOpen}
           storyEventsOpen={route.storyEventsOpen}
+          storyApplyOpen={route.storyApplyOpen}
+          storyAgentOpen={route.storyAgentOpen}
           onOpenEvent={(sid, eid) => navigate({ view: "explore", sessionId: sid, eventId: eid })}
         />
       )}

@@ -19,6 +19,7 @@ import type { PatternView } from "@/types/wire-record";
 import { extractDomainFact, extractDomainFacts, type FactKind } from "@/lib/domain-facts";
 import { extractCycles } from "@/lib/eval-apply";
 import { turnDrillTarget } from "@/lib/story";
+import { isApplyOutputOpen, isAgentSessionOpen } from "@/lib/hash-route";
 import { CycleList } from "./CycleCard";
 
 interface TurnCardProps {
@@ -44,6 +45,10 @@ interface TurnCardProps {
   forceEvalOpen?: boolean;
   /** Force event-id list open (`&events=1`). */
   forceEventsOpen?: boolean;
+  /** Force individual apply-row outputs open (`&apply=0,2` or `&apply=all`). */
+  forceApplyOpen?: readonly number[] | "all";
+  /** Force nested agent CycleCards open by agent session id (`&agents=`). */
+  forceAgentOpen?: readonly string[];
 }
 
 export function TurnCard({
@@ -55,6 +60,8 @@ export function TurnCard({
   forceDetailsOpen,
   forceEvalOpen,
   forceEventsOpen,
+  forceApplyOpen,
+  forceAgentOpen,
 }: TurnCardProps) {
   const m = pattern.metadata ?? {};
   const turn = (m.turn as number) ?? 0;
@@ -94,11 +101,15 @@ export function TurnCard({
     }
   }, [forceEventsOpen]);
   useEffect(() => {
-    if (forceEvalOpen) {
+    if (
+      forceEvalOpen ||
+      forceApplyOpen !== undefined ||
+      (forceAgentOpen && forceAgentOpen.length > 0)
+    ) {
       setDetailsOpen(true);
       setEvalApplyOpen(true);
     }
-  }, [forceEvalOpen]);
+  }, [forceEvalOpen, forceApplyOpen, forceAgentOpen]);
 
   // Color the session chip deterministically — same session_id → same color
   // across the Sidebar AND the Story cards. This is the visual link that lets
@@ -297,7 +308,13 @@ export function TurnCard({
                 </PhaseBlock>
               )}
 
-              <ApplyList applies={applies} events={pattern.events} allPatterns={allPatterns} />
+              <ApplyList
+                applies={applies}
+                events={pattern.events}
+                allPatterns={allPatterns}
+                forceApplyOpen={forceApplyOpen}
+                forceAgentOpen={forceAgentOpen}
+              />
 
               {eval_ && (
                 <PhaseBlock label="eval" color="#9ece6a">
@@ -420,8 +437,30 @@ type Apply = {
   tool_outcome?: { type: string; path?: string; command?: string; succeeded?: boolean; agent_id?: string; description?: string };
 };
 
-function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
-  const [expanded, setExpanded] = useState(false);
+function ApplyList({
+  applies,
+  events,
+  allPatterns,
+  forceApplyOpen,
+  forceAgentOpen,
+}: {
+  applies: Apply[];
+  events: readonly string[];
+  allPatterns?: readonly PatternView[];
+  forceApplyOpen?: readonly number[] | "all";
+  forceAgentOpen?: readonly string[];
+}) {
+  // Agent/hash force: expand the collapsed tail so forced indices / agents are visible.
+  const forceListOpen =
+    forceApplyOpen === "all" ||
+    (Array.isArray(forceApplyOpen) &&
+      forceApplyOpen.some((i) => i >= 2 || i >= 0)) ||
+    (forceAgentOpen !== undefined && forceAgentOpen.length > 0);
+  const [expanded, setExpanded] = useState(!!forceListOpen);
+
+  useEffect(() => {
+    if (forceListOpen) setExpanded(true);
+  }, [forceListOpen]);
 
   if (applies.length === 0) return null;
 
@@ -440,7 +479,15 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
   return (
     <>
       {visible.map((apply, i) => (
-        <ApplyBlock key={i} apply={apply} index={i} events={events} allPatterns={allPatterns} />
+        <ApplyBlock
+          key={i}
+          apply={apply}
+          index={i}
+          events={events}
+          allPatterns={allPatterns}
+          forceOutputOpen={isApplyOutputOpen(forceApplyOpen, i)}
+          forceAgentOpen={forceAgentOpen}
+        />
       ))}
       {hidden.length > 0 && (
         <button
@@ -454,8 +501,22 @@ function ApplyList({ applies, events, allPatterns }: { applies: Apply[]; events:
   );
 }
 
-function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly string[]; allPatterns?: readonly PatternView[] }) {
-  const [showOutput, setShowOutput] = useState(false);
+function ApplyBlock({
+  apply,
+  forceOutputOpen,
+  forceAgentOpen,
+}: {
+  apply: Apply;
+  index: number;
+  events: readonly string[];
+  allPatterns?: readonly PatternView[];
+  forceOutputOpen?: boolean;
+  forceAgentOpen?: readonly string[];
+}) {
+  const [showOutput, setShowOutput] = useState(!!forceOutputOpen);
+  useEffect(() => {
+    if (forceOutputOpen) setShowOutput(true);
+  }, [forceOutputOpen]);
   const cls = apply.is_agent ? "border-[color:var(--orange)]" : apply.is_error ? "border-[color:var(--red)]" : "border-[color:var(--orange)]";
   const labelColor = apply.is_agent ? "text-[color:var(--orange)]" : apply.is_error ? "text-[color:var(--red)]" : "text-[color:var(--orange)]";
   const label = apply.is_agent ? "apply · compound" : "apply";
@@ -497,17 +558,30 @@ function ApplyBlock({ apply }: { apply: Apply; index: number; events: readonly s
       {showOutput && apply.output_summary && (
         <ApplyOutput output={apply.output_summary} toolName={apply.tool_name} outcome={apply.tool_outcome} />
       )}
-      {apply.is_agent && <AgentExpand apply={apply} />}
+      {apply.is_agent && <AgentExpand apply={apply} forceAgentOpen={forceAgentOpen} />}
     </div>
   );
 }
 
-function AgentExpand({ apply }: { apply: Apply }) {
-  const [expanded, setExpanded] = useState(false);
+function AgentExpand({
+  apply,
+  forceAgentOpen,
+}: {
+  apply: Apply;
+  forceAgentOpen?: readonly string[];
+}) {
+  const agentSessionId = apply.tool_outcome?.agent_id
+    ? `agent-${apply.tool_outcome.agent_id}`
+    : null;
+  const forceOpen = isAgentSessionOpen(forceAgentOpen, agentSessionId);
+  const [expanded, setExpanded] = useState(forceOpen);
   const [cycles, setCycles] = useState<import("@/lib/eval-apply").EvalApplyCycle[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const agentSessionId = apply.tool_outcome?.agent_id ? `agent-${apply.tool_outcome.agent_id}` : null;
+  useEffect(() => {
+    if (forceOpen) setExpanded(true);
+  }, [forceOpen]);
+
   const description = apply.tool_outcome?.description || apply.input_summary || "subagent";
 
   // Lazy fetch: load subagent records and extract cycles on expand
@@ -541,7 +615,12 @@ function AgentExpand({ apply }: { apply: Apply }) {
       )}
       {expanded && cycles && cycles.length > 0 && (
         <div className="mt-1 ml-2 border-l-2 border-[color:var(--orange)]/20 pl-2">
-          <CycleList cycles={cycles} sessionId={agentSessionId || ""} depth={1} />
+          <CycleList
+            cycles={cycles}
+            sessionId={agentSessionId || ""}
+            depth={1}
+            forceAgentOpen={forceAgentOpen}
+          />
         </div>
       )}
       {expanded && cycles && cycles.length === 0 && !loading && (

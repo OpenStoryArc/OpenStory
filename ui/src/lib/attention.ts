@@ -16,10 +16,95 @@ import type { HashRoute } from "@/lib/hash-route";
 import { CANVAS_MODES, type CanvasMode } from "@/lib/canvas-modes";
 import {
   planNavigateTo,
+  normalizeApplyOpen,
+  normalizeAgentOpen,
+  parseSidebarFacet,
   type ControlStep,
   type NavigateToParams,
 } from "@/lib/nav-path";
+import type { BrushExtent } from "@/lib/sessions-scatter";
 import type { UIControlAction } from "@/lib/ui-control";
+
+/** Does Attention's apply-open satisfy the intent's applyOpen request? */
+function applyOpenSatisfied(
+  have: HashRoute["storyApplyOpen"],
+  want: NavigateToParams["applyOpen"],
+): boolean {
+  if (want === undefined) return true;
+  const needed = normalizeApplyOpen(want);
+  if (needed === undefined) return true;
+  if (needed === "all") return have === "all";
+  if (have === "all") return true;
+  if (!have) return false;
+  return needed.every((i) => have.includes(i));
+}
+
+/** Does Attention's agent-open cover every requested agent session id? */
+function agentOpenSatisfied(
+  have: HashRoute["storyAgentOpen"],
+  want: NavigateToParams["agentOpen"],
+): boolean {
+  if (!want || want.length === 0) return true;
+  const needed = normalizeAgentOpen(want);
+  if (!needed || needed.length === 0) return true;
+  const set = new Set(have ?? []);
+  return needed.every((k) => set.has(k));
+}
+
+/** Does canvas expandedKeys cover every requested expand key? */
+function expandKeysSatisfied(
+  have: readonly string[] | undefined,
+  want: readonly string[] | undefined,
+): boolean {
+  if (!want || want.length === 0) return true;
+  const set = new Set(have ?? []);
+  return want.every((k) => set.has(k.trim()) || set.has(k));
+}
+
+/**
+ * Normalize a scatter brush box from intent / set params into data-space BrushExtent.
+ * Returns null when required numeric fields are missing.
+ */
+export function normalizeScatterBrush(
+  raw: NavigateToParams["scatterBrush"] | Record<string, unknown> | null | undefined,
+): BrushExtent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const num = (v: unknown): number | null => {
+    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+  };
+  const ev0 = num((raw as { ev0?: unknown }).ev0);
+  const ev1 = num((raw as { ev1?: unknown }).ev1);
+  const tok0 = num((raw as { tok0?: unknown }).tok0);
+  const tok1 = num((raw as { tok1?: unknown }).tok1);
+  if (ev0 === null || ev1 === null || tok0 === null || tok1 === null) return null;
+  const iz = (raw as { includeZero?: unknown }).includeZero;
+  return {
+    ev0,
+    ev1,
+    tok0,
+    tok1,
+    includeZero: iz === true || iz === "true",
+  };
+}
+
+/** Does Attention's scatter brush cover the requested brush (exact data box)? */
+function scatterBrushSatisfied(
+  have: BrushExtent | undefined,
+  want: NavigateToParams["scatterBrush"] | undefined,
+): boolean {
+  if (!want) return true;
+  const needed = normalizeScatterBrush(want);
+  if (!needed) return true;
+  if (!have) return false;
+  return (
+    have.ev0 === needed.ev0 &&
+    have.ev1 === needed.ev1 &&
+    have.tok0 === needed.tok0 &&
+    have.tok1 === needed.tok1 &&
+    have.includeZero === needed.includeZero
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Attention value
@@ -40,6 +125,48 @@ export interface CanvasAttention {
   readonly flowAgent?: string;
   readonly groupBy?: CanvasGroupBy;
   readonly metric?: "events" | "tokens";
+  /**
+   * Board hierarchy expand path — group/project keys from sessions-canvas
+   * (`g:user`, `p:user:project`). Agent-driveable drill; human clicks merge in.
+   */
+  readonly expandedKeys?: readonly string[];
+  /**
+   * Scatter efficiency brush — data-space box (events × tokens).
+   * Same shape as `set scatter.brush` / pointsInBrush.
+   */
+  readonly scatterBrush?: BrushExtent;
+}
+
+/** Normalize expand key list (trim, drop empty, unique, stable order). */
+export function normalizeExpandKeys(
+  keys: readonly string[] | undefined | null,
+): readonly string[] | undefined {
+  if (!keys) return undefined;
+  const out = [
+    ...new Set(keys.map((k) => k.trim()).filter((k) => k.length > 0)),
+  ].sort();
+  return out.length > 0 ? out : [];
+}
+
+/** Union of expand key sets (stable sorted). Empty array is a valid "collapse all". */
+export function mergeExpandKeys(
+  base: readonly string[] | undefined,
+  add: readonly string[] | undefined,
+): readonly string[] {
+  return normalizeExpandKeys([...(base ?? []), ...(add ?? [])]) ?? [];
+}
+
+/** Toggle one key in/out of the expand set. */
+export function toggleExpandKey(
+  base: readonly string[] | undefined,
+  key: string,
+): readonly string[] {
+  const k = key.trim();
+  if (!k) return base ?? [];
+  const set = new Set(base ?? []);
+  if (set.has(k)) set.delete(k);
+  else set.add(k);
+  return [...set].sort();
 }
 
 const GROUP_BYS = new Set<string>(["day", "user", "agent", "status", "host", "project"]);
@@ -78,10 +205,16 @@ export const attentionSummary = (a: Attention): string => {
   if (route.sessionId) bits.push(`session:${route.sessionId.slice(0, 8)}`);
   if (route.eventId) bits.push(`event:${route.eventId.slice(0, 8)}`);
   if (route.storyDetails) bits.push("details");
+  if (route.storyEvalOpen) bits.push("eval");
+  if (route.storyApplyOpen === "all") bits.push("apply:all");
+  else if (route.storyApplyOpen?.length) bits.push(`apply:${route.storyApplyOpen.join(",")}`);
+  if (route.storyAgentOpen?.length) bits.push(`agents:${route.storyAgentOpen.length}`);
   if (route.detailView) bits.push(route.detailView);
   if (canvas.mode) bits.push(`canvas:${canvas.mode}`);
   if (canvas.groupBy) bits.push(`by:${canvas.groupBy}`);
   if (canvas.metric) bits.push(`metric:${canvas.metric}`);
+  if (canvas.expandedKeys?.length) bits.push(`exp:${canvas.expandedKeys.length}`);
+  if (canvas.scatterBrush) bits.push("brush");
   if (canvas.selectedSessionId) bits.push(`sel:${canvas.selectedSessionId.slice(0, 8)}`);
   if (spotlight?.kind === "event") bits.push("spotlight:event");
   if (spotlight?.kind === "title") bits.push("spotlight:title");
@@ -102,24 +235,39 @@ export function attentionSatisfies(
       if (a.route.eventId !== id) return false;
       if (intent.sessionId && a.route.sessionId !== intent.sessionId) return false;
       if (intent.details && !a.route.storyDetails) return false;
+      if (intent.evalOpen && !a.route.storyEvalOpen) return false;
+      if (!applyOpenSatisfied(a.route.storyApplyOpen, intent.applyOpen)) return false;
+      if (!agentOpenSatisfied(a.route.storyAgentOpen, intent.agentOpen)) return false;
+      if (intent.expandAll) {
+        if (!a.route.storyDetails || !a.route.storyEvalOpen || !a.route.storyEventsOpen) {
+          return false;
+        }
+        if (a.route.storyApplyOpen !== "all") return false;
+      }
       if (intent.view === "explore") return a.route.view === "explore";
       return a.route.view === "story" || a.route.view === "explore";
     }
     case "session": {
       if (intent.canvasMode) {
-        return (
-          a.route.view === "canvas" &&
-          a.canvas.mode === intent.canvasMode &&
-          a.canvas.selectedSessionId === id
-        );
+        if (
+          a.route.view !== "canvas" ||
+          a.canvas.mode !== intent.canvasMode ||
+          a.canvas.selectedSessionId !== id
+        ) {
+          return false;
+        }
+        if (!expandKeysSatisfied(a.canvas.expandedKeys, intent.expandKeys)) return false;
+        return scatterBrushSatisfied(a.canvas.scatterBrush, intent.scatterBrush);
       }
       return a.route.sessionId === id && (a.route.view === "explore" || a.route.view === "story");
     }
-    case "canvas":
-      return (
-        a.route.view === "canvas" &&
-        (!intent.canvasMode || a.canvas.mode === intent.canvasMode)
-      );
+    case "canvas": {
+      if (a.route.view !== "canvas") return false;
+      if (intent.canvasMode && a.canvas.mode !== intent.canvasMode) return false;
+      if (intent.groupBy && a.canvas.groupBy !== intent.groupBy) return false;
+      if (!expandKeysSatisfied(a.canvas.expandedKeys, intent.expandKeys)) return false;
+      return scatterBrushSatisfied(a.canvas.scatterBrush, intent.scatterBrush);
+    }
     case "file":
       return (
         a.route.view === "explore" &&
@@ -132,6 +280,14 @@ export function attentionSatisfies(
       return a.route.view === "explore" && a.route.explore?.filters?.project === id;
     case "day":
       return a.route.view === "explore" && a.route.explore?.filters?.day === id;
+    case "facet": {
+      const parsed = parseSidebarFacet(id, intent.facet);
+      if (!parsed) return false;
+      return (
+        a.route.view === "explore" &&
+        a.route.explore?.filters?.[parsed.key] === parsed.value
+      );
+    }
     case "sentence":
     case "turn":
       return (
@@ -172,6 +328,14 @@ export function foldIntent(
       base.canvas.selectedSessionId;
     const groupBy = isGroupBy(intent.groupBy) ? intent.groupBy : base.canvas.groupBy;
     const metric = isMetric(intent.metric) ? intent.metric : base.canvas.metric;
+    const expandedKeys =
+      intent.expandKeys !== undefined
+        ? mergeExpandKeys(base.canvas.expandedKeys, intent.expandKeys)
+        : base.canvas.expandedKeys;
+    const scatterBrush =
+      intent.scatterBrush !== undefined
+        ? normalizeScatterBrush(intent.scatterBrush) ?? undefined
+        : base.canvas.scatterBrush;
     return {
       ...base,
       route: { view: "canvas" },
@@ -184,6 +348,12 @@ export function foldIntent(
         ...(intent.agent ? { flowAgent: intent.agent } : {}),
         ...(groupBy ? { groupBy } : {}),
         ...(metric ? { metric } : {}),
+        ...(intent.expandKeys !== undefined ? { expandedKeys } : {}),
+        ...(intent.scatterBrush !== undefined && scatterBrush
+          ? { scatterBrush }
+          : intent.scatterBrush !== undefined
+            ? { scatterBrush: undefined }
+            : {}),
       },
     };
   }
@@ -219,8 +389,18 @@ export function foldIntent(
     }
     const view = intent.view === "explore" ? "explore" : "story";
     const expandAll = intent.expandAll === true;
-    const details = expandAll || intent.details === true;
-    const evalOpen = expandAll || intent.evalOpen === true;
+    const applyOpen = normalizeApplyOpen(intent.applyOpen, expandAll);
+    const agentOpen = normalizeAgentOpen(intent.agentOpen);
+    const details =
+      expandAll ||
+      intent.details === true ||
+      applyOpen !== undefined ||
+      agentOpen !== undefined;
+    const evalOpen =
+      expandAll ||
+      intent.evalOpen === true ||
+      applyOpen !== undefined ||
+      agentOpen !== undefined;
     const eventsOpen = expandAll || intent.eventsOpen === true;
     return {
       ...base,
@@ -229,11 +409,14 @@ export function foldIntent(
         sessionId,
         eventId: id,
         ...(view === "explore" ? { detailView: "events" as const } : {}),
-        ...(view === "story" && (details || evalOpen || eventsOpen)
+        ...(view === "story" &&
+        (details || evalOpen || eventsOpen || applyOpen !== undefined || agentOpen !== undefined)
           ? {
               storyDetails: true,
               ...(evalOpen ? { storyEvalOpen: true } : {}),
               ...(eventsOpen ? { storyEventsOpen: true } : {}),
+              ...(applyOpen !== undefined ? { storyApplyOpen: applyOpen } : {}),
+              ...(agentOpen !== undefined ? { storyAgentOpen: agentOpen } : {}),
             }
           : {}),
       },
@@ -268,6 +451,8 @@ export function foldIntent(
         agent: intent.agent,
         groupBy: intent.groupBy,
         metric: intent.metric,
+        expandKeys: intent.expandKeys,
+        scatterBrush: intent.scatterBrush,
       });
     }
     const view = intent.view === "story" ? "story" : "explore";
@@ -322,6 +507,22 @@ export function foldIntent(
     return {
       ...base,
       route: { view: "explore", explore: { filters: { project: id } } },
+      spotlight: null,
+      presentMessage: null,
+      canvas: {},
+    };
+  }
+
+  // Sidebar facet chip as named entity (chip-id or structured facet+value).
+  if (intent.kind === "facet") {
+    const parsed = parseSidebarFacet(id, intent.facet);
+    if (!parsed) return null;
+    return {
+      ...base,
+      route: {
+        view: "explore",
+        explore: { filters: { [parsed.key]: parsed.value } },
+      },
       spotlight: null,
       presentMessage: null,
       canvas: {},
@@ -416,6 +617,17 @@ export function foldControl(base: Attention, action: UIControlAction): Attention
           canvas: { ...base.canvas, metric: action.value },
         };
       }
+      // Board drill: toggle one hierarchy key open/closed.
+      if (action.target === "canvas.expand" && action.value.trim()) {
+        return {
+          ...base,
+          route: { view: "canvas" },
+          canvas: {
+            ...base.canvas,
+            expandedKeys: toggleExpandKey(base.canvas.expandedKeys, action.value),
+          },
+        };
+      }
       if (action.target === "story.details" && (action.value === "open" || action.value === "on")) {
         if (base.route.view === "story" && base.route.sessionId && base.route.eventId) {
           return {
@@ -439,7 +651,22 @@ export function foldControl(base: Attention, action: UIControlAction): Attention
           action.params.open === true ||
           action.params.open === "true" ||
           action.params.value === "open";
+        const applyOpen = normalizeApplyOpen(
+          action.params.applyOpen as NavigateToParams["applyOpen"],
+        );
+        const agentOpen = normalizeAgentOpen(
+          Array.isArray(action.params.agentOpen)
+            ? (action.params.agentOpen as string[])
+            : typeof action.params.agentOpen === "string"
+              ? (action.params.agentOpen as string).split(",")
+              : undefined,
+        );
         if (sessionId && eventId && open) {
+          const evalOpen =
+            action.params.evalOpen === true ||
+            action.params.evalOpen === "true" ||
+            applyOpen !== undefined ||
+            agentOpen !== undefined;
           return {
             ...base,
             route: {
@@ -447,10 +674,11 @@ export function foldControl(base: Attention, action: UIControlAction): Attention
               sessionId,
               eventId,
               storyDetails: true,
-              storyEvalOpen:
-                action.params.evalOpen === true || action.params.evalOpen === "true",
+              storyEvalOpen: evalOpen,
               storyEventsOpen:
                 action.params.eventsOpen === true || action.params.eventsOpen === "true",
+              ...(applyOpen !== undefined ? { storyApplyOpen: applyOpen } : {}),
+              ...(agentOpen !== undefined ? { storyAgentOpen: agentOpen } : {}),
             },
             spotlight: null,
           };
@@ -468,6 +696,40 @@ export function foldControl(base: Attention, action: UIControlAction): Attention
             ...base,
             route: { view: "canvas" },
             canvas: { ...base.canvas, selectedSessionId: sessionId },
+          };
+        }
+      }
+      // Board drill: set keys (replace). Empty array = collapse all.
+      if (action.target === "canvas.expand") {
+        const raw = action.params.keys ?? action.params.expandedKeys;
+        const keys = Array.isArray(raw)
+          ? raw.filter((k): k is string => typeof k === "string")
+          : typeof action.params.key === "string"
+            ? [action.params.key]
+            : undefined;
+        if (keys !== undefined) {
+          return {
+            ...base,
+            route: { view: "canvas" },
+            canvas: {
+              ...base.canvas,
+              expandedKeys: normalizeExpandKeys(keys) ?? [],
+            },
+          };
+        }
+      }
+      // Scatter efficiency brush — data-space box on Attention.
+      if (action.target === "scatter.brush") {
+        const brush = normalizeScatterBrush(action.params);
+        if (brush) {
+          return {
+            ...base,
+            route: { view: "canvas" },
+            canvas: {
+              ...base.canvas,
+              mode: base.canvas.mode ?? "scatter",
+              scatterBrush: brush,
+            },
           };
         }
       }
@@ -592,4 +854,9 @@ export function materializeAttention(
   if (att.canvas.flowAgent) {
     inject("set", { target: "canvas.flow.agent", agent: att.canvas.flowAgent }, issuer);
   }
+  // canvas.expand / expandedKeys: no dual inject. Sequence path
+  // (realizeIntent / foldSteps) commits Attention first; SessionsCanvas paints
+  // via canvasAttention$. Direct set/toggle canvas.expand still reaches
+  // control$ via WS / injectControl sequence hops.
+  // scatter.brush: no dual inject (same contract; ScatterView + scatterPaintFromBrush).
 }

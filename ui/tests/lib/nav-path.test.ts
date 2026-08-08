@@ -135,6 +135,20 @@ describe("planNavigateTo", () => {
     );
   });
 
+  it("canvas board + expandKeys plans canvas.expand", () => {
+    const steps = planNavigateTo({
+      kind: "canvas",
+      id: "canvas",
+      canvasMode: "board",
+      expandKeys: ["g:max", "p:max:OpenStory"],
+    });
+    const expand = steps!.find((s) => s.params.target === "canvas.expand");
+    expect(expand).toMatchObject({
+      action: "set",
+      params: { target: "canvas.expand", keys: ["g:max", "p:max:OpenStory"] },
+    });
+  });
+
   it("heatmap day", () => {
     const steps = planNavigateTo({ kind: "day", id: "2026-07-27" });
     expect(steps![0]).toMatchObject({

@@ -8,7 +8,12 @@
 
 import { parseHash, type HashRoute } from "@/lib/hash-route";
 import type { OverviewFilters, SortKey } from "@/lib/sessions-overview";
-import { planNavigateTo, type ControlStep, type NavigateToParams } from "@/lib/nav-path";
+import {
+  planNavigateTo,
+  normalizeApplyOpen,
+  type ControlStep,
+  type NavigateToParams,
+} from "@/lib/nav-path";
 
 /** Facet keys an agent can filter by (Query class + open_view structured params). */
 const QUERY_KEYS = ["project", "agent", "user", "status", "host", "branch", "day"] as const;
@@ -205,16 +210,62 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       filePath: typeof p.filePath === "string" ? p.filePath : undefined,
       parentSessionId: typeof p.parentSessionId === "string" ? p.parentSessionId : undefined,
       view: p.view === "explore" || p.view === "story" ? p.view : undefined,
-      details: flag(raw.details) || raw.expandAll === true,
-      evalOpen: flag(raw.evalOpen) || raw.expandAll === true,
-      eventsOpen: flag(raw.eventsOpen) || raw.expandAll === true,
+      details: flag(raw.details) || flag(raw.expandAll),
+      evalOpen: flag(raw.evalOpen) || flag(raw.expandAll),
+      eventsOpen: flag(raw.eventsOpen) || flag(raw.expandAll),
+      applyOpen: (() => {
+        if (flag(raw.expandAll)) return "all" as const;
+        const ao = raw.applyOpen;
+        if (ao === true || ao === "all") return "all" as const;
+        if (typeof ao === "number") return ao;
+        if (Array.isArray(ao)) return ao as number[];
+        if (typeof ao === "string") {
+          return normalizeApplyOpen(
+            ao === "all" ? "all" : ao.split(",").map(Number),
+          );
+        }
+        return undefined;
+      })(),
       expandAll: flag(raw.expandAll),
       canvasMode: typeof p.canvasMode === "string" ? p.canvasMode : undefined,
       spotlight: p.spotlight === true,
       day: typeof p.day === "string" ? p.day : undefined,
       agent: typeof p.agent === "string" ? p.agent : undefined,
+      facet: typeof p.facet === "string" ? p.facet : undefined,
       groupBy: typeof p.groupBy === "string" ? p.groupBy : undefined,
       metric: p.metric === "events" || p.metric === "tokens" ? p.metric : undefined,
+      expandKeys: (() => {
+        const ek = raw.expandKeys;
+        if (Array.isArray(ek)) {
+          return ek.filter((k): k is string => typeof k === "string");
+        }
+        if (typeof ek === "string") {
+          return ek.split(",").map((s: string) => s.trim()).filter(Boolean);
+        }
+        return undefined;
+      })(),
+      agentOpen: (() => {
+        const ao = raw.agentOpen;
+        if (Array.isArray(ao)) {
+          return ao.filter((k): k is string => typeof k === "string");
+        }
+        if (typeof ao === "string") {
+          return ao.split(",").map((s: string) => s.trim()).filter(Boolean);
+        }
+        return undefined;
+      })(),
+      scatterBrush:
+        p.scatterBrush && typeof p.scatterBrush === "object"
+          ? (p.scatterBrush as NavigateToParams["scatterBrush"])
+          : typeof p.ev0 === "number" || typeof p.ev1 === "number"
+            ? {
+                ev0: Number(p.ev0),
+                ev1: Number(p.ev1),
+                tok0: Number(p.tok0),
+                tok1: Number(p.tok1),
+                includeZero: p.includeZero === true || p.includeZero === "true",
+              }
+            : undefined,
     });
     if (!steps || steps.length === 0) return null;
     return { type: "navigate_sequence", steps };

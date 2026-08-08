@@ -160,6 +160,13 @@ export function SessionsCanvas({ onNavigate }: Props) {
           setGroupBy(a.value as GroupDim);
         } else if (a.target === "canvas.metric" && (a.value === "events" || a.value === "tokens")) {
           setMetric(a.value as Metric);
+        } else if (a.target === "canvas.expand" && a.value.trim()) {
+          // Single-key expand toggle (human-click equivalent for one board node).
+          setExpanded((p) => {
+            const n = new Set(p);
+            n.has(a.value) ? n.delete(a.value) : n.add(a.value);
+            return n;
+          });
         }
         return;
       }
@@ -172,11 +179,29 @@ export function SessionsCanvas({ onNavigate }: Props) {
               : "";
         if (sid) openSessionPanel(sid);
       }
+      // control$ fallback: direct set canvas.expand (WS / sequence inject hops).
+      // materializeAttention does not dual-inject; attention$ is primary for agent drive.
+      if (a.type === "set" && a.target === "canvas.expand") {
+        const raw = a.params.keys ?? a.params.expandedKeys;
+        if (Array.isArray(raw)) {
+          const keys = raw.filter((k): k is string => typeof k === "string" && k.trim().length > 0);
+          setExpanded(new Set(keys));
+        } else if (typeof a.params.key === "string" && a.params.key.trim()) {
+          setExpanded((p) => {
+            const n = new Set(p);
+            const k = a.params.key as string;
+            n.has(k) ? n.delete(k) : n.add(k);
+            return n;
+          });
+        }
+      }
     });
     return () => sub.unsubscribe();
   }, [universe]);
 
-  // Attention tree (reactive): mode / groupBy / metric / selection from foldIntent.
+  // Attention tree (reactive): mode / groupBy / metric / selection / expandedKeys.
+  // Prefer attention$ for board expand: navigate_to / foldSteps commits expandedKeys
+  // first; materializeAttention does not dual-inject. control$ remains for direct set.
   useEffect(() => {
     const sub = canvasAttention$().subscribe((c) => {
       if (c.mode && (CANVAS_MODES as readonly string[]).includes(c.mode)) {
@@ -190,6 +215,9 @@ export function SessionsCanvas({ onNavigate }: Props) {
       }
       if (c.selectedSessionId) {
         openSessionPanel(c.selectedSessionId);
+      }
+      if (c.expandedKeys !== undefined) {
+        setExpanded(new Set(c.expandedKeys));
       }
     });
     return () => sub.unsubscribe();

@@ -54,6 +54,7 @@ pub const TOOLS: &[ToolDef] = &[
                       kind=session → open explore/story; canvasMode → open that chart then select session. \
                       kind=canvas + canvasMode → switch graph mode; + sessionId → click that session on the chart. \
                       kind=file|person|project → search/filter. \
+                      kind=facet + chip-id (facet-host-…) or {facet,id} → sidebar facet chip land. \
                       RETURNS: {ok, delivered, ui_state, hint}. Steers ui.* only. \
                       NEXT: where_is_user. Prefer this over assembling ui_control steps by hand.",
         input_schema: control::navigate_to_schema,
