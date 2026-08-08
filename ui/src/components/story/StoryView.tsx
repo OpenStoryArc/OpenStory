@@ -63,6 +63,13 @@ interface StoryViewProps {
   storyEvalOpen?: boolean;
   /** Expand event-id list under the focused turn (`&events=1`). */
   storyEventsOpen?: boolean;
+  /** Expand individual apply-row outputs (`&apply=0,2` or `&apply=all`). */
+  storyApplyOpen?: readonly number[] | "all";
+  /**
+   * Expand nested agent CycleCards by agent session id (`&agents=agent-…`).
+   * Click-parity for CycleCard recursive expand.
+   */
+  storyAgentOpen?: readonly string[];
   /** Drill a turn to its SOURCE — open the event in Explore. Closes the Story
    *  dead end (the map principle: every turn navigates to where it came from). */
   onOpenEvent?: (sessionId: string, eventId: string) => void;
@@ -138,6 +145,8 @@ export function StoryView({
   storyDetails,
   storyEvalOpen,
   storyEventsOpen,
+  storyApplyOpen,
+  storyAgentOpen,
   onOpenEvent,
 }: StoryViewProps) {
   const feedRef = useRef<HTMLDivElement>(null);
@@ -847,15 +856,38 @@ export function StoryView({
                       isSelectedSession={selectedSession === p.session_id}
                       onOpenEvent={onOpenEvent ? (eid) => onOpenEvent(p.session_id, eid) : undefined}
                       forceDetailsOpen={
-                        !!(storyDetails || storyEvalOpen || storyEventsOpen) &&
+                        !!(
+                          storyDetails ||
+                          storyEvalOpen ||
+                          storyEventsOpen ||
+                          storyApplyOpen ||
+                          storyAgentOpen
+                        ) &&
                         !!eventId &&
                         (p.events ?? []).includes(eventId)
                       }
                       forceEvalOpen={
-                        !!storyEvalOpen && !!eventId && (p.events ?? []).includes(eventId)
+                        !!(storyEvalOpen || storyApplyOpen || storyAgentOpen) &&
+                        !!eventId &&
+                        (p.events ?? []).includes(eventId)
                       }
                       forceEventsOpen={
                         !!storyEventsOpen && !!eventId && (p.events ?? []).includes(eventId)
+                      }
+                      forceApplyOpen={
+                        storyApplyOpen &&
+                        !!eventId &&
+                        (p.events ?? []).includes(eventId)
+                          ? storyApplyOpen
+                          : undefined
+                      }
+                      forceAgentOpen={
+                        storyAgentOpen &&
+                        storyAgentOpen.length > 0 &&
+                        !!eventId &&
+                        (p.events ?? []).includes(eventId)
+                          ? storyAgentOpen
+                          : undefined
                       }
                     />
                   </div>

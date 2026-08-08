@@ -81,7 +81,9 @@ export function canvasAttention$(): Observable<Attention["canvas"]> {
         a.selectedSessionId === b.selectedSessionId &&
         a.flowAgent === b.flowAgent &&
         a.groupBy === b.groupBy &&
-        a.metric === b.metric,
+        a.metric === b.metric &&
+        (a.expandedKeys ?? []).join("\0") === (b.expandedKeys ?? []).join("\0") &&
+        JSON.stringify(a.scatterBrush ?? null) === JSON.stringify(b.scatterBrush ?? null),
     ),
   );
 }

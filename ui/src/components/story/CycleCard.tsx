@@ -9,10 +9,14 @@
  *   EVAL — what the model concluded
  *   APPLY — tools dispatched (with domain facts)
  *   Agent applies expand recursively into more CycleCards
+ *
+ * Expand state for nested agents is Attention-driven (`forceAgentOpen` /
+ * `storyAgentOpen` keys) with local useState as a human-click fallback.
  */
 
 import { useState, useEffect } from "react";
 import type { EvalApplyCycle, CycleTool } from "@/lib/eval-apply";
+import { isAgentSessionOpen } from "@/lib/hash-route";
 
 const DEPTH_COLORS = [
   { border: "#7aa2f7", bg: "#7aa2f718", label: "main" },  // depth 0
@@ -24,11 +28,17 @@ interface CycleCardProps {
   cycle: EvalApplyCycle;
   sessionId: string;
   depth?: number;
+  /** Agent session ids forced open by Attention/hash (`&agents=`). */
+  forceAgentOpen?: readonly string[];
 }
 
-export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
+export function CycleCard({
+  cycle,
+  sessionId,
+  depth = 0,
+  forceAgentOpen,
+}: CycleCardProps) {
   const colors = DEPTH_COLORS[Math.min(depth, 2)]!;
-  const [_expanded, _setExpanded] = useState(false);
 
   return (
     <div
@@ -69,7 +79,13 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
             apply ({cycle.tools.length})
           </span>
           {cycle.tools.map((tool, i) => (
-            <ToolRow key={i} tool={tool} sessionId={sessionId} depth={depth} />
+            <ToolRow
+              key={i}
+              tool={tool}
+              sessionId={sessionId}
+              depth={depth}
+              forceAgentOpen={forceAgentOpen}
+            />
           ))}
         </div>
       )}
@@ -77,22 +93,48 @@ export function CycleCard({ cycle, sessionId, depth = 0 }: CycleCardProps) {
   );
 }
 
-function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sessionId: string; depth: number }) {
-  const [agentExpanded, setAgentExpanded] = useState(false);
+function ToolRow({
+  tool,
+  sessionId: _sessionId,
+  depth,
+  forceAgentOpen,
+}: {
+  tool: CycleTool;
+  sessionId: string;
+  depth: number;
+  forceAgentOpen?: readonly string[];
+}) {
+  // Nested Agent tools only force-open when cycle extraction carries an agent id
+  // (optional extension on CycleTool). Primary Attention expand path is TurnCard
+  // AgentExpand, which has tool_outcome.agent_id.
+  const agentId = (tool as CycleTool & { agentId?: string }).agentId;
+  const agentSessionId = agentId ? `agent-${agentId}` : null;
+  const forceOpen = isAgentSessionOpen(forceAgentOpen, agentSessionId);
+  const [agentExpanded, setAgentExpanded] = useState(forceOpen);
   const [agentCycles, setAgentCycles] = useState<EvalApplyCycle[] | null>(null);
 
   const isAgent = tool.name === "Agent";
 
+  useEffect(() => {
+    if (forceOpen) setAgentExpanded(true);
+  }, [forceOpen]);
+
   // Lazy fetch subagent records on expand
   useEffect(() => {
     if (!isAgent || !agentExpanded || agentCycles !== null) return;
-
-    // The tool summary is the agent description. We need to find the agent session.
-    // For now, we don't have the agent_id on the tool. We'd need it from tool_outcome.
-    // TODO: pass agent_id through the cycle extraction
-    // For now, show a placeholder
-    setAgentCycles([]);
-  }, [isAgent, agentExpanded, agentCycles]);
+    if (!agentSessionId) {
+      // Needs agent_id on the tool for a real fetch path.
+      setAgentCycles([]);
+      return;
+    }
+    fetch(`/api/sessions/${agentSessionId}/records`)
+      .then((res) => res.json())
+      .then(async (records) => {
+        const { extractCycles } = await import("@/lib/eval-apply");
+        setAgentCycles(extractCycles(records));
+      })
+      .catch(() => setAgentCycles([]));
+  }, [isAgent, agentExpanded, agentCycles, agentSessionId]);
 
   return (
     <div className="mt-1">
@@ -114,8 +156,9 @@ function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sess
             <CycleCard
               key={c.cycleNumber}
               cycle={c}
-              sessionId={`agent-${tool.summary.slice(0, 8)}`}
+              sessionId={agentSessionId ?? `agent-${tool.summary.slice(0, 8)}`}
               depth={depth + 1}
+              forceAgentOpen={forceAgentOpen}
             />
           ))}
         </div>
@@ -130,15 +173,27 @@ function ToolRow({ tool, sessionId: _sessionId, depth }: { tool: CycleTool; sess
 }
 
 /** Render a list of cycles from a subagent session. */
-export function CycleList({ cycles, sessionId, depth = 1 }: {
+export function CycleList({
+  cycles,
+  sessionId,
+  depth = 1,
+  forceAgentOpen,
+}: {
   cycles: EvalApplyCycle[];
   sessionId: string;
   depth?: number;
+  forceAgentOpen?: readonly string[];
 }) {
   return (
     <div className="space-y-1">
       {cycles.map((c) => (
-        <CycleCard key={c.cycleNumber} cycle={c} sessionId={sessionId} depth={depth} />
+        <CycleCard
+          key={c.cycleNumber}
+          cycle={c}
+          sessionId={sessionId}
+          depth={depth}
+          forceAgentOpen={forceAgentOpen}
+        />
       ))}
     </div>
   );
