@@ -68,7 +68,8 @@ Views are sinks. Agents drive Attention — not the DOM.
 
 ### P3 — Story depth (partial ✅)
 - sentence depth via `details: true` / `story.details`
-- remaining: per-apply expand, cycle cards, `#/story/SES/turn/N`
+- per-apply output expand via `applyOpen` / `?apply=0,2|all` ✅
+- remaining: cycle cards, `#/story/SES/turn/N`
 
 ### P4 — Resolve event → session ✅ (MCP)
 - `navigate_to` auto-FTS resolves `sessionId` when kind=event|turn|sentence and omitted
@@ -79,9 +80,10 @@ Views are sinks. Agents drive Attention — not the DOM.
 - pure `allReachablePairs` for graph completeness tests
 
 ### Remaining (not blocking “hands complete”)
-- Turn number deep-link; nested Story expands
+- Turn number deep-link; CycleCard nested expand
 - Dedicated `/api/nav/resolve` (MCP search path is enough for now)
 - CI workflow job on nav_path.mjs
+- Board expandKeys ✅ on Attention.canvas (navigate_to expandKeys / set canvas.expand)
 
 ---
 

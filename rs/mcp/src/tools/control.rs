@@ -50,20 +50,35 @@ pub fn navigate_to_schema() -> Value {
         "properties": {
             "kind": {
                 "type": "string",
-                "description": "event | session | file | person | project | turn | sentence | canvas | subagent | day | reel"
+                "description": "event | session | file | person | project | turn | sentence | canvas | subagent | day | facet | reel"
             },
             "day": { "type": "string", "description": "YYYY-MM-DD heatmap day → explore filter (kind=day or with heatmap)" },
             "agent": { "type": "string", "description": "canvas flow agent chip (with canvasMode=flow)" },
+            "facet": {
+                "type": "string",
+                "description": "kind=facet dimension: project|host|user|branch|status|agent|day (optional when id is chip-id facet-host-… or host:…)"
+            },
             "groupBy": { "type": "string", "description": "canvas hierarchy: user|day|agent|status|host|project" },
             "metric": { "type": "string", "description": "canvas sunburst/treemap size: events|tokens" },
             "id": {
                 "type": "string",
-                "description": "Entity id (event UUID, session UUID, file path, user, project, …). For kind=canvas may be omitted if only switching mode."
+                "description": "Entity id (event UUID, session UUID, file path, user, project, …). kind=facet: chip-id facet-host-… or value with facet=. For kind=canvas may be omitted if only switching mode."
             },
             "sessionId": { "type": "string", "description": "Required for kind=event (and helpful for turn/sentence)" },
             "eventId": { "type": "string", "description": "Optional; for turn/sentence if id is not the event id" },
             "view": { "type": "string", "description": "story | explore (events default story)" },
             "details": { "type": "boolean", "description": "Expand Story ▾ details (sentence depth)" },
+            "evalOpen": { "type": "boolean", "description": "Expand Story eval-apply under the turn (?eval=1)" },
+            "eventsOpen": { "type": "boolean", "description": "Expand Story event-id list (?events=1)" },
+            "expandAll": { "type": "boolean", "description": "details + eval + events + all apply outputs" },
+            "applyOpen": {
+                "description": "Per-apply output expand inside eval-apply: true|\"all\" or 0-based index / array of indices (?apply=0,2 or ?apply=all)"
+            },
+            "expandKeys": {
+                "description": "Board hierarchy expand keys (g:group / p:group:project) — same as clicking a circle to drill",
+                "type": "array",
+                "items": { "type": "string" }
+            },
             "canvasMode": {
                 "type": "string",
                 "description": "sunburst|board|treemap|gantt|scatter|flow|tool-adjacency|agent-project|durations|heatmap"
@@ -78,7 +93,7 @@ pub fn navigate_to_schema() -> Value {
 pub async fn navigate_to(api_base: &str, args: Value) -> Result<Value, String> {
     let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("").trim();
     if kind.is_empty() {
-        return Err("navigate_to requires `kind` (event|session|file|person|project|turn|sentence|canvas|subagent|day|reel)".to_string());
+        return Err("navigate_to requires `kind` (event|session|file|person|project|turn|sentence|canvas|subagent|day|facet|reel)".to_string());
     }
     // Flatten tool args into navigate_to params (id optional for canvas-only mode).
     let mut params = args.clone();

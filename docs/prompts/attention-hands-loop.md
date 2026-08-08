@@ -1,7 +1,10 @@
 # Loop prompt: Attention tree + agent hands (full click parity)
 
-Copy everything under **PROMPT** into a new agent session. Re-run / continue until exit criteria pass.  
-Related: `docs/plans/full-click-parity.md`, `ui/src/lib/attention.ts`, `ui/src/lib/nav-path.ts`.
+Copy everything under **PROMPT** into a new agent session, or keep the scheduled
+job `019fa56901fd` (5m) updated via `scheduler_create` with the same `task_id`.
+
+Related: `docs/PARITY-HANDS.md`, `docs/plans/full-click-parity.md`,
+`ui/src/lib/attention.ts`, `ui/src/lib/nav-path.ts`.
 
 ---
 
@@ -16,129 +19,136 @@ user-owned data, and agents drive that tree with powerful MCP hands
 - Observe, never interfere. Drive ui.* only; never mutate events.* / transcripts.
 - Functional-first: pure fold of Intent → Attention; side effects only in
   materializeAttention / injectControl / navigate.
-- BDD/TDD: failing test first. Prefer pure unit tests (vitest) over E2E.
 - Do not lose functionality. Prefer lift local useState into Attention over
   deleting features.
-- Dogfood: REST :3002 + MCP + scripts/nav_path.mjs. Prefer API over guessing.
+- Dogfood: REST :3002 + MCP + `just nav-path` / `just test-attention`.
+- Scorecard truth only: docs/PARITY-HANDS.md PASS/FAIL — no soft "mostly."
+
+## STRICT TDD / BDD (non-negotiable — no exceptions this loop)
+
+Every firing that claims progress MUST follow red → green → refactor.
+
+### Required order for each FAIL→PASS claim
+1. **Name the FAIL row** from docs/PARITY-HANDS.md (or add a new FAIL row first).
+2. **Write a failing pure test FIRST** (vitest). Prefer BDD shape:
+   - describe("when X") / it("should Y")
+   - or scenario(given, when, then) from ui/tests/bdd.ts
+3. **Run the test and prove RED** — paste the failing test name + assertion
+   failure in your report. If you cannot show red, you may not implement.
+4. **Implement the minimum** to go green (pure fold first; sink second).
+5. **Run the same test and prove GREEN**.
+6. **Only then** update PARITY-HANDS.md FAIL→PASS (and only for land-asserted
+   surfaces: pure fold + hash/attentionSatisfies, or nav_path land).
+
+### Forbidden
+- Implementing production behavior before a failing test exists for this firing.
+- Claiming PASS without naming the failing test that went red then green.
+- "Tests exist somewhere" — must be the test YOU wrote/extended THIS firing.
+- Skipping red by writing the test after the code (if you slip: delete the
+  production change, re-establish red, then re-implement).
+
+### Report format (required every firing)
+```
+FAIL row: <exact row from PARITY-HANDS>
+RED test: <file>::<describe/it name> — <one-line failure>
+GREEN: <same test> — pass
+Survey: <N/N or skipped: reason>
+Remaining FAIL: <short list>
+Exit criteria: met|not met
+```
+
+If the report lacks RED test name + evidence of red-then-green, the firing
+does not count as progress.
 
 ## One-line objective
 Any agent can navigate_to any event / canvas graph / day / file without the
 repo docs, and land is assertable; Attention is the single denotation of
 "what the mirror shows."
 
-## Mental model (for you)
+## Mental model
 - Attention ≈ Redux store for UI *attention* (not for event history).
 - HashRoute = bookmarkable spine of Attention.
-- Canvas selection / spotlight / details = Attention fields.
-- navigate_to = action that folds into Attention (like a Redux action).
-- React components = pure-ish sinks that render Attention + local paint only.
-- Event store / RxJS sessions = separate stream (data), not the attention tree.
+- navigate_to = action that folds into Attention.
+- React = sink (paint); Event store/RxJS sessions = data stream, separate.
+- TDD targets pure algebra first; live nav_path is conformance, not a substitute
+  for unit red→green.
 
-## Confidence ladder (order; each is a closed loop)
+## Work queue (ONE coherent TDD increment per 5m firing)
 
-### L1 — Pure algebra green
-- [x] attention.test.ts + nav-path.test.ts all pass
-- [x] foldIntent covers: event, session, canvas+mode+select, day, file, person, project, sentence/turn
-- [x] attentionSatisfies matches foldIntent outputs (+ property table)
-  - gate: `just test-attention`
+Priority FAIL rows (from PARITY-HANDS — take the first still FAIL):
+1. Optional: collapse board expandedKeys dual-inject (same pattern as scatter.brush — canvas sink already prefers attention$)
+2. Facet chips as named entity (optional; query covers operational path) — remaining formal FAIL
+3. Pixel wedge coords deferred (not a semantic node) — remaining formal FAIL
+4. Do not redo PASS rows (CycleCard agentOpen, board expandKeys, scatterBrush paint + no dual-inject, per-apply, etc.)
 
-### L2 — Live land survey
-- [x] scripts/nav_path.mjs → 28/28
-- [x] Fix any red edge before adding features
-  - gate: `just nav-path` (needs :3002 + :5173)
+Each firing:
+1. Pick one FAIL row.
+2. RED pure test → GREEN pure fold → sink/hash if needed → survey if control surface changed.
+3. Update PARITY-HANDS only when land-asserted.
+4. If you improve this loop, scheduler_create with task_id 019fa56901fd and the
+   new prompt (do not delete+recreate).
 
-### L3 — Hands complete for events + graphs
-- [x] navigate_to event without sessionId still works (MCP FTS resolve)
-- [x] navigate_to session + every canvasMode lands #/canvas + selection
-- [x] navigate_to day → explore?day=
-- [x] openstory_help + initialize.instructions teach navigate_to first
-  - gate: dogfood curl POST /api/control navigate_to cases; MCP tools/list has navigate_to
+## Gates
+- Unit: `just test-attention`
+- Live (if UI/control changed): `just nav-path` (needs :3002 + :5173)
+- MCP if tools changed: `cd rs && cargo test -p open-story-mcp --lib`
 
-### L4 — Lift more of the tree into Attention (no feature loss)
-- [x] Canvas groupBy/metric on Attention.canvas (+ sinks)
-- [ ] Story nested expand (eval/applies) — still local useState
-- [x] Explore detail tabs already route-owned
-  - gate: unit test fold + live navigate_to with groupBy/metric
-
-### L5 — Reactive cleanliness
-- [x] syncAttentionFromRoute on every hash change
-- [x] materializeAttention + realizeIntent path for navigate_to
-- [x] control.ts: wsMessages$() not wsMessages$ (regression fixed)
-- [ ] injectControl dual path for canvas still exists (acceptable dual until sinks only read attention$)
-  - gate: vitest + navigate_to after hard refresh
-
-### L6 — Conformance
-- [x] docs/reports/nav-path.md from survey
-- [x] docs/plans/full-click-parity.md
-- [x] justfile recipes: `test-attention`, `nav-path`
-  - gate: survey green; docs match code
-
-## Exit criteria (STOP when all true)
-1. L1–L3 green.
-2. nav_path.mjs exit 0.
-3. Agent can, with only MCP (no repo): land on an event with details, land on
-   gantt+session, land on a heatmap day — confirmed by where_is_user or hash.
-4. Attention remains pure (no fetch inside foldIntent/foldControl).
-5. No regression: `cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts`
+## Exit criteria (report DONE; user may scheduler_delete)
+1. PARITY-HANDS: no remaining FAIL for Story card interiors + canvas selection +
+   explore filters without an explicit deferred row (with reason).
+2. just test-attention green; just nav-path exit 0 (or env down documented).
+3. navigate_to: event+expandAll; canvasMode+session; day; file; person — land OK.
+4. Every PASS row in PARITY-HANDS has a named pure test that would fail without it.
+5. No fetch inside foldIntent/foldControl.
 
 ## Anti-goals
-- Playwright clicking CSS selectors as the primary driver.
-- LLM-generated "what the session meant" stored as Attention.
-- Rewriting all of App.tsx for aesthetics alone.
+- Playwright CSS as primary driver.
+- Status report without RED→GREEN.
+- Stopping early with "optional next" when FAIL rows remain and time remains.
 - Mutating observed agent history.
 
-## How to work each iteration
-1. Pick the lowest unfinished ladder level.
-2. Write a failing pure test (or extend nav_path pair).
-3. Implement minimum pure fold / sink.
-4. Run gates.
-5. If green, mark checkbox in this prompt's checklist in a commit or report.
-6. Continue until exit criteria; then STOP and report:
-   - what Attention can express
-   - what still lives only in useState
-   - survey score
-   - suggested next lift
-
 ## Key files
-- ui/src/lib/attention.ts          — pure Attention algebra
-- ui/src/streams/attention.ts      — reactive Attention store
-- ui/src/lib/nav-path.ts           — pathfinder / planNavigateTo
-- ui/src/lib/action-graph.ts       — ENTITY_EDGES
-- ui/src/lib/ui-control.ts         — interpretControl + navigate_to
-- ui/src/App.tsx                   — materialize shell
-- ui/src/components/canvas/*       — sinks for canvas Attention
-- rs/mcp/src/tools/control.rs      — navigate_to MCP + event resolve
-- rs/mcp/agent-docs/hands.md       — agent curriculum
-- scripts/nav_path.mjs             — live land survey
-- docs/plans/full-click-parity.md  — roadmap
+- docs/PARITY-HANDS.md
+- ui/src/lib/attention.ts, nav-path.ts, ui-control.ts, hash-route.ts
+- ui/src/streams/attention.ts, control.ts
+- ui/src/App.tsx, components/story/*, components/canvas/*
+- rs/mcp/src/tools/control.rs, agent-docs/hands.md
+- scripts/nav_path.mjs
+- ui/tests/lib/attention.test.ts, nav-path.test.ts, bdd.ts
 
 ## Env
 - API http://127.0.0.1:3002  UI http://127.0.0.1:5173
-- UI tests: cd ui && npx vitest run …
-- MCP tests: cd rs && cargo test -p open-story-mcp --lib
 ```
 
 ---
 
-## How to run `/loop`
+## How to run / update the loop
 
-1. Ensure OpenStory is up (`:3002` + `:5173`).
-2. Copy the fenced **PROMPT** block above.
-3. Start a loop session with that prompt (e.g. `/loop` + paste, or paste into a fresh agent).
-4. Agent works the ladder until **Exit criteria**; then stops and reports.
+**Scheduled (current):** task `019fa56901fd`, every **5m**, expires in 7 days.
 
-## Status snapshot (2026-07-27, loop run)
+Update without recreate:
+```
+scheduler_create(task_id="019fa56901fd", prompt=<new full prompt>, interval="5m")
+```
+
+Cancel:
+```
+scheduler_delete 019fa56901fd
+```
+
+**Manual:** copy the fenced PROMPT into a fresh agent / `/loop`.
+
+---
+
+## Status snapshot (2026-07-28) — **OPERATIONAL DONE**
 
 | Level | Status |
 |-------|--------|
-| L1 algebra | ✅ 66 pure tests (attention + nav-path + ui-control) |
-| L2 survey | ✅ 28/28 `just nav-path` |
-| L3 hands | ✅ navigate_to event/canvas/day dogfood delivered |
-| L4 lift more | ✅ canvas groupBy+metric; Story nested expand still open |
-| L5 reactive | ✅ Attention fold path; inject dual residual OK |
-| L6 docs | ✅ just recipes + plans |
+| Operational exit criteria | **MET** — user may `scheduler_delete 019fa56901fd` |
+| L1–L3 + Story interiors | PASS (expandAll, applyOpen, agentOpen) |
+| Canvas selection / modes / brush / board | PASS (no dual-inject materialize) |
+| Explore filters + facet chips | PASS (`kind:facet`) |
+| Pixel wedge coords | FAIL deferred (non-semantic geometry — not Attention) |
+| Gates | `just test-attention` green · `just nav-path` **29/29** |
 
-**Next loop (optional):** Story eval/applies expand on Attention; retire inject dual for canvas.
-
-Regenerate survey: `just nav-path`  
-Algebra only: `just test-attention`
+If the loop still fires: re-verify gates only; do **not** invent new FAIL rows unless a real regression is red. Do not claim pixel wedge PASS.
