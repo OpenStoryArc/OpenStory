@@ -139,6 +139,7 @@ export type UIControlAction =
       /**
        * Agent pen — ink on the ui.* overlay (never history).
        * Coordinates normalized 0..1 viewport. clear replaces or empties scene.
+       * Optional recipe resolves async in App (edge-trace portrait, smiley, …).
        */
       readonly type: "draw";
       readonly clear?: boolean;
@@ -146,6 +147,9 @@ export type UIControlAction =
       readonly visible?: boolean;
       readonly label?: string;
       readonly mode?: "append" | "replace";
+      /** Named recipe: smiley | geometric-max | edge-portrait (needs href). */
+      readonly recipe?: string;
+      readonly href?: string;
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -373,8 +377,9 @@ export function interpretControl(action: string, params: unknown): UIControlActi
   if (action === "draw") {
     const p = (params ?? {}) as Record<string, unknown>;
     const strokes = Array.isArray(p.strokes) ? p.strokes : [];
-    const clear = p.clear === true || p.mode === "replace";
-    if (!clear && strokes.length === 0 && p.visible === undefined) return null;
+    const recipe = typeof p.recipe === "string" ? p.recipe.trim() : "";
+    const clear = p.clear === true || p.mode === "replace" || recipe.length > 0;
+    if (!clear && strokes.length === 0 && p.visible === undefined && !recipe) return null;
     return {
       type: "draw",
       clear,
@@ -382,6 +387,8 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       visible: p.visible === false ? false : p.visible === true ? true : undefined,
       label: typeof p.label === "string" ? p.label : undefined,
       mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
+      recipe: recipe || undefined,
+      href: typeof p.href === "string" ? p.href : undefined,
     };
   }
   return null;

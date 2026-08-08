@@ -90,7 +90,7 @@ function StrokeEl({ s }: { s: DrawStroke }) {
   }
 }
 
-export function DrawOverlay() {
+export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
   const [scene, setScene] = useState<DrawScene>({ strokes: [], visible: true });
 
   useEffect(() => {
@@ -98,7 +98,8 @@ export function DrawOverlay() {
     return () => sub.unsubscribe();
   }, []);
 
-  if (!scene.visible || scene.strokes.length === 0) return null;
+  // Draw tab owns its own canvas — avoid double-painting the same ink.
+  if (suppress || !scene.visible || scene.strokes.length === 0) return null;
 
   return (
     <div

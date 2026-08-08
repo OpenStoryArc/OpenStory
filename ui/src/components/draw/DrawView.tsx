@@ -80,49 +80,43 @@ export function DrawView() {
           <button
             type="button"
             className="rounded border border-[color:var(--border)] px-2 py-1 text-xs hover:border-[color:var(--accent)]"
-            onClick={() =>
-              commitDraw({
-                clear: true,
-                label: "Max Glassie",
-                strokes: [
-                  {
-                    type: "image",
-                    href: "https://github.com/maxglassie.png",
-                    x: 0.32,
-                    y: 0.18,
-                    w: 0.36,
-                    h: 0.36,
-                  },
-                  {
-                    type: "circle",
-                    cx: 0.5,
-                    cy: 0.36,
-                    r: 0.19,
-                    stroke: "#2f4a3e",
-                    strokeWidth: 4,
-                    fill: "none",
-                  },
-                  {
-                    type: "text",
-                    x: 0.5,
-                    y: 0.62,
-                    text: "Max Glassie",
-                    fill: "#2f4a3e",
-                    fontSize: 22,
-                  },
-                  {
-                    type: "text",
-                    x: 0.5,
-                    y: 0.68,
-                    text: "drawn with the agent pen · ui.* only",
-                    fill: "#78716c",
-                    fontSize: 12,
-                  },
-                ],
-              })
-            }
+            onClick={() => {
+              void (async () => {
+                const { portraitInkStrokes, geometricMaxStrokes } = await import(
+                  "@/lib/draw-portrait"
+                );
+                try {
+                  const strokes = await portraitInkStrokes(
+                    "https://github.com/maxglassie.png",
+                    { caption: "Max Glassie" },
+                  );
+                  commitDraw({ clear: true, strokes, label: "edge-ink Max" });
+                } catch {
+                  commitDraw({
+                    clear: true,
+                    strokes: geometricMaxStrokes(),
+                    label: "geometric Max",
+                  });
+                }
+              })();
+            }}
           >
-            Max (GitHub)
+            Draw Max (ink)
+          </button>
+          <button
+            type="button"
+            className="rounded border border-[color:var(--border)] px-2 py-1 text-xs hover:border-[color:var(--accent)]"
+            onClick={() => {
+              void import("@/lib/draw-portrait").then(({ geometricMaxStrokes }) => {
+                commitDraw({
+                  clear: true,
+                  strokes: geometricMaxStrokes(),
+                  label: "geometric Max",
+                });
+              });
+            }}
+          >
+            Geometric Max
           </button>
           <button
             type="button"

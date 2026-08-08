@@ -162,13 +162,59 @@ export function App() {
         }
       } else if (action.type === "draw") {
         // Agent pen — ui.* ink only (never mutates observed history).
-        commitDraw({
-          clear: action.clear,
-          strokes: action.strokes,
-          visible: action.visible,
-          label: action.label ?? issuer,
-          mode: action.mode,
-        });
+        // Recipes resolve async (edge-trace / geometric) so the agent can "really draw".
+        const label = action.label ?? issuer;
+        if (action.recipe) {
+          void (async () => {
+            try {
+              const { smileyStrokes } = await import("@/lib/draw");
+              const { geometricMaxStrokes, portraitInkStrokes } = await import(
+                "@/lib/draw-portrait"
+              );
+              let strokes = action.strokes as import("@/lib/draw").DrawStroke[];
+              if (action.recipe === "smiley") {
+                strokes = smileyStrokes();
+              } else if (action.recipe === "geometric-max") {
+                strokes = geometricMaxStrokes();
+              } else if (action.recipe === "edge-portrait") {
+                const href =
+                  action.href ??
+                  "https://github.com/maxglassie.png";
+                try {
+                  strokes = await portraitInkStrokes(href, {
+                    caption: action.label ?? "Max Glassie",
+                  });
+                } catch {
+                  // CORS / load failure → pure geometric ink (still a drawing)
+                  strokes = geometricMaxStrokes();
+                }
+              }
+              commitDraw({
+                clear: true,
+                strokes,
+                visible: action.visible,
+                label,
+                mode: "replace",
+              });
+            } catch {
+              commitDraw({
+                clear: action.clear,
+                strokes: action.strokes,
+                visible: action.visible,
+                label,
+                mode: action.mode,
+              });
+            }
+          })();
+        } else {
+          commitDraw({
+            clear: action.clear,
+            strokes: action.strokes,
+            visible: action.visible,
+            label,
+            mode: action.mode,
+          });
+        }
       } else if (action.type === "set" && action.target === "story.details") {
         const p = action.params;
         const sessionId =
@@ -526,7 +572,7 @@ export function App() {
       />
 
       {/* Agent pen — full-viewport ink (ui.* only; pointer-events none) */}
-      <DrawOverlay />
+      <DrawOverlay suppress={viewMode === "draw"} />
 
       {/* Global ⌘K command palette */}
       <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />
