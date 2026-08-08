@@ -78,11 +78,94 @@ export interface HashRoute {
   storyEvalOpen?: boolean;
   /** Story: expand event-id list under the turn (`&events=1`). */
   storyEventsOpen?: boolean;
+  /**
+   * Story: which apply-row outputs are open inside eval-apply
+   * (`&apply=0,2` or `&apply=all`). Indices are 0-based apply order.
+   */
+  storyApplyOpen?: readonly number[] | "all";
+  /**
+   * Story: which nested agent (subagent) CycleCards are expanded
+   * (`&agents=agent-id1,agent-id2`). Keys are agent session ids.
+   */
+  storyAgentOpen?: readonly string[];
   /** Reels: the selected reel (`#/reels/REEL_ID`). */
   reelId?: string;
   /** Reels: autoplay the selected reel (`&autoplay=1`). Only meaningful
    *  alongside `reelId` — reels routes never carry a sessionId. */
   reelAutoplay?: boolean;
+}
+
+/** Parse `agents` query value → sorted unique agent session ids. */
+export function parseAgentOpenParam(
+  raw: string | null | undefined,
+): readonly string[] | undefined {
+  if (raw == null || raw === "") return undefined;
+  const out = [
+    ...new Set(
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    ),
+  ].sort();
+  return out.length > 0 ? out : undefined;
+}
+
+/** Serialize agent-open keys for the hash query. */
+export function buildAgentOpenParam(
+  open: readonly string[] | undefined,
+): string | undefined {
+  if (!open || open.length === 0) return undefined;
+  const out = [...new Set(open.map((k) => k.trim()).filter(Boolean))].sort();
+  return out.length > 0 ? out.join(",") : undefined;
+}
+
+/** Is this agent session forced open by Attention/hash? */
+export function isAgentSessionOpen(
+  force: readonly string[] | undefined,
+  agentSessionId: string | null | undefined,
+): boolean {
+  if (!force || force.length === 0 || !agentSessionId) return false;
+  const id = agentSessionId.trim();
+  if (!id) return false;
+  return force.includes(id);
+}
+
+/** Parse `apply` query value → open indices or "all". */
+export function parseApplyOpenParam(
+  raw: string | null | undefined,
+): readonly number[] | "all" | undefined {
+  if (raw == null || raw === "") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.toLowerCase() === "all") return "all";
+  const parts = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+  const idxs: number[] = [];
+  for (const p of parts) {
+    if (p.toLowerCase() === "all") return "all";
+    const n = Number(p);
+    if (Number.isInteger(n) && n >= 0) idxs.push(n);
+  }
+  if (idxs.length === 0) return undefined;
+  return [...new Set(idxs)].sort((a, b) => a - b);
+}
+
+/** Serialize apply-open for the hash query. */
+export function buildApplyOpenParam(
+  open: readonly number[] | "all" | undefined,
+): string | undefined {
+  if (open === "all") return "all";
+  if (!open || open.length === 0) return undefined;
+  return [...new Set(open)].sort((a, b) => a - b).join(",");
+}
+
+/** Is apply-row `index` forced open by Attention/hash? */
+export function isApplyOutputOpen(
+  force: readonly number[] | "all" | undefined,
+  index: number,
+): boolean {
+  if (force === "all") return true;
+  if (!force) return false;
+  return force.includes(index);
 }
 
 const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin", "reels"]);
@@ -173,6 +256,20 @@ export function parseHash(hash: string): HashRoute {
       if (queryParams.get("details") === "1") route.storyDetails = true;
       if (queryParams.get("eval") === "1") route.storyEvalOpen = true;
       if (queryParams.get("events") === "1") route.storyEventsOpen = true;
+      const applyOpen = parseApplyOpenParam(queryParams.get("apply"));
+      if (applyOpen !== undefined) {
+        route.storyApplyOpen = applyOpen;
+        // Apply expand implies the parent eval-apply + details panels.
+        route.storyDetails = true;
+        route.storyEvalOpen = true;
+      }
+      const agentOpen = parseAgentOpenParam(queryParams.get("agents"));
+      if (agentOpen !== undefined) {
+        route.storyAgentOpen = agentOpen;
+        // Nested agent expand implies parent details + eval-apply panels.
+        route.storyDetails = true;
+        route.storyEvalOpen = true;
+      }
     }
     return route;
   }
@@ -249,6 +346,10 @@ export function buildHash(route: HashRoute): string {
       if (route.storyDetails) params.set("details", "1");
       if (route.storyEvalOpen) params.set("eval", "1");
       if (route.storyEventsOpen) params.set("events", "1");
+      const applyParam = buildApplyOpenParam(route.storyApplyOpen);
+      if (applyParam) params.set("apply", applyParam);
+      const agentsParam = buildAgentOpenParam(route.storyAgentOpen);
+      if (agentsParam) params.set("agents", agentsParam);
     }
   }
   // Explore's filter state rides every explore path so filters survive

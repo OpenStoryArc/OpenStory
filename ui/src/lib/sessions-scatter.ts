@@ -82,6 +82,19 @@ export function pointsInBrush(points: readonly ScatterPoint[], b: BrushExtent): 
     .sort((a, z) => z.tokens - a.tokens || z.events - a.events || (a.id < z.id ? -1 : 1));
 }
 
+/**
+ * ScatterView paint state from Attention's data-space brush.
+ * Agent drive path: foldIntent → canvas.scatterBrush → this → sink.
+ * No control$ inject required — canvasAttention$ is enough.
+ */
+export function scatterPaintFromBrush(
+  points: readonly ScatterPoint[],
+  brush: BrushExtent | null | undefined,
+): { selecting: boolean; brushed: ScatterPoint[] | null } {
+  if (!brush) return { selecting: false, brushed: null };
+  return { selecting: true, brushed: pointsInBrush(points, brush) };
+}
+
 /** Deterministic jitter offset within a disk of `radius` px, derived from the
  *  session id. Used to declutter overplotted points — dozens of 1-event sessions
  *  otherwise stack on the y-axis at x=1 and read as a rendering glitch. Uniform

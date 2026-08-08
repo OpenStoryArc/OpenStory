@@ -47,8 +47,72 @@ export interface ControlStep {
   readonly landPattern?: RegExp;
 }
 
+/**
+ * Explore sidebar facet groups (`data-testid="facet-{key}-{value}"`).
+ * Same keys as hash-route OVERVIEW_FACET_KEYS (minus free-text/range).
+ */
+export const SIDEBAR_FACET_KEYS = [
+  "project",
+  "host",
+  "user",
+  "branch",
+  "status",
+  "agent",
+  "day",
+] as const;
+export type SidebarFacetKey = (typeof SIDEBAR_FACET_KEYS)[number];
+
+const SIDEBAR_FACET_KEY_SET = new Set<string>(SIDEBAR_FACET_KEYS);
+
+export function isSidebarFacetKey(k: string): k is SidebarFacetKey {
+  return SIDEBAR_FACET_KEY_SET.has(k);
+}
+
+/**
+ * Resolve a sidebar facet chip to { key, value }.
+ * Accepts:
+ * - structured: facet="host", id="mbp"
+ * - chip testid: id="facet-host-mbp" (value may contain hyphens)
+ * - colon form: id="host:mbp"
+ */
+export function parseSidebarFacet(
+  id: string,
+  facetHint?: string | null,
+): { readonly key: SidebarFacetKey; readonly value: string } | null {
+  const valueOrChip = trim(id);
+  if (!valueOrChip) return null;
+
+  const hint = trim(facetHint ?? undefined);
+  if (hint && isSidebarFacetKey(hint)) {
+    return { key: hint, value: valueOrChip };
+  }
+
+  // chip-id: facet-{key}-{value}
+  if (valueOrChip.startsWith("facet-")) {
+    const rest = valueOrChip.slice("facet-".length);
+    // Prefer longest key match if ever overlapping (none today).
+    for (const key of SIDEBAR_FACET_KEYS) {
+      if (rest.startsWith(`${key}-`)) {
+        const value = rest.slice(key.length + 1);
+        if (value) return { key, value };
+      }
+    }
+    return null;
+  }
+
+  // colon form: host:mbp
+  const colon = valueOrChip.indexOf(":");
+  if (colon > 0) {
+    const key = valueOrChip.slice(0, colon);
+    const value = valueOrChip.slice(colon + 1);
+    if (isSidebarFacetKey(key) && value) return { key, value };
+  }
+
+  return null;
+}
+
 export interface NavigateToParams {
-  readonly kind: EntityKind | "canvas" | "day" | "reel";
+  readonly kind: EntityKind | "canvas" | "day" | "facet" | "reel";
   readonly id: string;
   readonly sessionId?: string;
   readonly eventId?: string;
@@ -62,16 +126,47 @@ export interface NavigateToParams {
   readonly evalOpen?: boolean;
   /** Expand event-id list under the turn. */
   readonly eventsOpen?: boolean;
-  /** Shorthand: details + eval + events. */
+  /**
+   * Expand individual apply-row outputs inside eval-apply.
+   * number | number[] = those indices; true | "all" = every apply output.
+   */
+  readonly applyOpen?: number | readonly number[] | true | "all";
+  /**
+   * Expand CycleCard / AgentExpand recursive subagent trees by agent session id
+   * (e.g. `agent-<uuid>`). Keys are the same ids TurnCard uses for nested cycles.
+   */
+  readonly agentOpen?: readonly string[];
+  /** Shorthand: details + eval + events + all apply outputs. */
   readonly expandAll?: boolean;
   readonly canvasMode?: string;
   readonly spotlight?: boolean;
   readonly day?: string;
   readonly agent?: string;
+  /**
+   * Sidebar facet dimension when kind="facet" (project|host|user|branch|status|agent|day).
+   * Optional when `id` is a chip-id (`facet-host-…`) or colon form (`host:…`).
+   */
+  readonly facet?: string;
   /** Canvas hierarchy group-by (user|day|agent|…). */
   readonly groupBy?: string;
   /** Canvas size metric for sunburst/treemap. */
   readonly metric?: "events" | "tokens";
+  /**
+   * Board hierarchy expand keys (`g:user`, `p:user:project` from sessions-canvas).
+   * Opens group/project nodes the way a human clicks to drill.
+   */
+  readonly expandKeys?: readonly string[];
+  /**
+   * Scatter plot brush box in data space (events × output-tokens).
+   * Same shape as `set scatter.brush` / BrushExtent.
+   */
+  readonly scatterBrush?: {
+    readonly ev0: number;
+    readonly ev1: number;
+    readonly tok0: number;
+    readonly tok1: number;
+    readonly includeZero?: boolean;
+  };
   /** Reel: start playback immediately on landing. */
   readonly autoplay?: boolean;
 }
@@ -102,6 +197,44 @@ const step = (
   edge: string,
   landPattern?: RegExp,
 ): ControlStep => ({ action, params, edge, landPattern });
+
+/**
+ * Normalize applyOpen intent → route value.
+ * expandAll forces "all"; true/"all" → "all"; numbers → sorted unique indices.
+ */
+export function normalizeApplyOpen(
+  applyOpen: NavigateToParams["applyOpen"],
+  expandAll = false,
+): readonly number[] | "all" | undefined {
+  if (expandAll) return "all";
+  if (applyOpen === true || applyOpen === "all") return "all";
+  if (typeof applyOpen === "number") {
+    return Number.isInteger(applyOpen) && applyOpen >= 0 ? [applyOpen] : undefined;
+  }
+  if (Array.isArray(applyOpen)) {
+    const idxs = [
+      ...new Set(
+        applyOpen.filter((n): n is number => Number.isInteger(n) && n >= 0),
+      ),
+    ].sort((a, b) => a - b);
+    return idxs.length > 0 ? idxs : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Normalize agentOpen intent → sorted unique agent session ids.
+ * Empty / missing → undefined (no expand forced).
+ */
+export function normalizeAgentOpen(
+  agentOpen: NavigateToParams["agentOpen"] | undefined,
+): readonly string[] | undefined {
+  if (!agentOpen || agentOpen.length === 0) return undefined;
+  const out = [
+    ...new Set(agentOpen.map((k) => k.trim()).filter((k) => k.length > 0)),
+  ].sort();
+  return out.length > 0 ? out : undefined;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Graph algebra
@@ -457,6 +590,37 @@ const planCanvas = (target: NavigateToParams): ControlStep[] => {
       step("toggle", { target: "canvas.metric", value: target.metric }, "canvas.metric", /#\/canvas/),
     );
   }
+  if (target.expandKeys && target.expandKeys.length > 0) {
+    const keys = [
+      ...new Set(target.expandKeys.map((k) => k.trim()).filter(Boolean)),
+    ].sort();
+    steps.push(
+      step(
+        "set",
+        { target: "canvas.expand", keys },
+        "canvas.expand",
+        /#\/canvas/,
+      ),
+    );
+  }
+  if (target.scatterBrush) {
+    const b = target.scatterBrush;
+    steps.push(
+      step(
+        "set",
+        {
+          target: "scatter.brush",
+          ev0: b.ev0,
+          ev1: b.ev1,
+          tok0: b.tok0,
+          tok1: b.tok1,
+          includeZero: b.includeZero === true,
+        },
+        "scatter.brush",
+        /#\/canvas/,
+      ),
+    );
+  }
   const sessionId = trim(target.sessionId) || (target.kind === "session" ? trim(target.id) : "");
   if (sessionId) {
     steps.push(
@@ -483,6 +647,20 @@ const planDay = (day: string): ControlStep[] => [
 export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
   const id = trim(target.id);
   if (!id && target.kind !== "canvas") return null;
+
+  // Sidebar facet chip as named entity (chip-id or structured facet+value).
+  if (target.kind === "facet") {
+    const parsed = parseSidebarFacet(id, target.facet);
+    if (!parsed) return null;
+    return [
+      step(
+        "query",
+        { [parsed.key]: parsed.value },
+        "→facet",
+        new RegExp(`[?&]${escapeRe(parsed.key)}=${escapeRe(parsed.value)}`),
+      ),
+    ];
+  }
 
   // Day locus (heatmap cell)
   if (target.kind === "day" || target.day) {
@@ -515,11 +693,24 @@ export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
     }
     const view = target.view === "explore" ? "explore" : "story";
     const expandAll = target.expandAll === true;
-    const details = expandAll || target.details === true;
-    const evalOpen = expandAll || target.evalOpen === true;
+    const applyOpen = normalizeApplyOpen(target.applyOpen, expandAll);
+    const agentOpen = normalizeAgentOpen(target.agentOpen);
+    const details =
+      expandAll ||
+      target.details === true ||
+      applyOpen !== undefined ||
+      agentOpen !== undefined;
+    const evalOpen =
+      expandAll ||
+      target.evalOpen === true ||
+      applyOpen !== undefined ||
+      agentOpen !== undefined;
     const eventsOpen = expandAll || target.eventsOpen === true;
     const steps: ControlStep[] = [focusEvent(sessionId, eventId, view, "→event")];
-    if (view === "story" && (details || evalOpen || eventsOpen)) {
+    if (
+      view === "story" &&
+      (details || evalOpen || eventsOpen || applyOpen !== undefined || agentOpen !== undefined)
+    ) {
       steps.push(
         step(
           "set",
@@ -530,11 +721,17 @@ export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
             eventId,
             evalOpen,
             eventsOpen,
+            ...(applyOpen !== undefined ? { applyOpen } : {}),
+            ...(agentOpen !== undefined ? { agentOpen } : {}),
           },
           "story.expand",
-          evalOpen && eventsOpen
-            ? /details=1.*eval=1.*events=1|details=1/
-            : /details=1/,
+          agentOpen !== undefined
+            ? /agents=/
+            : applyOpen !== undefined
+              ? /apply=/
+              : evalOpen && eventsOpen
+                ? /details=1.*eval=1.*events=1|details=1/
+                : /details=1/,
         ),
       );
     }
@@ -554,6 +751,8 @@ export function planNavigateTo(target: NavigateToParams): ControlStep[] | null {
       details: target.details !== false,
       evalOpen: target.evalOpen,
       eventsOpen: target.eventsOpen,
+      applyOpen: target.applyOpen,
+      agentOpen: target.agentOpen,
       expandAll: target.expandAll,
     });
   }

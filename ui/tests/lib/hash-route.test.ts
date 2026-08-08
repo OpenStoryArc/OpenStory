@@ -134,9 +134,61 @@ describe("story expand flags — details / eval / events", () => {
     expect(parseHash(hash)).toEqual(route);
   });
 
-  // NOTE: apply=… (per-apply-row expansion) specs were committed ahead of
-  // their implementation on the base branch — trimmed to committed reality;
-  // they return with the apply-open feature itself.
+  it("round-trips details + eval + apply indices", () => {
+    const route: HashRoute = {
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyApplyOpen: [0, 2],
+    };
+    const hash = buildHash(route);
+    expect(hash).toContain("details=1");
+    expect(hash).toContain("eval=1");
+    expect(hash).toMatch(/apply=0(,|%2C)2/);
+    expect(parseHash(hash)).toEqual(route);
+  });
+
+  it("parses apply=all as full apply expand", () => {
+    expect(
+      parseHash("#/story/SES/event/EVT?details=1&eval=1&apply=all"),
+    ).toMatchObject({
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyApplyOpen: "all",
+    });
+  });
+
+  it("buildHash writes apply=all", () => {
+    expect(
+      buildHash({
+        view: "story",
+        sessionId: "S",
+        eventId: "E",
+        storyDetails: true,
+        storyEvalOpen: true,
+        storyApplyOpen: "all",
+      }),
+    ).toMatch(/apply=all/);
+  });
+
+  it("round-trips agents= agent session expand keys", () => {
+    const route: HashRoute = {
+      view: "story",
+      sessionId: "SES",
+      eventId: "EVT",
+      storyDetails: true,
+      storyEvalOpen: true,
+      storyAgentOpen: ["agent-abc", "agent-def"],
+    };
+    const hash = buildHash(route);
+    expect(hash).toMatch(/agents=/);
+    expect(parseHash(hash)).toEqual(route);
+  });
 });
 
 describe("legacy #/overview links — parse-time alias onto Explore", () => {
