@@ -51,7 +51,7 @@ function buildExploreQuery(e: ExploreQuery): URLSearchParams {
 }
 
 export interface HashRoute {
-  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels";
+  view: "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels" | "draw";
   sessionId?: string;
   detailView?: DetailView;
   eventId?: string;
@@ -168,7 +168,7 @@ export function isApplyOutputOpen(
   return force.includes(index);
 }
 
-const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin", "reels"]);
+const VALID_VIEWS = new Set(["live", "explore", "story", "canvas", "ask", "users", "admin", "reels", "draw"]);
 const VALID_DETAIL_VIEWS = new Set(["events", "conversation", "plans", "graph", "search"]);
 
 /** Strip the `?key=value&…` tail from a hash and return [path, params]. */
@@ -223,10 +223,10 @@ export function parseHash(hash: string): HashRoute {
   }
 
   const view = VALID_VIEWS.has(parts[0] ?? "")
-    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels")
+    ? (parts[0] as "live" | "explore" | "story" | "canvas" | "ask" | "users" | "admin" | "reels" | "draw")
     : "live";
 
-  if (view === "users" || view === "admin" || view === "canvas" || view === "ask") {
+  if (view === "users" || view === "admin" || view === "canvas" || view === "ask" || view === "draw") {
     return { view };
   }
 

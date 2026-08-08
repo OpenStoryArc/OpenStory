@@ -3,6 +3,24 @@ import { scenario } from "../bdd";
 import { controlToRoute, interpretControl } from "@/lib/ui-control";
 import { planNavigateTo } from "@/lib/nav-path";
 
+describe("draw — agent pen", () => {
+  it("interprets draw with strokes and clear", () => {
+    const a = interpretControl("draw", {
+      clear: true,
+      label: "smiley",
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+    });
+    expect(a).toMatchObject({ type: "draw", clear: true, label: "smiley" });
+    if (a?.type === "draw") expect(a.strokes).toHaveLength(1);
+  });
+
+  it("maps set draw.clear to an empty scene", () => {
+    const a = interpretControl("set", { target: "draw.clear" });
+    expect(a).toMatchObject({ type: "draw", clear: true });
+  });
+});
+
+
 describe("controlToRoute", () => {
   it("resolves open_view with a hash route to a parsed route", () => {
     scenario(

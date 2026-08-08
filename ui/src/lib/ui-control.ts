@@ -34,6 +34,7 @@ export const CONTROL_VERBS = [
   "set_filter",
   "toggle",
   "set",
+  "draw",
 ] as const;
 
 export interface ControlParams {
@@ -133,6 +134,18 @@ export type UIControlAction =
        */
       readonly type: "navigate_sequence";
       readonly steps: readonly ControlStep[];
+    }
+  | {
+      /**
+       * Agent pen — ink on the ui.* overlay (never history).
+       * Coordinates normalized 0..1 viewport. clear replaces or empties scene.
+       */
+      readonly type: "draw";
+      readonly clear?: boolean;
+      readonly strokes: readonly unknown[];
+      readonly visible?: boolean;
+      readonly label?: string;
+      readonly mode?: "append" | "replace";
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -340,7 +353,36 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     if (!target) return null;
     const { target: _t, ...rest } = p;
     void _t;
+    // draw.clear / draw.scene convenience via set
+    if (target === "draw.clear") {
+      return { type: "draw", clear: true, strokes: [] };
+    }
+    if (target === "draw.scene" || target === "draw") {
+      return {
+        type: "draw",
+        clear: rest.clear === true || rest.mode === "replace",
+        strokes: Array.isArray(rest.strokes) ? rest.strokes : [],
+        visible: rest.visible === false ? false : rest.visible === true ? true : undefined,
+        label: typeof rest.label === "string" ? rest.label : undefined,
+        mode: rest.mode === "replace" ? "replace" : rest.mode === "append" ? "append" : undefined,
+      };
+    }
     return { type: "set", target, params: rest };
+  }
+  // Agent pen — ink on the ui.* overlay (normalized 0..1). Never mutates history.
+  if (action === "draw") {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const strokes = Array.isArray(p.strokes) ? p.strokes : [];
+    const clear = p.clear === true || p.mode === "replace";
+    if (!clear && strokes.length === 0 && p.visible === undefined) return null;
+    return {
+      type: "draw",
+      clear,
+      strokes,
+      visible: p.visible === false ? false : p.visible === true ? true : undefined,
+      label: typeof p.label === "string" ? p.label : undefined,
+      mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
+    };
   }
   return null;
 }

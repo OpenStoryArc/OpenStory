@@ -42,6 +42,9 @@ import { PresentBanner, type Presentation } from "@/components/control/PresentBa
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
+import { DrawOverlay } from "@/components/draw/DrawOverlay";
+import { DrawView } from "@/components/draw/DrawView";
+import { commitDraw } from "@/streams/draw";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
 import { interactionFromRoute, postInteraction } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
@@ -157,6 +160,15 @@ export function App() {
           setSpotlight(null);
           setTitleCard(null);
         }
+      } else if (action.type === "draw") {
+        // Agent pen — ui.* ink only (never mutates observed history).
+        commitDraw({
+          clear: action.clear,
+          strokes: action.strokes,
+          visible: action.visible,
+          label: action.label ?? issuer,
+          mode: action.mode,
+        });
       } else if (action.type === "set" && action.target === "story.details") {
         const p = action.params;
         const sessionId =
@@ -481,6 +493,9 @@ export function App() {
       {/* Reels tab */}
       {viewMode === "reels" && <ReelsView route={route} onNavigate={navigate} />}
 
+      {/* Draw tab — free canvas + agent pen demos */}
+      {viewMode === "draw" && <DrawView />}
+
       {/* Ask tab */}
       {viewMode === "ask" && <AskView onNavigate={navigate} />}
 
@@ -509,6 +524,9 @@ export function App() {
         onNavigate={navigate}
         onRemove={(id) => { setAnnotations((prev) => removeAnnotation(prev, id)); void deleteAnnotation(id); }}
       />
+
+      {/* Agent pen — full-viewport ink (ui.* only; pointer-events none) */}
+      <DrawOverlay />
 
       {/* Global ⌘K command palette */}
       <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />
