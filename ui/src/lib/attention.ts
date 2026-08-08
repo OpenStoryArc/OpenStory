@@ -33,8 +33,8 @@ function applyOpenSatisfied(
   if (want === undefined) return true;
   const needed = normalizeApplyOpen(want);
   if (needed === undefined) return true;
-  if (have === "all") return true;
   if (needed === "all") return have === "all";
+  if (have === "all") return true;
   if (!have) return false;
   return needed.every((i) => have.includes(i));
 }

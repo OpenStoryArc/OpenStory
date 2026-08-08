@@ -215,14 +215,14 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       eventsOpen: flag(raw.eventsOpen) || flag(raw.expandAll),
       applyOpen: (() => {
         if (flag(raw.expandAll)) return "all" as const;
-        if (p.applyOpen === true || p.applyOpen === "all") return "all" as const;
-        if (typeof p.applyOpen === "number") return p.applyOpen;
-        if (Array.isArray(p.applyOpen)) return p.applyOpen as number[];
-        if (typeof p.applyOpen === "string") {
-          const n = normalizeApplyOpen(
-            p.applyOpen === "all" ? "all" : p.applyOpen.split(",").map(Number),
+        const ao = raw.applyOpen;
+        if (ao === true || ao === "all") return "all" as const;
+        if (typeof ao === "number") return ao;
+        if (Array.isArray(ao)) return ao as number[];
+        if (typeof ao === "string") {
+          return normalizeApplyOpen(
+            ao === "all" ? "all" : ao.split(",").map(Number),
           );
-          return n;
         }
         return undefined;
       })(),
@@ -234,16 +234,26 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       facet: typeof p.facet === "string" ? p.facet : undefined,
       groupBy: typeof p.groupBy === "string" ? p.groupBy : undefined,
       metric: p.metric === "events" || p.metric === "tokens" ? p.metric : undefined,
-      expandKeys: Array.isArray(p.expandKeys)
-        ? (p.expandKeys as unknown[]).filter((k): k is string => typeof k === "string")
-        : typeof p.expandKeys === "string"
-          ? p.expandKeys.split(",").map((s) => s.trim()).filter(Boolean)
-          : undefined,
-      agentOpen: Array.isArray(p.agentOpen)
-        ? (p.agentOpen as unknown[]).filter((k): k is string => typeof k === "string")
-        : typeof p.agentOpen === "string"
-          ? p.agentOpen.split(",").map((s) => s.trim()).filter(Boolean)
-          : undefined,
+      expandKeys: (() => {
+        const ek = raw.expandKeys;
+        if (Array.isArray(ek)) {
+          return ek.filter((k): k is string => typeof k === "string");
+        }
+        if (typeof ek === "string") {
+          return ek.split(",").map((s: string) => s.trim()).filter(Boolean);
+        }
+        return undefined;
+      })(),
+      agentOpen: (() => {
+        const ao = raw.agentOpen;
+        if (Array.isArray(ao)) {
+          return ao.filter((k): k is string => typeof k === "string");
+        }
+        if (typeof ao === "string") {
+          return ao.split(",").map((s: string) => s.trim()).filter(Boolean);
+        }
+        return undefined;
+      })(),
       scatterBrush:
         p.scatterBrush && typeof p.scatterBrush === "object"
           ? (p.scatterBrush as NavigateToParams["scatterBrush"])

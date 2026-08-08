@@ -160,6 +160,13 @@ export function SessionsCanvas({ onNavigate }: Props) {
           setGroupBy(a.value as GroupDim);
         } else if (a.target === "canvas.metric" && (a.value === "events" || a.value === "tokens")) {
           setMetric(a.value as Metric);
+        } else if (a.target === "canvas.expand" && a.value.trim()) {
+          // Single-key expand toggle (human-click equivalent for one board node).
+          setExpanded((p) => {
+            const n = new Set(p);
+            n.has(a.value) ? n.delete(a.value) : n.add(a.value);
+            return n;
+          });
         }
         return;
       }
@@ -187,13 +194,6 @@ export function SessionsCanvas({ onNavigate }: Props) {
             return n;
           });
         }
-      }
-      if (a.type === "toggle" && a.target === "canvas.expand" && a.value.trim()) {
-        setExpanded((p) => {
-          const n = new Set(p);
-          n.has(a.value) ? n.delete(a.value) : n.add(a.value);
-          return n;
-        });
       }
     });
     return () => sub.unsubscribe();
