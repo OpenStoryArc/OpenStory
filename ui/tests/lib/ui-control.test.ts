@@ -18,6 +18,38 @@ describe("draw — agent pen", () => {
     const a = interpretControl("set", { target: "draw.clear" });
     expect(a).toMatchObject({ type: "draw", clear: true });
   });
+
+  it("interprets layout-ring recipe with preferId", () => {
+    const a = interpretControl("draw", {
+      recipe: "layout-ring",
+      preferId: "e9",
+      label: "ring",
+    });
+    expect(a).toMatchObject({
+      type: "draw",
+      recipe: "layout-ring",
+      preferId: "e9",
+      clear: true,
+    });
+  });
+
+  it("interprets slide-targeted draw (agent parity with Annotate)", () => {
+    const a = interpretControl("draw", {
+      target: "slide",
+      reelId: "reel-abc",
+      beatIndex: 2,
+      clear: true,
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+    });
+    expect(a).toMatchObject({
+      type: "draw",
+      target: "slide",
+      reelId: "reel-abc",
+      beatIndex: 2,
+      clear: true,
+    });
+    expect(interpretControl("draw", { target: "slide", reelId: "reel-x" })).toBeNull();
+  });
 });
 
 

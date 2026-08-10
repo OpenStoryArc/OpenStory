@@ -2430,11 +2430,31 @@ pub async fn post_reel(
     Json(mut reel): Json<open_story_store::reel_store::Reel>,
 ) -> Response {
     let s = state.read().await;
-    // Validate every stop against the record — "do not invent events".
+    // Validate spotlight stops against the record — "do not invent events".
+    // Title / diagram / image beats are interpretation chrome (no event id required).
     // Session events are fetched once per distinct sessionId.
     let mut invalid: Vec<Value> = Vec::new();
     let mut cache: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
     for stop in &reel.stops {
+        if stop.line.trim().is_empty() {
+            invalid.push(json!({
+                "sessionId": stop.session_id,
+                "eventId": stop.event_id,
+                "reason": "line required",
+            }));
+            continue;
+        }
+        if !stop.requires_event_anchor() {
+            continue;
+        }
+        if stop.session_id.is_empty() || stop.event_id.is_empty() {
+            invalid.push(json!({
+                "sessionId": stop.session_id,
+                "eventId": stop.event_id,
+                "reason": "spotlight requires sessionId and eventId",
+            }));
+            continue;
+        }
         if !cache.contains_key(&stop.session_id) {
             let events = s
                 .store

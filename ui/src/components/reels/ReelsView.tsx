@@ -21,12 +21,19 @@ import { fetchReel, fetchReels, type Reel, type ReelMeta } from "@/lib/reels-api
 import {
   reelPlayerReduce,
   initialReelPlayerState,
+  isReelPaused,
   type ReelPlayerEvent,
   type ReelPlayerState,
 } from "@/lib/reel-player";
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
+import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
+import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
+import { normalizeStopKind } from "@/lib/reel-visual";
+import { normalizeReelToSlides, playerToSlideIndex } from "@/lib/reel-slide";
 import { absoluteTime, fullTimestamp } from "@/lib/time";
+import { drawInteractive$, setDrawInteractive } from "@/streams/draw";
+import { clearActiveBeatInk } from "@/streams/reel-annotate";
 
 interface ReelsViewProps {
   route: HashRoute;
@@ -140,6 +147,17 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   const reelId = route.reelId as string;
   // undefined = loading, null = fetched but not found.
   const [reel, setReel] = useState<Reel | null | undefined>(undefined);
+  const [annotating, setAnnotating] = useState(false);
+
+  useEffect(() => {
+    const sub = drawInteractive$().subscribe(setAnnotating);
+    return () => sub.unsubscribe();
+  }, []);
+
+  // Leaving the player always ends annotate mode so the next surface is clickable.
+  useEffect(() => {
+    return () => setDrawInteractive(false);
+  }, []);
 
   const [state, dispatch] = useReducer(
     (s: ReelPlayerState, e: ReelPlayerEvent) =>
@@ -180,29 +198,19 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     if (state.phase === "done") onNavigate({ view: "reels" });
   }, [state.phase, onNavigate]);
 
-  // Narration: speak (or caption-pace) the current stop's line, then
-  // auto-advance. speechSynthesis is guarded for non-browser/test
-  // environments; unmount (or stop change) cancels any in-flight speech.
+  // Narration: speak (or caption-pace) only while *playing* (not paused).
+  // Paused = freeze auto-advance so the human can click through / annotate.
   useEffect(() => {
     if ((state.phase !== "stop" && state.phase !== "opener") || !reel) return;
-    // Opener narrates its own card text (the BLUF); stops narrate their line.
+    if (state.paused) {
+      window.speechSynthesis?.cancel();
+      return;
+    }
     const line =
       state.phase === "opener" ? reel.opener : reel.stops[state.index]?.line;
     if (!line) return;
     let fallback: number | undefined;
-    // Some engines (observed in Chrome) fire the outgoing utterance's
-    // `onend` on cancellation as a queued task — AFTER this effect's own
-    // cleanup below has already run and returned (see the `cancel()` call
-    // there). When that late `onend` fires, it belongs to a dead closure:
-    // nothing will ever read or clear the `fallback` timer it schedules,
-    // so a manual click/Space advance is silently followed ~2s later by a
-    // phantom ADVANCE that skips a stop. `disposed` makes the late onend
-    // a no-op instead of scheduling that orphaned timer.
     let disposed = false;
-    // Note: `window.setTimeout`/`clearTimeout` inside the `"speechSynthesis"
-    // in window` narrowing would type the `else` branch as `never` (Window's
-    // DOM lib type declares speechSynthesis as always-present) — use the
-    // ambient global timers instead so both branches type-check.
     if ("speechSynthesis" in window) {
       const u = new SpeechSynthesisUtterance(line);
       u.rate = 1.0;
@@ -213,7 +221,6 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
     } else {
-      // Caption-paced fallback: ~180 wpm reading time + 2s beat.
       const ms = Math.max(3500, (line.split(/\s+/).length / 3) * 1000 + 2000);
       fallback = setTimeout(() => dispatch({ type: "ADVANCE" }), ms);
     }
@@ -224,17 +231,15 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     };
   }, [state, reel]);
 
-  // Space advances; Esc exits. Click semantics need a deliberate seam:
-  // EventSpotlight/TitleSpotlight wire their OWN backdrop click to
-  // `onClose`, so passing `onClose={exit}` (needed so their internal Esc
-  // listener exits, not advances — see the click-surface comment below)
-  // means a plain click on the spotlight body would incorrectly exit the
-  // reel instead of advancing it. Space is unaffected by that trap — it's
-  // handled entirely here, never routed through the child's `onClose`.
+  // Space = pause/resume when playing; ArrowRight/Left = click through.
+  // When paused, Space also resumes (play). Esc exits.
   useEffect(() => {
     if (state.phase !== "stop" && state.phase !== "closer" && state.phase !== "opener") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space" || e.key === " " || e.key === "ArrowRight") {
+      if (e.code === "Space" || e.key === " ") {
+        e.preventDefault();
+        dispatch({ type: "TOGGLE_PAUSE" });
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
         dispatch({ type: "ADVANCE" });
       } else if (e.key === "ArrowLeft") {
@@ -302,59 +307,90 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     );
   }
 
-  if (state.phase === "opener" && reel.opener) {
-    return (
-      <>
-        <TitleSpotlight message={reel.opener} onClose={exit} />
-        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
-      </>
-    );
-  }
+  // Unified slides: opener + body + closer → one list (standard format).
+  const slideReel = normalizeReelToSlides(reel);
+  const slideIndex =
+    state.phase === "opener" || state.phase === "stop" || state.phase === "closer"
+      ? playerToSlideIndex(
+          slideReel.slides,
+          state.phase,
+          state.phase === "stop" ? state.index : 0,
+        )
+      : null;
+  const slide = slideIndex != null ? slideReel.slides[slideIndex] : null;
 
-  if (state.phase === "stop") {
-    const stop = reel.stops[state.index];
-    if (!stop) return null; // defensive — reducer keeps index in [0, stopCount)
-    return (
+  // Shared chrome for every slide kind (standard toolbar).
+  const slideChrome =
+    slideIndex != null && slide ? (
       <>
-        <EventSpotlight sessionId={stop.sessionId} eventId={stop.eventId} clipAt={stop.clipAt} onClose={exit} />
-        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
-        {/* Subtitle chrome rides above the click surface (z-[60] > z-[55]):
-         *  cinema-style caption, prev/next, and a clickable segmented
-         *  progress bar (one segment per stop — reels are discrete beats,
-         *  not continuous video, so segments ARE the honest scrubber).
-         *  Clicks inside this chrome never double-fire the surface beneath —
-         *  the browser hit-tests only the topmost element. */}
+        <BeatInkLayer reelId={reel.id} beatIndex={slideIndex} />
+        {!annotating && (
+          <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
+        )}
         <div
-          className="fixed inset-x-0 bottom-0 z-[60] border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 pb-4 pt-3 backdrop-blur-sm"
+          className="fixed inset-x-0 bottom-0 z-[110] border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 pb-4 pt-3 backdrop-blur-sm"
           data-testid="reels-caption-bar"
         >
           <p
             className="mx-auto max-w-4xl cursor-pointer text-center text-lg leading-relaxed text-[color:var(--text)]"
-            onClick={() => dispatch({ type: "ADVANCE" })}
+            onClick={() => !annotating && dispatch({ type: "ADVANCE" })}
           >
-            {stop.line}
+            {slide.line}
           </p>
-          <div className="mx-auto mt-3 flex max-w-4xl items-center justify-center gap-4">
+          <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => dispatch({ type: "BACK" })}
               className="rounded px-2 py-1 text-sm text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
-              aria-label="Previous stop"
+              aria-label="Previous slide"
               data-testid="reels-back"
             >
               ‹ back
             </button>
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "TOGGLE_PAUSE" })}
+              className={
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                (isReelPaused(state)
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent)]/15 text-[color:var(--accent)]"
+                  : "border-[color:var(--border)] text-[color:var(--text)] hover:border-[color:var(--accent)]")
+              }
+              aria-label={isReelPaused(state) ? "Play" : "Pause"}
+              data-testid="reels-play-pause"
+            >
+              {isReelPaused(state) ? "▶ Play" : "⏸ Pause"}
+            </button>
             <div className="flex items-center gap-1.5" data-testid="reels-progress">
-              {reel.stops.map((_, i) => (
+              {slideReel.slides.map((s, i) => (
                 <button
-                  key={i}
-                  onClick={() => dispatch({ type: "JUMP", index: i })}
-                  aria-label={`Go to stop ${i + 1}`}
+                  key={s.id}
+                  onClick={() => {
+                    // Map unified index → player JUMP (body only) or BACK/ADVANCE to ends.
+                    if (s.role === "opener") {
+                      dispatch({ type: "PLAY" });
+                      return;
+                    }
+                    if (s.role === "closer") {
+                      // jump to last body then advance — simpler: JUMP last stop
+                      const bodyCount = reel.stops.length;
+                      if (bodyCount > 0) {
+                        dispatch({ type: "JUMP", index: bodyCount - 1 });
+                        dispatch({ type: "ADVANCE" });
+                      }
+                      return;
+                    }
+                    const bodyIdx = slideReel.slides
+                      .filter((x) => x.role === "body")
+                      .findIndex((x) => x.id === s.id);
+                    if (bodyIdx >= 0) dispatch({ type: "JUMP", index: bodyIdx });
+                  }}
+                  aria-label={`Go to slide ${i + 1}`}
                   data-testid={`reels-segment-${i}`}
                   className={
                     "h-1.5 w-8 rounded-full transition-colors " +
-                    (i === state.index
+                    (i === slideIndex
                       ? "bg-[color:var(--accent)]"
-                      : i < state.index
+                      : i < slideIndex
                         ? "bg-[color:var(--accent)]/40"
                         : "bg-[color:var(--divider)] hover:bg-[color:var(--text-muted)]")
                   }
@@ -364,16 +400,71 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
             <button
               onClick={() => dispatch({ type: "ADVANCE" })}
               className="rounded px-2 py-1 text-sm text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
-              aria-label="Next stop"
+              aria-label="Next slide"
               data-testid="reels-next"
             >
               next ›
             </button>
-            <span className="absolute right-6 text-[11px] tabular-nums text-[color:var(--text-muted)]">
-              {state.index + 1} / {reel.stops.length}
+            <button
+              type="button"
+              onClick={() => setDrawInteractive(!annotating)}
+              className={
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                (annotating
+                  ? "border-rose-500 bg-rose-500/20 text-rose-700 dark:text-rose-200"
+                  : "border-[color:var(--accent)]/50 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10")
+              }
+              data-testid="reels-annotate"
+              title="Ink is 1:1 with this slide"
+            >
+              {annotating ? "Done annotating" : "✎ Annotate slide"}
+            </button>
+            <button
+              type="button"
+              onClick={() => clearActiveBeatInk()}
+              className="rounded px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+              title="Clear ink on this slide only"
+              data-testid="reels-clear-beat-ink"
+            >
+              Clear slide ink
+            </button>
+            <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+              {slideIndex + 1} / {slideReel.slides.length}
+              {slide.kind !== "title" ? ` · ${slide.kind}` : ""}
             </span>
           </div>
         </div>
+      </>
+    ) : null;
+
+  if (state.phase === "opener" && reel.opener) {
+    return (
+      <>
+        <TitleSpotlight message={reel.opener} onClose={exit} />
+        {slideChrome}
+      </>
+    );
+  }
+
+  if (state.phase === "stop") {
+    const stop = reel.stops[state.index];
+    if (!stop) return null;
+    const kind = normalizeStopKind(stop.kind);
+    const stage =
+      kind === "spotlight" && stop.sessionId && stop.eventId ? (
+        <EventSpotlight
+          sessionId={stop.sessionId}
+          eventId={stop.eventId}
+          clipAt={stop.clipAt}
+          onClose={exit}
+        />
+      ) : (
+        <ReelBeatStage stop={stop} onClose={exit} />
+      );
+    return (
+      <>
+        {stage}
+        {slideChrome}
       </>
     );
   }
@@ -382,7 +473,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     return (
       <>
         <TitleSpotlight message={reel.closer} onClose={exit} />
-        <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
+        {slideChrome}
       </>
     );
   }
@@ -426,3 +517,4 @@ function PlaybackClickSurface({ onAdvance }: { onAdvance: () => void }) {
     />
   );
 }
+

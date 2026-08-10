@@ -10,17 +10,31 @@ pub fn save_reel_schema() -> Value {
             "title": {"type": "string", "description": "Reel title (shown in the Reels tab)"},
             "stops": {
                 "type": "array",
-                "description": "Ordered stops — each spotlights ONE real recorded event with one narration line",
+                "description": "Ordered beats. Default kind=spotlight needs a REAL event. kind=title|diagram|image are interpretation slides (line required; event optional).",
                 "items": {
                     "type": "object",
                     "properties": {
                         "sessionId": {"type": "string"},
                         "eventId": {"type": "string"},
                         "line": {"type": "string", "description": "Narration/caption text, written for the ear"},
-                        "clipAt": {"type": "string", "description": "Optional camera crop: show text before this marker"}
+                        "clipAt": {"type": "string", "description": "Optional camera crop: show text before this marker"},
+                        "kind": {
+                            "type": "string",
+                            "description": "spotlight (default) | title | diagram | image"
+                        },
+                        "visual": {
+                            "type": "object",
+                            "description": "diagram: {kind:'labels', labels:string[]} or {kind:'toolJourney', sessionId}. image: {imageHref}.",
+                            "properties": {
+                                "kind": {"type": "string"},
+                                "sessionId": {"type": "string"},
+                                "labels": {"type": "array", "items": {"type": "string"}},
+                                "imageHref": {"type": "string"},
+                                "title": {"type": "string"}
+                            }
+                        }
                     },
-                    "required": ["sessionId", "eventId", "line"],
-                    "additionalProperties": false
+                    "required": ["line"]
                 }
             },
             "opener": {"type": "string", "description": "Optional BLUF title card shown and narrated BEFORE stop 1 — one breath stating what the story is and why it matters"},

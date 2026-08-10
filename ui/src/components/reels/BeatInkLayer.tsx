@@ -1,67 +1,37 @@
 /**
- * Full-viewport SVG ink layer for agent (and human) drawing.
- *
- * Default: pointer-events none so the mirror stays usable underneath.
- * Annotate mode (drawInteractive$): capture freehand on the glass
- * (reels slides, story, explore) without leaving the tab.
- *
- * z-[100] sits above reel PlaybackClickSurface (z-55) and caption (z-60).
+ * Stage-scoped freehand for the *active reel beat* only.
+ * Unit coords match the diagram/title stage (full viewport meet), 1:1 with that slide.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  commitDraw,
-  drawInteractive$,
-  drawScene$,
-} from "@/streams/draw";
-import { activeBeatKey$ } from "@/streams/reel-annotate";
+  appendActiveBeatStrokes,
+  beatInkStore$,
+  getActiveBeatInk,
+  setActiveBeatKey,
+} from "@/streams/reel-annotate";
+import { drawInteractive$ } from "@/streams/draw";
 import {
   clientToUnitPoint,
   pathToSvgD,
-  type DrawScene,
   type DrawStroke,
   type NormPoint,
 } from "@/lib/draw";
 import { marginaliaPathStrokes } from "@/lib/pen-eyes";
+import { beatInkToWire, beatKeyString, type BeatKey } from "@/lib/reel-annotate";
+import { postInteraction } from "@/lib/interaction";
 
 function StrokeEl({ s }: { s: DrawStroke }) {
-  const sw = s.type !== "text" && s.type !== "image" ? (s.strokeWidth ?? 2.5) : 2;
-  const stroke = "stroke" in s ? s.stroke ?? "#2f4a3e" : "#2f4a3e";
-  const fill = "fill" in s ? s.fill ?? "none" : "none";
-
   switch (s.type) {
     case "path":
       return (
         <path
           d={pathToSvgD(s.points, s.closed)}
-          stroke={stroke}
-          strokeWidth={sw}
+          stroke={s.stroke ?? "#facc15"}
+          strokeWidth={s.strokeWidth ?? 3}
           fill={s.fill ?? "none"}
           strokeLinecap="round"
           strokeLinejoin="round"
-        />
-      );
-    case "circle":
-      return (
-        <circle
-          cx={s.cx * 1000}
-          cy={s.cy * 1000}
-          r={s.r * 1000}
-          stroke={stroke}
-          strokeWidth={sw}
-          fill={fill === "none" ? "none" : fill}
-        />
-      );
-    case "ellipse":
-      return (
-        <ellipse
-          cx={s.cx * 1000}
-          cy={s.cy * 1000}
-          rx={s.rx * 1000}
-          ry={s.ry * 1000}
-          stroke={stroke}
-          strokeWidth={sw}
-          fill={fill === "none" ? "none" : fill}
         />
       );
     case "line":
@@ -71,9 +41,20 @@ function StrokeEl({ s }: { s: DrawStroke }) {
           y1={s.y1 * 1000}
           x2={s.x2 * 1000}
           y2={s.y2 * 1000}
-          stroke={stroke}
-          strokeWidth={sw}
+          stroke={s.stroke ?? "#facc15"}
+          strokeWidth={s.strokeWidth ?? 3}
           strokeLinecap="round"
+        />
+      );
+    case "circle":
+      return (
+        <circle
+          cx={s.cx * 1000}
+          cy={s.cy * 1000}
+          r={s.r * 1000}
+          stroke={s.stroke ?? "#facc15"}
+          strokeWidth={s.strokeWidth ?? 3}
+          fill={s.fill ?? "none"}
         />
       );
     case "text":
@@ -81,52 +62,67 @@ function StrokeEl({ s }: { s: DrawStroke }) {
         <text
           x={s.x * 1000}
           y={s.y * 1000}
-          fill={s.fill ?? "#2f4a3e"}
-          fontSize={(s.fontSize ?? 18) * (1000 / 900)}
-          fontFamily="Georgia, 'Iowan Old Style', serif"
+          fill={s.fill ?? "#facc15"}
+          fontSize={s.fontSize ?? 18}
           textAnchor="middle"
-          className="pointer-events-none select-none"
+          className="pointer-events-none"
         >
           {s.text}
         </text>
-      );
-    case "image":
-      return (
-        <image
-          href={s.href}
-          x={s.x * 1000}
-          y={s.y * 1000}
-          width={s.w * 1000}
-          height={s.h * 1000}
-          opacity={s.opacity ?? 1}
-          preserveAspectRatio="xMidYMid meet"
-        />
       );
     default:
       return null;
   }
 }
 
-export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
+function reportBeatInk(key: BeatKey, interactive: boolean): void {
+  const ink = getActiveBeatInk();
+  if (!ink) return;
+  postInteraction({
+    kind: "navigate",
+    view: "reels",
+    reelId: key.reelId,
+    annotate: interactive,
+    beatIndex: key.beatIndex,
+    beatInk: beatInkToWire(ink, { interactive }),
+  });
+}
+
+export function BeatInkLayer({
+  reelId,
+  beatIndex,
+}: {
+  readonly reelId: string;
+  readonly beatIndex: number;
+}) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const ptsRef = useRef<NormPoint[]>([]);
   const drawingRef = useRef(false);
-  const [scene, setScene] = useState<DrawScene>({ strokes: [], visible: true });
   const [interactive, setInteractive] = useState(false);
-  /** When a reel beat owns the glass, BeatInkLayer handles ink — hide global overlay. */
-  const [beatScoped, setBeatScoped] = useState(false);
+  const [strokes, setStrokes] = useState<readonly DrawStroke[]>([]);
   const [livePts, setLivePts] = useState<NormPoint[]>([]);
+  const key: BeatKey = { reelId, beatIndex };
 
   useEffect(() => {
-    const a = drawScene$().subscribe(setScene);
-    const b = drawInteractive$().subscribe(setInteractive);
-    const c = activeBeatKey$().subscribe((k) => setBeatScoped(k != null));
+    setActiveBeatKey(key);
+    setStrokes(getActiveBeatInk()?.strokes ?? []);
+    return () => setActiveBeatKey(null);
+  }, [reelId, beatIndex]);
+
+  useEffect(() => {
+    const a = drawInteractive$().subscribe((on) => {
+      setInteractive(on);
+      reportBeatInk(key, on);
+    });
+    const b = beatInkStore$().subscribe((store) => {
+      const row = store.byKey[beatKeyString(key)];
+      setStrokes(row?.strokes ?? []);
+    });
     return () => {
       a.unsubscribe();
       b.unsubscribe();
-      c.unsubscribe();
     };
-  }, []);
+  }, [reelId, beatIndex]);
 
   const toNorm = useCallback((clientX: number, clientY: number): NormPoint | null => {
     const el = svgRef.current;
@@ -140,15 +136,10 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
     const pts = ptsRef.current;
     ptsRef.current = [];
     setLivePts([]);
-    if (pts.length >= 2) {
-      // High-contrast pair: dark understroke + bright yellow (readable on dark diagram beats).
-      commitDraw({
-        strokes: marginaliaPathStrokes(pts),
-        label: "marginalia",
-        visible: true,
-      });
-    }
-  }, []);
+    if (pts.length < 2) return;
+    appendActiveBeatStrokes(marginaliaPathStrokes(pts));
+    reportBeatInk(key, true);
+  }, [key]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!interactive) return;
@@ -179,29 +170,22 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
     endStroke();
   };
 
-  if (suppress) return null;
-  // Reel player beat layer owns the stage — don't paint global studio ink on slides.
-  if (beatScoped) return null;
-  if (!scene.visible) return null;
-  // Mount when annotating (even if empty) or when there is ink to show.
-  if (!interactive && scene.strokes.length === 0) return null;
-
   return (
     <div
       className={`fixed inset-0 z-[100] select-none ${interactive ? "cursor-crosshair" : "pointer-events-none"}`}
       style={{ pointerEvents: interactive ? "auto" : "none" }}
-      data-testid="draw-overlay"
+      data-testid="beat-ink-layer"
+      data-beat={beatKeyString(key)}
       data-interactive={interactive ? "true" : "false"}
-      aria-hidden={!interactive}
     >
       {interactive && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-[101] -translate-x-1/2 rounded-full border-2 border-yellow-300 bg-yellow-400 px-4 py-2 text-[13px] font-semibold text-slate-900 shadow-lg">
-          ✎ ANNOTATING — drag bright yellow · Done to click through
+          ✎ Slide {beatIndex + 1} only — yellow ink is tied to this beat
         </div>
       )}
       <svg
         ref={svgRef}
-        className="h-full w-full select-none touch-none"
+        className="h-full w-full touch-none select-none"
         style={{ pointerEvents: interactive ? "auto" : "none" }}
         viewBox="0 0 1000 1000"
         preserveAspectRatio="xMidYMid meet"
@@ -210,7 +194,7 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {scene.strokes.map((s, i) => (
+        {strokes.map((s, i) => (
           <StrokeEl key={i} s={s} />
         ))}
         {livePts.length >= 2 && (
@@ -221,7 +205,6 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
               strokeWidth={10}
               fill="none"
               strokeLinecap="round"
-              strokeLinejoin="round"
             />
             <path
               d={pathToSvgD(livePts, false)}
@@ -229,7 +212,6 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
               strokeWidth={5}
               fill="none"
               strokeLinecap="round"
-              strokeLinejoin="round"
             />
           </>
         )}

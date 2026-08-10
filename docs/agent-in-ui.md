@@ -78,9 +78,26 @@ parity fields when the client reported them:
   "filters": { "agent": "grok" }, "file_path": null,
   "user_filter": null, "time_filter": null, "search_query": null,
   "spotlight": null, "present_message": null,
+  "layout": {
+    "targets": [{ "kind": "event", "id": "…", "rect": { "x": 0.2, "y": 0.3, "w": 0.5, "h": 0.12 } }],
+    "focus": { "kind": "event", "id": "…", "rect": { "x": 0.2, "y": 0.3, "w": 0.5, "h": 0.12 } },
+    "viewport": { "w": 1440, "h": 900 },
+    "at": "…"
+  },
   "at": "2026-07-02T12:42:27.507Z",
-  "summary": "the user is on 'explore' viewing session … / conversation" }
+  "summary": "the user is on 'explore' viewing session … focused on event … layout focus event:…" }
 ```
+
+`layout` is **layout eyes** — DOM bounding boxes in normalized viewport space
+(0..1) for marked glass targets (`data-os-target` / `data-event-id`). Use
+`layout.focus.rect` with `draw` (or recipe `layout-ring`) to ring what attention
+is on. Absent when nothing measurable is on screen yet.
+
+`pen` is **pen eyes** — a bounded snapshot of the agent-pen scene (`draw$`):
+`stroke_count`, `kinds`, `bounds`, optional `label`, and a capped `strokes[]`
+list (paths downsampled). Debounced whenever ink changes (human freehand or
+agent `draw`). Still `ui.*` only — never observed history. Empty board →
+`pen.empty: true`.
 
 `present: false` means no interaction has been recorded yet (position unknown).
 

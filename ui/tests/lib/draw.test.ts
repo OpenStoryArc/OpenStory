@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   applyDrawIntent,
+  clientToUnitPoint,
   EMPTY_SCENE,
+  flowerStrokes,
   normalizeStroke,
   normalizeStrokes,
   pathToSvgD,
@@ -54,6 +56,49 @@ describe("normalizeStroke", () => {
   });
 });
 
+describe("clientToUnitPoint", () => {
+  it("maps with stretch (preserveAspectRatio none)", () => {
+    const rect = { left: 100, top: 50, width: 400, height: 200 };
+    // center of element
+    expect(clientToUnitPoint(300, 150, rect, { fit: "none" })).toEqual({ x: 0.5, y: 0.5 });
+  });
+
+  it("accounts for letterboxing when fit is meet (wide element)", () => {
+    // viewBox 1000x1000 in a 400x200 rect → content is 200x200 centered, x offset 100
+    const rect = { left: 0, top: 0, width: 400, height: 200 };
+    // content left edge at x=100 in client space → unit 0
+    expect(clientToUnitPoint(100, 100, rect, { fit: "meet" })).toMatchObject({ x: 0, y: 0.5 });
+    // content center
+    expect(clientToUnitPoint(200, 100, rect, { fit: "meet" })).toMatchObject({ x: 0.5, y: 0.5 });
+    // content right edge at x=300
+    expect(clientToUnitPoint(300, 100, rect, { fit: "meet" })).toMatchObject({ x: 1, y: 0.5 });
+  });
+
+  it("naive width mapping would be wrong under meet — document the bug we fixed", () => {
+    const rect = { left: 0, top: 0, width: 400, height: 200 };
+    const naiveX = 200 / 400; // 0.5 — looks like center of *element*
+    const unit = clientToUnitPoint(200, 100, rect, { fit: "meet" });
+    // under meet, client x=200 is content center (0.5) — coincidentally same;
+    // client x=100 is content left (0), not 100/400=0.25
+    expect(clientToUnitPoint(100, 100, rect, { fit: "meet" })!.x).toBe(0);
+    expect(naiveX).toBe(0.5);
+    expect(unit!.x).toBe(0.5);
+    expect(clientToUnitPoint(100, 100, rect, { fit: "none" })!.x).toBe(0.25);
+  });
+});
+
+describe("flowerStrokes", () => {
+  it("returns a dense multi-layer botanical with filled paths", () => {
+    const s = flowerStrokes();
+    expect(s.length).toBeGreaterThan(30);
+    const filledPaths = s.filter(
+      (x) => x.type === "path" && x.fill && x.fill !== "none",
+    );
+    expect(filledPaths.length).toBeGreaterThan(8);
+    expect(s.some((x) => x.type === "text")).toBe(true);
+  });
+});
+
 describe("applyDrawIntent", () => {
   it("appends by default", () => {
     const a = applyDrawIntent(EMPTY_SCENE, {
@@ -75,6 +120,20 @@ describe("applyDrawIntent", () => {
     });
     expect(b.strokes).toHaveLength(1);
     expect(b.strokes[0]).toMatchObject({ type: "text", text: "hi" });
+  });
+
+  it("hides without clearing strokes (navigate / read history)", () => {
+    const a = applyDrawIntent(EMPTY_SCENE, {
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+      label: "dogfood",
+    });
+    const hidden = applyDrawIntent(a, { visible: false, strokes: [] });
+    expect(hidden.visible).toBe(false);
+    expect(hidden.strokes).toHaveLength(1);
+    expect(hidden.label).toBe("dogfood");
+    const shown = applyDrawIntent(hidden, { visible: true, strokes: [] });
+    expect(shown.visible).toBe(true);
+    expect(shown.strokes).toHaveLength(1);
   });
 });
 

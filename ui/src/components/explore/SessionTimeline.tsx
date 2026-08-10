@@ -392,6 +392,8 @@ export function SessionTimeline({ sessionId, scrollToEventId, initialFilePath }:
               return (
                 <div
                   key={row.id}
+                  data-os-target="event"
+                  data-os-id={row.id}
                   data-event-id={row.id}
                   data-index={vi.index}
                   ref={rowVirtualizer.measureElement}

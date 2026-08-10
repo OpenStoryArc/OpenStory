@@ -269,6 +269,16 @@ pub fn summarize_ui_state(state: Value) -> Value {
         .get("spotlight")
         .and_then(|v| v.as_bool())
         .filter(|&b| b);
+    // Layout eyes — glass geometry (viewport 0..1 targets). Client measures
+    // DOM and posts on interactions; agents use this to aim the pen.
+    let layout = state.get("layout").cloned().filter(|v| !v.is_null());
+    // Pen eyes — bounded draw$ scene snapshot (ui.* ink the human/agent made).
+    let pen = state.get("pen").cloned().filter(|v| !v.is_null());
+    let annotate = state
+        .get("annotate")
+        .and_then(|v| v.as_bool())
+        .or_else(|| pen.as_ref().and_then(|p| p.get("interactive").and_then(|v| v.as_bool())));
+    let reel_id = str_field("reelId", "reel_id");
 
     let mut summary = match session_id {
         Some(sid) => format!("the user is on '{view}' viewing session {sid}"),
@@ -290,6 +300,39 @@ pub fn summarize_ui_state(state: Value) -> Value {
         let clip: String = msg.chars().take(40).collect();
         summary.push_str(&format!(" present: \"{clip}\""));
     }
+    if let Some(ref lay) = layout {
+        if let Some(focus) = lay.get("focus") {
+            if let (Some(k), Some(id)) = (
+                focus.get("kind").and_then(|v| v.as_str()),
+                focus.get("id").and_then(|v| v.as_str()),
+            ) {
+                summary.push_str(&format!(" layout focus {k}:{id}"));
+            }
+        } else if let Some(n) = lay.get("targets").and_then(|t| t.as_array()).map(|a| a.len()) {
+            if n > 0 {
+                summary.push_str(&format!(" layout {n} target(s)"));
+            }
+        }
+    }
+    if let Some(ref p) = pen {
+        let empty = p.get("empty").and_then(|v| v.as_bool()).unwrap_or(false);
+        if empty {
+            summary.push_str(" pen empty");
+        } else if let Some(n) = p.get("stroke_count").and_then(|v| v.as_u64()) {
+            summary.push_str(&format!(" pen {n} stroke(s)"));
+            if let Some(label) = p.get("label").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                summary.push_str(&format!(" \"{label}\""));
+            }
+        }
+        if p.get("interactive").and_then(|v| v.as_bool()) == Some(true) {
+            summary.push_str(" annotating");
+        }
+    } else if annotate == Some(true) {
+        summary.push_str(" annotating");
+    }
+    if let Some(ref rid) = reel_id {
+        summary.push_str(&format!(" reel {rid}"));
+    }
 
     json!({
         "present": true,
@@ -305,6 +348,10 @@ pub fn summarize_ui_state(state: Value) -> Value {
         "filters": filters,
         "spotlight": spotlight,
         "present_message": present_message,
+        "layout": layout,
+        "pen": pen,
+        "annotate": annotate,
+        "reel_id": reel_id,
         "at": at,
         "summary": summary
     })
@@ -455,6 +502,79 @@ mod tests {
         }));
         assert_eq!(s["event_id"], "evt-1");
         assert_eq!(s["detail_view"], "events");
+    }
+
+    #[test]
+    fn summarize_passes_through_layout_eyes() {
+        let s = summarize_ui_state(json!({
+            "view": "explore",
+            "kind": "navigate",
+            "session_id": "s1",
+            "eventId": "e9",
+            "layout": {
+                "targets": [{
+                    "kind": "event",
+                    "id": "e9",
+                    "rect": { "x": 0.2, "y": 0.3, "w": 0.4, "h": 0.1 }
+                }],
+                "focus": {
+                    "kind": "event",
+                    "id": "e9",
+                    "rect": { "x": 0.2, "y": 0.3, "w": 0.4, "h": 0.1 }
+                },
+                "viewport": { "w": 1200, "h": 800 },
+                "at": "t"
+            },
+            "at": "t"
+        }));
+        assert_eq!(s["layout"]["focus"]["id"], "e9");
+        assert_eq!(s["layout"]["focus"]["rect"]["x"], 0.2);
+        let summary = s["summary"].as_str().unwrap();
+        assert!(summary.contains("layout focus event:e9"), "summary: {summary}");
+    }
+
+    #[test]
+    fn summarize_passes_through_pen_eyes() {
+        let s = summarize_ui_state(json!({
+            "view": "draw",
+            "kind": "navigate",
+            "pen": {
+                "stroke_count": 3,
+                "empty": false,
+                "label": "human",
+                "kinds": { "path": 2, "text": 1 },
+                "strokes": [],
+                "truncated": false
+            },
+            "at": "t"
+        }));
+        assert_eq!(s["pen"]["stroke_count"], 3);
+        assert_eq!(s["pen"]["label"], "human");
+        let summary = s["summary"].as_str().unwrap();
+        assert!(summary.contains("pen 3 stroke"), "summary: {summary}");
+        assert!(summary.contains("human"), "summary: {summary}");
+    }
+
+    #[test]
+    fn summarize_annotate_and_reel_id() {
+        let s = summarize_ui_state(json!({
+            "view": "reels",
+            "kind": "navigate",
+            "reelId": "reel-abc",
+            "annotate": true,
+            "pen": {
+                "stroke_count": 0,
+                "empty": true,
+                "interactive": true,
+                "strokes": []
+            },
+            "at": "t"
+        }));
+        assert_eq!(s["annotate"], true);
+        assert_eq!(s["reel_id"], "reel-abc");
+        let summary = s["summary"].as_str().unwrap();
+        assert!(summary.contains("annotating"), "summary: {summary}");
+        assert!(summary.contains("reel-abc"), "summary: {summary}");
     }
 
     #[test]

@@ -147,9 +147,18 @@ export type UIControlAction =
       readonly visible?: boolean;
       readonly label?: string;
       readonly mode?: "append" | "replace";
-      /** Named recipe: smiley | geometric-max | edge-portrait (needs href). */
+      /** Named recipe: smiley | geometric-max | edge-portrait | layout-ring. */
       readonly recipe?: string;
       readonly href?: string;
+      /** layout-ring: prefer this target id when multiple glass targets exist. */
+      readonly preferId?: string;
+      /**
+       * Ink target: default studio/global pen.
+       * `slide` = beat-scoped marginalia (requires reelId + beatIndex).
+       */
+      readonly target?: "studio" | "slide";
+      readonly reelId?: string;
+      readonly beatIndex?: number;
     };
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
@@ -374,11 +383,34 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     return { type: "set", target, params: rest };
   }
   // Agent pen — ink on the ui.* overlay (normalized 0..1). Never mutates history.
+  // target:"slide" + reelId + beatIndex → beat-scoped ink (parity with human Annotate).
   if (action === "draw") {
     const p = (params ?? {}) as Record<string, unknown>;
     const strokes = Array.isArray(p.strokes) ? p.strokes : [];
     const recipe = typeof p.recipe === "string" ? p.recipe.trim() : "";
+    const target = p.target === "slide" ? "slide" : "studio";
+    const reelId = typeof p.reelId === "string" ? p.reelId.trim() : "";
+    const beatIndex =
+      typeof p.beatIndex === "number" && Number.isInteger(p.beatIndex) && p.beatIndex >= 0
+        ? p.beatIndex
+        : typeof p.beatIndex === "string" && /^\d+$/.test(p.beatIndex)
+          ? Number(p.beatIndex)
+          : undefined;
     const clear = p.clear === true || p.mode === "replace" || recipe.length > 0;
+    if (target === "slide") {
+      if (!reelId || beatIndex === undefined) return null;
+      if (!clear && strokes.length === 0) return null;
+      return {
+        type: "draw",
+        clear,
+        strokes,
+        label: typeof p.label === "string" ? p.label : undefined,
+        mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
+        target: "slide",
+        reelId,
+        beatIndex,
+      };
+    }
     if (!clear && strokes.length === 0 && p.visible === undefined && !recipe) return null;
     return {
       type: "draw",
@@ -389,6 +421,8 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
       recipe: recipe || undefined,
       href: typeof p.href === "string" ? p.href : undefined,
+      preferId: typeof p.preferId === "string" ? p.preferId : undefined,
+      target: "studio",
     };
   }
   return null;
