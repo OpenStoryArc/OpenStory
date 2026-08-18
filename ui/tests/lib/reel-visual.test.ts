@@ -39,4 +39,21 @@ describe("diagramLabelsToStrokes", () => {
     const s = diagramLabelsToStrokes([]);
     expect(s.some((x) => x.type === "text")).toBe(true);
   });
+
+  describe("diagramLabelsToStrokes palette", () => {
+    it("draws every box in the accent ink — color rotation encodes nothing and is gone", () => {
+      const strokes = diagramLabelsToStrokes(["ToolSearch", "Bash ×3", "Edit"], { title: "Journey" });
+      const boxes = strokes.filter((s) => s.type === "path");
+      expect(boxes.length).toBe(3);
+      for (const b of boxes) expect(b.stroke).toBe("#7aa2f7");
+    });
+
+    it("fits box width to the label instead of one wide bar", () => {
+      const strokes = diagramLabelsToStrokes(["Bash", "a-much-longer-tool-label"]);
+      const [short, long] = strokes.filter((s) => s.type === "path");
+      const width = (p: { points: readonly { x: number }[] }) =>
+        Math.max(...p.points.map((q) => q.x)) - Math.min(...p.points.map((q) => q.x));
+      expect(width(short as never)).toBeLessThan(width(long as never));
+    });
+  });
 });
