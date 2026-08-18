@@ -113,7 +113,7 @@ export function DrawView() {
   return (
     <div className="flex flex-1 min-h-0 flex-col" data-testid="draw-view">
       <div className="flex flex-wrap items-center gap-2 border-b border-[color:var(--border)] bg-[color:var(--bg-surface)] px-4 py-2">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 basis-full lg:basis-auto lg:flex-1">
           <p className="text-sm text-[color:var(--text)]">
             Attention canvas
             <span className="text-[color:var(--text-muted)]">

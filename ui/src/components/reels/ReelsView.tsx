@@ -413,7 +413,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
               className={
                 "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
                 (annotating
-                  ? "border-rose-500 bg-rose-500/20 text-rose-700 dark:text-rose-200"
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent)]/15 text-[color:var(--accent)]"
                   : "border-[color:var(--accent)]/50 text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10")
               }
               data-testid="reels-annotate"

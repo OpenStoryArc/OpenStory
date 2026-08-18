@@ -11,6 +11,7 @@ import {
   setDrawInteractive,
   setDrawVisible,
 } from "@/streams/draw";
+import { activeBeatKey$ } from "@/streams/reel-annotate";
 import type { DrawScene } from "@/lib/draw";
 
 export function DrawInkChip({
@@ -20,18 +21,24 @@ export function DrawInkChip({
 }) {
   const [scene, setScene] = useState<DrawScene>({ strokes: [], visible: true });
   const [interactive, setInteractive] = useState(false);
+  /** When a reel beat owns the glass, the reel slide toolbar handles annotate — hide the chip. */
+  const [beatScoped, setBeatScoped] = useState(false);
 
   useEffect(() => {
     const a = drawScene$().subscribe(setScene);
     const b = drawInteractive$().subscribe(setInteractive);
+    const c = activeBeatKey$().subscribe((k) => setBeatScoped(k != null));
     return () => {
       a.unsubscribe();
       b.unsubscribe();
+      c.unsubscribe();
     };
   }, []);
 
   const n = scene.strokes.length;
   const hidden = scene.visible === false;
+
+  if (beatScoped) return null; // reel slide toolbar owns annotate on stage
 
   return (
     <div
@@ -55,7 +62,7 @@ export function DrawInkChip({
         type="button"
         className={`rounded-full border px-2 py-0.5 ${
           interactive
-            ? "border-rose-500 bg-rose-500/20 text-rose-700 dark:text-rose-200"
+            ? "border-[color:var(--accent)] bg-[color:var(--accent)]/15 text-[color:var(--accent)]"
             : "border-[color:var(--border)] hover:border-[color:var(--accent)]"
         }`}
         onClick={() => setDrawInteractive(!interactive)}
