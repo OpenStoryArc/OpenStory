@@ -30,7 +30,7 @@ import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
 import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
 import { normalizeStopKind } from "@/lib/reel-visual";
-import { normalizeReelToSlides, playerToSlideIndex } from "@/lib/reel-slide";
+import { normalizeReelToSlides, playerToSlideIndex, captionFor } from "@/lib/reel-slide";
 import { absoluteTime, fullTimestamp } from "@/lib/time";
 import { drawInteractive$, setDrawInteractive } from "@/streams/draw";
 import { clearActiveBeatInk } from "@/streams/reel-annotate";
@@ -331,12 +331,14 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
           className="fixed inset-x-0 bottom-0 z-[110] border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 pb-4 pt-3 backdrop-blur-sm"
           data-testid="reels-caption-bar"
         >
-          <p
-            className="mx-auto max-w-4xl cursor-pointer text-center text-lg leading-relaxed text-[color:var(--text)]"
-            onClick={() => !annotating && dispatch({ type: "ADVANCE" })}
-          >
-            {slide.line}
-          </p>
+          {captionFor(slide) && (
+            <p
+              className="mx-auto max-w-4xl cursor-pointer text-center text-lg leading-relaxed text-[color:var(--text)]"
+              onClick={() => !annotating && dispatch({ type: "ADVANCE" })}
+            >
+              {captionFor(slide)}
+            </p>
+          )}
           <div className="mx-auto mt-3 flex max-w-4xl flex-wrap items-center justify-center gap-3">
             <button
               onClick={() => dispatch({ type: "BACK" })}
