@@ -23,7 +23,7 @@ import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
-import { interpretControl, type UIControlAction } from "@/lib/ui-control";
+import { interpretControl, resolveDrawScope, type UIControlAction } from "@/lib/ui-control";
 import { injectControl } from "@/streams/control";
 import {
   attentionFromRoute,
@@ -45,6 +45,8 @@ import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
 import { DrawOverlay } from "@/components/draw/DrawOverlay";
 import { DrawInkChip } from "@/components/draw/DrawInkChip";
 import { DrawView } from "@/components/draw/DrawView";
+import { routeGlassKey } from "@/lib/glass-ink";
+import { commitGlassInkIntent } from "@/streams/glass-ink";
 import {
   commitDraw,
   drawInteractive$,
@@ -77,6 +79,10 @@ export function App() {
   const { color, label } = STATUS_INDICATOR[status];
 
   const [route, navigate] = useHashRoute();
+  // Always-current route for callbacks that must read where the human IS now
+  // (control appliers, pen eyes) rather than where they were when memoized.
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
@@ -171,13 +177,23 @@ export function App() {
         }
       } else if (action.type === "draw") {
         // Agent pen — ui.* ink only (never mutates observed history).
-        // target:"slide" → beat-scoped ink (human Annotate parity).
-        if (action.target === "slide" && action.reelId != null && action.beatIndex != null) {
+        // Where the ink lands (resolveDrawScope): explicit reelId+beatIndex →
+        // beat ink; scope:"board" → the Draw tab's paper; default "here" → the
+        // human's current glass context (the board when the Draw tab is open).
+        const scope = resolveDrawScope(
+          {
+            ...(action.scope ? { scope: action.scope } : {}),
+            ...(action.reelId != null ? { reelId: action.reelId } : {}),
+            ...(action.beatIndex != null ? { beatIndex: action.beatIndex } : {}),
+          },
+          routeGlassKey(routeRef.current),
+        );
+        if (scope.target === "beat") {
           void import("@/streams/reel-annotate").then(
             ({ commitBeatInkIntent }) => {
               const ink = commitBeatInkIntent({
-                reelId: action.reelId!,
-                beatIndex: action.beatIndex!,
+                reelId: scope.reelId,
+                beatIndex: scope.beatIndex,
                 clear: action.clear,
                 strokes: action.strokes,
                 mode: action.mode,
@@ -186,8 +202,8 @@ export function App() {
                 postInteraction({
                   kind: "navigate",
                   view: "reels",
-                  reelId: action.reelId,
-                  beatIndex: action.beatIndex,
+                  reelId: scope.reelId,
+                  beatIndex: scope.beatIndex,
                   annotate: false,
                   beatInk: beatInkToWire(ink, { interactive: false }),
                 });
@@ -198,6 +214,28 @@ export function App() {
         }
         // Recipes resolve async (edge-trace / geometric) so the agent can "really draw".
         const label = action.label ?? issuer;
+        /** Land resolved strokes on the surface the scope named. */
+        const landInk = (
+          strokes: readonly unknown[],
+          opts: { clear?: boolean; mode?: "append" | "replace" },
+        ) => {
+          if (scope.target === "board") {
+            commitDraw({
+              clear: opts.clear,
+              strokes,
+              visible: action.visible,
+              label,
+              mode: opts.mode,
+            });
+          } else {
+            commitGlassInkIntent({
+              key: scope.key,
+              clear: opts.clear,
+              strokes,
+              mode: opts.mode,
+            });
+          }
+        };
         if (action.recipe) {
           void (async () => {
             try {
@@ -249,31 +287,13 @@ export function App() {
                   strokes = geometricMaxStrokes();
                 }
               }
-              commitDraw({
-                clear: true,
-                strokes,
-                visible: action.visible,
-                label,
-                mode: "replace",
-              });
+              landInk(strokes, { clear: true, mode: "replace" });
             } catch {
-              commitDraw({
-                clear: action.clear,
-                strokes: action.strokes,
-                visible: action.visible,
-                label,
-                mode: action.mode,
-              });
+              landInk(action.strokes, { clear: action.clear, mode: action.mode });
             }
           })();
         } else {
-          commitDraw({
-            clear: action.clear,
-            strokes: action.strokes,
-            visible: action.visible,
-            label,
-            mode: action.mode,
-          });
+          landInk(action.strokes, { clear: action.clear, mode: action.mode });
         }
       } else if (action.type === "set" && action.target === "story.details") {
         const p = action.params;
@@ -424,8 +444,6 @@ export function App() {
   // Pen + layout snapshots merge so the latest ui_state keeps both eyes.
   const lastPenRef = useRef<PenSceneWire | null>(null);
   const lastLayoutRef = useRef<InteractionLayout | null>(null);
-  const routeRef = useRef(route);
-  routeRef.current = route;
 
   // Read half of the agent-in-UI seam: report where the human goes. Each route
   // change becomes a first-class interaction event in OpenStory (the viewing
@@ -688,9 +706,9 @@ export function App() {
         onRemove={(id) => { setAnnotations((prev) => removeAnnotation(prev, id)); void deleteAnnotation(id); }}
       />
 
-      {/* Attention canvas — full-viewport ink (ui.* only; pointer-events none) */}
-      <DrawOverlay suppress={viewMode === "draw"} />
-      {/* Chip on history tabs: open paper / hide / clear without losing the board */}
+      {/* Attention canvas — this context's glass ink (ui.* only; pointer-events none) */}
+      <DrawOverlay route={route} suppress={viewMode === "draw"} />
+      {/* Chip on history tabs: annotate here / open the Draw paper / clear */}
       {viewMode !== "draw" && (
         <DrawInkChip
           onOpenDraw={() => navigate({ view: "draw" })}

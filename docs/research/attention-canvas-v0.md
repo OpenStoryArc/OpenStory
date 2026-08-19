@@ -62,3 +62,15 @@ draw$  (one global DrawScene)
 - [x] Marginalia freehand without text-selection fights
 - [x] Tests for persist hydrate
 - [x] Draw chrome + floating ink chip on non-Draw tabs
+
+## v0.2 — scoped glass (2026-08-18)
+
+The v0.1 "one scene" law is superseded. Annotation is deictic — ink points at
+what is on screen — so glass ink is keyed by route context
+(`lib/glass-ink.ts: routeGlassKey`, store `openstory.glass-ink.v1`) and painted
+only while that context is active. The Draw tab's paper remains the one global
+**board** (`draw$`, `openstory.draw.scene.v1`), a document you navigate to; it
+is no longer projected over other tabs, and Hide-on-glass is gone (scoping made
+it unnecessary). Reel slides keep beat ink (`reelId:beatIndex`) unchanged.
+Agent draw intents take `scope: "here" | "board"` (default "here"); explicit
+`reelId + beatIndex` still targets a slide.

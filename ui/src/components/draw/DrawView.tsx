@@ -1,16 +1,12 @@
 /**
- * Draw tab — attention canvas paper.
- * Same scene as the global overlay; freehand = marginalia (append).
- * Clear empties; Hide keeps strokes for navigate-without-wipe.
+ * Draw tab — attention canvas paper (the BOARD).
+ * A document you navigate to, not a layer over the app: board ink stays here,
+ * while glass ink (lib/glass-ink.ts) lives with the context it points at.
+ * Freehand = marginalia (append); Clear empties the paper.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  clearDraw,
-  commitDraw,
-  drawScene$,
-  setDrawVisible,
-} from "@/streams/draw";
+import { clearDraw, commitDraw, drawScene$ } from "@/streams/draw";
 import { clientToUnitPoint, pathToSvgD, type DrawScene, type NormPoint } from "@/lib/draw";
 
 const INK = "#2f4a3e";
@@ -108,7 +104,6 @@ export function DrawView() {
   };
 
   const n = scene.strokes.length;
-  const hidden = scene.visible === false;
 
   return (
     <div className="flex flex-1 min-h-0 flex-col" data-testid="draw-view">
@@ -122,8 +117,8 @@ export function DrawView() {
             </span>
           </p>
           <p className="text-[11px] text-[color:var(--text-muted)]">
-            Draw freehand marginalia; agents ink via control. Navigate other tabs —
-            ink stays (Hide to read without clearing).
+            Draw freehand marginalia; agents ink via control. This paper is its own
+            document — annotations on other tabs live with what they point at.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +128,6 @@ export function DrawView() {
           >
             {n} stroke{n === 1 ? "" : "s"}
             {scene.label ? ` · ${scene.label}` : ""}
-            {hidden ? " · hidden on overlay" : ""}
           </span>
           <div className="flex rounded border border-[color:var(--border)] text-xs">
             <button
@@ -160,15 +154,6 @@ export function DrawView() {
           <button
             type="button"
             className="rounded border border-[color:var(--border)] px-2 py-1 text-xs hover:border-[color:var(--accent)]"
-            onClick={() => setDrawVisible(hidden)}
-            data-testid="draw-hide-toggle"
-            title="Hide ink on other tabs without clearing the board"
-          >
-            {hidden ? "Show on glass" : "Hide on glass"}
-          </button>
-          <button
-            type="button"
-            className="rounded border border-[color:var(--border)] px-2 py-1 text-xs hover:border-[color:var(--accent)]"
             onClick={() => clearDraw()}
             data-testid="draw-clear"
             title="Clear all attention ink"
@@ -178,11 +163,6 @@ export function DrawView() {
         </div>
       </div>
       <div className="relative flex-1 min-h-0 bg-white select-none">
-        {hidden && n > 0 && (
-          <div className="pointer-events-none absolute left-3 top-3 z-10 rounded border border-amber-500/40 bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
-            Overlay hidden — strokes still on this paper. Show on glass to paint other tabs.
-          </div>
-        )}
         {typeDraft && (
           <input
             autoFocus

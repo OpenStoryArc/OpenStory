@@ -9,7 +9,6 @@ import {
   drawInteractive$,
   drawScene$,
   setDrawInteractive,
-  setDrawVisible,
 } from "@/streams/draw";
 import { activeBeatKey$ } from "@/streams/reel-annotate";
 import type { DrawScene } from "@/lib/draw";
@@ -83,24 +82,14 @@ export function DrawInkChip({
         Draw
       </button>
       {n > 0 && (
-        <>
-          <button
-            type="button"
-            className="rounded-full border border-[color:var(--border)] px-2 py-0.5 hover:border-[color:var(--accent)]"
-            onClick={() => setDrawVisible(hidden)}
-            title={hidden ? "Show ink on the glass" : "Hide ink without clearing"}
-          >
-            {hidden ? "Show" : "Hide"}
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-[color:var(--border)] px-2 py-0.5 hover:border-[color:var(--accent)]"
-            onClick={() => clearDraw()}
-            title="Clear all attention ink"
-          >
-            Clear
-          </button>
-        </>
+        <button
+          type="button"
+          className="rounded-full border border-[color:var(--border)] px-2 py-0.5 hover:border-[color:var(--accent)]"
+          onClick={() => clearDraw()}
+          title="Clear all attention ink"
+        >
+          Clear
+        </button>
       )}
     </div>
   );
