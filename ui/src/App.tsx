@@ -711,6 +711,7 @@ export function App() {
       {/* Chip on history tabs: annotate here / open the Draw paper / clear */}
       {viewMode !== "draw" && (
         <DrawInkChip
+          route={route}
           onOpenDraw={() => navigate({ view: "draw" })}
         />
       )}

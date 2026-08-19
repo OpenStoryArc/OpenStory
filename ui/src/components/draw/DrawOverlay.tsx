@@ -25,6 +25,7 @@ import {
   type NormPoint,
 } from "@/lib/draw";
 import { marginaliaPathStrokes } from "@/lib/pen-eyes";
+import { postInteraction } from "@/lib/interaction";
 
 function StrokeEl({ s }: { s: DrawStroke }) {
   const sw = s.type !== "text" && s.type !== "image" ? (s.strokeWidth ?? 2.5) : 2;
@@ -163,9 +164,16 @@ export function DrawOverlay({
     if (pts.length >= 2 && key) {
       // High-contrast pair: dark understroke + bright yellow (readable on dark diagram beats).
       // Lands on THIS context's glass — not the Draw tab's board.
-      appendGlassStrokes(key, marginaliaPathStrokes(pts));
+      const ink = appendGlassStrokes(key, marginaliaPathStrokes(pts));
+      // Agent eyes: mirror BeatInkLayer.reportBeatInk so agents watching the
+      // mirror see glass strokes land, same as beat-scoped ink.
+      postInteraction({
+        kind: "navigate",
+        view: route.view,
+        glassInk: { key, stroke_count: ink.strokes.length },
+      });
     }
-  }, []);
+  }, [route.view]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!interactive) return;

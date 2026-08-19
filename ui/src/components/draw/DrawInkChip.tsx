@@ -1,43 +1,42 @@
 /**
  * Floating attention-canvas chip on non-Draw tabs.
- * Always available (even with empty ink) so Annotate works on reels slides.
+ * Shows the CURRENT CONTEXT's glass ink (routeGlassKey → glass-ink store),
+ * mirroring DrawOverlay's scoping — same context, same count, same Clear.
+ * Renders nothing wherever the overlay has no surface to record onto
+ * (Draw tab, reels player) so it never offers Annotate it can't back up.
  */
 
 import { useEffect, useState } from "react";
-import {
-  clearDraw,
-  drawInteractive$,
-  drawScene$,
-  setDrawInteractive,
-} from "@/streams/draw";
-import { activeBeatKey$ } from "@/streams/reel-annotate";
-import type { DrawScene } from "@/lib/draw";
+import { drawInteractive$, setDrawInteractive } from "@/streams/draw";
+import { clearGlassContext, glassInkStore$ } from "@/streams/glass-ink";
+import { emptyGlassInkStore, routeGlassKey, type GlassInkStore } from "@/lib/glass-ink";
+import type { HashRoute } from "@/lib/hash-route";
 
 export function DrawInkChip({
+  route,
   onOpenDraw,
 }: {
+  readonly route: HashRoute;
   readonly onOpenDraw: () => void;
 }) {
-  const [scene, setScene] = useState<DrawScene>({ strokes: [], visible: true });
+  const [store, setStore] = useState<GlassInkStore>(emptyGlassInkStore);
   const [interactive, setInteractive] = useState(false);
-  /** When a reel beat owns the glass, the reel slide toolbar handles annotate — hide the chip. */
-  const [beatScoped, setBeatScoped] = useState(false);
 
   useEffect(() => {
-    const a = drawScene$().subscribe(setScene);
+    const a = glassInkStore$().subscribe(setStore);
     const b = drawInteractive$().subscribe(setInteractive);
-    const c = activeBeatKey$().subscribe((k) => setBeatScoped(k != null));
     return () => {
       a.unsubscribe();
       b.unsubscribe();
-      c.unsubscribe();
     };
   }, []);
 
-  const n = scene.strokes.length;
-  const hidden = scene.visible === false;
+  const glassKey = routeGlassKey(route);
+  // No context owns this glass here (Draw tab, reels player) — never offer
+  // Annotate on a surface DrawOverlay won't record onto.
+  if (glassKey == null) return null;
 
-  if (beatScoped) return null; // reel slide toolbar owns annotate on stage
+  const n = store.byKey[glassKey]?.strokes.length ?? 0;
 
   return (
     <div
@@ -45,16 +44,11 @@ export function DrawInkChip({
       data-testid="draw-ink-chip"
       role="status"
       aria-label={
-        interactive
-          ? `Annotating, ${n} strokes`
-          : n > 0
-            ? `Attention canvas, ${n} strokes`
-            : "Attention canvas"
+        interactive ? `Annotating, ${n} strokes here` : n > 0 ? `Attention canvas, ${n} strokes here` : "Attention canvas"
       }
     >
-      <span className="px-1 font-medium text-[color:var(--accent)]" title={scene.label ?? "ink"}>
-        ✎ {n} stroke{n === 1 ? "" : "s"}
-        {hidden ? " · hidden" : ""}
+      <span className="px-1 font-medium text-[color:var(--accent)]" title={glassKey}>
+        ✎ {n} here
         {interactive ? " · annotate" : ""}
       </span>
       <button
@@ -79,14 +73,14 @@ export function DrawInkChip({
         className="rounded-full border border-[color:var(--border)] px-2 py-0.5 hover:border-[color:var(--accent)]"
         onClick={onOpenDraw}
       >
-        Draw
+        Board
       </button>
       {n > 0 && (
         <button
           type="button"
           className="rounded-full border border-[color:var(--border)] px-2 py-0.5 hover:border-[color:var(--accent)]"
-          onClick={() => clearDraw()}
-          title="Clear all attention ink"
+          onClick={() => clearGlassContext(glassKey)}
+          title="Clear ink on this view"
         >
           Clear
         </button>

@@ -40,6 +40,12 @@ type WithLayout = {
     interactive?: boolean;
     kinds?: Record<string, number>;
   };
+  /** Glass-ink snapshot for the current routeGlassKey context (1:1 with the
+   *  view/session the ink is drawn on — not the Draw tab's board). */
+  glassInk?: {
+    key: string;
+    stroke_count: number;
+  };
 };
 
 /** Typed interaction schema — one shape per kind. Grow a variant's fields for
