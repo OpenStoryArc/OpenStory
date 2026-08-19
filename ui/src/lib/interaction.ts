@@ -114,6 +114,18 @@ export function filterInteraction(view: string, filters: unknown, sessionId?: st
   return i;
 }
 
+/** A glass-ink interaction — ink landed on the CURRENT CONTEXT's glass (human
+ *  freehand or an agent `draw` with scope "here"). Built from the route so the
+ *  frame it becomes keeps session/detail context: glass ink is deictic, and an
+ *  agent reading `where_is_user` must still see *what* the ink points at. */
+export function glassInkInteraction(
+  route: HashRoute,
+  key: string,
+  strokeCount: number,
+): Extract<Interaction, { kind: "navigate" }> {
+  return { ...interactionFromRoute(route), glassInk: { key, stroke_count: strokeCount } };
+}
+
 /** A "zoom" interaction — the user changed a view's zoom/mode (drill, tempo). */
 export function zoomInteraction(view: string, opts?: { mode?: string; zoom?: number }): Extract<Interaction, { kind: "zoom" }> {
   const i: Extract<Interaction, { kind: "zoom" }> = { kind: "zoom", view };

@@ -19,6 +19,17 @@ describe("draw — agent pen", () => {
     expect(a).toMatchObject({ type: "draw", clear: true });
   });
 
+  it("threads scope through set draw.clear (parity with set draw.scene)", () => {
+    const board = interpretControl("set", { target: "draw.clear", scope: "board" });
+    expect(board).toMatchObject({ type: "draw", clear: true, scope: "board" });
+
+    const here = interpretControl("set", { target: "draw.clear", scope: "here" });
+    expect(here).toMatchObject({ type: "draw", clear: true, scope: "here" });
+
+    const bare = interpretControl("set", { target: "draw.clear" });
+    if (bare?.type === "draw") expect(bare.scope).toBeUndefined();
+  });
+
   it("interprets layout-ring recipe with preferId", () => {
     const a = interpretControl("draw", {
       recipe: "layout-ring",

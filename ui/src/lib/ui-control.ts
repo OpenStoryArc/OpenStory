@@ -172,7 +172,9 @@ export type UIControlAction =
 
 /** Where a draw intent lands. "here" (default) = the human's current glass
  *  context; on the Draw tab "here" IS the board, so agent flows that open
- *  Draw and then ink keep working unchanged. */
+ *  Draw and then ink keep working unchanged.
+ *  Precedence: an explicit `reelId` + `beatIndex` names a reel slide and wins
+ *  over `scope` — a beat-targeted stroke is never re-routed to the board. */
 export function resolveDrawScope(
   params: ControlParams,
   glassKey: string | null,
@@ -395,7 +397,12 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     void _t;
     // draw.clear / draw.scene convenience via set
     if (target === "draw.clear") {
-      return { type: "draw", clear: true, strokes: [] };
+      return {
+        type: "draw",
+        clear: true,
+        strokes: [],
+        scope: rest.scope === "board" ? "board" : rest.scope === "here" ? "here" : undefined,
+      };
     }
     if (target === "draw.scene" || target === "draw") {
       return {

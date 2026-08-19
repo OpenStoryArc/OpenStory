@@ -25,7 +25,7 @@ import {
   type NormPoint,
 } from "@/lib/draw";
 import { marginaliaPathStrokes } from "@/lib/pen-eyes";
-import { postInteraction } from "@/lib/interaction";
+import { glassInkInteraction, postInteraction } from "@/lib/interaction";
 
 function StrokeEl({ s }: { s: DrawStroke }) {
   const sw = s.type !== "text" && s.type !== "image" ? (s.strokeWidth ?? 2.5) : 2;
@@ -131,6 +131,10 @@ export function DrawOverlay({
   const glassKey = routeGlassKey(route);
   const glassKeyRef = useRef(glassKey);
   glassKeyRef.current = glassKey;
+  /** Full route, not just the view: the ink report must carry session/detail
+   *  context or it becomes the latest ui_state frame and blanks it. */
+  const routeRef = useRef(route);
+  routeRef.current = route;
   /** Derived, not stored: a navigation repaints from the same store, so ink
    *  never lingers a frame past the context it belongs to. */
   const strokes: readonly DrawStroke[] = glassKey
@@ -166,14 +170,12 @@ export function DrawOverlay({
       // Lands on THIS context's glass — not the Draw tab's board.
       const ink = appendGlassStrokes(key, marginaliaPathStrokes(pts));
       // Agent eyes: mirror BeatInkLayer.reportBeatInk so agents watching the
-      // mirror see glass strokes land, same as beat-scoped ink.
-      postInteraction({
-        kind: "navigate",
-        view: route.view,
-        glassInk: { key, stroke_count: ink.strokes.length },
-      });
+      // mirror see glass strokes land, same as beat-scoped ink. Built from the
+      // whole route — this post becomes the latest ui_state frame, so dropping
+      // session/detail would report the human as nowhere in particular.
+      postInteraction(glassInkInteraction(routeRef.current, key, ink.strokes.length));
     }
-  }, [route.view]);
+  }, []);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!interactive) return;

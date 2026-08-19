@@ -55,7 +55,12 @@ import {
   setPenSceneReporter,
 } from "@/streams/draw";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
-import { interactionFromRoute, postInteraction, postInteractionWithLayoutEyes } from "@/lib/interaction";
+import {
+  glassInkInteraction,
+  interactionFromRoute,
+  postInteraction,
+  postInteractionWithLayoutEyes,
+} from "@/lib/interaction";
 import { penSceneToWire, type PenSceneWire } from "@/lib/pen-eyes";
 import type { InteractionLayout } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
@@ -228,12 +233,18 @@ export function App() {
               mode: opts.mode,
             });
           } else {
-            commitGlassInkIntent({
+            const ink = commitGlassInkIntent({
               key: scope.key,
               clear: opts.clear,
               strokes,
               mode: opts.mode,
             });
+            // Agent eyes: board ink reports via the pen-scene reporter and beat
+            // ink via beatInk — glass ink needs its own report or an agent that
+            // just drew here cannot see its own stroke land.
+            postInteraction(
+              glassInkInteraction(routeRef.current, scope.key, ink.strokes.length),
+            );
           }
         };
         if (action.recipe) {
