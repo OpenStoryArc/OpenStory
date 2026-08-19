@@ -180,6 +180,10 @@ function splitQuery(hash: string): [string, URLSearchParams | null] {
 
 /** Parse window.location.hash into a HashRoute. */
 export function parseHash(hash: string): HashRoute {
+  // Handle legacy query-style #view=<name> format (agents and older docs emit this).
+  const legacy = /^#?view=([a-z]+)$/.exec(hash.trim());
+  if (legacy) return parseHash(`#/${legacy[1]}`);
+
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
 
   // Handle search shortcut: /search?q=...
