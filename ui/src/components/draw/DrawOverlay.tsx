@@ -199,8 +199,10 @@ export function DrawOverlay({
   if (suppress) return null;
   // Reel player beat layer owns the stage — don't paint global studio ink on slides.
   if (beatScoped) return null;
-  // No context owns this glass (Draw tab / reels player): nothing to paint.
-  if (glassKey == null && !interactive) return null;
+  // No context owns this glass (Draw tab, reels player — including its idle
+  // cover screen, where BeatInkLayer is not mounted). Never offer a drawing
+  // surface we cannot record: with no key, endStroke would swallow the stroke.
+  if (glassKey == null) return null;
   // Mount when annotating (even if empty) or when there is ink to show.
   if (!interactive && strokes.length === 0) return null;
 
