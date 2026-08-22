@@ -281,7 +281,7 @@
           "origin_agent": "pi-mono",
           "parent_uuid": "080fc073",
           "payload": {
-            "reason": "end_turn"
+            "reason": "stop"
           },
           "payload_bytes": 0,
           "record_type": "turn_end",

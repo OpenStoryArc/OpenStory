@@ -250,7 +250,7 @@
           "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
-            "reason": "end_turn"
+            "reason": "stop"
           },
           "payload_bytes": 0,
           "record_type": "turn_end",
@@ -432,7 +432,7 @@
           "origin_agent": "pi-mono",
           "parent_uuid": null,
           "payload": {
-            "reason": "end_turn"
+            "reason": "stop"
           },
           "payload_bytes": 0,
           "record_type": "turn_end",

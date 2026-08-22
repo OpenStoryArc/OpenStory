@@ -138,8 +138,10 @@ mod tests {
         let req: Vec<&str> = s["required"]
             .as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
         assert!(req.contains(&"title") && req.contains(&"stops"));
+        // Rich beats R1: only `line` is schema-required per stop — spotlight's
+        // sessionId/eventId anchor is enforced per-kind by the server on save.
         assert_eq!(s["properties"]["stops"]["items"]["required"],
-            serde_json::json!(["sessionId", "eventId", "line"]));
+            serde_json::json!(["line"]));
     }
 
     #[test]
