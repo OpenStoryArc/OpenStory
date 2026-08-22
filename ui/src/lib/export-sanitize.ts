@@ -1,8 +1,19 @@
 /** Allowlist sanitizer for spotlight snapshots. What leaves the machine is
  *  exactly what was on screen — inert. Never regex-over-HTML. */
 
-const DROP_ELEMENTS = new Set(["SCRIPT", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "STYLE", "FORM", "INPUT", "BUTTON", "AUDIO", "VIDEO", "SOURCE"]);
-const KEEP_ATTRS = new Set(["class", "style", "title", "alt", "colspan", "rowspan", "datetime", "aria-label", "role"]);
+const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+// Always drop, regardless of namespace (case-insensitive due to foreign content)
+const ALWAYS_DROP = new Set(["script", "iframe", "object", "embed", "link", "meta", "style", "form", "input", "button", "audio", "video", "source", "foreignobject"]);
+
+// XHTML namespace elements to drop
+const DROP_XHTML = new Set(["SCRIPT", "IFRAME", "OBJECT", "EMBED", "LINK", "META", "STYLE", "FORM", "INPUT", "BUTTON", "AUDIO", "VIDEO", "SOURCE"]);
+
+// Safe SVG elements to allow
+const SAFE_SVG = new Set(["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "tspan", "defs", "pattern", "use", "symbol", "marker", "linearGradient", "radialGradient", "stop"]);
+
+const KEEP_ATTRS = new Set(["class", "style", "title", "alt", "colspan", "rowspan", "datetime", "aria-label", "role", "cx", "cy", "r", "x", "y", "x1", "y1", "x2", "y2", "width", "height", "d", "points", "viewBox", "preserveAspectRatio", "transform", "fill", "stroke", "stroke-width"]);
 
 function cleanStyle(value: string): string {
   // drop any url(...) that is not a data: URI
@@ -13,10 +24,36 @@ export function sanitizeSnapshotHtml(html: string): string {
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
   const walk = (el: Element): void => {
     for (const child of Array.from(el.children)) {
-      if (DROP_ELEMENTS.has(child.tagName)) {
+      const tagLower = child.tagName.toLowerCase();
+      const ns = child.namespaceURI;
+
+      // Always drop dangerous elements regardless of namespace
+      if (ALWAYS_DROP.has(tagLower)) {
         child.remove();
         continue;
       }
+
+      // For XHTML: use existing uppercase-keyed set
+      if (ns === XHTML_NAMESPACE || ns === null) {
+        if (DROP_XHTML.has(child.tagName)) {
+          child.remove();
+          continue;
+        }
+      }
+      // For SVG: only allow explicitly-listed safe elements
+      else if (ns === SVG_NAMESPACE) {
+        if (!SAFE_SVG.has(tagLower)) {
+          child.remove();
+          continue;
+        }
+      }
+      // Foreign content (MathML, other): default-deny
+      else {
+        child.remove();
+        continue;
+      }
+
+      // Clean attributes
       for (const attr of Array.from(child.attributes)) {
         const name = attr.name.toLowerCase();
         if (name === "src") {

