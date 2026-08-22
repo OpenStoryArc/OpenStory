@@ -86,8 +86,12 @@ async fn container_survives_fts_metacharacter_flood() {
         "'; DROP TABLE events; --",
         // RTL override + control bytes
         "\u{202e}\u{0007}\u{0008}",
-        // Extremely long query
-        &"x".repeat(100_000),
+        // Long query — sized just under the client transport's request-target
+        // limit. reqwest 0.12.28's http::Uri parser rejects a ~100k-char URL
+        // client-side ("Parsed Url is not a valid Uri"), so the old 100_000
+        // value never reached the server and the probe asserted nothing. 60k
+        // still floods FTS while staying a deliverable request.
+        &"x".repeat(60_000),
     ];
 
     let cli = client();
