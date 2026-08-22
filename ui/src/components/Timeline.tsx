@@ -145,6 +145,9 @@ const TimelineRowView = memo(function TimelineRowView({ row, isFocusRoot, isHigh
     <div
       className={`mx-3 my-1 rounded-lg border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)]${highlight}${focusBorder}${selectedBorder} cursor-pointer`}
       data-testid="timeline-row"
+      data-os-target="event"
+      data-os-id={row.id}
+      data-event-id={row.id}
       onClick={onSelect}
       // Markdown-block idiom: each event is a distinct block — a colored kind
       // gutter (blockquote/diff style) + a whisper of kind color washed over

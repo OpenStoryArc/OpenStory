@@ -38,7 +38,8 @@ The command vocabulary (`interpretControl` in the UI resolves each into a typed
 | `present` / `announce` / `highlight` | `{ message\|note, sessionIds?, route?, spotlight? }` | banner + session spotlight, optional jump; `spotlight:true` = title card |
 | `query` / `filter` / `set_filter` | `{ project\|agent\|user\|status\|host\|branch\|day\|range\|search\|q\|sort }` | narrow Explore |
 | `toggle` | `{ target, value }` | flip a registered view knob (`canvas.mode`, `story.sort`, `theme`, `session.lens`, `spotlight=off`, …) |
-| `set` | `{ target, …fields }` | structured multi-field change (e.g. `scatter.brush`) |
+| `set` | `{ target, …fields }` | structured multi-field change (e.g. `scatter.brush`); `target:"draw.scene"` / `"draw.clear"` also take `scope` |
+| `draw` | `{ strokes\|recipe, scope?, clear?, mode?, label?, visible?, target?, reelId?, beatIndex? }` | ink on the `ui.*` overlay (never history). `scope:"here"` (default) lands on the human's current view context — the glass they are looking at; `scope:"board"` targets the Draw tab's paper. An explicit `reelId` + `beatIndex` targets that reel slide and beats `scope` |
 
 Examples:
 
@@ -78,9 +79,42 @@ parity fields when the client reported them:
   "filters": { "agent": "grok" }, "file_path": null,
   "user_filter": null, "time_filter": null, "search_query": null,
   "spotlight": null, "present_message": null,
+  "layout": {
+    "targets": [{ "kind": "event", "id": "…", "rect": { "x": 0.2, "y": 0.3, "w": 0.5, "h": 0.12 } }],
+    "focus": { "kind": "event", "id": "…", "rect": { "x": 0.2, "y": 0.3, "w": 0.5, "h": 0.12 } },
+    "viewport": { "w": 1440, "h": 900 },
+    "at": "…"
+  },
   "at": "2026-07-02T12:42:27.507Z",
-  "summary": "the user is on 'explore' viewing session … / conversation" }
+  "summary": "the user is on 'explore' viewing session … focused on event … layout focus event:…" }
 ```
+
+`layout` is **layout eyes** — DOM bounding boxes in normalized viewport space
+(0..1) for marked glass targets (`data-os-target` / `data-event-id`). Use
+`layout.focus.rect` with `draw` (or recipe `layout-ring`) to ring what attention
+is on. Absent when nothing measurable is on screen yet.
+
+Ink lands on one of **three surfaces**, and each reports itself differently —
+annotation is deictic, so ink lives with the thing it points at:
+
+- **The board** (the Draw tab's global paper, `draw$`) → `pen`, **pen eyes**: a
+  bounded snapshot with `stroke_count`, `kinds`, `bounds`, optional `label`, and
+  a capped `strokes[]` list (paths downsampled). Debounced whenever board ink
+  changes, from freehand on the Draw tab or an agent `draw` with `scope:"board"`.
+  Empty board → `pen.empty: true`.
+- **The glass** (whatever view the human is on — story, explore, live, the reels
+  list) → `glassInk: { key, stroke_count }`, where `key` is the context identity
+  (`"story:SES"`, `"live"`, …). Written by human freehand in annotate mode
+  outside the Draw tab and by an agent `draw` with the default `scope:"here"`.
+  The frame keeps the route's `session_id` / `detailView`, so the ink is always
+  readable against what it points at.
+- **A reel slide** → `beatInk: { reelId, beatIndex, stroke_count, empty, … }`,
+  1:1 with the playing beat. Written by human Annotate inside the player and by
+  an agent `draw` carrying `reelId` + `beatIndex`.
+
+All three are `ui.*` only — never observed history. `where_is_user` projects
+`pen` (plus `layout`, `annotate`, `reel_id`); `glassInk` and `beatInk` ride on
+the raw frame, so read them from `GET /api/ui-state` → `ui_state`.
 
 `present: false` means no interaction has been recorded yet (position unknown).
 

@@ -130,6 +130,16 @@ function playerRoute(reelId: string): HashRoute {
   return { view: "reels", reelId, reelAutoplay: true };
 }
 
+/** The bottom-bar counter is unified-slide-aware (reel-slide-standard):
+ *  the total includes the opener/closer folded into `slides[]`, and the
+ *  index/total pair carries a ` · {kind}` suffix for every non-title slide
+ *  (see `captionFor` / the counter markup in ReelsView.tsx). All reels
+ *  used below attach a closer, so a reel with N body stops counts N + 1
+ *  slides total once playback reaches it. */
+function counterText(n: number, total: number, kind = "spotlight"): string {
+  return `${n} / ${total} · ${kind}`;
+}
+
 describe("when the reels list has no reels", () => {
   it("should render the empty-state copy", async () => {
     stubReelsFetch({ reels: [] });
@@ -183,7 +193,9 @@ describe("when a reel plays a stop", () => {
 
     await waitFor(() => expect(screen.getByTestId("reels-caption-bar")).toBeInTheDocument());
     expect(screen.getByText("First, the bug was found.")).toBeInTheDocument();
-    expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    // TWO_STOP_REEL has a closer, so the unified slide list is 2 stops + 1
+    // closer = 3 slides total, not 2.
+    expect(screen.getByText(counterText(1, 3))).toBeInTheDocument();
   });
 
   it("should ADVANCE to the next stop on a playback-surface click, not exit", async () => {
@@ -192,10 +204,10 @@ describe("when a reel plays a stop", () => {
     stubReelsFetch({ reelsById: { r1: TWO_STOP_REEL } });
     render(<ReelsView route={playerRoute("r1")} onNavigate={onNavigate} />);
 
-    await waitFor(() => expect(screen.getByText("1 / 2")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(counterText(1, 3))).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("reels-playback-surface"));
 
-    await waitFor(() => expect(screen.getByText("2 / 2")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(counterText(2, 3))).toBeInTheDocument());
     expect(screen.getByText("Then, the fix landed.")).toBeInTheDocument();
     // Finding-1 regression: a playback-surface click must never exit —
     // exit() calls onNavigate({view:"reels"}), which must not have fired.
@@ -235,7 +247,9 @@ describe("when a TTS engine fires onend on cancellation (Chrome quirk)", () => {
     stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
     render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    // THREE_STOP_REEL has a closer, so unified slides = 3 stops + 1 closer
+    // = 4 total.
+    await waitFor(() => expect(screen.getByText(counterText(1, 4))).toBeInTheDocument());
 
     vi.useFakeTimers();
     try {
@@ -244,7 +258,7 @@ describe("when a TTS engine fires onend on cancellation (Chrome quirk)", () => {
       // utterance onend per the stub above) before mounting stop 2's
       // narration effect.
       fireEvent.click(screen.getByTestId("reels-playback-surface"));
-      expect(screen.getByText("2 / 3")).toBeInTheDocument();
+      expect(screen.getByText(counterText(2, 4))).toBeInTheDocument();
 
       // Drain every pending timer, including the deferred onend for the
       // now-dead stop-1 closure. Buggy code has no way to know that
@@ -254,8 +268,8 @@ describe("when a TTS engine fires onend on cancellation (Chrome quirk)", () => {
         vi.runAllTimers();
       });
 
-      expect(screen.getByText("2 / 3")).toBeInTheDocument();
-      expect(screen.queryByText("3 / 3")).not.toBeInTheDocument();
+      expect(screen.getByText(counterText(2, 4))).toBeInTheDocument();
+      expect(screen.queryByText(counterText(3, 4))).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -267,20 +281,24 @@ describe("when navigating a playing reel with the new controls", () => {
     stubSpeechSynthesis();
     stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
     render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    // THREE_STOP_REEL has a closer, so unified slides = 3 stops + 1 closer
+    // = 4 total.
+    await waitFor(() => expect(screen.getByText(counterText(1, 4))).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("reels-next"));
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(screen.getByText(counterText(2, 4))).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("reels-back"));
-    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    expect(screen.getByText(counterText(1, 4))).toBeInTheDocument();
   });
 
   it("should jump straight to a stop via its progress segment", async () => {
     stubSpeechSynthesis();
     stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
     render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(counterText(1, 4))).toBeInTheDocument());
+    // Segment 2 (0-indexed) is the third body stop in the unified list —
+    // slide index 2 of 4, with the closer trailing at index 3.
     fireEvent.click(screen.getByTestId("reels-segment-2"));
-    expect(screen.getByText("3 / 3")).toBeInTheDocument();
+    expect(screen.getByText(counterText(3, 4))).toBeInTheDocument();
     expect(screen.getByText("Stop three.")).toBeInTheDocument();
   });
 
@@ -288,10 +306,10 @@ describe("when navigating a playing reel with the new controls", () => {
     stubSpeechSynthesis();
     stubReelsFetch({ reelsById: { r3: THREE_STOP_REEL } });
     render(<ReelsView route={playerRoute("r3")} onNavigate={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText("1 / 3")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(counterText(1, 4))).toBeInTheDocument());
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(screen.getByText("2 / 3")).toBeInTheDocument();
+    expect(screen.getByText(counterText(2, 4))).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "ArrowLeft" });
-    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    expect(screen.getByText(counterText(1, 4))).toBeInTheDocument();
   });
 });

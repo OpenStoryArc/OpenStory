@@ -1041,6 +1041,12 @@ with a spotlight player (BLUF opener card, cinema captions, back/jump/
 segmented progress, TTS narration), MCP verbs, /openstory:reel skill with
 narrative shapes (pyramid, ABT, story spine, kishōtenketsu, sparkline) and
 the BLUF rule. Next, in rough priority order:
+- **Diagram beats in the pen's hand.** Diagram stops now use the theme palette,
+  but they still read as wireframes. Render them in the agent pen's language —
+  hand-drawn box strokes (RDP-simplified paths like the portrait recipes),
+  single ink + accent, Georgia labels — so agent diagrams look drawn by the
+  same pen that annotates them. The ink recipes from feat/agent-pen
+  (draw-trace.ts, draw-portrait.ts) are the starting material.
 - **Video export.** Render a reel to an actual video file (the
   record-tour-video pipeline is precedent) — shareable outside the
   dashboard; a real timeline slider becomes honest once the artifact is

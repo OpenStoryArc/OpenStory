@@ -344,3 +344,14 @@ describe("when parsing reels routes", () => {
     }
   });
 });
+
+describe("legacy #view= hashes", () => {
+  it("maps #view=draw to the draw route instead of silently landing on Live", () => {
+    expect(parseHash("#view=draw").view).toBe("draw");
+    expect(parseHash("#view=reels").view).toBe("reels");
+  });
+
+  it("still falls back to live for unknown views", () => {
+    expect(parseHash("#view=nonsense").view).toBe("live");
+  });
+});

@@ -1,10 +1,24 @@
 /** Typed fetch wrappers for /api/reels. */
 
+import type { ReelStopKind } from "@/lib/reel-visual";
+
+export interface ReelVisual {
+  kind?: string;
+  sessionId?: string;
+  labels?: string[];
+  imageHref?: string;
+  title?: string;
+}
+
 export interface ReelStop {
-  sessionId: string;
-  eventId: string;
+  /** Empty for title/diagram/image beats. */
+  sessionId?: string;
+  eventId?: string;
   line: string;
   clipAt?: string;
+  /** Default spotlight when omitted. */
+  kind?: ReelStopKind | string;
+  visual?: ReelVisual;
 }
 
 export interface Reel {

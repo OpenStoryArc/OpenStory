@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { connect, wsMessages$ } from "@/streams/connection";
 import { buildSessionState$ } from "@/streams/sessions";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
@@ -23,7 +23,7 @@ import { useRecents } from "@/hooks/use-recents";
 import { useLocalInfo } from "@/hooks/use-local-info";
 import { usePersistedFlag } from "@/hooks/use-persisted-flag";
 import { EMPTY_ENRICHED_STATE } from "@/streams/sessions";
-import { interpretControl, type UIControlAction } from "@/lib/ui-control";
+import { interpretControl, resolveDrawScope, type UIControlAction } from "@/lib/ui-control";
 import { injectControl } from "@/streams/control";
 import {
   attentionFromRoute,
@@ -42,8 +42,27 @@ import { PresentBanner, type Presentation } from "@/components/control/PresentBa
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { AnnotationsOverlay } from "@/components/control/AnnotationsOverlay";
+import { DrawOverlay } from "@/components/draw/DrawOverlay";
+import { DrawInkChip } from "@/components/draw/DrawInkChip";
+import { DrawView } from "@/components/draw/DrawView";
+import { routeGlassKey } from "@/lib/glass-ink";
+import { commitGlassInkIntent } from "@/streams/glass-ink";
+import {
+  commitDraw,
+  drawInteractive$,
+  getDrawInteractive,
+  getDrawScene,
+  setPenSceneReporter,
+} from "@/streams/draw";
 import { fetchAnnotations, mergeAnnotation, removeAnnotation, deleteAnnotation, type Annotation } from "@/lib/annotations";
-import { interactionFromRoute, postInteraction } from "@/lib/interaction";
+import {
+  glassInkInteraction,
+  interactionFromRoute,
+  postInteraction,
+  postInteractionWithLayoutEyes,
+} from "@/lib/interaction";
+import { penSceneToWire, type PenSceneWire } from "@/lib/pen-eyes";
+import type { InteractionLayout } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 import { switchTabRoute } from "@/lib/navigation";
 
@@ -65,6 +84,10 @@ export function App() {
   const { color, label } = STATUS_INDICATOR[status];
 
   const [route, navigate] = useHashRoute();
+  // Always-current route for callbacks that must read where the human IS now
+  // (control appliers, pen eyes) rather than where they were when memoized.
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [drivenBy, setDrivenBy] = useState<string | null>(null);
   const [present, setPresent] = useState<Presentation | null>(null);
@@ -156,6 +179,132 @@ export function App() {
         if (action.value === "off") {
           setSpotlight(null);
           setTitleCard(null);
+        }
+      } else if (action.type === "draw") {
+        // Agent pen — ui.* ink only (never mutates observed history).
+        // Where the ink lands (resolveDrawScope): explicit reelId+beatIndex →
+        // beat ink; scope:"board" → the Draw tab's paper; default "here" → the
+        // human's current glass context (the board when the Draw tab is open).
+        const scope = resolveDrawScope(
+          {
+            ...(action.scope ? { scope: action.scope } : {}),
+            ...(action.reelId != null ? { reelId: action.reelId } : {}),
+            ...(action.beatIndex != null ? { beatIndex: action.beatIndex } : {}),
+          },
+          routeGlassKey(routeRef.current),
+        );
+        if (scope.target === "beat") {
+          void import("@/streams/reel-annotate").then(
+            ({ commitBeatInkIntent }) => {
+              const ink = commitBeatInkIntent({
+                reelId: scope.reelId,
+                beatIndex: scope.beatIndex,
+                clear: action.clear,
+                strokes: action.strokes,
+                mode: action.mode,
+              });
+              void import("@/lib/reel-annotate").then(({ beatInkToWire }) => {
+                postInteraction({
+                  kind: "navigate",
+                  view: "reels",
+                  reelId: scope.reelId,
+                  beatIndex: scope.beatIndex,
+                  annotate: false,
+                  beatInk: beatInkToWire(ink, { interactive: false }),
+                });
+              });
+            },
+          );
+          return;
+        }
+        // Recipes resolve async (edge-trace / geometric) so the agent can "really draw".
+        const label = action.label ?? issuer;
+        /** Land resolved strokes on the surface the scope named. */
+        const landInk = (
+          strokes: readonly unknown[],
+          opts: { clear?: boolean; mode?: "append" | "replace" },
+        ) => {
+          if (scope.target === "board") {
+            commitDraw({
+              clear: opts.clear,
+              strokes,
+              visible: action.visible,
+              label,
+              mode: opts.mode,
+            });
+          } else {
+            const ink = commitGlassInkIntent({
+              key: scope.key,
+              clear: opts.clear,
+              strokes,
+              mode: opts.mode,
+            });
+            // Agent eyes: board ink reports via the pen-scene reporter and beat
+            // ink via beatInk — glass ink needs its own report or an agent that
+            // just drew here cannot see its own stroke land.
+            postInteraction(
+              glassInkInteraction(routeRef.current, scope.key, ink.strokes.length),
+            );
+          }
+        };
+        if (action.recipe) {
+          void (async () => {
+            try {
+              const { flowerStrokes, smileyStrokes } = await import("@/lib/draw");
+              const { geometricMaxStrokes, portraitInkStrokes } = await import(
+                "@/lib/draw-portrait"
+              );
+              let strokes = action.strokes as import("@/lib/draw").DrawStroke[];
+              if (action.recipe === "smiley") {
+                strokes = smileyStrokes();
+              } else if (action.recipe === "flower") {
+                strokes = flowerStrokes();
+              } else if (action.recipe === "geometric-max") {
+                strokes = geometricMaxStrokes();
+              } else if (action.recipe === "layout-ring") {
+                // Layout eyes → ring the focused glass target (event/session/spotlight).
+                const { collectLayoutEyes, ringStrokesForRect } = await import(
+                  "@/lib/layout-eyes"
+                );
+                const preferId = action.preferId;
+                const eyes = collectLayoutEyes({ preferId });
+                if (eyes.focus) {
+                  strokes = ringStrokesForRect(eyes.focus.rect, {
+                    label: `${eyes.focus.kind} ${eyes.focus.id.slice(0, 12)}`,
+                    stroke: "#e11d48",
+                  });
+                } else {
+                  strokes = [
+                    {
+                      type: "text",
+                      x: 0.5,
+                      y: 0.5,
+                      text: "layout eyes: no target on glass",
+                      fill: "#e11d48",
+                      fontSize: 16,
+                    },
+                  ];
+                }
+              } else if (action.recipe === "edge-portrait") {
+                const href =
+                  action.href ??
+                  "https://github.com/maxglassie.png";
+                try {
+                  strokes = await portraitInkStrokes(href, {
+                    caption: action.label ?? "Max Glassie",
+                  });
+                } catch {
+                  // CORS / load failure → pure geometric ink (still a drawing)
+                  strokes = geometricMaxStrokes();
+                }
+              }
+              landInk(strokes, { clear: true, mode: "replace" });
+            } catch {
+              landInk(action.strokes, { clear: action.clear, mode: action.mode });
+            }
+          })();
+        } else {
+          landInk(action.strokes, { clear: action.clear, mode: action.mode });
         }
       } else if (action.type === "set" && action.target === "story.details") {
         const p = action.params;
@@ -303,12 +452,67 @@ export function App() {
     if (route.view === "explore" && route.sessionId) recordRecent(route.sessionId);
   }, [route.view, route.sessionId, recordRecent]);
 
+  // Pen + layout snapshots merge so the latest ui_state keeps both eyes.
+  const lastPenRef = useRef<PenSceneWire | null>(null);
+  const lastLayoutRef = useRef<InteractionLayout | null>(null);
+
   // Read half of the agent-in-UI seam: report where the human goes. Each route
   // change becomes a first-class interaction event in OpenStory (the viewing
-  // session) — projectable to ui_state, replayable. Best-effort; never blocks.
+  // session) — projectable to ui_state, replayable. After paint, layout eyes
+  // measure glass targets (event/session rects) so the pen can aim.
+  // Re-attach last pen scene so navigating does not blank pen eyes.
   useEffect(() => {
-    postInteraction(interactionFromRoute(route));
+    const base = interactionFromRoute(route);
+    const withPen = lastPenRef.current ? { ...base, pen: lastPenRef.current } : base;
+    return postInteractionWithLayoutEyes(withPen, {
+      onLayout: (layout) => {
+        lastLayoutRef.current = layout;
+      },
+    });
   }, [route]);
+
+  // Pen eyes: when ink changes, publish a bounded scene snapshot on ui-state
+  // (debounced). Agents read it via where_is_user / GET /api/ui-state → pen.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const report = (scene: import("@/lib/draw").DrawScene) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const interactive = getDrawInteractive();
+        const pen = penSceneToWire(scene, { interactive });
+        lastPenRef.current = pen.empty && !interactive ? null : pen;
+        postInteraction({
+          ...interactionFromRoute(routeRef.current),
+          ...(lastLayoutRef.current ? { layout: lastLayoutRef.current } : {}),
+          pen,
+          annotate: interactive,
+        });
+      }, 280);
+    };
+    setPenSceneReporter(report);
+    const current = getDrawScene();
+    if (current.strokes.length > 0 || getDrawInteractive()) report(current);
+    return () => {
+      if (timer) clearTimeout(timer);
+      setPenSceneReporter(null);
+    };
+  }, []);
+
+  // Annotate mode on/off is a first-class ui journey event (pen.interactive + annotate).
+  useEffect(() => {
+    const sub = drawInteractive$().subscribe((on) => {
+      const scene = getDrawScene();
+      const pen = penSceneToWire(scene, { interactive: on });
+      lastPenRef.current = pen.empty && !on ? null : pen;
+      postInteraction({
+        ...interactionFromRoute(routeRef.current),
+        ...(lastLayoutRef.current ? { layout: lastLayoutRef.current } : {}),
+        pen,
+        annotate: on,
+      });
+    });
+    return () => sub.unsubscribe();
+  }, []);
 
   // Derive view state from route
   const viewMode = route.view;
@@ -481,6 +685,9 @@ export function App() {
       {/* Reels tab */}
       {viewMode === "reels" && <ReelsView route={route} onNavigate={navigate} />}
 
+      {/* Draw tab — free canvas + agent pen demos */}
+      {viewMode === "draw" && <DrawView />}
+
       {/* Ask tab */}
       {viewMode === "ask" && <AskView onNavigate={navigate} />}
 
@@ -509,6 +716,16 @@ export function App() {
         onNavigate={navigate}
         onRemove={(id) => { setAnnotations((prev) => removeAnnotation(prev, id)); void deleteAnnotation(id); }}
       />
+
+      {/* Attention canvas — this context's glass ink (ui.* only; pointer-events none) */}
+      <DrawOverlay route={route} suppress={viewMode === "draw"} />
+      {/* Chip on history tabs: annotate here / open the Draw paper / clear */}
+      {viewMode !== "draw" && (
+        <DrawInkChip
+          route={route}
+          onOpenDraw={() => navigate({ view: "draw" })}
+        />
+      )}
 
       {/* Global ⌘K command palette */}
       <CommandPalette sessions={allSessions} onNavigate={navigate} recentIds={recentIds} />

@@ -12,14 +12,67 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// What a stop *shows*. Default `spotlight` preserves v1 reels.
+/// Non-spotlight kinds may omit session/event (interpretation / title / image).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReelStopKind {
+    #[default]
+    Spotlight,
+    /// Full-screen title / intermediate BLUF card (`line` is the message).
+    Title,
+    /// Layered diagram from baked labels or a session tool-journey.
+    Diagram,
+    /// Still image (`visual.imageHref`).
+    Image,
+}
+
+/// Optional visual payload for non-event (or hybrid) beats.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReelVisual {
+    /// `labels` | `toolJourney` | `image` — how to build the picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Session for live tool-journey fetch (diagram).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Precomputed diagram node labels (pen-friendly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
+    /// https or data: image URL for image beats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_href: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReelStop {
+    /// Empty for title/diagram/image stops that don't pin an event.
+    #[serde(default)]
     pub session_id: String,
+    #[serde(default)]
     pub event_id: String,
     pub line: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip_at: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default_kind")]
+    pub kind: ReelStopKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visual: Option<ReelVisual>,
+}
+
+fn is_default_kind(k: &ReelStopKind) -> bool {
+    matches!(k, ReelStopKind::Spotlight)
+}
+
+impl ReelStop {
+    /// Spotlight (or empty kind) needs a real history anchor.
+    pub fn requires_event_anchor(&self) -> bool {
+        matches!(self.kind, ReelStopKind::Spotlight)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,8 +202,57 @@ mod tests {
                 event_id: "evt-1".to_string(),
                 line: "It starts with one typed line.".to_string(),
                 clip_at: None,
+                kind: ReelStopKind::Spotlight,
+                visual: None,
             }],
         }
+    }
+
+    #[test]
+    fn stop_deserializes_title_without_session_or_event() {
+        let s: ReelStop = serde_json::from_str(
+            r#"{"line":"Intermediate BLUF.","kind":"title"}"#,
+        )
+        .expect("title stop must not require sessionId/eventId");
+        assert_eq!(s.session_id, "");
+        assert_eq!(s.event_id, "");
+        assert_eq!(s.kind, ReelStopKind::Title);
+        assert!(!s.requires_event_anchor());
+    }
+
+    #[test]
+    fn diagram_stop_round_trips_without_event_ids() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let mut reel = sample("");
+        reel.stops.push(ReelStop {
+            session_id: String::new(),
+            event_id: String::new(),
+            line: "The tool path was Bash then Edit.".to_string(),
+            clip_at: None,
+            kind: ReelStopKind::Diagram,
+            visual: Some(ReelVisual {
+                kind: Some("labels".into()),
+                session_id: None,
+                labels: Some(vec!["Bash ×3".into(), "Edit · auth.rs".into()]),
+                image_href: None,
+                title: Some("Tool journey".into()),
+            }),
+        });
+        let id = store.save(&mut reel).unwrap();
+        let loaded = store.load(&id).unwrap();
+        assert_eq!(loaded.stops.len(), 2);
+        assert_eq!(loaded.stops[1].kind, ReelStopKind::Diagram);
+        assert_eq!(
+            loaded.stops[1]
+                .visual
+                .as_ref()
+                .and_then(|v| v.labels.as_ref())
+                .map(|l| l.len()),
+            Some(2)
+        );
+        assert!(!loaded.stops[1].requires_event_anchor());
+        assert!(loaded.stops[0].requires_event_anchor());
     }
 
     #[test]

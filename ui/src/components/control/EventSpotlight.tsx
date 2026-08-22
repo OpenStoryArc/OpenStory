@@ -88,6 +88,9 @@ export function EventSpotlight({
         <div
           className="spotlight-card mx-4 w-full max-w-3xl rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)] p-8 text-[color:var(--text)] shadow-card"
           onClick={(e) => e.stopPropagation()}
+          data-os-target="spotlight"
+          data-os-id={eventId}
+          data-event-id={eventId}
         >
           {/* header: role · timestamp · session chip — quiet, muted */}
           <div className="mb-4 flex items-baseline gap-3">

@@ -34,6 +34,7 @@ export const CONTROL_VERBS = [
   "set_filter",
   "toggle",
   "set",
+  "draw",
 ] as const;
 
 export interface ControlParams {
@@ -43,6 +44,10 @@ export interface ControlParams {
   eventId?: string;
   detailView?: string;
   reelId?: string;
+  beatIndex?: number;
+  /** draw: where the ink lands — "here" (default, the human's current glass
+   *  context) or "board" (the Draw tab's global paper). */
+  scope?: string;
   autoplay?: unknown;
   filePath?: string;
   searchQuery?: string;
@@ -133,7 +138,57 @@ export type UIControlAction =
        */
       readonly type: "navigate_sequence";
       readonly steps: readonly ControlStep[];
+    }
+  | {
+      /**
+       * Agent pen — ink on the ui.* overlay (never history).
+       * Coordinates normalized 0..1 viewport. clear replaces or empties scene.
+       * Optional recipe resolves async in App (edge-trace portrait, smiley, …).
+       */
+      readonly type: "draw";
+      readonly clear?: boolean;
+      readonly strokes: readonly unknown[];
+      readonly visible?: boolean;
+      readonly label?: string;
+      readonly mode?: "append" | "replace";
+      /** Named recipe: smiley | geometric-max | edge-portrait | layout-ring. */
+      readonly recipe?: string;
+      readonly href?: string;
+      /** layout-ring: prefer this target id when multiple glass targets exist. */
+      readonly preferId?: string;
+      /**
+       * Ink target: default studio/global pen.
+       * `slide` = beat-scoped marginalia (requires reelId + beatIndex).
+       */
+      readonly target?: "studio" | "slide";
+      readonly reelId?: string;
+      readonly beatIndex?: number;
+      /**
+       * Ink scope: "here" (default) = the human's current glass context;
+       * "board" = the Draw tab's global paper. Resolved by resolveDrawScope.
+       */
+      readonly scope?: "here" | "board";
     };
+
+/** Where a draw intent lands. "here" (default) = the human's current glass
+ *  context; on the Draw tab "here" IS the board, so agent flows that open
+ *  Draw and then ink keep working unchanged.
+ *  Precedence: an explicit `reelId` + `beatIndex` names a reel slide and wins
+ *  over `scope` — a beat-targeted stroke is never re-routed to the board. */
+export function resolveDrawScope(
+  params: ControlParams,
+  glassKey: string | null,
+):
+  | { target: "board" }
+  | { target: "glass"; key: string }
+  | { target: "beat"; reelId: string; beatIndex: number } {
+  if (typeof params.reelId === "string" && typeof params.beatIndex === "number") {
+    return { target: "beat", reelId: params.reelId, beatIndex: params.beatIndex };
+  }
+  if (params.scope === "board") return { target: "board" };
+  if (glassKey) return { target: "glass", key: glassKey };
+  return { target: "board" };
+}
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
  *  to a HashRoute, tolerating a missing leading # or /. */
@@ -340,7 +395,71 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     if (!target) return null;
     const { target: _t, ...rest } = p;
     void _t;
+    // draw.clear / draw.scene convenience via set
+    if (target === "draw.clear") {
+      return {
+        type: "draw",
+        clear: true,
+        strokes: [],
+        scope: rest.scope === "board" ? "board" : rest.scope === "here" ? "here" : undefined,
+      };
+    }
+    if (target === "draw.scene" || target === "draw") {
+      return {
+        type: "draw",
+        clear: rest.clear === true || rest.mode === "replace",
+        strokes: Array.isArray(rest.strokes) ? rest.strokes : [],
+        visible: rest.visible === false ? false : rest.visible === true ? true : undefined,
+        label: typeof rest.label === "string" ? rest.label : undefined,
+        mode: rest.mode === "replace" ? "replace" : rest.mode === "append" ? "append" : undefined,
+        scope: rest.scope === "board" ? "board" : rest.scope === "here" ? "here" : undefined,
+      };
+    }
     return { type: "set", target, params: rest };
+  }
+  // Agent pen — ink on the ui.* overlay (normalized 0..1). Never mutates history.
+  // target:"slide" + reelId + beatIndex → beat-scoped ink (parity with human Annotate).
+  if (action === "draw") {
+    const p = (params ?? {}) as Record<string, unknown>;
+    const strokes = Array.isArray(p.strokes) ? p.strokes : [];
+    const recipe = typeof p.recipe === "string" ? p.recipe.trim() : "";
+    const target = p.target === "slide" ? "slide" : "studio";
+    const reelId = typeof p.reelId === "string" ? p.reelId.trim() : "";
+    const beatIndex =
+      typeof p.beatIndex === "number" && Number.isInteger(p.beatIndex) && p.beatIndex >= 0
+        ? p.beatIndex
+        : typeof p.beatIndex === "string" && /^\d+$/.test(p.beatIndex)
+          ? Number(p.beatIndex)
+          : undefined;
+    const clear = p.clear === true || p.mode === "replace" || recipe.length > 0;
+    if (target === "slide") {
+      if (!reelId || beatIndex === undefined) return null;
+      if (!clear && strokes.length === 0) return null;
+      return {
+        type: "draw",
+        clear,
+        strokes,
+        label: typeof p.label === "string" ? p.label : undefined,
+        mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
+        target: "slide",
+        reelId,
+        beatIndex,
+      };
+    }
+    if (!clear && strokes.length === 0 && p.visible === undefined && !recipe) return null;
+    return {
+      type: "draw",
+      clear,
+      strokes,
+      visible: p.visible === false ? false : p.visible === true ? true : undefined,
+      label: typeof p.label === "string" ? p.label : undefined,
+      mode: p.mode === "replace" ? "replace" : p.mode === "append" ? "append" : undefined,
+      recipe: recipe || undefined,
+      href: typeof p.href === "string" ? p.href : undefined,
+      preferId: typeof p.preferId === "string" ? p.preferId : undefined,
+      target: "studio",
+      scope: p.scope === "board" ? "board" : p.scope === "here" ? "here" : undefined,
+    };
   }
   return null;
 }

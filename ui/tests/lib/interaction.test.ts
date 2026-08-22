@@ -27,6 +27,17 @@ describe("interactionFromRoute", () => {
     );
   });
 
+  it("carries reelId for reels player journeys", () => {
+    scenario(
+      () => interactionFromRoute({ view: "reels", reelId: "reel-abc" }),
+      (p) => p,
+      (p) => {
+        expect(p.view).toBe("reels");
+        expect(p.reelId).toBe("reel-abc");
+      },
+    );
+  });
+
   it("includes Explore filters when present, omits when empty", () => {
     scenario(
       () => ({

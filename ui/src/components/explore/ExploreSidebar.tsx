@@ -294,6 +294,9 @@ function ParentCard({ parent, isSelected, isHighlighted, isExpanded, selectedSes
         onClick={() => onSelect(s.session_id)}
         data-testid={`explore-session-${s.session_id}`}
         data-session-row={s.session_id}
+        data-os-target="session"
+        data-os-id={s.session_id}
+        data-session-id={s.session_id}
         className={cn(
           "w-full text-left px-3 py-2 transition-colors border-l-2",
           isSelected ? "bg-[color:var(--bg-surface)]" : "hover:bg-[color:var(--bg-surface)] border-l-transparent",

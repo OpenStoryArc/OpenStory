@@ -478,6 +478,9 @@ export function EventCardRow({ row, compact = false, selected = false, onClick, 
     <div
       className={`mx-3 my-1 rounded-xl border border-[color:var(--divider)] overflow-hidden hover:border-[color:var(--border)] ${onClick ? "cursor-pointer" : ""}${selected ? " ring-1 ring-[color:var(--accent)]" : ""}`}
       onClick={onClick}
+      data-os-target="event"
+      data-os-id={row.id}
+      data-event-id={row.id}
     >
       <div className={compact ? "px-3 py-1.5" : "px-3 py-2"}>
         {/* Header */}
