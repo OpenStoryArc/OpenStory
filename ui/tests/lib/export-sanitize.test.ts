@@ -84,4 +84,21 @@ describe("sanitizeSnapshotHtml", () => {
     expect(sanitizeSnapshotHtml(once)).toBe(once);
     expect(once).not.toContain("<script>");
   });
+
+  it("strips external url() funcIRIs from fill/stroke attributes", () => {
+    const out = sanitizeSnapshotHtml(
+      "<svg><rect fill=\"url(https://evil.example/exfil.svg#leak)\" stroke=\"url(https://evil.example/stroke)\"/></svg>",
+    );
+    expect(out).not.toContain("evil.example");
+    expect(out).not.toContain("exfil.svg");
+  });
+
+  it("keeps same-document funcIRI refs and benign fill/stroke values", () => {
+    const out = sanitizeSnapshotHtml(
+      "<svg><rect fill=\"url(#gradient)\" stroke=\"#ff0000\" stroke-width=\"2\"/><defs><linearGradient id=\"gradient\"><stop/></linearGradient></defs></svg>",
+    );
+    expect(out).toContain("url(#gradient)");
+    expect(out).toContain("#ff0000");
+    expect(out).toContain("stroke-width");
+  });
 });

@@ -15,9 +15,14 @@ const SAFE_SVG = new Set(["svg", "g", "path", "rect", "circle", "ellipse", "line
 
 const KEEP_ATTRS = new Set(["class", "style", "title", "alt", "colspan", "rowspan", "datetime", "aria-label", "role", "cx", "cy", "r", "x", "y", "x1", "y1", "x2", "y2", "width", "height", "d", "points", "viewBox", "preserveAspectRatio", "transform", "fill", "stroke", "stroke-width"]);
 
-function cleanStyle(value: string): string {
-  // drop any url(...) that is not a data: URI
-  return value.replace(/url\(\s*(['"]?)(?!data:)[^)]*\1\s*\)/gi, "none");
+// Attributes that can contain funcIRI references (url()) and need cleaning
+const FUNCIRI_ATTRS = new Set(["fill", "stroke", "clip-path", "filter", "mask", "marker-start", "marker-mid", "marker-end"]);
+
+function cleanUrl(value: string): string {
+  // drop any url(...) that is not a data: URI or same-document reference (#id)
+  // Preserves: url(data:...), url(#ref), url('#ref'), url("#ref")
+  // Removes: url(https://...), url(http://...), url(/path)
+  return value.replace(/url\(\s*(['"]?)(?!data:)(?!#)[^)]*\1\s*\)/gi, "none");
 }
 
 export function sanitizeSnapshotHtml(html: string): string {
@@ -65,7 +70,11 @@ export function sanitizeSnapshotHtml(html: string): string {
           continue;
         }
         if (name === "style") {
-          child.setAttribute("style", cleanStyle(attr.value));
+          child.setAttribute("style", cleanUrl(attr.value));
+          continue;
+        }
+        if (FUNCIRI_ATTRS.has(name)) {
+          child.setAttribute(name, cleanUrl(attr.value));
           continue;
         }
         if (!KEEP_ATTRS.has(name)) child.removeAttribute(attr.name);
