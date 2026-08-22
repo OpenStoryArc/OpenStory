@@ -144,3 +144,9 @@ export function playerToSlideIndex(
 export function slideInkKey(reelId: string, slideIndex: number): string {
   return `${reelId}:${slideIndex}`;
 }
+
+/** Caption line for the player's bottom bar — null when the stage already
+ *  renders the line full-screen (title cards), so it is never shown twice. */
+export function captionFor(slide: Pick<Slide, "kind" | "line">): string | null {
+  return slide.kind === "title" ? null : slide.line;
+}

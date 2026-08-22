@@ -36,7 +36,7 @@ export function diagramLabelsToStrokes(
       x: 0.5,
       y: 0.08,
       text: opts.title.slice(0, 48),
-      fill: "#e2e8f0",
+      fill: "#cdd6f9",
       fontSize: 22,
     });
   }
@@ -46,7 +46,7 @@ export function diagramLabelsToStrokes(
       x: 0.5,
       y: 0.5,
       text: "No diagram labels",
-      fill: "#94a3b8",
+      fill: "#565f89",
       fontSize: 16,
     });
     return strokes;
@@ -55,19 +55,14 @@ export function diagramLabelsToStrokes(
   const top = 0.16;
   const bottom = 0.88;
   const boxH = Math.min(0.09, (bottom - top) / items.length - 0.02);
-  const colors = [
-    { fill: "#1e3a5f", stroke: "#93c5fd" },
-    { fill: "#4c1d95", stroke: "#c4b5fd" },
-    { fill: "#7c2d12", stroke: "#fdba74" },
-    { fill: "#14532d", stroke: "#86efac" },
-    { fill: "#9d174d", stroke: "#f9a8d4" },
-  ];
+  const INK = "#7aa2f7";      // accent — one voice for agent diagrams
+  const TEXT = "#cdd6f9";     // theme text
+  const CONNECT = "#565f89";  // muted connector
 
   for (let i = 0; i < items.length; i++) {
     const y = top + i * ((bottom - top) / items.length);
-    const x = 0.18;
-    const w = 0.64;
-    const c = colors[i % colors.length]!;
+    const w = Math.min(0.64, Math.max(0.2, 0.05 + items[i]!.length * 0.013));
+    const x = 0.5 - w / 2;
     strokes.push({
       type: "path",
       points: [
@@ -77,8 +72,8 @@ export function diagramLabelsToStrokes(
         { x, y: y + boxH },
       ],
       closed: true,
-      fill: c.fill,
-      stroke: c.stroke,
+      fill: "none",
+      stroke: INK,
       strokeWidth: 2,
     });
     strokes.push({
@@ -86,20 +81,17 @@ export function diagramLabelsToStrokes(
       x: 0.5,
       y: y + boxH / 2 + 0.01,
       text: items[i]!.slice(0, 36),
-      fill: c.stroke,
-      fontSize: 16,
+      fill: TEXT,
+      fontSize: 18,
     });
     if (i < items.length - 1) {
-      const x1 = 0.5;
-      const y1 = y + boxH;
-      const y2 = y + (bottom - top) / items.length;
       strokes.push({
         type: "line",
-        x1,
-        y1,
-        x2: x1,
-        y2,
-        stroke: "#64748b",
+        x1: 0.5,
+        y1: y + boxH,
+        x2: 0.5,
+        y2: y + (bottom - top) / items.length,
+        stroke: CONNECT,
         strokeWidth: 2,
       });
     }

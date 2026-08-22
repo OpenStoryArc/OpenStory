@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scenario } from "../bdd";
-import { controlToRoute, interpretControl } from "@/lib/ui-control";
+import { controlToRoute, interpretControl, resolveDrawScope } from "@/lib/ui-control";
 import { planNavigateTo } from "@/lib/nav-path";
 
 describe("draw — agent pen", () => {
@@ -17,6 +17,17 @@ describe("draw — agent pen", () => {
   it("maps set draw.clear to an empty scene", () => {
     const a = interpretControl("set", { target: "draw.clear" });
     expect(a).toMatchObject({ type: "draw", clear: true });
+  });
+
+  it("threads scope through set draw.clear (parity with set draw.scene)", () => {
+    const board = interpretControl("set", { target: "draw.clear", scope: "board" });
+    expect(board).toMatchObject({ type: "draw", clear: true, scope: "board" });
+
+    const here = interpretControl("set", { target: "draw.clear", scope: "here" });
+    expect(here).toMatchObject({ type: "draw", clear: true, scope: "here" });
+
+    const bare = interpretControl("set", { target: "draw.clear" });
+    if (bare?.type === "draw") expect(bare.scope).toBeUndefined();
   });
 
   it("interprets layout-ring recipe with preferId", () => {
@@ -49,6 +60,49 @@ describe("draw — agent pen", () => {
       clear: true,
     });
     expect(interpretControl("draw", { target: "slide", reelId: "reel-x" })).toBeNull();
+  });
+
+  it("carries scope through interpretControl (here by default, board when asked)", () => {
+    const here = interpretControl("draw", {
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+    });
+    expect(here).toMatchObject({ type: "draw" });
+    if (here?.type === "draw") expect(here.scope).toBeUndefined();
+
+    const board = interpretControl("draw", {
+      scope: "board",
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+    });
+    expect(board).toMatchObject({ type: "draw", scope: "board" });
+
+    const viaSet = interpretControl("set", {
+      target: "draw.scene",
+      scope: "board",
+      strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }],
+    });
+    expect(viaSet).toMatchObject({ type: "draw", scope: "board" });
+  });
+});
+
+describe("resolveDrawScope", () => {
+  it("scope board → board, regardless of where the human is", () => {
+    expect(resolveDrawScope({ scope: "board" }, "live")).toEqual({ target: "board" });
+  });
+
+  it("default (here) → the human's current glass context", () => {
+    expect(resolveDrawScope({}, "story:abc")).toEqual({ target: "glass", key: "story:abc" });
+  });
+
+  it("here with no glass context (Draw tab open) falls back to the board", () => {
+    expect(resolveDrawScope({}, null)).toEqual({ target: "board" });
+  });
+
+  it("explicit beat params → beat ink", () => {
+    expect(resolveDrawScope({ reelId: "r1", beatIndex: 2 }, "reels")).toEqual({
+      target: "beat",
+      reelId: "r1",
+      beatIndex: 2,
+    });
   });
 });
 

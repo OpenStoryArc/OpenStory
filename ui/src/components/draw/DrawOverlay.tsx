@@ -1,28 +1,31 @@
 /**
  * Full-viewport SVG ink layer for agent (and human) drawing.
  *
+ * Paints the CURRENT CONTEXT's glass ink (routeGlassKey → glass-ink store),
+ * never the Draw tab's board — annotation is deictic, so ink lives with the
+ * thing it points at and disappears when you navigate away from it.
+ *
  * Default: pointer-events none so the mirror stays usable underneath.
  * Annotate mode (drawInteractive$): capture freehand on the glass
- * (reels slides, story, explore) without leaving the tab.
+ * (story, explore, live) without leaving the tab.
  *
  * z-[100] sits above reel PlaybackClickSurface (z-55) and caption (z-60).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  commitDraw,
-  drawInteractive$,
-  drawScene$,
-} from "@/streams/draw";
+import { drawInteractive$ } from "@/streams/draw";
 import { activeBeatKey$ } from "@/streams/reel-annotate";
+import { appendGlassStrokes, glassInkStore$ } from "@/streams/glass-ink";
+import { emptyGlassInkStore, routeGlassKey, type GlassInkStore } from "@/lib/glass-ink";
+import type { HashRoute } from "@/lib/hash-route";
 import {
   clientToUnitPoint,
   pathToSvgD,
-  type DrawScene,
   type DrawStroke,
   type NormPoint,
 } from "@/lib/draw";
 import { marginaliaPathStrokes } from "@/lib/pen-eyes";
+import { glassInkInteraction, postInteraction } from "@/lib/interaction";
 
 function StrokeEl({ s }: { s: DrawStroke }) {
   const sw = s.type !== "text" && s.type !== "image" ? (s.strokeWidth ?? 2.5) : 2;
@@ -107,18 +110,39 @@ function StrokeEl({ s }: { s: DrawStroke }) {
   }
 }
 
-export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
+export function DrawOverlay({
+  route,
+  suppress = false,
+}: {
+  readonly route: HashRoute;
+  readonly suppress?: boolean;
+}) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const ptsRef = useRef<NormPoint[]>([]);
   const drawingRef = useRef(false);
-  const [scene, setScene] = useState<DrawScene>({ strokes: [], visible: true });
+  const [store, setStore] = useState<GlassInkStore>(emptyGlassInkStore);
   const [interactive, setInteractive] = useState(false);
   /** When a reel beat owns the glass, BeatInkLayer handles ink — hide global overlay. */
   const [beatScoped, setBeatScoped] = useState(false);
   const [livePts, setLivePts] = useState<NormPoint[]>([]);
 
+  /** The context this glass paints. null = another surface owns ink
+   *  (Draw tab board, reels player beats). */
+  const glassKey = routeGlassKey(route);
+  const glassKeyRef = useRef(glassKey);
+  glassKeyRef.current = glassKey;
+  /** Full route, not just the view: the ink report must carry session/detail
+   *  context or it becomes the latest ui_state frame and blanks it. */
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  /** Derived, not stored: a navigation repaints from the same store, so ink
+   *  never lingers a frame past the context it belongs to. */
+  const strokes: readonly DrawStroke[] = glassKey
+    ? (store.byKey[glassKey]?.strokes ?? [])
+    : [];
+
   useEffect(() => {
-    const a = drawScene$().subscribe(setScene);
+    const a = glassInkStore$().subscribe(setStore);
     const b = drawInteractive$().subscribe(setInteractive);
     const c = activeBeatKey$().subscribe((k) => setBeatScoped(k != null));
     return () => {
@@ -140,13 +164,16 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
     const pts = ptsRef.current;
     ptsRef.current = [];
     setLivePts([]);
-    if (pts.length >= 2) {
+    const key = glassKeyRef.current;
+    if (pts.length >= 2 && key) {
       // High-contrast pair: dark understroke + bright yellow (readable on dark diagram beats).
-      commitDraw({
-        strokes: marginaliaPathStrokes(pts),
-        label: "marginalia",
-        visible: true,
-      });
+      // Lands on THIS context's glass — not the Draw tab's board.
+      const ink = appendGlassStrokes(key, marginaliaPathStrokes(pts));
+      // Agent eyes: mirror BeatInkLayer.reportBeatInk so agents watching the
+      // mirror see glass strokes land, same as beat-scoped ink. Built from the
+      // whole route — this post becomes the latest ui_state frame, so dropping
+      // session/detail would report the human as nowhere in particular.
+      postInteraction(glassInkInteraction(routeRef.current, key, ink.strokes.length));
     }
   }, []);
 
@@ -182,15 +209,19 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
   if (suppress) return null;
   // Reel player beat layer owns the stage — don't paint global studio ink on slides.
   if (beatScoped) return null;
-  if (!scene.visible) return null;
+  // No context owns this glass (Draw tab, reels player — including its idle
+  // cover screen, where BeatInkLayer is not mounted). Never offer a drawing
+  // surface we cannot record: with no key, endStroke would swallow the stroke.
+  if (glassKey == null) return null;
   // Mount when annotating (even if empty) or when there is ink to show.
-  if (!interactive && scene.strokes.length === 0) return null;
+  if (!interactive && strokes.length === 0) return null;
 
   return (
     <div
       className={`fixed inset-0 z-[100] select-none ${interactive ? "cursor-crosshair" : "pointer-events-none"}`}
       style={{ pointerEvents: interactive ? "auto" : "none" }}
       data-testid="draw-overlay"
+      data-glass-key={glassKey ?? ""}
       data-interactive={interactive ? "true" : "false"}
       aria-hidden={!interactive}
     >
@@ -210,7 +241,7 @@ export function DrawOverlay({ suppress = false }: { suppress?: boolean }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {scene.strokes.map((s, i) => (
+        {strokes.map((s, i) => (
           <StrokeEl key={i} s={s} />
         ))}
         {livePts.length >= 2 && (

@@ -115,7 +115,7 @@ export function ReelBeatStage({
   // diagram (default non-spotlight fallback)
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-[#0f172a]"
+      className="fixed inset-0 z-50 flex flex-col bg-[#1a1b26]"
       data-testid="reel-beat-diagram"
     >
       <svg
@@ -123,7 +123,7 @@ export function ReelBeatStage({
         viewBox="0 0 1000 1000"
         preserveAspectRatio="xMidYMid meet"
       >
-        <rect width="1000" height="1000" fill="#0f172a" />
+        <rect width="1000" height="1000" fill="#1a1b26" />
         {strokes.map((s, i) => {
           if (s.type === "path") {
             return (

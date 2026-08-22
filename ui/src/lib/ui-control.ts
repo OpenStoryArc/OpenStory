@@ -44,6 +44,10 @@ export interface ControlParams {
   eventId?: string;
   detailView?: string;
   reelId?: string;
+  beatIndex?: number;
+  /** draw: where the ink lands — "here" (default, the human's current glass
+   *  context) or "board" (the Draw tab's global paper). */
+  scope?: string;
   autoplay?: unknown;
   filePath?: string;
   searchQuery?: string;
@@ -159,7 +163,32 @@ export type UIControlAction =
       readonly target?: "studio" | "slide";
       readonly reelId?: string;
       readonly beatIndex?: number;
+      /**
+       * Ink scope: "here" (default) = the human's current glass context;
+       * "board" = the Draw tab's global paper. Resolved by resolveDrawScope.
+       */
+      readonly scope?: "here" | "board";
     };
+
+/** Where a draw intent lands. "here" (default) = the human's current glass
+ *  context; on the Draw tab "here" IS the board, so agent flows that open
+ *  Draw and then ink keep working unchanged.
+ *  Precedence: an explicit `reelId` + `beatIndex` names a reel slide and wins
+ *  over `scope` — a beat-targeted stroke is never re-routed to the board. */
+export function resolveDrawScope(
+  params: ControlParams,
+  glassKey: string | null,
+):
+  | { target: "board" }
+  | { target: "glass"; key: string }
+  | { target: "beat"; reelId: string; beatIndex: number } {
+  if (typeof params.reelId === "string" && typeof params.beatIndex === "number") {
+    return { target: "beat", reelId: params.reelId, beatIndex: params.beatIndex };
+  }
+  if (params.scope === "board") return { target: "board" };
+  if (glassKey) return { target: "glass", key: glassKey };
+  return { target: "board" };
+}
 
 /** Resolve a hash `route` string ("#/explore/abc" | "/explore/abc" | "explore")
  *  to a HashRoute, tolerating a missing leading # or /. */
@@ -368,7 +397,12 @@ export function interpretControl(action: string, params: unknown): UIControlActi
     void _t;
     // draw.clear / draw.scene convenience via set
     if (target === "draw.clear") {
-      return { type: "draw", clear: true, strokes: [] };
+      return {
+        type: "draw",
+        clear: true,
+        strokes: [],
+        scope: rest.scope === "board" ? "board" : rest.scope === "here" ? "here" : undefined,
+      };
     }
     if (target === "draw.scene" || target === "draw") {
       return {
@@ -378,6 +412,7 @@ export function interpretControl(action: string, params: unknown): UIControlActi
         visible: rest.visible === false ? false : rest.visible === true ? true : undefined,
         label: typeof rest.label === "string" ? rest.label : undefined,
         mode: rest.mode === "replace" ? "replace" : rest.mode === "append" ? "append" : undefined,
+        scope: rest.scope === "board" ? "board" : rest.scope === "here" ? "here" : undefined,
       };
     }
     return { type: "set", target, params: rest };
@@ -423,6 +458,7 @@ export function interpretControl(action: string, params: unknown): UIControlActi
       href: typeof p.href === "string" ? p.href : undefined,
       preferId: typeof p.preferId === "string" ? p.preferId : undefined,
       target: "studio",
+      scope: p.scope === "board" ? "board" : p.scope === "here" ? "here" : undefined,
     };
   }
   return null;

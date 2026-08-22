@@ -4,6 +4,7 @@ import {
   normalizeReelToSlides,
   playerToSlideIndex,
   slideInkKey,
+  captionFor,
 } from "@/lib/reel-slide";
 import type { Reel } from "@/lib/reels-api";
 
@@ -63,5 +64,17 @@ describe("normalizeReelToSlides", () => {
     expect(playerToSlideIndex(slides, "stop", 2)).toBe(3);
     expect(playerToSlideIndex(slides, "closer", 0)).toBe(4);
     expect(slideInkKey("reel-x", 2)).toBe("reel-x:2");
+  });
+});
+
+describe("captionFor", () => {
+  it("suppresses the caption on title slides — the stage already shows the line", () => {
+    expect(captionFor({ kind: "title", line: "Bottom line: it works." })).toBeNull();
+  });
+
+  it("returns the line for spotlight, diagram, and image slides", () => {
+    expect(captionFor({ kind: "spotlight", line: "We searched first." })).toBe("We searched first.");
+    expect(captionFor({ kind: "diagram", line: "The journey." })).toBe("The journey.");
+    expect(captionFor({ kind: "image", line: "The screenshot." })).toBe("The screenshot.");
   });
 });

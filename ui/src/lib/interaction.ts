@@ -40,6 +40,12 @@ type WithLayout = {
     interactive?: boolean;
     kinds?: Record<string, number>;
   };
+  /** Glass-ink snapshot for the current routeGlassKey context (1:1 with the
+   *  view/session the ink is drawn on — not the Draw tab's board). */
+  glassInk?: {
+    key: string;
+    stroke_count: number;
+  };
 };
 
 /** Typed interaction schema — one shape per kind. Grow a variant's fields for
@@ -106,6 +112,18 @@ export function filterInteraction(view: string, filters: unknown, sessionId?: st
   const i: Extract<Interaction, { kind: "filter" }> = { kind: "filter", view, filters };
   if (sessionId) i.session_id = sessionId;
   return i;
+}
+
+/** A glass-ink interaction — ink landed on the CURRENT CONTEXT's glass (human
+ *  freehand or an agent `draw` with scope "here"). Built from the route so the
+ *  frame it becomes keeps session/detail context: glass ink is deictic, and an
+ *  agent reading `where_is_user` must still see *what* the ink points at. */
+export function glassInkInteraction(
+  route: HashRoute,
+  key: string,
+  strokeCount: number,
+): Extract<Interaction, { kind: "navigate" }> {
+  return { ...interactionFromRoute(route), glassInk: { key, stroke_count: strokeCount } };
 }
 
 /** A "zoom" interaction — the user changed a view's zoom/mode (drill, tempo). */
