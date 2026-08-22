@@ -145,7 +145,14 @@ mod tests {
 
     #[test]
     fn test_new_defaults_boundary_table() {
-        let cases: Vec<(&str, Option<&str>, Option<&str>, Option<&str>, Option<&str>)> = vec![
+        type DefaultsCase = (
+            &'static str,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+        );
+        let cases: Vec<DefaultsCase> = vec![
             (
                 "all None → auto-generated id + time",
                 None,

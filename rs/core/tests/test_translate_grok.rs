@@ -179,7 +179,9 @@ fn session_update_to_subtype_boundary_table() {
 #[test]
 fn tool_outcome_boundary_table() {
     // (name, tool, input, output, is_error, expected type tag)
-    let cases: Vec<(&str, &str, Value, &str, bool, Option<&str>)> = vec![
+    type OutcomeCase =
+        (&'static str, &'static str, Value, &'static str, bool, Option<&'static str>);
+    let cases: Vec<OutcomeCase> = vec![
         (
             "read_file ok",
             "read_file",
@@ -270,7 +272,8 @@ fn tool_outcome_boundary_table() {
         match expected_tag {
             None => assert!(outcome.is_none(), "case `{name}` expected no outcome"),
             Some(tag) => {
-                let outcome = outcome.expect(&format!("case `{name}` expected outcome"));
+                let outcome =
+                    outcome.unwrap_or_else(|| panic!("case `{name}` expected outcome"));
                 let v = serde_json::to_value(outcome).unwrap();
                 assert_eq!(
                     v.get("type").and_then(|t| t.as_str()),
@@ -338,19 +341,19 @@ fn fixture_sample_produces_tool_pairs_and_turn_boundaries() {
 
     // Must see the core agentic shapes somewhere in the fixture stream.
     assert!(
-        subtypes.iter().any(|s| *s == "message.user.prompt"),
+        subtypes.contains(&"message.user.prompt"),
         "expected user prompt; got {subtypes:?}"
     );
     assert!(
-        subtypes.iter().any(|s| *s == "message.assistant.tool_use"),
+        subtypes.contains(&"message.assistant.tool_use"),
         "expected tool_use; got {subtypes:?}"
     );
     assert!(
-        subtypes.iter().any(|s| *s == "message.user.tool_result"),
+        subtypes.contains(&"message.user.tool_result"),
         "expected tool_result; got {subtypes:?}"
     );
     assert!(
-        subtypes.iter().any(|s| *s == "system.turn.complete"),
+        subtypes.contains(&"system.turn.complete"),
         "expected synthetic turn boundary; got {subtypes:?}"
     );
 
