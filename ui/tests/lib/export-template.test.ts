@@ -54,4 +54,42 @@ describe("bakeReelHtml", () => {
     expect(inner).not.toContain("</script>");
     expect(JSON.parse(inner.replace(/<\\\/script>/g, "</script>")).reel.slides.length).toBe(1);
   });
+
+  // Case-insensitive / whitespace-tolerant </script> breakout: real HTML
+  // parsers close a <script> element on ANY capitalization of "script" and
+  // tolerate whitespace before ">". A naive escape of only the exact
+  // lowercase "</script>" leaves </SCRIPT>, </script >, and </ScRiPt>
+  // untouched, letting an attacker-controlled bundle field (line, caption,
+  // title, snapshot text) terminate the JSON block early and inject a real
+  // DOM element (e.g. <img onerror=...>) outside it.
+  describe.each([
+    ["</SCRIPT>", "uppercase"],
+    ["</script >", "whitespace before >"],
+    ["</ScRiPt>", "mixed case"],
+  ])("neutralizes %s breakout (%s)", (closeVariant, _reason) => {
+    const payload = `x${closeVariant}<img src=x onerror="window.__pwned=1">`;
+    const evil = buildBundle(
+      { ...REEL, opener: undefined, stops: [{ line: payload, kind: "title" }] } as Reel,
+      new Map(), new Map(), { exportedBy: "max" },
+    );
+    const d = bakeReelHtml(evil);
+
+    it("leaves no img/script element outside the reel-bundle block when parsed as HTML", () => {
+      const parsed = new DOMParser().parseFromString(d, "text/html");
+      // No stray elements injected by the breakout attempt anywhere in the doc.
+      expect(parsed.querySelectorAll("img").length).toBe(0);
+      // Exactly the two script tags this template always emits: the JSON
+      // payload and the inline player — no extra <script> from a breakout.
+      expect(parsed.querySelectorAll("script").length).toBe(2);
+    });
+
+    it("still round-trips the bundle JSON, payload intact", () => {
+      const parsed = new DOMParser().parseFromString(d, "text/html");
+      const scriptEl = parsed.getElementById("reel-bundle");
+      expect(scriptEl).not.toBeNull();
+      const parsedBundle = JSON.parse(scriptEl!.textContent ?? "");
+      expect(parsedBundle).toEqual(evil);
+      expect(parsedBundle.reel.slides[0].line).toBe(payload);
+    });
+  });
 });

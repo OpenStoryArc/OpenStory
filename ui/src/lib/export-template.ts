@@ -501,7 +501,21 @@ function renderDots(bundle: ReelBundle): string {
 }
 
 export function bakeReelHtml(bundle: ReelBundle): string {
-  const json = JSON.stringify(bundle).replace(/<\/script>/g, "<\\/script>");
+  // Escape on the "</script" prefix alone, case-insensitively, regardless of
+  // what follows — real HTML parsers close a script element on any
+  // case-variant of "</script" tolerant of whitespace before ">" (</SCRIPT>,
+  // </script >, </ScRiPt>, ...). Matching only the exact lowercase
+  // "</script>" (as a naive first pass would) leaves those variants intact,
+  // letting an attacker-controlled bundle field break out of the JSON block.
+  // Inserting a backslash right after "<" breaks the "</" sequence itself, so
+  // no case/whitespace variant can ever form a real end tag. "\/" is a valid
+  // JSON escape for "/", so JSON.parse transparently restores the original
+  // text — no matching unescape step is needed in the inline reader below.
+  // Capture the matched "/script..." text and re-emit it verbatim (rather
+  // than a hardcoded lowercase replacement) so the original casing of
+  // attacker-controlled content — e.g. "</SCRIPT>" — round-trips unchanged;
+  // only the tag-closing sequence itself is neutralized.
+  const json = JSON.stringify(bundle).replace(/<(\/script)/gi, (_m, closer: string) => `<\\${closer}`);
   const title = escapeHtml(bundle.reel.title || "Reel");
   const scanLabel =
     bundle.scan.findings === 0
