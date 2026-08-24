@@ -1066,3 +1066,21 @@ the BLUF rule. Next, in rough priority order:
   per-user preference.
 - **ReelMeta could carry opener/closer presence** so the list view can badge
   BLUF-compliant reels.
+- **Video export — second ReelBundle consumer.** The HTML export bakes a
+  versioned ReelBundle (schema: ui/src/lib/reel-bundle.ts; spec:
+  docs/superpowers/specs/2026-08-22-reel-export-design.md). The video renderer
+  from docs/research/reel-to-video.md should consume the same bundle: headless
+  render of each slide stage → frames, TTS for lines, mux; embed the bundle as
+  MP4 metadata + per-beat chapter provenance (platforms that transcode strip
+  metadata — on-screen citations stay burned in).
+- **Tighten export scan regexes.** The sensitive-content scanner
+  (ui/src/lib/export-scan.ts) misses some real shapes: JSON quoted-key secrets
+  (`\"api_key\": \"...\"`), lowercase `bearer`, bare `/Users/name` with no trailing
+  slash, and only the first match per family per row. Broaden coverage; it's the
+  gate that warns before a reel leaves the machine.
+- **Automated coverage for spotlight-snapshot capture.** `collectBundle`'s
+  real-EventSpotlight createRoot capture path (ui/src/lib/export-collect.ts)
+  has no automated test (jsdom can't mount/lay it out); it's currently only
+  verified by manual Chrome walkthrough. Add coverage (headless browser /
+  integration) so the offscreen-capture containing-block fix and
+  sanitize-before-embed can't silently regress.
