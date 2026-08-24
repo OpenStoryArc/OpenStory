@@ -93,6 +93,19 @@ describe("sanitizeSnapshotHtml", () => {
     expect(out).not.toContain("exfil.svg");
   });
 
+  it("drops <template> content wholesale (its content lives outside .children)", () => {
+    // <template> content is a DocumentFragment reachable only via .content,
+    // not .children — walk() never descends into it, so a naive "strip the
+    // dangerous children" pass leaves anything nested inside untouched. The
+    // whole element must be dropped, not walked.
+    const out = sanitizeSnapshotHtml(
+      "<template><script>alert(1)</script><img onerror=\"y\" src=\"z\"></template>",
+    );
+    expect(out).not.toContain("script");
+    expect(out).not.toContain("onerror");
+    expect(out).not.toContain("template");
+  });
+
   it("keeps same-document funcIRI refs and benign fill/stroke values", () => {
     const out = sanitizeSnapshotHtml(
       "<svg><rect fill=\"url(#gradient)\" stroke=\"#ff0000\" stroke-width=\"2\"/><defs><linearGradient id=\"gradient\"><stop/></linearGradient></defs></svg>",

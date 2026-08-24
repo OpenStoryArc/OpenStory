@@ -55,6 +55,53 @@ describe("bakeReelHtml", () => {
     expect(JSON.parse(inner.replace(/<\\\/script>/g, "</script>")).reel.slides.length).toBe(1);
   });
 
+  it("scrubs external refs out of strokes/ink before they ever reach the baked JSON", () => {
+    // The earlier "no http(s) src/href" check above only looks for HTML
+    // *attribute* patterns — it never catches a URL sitting inside the
+    // embedded bundle JSON, which is exactly where a stroke or ink `href`/
+    // `fill` value lives. A stroke `image` href of "https://evil.example/…"
+    // or a `fill: "url(https://evil/x)"` value rides along verbatim unless
+    // strokes are normalized at build time — this proves the baked output
+    // carries no such reference, HTML attribute or JSON string alike.
+    const evilReel = {
+      ...REEL,
+      opener: undefined,
+      stops: [{ line: "Diagram.", kind: "diagram" }],
+    } as Reel;
+    const evilBundle = buildBundle(
+      evilReel,
+      new Map([
+        [
+          "r1:s0",
+          {
+            type: "strokes",
+            strokes: [
+              { type: "path", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], fill: "url(https://evil.example/x)" },
+            ],
+          },
+        ],
+      ]),
+      new Map([
+        [
+          "r1:s0",
+          [{ type: "image", href: "https://evil.example/beacon.png", x: 0, y: 0, w: 0.1, h: 0.1 }],
+        ],
+      ]),
+      { exportedBy: "max", now: () => "t0" },
+    );
+    const d = bakeReelHtml(evilBundle);
+    // "evil.example" never appears anywhere in the document, baked JSON or
+    // static player chrome alike.
+    expect(d).not.toContain("://evil");
+    // The embedded bundle JSON specifically must carry no http(s) reference.
+    // (The static player <script> legitimately contains one benign, fixed,
+    // non-fetched string — the SVG XML namespace URI passed to
+    // createElementNS — so the assertion is scoped to the JSON payload
+    // rather than the whole document.)
+    const inner = d.split('id="reel-bundle">')[1]!.split("</script>")[0]!;
+    expect(inner.toLowerCase()).not.toMatch(/https?:\/\//);
+  });
+
   // Case-insensitive / whitespace-tolerant </script> breakout: real HTML
   // parsers close a <script> element on ANY capitalization of "script" and
   // tolerate whitespace before ">". A naive escape of only the exact

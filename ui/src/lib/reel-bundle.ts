@@ -7,6 +7,7 @@
 import type { Reel } from "@/lib/reels-api";
 import { captionFor, normalizeReelToSlides, type Slide } from "@/lib/reel-slide";
 import type { DrawStroke } from "@/lib/draw";
+import { cleanUrl } from "@/lib/export-sanitize";
 
 export type BundleStage =
   | { readonly type: "text" }
@@ -55,6 +56,55 @@ function defaultStage(slide: Slide): BundleStage {
   return { type: "text" };
 }
 
+/** Only `data:` image strokes are inert in a self-contained export — anything
+ *  else (http(s):, protocol-relative, javascript:, ...) is a live network
+ *  reference that would fire the moment the baked file (or its preview) is
+ *  opened. `draw.ts::normalizeStroke` allows http(s) at capture time (ink is
+ *  drawn live, against a real screen), so the export boundary is where it
+ *  must be closed off — not the capture boundary. */
+function cleanStrokeImageHref(href: string): string {
+  return href.trim().toLowerCase().startsWith("data:") ? href : "";
+}
+
+/** Make one stroke inert for a self-contained export: gate `image` hrefs to
+ *  `data:` only, and scrub any funcIRI-capable presentation attribute
+ *  (`fill`, `stroke`) of external `url(...)` references, reusing the exact
+ *  rule `export-sanitize.ts` applies to snapshot HTML (`cleanUrl`) so the two
+ *  scrub paths — snapshot markup and stroke geometry — can't drift apart. */
+export function sanitizeStroke(s: DrawStroke): DrawStroke {
+  switch (s.type) {
+    case "image":
+      return { ...s, href: cleanStrokeImageHref(s.href) };
+    case "path":
+    case "circle":
+    case "ellipse":
+      return {
+        ...s,
+        fill: s.fill === undefined ? undefined : cleanUrl(s.fill),
+        stroke: s.stroke === undefined ? undefined : cleanUrl(s.stroke),
+      };
+    case "line":
+      return { ...s, stroke: s.stroke === undefined ? undefined : cleanUrl(s.stroke) };
+    case "text":
+      return { ...s, fill: s.fill === undefined ? undefined : cleanUrl(s.fill) };
+    default:
+      return s;
+  }
+}
+
+function sanitizeStrokes(strokes: readonly DrawStroke[]): DrawStroke[] {
+  return strokes.map(sanitizeStroke);
+}
+
+/** Make a stage inert in place — only `strokes` stages carry stroke geometry
+ *  (image/snapshot stages are handled by the collector / export-sanitize). */
+function sanitizeStage(stage: BundleStage): BundleStage {
+  if (stage.type === "strokes") {
+    return { type: "strokes", strokes: sanitizeStrokes(stage.strokes) };
+  }
+  return stage;
+}
+
 export function buildBundle(
   reel: Reel,
   stages: ReadonlyMap<string, BundleStage>,
@@ -74,8 +124,8 @@ export function buildBundle(
       line: s.line,
       caption: captionFor(s),
       ...(anchor ? { anchor } : {}),
-      stage: stages.get(s.id) ?? defaultStage(s),
-      ...(slideInk && slideInk.length > 0 ? { ink: slideInk } : {}),
+      stage: sanitizeStage(stages.get(s.id) ?? defaultStage(s)),
+      ...(slideInk && slideInk.length > 0 ? { ink: sanitizeStrokes(slideInk) } : {}),
     };
   });
   return {
@@ -110,6 +160,11 @@ export function bundleText(
     }
     if (s.stage.type === "strokes") {
       for (const st of s.stage.strokes) {
+        if (st.type === "text") rows.push({ slideId: s.id, field: "stroke-text", text: st.text });
+      }
+    }
+    if (s.ink) {
+      for (const st of s.ink) {
         if (st.type === "text") rows.push({ slideId: s.id, field: "stroke-text", text: st.text });
       }
     }

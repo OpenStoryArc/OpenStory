@@ -33,4 +33,15 @@ describe("scanBundle families", () => {
     const f = scanOf("x".repeat(200) + " AKIAIOSFODNN7EXAMPLE");
     expect(f[0]!.excerpt.length).toBeLessThanOrEqual(80);
   });
+
+  it("flags a secret hiding in beat ink text (ink ships by default, so it must be scanned)", () => {
+    const reel: Reel = {
+      id: "r", title: "t", author: "a", created: "c",
+      stops: [{ line: "A diagram.", kind: "diagram" }],
+    } as Reel;
+    const ink = new Map([["r:s0", [{ type: "text", x: 0.5, y: 0.5, text: "AKIAIOSFODNN7EXAMPLE" }] as const]]);
+    const bundle = buildBundle(reel, new Map(), ink, { exportedBy: "x" });
+    const findings = scanBundle(bundle);
+    expect(findings.some((f) => f.slideId === "r:s0" && f.family === "aws-key")).toBe(true);
+  });
 });
