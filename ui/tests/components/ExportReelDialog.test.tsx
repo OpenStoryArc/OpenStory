@@ -13,7 +13,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ExportReelDialog } from "@/components/reels/ExportReelDialog";
+import { sanitizeSnapshotHtml } from "@/lib/export-sanitize";
 import type { Reel } from "@/lib/reels-api";
+
+// Passthrough by default — only the "spotlight capture throws" spec below
+// overrides this (once) to prove a throw mid-capture degrades one slide
+// instead of aborting the whole export. Every other spec in this file uses
+// `kind: "title"` fixtures that never reach this function at all.
+vi.mock("@/lib/export-sanitize", () => ({
+  sanitizeSnapshotHtml: vi.fn((html: string) => html),
+}));
 
 afterEach(() => {
   cleanup();
@@ -52,6 +61,19 @@ const FINDING_REEL: Reel = {
   created: "2026-08-01T10:00:00Z",
   author: "max",
   stops: [{ line: "key AKIAIOSFODNN7EXAMPLE was rotated", kind: "title" }],
+};
+
+const SPOTLIGHT_THROW_REEL: Reel = {
+  id: "r3",
+  title: "Partially Exportable",
+  created: "2026-08-01T10:00:00Z",
+  author: "max",
+  stops: [
+    // Default kind (no `kind` field) is "spotlight" — its capture is made
+    // to throw below via the sanitizeSnapshotHtml mock.
+    { sessionId: "s1", eventId: "e1", line: "This spotlight capture will throw." },
+    { line: "This slide is fine.", kind: "title" },
+  ],
 };
 
 describe("when the collected bundle scans clean", () => {
@@ -124,5 +146,45 @@ describe("the export preview", () => {
     await waitFor(() => expect(screen.getByTestId("export-reel-iframe")).toBeInTheDocument());
     const iframe = screen.getByTestId("export-reel-iframe") as HTMLIFrameElement;
     expect(iframe.srcdoc).toContain('id="reel-bundle"');
+  });
+
+  it("should report the real finding count, never 'scan: clean', once findings exist", async () => {
+    stubReelFetch(FINDING_REEL);
+    render(<ExportReelDialog reelId="r2" onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("export-reel-primary")).toHaveTextContent("Export anyway"),
+    );
+    // By the time the primary button reflects findings > 0, the previewed
+    // iframe must already agree — buildBundle's placeholder
+    // {findings:0, acknowledged:false} must have been folded over with the
+    // real count before baking, not left in place.
+    const iframe = screen.getByTestId("export-reel-iframe") as HTMLIFrameElement;
+    expect(iframe.srcdoc).toContain('"findings":1');
+    expect(iframe.srcdoc).not.toContain("scan: clean");
+  });
+});
+
+describe("when a spotlight slide's capture throws", () => {
+  it("should degrade that one slide and still export the rest of the reel", async () => {
+    stubReelFetch(SPOTLIGHT_THROW_REEL);
+    vi.mocked(sanitizeSnapshotHtml).mockImplementationOnce(() => {
+      throw new Error("simulated sanitize crash mid-capture");
+    });
+
+    render(<ExportReelDialog reelId="r3" onClose={vi.fn()} />);
+
+    // The export still completes — a throw during one slide's capture must
+    // not reject collectBundle and hard-error the whole dialog.
+    await waitFor(() =>
+      expect(screen.getByTestId("export-reel-primary")).toHaveTextContent("Save reel file"),
+    );
+
+    // The slide whose capture threw is reported as degraded...
+    expect(screen.getByTestId("export-reel-degraded")).toHaveTextContent("r3:s0");
+
+    // ...while the other slide still made it into the baked bundle.
+    const iframe = screen.getByTestId("export-reel-iframe") as HTMLIFrameElement;
+    expect(iframe.srcdoc).toContain('"id":"r3:s1"');
   });
 });

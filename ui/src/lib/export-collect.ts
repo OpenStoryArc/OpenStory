@@ -49,12 +49,27 @@ async function captureSpotlightSnapshot(
   clipAt: string | undefined,
 ): Promise<string | null> {
   const host = document.createElement("div");
+  // `EventSpotlight`'s own root is `position: fixed; inset: 0` — a `fixed`
+  // descendant is positioned against the viewport, NOT against a `fixed`
+  // ancestor, unless that ancestor establishes a containing block (CSS
+  // Transforms spec: transform/filter/perspective/contain/will-change all
+  // qualify). `left:-99999px` alone does nothing to stop the backdrop from
+  // painting full-screen over the real app for up to 2s. `transform` here
+  // makes `host` the containing block so the fixed backdrop is positioned
+  // relative to `host` (off-screen) instead of the viewport. `visibility:
+  // hidden` is the second, independent belt: inherited by descendants
+  // (EventSpotlight doesn't override it), so nothing paints even if some
+  // other browser's containing-block quirks differ — and unlike
+  // `display:none`, hidden elements still lay out and populate the DOM, so
+  // `innerHTML` capture below still works.
   host.style.position = "fixed";
   host.style.left = "-99999px";
   host.style.top = "0";
   host.style.width = "1024px";
   host.style.height = "768px";
   host.style.pointerEvents = "none";
+  host.style.visibility = "hidden";
+  host.style.transform = "translateZ(0)";
   document.body.appendChild(host);
 
   const root = createRoot(host);
@@ -80,6 +95,12 @@ async function captureSpotlightSnapshot(
     }
     if (!card) return null;
     return sanitizeSnapshotHtml(card.innerHTML);
+  } catch {
+    // A throw anywhere in this render/poll/capture sequence (React render,
+    // an effect flush, sanitizeSnapshotHtml) must degrade this ONE slide,
+    // not reject the whole export — same contract as the timeout path
+    // above and as imageToDataUri/fetchJourneyLabels's own try/catch.
+    return null;
   } finally {
     root.unmount();
     host.remove();
@@ -221,7 +242,18 @@ export async function collectBundle(
   const degraded: string[] = [];
   const stages = new Map<string, BundleStage>();
   for (const slide of slides) {
-    const stage = await collectStage(reel, slide, degraded);
+    // Defense-in-depth: each stage type already guards its own known
+    // failure modes (timeout, non-ok fetch, blob-read error) and degrades
+    // by returning null. This outer guard catches anything UNANTICIPATED —
+    // one slide's unexpected throw must never abort the rest of the
+    // export, per the spec's per-slide degradation philosophy.
+    let stage: BundleStage | null;
+    try {
+      stage = await collectStage(reel, slide, degraded);
+    } catch {
+      if (!degraded.includes(slide.id)) degraded.push(slide.id);
+      stage = null;
+    }
     if (stage) stages.set(slide.id, stage);
   }
 

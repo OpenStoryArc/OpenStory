@@ -79,9 +79,21 @@ export function ExportReelDialog({
     let cancelled = false;
     setState({ phase: "collecting" });
     collectBundle(reelId)
-      .then(({ bundle, degraded }) => {
+      .then(({ bundle: collected, degraded }) => {
         if (cancelled) return;
-        const findings = scanBundle(bundle);
+        const findings = scanBundle(collected);
+        // `buildBundle` always hands back `scan: {findings: 0, acknowledged:
+        // false}` — it has no way to know the real count until AFTER
+        // scanBundle runs on its own output. Fold the real count in before
+        // baking, so the previewed iframe (footer + embedded #reel-bundle
+        // JSON) reports the same receipt the findings panel is about to
+        // show, from the moment findings are known — never "scan: clean"
+        // while N findings sit beside it. `acknowledged` stays false here;
+        // handleExportAnyway is the only place that flips it to true.
+        const bundle: ReelBundle = {
+          ...collected,
+          scan: { v: 1, findings: findings.length, acknowledged: false },
+        };
         const html = bakeReelHtml(bundle);
         setState({ phase: "ready", bundle, degraded, findings, html });
       })
