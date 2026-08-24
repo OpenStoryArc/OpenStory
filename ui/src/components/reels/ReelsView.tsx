@@ -29,6 +29,7 @@ import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
 import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
+import { ExportReelDialog } from "@/components/reels/ExportReelDialog";
 import { normalizeStopKind } from "@/lib/reel-visual";
 import { normalizeReelToSlides, playerToSlideIndex, captionFor } from "@/lib/reel-slide";
 import { absoluteTime, fullTimestamp } from "@/lib/time";
@@ -51,6 +52,7 @@ export function ReelsView({ route, onNavigate }: ReelsViewProps) {
 
 function ReelsList({ onNavigate }: { onNavigate: (route: HashRoute) => void }) {
   const [reels, setReels] = useState<ReelMeta[] | null>(null);
+  const [exportingReelId, setExportingReelId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,14 +105,30 @@ function ReelsList({ onNavigate }: { onNavigate: (route: HashRoute) => void }) {
       </div>
       <div className="flex flex-col gap-2">
         {reels.map((meta) => (
-          <ReelRow key={meta.id} meta={meta} onNavigate={onNavigate} />
+          <ReelRow
+            key={meta.id}
+            meta={meta}
+            onNavigate={onNavigate}
+            onExport={setExportingReelId}
+          />
         ))}
       </div>
+      {exportingReelId && (
+        <ExportReelDialog reelId={exportingReelId} onClose={() => setExportingReelId(null)} />
+      )}
     </div>
   );
 }
 
-function ReelRow({ meta, onNavigate }: { meta: ReelMeta; onNavigate: (route: HashRoute) => void }) {
+function ReelRow({
+  meta,
+  onNavigate,
+  onExport,
+}: {
+  meta: ReelMeta;
+  onNavigate: (route: HashRoute) => void;
+  onExport: (reelId: string) => void;
+}) {
   return (
     <div
       className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--divider)] bg-[color:var(--bg-surface)] px-4 py-3 cursor-pointer transition-colors hover:border-[color:var(--accent)]/50"
@@ -129,16 +147,28 @@ function ReelRow({ meta, onNavigate }: { meta: ReelMeta; onNavigate: (route: Has
           <span>@{meta.author}</span>
         </div>
       </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onNavigate({ view: "reels", reelId: meta.id, reelAutoplay: true });
-        }}
-        className="shrink-0 rounded-full border border-[color:var(--accent)]/40 px-3 py-1 text-xs font-medium text-[color:var(--accent)] transition-colors hover:bg-[color:var(--accent)]/10"
-        data-testid={`reel-play-${meta.id}`}
-      >
-        ▶ Play
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate({ view: "reels", reelId: meta.id, reelAutoplay: true });
+          }}
+          className="rounded-full border border-[color:var(--accent)]/40 px-3 py-1 text-xs font-medium text-[color:var(--accent)] transition-colors hover:bg-[color:var(--accent)]/10"
+          data-testid={`reel-play-${meta.id}`}
+        >
+          ▶ Play
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onExport(meta.id);
+          }}
+          className="rounded-full border border-[color:var(--divider)] px-3 py-1 text-xs font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
+          data-testid={`reel-export-${meta.id}`}
+        >
+          Export
+        </button>
+      </div>
     </div>
   );
 }
@@ -148,6 +178,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   // undefined = loading, null = fetched but not found.
   const [reel, setReel] = useState<Reel | null | undefined>(undefined);
   const [annotating, setAnnotating] = useState(false);
+  const [exportingReelId, setExportingReelId] = useState<string | null>(null);
 
   useEffect(() => {
     const sub = drawInteractive$().subscribe(setAnnotating);
@@ -287,13 +318,22 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
           <p className="mb-4 text-xs text-[color:var(--text-muted)]">
             {reel.stops.length} stop{reel.stops.length === 1 ? "" : "s"} · @{reel.author}
           </p>
-          <button
-            onClick={() => dispatch({ type: "PLAY" })}
-            className="rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--bg)] transition-opacity hover:opacity-90"
-            data-testid="reels-player-play"
-          >
-            ▶ Play
-          </button>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              onClick={() => dispatch({ type: "PLAY" })}
+              className="rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--bg)] transition-opacity hover:opacity-90"
+              data-testid="reels-player-play"
+            >
+              ▶ Play
+            </button>
+            <button
+              onClick={() => setExportingReelId(reel.id)}
+              className="rounded-full border border-[color:var(--divider)] px-4 py-2 text-sm font-medium text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text)]"
+              data-testid={`reel-export-${reel.id}`}
+            >
+              Export
+            </button>
+          </div>
           <div className="mt-3">
             <button
               onClick={() => onNavigate({ view: "reels" })}
@@ -303,6 +343,9 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
             </button>
           </div>
         </div>
+        {exportingReelId && (
+          <ExportReelDialog reelId={exportingReelId} onClose={() => setExportingReelId(null)} />
+        )}
       </div>
     );
   }
