@@ -60,6 +60,12 @@ history/
 deploy/*.env
 !deploy/*.env.example
 
+# Arena deploy stack — mirrors the deploy/*.env pattern above; already
+# covered by the bare `.env` rule too, made explicit here since arena/deploy
+# is where operators will actually run `cp .env.example .env`.
+arena/deploy/*.env
+!arena/deploy/*.env.example
+
 # Local-only deployment overrides (machine-specific tokens, hostnames, etc.).
 # These pair with committed templates of the same name minus the `.local`.
 docker-compose.*.local.yml

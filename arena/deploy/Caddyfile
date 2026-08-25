@@ -1,0 +1,63 @@
+{$ARENA_BASE_DOMAIN} {
+	tls {
+		dns cloudflare {$CF_API_TOKEN}
+	}
+
+	# SECURITY: /authz is arena-cp's internal forward_auth decision endpoint
+	# (see the wildcard site below). It must never be reachable by a client
+	# hitting the base domain directly — that would let an attacker probe
+	# authz decisions, or hit the handler with headers Caddy did not set,
+	# outside the forward_auth path that guarantees X-Forwarded-Host is
+	# trustworthy (see the load-bearing header_up block below). Block it
+	# here, before the general reverse_proxy, with a flat 403. This handle
+	# MUST stay ahead of the reverse_proxy below.
+	respond /authz 403
+
+	reverse_proxy arena-cp:8080 {
+		# LOAD-BEARING: register/login run a per-IP rate limiter
+		# (client_ip() in arena/src/routes.rs) keyed on X-Forwarded-For.
+		# That header is client-suppliable by default — a caller can send
+		# their own X-Forwarded-For and pick whatever rate-limit bucket
+		# they like. header_up here unconditionally overwrites it with
+		# Caddy's own view of the connecting peer, same reasoning as the
+		# wildcard site's forward_auth block below.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {host}
+	}
+}
+
+*.{$ARENA_BASE_DOMAIN} {
+	tls {
+		dns cloudflare {$CF_API_TOKEN}
+	}
+
+	forward_auth arena-cp:8080 {
+		uri /authz
+		copy_headers X-Arena-User
+
+		# LOAD-BEARING — do not remove. arena-cp's /authz handler makes its
+		# entire Allow/Deny/LoginRedirect decision from the Host it thinks
+		# it was called for, read off X-Forwarded-Host (see the TRUST
+		# PRECONDITION comment on get_authz in arena/src/routes.rs). Without
+		# this unconditional overwrite, X-Forwarded-Host is client-suppliable:
+		# a request could claim to be for someone else's subdomain and get
+		# authorized as its owner. {host} is Caddy's own match on the TLS
+		# SNI/Host that selected this site block, so it cannot be spoofed by
+		# the client the way a forwarded header can.
+		header_up X-Forwarded-Host {host}
+
+		# Same reasoning, for the control plane's IP-based rate limiter:
+		# overwrite X-Forwarded-For with the actual connecting peer rather
+		# than trusting whatever the client sent.
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	@story header_regexp story Host ^([a-z0-9-]+)-story\.
+	handle @story {
+		reverse_proxy sandbox-{re.story.1}:3002
+	}
+	handle {
+		@user header_regexp user Host ^([a-z0-9-]+)\.
+		reverse_proxy sandbox-{re.user.1}:7681
+	}
+}

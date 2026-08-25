@@ -1,0 +1,39 @@
+# Local-dev variant of ./Caddyfile — identical except `tls internal` (Caddy's
+# own local CA) in place of the Cloudflare DNS-01 challenge, so it needs no
+# CF_API_TOKEN and no real DNS. See ../README.md "Local-dev mode" for the
+# /etc/hosts entries and browser CA-trust steps this pairs with. Keep this
+# file's directives in sync with ./Caddyfile — the only intended difference
+# is the `tls` block.
+{$ARENA_BASE_DOMAIN} {
+	tls internal
+
+	# SECURITY: see ./Caddyfile — same reasoning, kept in sync here.
+	respond /authz 403
+
+	reverse_proxy arena-cp:8080 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Host {host}
+	}
+}
+
+*.{$ARENA_BASE_DOMAIN} {
+	tls internal
+
+	forward_auth arena-cp:8080 {
+		uri /authz
+		copy_headers X-Arena-User
+
+		# LOAD-BEARING — see ./Caddyfile for the full explanation.
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	@story header_regexp story Host ^([a-z0-9-]+)-story\.
+	handle @story {
+		reverse_proxy sandbox-{re.story.1}:3002
+	}
+	handle {
+		@user header_regexp user Host ^([a-z0-9-]+)\.
+		reverse_proxy sandbox-{re.user.1}:7681
+	}
+}

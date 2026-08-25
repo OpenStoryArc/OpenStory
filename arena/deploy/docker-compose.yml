@@ -1,0 +1,84 @@
+name: arena
+services:
+  caddy:
+    build: ./caddy
+    container_name: arena-caddy
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      - CF_API_TOKEN=${CF_API_TOKEN}
+      - ARENA_BASE_DOMAIN=${ARENA_BASE_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks: [edge]
+
+  arena:
+    build:
+      context: ../..            # repo root; Dockerfile compiles the arena crate
+      dockerfile: arena/deploy/arena/Dockerfile
+    container_name: arena-cp
+    restart: unless-stopped
+    environment:
+      - ARENA_BASE_DOMAIN=${ARENA_BASE_DOMAIN}
+      - ARENA_COOKIE_KEY=${ARENA_COOKIE_KEY}
+      - ARENA_DB=/data/arena.db
+      - ARENA_LISTEN=0.0.0.0:8080
+      - ARENA_DOCKER_RUNTIME=${ARENA_DOCKER_RUNTIME:-}
+      - ARENA_EDGE_CONTAINER=arena-caddy
+      - ARENA_LITELLM_CONTAINER=arena-litellm
+      - ARENA_LITELLM_URL=http://arena-litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    volumes:
+      - arena-data:/data
+      # Event manifests live on the host at ./events and are read by `arena
+      # up` *inside* the container (there is no HTTP upload path for
+      # manifests) — see README "Running an event".
+      - ./events:/events
+      # The control plane is the ONLY service in this stack that touches the
+      # Docker socket: it needs it to create/destroy sandbox containers and
+      # their per-user networks (DockerDriver in src/docker_driver.rs).
+      # Neither caddy nor litellm nor postgres gets this mount — keep it
+      # that way; it is the seal's most sensitive single grant.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [edge, backplane]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: arena-litellm
+    restart: unless-stopped
+    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://litellm:${POSTGRES_PASSWORD}@arena-pg:5432/litellm
+    volumes:
+      - ./litellm-config.yaml:/etc/litellm/config.yaml:ro
+    networks: [edge, backplane]     # edge for Anthropic egress; backplane for pg + arena
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: arena-pg
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=litellm
+    volumes: [pg-data:/var/lib/postgresql/data]
+    networks: [backplane]
+
+networks:
+  edge: {}                # has egress; caddy/arena/litellm
+  backplane:
+    internal: true        # arena <-> litellm <-> postgres control traffic
+  # Per-sandbox networks (arena-sb-{user}) are NOT declared here — the
+  # control plane creates and destroys them at runtime via the Docker API
+  # (DockerDriver, docker_driver.rs) and attaches arena-caddy + arena-litellm
+  # to each one by container name. That's why ARENA_EDGE_CONTAINER and
+  # ARENA_LITELLM_CONTAINER exist as env vars: the driver needs those two
+  # container names to know what to attach.
+
+volumes:
+  caddy-data: {}
+  arena-data: {}
+  pg-data: {}
