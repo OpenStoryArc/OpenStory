@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod authz;
+pub mod cli;
 pub mod db;
 pub mod docker_driver;
 pub mod driver;
