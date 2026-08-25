@@ -4,10 +4,12 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use axum_extra::extract::cookie::SignedCookieJar;
+use chrono::{Duration, Utc};
 use serde::Deserialize;
 
 use crate::authz::AuthzDecision;
-use crate::db::DbError;
+use crate::db::{DbError, SandboxRow};
+use crate::driver::SandboxSpec;
 use crate::state::AppState;
 use crate::{authz, auth, naming, pages, session};
 
@@ -25,8 +27,8 @@ pub struct LoginForm {
 }
 
 /// Build the axum router for the arena HTTP surface: registration, login,
-/// logout, the `/authz` forward-auth endpoint, and the static form pages.
-/// `/launch` is intentionally not registered here — that's Task 8.
+/// logout, the `/authz` forward-auth endpoint, `/launch` (sandbox
+/// provisioning), and the static form pages.
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
@@ -35,6 +37,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/login", get(get_login).post(post_login))
         .route("/logout", post(post_logout))
         .route("/authz", get(get_authz))
+        .route("/launch", post(post_launch))
         .with_state(state)
 }
 
@@ -203,4 +206,100 @@ async fn get_authz(
         }
         AuthzDecision::Deny => (StatusCode::FORBIDDEN, "forbidden").into_response(),
     }
+}
+
+/// Idempotent sandbox provisioning.
+///
+/// - No session → redirect to `/` (the caller isn't logged in).
+/// - Session but the event manifest is gone → 404 (an operator deleted the
+///   event out from under a live user).
+/// - An existing sandbox row whose container is still running → redirect
+///   straight to the terminal host. No new mint, no new create — this is
+///   the common "I already have a session, take me back" path.
+/// - An existing row whose container is NOT running (crashed / reaped) →
+///   recreate the container, reusing the *same* LiteLLM key so a crash
+///   never mints a second key for one user.
+/// - No row at all → mint a fresh key, create the container, persist the
+///   row.
+async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Response {
+    let username = match session::session_user(&jar) {
+        Some(u) => u,
+        None => return Redirect::to("/").into_response(),
+    };
+
+    let user = match state.db.get_user(&username) {
+        Ok(Some(u)) => u,
+        // A valid session cookie for a user row that no longer exists is
+        // effectively "not logged in" from the app's perspective.
+        Ok(None) => return Redirect::to("/").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response(),
+    };
+
+    let event = match state.db.get_event(&user.event) {
+        Ok(Some(e)) => e,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response(),
+    };
+
+    let location = format!(
+        "https://{}",
+        naming::terminal_host(&username, &state.cfg.base_domain)
+    );
+
+    let existing = match state.db.get_sandbox(&username) {
+        Ok(row) => row,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response(),
+    };
+
+    // Reuse the existing LiteLLM key on a recreate (crashed sandbox); mint a
+    // fresh one only when there's no prior row at all.
+    let api_key = if let Some(row) = &existing {
+        let running = state
+            .driver
+            .is_running(&row.container_id)
+            .await
+            .unwrap_or(false);
+        if running {
+            return redirect_to(location);
+        }
+        row.litellm_key.clone()
+    } else {
+        let alias = naming::key_alias(&user.event, &username);
+        match state.minter.mint(&alias, event.budget_usd).await {
+            Ok(key) => key,
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "mint error").into_response(),
+        }
+    };
+
+    let expires_at = Utc::now() + Duration::hours(event.ttl_hours as i64);
+    let spec = SandboxSpec {
+        username: username.clone(),
+        event: user.event.clone(),
+        image: event.image.clone(),
+        api_key: api_key.clone(),
+        expires_at,
+    };
+
+    let container_id = match state.driver.create(&spec).await {
+        Ok(id) => id,
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "sandbox creation error").into_response()
+        }
+    };
+
+    let row = SandboxRow {
+        username,
+        container_id,
+        litellm_key: api_key,
+        expires_at,
+    };
+    if state.db.upsert_sandbox(&row).is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response();
+    }
+
+    redirect_to(location)
+}
+
+fn redirect_to(location: String) -> Response {
+    (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response()
 }
