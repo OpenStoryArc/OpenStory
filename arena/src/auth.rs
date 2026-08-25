@@ -59,12 +59,14 @@ impl RateLimiter {
 
     pub fn check(&mut self, key: &str) -> bool {
         let now = Instant::now();
-        let cutoff = now - self.window;
 
         let hits = self.hits.entry(key.to_string()).or_default();
 
-        // Prune hits older than the window
-        hits.retain(|&hit| hit > cutoff);
+        // Prune hits older than the window. If the window exceeds the monotonic
+        // clock's history (checked_sub returns None), keep all hits.
+        if let Some(cutoff) = now.checked_sub(self.window) {
+            hits.retain(|&hit| hit > cutoff);
+        }
 
         // Check if we've hit the limit
         if hits.len() < self.max as usize {
@@ -107,5 +109,15 @@ mod tests {
         assert!(rl.check("katie"));
         assert!(!rl.check("katie"), "4th attempt in window is blocked");
         assert!(rl.check("bob"), "other keys unaffected");
+    }
+
+    #[test]
+    fn rate_limiter_with_huge_window_does_not_panic_and_still_blocks() {
+        let mut rl = RateLimiter::new(1, Duration::MAX);
+        assert!(rl.check("k"), "first check should allow");
+        assert!(
+            !rl.check("k"),
+            "second check should block (hit within huge window)"
+        );
     }
 }
