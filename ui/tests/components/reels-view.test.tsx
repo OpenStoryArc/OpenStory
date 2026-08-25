@@ -220,10 +220,21 @@ describe("when a reel plays a stop", () => {
     stubReelsFetch({ reelsById: { r1: TWO_STOP_REEL } });
     render(<ReelsView route={playerRoute("r1")} onNavigate={onNavigate} />);
 
-    await waitFor(() => expect(screen.getByTestId("reels-caption-bar")).toBeInTheDocument());
-    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    // Wait for the spotlight stage itself — it owns the Esc→exit keydown
+    // listener via its own effect. The sibling caption bar (reels-caption-bar)
+    // commits in the same render but is a different subtree, so waiting on it
+    // does not guarantee the spotlight's listener is attached yet.
+    await screen.findByTestId("event-spotlight");
 
-    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ view: "reels" }));
+    // Fire Escape inside the retry loop: under load the spotlight's keydown
+    // effect can attach a tick after its element commits, so a single early
+    // keyDown can land before there's a listener and be lost. Re-firing until
+    // navigation happens removes that race — exit()→onNavigate is idempotent,
+    // so extra fires never change the assertion.
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+      expect(onNavigate).toHaveBeenCalledWith({ view: "reels" });
+    });
   });
 });
 
