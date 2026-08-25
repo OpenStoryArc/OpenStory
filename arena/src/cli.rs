@@ -8,7 +8,7 @@
 //! `DockerDriver`/`LiteLlmMinter` to actually tear sandboxes down) — see
 //! `main.rs`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -105,11 +105,16 @@ pub async fn cmd_serve(cfg: ArenaConfig) -> Result<()> {
 /// `arena up <manifest.toml>` — parse and register an event, then either
 /// print roster credentials or the join code.
 ///
-/// Roster mode validates every username in the roster *before* creating the
-/// event or any user: an invalid name aborts with nothing written to the
-/// database. Each valid username then gets a freshly generated 12-character
-/// password (hashed with argon2 for storage; the plaintext only ever
-/// appears in the returned CSV, for the operator to hand out).
+/// Roster mode validates the *entire* roster before creating the event or
+/// any user: format (`naming::validate_username`), in-roster duplicates,
+/// and collisions with a username that already exists in the database
+/// (`users.username` is a global primary key across every event) are all
+/// checked first, so an error anywhere in the roster leaves nothing
+/// written to the database — never a half-created event with a stuck name
+/// and a partial user list. Each valid, non-colliding username then gets a
+/// freshly generated 12-character password (hashed with argon2 for
+/// storage; the plaintext only ever appears in the returned CSV, for the
+/// operator to hand out).
 ///
 /// Returns the roster CSV (`"username,password,event\n"` per line) in
 /// roster mode, or a one-line "ready" message with the join code in
@@ -123,11 +128,30 @@ pub fn cmd_up(db: &Db, manifest_path: &Path) -> Result<String> {
     match &manifest.roster {
         Some(roster) => {
             // Validate the whole roster before any database write — an
-            // invalid username later in the list must not leave earlier
-            // ones (or the event itself) created.
+            // error anywhere in the roster (bad format, a duplicate within
+            // the roster, or a collision with an existing user) must not
+            // leave the event row or any earlier username created.
+            let mut seen = HashSet::new();
             for username in roster {
                 validate_username(username)
                     .map_err(|e| anyhow::anyhow!("invalid username {username:?}: {e}"))?;
+                if !seen.insert(username.as_str()) {
+                    anyhow::bail!("duplicate username in roster: {username:?}");
+                }
+            }
+            // `users.username` is a global primary key across every event,
+            // so a name from a *previous* event's roster would otherwise
+            // fail deep inside the create loop below — after insert_event
+            // already committed and after earlier users in this roster
+            // were already created, leaving a permanently stuck event name
+            // with a partial roster. Catch it here instead.
+            for username in roster {
+                if let Some(existing) = db.get_user(username)? {
+                    anyhow::bail!(
+                        "username {username:?} already exists (from event {:?})",
+                        existing.event
+                    );
+                }
             }
 
             db.insert_event(&manifest)
@@ -306,6 +330,59 @@ mod tests {
     }
 
     #[test]
+    fn in_roster_duplicate_username_aborts_before_any_write() {
+        let db = Db::open_in_memory().unwrap();
+        let dup = r#"
+            name = "uva-fall"
+            image = "img:1"
+            roster = ["katie", "bob", "katie"]
+            ttl_hours = 6
+            budget_usd = 5.0
+        "#;
+        let f = write_manifest(dup);
+
+        let err = cmd_up(&db, f.path()).unwrap_err().to_string();
+        assert!(err.contains("katie"), "error should name the duplicate: {err:?}");
+
+        // No event row and no users — the whole roster is rejected before
+        // insert_event runs.
+        assert!(db.get_event("uva-fall").unwrap().is_none());
+        assert!(db.list_users("uva-fall").unwrap().is_empty());
+        assert!(db.get_user("katie").unwrap().is_none());
+        assert!(db.get_user("bob").unwrap().is_none());
+    }
+
+    #[test]
+    fn roster_username_colliding_with_a_user_from_another_event_aborts_before_any_write() {
+        let db = Db::open_in_memory().unwrap();
+        // A prior event already owns "katie" — users.username is a global
+        // primary key, so a second event's roster can't reuse it.
+        db.insert_event(&event("spring", "")).unwrap();
+        db.create_user("katie", "spring", "existing-hash").unwrap();
+
+        let clashing = r#"
+            name = "uva-fall"
+            image = "img:1"
+            roster = ["ann", "katie"]
+            ttl_hours = 6
+            budget_usd = 5.0
+        "#;
+        let f = write_manifest(clashing);
+
+        let err = cmd_up(&db, f.path()).unwrap_err().to_string();
+        assert!(err.contains("katie"), "error should name the collision: {err:?}");
+        assert!(err.contains("spring"), "error should name the owning event: {err:?}");
+
+        // The new event was never created, "ann" was never created, and
+        // the pre-existing "katie" (from "spring") is untouched.
+        assert!(db.get_event("uva-fall").unwrap().is_none());
+        assert!(db.get_user("ann").unwrap().is_none());
+        let katie = db.get_user("katie").unwrap().expect("pre-existing user must survive");
+        assert_eq!(katie.event, "spring");
+        assert_eq!(katie.pass_hash, "existing-hash");
+    }
+
+    #[test]
     fn join_code_mode_prints_the_code_line() {
         let db = Db::open_in_memory().unwrap();
         let f = write_manifest(JOIN_CODE_MANIFEST);
@@ -429,6 +506,36 @@ mod tests {
         assert_eq!(driver.destroyed.lock().unwrap().len(), 2);
         assert!(db.get_sandbox("katie").unwrap().is_some(), "row must survive a failed revoke");
         assert!(db.get_sandbox("ann").unwrap().is_some(), "row must survive a failed revoke");
+    }
+
+    #[tokio::test]
+    async fn cmd_down_counts_a_sandbox_even_when_destroy_fails() {
+        let db = Db::open_in_memory().unwrap();
+        db.insert_event(&event("keep", "")).unwrap();
+        db.create_user("katie", "keep", "h").unwrap();
+        db.upsert_sandbox(&SandboxRow {
+            username: "katie".into(),
+            container_id: "c1".into(),
+            litellm_key: "key-katie".into(),
+            expires_at: Utc::now(),
+        })
+        .unwrap();
+
+        let driver = FakeDriver::new();
+        driver.fail_destroy.store(true, std::sync::atomic::Ordering::SeqCst);
+        let minter = FakeMinter::new();
+
+        let count = cmd_down(&db, driver.as_ref(), minter.as_ref(), "keep").await.unwrap();
+        assert_eq!(
+            count, 1,
+            "a destroy failure must not block revoke + delete, and the row is still counted"
+        );
+        assert!(
+            driver.destroyed.lock().unwrap().is_empty(),
+            "the failed destroy call itself isn't recorded, but that must not stop the rest"
+        );
+        assert!(minter.revoked.lock().unwrap().contains(&"key-katie".to_string()));
+        assert!(db.get_sandbox("katie").unwrap().is_none(), "row must still be deleted");
     }
 
     #[tokio::test]

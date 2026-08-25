@@ -25,6 +25,12 @@ pub struct FakeDriver {
     /// LiteLLM key has already been minted. Defaults to `false`, so
     /// existing callers are unaffected.
     pub fail_create: std::sync::atomic::AtomicBool,
+    /// Test hook: when set, `destroy` fails without recording anything in
+    /// `destroyed` — simulates a container-runtime error during teardown
+    /// (e.g. a daemon hiccup), so callers like `cmd_down`/the reaper can be
+    /// exercised on their "destroy failed, but revoke + delete still run"
+    /// path. Defaults to `false`, so existing callers are unaffected.
+    pub fail_destroy: std::sync::atomic::AtomicBool,
 }
 
 impl FakeDriver {
@@ -33,6 +39,7 @@ impl FakeDriver {
             created: std::sync::Mutex::new(Vec::new()),
             destroyed: std::sync::Mutex::new(Vec::new()),
             fail_create: std::sync::atomic::AtomicBool::new(false),
+            fail_destroy: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -43,6 +50,7 @@ impl Default for FakeDriver {
             created: std::sync::Mutex::new(Vec::new()),
             destroyed: std::sync::Mutex::new(Vec::new()),
             fail_create: std::sync::atomic::AtomicBool::new(false),
+            fail_destroy: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -66,6 +74,9 @@ impl SandboxDriver for FakeDriver {
     }
 
     async fn destroy(&self, username: &str, keep_volume: bool) -> anyhow::Result<()> {
+        if self.fail_destroy.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(anyhow::anyhow!("fake driver: forced destroy failure"));
+        }
         let mut destroyed = self.destroyed.lock().unwrap();
         destroyed.push((username.to_string(), keep_volume));
         Ok(())
