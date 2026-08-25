@@ -1,0 +1,6 @@
+name         = "example-workshop"
+image        = "ghcr.io/openstoryarc/arena-sandbox:latest"
+join_code    = "change-me"
+ttl_hours    = 6
+budget_usd   = 5.0
+retain_jsonl = true

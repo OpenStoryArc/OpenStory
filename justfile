@@ -31,6 +31,14 @@ test-rs:
 test-ui:
     cd ui && npm test -- --run
 
+# Arena control-plane tests
+test-arena:
+    cd arena && cargo test
+
+# Arena tests that need a Docker daemon
+arena-test-docker:
+    cd arena && cargo test -- --ignored
+
 # Attention / click-parity pure algebra tests
 test-attention:
     cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts
