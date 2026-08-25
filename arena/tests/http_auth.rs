@@ -39,6 +39,7 @@ fn test_state() -> AppState {
         minter: FakeMinter::new(),
         cfg: Arc::new(cfg),
         limiter: Arc::new(Mutex::new(RateLimiter::new(5, Duration::from_secs(60)))),
+        ip_limiter: Arc::new(Mutex::new(RateLimiter::new(20, Duration::from_secs(60)))),
     }
 }
 
@@ -234,4 +235,113 @@ async fn authz_allows_own_subdomain_denies_others_redirects_anonymous() {
             .unwrap(),
         "https://arena.test/"
     );
+}
+
+#[tokio::test]
+async fn register_sets_a_fully_scoped_session_cookie() {
+    let app = arena::routes::build_router(test_state());
+    let resp = post_form(
+        &app,
+        "/register",
+        "join_code=code-1&username=katie&password=pw-123456",
+        None,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    let set_cookie = resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(set_cookie.starts_with("arena_session="), "{set_cookie}");
+    // `session::set_session` sets `Domain=".arena.test"` (leading dot), but
+    // the `cookie` crate (0.18.2, vendored by axum-extra 0.10) normalizes
+    // the leading dot away when rendering `Set-Cookie` — see
+    // `Cookie::domain()`'s getter, which does
+    // `domain.strip_prefix(".").or(Some(domain))`, and which
+    // `fmt_parameters`'s `Display` impl reads from. This is RFC
+    // 6265-correct: a leading dot in the Domain attribute is semantically
+    // redundant (subdomain matching applies either way), so
+    // `Domain=arena.test` and `Domain=.arena.test` are equivalent on the
+    // wire. Assert what's actually emitted.
+    assert!(set_cookie.contains("Domain=arena.test"), "{set_cookie}");
+    assert!(set_cookie.contains("Path=/"), "{set_cookie}");
+    assert!(set_cookie.contains("HttpOnly"), "{set_cookie}");
+    assert!(set_cookie.contains("Secure"), "{set_cookie}");
+    assert!(set_cookie.contains("SameSite=Lax"), "{set_cookie}");
+    assert!(set_cookie.contains("Max-Age=43200"), "{set_cookie}");
+}
+
+#[tokio::test]
+async fn logout_with_a_valid_session_emits_a_removal_cookie() {
+    let app = arena::routes::build_router(test_state());
+    let reg = post_form(
+        &app,
+        "/register",
+        "join_code=code-1&username=katie&password=pw-123456",
+        None,
+    )
+    .await;
+    assert_eq!(reg.status(), StatusCode::SEE_OTHER);
+    let cookie = session_cookie(&reg);
+
+    // The removal Set-Cookie is only emitted when the jar the handler sees
+    // has an *original* cookie under this name — i.e. one that arrived on
+    // the incoming request, as it does here. Calling `clear_session` on a
+    // bare jar with nothing ever added as "original" (e.g. in a unit test
+    // that only ever calls `set_session` on the same in-memory jar) does
+    // not exercise this path.
+    let resp = post_form(&app, "/logout", "", Some(&cookie)).await;
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+
+    let set_cookie = resp
+        .headers()
+        .get(header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(set_cookie.starts_with("arena_session="), "{set_cookie}");
+    // See the comment in `register_sets_a_fully_scoped_session_cookie` on
+    // why this is `Domain=arena.test` (no leading dot) despite
+    // `clear_session` passing `.arena.test` — the `cookie` crate normalizes
+    // it away when rendering, and both forms are RFC 6265-equivalent.
+    assert!(set_cookie.contains("Domain=arena.test"), "{set_cookie}");
+    assert!(set_cookie.contains("Path=/"), "{set_cookie}");
+    assert!(
+        set_cookie.contains("Max-Age=0") || set_cookie.contains("1970"),
+        "expected a removal cookie (Max-Age=0 or an expiry in the past), got: {set_cookie}"
+    );
+}
+
+#[tokio::test]
+async fn register_with_invalid_username_is_422_and_does_not_create_a_user() {
+    let state = test_state();
+    let db = state.db.clone();
+    let app = arena::routes::build_router(state);
+
+    let resp = post_form(
+        &app,
+        "/register",
+        "join_code=code-1&username=Bad_Name&password=pw-123456",
+        None,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(resp.headers().get(header::SET_COOKIE).is_none());
+    assert!(db.get_user("Bad_Name").unwrap().is_none());
+}
+
+#[tokio::test]
+async fn register_with_reserved_username_is_422() {
+    let app = arena::routes::build_router(test_state());
+    let resp = post_form(
+        &app,
+        "/register",
+        "join_code=code-1&username=admin&password=pw-123456",
+        None,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }

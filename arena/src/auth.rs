@@ -55,21 +55,38 @@ impl RateLimiter {
     pub fn check(&mut self, key: &str) -> bool {
         let now = Instant::now();
 
-        let hits = self.hits.entry(key.to_string()).or_default();
-
-        // Prune hits older than the window. If the window exceeds the monotonic
-        // clock's history (checked_sub returns None), keep all hits.
-        if let Some(cutoff) = now.checked_sub(self.window) {
-            hits.retain(|&hit| hit > cutoff);
+        {
+            let hits = self.hits.entry(key.to_string()).or_default();
+            // Prune hits older than the window. If the window exceeds the
+            // monotonic clock's history (checked_sub returns None), keep
+            // all hits.
+            if let Some(cutoff) = now.checked_sub(self.window) {
+                hits.retain(|&hit| hit > cutoff);
+            }
         }
 
-        // Check if we've hit the limit
+        // A key whose hits were all pruned away is a fully cold key: drop
+        // its map entry (and the Vec's allocated capacity with it) rather
+        // than leaving an empty Vec parked under it until the key happens
+        // to be checked again. A key that's revisited after going cold
+        // gets a fresh, minimal entry below instead of an in-place-trimmed
+        // one that keeps whatever capacity it grew to before.
+        if self.hits.get(key).is_some_and(Vec::is_empty) {
+            self.hits.remove(key);
+        }
+
+        let hits = self.hits.entry(key.to_string()).or_default();
         if hits.len() < self.max as usize {
             hits.push(now);
             true
         } else {
             false
         }
+    }
+
+    #[cfg(test)]
+    fn tracked_keys(&self) -> usize {
+        self.hits.len()
     }
 }
 
@@ -114,5 +131,21 @@ mod tests {
             !rl.check("k"),
             "second check should block (hit within huge window)"
         );
+    }
+
+    #[test]
+    fn a_key_that_goes_fully_cold_does_not_leave_a_stale_map_entry() {
+        let mut rl = RateLimiter::new(1, Duration::from_millis(20));
+        assert!(rl.check("k"));
+        assert_eq!(rl.tracked_keys(), 1);
+
+        std::thread::sleep(Duration::from_millis(30));
+
+        // The window has fully elapsed: the stale hit is pruned to empty
+        // and its map entry is dropped before a fresh single-hit entry is
+        // recorded for this check. Revisiting a cold key must not
+        // accumulate a second entry under the same key.
+        assert!(rl.check("k"), "the key should be allowed again once cold");
+        assert_eq!(rl.tracked_keys(), 1);
     }
 }

@@ -7,6 +7,7 @@ use axum_extra::extract::cookie::SignedCookieJar;
 use serde::Deserialize;
 
 use crate::authz::AuthzDecision;
+use crate::db::DbError;
 use crate::state::AppState;
 use crate::{authz, auth, naming, pages, session};
 
@@ -56,16 +57,53 @@ async fn get_login() -> Html<String> {
     Html(pages::login_page())
 }
 
+/// First comma-separated token of `X-Forwarded-For`, or `""` if absent.
+///
+/// This header is client-suppliable until Caddy overwrites it
+/// unconditionally (a later task, same as the `X-Forwarded-Host` trust
+/// precondition on `/authz` below) — until then, an attacker can put
+/// anything here, including a value chosen to collide with a real client's
+/// IP. It's still useful as a second, coarser rate-limit dimension once
+/// that guarantee is in place; `RateLimiter::check`'s per-key pruning keeps
+/// even an attacker-chosen flood of distinct values from growing this
+/// limiter's map without bound.
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
+
 async fn post_register(
     State(state): State<AppState>,
     jar: SignedCookieJar,
+    headers: HeaderMap,
     Form(form): Form<RegisterForm>,
 ) -> Response {
+    // Validate the username *before* touching either rate limiter, so both
+    // limiters' keys are always bounded to `[a-z0-9-]{2,31}` /
+    // `register-ip:{ip}` — never an attacker-controlled arbitrary string
+    // used as `register:{username}`.
+    if let Err(msg) = naming::validate_username(&form.username) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response();
+    }
+
     let allowed = {
         let mut limiter = state.limiter.lock().unwrap();
         limiter.check(&format!("register:{}", form.username))
     };
     if !allowed {
+        return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+    }
+
+    let ip = client_ip(&headers);
+    let ip_allowed = {
+        let mut ip_limiter = state.ip_limiter.lock().unwrap();
+        ip_limiter.check(&format!("register-ip:{ip}"))
+    };
+    if !ip_allowed {
         return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
     }
 
@@ -75,21 +113,17 @@ async fn post_register(
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response(),
     };
 
-    if let Err(msg) = naming::validate_username(&form.username) {
-        return (StatusCode::UNPROCESSABLE_ENTITY, msg).into_response();
-    }
-
     let pass_hash = match auth::hash_password(&form.password) {
         Ok(h) => h,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "hashing error").into_response(),
     };
 
-    if state
-        .db
-        .create_user(&form.username, &event_name, &pass_hash)
-        .is_err()
-    {
-        return (StatusCode::CONFLICT, "username taken").into_response();
+    match state.db.create_user(&form.username, &event_name, &pass_hash) {
+        Ok(()) => {}
+        Err(DbError::Duplicate) => return (StatusCode::CONFLICT, "username taken").into_response(),
+        Err(DbError::Other(_)) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response()
+        }
     }
 
     let jar = session::set_session(jar, &form.username, &state.cfg.base_domain);
@@ -135,6 +169,15 @@ async fn get_authz(
     jar: SignedCookieJar,
     headers: HeaderMap,
 ) -> Response {
+    // TRUST PRECONDITION: this endpoint's entire decision hinges on `host`.
+    // Caddy MUST overwrite `X-Forwarded-Host` unconditionally on every
+    // request it proxies to `/authz` (`header_up X-Forwarded-Host {host}`
+    // in the forward_auth config — a later task), and `/authz` itself must
+    // never be reachable directly from outside Caddy. Until both of those
+    // are true, this header is client-suppliable: a request that reaches
+    // this handler directly (bypassing Caddy) can set `X-Forwarded-Host` to
+    // anything, including a value chosen to spoof `Allow` for a host it
+    // doesn't actually own.
     let host = headers
         .get("X-Forwarded-Host")
         .or_else(|| headers.get(header::HOST))

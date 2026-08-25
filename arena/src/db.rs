@@ -1,12 +1,43 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
 
 use crate::manifest::EventManifest;
 
 pub struct Db(Mutex<Connection>);
+
+/// Typed failure signal for `create_user`, so callers (the HTTP layer) can
+/// distinguish "username already taken" (409) from any other storage
+/// failure (500) without string-matching an error message.
+#[derive(Debug)]
+pub enum DbError {
+    /// A UNIQUE/PRIMARY KEY constraint was violated — the username exists.
+    Duplicate,
+    /// Any other storage failure.
+    Other(anyhow::Error),
+}
+
+impl std::fmt::Display for DbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbError::Duplicate => write!(f, "username already exists"),
+            DbError::Other(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for DbError {}
+
+fn classify_create_user_error(e: rusqlite::Error, username: &str) -> DbError {
+    if let rusqlite::Error::SqliteFailure(ref sqlite_err, _) = e {
+        if sqlite_err.code == ErrorCode::ConstraintViolation {
+            return DbError::Duplicate;
+        }
+    }
+    DbError::Other(anyhow!("create_user failed for {username:?}: {e}"))
+}
 
 #[derive(Debug, Clone)]
 pub struct UserRow {
@@ -116,14 +147,14 @@ impl Db {
         Ok(name)
     }
 
-    pub fn create_user(&self, username: &str, event: &str, pass_hash: &str) -> Result<()> {
+    pub fn create_user(&self, username: &str, event: &str, pass_hash: &str) -> Result<(), DbError> {
         let conn = self.0.lock().unwrap();
         conn.execute(
             "INSERT INTO users (username, event, pass_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
             params![username, event, pass_hash, fmt_ts(Utc::now())],
         )
-        .map_err(|e| anyhow!("create_user failed for {username:?}: {e}"))?;
-        Ok(())
+        .map(|_| ())
+        .map_err(|e| classify_create_user_error(e, username))
     }
 
     pub fn get_user(&self, username: &str) -> Result<Option<UserRow>> {
@@ -265,11 +296,14 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_username_is_rejected() {
+    fn duplicate_username_is_rejected_with_a_typed_duplicate_signal() {
         let db = Db::open_in_memory().unwrap();
         db.insert_event(&event("e", "c")).unwrap();
         db.create_user("katie", "e", "h1").unwrap();
-        assert!(db.create_user("katie", "e", "h2").is_err());
+        assert!(
+            matches!(db.create_user("katie", "e", "h2"), Err(DbError::Duplicate)),
+            "a PRIMARY KEY collision on username must classify as DbError::Duplicate"
+        );
         assert_eq!(db.get_user("katie").unwrap().unwrap().pass_hash, "h1");
     }
 

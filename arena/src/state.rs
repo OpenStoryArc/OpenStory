@@ -28,16 +28,30 @@ pub struct ArenaConfig {
     pub db_path: PathBuf,
 }
 
+/// Decode a hex string to bytes. Operates on the raw byte slice (never
+/// indexes the `&str` by offset) so a non-ASCII value can't panic on a
+/// "byte index is not a char boundary" — it just fails to parse as hex,
+/// same as any other malformed input.
 fn decode_hex(s: &str) -> Result<Vec<u8>> {
-    let s = s.trim();
-    if !s.len().is_multiple_of(2) {
-        bail!("ARENA_COOKIE_KEY must have an even number of hex digits, got {} chars", s.len());
+    let bytes = s.trim().as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        bail!(
+            "ARENA_COOKIE_KEY must have an even number of hex digits, got {} bytes",
+            bytes.len()
+        );
     }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|e| anyhow!("ARENA_COOKIE_KEY is not valid hex at offset {i}: {e}"))
+    bytes
+        .chunks(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16);
+            let lo = (pair[1] as char).to_digit(16);
+            match (hi, lo) {
+                (Some(hi), Some(lo)) => Ok(((hi as u8) << 4) | lo as u8),
+                _ => Err(anyhow!(
+                    "ARENA_COOKIE_KEY contains a non-hex byte pair: {:?}",
+                    String::from_utf8_lossy(pair)
+                )),
+            }
         })
         .collect()
 }
@@ -89,6 +103,11 @@ pub struct AppState {
     pub minter: Arc<dyn KeyMinter>,
     pub cfg: Arc<ArenaConfig>,
     pub limiter: Arc<Mutex<RateLimiter>>,
+    /// Second, IP-keyed rate limiter for `/register` (20/60s), independent of
+    /// the per-username limiter above. See the trust-precondition comment on
+    /// its use in `routes::post_register` — the IP key is only meaningful
+    /// once Caddy overwrites `X-Forwarded-For` unconditionally.
+    pub ip_limiter: Arc<Mutex<RateLimiter>>,
 }
 
 impl FromRef<AppState> for Key {
@@ -136,5 +155,16 @@ mod tests {
         assert_eq!(cfg.docker_runtime, None);
         assert_eq!(cfg.litellm_url, DEFAULT_LITELLM_URL);
         assert_eq!(cfg.listen, DEFAULT_LISTEN);
+    }
+
+    #[test]
+    fn decode_hex_rejects_non_ascii_input_without_panicking() {
+        // "aée" is 4 bytes (even length), but byte offset 2 lands in the
+        // middle of "é"'s 2-byte UTF-8 encoding. The old `&s[i..i+2]`
+        // byte-slicing implementation panicked with "byte index 2 is not
+        // a char boundary" on input like this; the byte-chunked rewrite
+        // must return an `Err` instead.
+        let result = decode_hex("aée");
+        assert!(result.is_err(), "non-hex/non-ASCII input must error, not panic");
     }
 }
