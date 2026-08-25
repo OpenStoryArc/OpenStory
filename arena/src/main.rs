@@ -1,4 +1,5 @@
 mod auth;
+mod authz;
 mod db;
 mod driver;
 mod keys;
