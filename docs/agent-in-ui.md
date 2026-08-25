@@ -40,6 +40,7 @@ The command vocabulary (`interpretControl` in the UI resolves each into a typed
 | `toggle` | `{ target, value }` | flip a registered view knob (`canvas.mode`, `story.sort`, `theme`, `session.lens`, `spotlight=off`, …) |
 | `set` | `{ target, …fields }` | structured multi-field change (e.g. `scatter.brush`); `target:"draw.scene"` / `"draw.clear"` also take `scope` |
 | `draw` | `{ strokes\|recipe, scope?, clear?, mode?, label?, visible?, target?, reelId?, beatIndex? }` | ink on the `ui.*` overlay (never history). `scope:"here"` (default) lands on the human's current view context — the glass they are looking at; `scope:"board"` targets the Draw tab's paper. An explicit `reelId` + `beatIndex` targets that reel slide and beats `scope` |
+| **reel export** | — | **human affordance in v1:** reel HTML/snapshot export (preview + scan gate) belongs to the human; agents read reels via `list_reels` / `get_reel` MCP but export decisions are human-driven. |
 
 Examples:
 
