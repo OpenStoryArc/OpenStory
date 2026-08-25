@@ -62,6 +62,89 @@ impl KeyMinter for FakeMinter {
     }
 }
 
+/// A `KeyMinter` backed by a real LiteLLM proxy over HTTP.
+///
+/// Talks to LiteLLM's virtual-key endpoints directly: `POST /key/generate`
+/// to mint a scoped virtual key with a budget, `POST /key/delete` to revoke
+/// one. Both calls authenticate with the LiteLLM master key as a bearer
+/// token.
+pub struct LiteLlmMinter {
+    base_url: String,
+    master_key: String,
+    http: reqwest::Client,
+}
+
+impl LiteLlmMinter {
+    pub fn new(base_url: String, master_key: String) -> Self {
+        LiteLlmMinter {
+            base_url,
+            master_key,
+            http: reqwest::Client::new(),
+        }
+    }
+}
+
+#[async_trait]
+impl KeyMinter for LiteLlmMinter {
+    async fn mint(&self, alias: &str, budget_usd: f64) -> anyhow::Result<String> {
+        let resp = self
+            .http
+            .post(format!("{}/key/generate", self.base_url))
+            .bearer_auth(&self.master_key)
+            .json(&serde_json::json!({
+                "key_alias": alias,
+                "max_budget": budget_usd,
+            }))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let body = resp.text().await?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "litellm /key/generate failed: {} — {}",
+                status,
+                body
+            ));
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+            anyhow::anyhow!(
+                "litellm /key/generate returned non-JSON body: {e} — {}",
+                body
+            )
+        })?;
+        match parsed.get("key").and_then(|v| v.as_str()) {
+            Some(key) => Ok(key.to_string()),
+            None => Err(anyhow::anyhow!(
+                "litellm /key/generate response missing \"key\" string field: {}",
+                body
+            )),
+        }
+    }
+
+    async fn revoke(&self, key: &str) -> anyhow::Result<()> {
+        let resp = self
+            .http
+            .post(format!("{}/key/delete", self.base_url))
+            .bearer_auth(&self.master_key)
+            .json(&serde_json::json!({ "keys": [key] }))
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "litellm /key/delete failed: {} — {}",
+                status,
+                body
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,5 +157,114 @@ mod tests {
         assert_eq!(m.minted.lock().unwrap()[0], ("e/katie".to_string(), 100.0));
         m.revoke(&key).await.unwrap();
         assert_eq!(m.revoked.lock().unwrap()[0], "sk-fake-e-katie");
+    }
+
+    // --- LiteLlmMinter: real HTTP KeyMinter against a stub axum server ---
+
+    use axum::{extract::State, http::HeaderMap, routing::post, Json, Router};
+    use std::sync::Arc;
+
+    #[derive(Default)]
+    struct Captured {
+        generate_body: std::sync::Mutex<Option<serde_json::Value>>,
+        generate_auth: std::sync::Mutex<Option<String>>,
+        delete_body: std::sync::Mutex<Option<serde_json::Value>>,
+        delete_auth: std::sync::Mutex<Option<String>>,
+    }
+
+    async fn stub_generate(
+        State(captured): State<Arc<Captured>>,
+        headers: HeaderMap,
+        Json(body): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        *captured.generate_auth.lock().unwrap() = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        *captured.generate_body.lock().unwrap() = Some(body);
+        Json(serde_json::json!({ "key": "sk-virt-1" }))
+    }
+
+    async fn stub_delete(
+        State(captured): State<Arc<Captured>>,
+        headers: HeaderMap,
+        Json(body): Json<serde_json::Value>,
+    ) -> Json<serde_json::Value> {
+        *captured.delete_auth.lock().unwrap() = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        *captured.delete_body.lock().unwrap() = Some(body);
+        Json(serde_json::json!({ "deleted_keys": [] }))
+    }
+
+    async fn spawn_stub(captured: Arc<Captured>) -> std::net::SocketAddr {
+        let app = Router::new()
+            .route("/key/generate", post(stub_generate))
+            .route("/key/delete", post(stub_delete))
+            .with_state(captured);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        addr
+    }
+
+    async fn spawn_failing_stub(status: axum::http::StatusCode) -> std::net::SocketAddr {
+        async fn fail(status: axum::http::StatusCode) -> axum::http::StatusCode {
+            status
+        }
+        let app = Router::new()
+            .route(
+                "/key/generate",
+                post(move || async move { fail(status).await }),
+            )
+            .route(
+                "/key/delete",
+                post(move || async move { fail(status).await }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn mint_posts_alias_and_budget_with_master_key_and_returns_key() {
+        let captured = Arc::new(Captured::default());
+        let addr = spawn_stub(captured.clone()).await;
+
+        let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
+
+        let key = m.mint("e/katie", 5.0).await.unwrap();
+        assert_eq!(key, "sk-virt-1");
+        assert_eq!(
+            captured.generate_auth.lock().unwrap().as_deref(),
+            Some("Bearer master-1")
+        );
+        assert_eq!(
+            captured.generate_body.lock().unwrap().as_ref().unwrap(),
+            &serde_json::json!({"key_alias": "e/katie", "max_budget": 5.0})
+        );
+
+        m.revoke("sk-virt-1").await.unwrap();
+        assert_eq!(
+            captured.delete_auth.lock().unwrap().as_deref(),
+            Some("Bearer master-1")
+        );
+        assert_eq!(
+            captured.delete_body.lock().unwrap().as_ref().unwrap(),
+            &serde_json::json!({"keys": ["sk-virt-1"]})
+        );
+    }
+
+    #[tokio::test]
+    async fn non_2xx_from_litellm_is_an_error() {
+        let addr = spawn_failing_stub(axum::http::StatusCode::INTERNAL_SERVER_ERROR).await;
+        let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
+        assert!(m.mint("e/katie", 5.0).await.is_err());
     }
 }
