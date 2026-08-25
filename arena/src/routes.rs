@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::extract::{Form, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -227,10 +229,27 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
         None => return Redirect::to("/").into_response(),
     };
 
+    // Serialize launches per-username: get_sandbox → mint → create → upsert
+    // has await points between "no row yet" and persisting the new row, so
+    // two concurrent /launch calls for the same user (e.g. two browser
+    // tabs) could otherwise both observe no-row and both mint a key. Clone
+    // the per-user Arc out and drop the map's std::sync::MutexGuard before
+    // awaiting the async lock — a std Mutex must never be held across an
+    // `.await`.
+    let user_lock = {
+        let mut locks = state.launch_locks.lock().unwrap();
+        locks
+            .entry(username.clone())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    };
+    let _guard = user_lock.lock().await;
+
     let user = match state.db.get_user(&username) {
         Ok(Some(u)) => u,
-        // A valid session cookie for a user row that no longer exists is
-        // effectively "not logged in" from the app's perspective.
+        // A valid, unexpired session cookie whose backing user row is gone
+        // (e.g. deleted out from under an active session) is treated the
+        // same as "not logged in" rather than surfaced as a distinct error.
         Ok(None) => return Redirect::to("/").into_response(),
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response(),
     };
@@ -252,8 +271,17 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
     };
 
     // Reuse the existing LiteLLM key on a recreate (crashed sandbox); mint a
-    // fresh one only when there's no prior row at all.
+    // fresh one only when there's no prior row at all. `freshly_minted`
+    // tracks which case we're in, so a create/upsert failure below knows
+    // whether `api_key` is an orphan that must be revoked (fresh mint, no
+    // row references it yet) or still owned by the pre-existing row (must
+    // NOT be revoked out from under it).
+    let mut freshly_minted = false;
     let api_key = if let Some(row) = &existing {
+        // Fail open toward "not running" on a driver error: if we can't
+        // tell whether the container is alive, recreating it (cheap, and
+        // reuses the existing key) is safer than redirecting the user to a
+        // sandbox that might not actually be there.
         let running = state
             .driver
             .is_running(&row.container_id)
@@ -266,7 +294,10 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
     } else {
         let alias = naming::key_alias(&user.event, &username);
         match state.minter.mint(&alias, event.budget_usd).await {
-            Ok(key) => key,
+            Ok(key) => {
+                freshly_minted = true;
+                key
+            }
             Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "mint error").into_response(),
         }
     };
@@ -283,7 +314,13 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
     let container_id = match state.driver.create(&spec).await {
         Ok(id) => id,
         Err(_) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "sandbox creation error").into_response()
+            // The mint already happened but no sandbox row exists to
+            // reference this key — without a revoke it would sit alive and
+            // budgeted forever (the reaper only scans the sandboxes table).
+            if freshly_minted {
+                revoke_best_effort(&state, &api_key).await;
+            }
+            return (StatusCode::INTERNAL_SERVER_ERROR, "sandbox creation error").into_response();
         }
     };
 
@@ -294,10 +331,26 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
         expires_at,
     };
     if state.db.upsert_sandbox(&row).is_err() {
+        // Same leak as above: the container was created and the key minted,
+        // but the row that would have tied them together never landed.
+        if freshly_minted {
+            revoke_best_effort(&state, &row.litellm_key).await;
+        }
         return (StatusCode::INTERNAL_SERVER_ERROR, "storage error").into_response();
     }
 
     redirect_to(location)
+}
+
+/// Best-effort key revocation on a failed fresh-mint launch. A revoke
+/// failure here would only leave a budgeted key alive with no sandbox row
+/// to associate it with — already a state the reaper tolerates for other
+/// reasons — so it's logged and swallowed rather than turned into a second
+/// failure mode for the caller, who's already getting a 500.
+async fn revoke_best_effort(state: &AppState, api_key: &str) {
+    if let Err(e) = state.minter.revoke(api_key).await {
+        eprintln!("post_launch: best-effort revoke of {api_key} failed: {e}");
+    }
 }
 
 fn redirect_to(location: String) -> Response {

@@ -20,6 +20,11 @@ pub trait SandboxDriver: Send + Sync {
 pub struct FakeDriver {
     pub created: std::sync::Mutex<Vec<SandboxSpec>>,
     pub destroyed: std::sync::Mutex<Vec<(String, bool)>>,
+    /// Test hook: when set, `create` fails without recording anything in
+    /// `created` — simulates a container-runtime error, e.g. after a
+    /// LiteLLM key has already been minted. Defaults to `false`, so
+    /// existing callers are unaffected.
+    pub fail_create: std::sync::atomic::AtomicBool,
 }
 
 impl FakeDriver {
@@ -27,6 +32,7 @@ impl FakeDriver {
         std::sync::Arc::new(FakeDriver {
             created: std::sync::Mutex::new(Vec::new()),
             destroyed: std::sync::Mutex::new(Vec::new()),
+            fail_create: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -36,6 +42,7 @@ impl Default for FakeDriver {
         FakeDriver {
             created: std::sync::Mutex::new(Vec::new()),
             destroyed: std::sync::Mutex::new(Vec::new()),
+            fail_create: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -43,6 +50,16 @@ impl Default for FakeDriver {
 #[async_trait]
 impl SandboxDriver for FakeDriver {
     async fn create(&self, spec: &SandboxSpec) -> anyhow::Result<String> {
+        // A real driver awaits the container runtime here, which is a
+        // genuine suspension point — concurrent callers can interleave
+        // across it. Yield once so tests exercising that interleaving (see
+        // `concurrent_launches_for_same_user_mint_and_create_exactly_once`
+        // in `tests/http_launch.rs`) see the same scheduling behavior with
+        // this fake as they would against the real driver.
+        tokio::task::yield_now().await;
+        if self.fail_create.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(anyhow::anyhow!("fake driver: forced create failure"));
+        }
         let mut created = self.created.lock().unwrap();
         created.push(spec.clone());
         Ok(format!("fake-{}", spec.username))

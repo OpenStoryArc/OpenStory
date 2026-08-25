@@ -32,6 +32,13 @@ impl Default for FakeMinter {
 #[async_trait]
 impl KeyMinter for FakeMinter {
     async fn mint(&self, alias: &str, budget_usd: f64) -> anyhow::Result<String> {
+        // A real minter awaits a LiteLLM HTTP call here — a genuine
+        // suspension point that concurrent callers can interleave across.
+        // Yield once so tests exercising that interleaving (see
+        // `concurrent_launches_for_same_user_mint_and_create_exactly_once`
+        // in `tests/http_launch.rs`) see the same scheduling behavior with
+        // this fake as they would against the real minter.
+        tokio::task::yield_now().await;
         let sanitized_alias = alias.replace('/', "-");
         let key = format!("sk-fake-{}", sanitized_alias);
         let mut minted = self.minted.lock().unwrap();

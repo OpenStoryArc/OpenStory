@@ -4,6 +4,7 @@
 //! wholesale rather than per-item.
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -62,6 +63,7 @@ pub fn test_state_with_fakes() -> (AppState, Arc<FakeDriver>, Arc<FakeMinter>) {
         cfg: Arc::new(cfg),
         limiter: Arc::new(Mutex::new(RateLimiter::new(5, Duration::from_secs(60)))),
         ip_limiter: Arc::new(Mutex::new(RateLimiter::new(20, Duration::from_secs(60)))),
+        launch_locks: Arc::new(Mutex::new(HashMap::new())),
     };
 
     (state, driver, minter)

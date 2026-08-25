@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -108,6 +109,16 @@ pub struct AppState {
     /// its use in `routes::post_register` — the IP key is only meaningful
     /// once Caddy overwrites `X-Forwarded-For` unconditionally.
     pub ip_limiter: Arc<Mutex<RateLimiter>>,
+    /// Per-username async lock serializing `/launch`'s
+    /// get_sandbox → mint → create → upsert critical section, so two
+    /// concurrent launches for the same user (e.g. two browser tabs) can't
+    /// both observe "no sandbox row yet" and both mint a LiteLLM key.
+    /// Entries are looked up with the outer `std::sync::Mutex` (never held
+    /// across an `.await` — the handler clones the inner `Arc` out and
+    /// drops the guard before awaiting the async lock) and are never
+    /// removed; the map is bounded by the number of distinct usernames
+    /// that have ever called `/launch`, which is small for this product.
+    pub launch_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl FromRef<AppState> for Key {
