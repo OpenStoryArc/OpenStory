@@ -6,6 +6,7 @@ pub mod keys;
 pub mod manifest;
 pub mod naming;
 pub mod pages;
+pub mod reaper;
 pub mod routes;
 pub mod session;
 pub mod state;
