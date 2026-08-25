@@ -4,32 +4,25 @@ use chrono::{DateTime, Utc};
 #[derive(Debug, Clone)]
 pub struct SandboxSpec {
     pub username: String,
-    #[allow(dead_code)]
     pub event: String,
-    #[allow(dead_code)]
     pub image: String,
-    #[allow(dead_code)]
     pub api_key: String,
-    #[allow(dead_code)]
     pub expires_at: DateTime<Utc>,
 }
 
 #[async_trait]
-#[allow(dead_code)]
 pub trait SandboxDriver: Send + Sync {
     async fn create(&self, spec: &SandboxSpec) -> anyhow::Result<String>;
     async fn destroy(&self, username: &str, keep_volume: bool) -> anyhow::Result<()>;
     async fn is_running(&self, container_id: &str) -> anyhow::Result<bool>;
 }
 
-#[allow(dead_code)]
 pub struct FakeDriver {
     pub created: std::sync::Mutex<Vec<SandboxSpec>>,
     pub destroyed: std::sync::Mutex<Vec<(String, bool)>>,
 }
 
 impl FakeDriver {
-    #[allow(dead_code)]
     pub fn new() -> std::sync::Arc<Self> {
         std::sync::Arc::new(FakeDriver {
             created: std::sync::Mutex::new(Vec::new()),

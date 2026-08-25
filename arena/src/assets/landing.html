@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arena</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 4rem auto; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; }
+  form { margin-top: 1.5rem; }
+  button { padding: 0.6rem 1.2rem; }
+  .links { margin-top: 1.5rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Welcome, {{username}}</h1>
+  <form method="post" action="/launch">
+    <button type="submit">Launch</button>
+  </form>
+  <form method="post" action="/logout">
+    <p class="links"><button type="submit">Log out</button></p>
+  </form>
+</body>
+</html>

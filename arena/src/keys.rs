@@ -1,20 +1,17 @@
 use async_trait::async_trait;
 
 #[async_trait]
-#[allow(dead_code)]
 pub trait KeyMinter: Send + Sync {
     async fn mint(&self, alias: &str, budget_usd: f64) -> anyhow::Result<String>;
     async fn revoke(&self, key: &str) -> anyhow::Result<()>;
 }
 
-#[allow(dead_code)]
 pub struct FakeMinter {
     pub minted: std::sync::Mutex<Vec<(String, f64)>>,
     pub revoked: std::sync::Mutex<Vec<String>>,
 }
 
 impl FakeMinter {
-    #[allow(dead_code)]
     pub fn new() -> std::sync::Arc<Self> {
         std::sync::Arc::new(FakeMinter {
             minted: std::sync::Mutex::new(Vec::new()),

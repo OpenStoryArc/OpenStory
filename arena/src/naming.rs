@@ -1,7 +1,5 @@
-#[allow(dead_code)]
 pub const RESERVED: &[&str] = &["arena", "www", "api", "litellm", "hub", "caddy", "admin", "story"];
 
-#[allow(dead_code)]
 pub fn validate_username(u: &str) -> Result<(), String> {
     let ok_len = (2..=31).contains(&u.len());
     let ok_first = u.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
@@ -21,32 +19,26 @@ pub fn validate_username(u: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn container_name(u: &str) -> String {
     format!("sandbox-{u}")
 }
 
-#[allow(dead_code)]
 pub fn volume_name(u: &str) -> String {
     format!("arena-home-{u}")
 }
 
-#[allow(dead_code)]
 pub fn network_name(u: &str) -> String {
     format!("arena-sb-{u}")
 }
 
-#[allow(dead_code)]
 pub fn terminal_host(u: &str, base: &str) -> String {
     format!("{u}.{base}")
 }
 
-#[allow(dead_code)]
 pub fn story_host(u: &str, base: &str) -> String {
     format!("{u}-story.{base}")
 }
 
-#[allow(dead_code)]
 pub fn key_alias(event: &str, u: &str) -> String {
     format!("{event}/{u}")
 }

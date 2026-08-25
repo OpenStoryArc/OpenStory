@@ -6,10 +6,8 @@ use std::sync::Mutex;
 
 use crate::manifest::EventManifest;
 
-#[allow(dead_code)]
 pub struct Db(Mutex<Connection>);
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct UserRow {
     pub username: String,
@@ -17,7 +15,6 @@ pub struct UserRow {
     pub pass_hash: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SandboxRow {
     pub username: String,
@@ -67,7 +64,6 @@ fn row_to_sandbox(username: String, container_id: String, litellm_key: String, e
     })
 }
 
-#[allow(dead_code)]
 impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         let conn = Connection::open(path)?;

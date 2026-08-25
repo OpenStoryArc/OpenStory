@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventManifest {
     pub name: String,
@@ -15,10 +14,8 @@ pub struct EventManifest {
     pub retain_jsonl: bool,
 }
 
-#[allow(dead_code)]
 fn default_true() -> bool { true }
 
-#[allow(dead_code)]
 impl EventManifest {
     pub fn from_toml(s: &str) -> anyhow::Result<Self> {
         let m: EventManifest = toml::from_str(s)?;

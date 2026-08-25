@@ -1,6 +1,5 @@
 use crate::naming;
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 pub enum AuthzDecision {
     Allow,
@@ -10,7 +9,6 @@ pub enum AuthzDecision {
 
 /// `session_user`: username from a verified session cookie, if any.
 /// `host`: the Host header Caddy forwarded. `base`: e.g. "arena.openstory.work".
-#[allow(dead_code)]
 pub fn authorize_host(session_user: Option<&str>, host: &str, base: &str) -> AuthzDecision {
     use AuthzDecision::*;
 

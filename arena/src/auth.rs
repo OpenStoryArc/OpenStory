@@ -4,7 +4,6 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-#[allow(dead_code)]
 pub fn hash_password(plain: &str) -> anyhow::Result<String> {
     let salt = SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
     let argon2 = Argon2::default();
@@ -15,7 +14,6 @@ pub fn hash_password(plain: &str) -> anyhow::Result<String> {
     Ok(hash)
 }
 
-#[allow(dead_code)]
 pub fn verify_password(plain: &str, hash: &str) -> bool {
     use argon2::password_hash::PasswordHash;
     use argon2::PasswordVerifier;
@@ -28,7 +26,6 @@ pub fn verify_password(plain: &str, hash: &str) -> bool {
         .is_ok()
 }
 
-#[allow(dead_code)]
 pub fn generate_password() -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::rngs::OsRng;
@@ -40,14 +37,12 @@ pub fn generate_password() -> String {
         .collect()
 }
 
-#[allow(dead_code)]
 pub struct RateLimiter {
     max: u32,
     window: Duration,
     hits: HashMap<String, Vec<Instant>>,
 }
 
-#[allow(dead_code)]
 impl RateLimiter {
     pub fn new(max: u32, window: Duration) -> Self {
         RateLimiter {
