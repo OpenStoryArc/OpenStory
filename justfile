@@ -39,6 +39,14 @@ test-arena:
 arena-test-docker:
     cd arena && cargo test -- --ignored
 
+# Build the sealed sandbox image (ttyd + tmux + claude + private open-story)
+arena-image:
+    docker build -f arena/sandbox/Dockerfile -t arena-sandbox:dev .
+
+# Build the sandbox image, then smoke-test it (ttyd, open-story API, claude, non-root)
+arena-smoke: arena-image
+    bash arena/sandbox/smoke.sh
+
 # Attention / click-parity pure algebra tests
 test-attention:
     cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts
