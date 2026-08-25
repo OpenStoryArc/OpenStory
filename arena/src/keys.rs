@@ -74,12 +74,37 @@ pub struct LiteLlmMinter {
     http: reqwest::Client,
 }
 
+/// Default per-request timeout. A hung LiteLLM proxy must not hold the
+/// `/launch` per-user lock forever — bound every mint/revoke call.
+const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 impl LiteLlmMinter {
     pub fn new(base_url: String, master_key: String) -> Self {
+        Self::with_timeout(base_url, master_key, DEFAULT_TIMEOUT)
+    }
+
+    /// Same as `new`, but with an explicit per-request timeout. Exists so
+    /// tests can exercise the timeout path without waiting out the real
+    /// 15s default.
+    pub fn with_timeout(
+        base_url: String,
+        master_key: String,
+        timeout: std::time::Duration,
+    ) -> Self {
         LiteLlmMinter {
-            base_url,
+            // Trim a trailing slash once here so `format!("{base_url}/key/...")`
+            // never produces a double slash for a base URL like
+            // "http://litellm:4000/".
+            base_url: base_url.trim_end_matches('/').to_string(),
             master_key,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(timeout)
+                // The builder only fails on TLS backend initialization,
+                // which is an unrecoverable environment failure — fail
+                // loudly at boot rather than silently degrading to an
+                // unbounded client.
+                .build()
+                .expect("reqwest client: TLS backend init failed"),
         }
     }
 }
@@ -141,6 +166,8 @@ impl KeyMinter for LiteLlmMinter {
                 body
             ));
         }
+        // Success body (e.g. {"deleted_keys": [...]}) is intentionally
+        // unread — revoke only needs to know the delete succeeded.
         Ok(())
     }
 }
@@ -266,5 +293,54 @@ mod tests {
         let addr = spawn_failing_stub(axum::http::StatusCode::INTERNAL_SERVER_ERROR).await;
         let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
         assert!(m.mint("e/katie", 5.0).await.is_err());
+    }
+
+    async fn spawn_slow_stub() -> std::net::SocketAddr {
+        async fn slow_generate() -> Json<serde_json::Value> {
+            // Longer than any timeout under test — the client must give up
+            // on its own, not because the server ever answers.
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            Json(serde_json::json!({ "key": "sk-too-late" }))
+        }
+        let app = Router::new().route("/key/generate", post(slow_generate));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn mint_times_out_when_litellm_hangs() {
+        let addr = spawn_slow_stub().await;
+        // A short timeout so this test completes quickly, not the real
+        // 15s default — the timeout value itself is what's under test,
+        // not its production magnitude.
+        let m = LiteLlmMinter::with_timeout(
+            format!("http://{addr}"),
+            "master-1".into(),
+            std::time::Duration::from_millis(500),
+        );
+        let started = std::time::Instant::now();
+        let result = m.mint("e/katie", 5.0).await;
+        assert!(result.is_err(), "hung server must surface as an error");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "mint should give up around the configured timeout, not hang"
+        );
+    }
+
+    #[tokio::test]
+    async fn trailing_slash_in_base_url_does_not_break_the_path_join() {
+        let captured = Arc::new(Captured::default());
+        let addr = spawn_stub(captured.clone()).await;
+
+        // A base_url with a trailing slash (e.g. "http://litellm:4000/")
+        // must not produce a double-slash path like "//key/generate".
+        let m = LiteLlmMinter::new(format!("http://{addr}/"), "master-1".into());
+
+        let key = m.mint("e/katie", 5.0).await.unwrap();
+        assert_eq!(key, "sk-virt-1");
     }
 }
