@@ -29,12 +29,18 @@ services:
       - ARENA_LITELLM_CONTAINER=arena-litellm
       - ARENA_LITELLM_URL=http://arena-litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      # Optional per-sandbox resource caps; empty means "use the binary's
+      # own defaults" (2 CPUs / 2GiB — see docker_driver_config_from_env
+      # in arena/src/cli.rs). Set in .env to override.
+      - ARENA_SANDBOX_CPUS=${ARENA_SANDBOX_CPUS:-}
+      - ARENA_SANDBOX_MEMORY_BYTES=${ARENA_SANDBOX_MEMORY_BYTES:-}
     volumes:
       - arena-data:/data
       # Event manifests live on the host at ./events and are read by `arena
       # up` *inside* the container (there is no HTTP upload path for
-      # manifests) — see README "Running an event".
-      - ./events:/events
+      # manifests) — see README "Running an event". Read-only: the control
+      # plane only ever reads a manifest, never writes one back.
+      - ./events:/events:ro
       # The control plane is the ONLY service in this stack that touches the
       # Docker socket: it needs it to create/destroy sandbox containers and
       # their per-user networks (DockerDriver in src/docker_driver.rs).
@@ -48,6 +54,9 @@ services:
     container_name: arena-litellm
     restart: unless-stopped
     command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
@@ -64,6 +73,11 @@ services:
       - POSTGRES_USER=litellm
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=litellm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes: [pg-data:/var/lib/postgresql/data]
     networks: [backplane]
 

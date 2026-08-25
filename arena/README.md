@@ -104,8 +104,9 @@ Fill in `.env`:
 - `ARENA_BASE_DOMAIN` — e.g. `arena.openstory.work`
 - `ARENA_COOKIE_KEY` — 128 hex chars (64 random bytes). Fastest path:
   `openssl rand -hex 64`. Equivalent to the binary's own `arena keygen`
-  subcommand (`docker run --rm $(docker compose build -q arena) arena
-  keygen`, once the `arena` image is built) if you'd rather use that.
+  subcommand — `docker compose run --rm arena arena keygen` — if you'd
+  rather use that (works once the `arena` service has an image to run;
+  `docker compose build arena` first if you haven't booted yet).
 - `CF_API_TOKEN` — the scoped token from step 2
 - `ANTHROPIC_API_KEY` — the one real key; it lives only in the `litellm`
   container's environment and is never passed into a sandbox
@@ -113,12 +114,26 @@ Fill in `.env`:
 - `POSTGRES_PASSWORD` — `openssl rand -hex 16`
 - `ARENA_DOCKER_RUNTIME=runsc` (leave unset for local dev without gVisor —
   see "Local-dev mode" below)
+- `ARENA_SANDBOX_CPUS` / `ARENA_SANDBOX_MEMORY_BYTES` — optional; leave
+  unset to use the binary's defaults (2 CPUs, 2GiB). See the commented-out
+  lines at the bottom of `.env.example`.
+
+**Every line in `.env` must be exactly `KEY=value`, with no trailing
+comment.** `docker compose`'s `.env` parser has no comment syntax on a
+value line — `LITELLM_MASTER_KEY=   # openssl rand -hex 32` sets the
+master key to the literal string `"  # openssl rand -hex 32"`, not an
+empty value. `.env.example` keeps every explanatory comment on its own
+line above the variable for exactly this reason; keep that shape when you
+edit `.env`.
 
 Then boot the stack:
 
 ```bash
 docker compose up -d --build
-docker compose ps            # all four services should be "running"/"healthy"
+docker compose ps            # arena-pg should show "healthy"; the rest
+                              # show "running" (only postgres has a
+                              # healthcheck defined — litellm waits on it
+                              # via depends_on/service_healthy)
 docker compose logs -f arena # tail the control plane
 ```
 
@@ -153,7 +168,9 @@ for the format: `name`, `image`, `join_code` or `roster`, `ttl_hours`,
 `budget_usd`, `retain_jsonl`). The control plane reads them from
 *inside* the `arena-cp` container — there's no HTTP upload path for
 manifests — so `docker-compose.yml` bind-mounts `./events` (i.e.
-`arena/deploy/events/` on the host) to `/events` in the container.
+`arena/deploy/events/` on the host) to `/events` in the container,
+read-only (the control plane only ever reads a manifest, never writes one
+back).
 
 Drop your manifest on the host, then:
 
@@ -164,10 +181,11 @@ docker exec arena-cp arena up /events/my-event.toml
 
 - With a `join_code`, this prints a confirmation line — share the code and
   `https://{ARENA_BASE_DOMAIN}/register` with participants.
-- With a `roster`, this prints CSV credentials (`username,password`) to
-  stdout — **capture this output immediately**; it is not stored anywhere
-  and cannot be regenerated. Redirect it straight to a file you control
-  and delete once distributed:
+- With a `roster`, this prints CSV credentials (`username,password,event`
+  — three columns, one row per participant) to stdout — **capture this
+  output immediately**; it is not stored anywhere and cannot be
+  regenerated. Redirect it straight to a file you control and delete once
+  distributed:
 
   ```bash
   docker exec arena-cp arena up /events/my-event.toml > /root/my-event-creds.csv
@@ -283,6 +301,43 @@ docker run --rm -v "$PWD/Caddyfile.dev:/etc/caddy/Caddyfile:ro" \
 `caddy` service under the `arena` project name — confirmed by `docker
 images | grep caddy` after building; check yours if your Compose version
 tags it differently.)
+
+**`caddy validate` cannot see routing-logic bugs** — it only checks that
+the Caddyfile parses into *some* valid config, not that the config does
+the right thing. The wildcard site's two sandbox routes (`-story` →
+ttyd terminal) are exactly the kind of bug that class misses: a named
+matcher (`@user`) declared *inside* an unmatched `handle {}` block is
+syntactically valid and "validates" fine, but is never actually applied
+to anything, so its regex capture (`{re.user.1}`) is never populated at
+request time and every non-`-story` request 502s. Catch this class with
+`caddy adapt` (compiles the Caddyfile to its JSON form, no live traffic
+needed — hermetic) plus a `jq` assertion that both sandbox routes carry a
+`header_regexp` matcher and a non-empty dial placeholder:
+
+```bash
+docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  -e ARENA_BASE_DOMAIN=arena.test -e CF_API_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  arena-caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
+  > /tmp/arena-adapted.json
+
+for name in story user; do
+  jq -e --arg n "$name" \
+    '[.. | objects | select(has("match")) | select(.match|type=="array")
+       | select(.match[]? | objects | .header_regexp.Host.name? == $n)] | length == 1' \
+    /tmp/arena-adapted.json
+done
+
+jq -e '[.. | objects | select(has("dial")) | .dial] | any(test("^sandbox-\\{http\\.regexp\\.story\\.1\\}:3002$"))' /tmp/arena-adapted.json
+jq -e '[.. | objects | select(has("dial")) | .dial] | any(test("^sandbox-\\{http\\.regexp\\.user\\.1\\}:7681$"))' /tmp/arena-adapted.json
+```
+
+All four `jq -e` calls must print `true` and exit 0. Repeat against
+`Caddyfile.dev` (drop `-e CF_API_TOKEN=...`, `tls internal` doesn't need
+it) before every change to either file. The `header_regexp`-presence
+checks are the ones that actually catch the bug above — the `dial`
+placeholder string looks identical (`sandbox-{http.regexp.user.1}:7681`)
+whether or not the matcher is wired up; only the *absence of a `match`
+key* on the terminal route gives it away.
 
 ## 8. Second box (documented, not built)
 

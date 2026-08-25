@@ -53,11 +53,32 @@
 	}
 
 	@story header_regexp story Host ^([a-z0-9-]+)-story\.
+	@user  header_regexp user  Host ^([a-z0-9-]+)\.
+
+	# `handle` blocks in a sequence are mutually exclusive, evaluated in
+	# order — @story MUST stay first, since @user's pattern also matches
+	# an "alice-story.<base>" host (its capture just includes the
+	# "-story" suffix as part of group 1). Both matchers must be applied
+	# directly to their `handle` — a matcher merely *defined* inside an
+	# unmatched `handle {}` is never evaluated, so its regex capture
+	# ({re.user.1}) is never populated and the reverse_proxy dials an
+	# empty hostname. (This is exactly the bug being fixed here: the
+	# previous `handle { @user ...; reverse_proxy sandbox-{re.user.1}... }`
+	# shape let the plain `handle` match everything unconditionally, so
+	# every non-`-story` request 502'd trying to dial `sandbox-:7681`.)
 	handle @story {
-		reverse_proxy sandbox-{re.story.1}:3002
+		reverse_proxy sandbox-{re.story.1}:3002 {
+			# LOAD-BEARING, same as the forward_auth block above — don't
+			# rely on the reverse proxy's engine default for these two
+			# headers on any leg that touches Host-derived trust.
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
-	handle {
-		@user header_regexp user Host ^([a-z0-9-]+)\.
-		reverse_proxy sandbox-{re.user.1}:7681
+	handle @user {
+		reverse_proxy sandbox-{re.user.1}:7681 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 }

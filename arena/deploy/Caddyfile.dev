@@ -29,11 +29,21 @@
 	}
 
 	@story header_regexp story Host ^([a-z0-9-]+)-story\.
+	@user  header_regexp user  Host ^([a-z0-9-]+)\.
+
+	# See ./Caddyfile for the full explanation — @story MUST stay first,
+	# and both matchers must be applied directly to their `handle`, not
+	# merely defined inside an unmatched one.
 	handle @story {
-		reverse_proxy sandbox-{re.story.1}:3002
+		reverse_proxy sandbox-{re.story.1}:3002 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
-	handle {
-		@user header_regexp user Host ^([a-z0-9-]+)\.
-		reverse_proxy sandbox-{re.user.1}:7681
+	handle @user {
+		reverse_proxy sandbox-{re.user.1}:7681 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 }
