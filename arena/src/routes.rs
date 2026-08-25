@@ -349,10 +349,36 @@ async fn post_launch(State(state): State<AppState>, jar: SignedCookieJar) -> Res
 /// failure mode for the caller, who's already getting a 500.
 async fn revoke_best_effort(state: &AppState, api_key: &str) {
     if let Err(e) = state.minter.revoke(api_key).await {
-        eprintln!("post_launch: best-effort revoke of {api_key} failed: {e}");
+        eprintln!(
+            "post_launch: best-effort revoke of key {} failed: {e}",
+            redact_key(api_key)
+        );
     }
+}
+
+/// A live LiteLLM key must never reach a log. Enough to correlate with the
+/// LiteLLM side, not enough to use: the length and the last four characters.
+fn redact_key(api_key: &str) -> String {
+    let tail: String = api_key.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+    format!("…{tail} (len {})", api_key.len())
 }
 
 fn redirect_to(location: String) -> Response {
     (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_key;
+
+    #[test]
+    fn a_redacted_key_correlates_but_cannot_be_used() {
+        let key = "sk-litellm-abcdefghijklmnop9Z4x";
+        let shown = redact_key(key);
+        assert_eq!(shown, "…9Z4x (len 31)");
+        assert!(!shown.contains("abcdefghijklmnop"), "{shown}");
+        // Even a pathologically short key must not be echoed whole.
+        assert_eq!(redact_key("ab"), "…ab (len 2)");
+        assert_eq!(redact_key(""), "… (len 0)");
+    }
 }
