@@ -432,6 +432,11 @@ impl SandboxDriver for DockerDriver {
                 maximum_retry_count: None,
             }),
             runtime: self.cfg.runtime.clone(),
+            // ttyd is not a reaper: it doesn't wait(2) on orphaned children
+            // (a tmux session's descendants when a pane tears down). Ask the
+            // container runtime to inject tini as PID 1 so those get reaped
+            // instead of accumulating as zombies.
+            init: Some(true),
             // Deliberately no `port_bindings`: the edge reaches the sandbox
             // over the shared network, so nothing is exposed on the host.
             ..Default::default()
@@ -773,6 +778,7 @@ mod docker_tests {
             )]))
         );
         assert_eq!(hc.network_mode.as_deref(), Some(naming::network_name(PROBE_USER).as_str()));
+        assert_eq!(hc.init, Some(true), "tini must be injected as PID1 to reap orphans");
 
         d.destroy(&spec.username, false).await.unwrap();
         assert!(!d.is_running(&id).await.unwrap(), "sandbox should be gone");

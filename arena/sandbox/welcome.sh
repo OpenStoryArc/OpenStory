@@ -9,9 +9,12 @@ mkdir -p "$HOME/data" "$HOME/.claude/projects"
 if [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
 fi
-# Private OpenStory observing this sandbox's own history
+# Private OpenStory observing this sandbox's own history. Run under setsid so
+# it lands in its own session, immune to SIGHUP when claude exits and tmux
+# tears the pane down — open-story must keep observing across attach cycles,
+# not die with the first client's terminal.
 if ! pgrep -f "open-story serve" >/dev/null; then
-  OPEN_STORY_PORT=3002 open-story serve \
+  setsid env OPEN_STORY_PORT=3002 open-story serve \
     --watch-dir "$HOME/.claude/projects" \
     --data-dir "$HOME/data" \
     --manage-nats >>"$HOME/data/open-story.log" 2>&1 &

@@ -30,7 +30,8 @@ RUN set -eux; \
 ARG NATS_VERSION=2.10.22
 RUN curl -fsSL "https://github.com/nats-io/nats-server/releases/download/v${NATS_VERSION}/nats-server-v${NATS_VERSION}-linux-$(dpkg --print-architecture).tar.gz" \
     | tar -xz -C /tmp \
- && mv /tmp/nats-server-v${NATS_VERSION}-linux-*/nats-server /usr/local/bin/
+ && mv /tmp/nats-server-v${NATS_VERSION}-linux-*/nats-server /usr/local/bin/ \
+ && rm -rf /tmp/nats-server-v*
 
 RUN npm install -g @anthropic-ai/claude-code
 
