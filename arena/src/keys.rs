@@ -9,6 +9,10 @@ pub trait KeyMinter: Send + Sync {
 pub struct FakeMinter {
     pub minted: std::sync::Mutex<Vec<(String, f64)>>,
     pub revoked: std::sync::Mutex<Vec<String>>,
+    /// Test hook: when set, `revoke` fails without recording anything in
+    /// `revoked` — simulates a LiteLLM-side revoke failure. Defaults to
+    /// `false`, so existing callers are unaffected.
+    pub fail_revoke: std::sync::atomic::AtomicBool,
 }
 
 impl FakeMinter {
@@ -16,6 +20,7 @@ impl FakeMinter {
         std::sync::Arc::new(FakeMinter {
             minted: std::sync::Mutex::new(Vec::new()),
             revoked: std::sync::Mutex::new(Vec::new()),
+            fail_revoke: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -25,6 +30,7 @@ impl Default for FakeMinter {
         FakeMinter {
             minted: std::sync::Mutex::new(Vec::new()),
             revoked: std::sync::Mutex::new(Vec::new()),
+            fail_revoke: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -47,6 +53,9 @@ impl KeyMinter for FakeMinter {
     }
 
     async fn revoke(&self, key: &str) -> anyhow::Result<()> {
+        if self.fail_revoke.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(anyhow::anyhow!("fake minter: forced revoke failure"));
+        }
         let mut revoked = self.revoked.lock().unwrap();
         revoked.push(key.to_string());
         Ok(())

@@ -15,14 +15,24 @@ use crate::state::AppState;
 /// skipped entirely (logged via `eprintln`) rather than destroyed blind —
 /// without the manifest we don't know whether to keep the JSONL volume.
 ///
-/// A `driver.destroy` error is logged and does NOT stop the sweep for that
-/// sandbox: we still attempt revoke + delete, because a container that
-/// failed to tear down (or already vanished) must not strand a live LiteLLM
-/// key or a stale DB row. Likewise a `minter.revoke` error is logged and we
-/// still proceed to `delete_sandbox`.
+/// Destroy-failure and revoke-failure are handled asymmetrically, on
+/// purpose:
+///
+/// - A `driver.destroy` error is logged and does NOT stop the sweep for
+///   that sandbox: we still attempt revoke + delete, because a container
+///   that failed to tear down (or already vanished) must not strand a live
+///   LiteLLM key behind a dead container.
+/// - A `minter.revoke` error is logged and the row is left in place
+///   (`delete_sandbox` is NOT called, and the sandbox is NOT counted as
+///   reaped): deleting the row here would strand a live key with no
+///   remaining handle to retry it. The row is still expired, so the next
+///   60s sweep retries the whole sequence for it — `driver.destroy` is
+///   idempotent against an already-gone container, and `revoke` gets
+///   another shot. Only a successful revoke proceeds to `delete_sandbox`.
 ///
 /// Returns the number of sandboxes that made it all the way through to
-/// `delete_sandbox` (i.e. were not skipped for missing user/manifest data).
+/// `delete_sandbox` (i.e. were not skipped for missing user/manifest data,
+/// and did not fail revoke).
 pub async fn reap_once(
     db: &Db,
     driver: &dyn SandboxDriver,
@@ -75,6 +85,10 @@ pub async fn reap_once(
 
         if let Err(e) = minter.revoke(&row.litellm_key).await {
             eprintln!("reaper: revoke failed for {:?}: {e}", row.username);
+            // Do NOT delete the row: it's still expired, so the next sweep
+            // retries destroy (idempotent) + revoke for it. Deleting here
+            // would strand a live, unrevoked key with no remaining handle.
+            continue;
         }
 
         if let Err(e) = db.delete_sandbox(&row.username) {
@@ -194,5 +208,45 @@ mod tests {
         assert_eq!(reaped, 0);
         assert!(driver.destroyed.lock().unwrap().is_empty());
         assert!(minter.revoked.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn revoke_failure_keeps_the_row_for_retry_instead_of_deleting_it() {
+        let db = Db::open_in_memory().unwrap();
+        db.insert_event(&event("keep", "")).unwrap();
+        db.create_user("katie", "keep", "h").unwrap();
+
+        let now = Utc::now();
+        db.upsert_sandbox(&SandboxRow {
+            username: "katie".into(),
+            container_id: "c1".into(),
+            litellm_key: "key-katie".into(),
+            expires_at: now - ChronoDuration::hours(1),
+        })
+        .unwrap();
+
+        let driver = FakeDriver::new();
+        let minter = FakeMinter::new();
+        minter.fail_revoke.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        // First sweep: revoke fails. destroy still ran (containers must not
+        // outlive their TTL just because the key revoke is having a bad
+        // day), but the row is NOT deleted and NOT counted as reaped —
+        // deleting it here would strand a live, unrevoked key with no
+        // remaining handle to retry.
+        let reaped = reap_once(&db, driver.as_ref(), minter.as_ref(), now).await.unwrap();
+        assert_eq!(reaped, 0);
+        assert!(driver.destroyed.lock().unwrap().contains(&("katie".to_string(), true)));
+        assert!(minter.revoked.lock().unwrap().is_empty());
+        assert!(db.get_sandbox("katie").unwrap().is_some(), "row must survive a failed revoke");
+
+        // Second sweep: revoke now succeeds, proving the retry path
+        // converges — the still-expired row gets picked up again and this
+        // time makes it all the way through.
+        minter.fail_revoke.store(false, std::sync::atomic::Ordering::SeqCst);
+        let reaped = reap_once(&db, driver.as_ref(), minter.as_ref(), now).await.unwrap();
+        assert_eq!(reaped, 1);
+        assert!(minter.revoked.lock().unwrap().contains(&"key-katie".to_string()));
+        assert!(db.get_sandbox("katie").unwrap().is_none());
     }
 }
