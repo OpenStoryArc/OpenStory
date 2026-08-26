@@ -47,6 +47,18 @@ arena-image:
 arena-smoke: arena-image
     bash arena/sandbox/smoke.sh
 
+# Run the arena end-to-end script (register -> launch -> reachable, wrong user denied)
+# against a running compose stack. Needs ARENA_BASE_DOMAIN's Caddy site up
+# (see arena/README.md "Local-dev mode" / "Security"). Pass ARGS through env vars
+# documented at the top of arena/tests/e2e.sh (ARENA_BASE_DOMAIN, EVENT_MANIFEST, ...).
+arena-e2e:
+    bash arena/tests/e2e.sh
+
+# Run the standing red-team seal probes against sandboxes launched by arena-e2e
+# (or pass your own container names: `just arena-redteam sandbox-foo sandbox-bar`).
+arena-redteam *ARGS:
+    bash arena/tests/redteam.sh {{ARGS}}
+
 # Attention / click-parity pure algebra tests
 test-attention:
     cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts

@@ -363,3 +363,50 @@ This is exactly the seam the design doc calls out as "the first thing k3s
 would buy us later" — a real orchestrator would let one control plane
 schedule sandboxes across hosts. v1 doesn't have that; two independent
 stacks is the whole procedure.
+
+## 9. Security
+
+Two scripts in `arena/tests/` exercise the seal end-to-end against a real
+running stack — they drive actual HTTP requests and actual `docker exec`,
+not unit-test doubles:
+
+- **`arena/tests/e2e.sh`** (`just arena-e2e`) — registers two participants
+  via join-code `/register`, launches both sandboxes, polls until each
+  participant's terminal and `-story` dashboard answer through Caddy, and
+  confirms an anonymous request is redirected and the second participant
+  is denied the first's sandbox (403). Read the comment block at the top
+  of the script for exactly how it resolves `*.arena.test` hostnames
+  without touching `/etc/hosts` (`curl --resolve`, no sudo needed).
+- **`arena/tests/redteam.sh`** (`just arena-redteam`) — the standing
+  seal probes, run from *inside* a launched sandbox via `docker exec`:
+  the Docker socket must be unreachable, another participant's sandbox
+  must be unreachable by container DNS, direct internet egress (both to
+  `api.anthropic.com` and to an arbitrary host) must fail, no real
+  `sk-ant-...` key may be recoverable from the sandbox's own environment,
+  and LiteLLM's admin endpoint (`/key/generate`) must refuse a request
+  that doesn't carry the master key. Every probe is written so *failure*
+  of the probed command is the passing outcome — a probe that succeeds is
+  printed as `BREACH`, and the script exits non-zero if any probe breaches.
+
+**Running both against a deployed host** (not local dev): export
+`ARENA_BASE_DOMAIN` to the real domain (already in DNS, no `--resolve`
+tricks needed — real DNS resolves it), make sure an event with a known
+join code exists (`EVENT_JOIN_CODE`, or run `arena up` yourself and skip
+the script's own attempt), and run:
+
+```bash
+ARENA_BASE_DOMAIN=arena.openstory.work EVENT_JOIN_CODE=<real-code> \
+  bash arena/tests/e2e.sh
+bash arena/tests/redteam.sh sandbox-<user1> sandbox-<user2>
+```
+
+A breach here is a design bug in the seal (docker_driver.rs's per-user
+internal network, or the LiteLLM/Caddy wiring around it), not a test bug —
+treat `BREACH:` lines as a stop-ship signal, not something to loosen the
+probe to avoid.
+
+**Red-team skill integration:** these two scripts are not yet wired into
+`.claude/skills/red-team` — that skill isn't modified in this branch. See
+`docs/BACKLOG.md` for a line item to add an Arena-aware hook there once the
+skill's runner supports invoking an external compose-stack script rather
+than only its in-repo Rust/dependency probes.

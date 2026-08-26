@@ -1084,3 +1084,12 @@ the BLUF rule. Next, in rough priority order:
   verified by manual Chrome walkthrough. Add coverage (headless browser /
   integration) so the offscreen-capture containing-block fix and
   sanitize-before-embed can't silently regress.
+- **Wire arena/tests/e2e.sh + redteam.sh into the red-team skill.** Arena's
+  standing seal probes (docker socket, cross-sandbox reach, egress, real-key
+  recovery, LiteLLM admin-without-master-key) live in `arena/tests/redteam.sh`
+  and are documented in `arena/README.md` §Security, but `.claude/skills/red-team`
+  only knows how to run this repo's in-process Rust/dependency probes — it has
+  no hook for "bring up a compose stack and run an external shell script"
+  against it. Add that hook once the skill's runner supports an
+  external-compose-stack probe class, so an "audit Arena" red-team run picks
+  these up automatically instead of requiring a human to remember them.

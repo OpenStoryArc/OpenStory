@@ -1,0 +1,14 @@
+# Fixture event for arena/tests/e2e.sh and arena/tests/redteam.sh.
+#
+# Unlike ../../events/example-event.toml (which points at a pinned ghcr.io
+# release tag meant for a real deploy host), this manifest points at the
+# image `just arena-image` builds locally (arena/sandbox/Dockerfile ->
+# arena-sandbox:dev) so the e2e/red-team loop never needs network access to
+# pull anything. retain_jsonl = false because this event's sandboxes are
+# throwaway test fixtures, not real participant transcripts worth keeping.
+name         = "e2e-test"
+image        = "arena-sandbox:dev"
+join_code    = "e2e-test-code"
+ttl_hours    = 6
+budget_usd   = 5.0
+retain_jsonl = false
