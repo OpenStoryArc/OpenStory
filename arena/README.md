@@ -247,9 +247,9 @@ bash arena/tests/redteam.sh sandbox-<user1> sandbox-<user2>
 
 Every probe must print its passing form, not `BREACH:`. If any probe
 breaches under `runsc` but not under the default runtime, that's a gVisor
-config bug (`arena/deploy/`'s `runtimes.json` wiring or the container's
-own gVisor-visible syscall surface) — do not open the event until it's
-fixed.
+config bug (`/etc/docker/daemon.json`'s `runsc` runtime registration or
+`ARENA_DOCKER_RUNTIME=runsc` being set in the container's
+environment) — do not open the event until it's fixed.
 
 **(b) Prove metering end-to-end with one real completion.** This is the
 only check that actually exercises the Fix-2 LiteLLM model routing and
@@ -260,49 +260,62 @@ issue one completion through it, and confirm both a 200 response *and*
 nonzero spend attributed to that specific key:
 
 ```bash
-# From the deploy host, inside the control plane container (it's the one
-# with LITELLM_MASTER_KEY and network access to arena-litellm):
-docker exec arena-cp sh -c '
-  KEY=$(curl -sf -X POST http://arena-litellm:4000/key/generate \
-    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"key_alias\": \"preflight-check\", \"max_budget\": 1.0}" \
-    | jq -r .key)
+# From the deploy host. Retrieve the master key:
+LITELLM_MASTER_KEY=$(docker compose exec -T arena printenv LITELLM_MASTER_KEY)
 
-  # One real completion, using the model name Claude Code actually sends
-  # (not "anthropic/*") — this is what Fix 2s wildcard routing must match.
-  curl -sf -o /tmp/preflight.json -w "%{http_code}\n" \
-    -X POST http://arena-litellm:4000/v1/messages \
-    -H "Authorization: Bearer $KEY" \
-    -H "Content-Type: application/json" \
-    -H "anthropic-version: 2023-06-01" \
-    -d "{\"model\": \"claude-sonnet-4-20250514\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"say hi\"}]}"
+# 1. Mint a virtual key via a throwaway curl container on the backplane network
+KEY=$(docker run --rm --network arena_backplane curlimages/curl -sf \
+  -X POST http://arena-litellm:4000/key/generate \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"key_alias": "preflight-check", "max_budget": 1.0}' \
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["key"])')
 
-  # Confirm spend was attributed to THIS key, not just that the call
-  # succeeded — a 200 with $0 spend recorded would mean routing worked but
-  # budget tracking did not, which is exactly the failure mode this gate
-  # exists to catch.
-  curl -sf "http://arena-litellm:4000/key/info?key=$KEY" \
-    -H "Authorization: Bearer $LITELLM_MASTER_KEY" | jq ".info.spend"
+# 2. Issue one real completion through that key (model name must match
+#    what Claude Code actually sends — this is what Fix-2's wildcard
+#    routing must match):
+HTTP_CODE=$(docker run --rm --network arena_backplane curlimages/curl -sf \
+  -X POST http://arena-litellm:4000/v1/messages \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -w "%{http_code}\n" \
+  -d '{"model": "claude-sonnet-4-20250514", "max_tokens": 16, "messages": [{"role": "user", "content": "say hi"}]}' \
+  -o /dev/null)
+echo "Completion HTTP: $HTTP_CODE"
 
-  curl -sf -X POST http://arena-litellm:4000/key/delete \
-    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"keys\": [\"$KEY\"]}" >/dev/null
-'
+# 3. Confirm spend was attributed to THIS key, not just that the call
+#    succeeded — a 200 with $0 spend recorded would mean routing worked
+#    but budget tracking did not, which is exactly the failure mode this
+#    gate exists to catch:
+SPEND=$(docker run --rm --network arena_backplane curlimages/curl -sf \
+  "http://arena-litellm:4000/key/info?key=$KEY" \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["info"]["spend"])')
+echo "Key spend: $SPEND"
+
+# 4. Clean up the test key:
+docker run --rm --network arena_backplane curlimages/curl -sf \
+  -X POST http://arena-litellm:4000/key/delete \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"keys\": [\"$KEY\"]}" > /dev/null
 ```
 
-Expect: the `/v1/messages` call prints `200`, and `.info.spend` from
-`/key/info` is a positive number (not `0`, not `null`). If the completion
-call fails, re-check the `model_list` wildcard in
-`arena/deploy/litellm-config.yaml`. If it succeeds but spend stays at
-`0`, LiteLLM accepted the call without tracking it against the key — do
-not rely on the budget cap at event scale until that's understood.
+Expect: `Completion HTTP: 200` and `Key spend:` is a positive number
+(not `0`, not `null`). If the completion call fails, re-check the
+`model_list` wildcard in `arena/deploy/litellm-config.yaml`. If it
+succeeds but spend stays at `0`, LiteLLM accepted the call without
+tracking it against the key — do not rely on the budget cap at event
+scale until that's understood.
+
+(If `python3` is unavailable on the deploy host, `jq` works equally well:
+`| jq -r .key` in step 1, `| jq .info.spend` in step 3.)
 
 Equivalently, you can drive this through a real Claude Code session
 inside a launched sandbox (`ANTHROPIC_BASE_URL` already points at the
-proxy there) instead of raw `curl` — the `/key/info` spend check at the
-end is the part that must not be skipped either way.
+proxy there) instead of raw `curl` — the spend check at the end is the
+part that must not be skipped either way.
 
 ## 6. Local-dev mode
 
