@@ -160,6 +160,21 @@ impl KeyMinter for LiteLlmMinter {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
+            // A key that's already gone (deleted by a previous revoke that
+            // crashed after LiteLLM applied it but before we recorded
+            // success, or deleted out-of-band) is not a revoke failure —
+            // the end state ("this key no longer exists") is exactly what
+            // revoke was asked to achieve. The reaper keeps the sandbox row
+            // around to retry revoke on error, so treating "not found" as
+            // an error here means retrying it every 60s forever. LiteLLM
+            // signals this as a 404, or as a 4xx body naming the key as
+            // not found — check both since the exact status LiteLLM uses
+            // for this case isn't guaranteed stable across versions.
+            let not_found = status == reqwest::StatusCode::NOT_FOUND
+                || (status.is_client_error() && body.to_lowercase().contains("not found"));
+            if not_found {
+                return Ok(());
+            }
             return Err(anyhow::anyhow!(
                 "litellm /key/delete failed: {} — {}",
                 status,
@@ -293,6 +308,24 @@ mod tests {
         let addr = spawn_failing_stub(axum::http::StatusCode::INTERNAL_SERVER_ERROR).await;
         let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
         assert!(m.mint("e/katie", 5.0).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn revoke_of_an_already_deleted_key_is_treated_as_success() {
+        // LiteLLM 404s a /key/delete for a key that's already gone (e.g.
+        // the reaper crashed after the first revoke applied but before it
+        // recorded success). Idempotent revoke must swallow that as Ok, or
+        // the reaper retries the row forever.
+        let addr = spawn_failing_stub(axum::http::StatusCode::NOT_FOUND).await;
+        let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
+        assert!(m.revoke("sk-already-gone").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn revoke_of_a_genuine_server_failure_is_still_an_error() {
+        let addr = spawn_failing_stub(axum::http::StatusCode::INTERNAL_SERVER_ERROR).await;
+        let m = LiteLlmMinter::new(format!("http://{addr}"), "master-1".into());
+        assert!(m.revoke("sk-virt-1").await.is_err());
     }
 
     async fn spawn_slow_stub() -> std::net::SocketAddr {

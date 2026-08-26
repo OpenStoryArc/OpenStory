@@ -227,6 +227,83 @@ actually seen that notice before they start — don't route around
 `/register` (e.g. pre-provisioning accounts via `roster` without telling
 people what's retained).
 
+### Pre-event verification (mandatory go/no-go gates)
+
+Run these two checks on the real deploy host before opening `/register`
+to participants. Neither is covered by the crate's test suite (they need
+a live, running stack), and both have failed silently in the past — treat
+either as a stop-ship until it passes.
+
+**(a) Re-run the red-team suite under gVisor.** The local dev run only
+verifies network/env isolation with the default runtime — it does not
+exercise the `runsc` syscall boundary that production actually relies on.
+Confirm `ARENA_DOCKER_RUNTIME=runsc` is set in the deploy host's `.env`
+(see "Docker + gVisor" above), launch at least one sandbox against it,
+then:
+
+```bash
+bash arena/tests/redteam.sh sandbox-<user1> sandbox-<user2>
+```
+
+Every probe must print its passing form, not `BREACH:`. If any probe
+breaches under `runsc` but not under the default runtime, that's a gVisor
+config bug (`arena/deploy/`'s `runtimes.json` wiring or the container's
+own gVisor-visible syscall surface) — do not open the event until it's
+fixed.
+
+**(b) Prove metering end-to-end with one real completion.** This is the
+only check that actually exercises the Fix-2 LiteLLM model routing and
+the per-user budget cap against a live Anthropic call — a passing red
+team run says nothing about whether spend is real or attributed
+correctly. Mint a throwaway virtual key the same way `arena up` does,
+issue one completion through it, and confirm both a 200 response *and*
+nonzero spend attributed to that specific key:
+
+```bash
+# From the deploy host, inside the control plane container (it's the one
+# with LITELLM_MASTER_KEY and network access to arena-litellm):
+docker exec arena-cp sh -c '
+  KEY=$(curl -sf -X POST http://arena-litellm:4000/key/generate \
+    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"key_alias\": \"preflight-check\", \"max_budget\": 1.0}" \
+    | jq -r .key)
+
+  # One real completion, using the model name Claude Code actually sends
+  # (not "anthropic/*") — this is what Fix 2s wildcard routing must match.
+  curl -sf -o /tmp/preflight.json -w "%{http_code}\n" \
+    -X POST http://arena-litellm:4000/v1/messages \
+    -H "Authorization: Bearer $KEY" \
+    -H "Content-Type: application/json" \
+    -H "anthropic-version: 2023-06-01" \
+    -d "{\"model\": \"claude-sonnet-4-20250514\", \"max_tokens\": 16, \"messages\": [{\"role\": \"user\", \"content\": \"say hi\"}]}"
+
+  # Confirm spend was attributed to THIS key, not just that the call
+  # succeeded — a 200 with $0 spend recorded would mean routing worked but
+  # budget tracking did not, which is exactly the failure mode this gate
+  # exists to catch.
+  curl -sf "http://arena-litellm:4000/key/info?key=$KEY" \
+    -H "Authorization: Bearer $LITELLM_MASTER_KEY" | jq ".info.spend"
+
+  curl -sf -X POST http://arena-litellm:4000/key/delete \
+    -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"keys\": [\"$KEY\"]}" >/dev/null
+'
+```
+
+Expect: the `/v1/messages` call prints `200`, and `.info.spend` from
+`/key/info` is a positive number (not `0`, not `null`). If the completion
+call fails, re-check the `model_list` wildcard in
+`arena/deploy/litellm-config.yaml`. If it succeeds but spend stays at
+`0`, LiteLLM accepted the call without tracking it against the key — do
+not rely on the budget cap at event scale until that's understood.
+
+Equivalently, you can drive this through a real Claude Code session
+inside a launched sandbox (`ANTHROPIC_BASE_URL` already points at the
+proxy there) instead of raw `curl` — the `/key/info` spend check at the
+end is the part that must not be skipped either way.
+
 ## 6. Local-dev mode
 
 No gVisor, no real DNS, no Cloudflare token needed. Two things differ from

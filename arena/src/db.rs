@@ -107,6 +107,27 @@ impl Db {
     }
 
     fn init(conn: Connection) -> Result<Db> {
+        // `serve` (reaper writing every 60s + register/launch writes) and
+        // the separate `arena up/down/users` invocations (each `docker exec
+        // arena-cp arena …` opens its own connection) all hit the same
+        // /data/arena.db file concurrently. rusqlite's default busy_timeout
+        // is 0, so any write overlap between those independent connections
+        // is an immediate SQLITE_BUSY instead of a short wait. Set a real
+        // timeout before anything else touches the connection.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+
+        // WAL lets readers and a writer proceed concurrently instead of
+        // serializing on a single file lock, which is what actually makes
+        // the busy_timeout above rare to hit in practice rather than just a
+        // longer wait before the same failure. `PRAGMA journal_mode=WAL` is
+        // not a plain setter — it returns a row naming the resulting mode —
+        // so it must go through `pragma_update`, not `execute`. It's also
+        // meaningless for `:memory:` connections (there's no file to
+        // journal); SQLite itself reports that by leaving the mode as
+        // "memory" rather than erroring, but tolerate an error here too so
+        // `open_in_memory` can never fail because of this pragma.
+        let _ = conn.pragma_update(None, "journal_mode", "WAL");
+
         conn.execute_batch(SCHEMA)?;
         Ok(Db(Mutex::new(conn)))
     }
@@ -283,6 +304,22 @@ mod tests {
         EventManifest::from_toml(&format!(
             "name = \"{name}\"\nimage = \"img:1\"\njoin_code = \"{code}\"\nttl_hours = 6\nbudget_usd = 5.0"
         )).unwrap()
+    }
+
+    #[test]
+    fn file_backed_db_sets_a_nonzero_busy_timeout() {
+        // `Db::open` (the file-path constructor) had no direct test before
+        // this — every other test exercises `open_in_memory`. Concurrent
+        // writers (the reaper vs. an `arena up/down/users` invocation) rely
+        // on a real busy_timeout, not rusqlite's default of 0.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("arena.db");
+        let db = Db::open(&path).unwrap();
+        let conn = db.0.lock().unwrap();
+        let busy_timeout_ms: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(busy_timeout_ms, 5000);
     }
 
     #[test]
