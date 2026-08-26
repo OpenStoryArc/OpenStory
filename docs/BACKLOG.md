@@ -1084,12 +1084,98 @@ the BLUF rule. Next, in rough priority order:
   verified by manual Chrome walkthrough. Add coverage (headless browser /
   integration) so the offscreen-capture containing-block fix and
   sanitize-before-embed can't silently regress.
-- **Wire arena/tests/e2e.sh + redteam.sh into the red-team skill.** Arena's
-  standing seal probes (docker socket, cross-sandbox reach, egress, real-key
-  recovery, LiteLLM admin-without-master-key) live in `arena/tests/redteam.sh`
-  and are documented in `arena/README.md` §Security, but `.claude/skills/red-team`
-  only knows how to run this repo's in-process Rust/dependency probes — it has
-  no hook for "bring up a compose stack and run an external shell script"
-  against it. Add that hook once the skill's runner supports an
-  external-compose-stack probe class, so an "audit Arena" red-team run picks
-  these up automatically instead of requiring a human to remember them.
+
+(The Arena red-team-skill wiring item that used to live at the end of this
+list moved to the "Arena phase 2" theme below, where it belongs thematically.)
+
+---
+
+## Arena phase 2
+
+Arena (`arena/README.md`, spec: `docs/superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md`
+§Phase 2) ships v1 as sealed, ephemeral, single-host Docker sandboxes for
+Claude Code + a private OpenStory per user. The design was built compatible
+with the following, explicitly deferred rather than half-built:
+
+### Event wall — per-sandbox NATS leaf → hub OpenStory
+Each sandbox already runs its own `open-story serve --manage-nats` against
+its own `~/.claude/projects`. Point that managed NATS at the host as a
+JetStream leaf (the same leaf/hub shape as `docs/deploy/distributed.md`) and
+every participant's live session streams to one hub OpenStory instance — the
+instructor's big-screen "event wall" for a workshop. Verbatim reuse of the
+existing distributed-deployment plumbing; no new transport primitive. Seam:
+`nats_leaf_url` / `--manage-nats` (`rs/server/src/config.rs`, `docs/deploy/distributed.md`).
+
+### Warm pool — pre-booted unclaimed sandboxes
+`warm_pool = N` in the event manifest pre-boots N unclaimed sandboxes ahead
+of an event; claiming becomes relabeling (assign username, mint a LiteLLM
+key, flip the Caddy route) instead of a cold `docker run`, so the 9:00am
+stampede of an event's start doesn't serialize on image pull + container
+boot. Seam: `SandboxDriver::provision` — a warm sandbox is just one that was
+provisioned before its username was known.
+
+### Google login — via the forward_auth seam
+The control plane's auth boundary is a forward_auth contract (Caddy asks
+"who is this cookie," gets a username back); email/password is only today's
+implementation of that contract. Google login slots in as an alternative
+forward_auth provider — oauth2-proxy (or similar) sits in front of Caddy and
+establishes the same username in the same session-cookie shape. Routing,
+sandbox provisioning, LiteLLM metering, and the corpus pipeline are all
+downstream of "a username in a cookie" and don't change. Seam: the
+forward_auth contract described in the spec's §3 ("Google login seam later,
+not now").
+
+### Egress allowlist proxy — npm/pypi for workshops that need installs
+v1's sandbox network is `internal: true` with the LiteLLM proxy as the only
+reachable endpoint — correct for a scripted first-task workshop, too tight
+for one that needs `npm install` or `pip install`. A small egress proxy
+(e.g. Squid/mitmproxy) added as a second reachable endpoint, allowlisting
+only registry hosts (registry.npmjs.org, pypi.org, files.pythonhosted.org),
+gives installs without opening general internet. Seam: the sandbox's Docker
+network membership + LiteLLM's existing "one more reachable service" pattern
+— no change to the seal model (still `internal: true`, still no published
+ports).
+
+### K8sDriver — when the fleet outgrows two boxes
+Provisioning already sits behind the `SandboxDriver` trait; v1 ships only
+`DockerDriver`. When a single Hetzner box (or the "second box" manual
+scale-out already noted in `arena/README.md`) stops being enough, a
+`K8sDriver` submits Pods with `runtimeClassName: gvisor` + a NetworkPolicy
+equivalent to today's `internal: true` network — same manifest, same control
+plane API, no caller-visible change. Seam: `SandboxDriver` (spec §2).
+
+### Carried-forward hardening items (from the Arena v1 build)
+Real follow-ups surfaced while building Tasks 1–15, deliberately not
+gold-plated into v1:
+- **Checksum-pin the ttyd + nats-server downloads** in `arena/sandbox/Dockerfile`
+  — currently version-pinned only (base image digest is pinned; these two
+  binaries aren't). Add `sha256sum -c` against a pinned checksum so a
+  compromised release mirror can't slip a different binary into the sealed
+  image.
+- **Wire the red-team skill to run `arena/tests/redteam.sh` against a deployed
+  host.** Arena's standing seal probes (docker socket, cross-sandbox reach,
+  egress, real-key recovery, LiteLLM admin-without-master-key) live in
+  `arena/tests/redteam.sh` and are documented in `arena/README.md` §Security,
+  but `.claude/skills/red-team` only knows how to run this repo's in-process
+  Rust/dependency probes — it has no hook for "bring up a compose stack (or
+  reach a deployed host) and run an external shell script" against it. This
+  hook was intentionally deferred in Task 15; add it once the skill's runner
+  supports an external-compose-stack / remote-host probe class, so an "audit
+  Arena" red-team run picks these up automatically instead of requiring a
+  human to remember them.
+- **RateLimiter map is unbounded across never-repeated keys.** The control
+  plane's rate limiter keys by (likely) username or IP and never evicts;
+  under real event traffic with many one-shot participants this grows
+  without bound. Prune expired entries or switch to an LRU before the first
+  real event.
+- **Pin the litellm image by digest before an event.** The compose stack
+  currently floats `litellm`'s `main-stable` tag; pin to a specific digest
+  ahead of any real event so a surprise upstream release can't change
+  behavior (or the sealed metering guarantees) mid-event.
+- **Re-run `redteam.sh` under gVisor (`runsc`) on the deploy host.** The seal
+  probes built in Tasks 11/14/15 verified network and environment isolation
+  against the local Docker runtime; they have not yet been run against the
+  actual `runsc` syscall boundary the deploy runbook installs. Re-run the
+  full `arena/tests/redteam.sh` on the Hetzner/a1 deploy host with
+  `ARENA_DOCKER_RUNTIME=runsc` before the first real event, per the
+  execution notes in the Arena v1 plan.

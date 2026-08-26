@@ -1,5 +1,7 @@
 # Arena — deploy runbook
 
+Design: [sealed-sandboxes spec](../docs/superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md) · Build: [Arena v1 plan](../docs/superpowers/plans/2026-08-25-arena-v1.md)
+
 Ephemeral, sealed coding-agent sandboxes for events. One host runs Caddy
 (TLS termination + owner-only authz), the control plane (`arena` binary —
 auth, provisioning, LiteLLM key minting), LiteLLM (the one real Anthropic
