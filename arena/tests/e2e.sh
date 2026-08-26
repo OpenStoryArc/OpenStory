@@ -54,10 +54,26 @@ JAR=$(mktemp); JAR2=$(mktemp)
 trap 'rm -f "$JAR" "$JAR2"' EXIT
 
 # One-shot request, exact status code required.
+#
+# NOTE on the `if ! code=$(...)` shape (here and in every helper below): a
+# naive `code=$(curl ... || echo "curl-error")` looks like it produces a
+# clean fallback, but curl's `-w '%{http_code}'` ALWAYS writes something to
+# stdout — "000" on a total connection failure — before exiting non-zero.
+# `cmd || echo x` runs `echo x` in addition to (not instead of) whatever
+# `cmd` already printed, so that shape actually yields "000curl-error", a
+# garbled diagnostic, on exactly the failure case it exists to handle.
+# Checking the assignment's own exit status with `if !` and only THEN
+# overwriting `code` avoids the concatenation: the "000" curl printed is
+# discarded, not appended to. This still matters under `set -e`: a simple
+# assignment's exit status is the exit status of its command substitution,
+# so an unguarded connection failure would otherwise abort the whole script
+# with no context about which check was running.
 assert_code() {
   local desc="$1" expected="$2"; shift 2
   local code
-  code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" "$@")
+  if ! code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" "$@" 2>/dev/null); then
+    code="curl-error"
+  fi
   if [ "$code" = "$expected" ]; then
     echo "PASS: $desc ($code)"
   else
@@ -73,7 +89,9 @@ wait_for_code() {
   local desc="$1" expected="$2" tries="${3:-30}"; shift 3
   local code=""
   for ((i = 0; i < tries; i++)); do
-    code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" "$@" 2>/dev/null || echo "curl-error")
+    if ! code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" "$@" 2>/dev/null); then
+      code="curl-error"
+    fi
     if [ "$code" = "$expected" ]; then
       echo "PASS: $desc ($code, ${i}s)"
       return 0
@@ -84,6 +102,79 @@ wait_for_code() {
   return 1
 }
 
+# Like wait_for_code, but also requires the body to match a pattern once the
+# expected code shows up — so a 200 from the wrong upstream (a misrouted
+# Caddy match, a stale cache, a blank placeholder) can't masquerade as the
+# real endpoint actually answering. Body goes to a temp file and is grepped
+# there rather than piped through `printf | grep -q`: `grep -q` exits the
+# instant it finds a match, which SIGPIPEs the writer on a large body (e.g.
+# ttyd's ~700KB page) — and under `set -o pipefail` (this script has it),
+# that broken-pipe failure on printf poisons the pipeline's exit status even
+# though grep itself matched, turning a real PASS into a false FAIL.
+wait_for_code_and_body() {
+  local desc="$1" expected="$2" pattern="$3" tries="${4:-30}"; shift 4
+  local code="" body_file
+  body_file=$(mktemp)
+  for ((i = 0; i < tries; i++)); do
+    if ! code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" "$@" 2>/dev/null); then
+      code="curl-error"
+    fi
+    if [ "$code" = "$expected" ]; then
+      curl -sk -o "$body_file" "${RESOLVE[@]}" "$@" 2>/dev/null || true
+      if grep -qiE "$pattern" "$body_file"; then
+        echo "PASS: $desc ($code, body matches /${pattern}/i, ${i}s)"
+        rm -f "$body_file"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  rm -f "$body_file"
+  echo "FAIL: $desc — expected $expected + body matching /${pattern}/i within ${tries}s, last code=$code" >&2
+  return 1
+}
+
+# register-or-login: makes the register step rerun-safe against a stack
+# that's still up from a previous invocation. A plain re-POST to /register
+# for a username that already exists returns 409 (routes.rs: DbError::
+# Duplicate), not 303 — so a bare assert_code would wrongly FAIL on a
+# second run even though nothing is actually broken. Chosen over
+# unique-per-run usernames (a run-tag suffix) because it needs no extra
+# state file or env var to stay valid across runs, and it exercises a real
+# path (/login) that a legitimate returning participant would also use —
+# arena/events "up" is already documented as idempotent-tolerant the same
+# way (README §5 / cmd_up test coverage), so this keeps the whole script's
+# idempotence story consistent top to bottom.
+register_or_login() {
+  local jar="$1" user="$2"
+  local code
+  if ! code=$(curl -sk -o /dev/null -w '%{http_code}' "${RESOLVE[@]}" \
+    -c "$jar" -X POST \
+    --data-urlencode "join_code=${JOIN_CODE}" \
+    --data-urlencode "username=${user}" \
+    --data-urlencode "password=${PASSWORD}" \
+    "${BASE}/register" 2>/dev/null); then
+    code="curl-error"
+  fi
+  case "$code" in
+    303)
+      echo "PASS: register $user -> 303 (303)"
+      ;;
+    409)
+      echo "   ($user already registered from a previous run on this stack — logging in instead)"
+      assert_code "login $user -> 303" 303 \
+        -c "$jar" -X POST \
+        --data-urlencode "username=${user}" \
+        --data-urlencode "password=${PASSWORD}" \
+        "${BASE}/login"
+      ;;
+    *)
+      echo "FAIL: register $user — expected 303 (or 409-then-login), got $code" >&2
+      exit 1
+      ;;
+  esac
+}
+
 echo "== arena e2e =="
 
 echo "-- provisioning event ${EVENT_MANIFEST} (tolerates 'already exists' on a live stack)"
@@ -91,35 +182,25 @@ docker exec "$ARENA_CP_CONTAINER" arena up "$EVENT_MANIFEST" \
   || echo "   (arena up returned non-zero — assuming already provisioned; register below will fail loudly if not)"
 
 echo "-- register alice"
-assert_code "register alice -> 303" 303 \
-  -c "$JAR" -X POST \
-  --data-urlencode "join_code=${JOIN_CODE}" \
-  --data-urlencode "username=${ALICE}" \
-  --data-urlencode "password=${PASSWORD}" \
-  "${BASE}/register"
+register_or_login "$JAR" "$ALICE"
 
 echo "-- launch alice's sandbox"
 assert_code "launch alice -> 303" 303 \
   -b "$JAR" -X POST "${BASE}/launch"
 
 echo "-- alice reaches her terminal (ttyd via caddy)"
-wait_for_code "alice terminal 200" 200 60 \
+wait_for_code_and_body "alice terminal 200" 200 'ttyd|terminal' 60 \
   -b "$JAR" "https://${ALICE_HOST}/"
 
 echo "-- alice reaches her -story dashboard (open-story API via caddy)"
-wait_for_code "alice story /api/sessions 200" 200 60 \
+wait_for_code_and_body "alice story /api/sessions 200" 200 '"sessions"' 60 \
   -b "$JAR" "https://${ALICE_STORY_HOST}/api/sessions"
 
 echo "-- anonymous is redirected off alice's host"
 assert_code "anonymous -> 302" 302 "https://${ALICE_HOST}/"
 
 echo "-- register mallory"
-assert_code "register mallory -> 303" 303 \
-  -c "$JAR2" -X POST \
-  --data-urlencode "join_code=${JOIN_CODE}" \
-  --data-urlencode "username=${MALLORY}" \
-  --data-urlencode "password=${PASSWORD}" \
-  "${BASE}/register"
+register_or_login "$JAR2" "$MALLORY"
 
 echo "-- mallory is denied alice's sandbox"
 assert_code "mallory -> alice's host: 403" 403 \
@@ -135,7 +216,7 @@ assert_code "mallory -> alice's host: 403" 403 \
 echo "-- launch mallory's own sandbox (redteam.sh's cross-sandbox target)"
 assert_code "launch mallory -> 303" 303 \
   -b "$JAR2" -X POST "${BASE}/launch"
-wait_for_code "mallory terminal 200" 200 60 \
+wait_for_code_and_body "mallory terminal 200" 200 'ttyd|terminal' 60 \
   -b "$JAR2" "https://${MALLORY_HOST}/"
 
 echo "E2E PASS"
