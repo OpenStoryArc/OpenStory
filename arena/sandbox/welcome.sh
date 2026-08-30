@@ -9,6 +9,11 @@ mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.scratc
 if [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
 fi
+# Seed the read-only permission allowlist on first boot ($HOME volume shadows
+# whatever was baked under ~/.claude at build time, so this must run here).
+if [ ! -f "$HOME/.claude/settings.json" ] && [ -f /opt/skel/claude-settings.json ]; then
+  cp /opt/skel/claude-settings.json "$HOME/.claude/settings.json"
+fi
 # Git identity from the logged-in username so first commit works, attributed
 # per-student (R5). Idempotent; global scope so it applies to any repo.
 u="${ARENA_USERNAME:-dev}"

@@ -88,4 +88,11 @@ echo "-- git identity out of the box (R5)"
 docker exec "$C" sh -c 'cd "$(mktemp -d)" && git init -q && echo x > f && git add f && git commit -q -m t && git log -1 --format="%an <%ae>"' | grep -q 'smoke' \
   || { echo "git identity not seeded from ARENA_USERNAME"; exit 1; }
 
+echo "-- workspace CLAUDE.md shipped (R8)"
+docker exec "$C" sh -c 'grep -q "cannot install" "$HOME/workspace/CLAUDE.md"' || { echo "no CLAUDE.md"; exit 1; }
+echo "-- settings.json allowlist present (R8)"
+docker exec "$C" sh -c 'grep -q "git status" "$HOME/.claude/settings.json"' || { echo "no settings allowlist"; exit 1; }
+echo "-- README points at the real -story URL (R9)"
+docker exec "$C" sh -c 'grep -q -- "-story" "$HOME/workspace/README.md" && grep -q "https://" "$HOME/workspace/README.md"' || { echo "README not fixed"; exit 1; }
+
 echo "SMOKE PASS"

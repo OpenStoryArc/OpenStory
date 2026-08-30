@@ -64,9 +64,10 @@ COPY arena/sandbox/welcome.sh /usr/local/bin/welcome.sh
 RUN chmod +x /usr/local/bin/welcome.sh
 
 # curated starter workspace baked at /opt/workspace (seeded into $HOME on first boot)
-RUN mkdir -p /opt/workspace && git -C /opt/workspace init -q \
- && printf '# Welcome\n\nAsk Claude to look around. Your OpenStory dashboard is at the -story link.\n' > /opt/workspace/README.md \
- && git -C /opt/workspace add -A && git -C /opt/workspace -c user.email=arena@localhost -c user.name=arena commit -qm seed
+RUN mkdir -p /opt/workspace && git -C /opt/workspace init -q
+COPY arena/sandbox/skel/CLAUDE.md arena/sandbox/skel/README.md /opt/workspace/
+RUN cd /opt/workspace && git add -A && git -c user.email=arena@localhost -c user.name=arena commit -qm seed
+COPY arena/sandbox/skel/settings.json /opt/skel/claude-settings.json
 
 # node:22-bookworm-slim ships a uid-1000 `node` user; drop it and create `dev`
 # so paths read as the plan says (matches DockerDriver's HOME_MOUNT = "/home/dev").

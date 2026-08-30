@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status)", "Bash(git log:*)", "Bash(git diff:*)",
+      "Bash(ls:*)", "Bash(rg:*)", "Bash(cat:*)", "Bash(node --version)",
+      "Read(*)"
+    ]
+  }
+}
