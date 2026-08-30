@@ -9,6 +9,7 @@ RUN cd rs && cargo build --release -p open-story-cli
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tmux git curl ca-certificates procps \
+      jq sqlite3 unzip zip vim less tree \
     && rm -rf /var/lib/apt/lists/*
 
 # ttyd: not packaged in Debian bookworm's apt repos (verified — apt-cache policy
@@ -49,6 +50,9 @@ RUN mkdir -p /opt/workspace && git -C /opt/workspace init -q \
 RUN userdel -r node 2>/dev/null || true; useradd -m -u 1000 -s /bin/bash dev
 USER dev
 ENV HOME=/home/dev
+COPY --chown=dev:dev arena/sandbox/tmux.conf /home/dev/.tmux.conf
+ENV PATH="/home/dev/.local/bin:${PATH}"
+RUN mkdir -p /home/dev/.local/bin /home/dev/.scratch
 WORKDIR /home/dev
 
 EXPOSE 7681 3002

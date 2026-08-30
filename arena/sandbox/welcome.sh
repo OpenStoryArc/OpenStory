@@ -4,7 +4,7 @@ set -u
 if [ ! -d "$HOME/workspace" ]; then
   cp -r /opt/workspace "$HOME/workspace"
 fi
-mkdir -p "$HOME/data" "$HOME/.claude/projects"
+mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.scratch"
 # Skip claude onboarding prompts
 if [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"

@@ -44,4 +44,15 @@ claude_count=$(docker exec "$C" pgrep -c claude)
   exit 1
 }
 
+echo "-- CLI tools present (R7)"
+for t in jq sqlite3 unzip zip vim less tree; do
+  docker exec "$C" sh -c "command -v $t >/dev/null" || { echo "MISSING: $t"; exit 1; }
+done
+echo "-- exec-capable scratch dir (R3)"
+docker exec "$C" sh -c 'd=$HOME/.scratch; mkdir -p "$d"; printf "#!/bin/sh\necho ok\n" > "$d/t.sh"; chmod +x "$d/t.sh"; [ "$("$d/t.sh")" = "ok" ]' || { echo "scratch not exec-capable"; exit 1; }
+echo "-- ~/.local/bin on PATH (R4)"
+docker exec "$C" bash -lc 'case ":$PATH:" in *:"$HOME/.local/bin":*) : ;; *) exit 1 ;; esac' || { echo ".local/bin not on PATH"; exit 1; }
+echo "-- tmux mouse on (R11)"
+docker exec "$C" tmux show -g mouse | grep -q 'mouse on' || { echo "tmux mouse not on"; exit 1; }
+
 echo "SMOKE PASS"
