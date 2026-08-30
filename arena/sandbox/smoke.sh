@@ -94,6 +94,20 @@ echo "-- settings.json allowlist present (R8)"
 docker exec "$C" sh -c 'grep -q "git status" "$HOME/.claude/settings.json"' || { echo "no settings allowlist"; exit 1; }
 echo "-- README points at the real -story URL (R9)"
 docker exec "$C" sh -c 'grep -q -- "-story" "$HOME/workspace/README.md" && grep -q "https://" "$HOME/workspace/README.md"' || { echo "README not fixed"; exit 1; }
+echo "-- README placeholders actually interpolated, not just coincidentally present (R9)"
+docker exec "$C" sh -c '! grep -q "{username}" "$HOME/workspace/README.md"' || { echo "README still has literal {username} placeholder"; exit 1; }
+
+echo "-- welcome.sh waits for open-story readiness before exec claude (boot race fix)"
+# Static check: the timing race itself (MCP dying because it raced ahead of
+# in-box NATS on a cold boot) is hard to reproduce deterministically in a
+# smoke test, so assert the guard is actually wired into welcome.sh instead —
+# the poll loop must appear, and it must appear before the `exec claude` line.
+docker exec "$C" sh -c '
+  f=/usr/local/bin/welcome.sh
+  poll_line=$(grep -n "api/sessions" "$f" | head -1 | cut -d: -f1)
+  exec_line=$(grep -n "exec claude" "$f" | head -1 | cut -d: -f1)
+  [ -n "$poll_line" ] && [ -n "$exec_line" ] && [ "$poll_line" -lt "$exec_line" ]
+' || { echo "readiness poll missing or not before exec claude in welcome.sh"; exit 1; }
 
 echo "-- open-story-mcp binary present (R6.1)"
 docker exec "$C" sh -c 'command -v open-story-mcp >/dev/null' || { echo "no mcp binary"; exit 1; }
