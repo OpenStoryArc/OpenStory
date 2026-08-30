@@ -117,4 +117,19 @@ echo "-- control: admin-write route still 403 without an admin credential (no re
 code=$(docker exec "$C" sh -c "curl -s -o /dev/null -w '%{http_code}' -X PUT localhost:3002/api/admin/participants -H 'Content-Type: application/json' -d '{}'")
 [ "$code" = 403 ] || { echo "expected /api/admin/participants PUT to still be 403, got $code"; exit 1; }
 
+echo "-- multi-harness watch: pi-mono transcript dir is observed too (R6)"
+# Minimal VALID pi-mono line, not a made-up shape: translate_pi.rs's
+# is_pi_mono_format() requires type == "session" with a "cwd" field (the
+# pi-mono session header), and reader.rs auto-detects transcript format from
+# the first line of each watched file. That header alone translates to a
+# system.session_start CloudEvent (translate_pi_line), which is enough to
+# register a session. A bare `{"type":"session_start"}` (Claude-Code-shaped)
+# fails is_pi_mono_format and is silently dropped, so it would not exercise
+# this path. The session id open-story assigns is the file stem
+# (session_id_from_path), not the JSON payload's "id" field, so the fixture
+# file itself is named after the session id we assert on.
+docker exec "$C" sh -c 'mkdir -p "$HOME/.pi/agent/sessions/proj" && printf "{\"type\":\"session\",\"id\":\"smoke-pi-entry\",\"cwd\":\"/home/dev/workspace\",\"provider\":\"anthropic\",\"modelId\":\"smoke-model\"}\n" > "$HOME/.pi/agent/sessions/proj/smoke-pi-session.jsonl"'
+docker exec "$C" sh -c 'tries=15; until curl -s localhost:3002/api/sessions | jq -e "[.sessions[]? | select(.session_id == \"smoke-pi-session\" and .origin_agent == \"pi-mono\")] | length >= 1" >/dev/null 2>&1; do tries=$((tries-1)); [ "$tries" -le 0 ] && exit 1; sleep 1; done' \
+  || { echo "pi harness dir not observed"; exit 1; }
+
 echo "SMOKE PASS"

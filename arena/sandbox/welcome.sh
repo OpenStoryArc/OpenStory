@@ -4,7 +4,7 @@ set -u
 if [ ! -d "$HOME/workspace" ]; then
   cp -r /opt/workspace "$HOME/workspace"
 fi
-mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.scratch"
+mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.pi/agent/sessions" "$HOME/.local/bin" "$HOME/.scratch"
 # Skip claude onboarding prompts
 if [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
@@ -24,8 +24,13 @@ git config --global init.defaultBranch main
 # it lands in its own session, immune to SIGHUP when claude exits and tmux
 # tears the pane down — open-story must keep observing across attach cycles,
 # not die with the first client's terminal.
+# OpenStory watches every agent harness in the box, not just Claude Code, so
+# its store (and the MCP over it) spans all of them (R6). The pi-mono watch
+# dir has no clap flag — it's read straight from the OPEN_STORY_PI_WATCH_DIR
+# env var at runtime (see rs/cli/src/main.rs), so it's absent from
+# `serve --help` even though it's fully wired up server-side.
 if ! pgrep -f "open-story serve" >/dev/null; then
-  setsid env OPEN_STORY_PORT=3002 open-story serve \
+  setsid env OPEN_STORY_PORT=3002 OPEN_STORY_PI_WATCH_DIR="$HOME/.pi/agent/sessions" open-story serve \
     --watch-dir "$HOME/.claude/projects" \
     --data-dir "$HOME/data" \
     --manage-nats >>"$HOME/data/open-story.log" 2>&1 &
