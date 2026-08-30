@@ -3,11 +3,40 @@
 set -euo pipefail
 IMG=${1:-arena-sandbox:dev}
 C=arena-smoke-$$
+V=arena-smoke-home-$$
+# Mount a named volume at /home/dev, mirroring the DockerDriver's per-user
+# $HOME volume in production (docker_driver.rs binds "{volume}:/home/dev").
+# A brand-new, never-touched named volume is NOT a faithful stand-in here:
+# Docker auto-copies an image directory's content into a volume the first
+# time it's mounted, but only when the volume is completely empty. That
+# would silently mask a shadow bug (anything baked under /home/dev in the
+# image looks present) in a way a real returning user never benefits from —
+# their volume already has content (workspace/, data/, .claude/, ...) from a
+# prior boot, so Docker does NOT re-copy newer image files into it. Seed the
+# volume with a marker file first so it's non-empty before the real
+# container starts, forcing the same no-copy path a real relaunch takes.
+# welcome.sh's boot-time mkdir (and /etc/tmux.conf living outside /home/dev
+# entirely) is what has to make the checks below pass, not image-layer copy.
+#
+# The seeding container must NOT be $IMG itself: Docker's copy-on-first-use
+# is keyed to the volume's own lifecycle (empty at first-ever mount, from
+# whichever image mounts it first), so seeding with $IMG would trigger the
+# very auto-populate this is trying to rule out, silently re-masking the
+# bug. node:22-bookworm-slim is the sandbox's own runtime base layer (always
+# local already — the image build pulls it), has nothing baked at /home/dev,
+# and so writes the marker without populating anything else. Chown to
+# uid/gid 1000 afterward to match a real returning user's volume, which is
+# always dev-owned (every welcome.sh mkdir runs as USER dev) — left
+# root-owned, the sandbox's dev user couldn't write into it, a permission
+# artifact of seeding unrelated to the shadow bug under test.
+docker volume create "$V" >/dev/null
+docker run --rm -v "$V":/home/dev node:22-bookworm-slim \
+  sh -c 'touch /home/dev/.arena-smoke-preexisting-volume && chown -R 1000:1000 /home/dev' >/dev/null
 docker run -d --rm --name "$C" \
   -e ANTHROPIC_API_KEY=sk-smoke -e ANTHROPIC_BASE_URL=http://localhost:9 \
   -e ARENA_USERNAME=smoke \
-  --tmpfs /tmp "$IMG"
-trap 'docker rm -f "$C" >/dev/null 2>&1 || true' EXIT
+  --tmpfs /tmp -v "$V":/home/dev "$IMG"
+trap 'docker rm -f "$C" >/dev/null 2>&1 || true; docker volume rm "$V" >/dev/null 2>&1 || true' EXIT
 
 # Poll instead of a fixed sleep — this project prefers polling over guessing
 # a boot-time constant in tests. ~30s ceiling, 1s interval.

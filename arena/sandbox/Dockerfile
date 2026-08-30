@@ -12,6 +12,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       jq sqlite3 unzip zip vim less tree \
     && rm -rf /var/lib/apt/lists/*
 
+# tmux reads /etc/tmux.conf as its system-wide config for every user. Placed
+# outside /home/dev deliberately: the DockerDriver mounts /home/dev as a
+# per-user volume at runtime, which shadows anything baked there at build
+# time (see the ~/.scratch / ~/.local/bin boot-time mkdir in welcome.sh for
+# the same issue). /etc is never shadowed, so this survives without a
+# boot-time copy.
+COPY arena/sandbox/tmux.conf /etc/tmux.conf
+
+# Same shadow class, different mechanism: a login shell (bash -lc) sources
+# /etc/profile, which unconditionally rebuilds PATH from scratch and then
+# sources /etc/profile.d/*.sh — discarding whatever PATH was inherited from
+# this Dockerfile's ENV. Normally ~/.profile re-appends ~/.local/bin
+# afterward, but ~/.profile is itself a build-time file under /home/dev and
+# is shadowed on a returning user's already-populated volume exactly like
+# ~/.tmux.conf was. Fix it the same way: put the append in /etc/profile.d,
+# which every login shell sources regardless of volume history.
+RUN printf '%s\n' \
+      'case ":$PATH:" in' \
+      '  *":$HOME/.local/bin:"*) ;;' \
+      '  *) PATH="$HOME/.local/bin:$PATH" ;;' \
+      'esac' \
+    > /etc/profile.d/local-bin-path.sh
+
 # ttyd: not packaged in Debian bookworm's apt repos (verified — apt-cache policy
 # shows no candidate on amd64 or arm64, incl. backports). Install the upstream
 # static release binary instead, matching the image's architecture.
@@ -50,7 +73,6 @@ RUN mkdir -p /opt/workspace && git -C /opt/workspace init -q \
 RUN userdel -r node 2>/dev/null || true; useradd -m -u 1000 -s /bin/bash dev
 USER dev
 ENV HOME=/home/dev
-COPY --chown=dev:dev arena/sandbox/tmux.conf /home/dev/.tmux.conf
 ENV PATH="/home/dev/.local/bin:${PATH}"
 RUN mkdir -p /home/dev/.local/bin /home/dev/.scratch
 WORKDIR /home/dev
