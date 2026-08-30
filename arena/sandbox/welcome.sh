@@ -9,6 +9,12 @@ mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.local/bin" "$HOME/.scratc
 if [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
 fi
+# Git identity from the logged-in username so first commit works, attributed
+# per-student (R5). Idempotent; global scope so it applies to any repo.
+u="${ARENA_USERNAME:-dev}"
+git config --global user.name "$u"
+git config --global user.email "${u}@arena.local"
+git config --global init.defaultBranch main
 # Private OpenStory observing this sandbox's own history. Run under setsid so
 # it lands in its own session, immune to SIGHUP when claude exits and tmux
 # tears the pane down — open-story must keep observing across attach cycles,

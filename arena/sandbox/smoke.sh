@@ -84,4 +84,8 @@ docker exec "$C" bash -lc 'case ":$PATH:" in *:"$HOME/.local/bin":*) : ;; *) exi
 echo "-- tmux mouse on (R11)"
 docker exec "$C" tmux show -g mouse | grep -q 'mouse on' || { echo "tmux mouse not on"; exit 1; }
 
+echo "-- git identity out of the box (R5)"
+docker exec "$C" sh -c 'cd "$(mktemp -d)" && git init -q && echo x > f && git add f && git commit -q -m t && git log -1 --format="%an <%ae>"' | grep -q 'smoke' \
+  || { echo "git identity not seeded from ARENA_USERNAME"; exit 1; }
+
 echo "SMOKE PASS"
