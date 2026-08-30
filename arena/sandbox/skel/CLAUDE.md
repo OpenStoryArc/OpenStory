@@ -13,9 +13,10 @@ No public internet. The internal arena network works: `arena-litellm:4000` serve
 model. WebFetch/WebSearch are unavailable.
 
 ## OpenStory (your history)
-OpenStory runs in this container and records every agent session here. You can read it
-over MCP — the `openstory` MCP server is wired in; use its tools to ask what you (or
-another harness in this box) have already done. Data: `~/data/open-story.db`.
+OpenStory runs in this container and records every agent session here. Data:
+`~/data/open-story.db`. An `openstory` MCP server for reading this history from inside the
+box is being added — until it lands, use the dashboard (the `-story` link) to read your
+history.
 
 ## Repo
 `~/workspace` is a git repo; a global git identity is already configured.

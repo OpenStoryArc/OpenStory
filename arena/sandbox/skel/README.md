@@ -3,6 +3,6 @@
 This is your sealed workspace. Ask the agent to look around.
 
 Your agent history — every session recorded here — is on your OpenStory dashboard:
-**https://<your-username>-story.<event-domain>/**  (the operator will give you the exact link).
+**https://{username}-story.{base_domain}/**  (the operator will give you the exact link).
 
-The agent can also read that history directly through the `openstory` MCP tools.
+MCP access to this history from inside the box is coming.
