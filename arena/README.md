@@ -1,6 +1,6 @@
 # Arena — deploy runbook
 
-Design: [sealed-sandboxes spec](../docs/superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md) · Build: [Arena v1 plan](../docs/superpowers/plans/2026-08-25-arena-v1.md)
+Design: [sealed-sandboxes spec](../docs/superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md) · Build: [Arena v1 plan](../docs/superpowers/plans/2026-08-25-arena-v1.md) · v1.1 capabilities: [requirements](../docs/superpowers/specs/2026-08-30-arena-v1.1-sandbox-requirements.md)
 
 Ephemeral, sealed coding-agent sandboxes for events. One host runs Caddy
 (TLS termination + owner-only authz), the control plane (`arena` binary —
@@ -10,6 +10,14 @@ destroyed at event time, one sealed Docker sandbox per participant.
 
 This is a **v1, single-host** design. See "Second box" at the bottom for
 what to do if one host isn't enough for an event.
+
+## Sandbox capabilities (v1.1)
+
+Each sandbox includes:
+- **Writable, exec-capable scratch space** (`~/.scratch`) for agents to write and run scripts
+- **Git identity from environment** — commits attributed to the logged-in username
+- **Core CLI tools** — jq, sqlite3, unzip/zip, vim/nano, less, tree
+- **OpenStory MCP server** — agents can read their own history and every other harness's history in the same sandbox over the internal network (read-only, cross-harness-aware)
 
 ## 1. Host prerequisites
 

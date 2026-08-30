@@ -1095,7 +1095,31 @@ list moved to the "Arena phase 2" theme below, where it belongs thematically.)
 Arena (`arena/README.md`, spec: `docs/superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md`
 §Phase 2) ships v1 as sealed, ephemeral, single-host Docker sandboxes for
 Claude Code + a private OpenStory per user. The design was built compatible
-with the following, explicitly deferred rather than half-built:
+with the following, explicitly deferred rather than half-built.
+
+### v1.1 usability requirements — SHIPPED (branch: feat/arena-v1.1)
+
+From the agent audit and UX findings on 2026-08-30:
+
+- **R3: Writable, exec-capable scratch space** — `/home/dev/.scratch` with clear documentation
+- **R4: `~/.local/bin` on `PATH`** — pre-configured in `.bashrc`
+- **R5: Git identity from `ARENA_USERNAME`** — baked into global git config at container start
+- **R6: In-sandbox OpenStory MCP** — agents read their own history and every harness's history over the internal network (read-only, cross-harness-aware); 403 gate resolved; scoped read-only credential issued
+- **R7: Core CLI tools** — jq, sqlite3, unzip/zip, vim/nano, less, tree present and functional
+- **R8: Agent orientation** — `CLAUDE.md` with constraints + `settings.json` allowlist shipped in image
+- **R9: README URL fix** — workspace README names the real dashboard URL (`https://{username}-story.{base_domain}/`)
+- **R11: Browser-terminal interaction** — tmux mouse enabled by default; ttyd scrollback tuned; copy behavior documented
+
+Deferred to later phases (still open with seams identified):
+
+- **R1: Internal package registry** — Seam: sandbox's internal Docker network + `npm config set registry http://arena-npm:4873` pattern (same as LiteLLM proxy); needs warm mirror + exec-capable install target
+- **R2: Python + build toolchain** — Seam: same registry/mirror pattern; decision needed on gcc/make/go/rustc scope
+- **R10: Budget-exhaustion UX + operator top-up** — Seam: LiteLLM `/key/update` already supports live budget raise; needs in-terminal warning + operator control plane action
+- **R12: Visual tooling, or remove dead path** — Seam: either add Playwright/Puppeteer/ImageMagick or disable the `run` skill's browser-driven path that fails in no-egress sandbox
+
+### Watch additional agent harnesses (hermes, grok) — future
+
+v1.1 wires Claude Code + pi-mono harnesses into the OpenStory MCP (multi-agent observer pattern). Next: add the same wiring for Hermes Agent and Grok when they run in a sandbox. Same `OPEN_STORY_*_WATCH_DIR` env pattern + boot `mkdir -p` in `welcome.sh` as pi-mono uses today. Estimated ~2 lines per harness once the pi-mono seam is understood.
 
 ### Event wall — per-sandbox NATS leaf → hub OpenStory
 Each sandbox already runs its own `open-story serve --manage-nats` against
