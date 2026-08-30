@@ -95,4 +95,26 @@ docker exec "$C" sh -c 'grep -q "git status" "$HOME/.claude/settings.json"' || {
 echo "-- README points at the real -story URL (R9)"
 docker exec "$C" sh -c 'grep -q -- "-story" "$HOME/workspace/README.md" && grep -q "https://" "$HOME/workspace/README.md"' || { echo "README not fixed"; exit 1; }
 
+echo "-- open-story-mcp binary present (R6.1)"
+docker exec "$C" sh -c 'command -v open-story-mcp >/dev/null' || { echo "no mcp binary"; exit 1; }
+
+# Root-cause of the earlier 403 report (see task-4-report.md): the sandbox's
+# open-story serve boots with api_token = "" (pass-through auth), so every
+# route the MCP reads is on the plain auth_middleware tier and already
+# answers 200 from localhost with no credential. Only the admin-role-gated
+# PUT/DELETE /api/admin/participants routes 403 (verified below as a control
+# — NOT a route the MCP calls), which is why the operator's docker-exec GETs
+# never saw it. Assert both: the MCP's actual read routes are 200, and the
+# admin-write control is still 403 (regression guard — if this ever flips to
+# 200, the seal on policy-write routes silently disappeared).
+echo "-- OpenStory read API reachable from inside on localhost, no token needed (R6.1)"
+sid_probe='/api/sessions/does-not-exist/records'
+for p in "/api/sessions" "/api/search?q=x" "/api/agent/search?q=x" "/api/insights/pulse" "$sid_probe"; do
+  code=$(docker exec "$C" sh -c "curl -s -o /dev/null -w '%{http_code}' 'localhost:3002$p'")
+  [ "$code" = 200 ] || { echo "MCP read route $p -> $code (expected 200)"; exit 1; }
+done
+echo "-- control: admin-write route still 403 without an admin credential (no regression on the seal)"
+code=$(docker exec "$C" sh -c "curl -s -o /dev/null -w '%{http_code}' -X PUT localhost:3002/api/admin/participants -H 'Content-Type: application/json' -d '{}'")
+[ "$code" = 403 ] || { echo "expected /api/admin/participants PUT to still be 403, got $code"; exit 1; }
+
 echo "SMOKE PASS"

@@ -3,7 +3,12 @@
 FROM rust:1-bookworm AS oss-build
 WORKDIR /src
 COPY rs/ rs/
-RUN cd rs && cargo build --release -p open-story-cli
+# open-story-mcp embeds this one doc via include_str!("../../../docs/agent-in-ui.md")
+# (rs/mcp/src/protocol.rs) — its other embedded docs live under rs/mcp/agent-docs/
+# and are already covered by the COPY above. Copy only this file rather than all of
+# docs/ to keep the build-stage context minimal.
+COPY docs/agent-in-ui.md docs/agent-in-ui.md
+RUN cd rs && cargo build --release -p open-story-cli -p open-story-mcp
 
 # --- runtime ---
 FROM node:22-bookworm-slim
@@ -60,6 +65,12 @@ RUN curl -fsSL "https://github.com/nats-io/nats-server/releases/download/v${NATS
 RUN npm install -g @anthropic-ai/claude-code
 
 COPY --from=oss-build /src/rs/target/release/open-story /usr/local/bin/open-story
+# Reads OpenStory only over the REST API (OPENSTORY_API_URL) — never opens
+# the SQLite file directly — so it needs no data-dir mount of its own.
+# root-caused: the sandbox's open-story boots with no api_token, so every
+# route this binary calls is already reachable at http://localhost:3002
+# with no credential (see arena/sandbox/smoke.sh and task-4-report.md).
+COPY --from=oss-build /src/rs/target/release/open-story-mcp /usr/local/bin/open-story-mcp
 COPY arena/sandbox/welcome.sh /usr/local/bin/welcome.sh
 RUN chmod +x /usr/local/bin/welcome.sh
 
