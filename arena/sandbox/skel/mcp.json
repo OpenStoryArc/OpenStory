@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openstory": {
+      "command": "open-story-mcp",
+      "env": { "OPENSTORY_API_URL": "http://localhost:3002" }
+    }
+  }
+}

@@ -132,4 +132,56 @@ docker exec "$C" sh -c 'mkdir -p "$HOME/.pi/agent/sessions/proj" && printf "{\"t
 docker exec "$C" sh -c 'tries=15; until curl -s localhost:3002/api/sessions | jq -e "[.sessions[]? | select(.session_id == \"smoke-pi-session\" and .origin_agent == \"pi-mono\")] | length >= 1" >/dev/null 2>&1; do tries=$((tries-1)); [ "$tries" -le 0 ] && exit 1; sleep 1; done' \
   || { echo "pi harness dir not observed"; exit 1; }
 
+# A second synthetic transcript, this time Claude-Code-shaped, so the MCP
+# cross-harness assertion below (R6) has a real claude session to find
+# alongside the real pi session seeded above — nothing in this fresh
+# container has actually driven the interactive `claude` REPL yet, so
+# without this there would be no genuine claude-origin session on record.
+# Minimal VALID Claude Code line: reader.rs's format detection falls
+# through to ClaudeCode as the default (it isn't Hermes/Grok/Codex/pi-mono
+# shaped), and translate.rs's is_known_type() accepts a bare
+# `type: "system"` line — this mirrors the `turn_duration` system line
+# already used as a minimal fixture in rs/tests/fixtures/synth_hooks.jsonl.
+# Session id is the file stem (session_id_from_path's default-format
+# fallback), so the fixture file is named after the session id asserted on,
+# same convention as the pi-mono fixture above.
+echo "-- multi-harness watch: a claude-code transcript is observed too (R6)"
+docker exec "$C" sh -c 'mkdir -p "$HOME/.claude/projects/smoke-proj" && printf "{\"uuid\":\"11111111-1111-4111-8111-111111111111\",\"sessionId\":\"smoke-claude-session\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/home/dev/workspace\",\"type\":\"system\",\"subtype\":\"turn_duration\",\"durationMs\":1}\n" > "$HOME/.claude/projects/smoke-proj/smoke-claude-session.jsonl"'
+docker exec "$C" sh -c 'tries=15; until curl -s localhost:3002/api/sessions | jq -e "[.sessions[]? | select(.session_id == \"smoke-claude-session\" and .origin_agent == \"claude-code\")] | length >= 1" >/dev/null 2>&1; do tries=$((tries-1)); [ "$tries" -le 0 ] && exit 1; sleep 1; done' \
+  || { echo "claude-code session not observed"; exit 1; }
+
+# --- R6: the openstory MCP is wired into the in-box agent, read-only ---
+#
+# Launch contract verified against rs/mcp/src/bin/open-story-mcp.rs: the
+# binary takes no CLI flags (no --help, no --smoke — there is no arg
+# parser at all) and speaks line-delimited JSON-RPC 2.0 over stdio only.
+# It reads OPENSTORY_API_URL (default http://localhost:3002, matching
+# this sandbox's server) for every query tool via HttpEventStore, and
+# connects to OPENSTORY_NATS_URL (default nats://localhost:4222, matching
+# this sandbox's --manage-nats instance) at startup — it exits before
+# ever reading stdin if that connection fails, so both services need to
+# already be up, which "open-story API answers" above already confirmed.
+# This is exactly the config skel/mcp.json + welcome.sh's merge hand to
+# Claude Code: command "open-story-mcp", env OPENSTORY_API_URL only (NATS
+# and API defaults already line up with how this sandbox boots them).
+
+echo "-- mcp registered in ~/.claude.json (R6)"
+# NB: exit 0 = found, exit 1 = missing — this is inverted from the task
+# brief's Step 5 snippet, which had `?1:0` (exits 1 when PRESENT, the
+# opposite of what a shell `||` failure check needs). Verified against a
+# real container: the file demonstrably has mcpServers.openstory, and the
+# brief's exact expression still made this check fail.
+docker exec "$C" sh -c 'node -e "process.exit(JSON.parse(require(\"fs\").readFileSync(process.env.HOME+\"/.claude.json\")).mcpServers?.openstory?0:1)"' \
+  || { echo "mcp not wired into claude config"; exit 1; }
+
+echo "-- openstory MCP answers tools/list the way Claude Code will launch it (R6)"
+docker exec "$C" sh -c 'printf "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n" | OPENSTORY_API_URL=http://localhost:3002 timeout 5 open-story-mcp 2>/dev/null | grep -q list_sessions' \
+  || { echo "MCP did not list tools"; exit 1; }
+
+echo "-- openstory MCP list_sessions spans claude-code + pi-mono (R6, cross-harness)"
+docker exec "$C" sh -c 'printf "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"list_sessions\",\"arguments\":{}}}\n" \
+    | OPENSTORY_API_URL=http://localhost:3002 timeout 5 open-story-mcp 2>/dev/null > /tmp/mcp-list-sessions.out; \
+  grep -q smoke-claude-session /tmp/mcp-list-sessions.out && grep -q smoke-pi-session /tmp/mcp-list-sessions.out' \
+  || { echo "MCP list_sessions did not span both harnesses"; exit 1; }
+
 echo "SMOKE PASS"

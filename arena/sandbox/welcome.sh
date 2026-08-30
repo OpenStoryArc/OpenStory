@@ -5,8 +5,21 @@ if [ ! -d "$HOME/workspace" ]; then
   cp -r /opt/workspace "$HOME/workspace"
 fi
 mkdir -p "$HOME/data" "$HOME/.claude/projects" "$HOME/.pi/agent/sessions" "$HOME/.local/bin" "$HOME/.scratch"
-# Skip claude onboarding prompts
-if [ ! -f "$HOME/.claude.json" ]; then
+# Skip claude onboarding prompts, and wire the openstory MCP server into
+# Claude Code's config (R6). Runs every boot, not gated on `[ ! -f ]`: a
+# volume from before this MCP existed would have a ~/.claude.json missing
+# mcpServers forever otherwise. Merge, don't clobber — read what's there
+# (or start from {}), overlay mcpServers from the skel, keep every other
+# existing key (theme, hasCompletedOnboarding, etc.) untouched.
+if [ -f /opt/skel/mcp.json ]; then
+  node -e 'const fs=require("fs"),p=process.env.HOME+"/.claude.json";
+    const c=fs.existsSync(p)?JSON.parse(fs.readFileSync(p,"utf8")):{};
+    const m=JSON.parse(fs.readFileSync("/opt/skel/mcp.json","utf8"));
+    c.mcpServers=Object.assign({},c.mcpServers,m.mcpServers);
+    if(c.hasCompletedOnboarding===undefined)c.hasCompletedOnboarding=true;
+    if(c.theme===undefined)c.theme="dark";
+    fs.writeFileSync(p,JSON.stringify(c));'
+elif [ ! -f "$HOME/.claude.json" ]; then
   printf '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
 fi
 # Seed the read-only permission allowlist on first boot ($HOME volume shadows

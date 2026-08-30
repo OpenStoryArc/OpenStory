@@ -14,9 +14,11 @@ model. WebFetch/WebSearch are unavailable.
 
 ## OpenStory (your history)
 OpenStory runs in this container and records every agent session here. Data:
-`~/data/open-story.db`. An `openstory` MCP server for reading this history from inside the
-box is being added — until it lands, use the dashboard (the `-story` link) to read your
-history.
+`~/data/open-story.db`. An `openstory` MCP server is wired in — use its
+`mcp__openstory__*` tools (e.g. `list_sessions`, `search`, `session_story`) to read
+your own history and any other agent harness's history in this box, right from this
+session. Read-only: none of these tools write back to the events it observes. The
+dashboard (the `-story` link) works too, if you'd rather look at it there.
 
 ## Repo
 `~/workspace` is a git repo; a global git identity is already configured.

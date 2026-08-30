@@ -79,6 +79,10 @@ RUN mkdir -p /opt/workspace && git -C /opt/workspace init -q
 COPY arena/sandbox/skel/CLAUDE.md arena/sandbox/skel/README.md /opt/workspace/
 RUN cd /opt/workspace && git add -A && git -c user.email=arena@localhost -c user.name=arena commit -qm seed
 COPY arena/sandbox/skel/settings.json /opt/skel/claude-settings.json
+# mcpServers block welcome.sh merges into ~/.claude.json on every boot (R6).
+# Baked outside /home/dev for the same reason as claude-settings.json above:
+# the per-user volume shadows anything under /home/dev at build time.
+COPY arena/sandbox/skel/mcp.json /opt/skel/mcp.json
 
 # node:22-bookworm-slim ships a uid-1000 `node` user; drop it and create `dev`
 # so paths read as the plan says (matches DockerDriver's HOME_MOUNT = "/home/dev").
