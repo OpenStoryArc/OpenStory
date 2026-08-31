@@ -672,6 +672,7 @@ mod config_tests {
 #[cfg(test)]
 mod docker_tests {
     use super::*;
+    use anyhow::Context;
     use futures_util::StreamExt;
 
     const TEST_CPUS: f64 = 1.0;
@@ -846,5 +847,168 @@ mod docker_tests {
 
         d.docker.remove_network(&network).await.unwrap();
         let _ = d.destroy(&spec.username, false).await;
+    }
+
+    /// Requires a local Docker daemon. Run: `cargo test -p arena -- --ignored`
+    ///
+    /// The single-user test above proves ONE sandbox is sealed from the
+    /// outside world. This proves the multi-user shape the product actually
+    /// runs: N users provisioned *concurrently* land on distinct, mutually
+    /// unreachable sandboxes, and torn down leave nothing behind. Usernames
+    /// use `--` for the same reason `PROBE_USER` does — `validate_username`
+    /// rejects it, so these can never collide with a real user's sandbox.
+    #[tokio::test]
+    #[ignore]
+    async fn multiple_users_get_isolated_sandboxes_and_clean_teardown() {
+        const USERS: [&str; 3] = ["mutest--a", "mutest--b", "mutest--c"];
+
+        let d = DockerDriver::connect(test_config()).unwrap();
+        let specs: Vec<SandboxSpec> = USERS
+            .iter()
+            .enumerate()
+            .map(|(i, u)| SandboxSpec {
+                username: (*u).to_string(),
+                event: "mutest".into(),
+                image: "alpine:3.20".into(),
+                api_key: format!("sk-mutest-{i}"),
+                expires_at: chrono::Utc::now(),
+            })
+            .collect();
+        ensure_image(&d.docker, &specs[0].image).await;
+
+        // Pre-clean: leftovers from a previous failed run would poison the
+        // assertions below, same reasoning as the single-user test.
+        for spec in &specs {
+            let _ = d.destroy(&spec.username, false).await;
+        }
+
+        // Every assertion in here reports failure through `Result`
+        // (`anyhow::ensure!`/`?`) instead of `assert!`/`panic!`, so a
+        // failure partway through still falls through to the unconditional
+        // teardown below rather than aborting the test with sandboxes left
+        // running on the daemon.
+        let outcome: anyhow::Result<()> = async {
+            // Concurrent provisioning: all N `create` calls are in flight
+            // together, not awaited one at a time. That's what actually
+            // exercises cross-user interleaving on the daemon — different
+            // users' network-create / volume-create / container-create
+            // calls racing each other — as opposed to the same-user race
+            // the 409 handling inside `create` already covers.
+            let results = futures_util::future::join_all(specs.iter().map(|s| d.create(s))).await;
+
+            let mut ids = Vec::with_capacity(specs.len());
+            for (spec, r) in specs.iter().zip(results.into_iter()) {
+                let id = r.with_context(|| format!("create failed for {}", spec.username))?;
+                ids.push(id);
+            }
+
+            // No two users landed on the same container under concurrent
+            // creation.
+            let mut sorted_ids = ids.clone();
+            sorted_ids.sort();
+            sorted_ids.dedup();
+            anyhow::ensure!(
+                sorted_ids.len() == ids.len(),
+                "concurrent create returned colliding container ids: {ids:?}"
+            );
+
+            for (spec, id) in specs.iter().zip(ids.iter()) {
+                anyhow::ensure!(
+                    d.is_running(id).await?,
+                    "{} sandbox should be running",
+                    spec.username
+                );
+                anyhow::ensure!(
+                    d.sealed_network_exists(&naming::network_name(&spec.username)).await?,
+                    "{} network should exist and be sealed",
+                    spec.username
+                );
+                anyhow::ensure!(
+                    d.volume_exists(&naming::volume_name(&spec.username)).await?,
+                    "{} volume should exist",
+                    spec.username
+                );
+            }
+
+            // Positive control FIRST — same reasoning as the single-user
+            // test's seal probe. Without confirming the probe binary is
+            // present, a nonzero exit on the cross-reach check below could
+            // mean "wget is missing" rather than "the network blocked it",
+            // which would make the isolation assertion vacuously true.
+            let control = d
+                .exec_exit_code(
+                    &naming::container_name("mutest--a"),
+                    vec!["sh", "-c", "command -v wget"],
+                )
+                .await?;
+            anyhow::ensure!(
+                control == 0,
+                "probe binary missing or exec plumbing broken in mutest--a"
+            );
+
+            // The isolation proof: each user has their own *internal*
+            // network (see module docs), so a's container cannot resolve or
+            // route to b's container by its Docker DNS name (its container
+            // name). This was confirmed discriminating, not vacuous, by
+            // temporarily inverting the expectation (`exit == 0`) during
+            // development and watching it fail — see the report for the
+            // transcript. It would also pass for the wrong reason if two
+            // users' `network_mode` ever pointed at the same network name,
+            // which the per-user `naming::network_name` derivation and the
+            // per-user sealed-network check above both rule out.
+            for (a, b) in [
+                ("mutest--a", "mutest--b"),
+                ("mutest--b", "mutest--c"),
+                ("mutest--c", "mutest--a"),
+            ] {
+                let target = naming::container_name(b);
+                let exit = d
+                    .exec_exit_code(
+                        &naming::container_name(a),
+                        vec!["wget", "-T", "3", "-q", "-O-", &format!("http://{target}")],
+                    )
+                    .await?;
+                anyhow::ensure!(
+                    exit != 0,
+                    "{a} could reach {b} across sandboxes — cross-user isolation is broken"
+                );
+            }
+
+            Ok(())
+        }
+        .await;
+
+        // Teardown happens unconditionally, whether the assertions above
+        // succeeded or failed — a failed run must not leave sandboxes,
+        // networks, or volumes running on the daemon.
+        for spec in &specs {
+            let _ = d.destroy(&spec.username, false).await;
+        }
+
+        outcome.unwrap();
+
+        // Clean teardown, verified per user: nothing left behind.
+        for spec in &specs {
+            let container = naming::container_name(&spec.username);
+            assert!(
+                !d.is_running(&container).await.unwrap(),
+                "{} sandbox should be gone",
+                spec.username
+            );
+            assert!(
+                !d.network_exists(&naming::network_name(&spec.username)).await.unwrap(),
+                "{} network should be gone",
+                spec.username
+            );
+            assert!(
+                !d.volume_exists(&naming::volume_name(&spec.username)).await.unwrap(),
+                "{} volume should be gone",
+                spec.username
+            );
+        }
+
+        // Teardown is idempotent — destroying an already-torn-down user
+        // again is a clean no-op, not an error.
+        d.destroy(&specs[0].username, false).await.unwrap();
     }
 }
