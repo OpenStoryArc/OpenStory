@@ -1,0 +1,18 @@
+# Repo-root .dockerignore. Needed because `arena/deploy/arena/Dockerfile`
+# builds with context = repo root (see docker-compose.yml's `build.context:
+# ../..`) so it can `COPY arena/ arena/` — without this file, Docker also
+# has to walk/tar `arena/target/` and `rs/target/` (several GB of build
+# artifacts) as part of the build context on every build.
+target/
+**/target/
+node_modules/
+ui/dist/
+ui/node_modules/
+data/
+data-mongo/
+data-test/
+data.old/
+.git/
+screenshots/
+captures/
+personal/

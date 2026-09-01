@@ -31,6 +31,7 @@ Use this map by *what you are trying to do* — not by folder name.
 
 - **[Distributed / multi-machine](deploy/distributed.md)** — NATS leaf, hub, Tailscale, `publish_sessions`
 - **[Hetzner notes](deploy/hetzner.md)** — if present in tree
+- **[Arena — sealed cloud sandboxes](../arena/README.md)** — ephemeral, per-participant Claude Code sandboxes for events/workshops; design: [spec](superpowers/specs/2026-08-25-arena-sealed-sandboxes-design.md), [implementation plan](superpowers/plans/2026-08-25-arena-v1.md)
 
 ## Research & deep dives
 

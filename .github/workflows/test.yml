@@ -44,6 +44,24 @@ jobs:
         working-directory: rs
         run: cargo clippy --workspace --exclude open-story-cli -- -D warnings
 
+  arena:
+    name: Arena tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: arena
+      - name: Test
+        working-directory: arena
+        run: cargo test
+      - name: Clippy
+        working-directory: arena
+        run: cargo clippy --all-targets -- -D warnings
+
   ui:
     name: UI tests
     runs-on: ubuntu-latest

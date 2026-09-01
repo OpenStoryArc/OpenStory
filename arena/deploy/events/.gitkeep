@@ -1,0 +1,8 @@
+Drop event manifest TOML files here on the deploy host. This directory is
+bind-mounted into arena-cp at /events (see docker-compose.yml). Run an event
+with:
+
+    docker exec arena-cp arena up /events/your-event.toml
+
+See ../../README.md and ../../events/example-event.toml for the manifest
+format.

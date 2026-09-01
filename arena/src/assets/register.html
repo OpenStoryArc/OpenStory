@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Join the arena</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 4rem auto; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input { width: 100%; padding: 0.5rem; margin-top: 0.25rem; box-sizing: border-box; }
+  .consent { margin-top: 1rem; font-size: 0.85rem; color: #555; }
+  button { margin-top: 1.25rem; padding: 0.6rem 1.2rem; }
+  .links { margin-top: 1.5rem; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+  <h1>Join the arena</h1>
+  <form method="post" action="/register">
+    <label for="join_code">Join code</label>
+    <input id="join_code" name="join_code" type="text" required autocomplete="off">
+
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" required autocomplete="username">
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="new-password">
+
+    <p class="consent">Session history from this event may be retained by the organizer.</p>
+
+    <button type="submit">Create account</button>
+  </form>
+  <p class="links"><a href="/login">Already have an account? Log in.</a></p>
+</body>
+</html>

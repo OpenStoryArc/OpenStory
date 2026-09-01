@@ -1,0 +1,16 @@
+# Claude Code (running inside each sandbox) talks to this proxy over
+# ANTHROPIC_BASE_URL and sends the model names it knows about natively —
+# "claude-sonnet-4", "claude-3-5-...", etc. — not "anthropic/*". A
+# model_list entry keyed on "anthropic/*" never matches those, so every
+# request would 404 before it reached Anthropic. The "*" wildcard
+# model_name matches any requested model (including bare "claude-*" names)
+# and "anthropic/*" as the target model passes the originally-requested
+# name straight through to the Anthropic provider, so Claude Code's model
+# names reach api.anthropic.com unmodified.
+model_list:
+  - model_name: "*"
+    litellm_params:
+      model: "anthropic/*"
+      api_key: os.environ/ANTHROPIC_API_KEY
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
