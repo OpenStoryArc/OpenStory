@@ -245,7 +245,7 @@ impl NatsBus {
                 name: "patterns".to_string(),
                 subjects: vec!["patterns.>".to_string()],
                 retention: stream::RetentionPolicy::Limits,
-                max_bytes: 268_435_456, // 256 MB — patterns are smaller than events
+                max_bytes: PATTERNS_MAX_BYTES,
                 ..Default::default()
             })
             .await
@@ -527,7 +527,14 @@ fn uuid_short() -> String {
 // behavior is proven by the testcontainer lab. See
 // docs/research/jetstream-sources-federation.md.
 
-const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
+// Events run ~0.5 GB/day in real use (fat payloads: tool results, file
+// snapshots average ~290 KB/message). 8 GiB ≈ two weeks of bus replay —
+// enough for federation catch-up after an outage. The old 1 GiB cap held
+// only ~2 days and was evicting live data.
+const EVENTS_MAX_BYTES: i64 = 8_589_934_592; // 8 GiB
+
+// The 256 MiB patterns cap evicted 57% of all pattern messages within days.
+const PATTERNS_MAX_BYTES: i64 = 1_073_741_824; // 1 GiB
 
 /// The local `events` stream this node publishes into.
 ///
@@ -916,6 +923,21 @@ mod federation_config_tests {
     //! unit tests of the config shapes; the topology/scale behavior is proven
     //! by the testcontainer lab.
     use super::*;
+
+    #[test]
+    fn stream_budgets_hold_two_weeks_of_bus_replay() {
+        // Real-world volume is ~0.5 GB of events/day; the old 1 GiB cap gave
+        // a ~2-day replay window and evicted 57% of patterns within days.
+        // 8 GiB ≈ two weeks of events; patterns get 1 GiB.
+        const EIGHT_GIB: i64 = 8_589_934_592;
+        assert_eq!(events_stream_config("h", true).max_bytes, EIGHT_GIB);
+        assert_eq!(events_stream_config("h", false).max_bytes, EIGHT_GIB);
+        assert_eq!(local_stream_config().max_bytes, EIGHT_GIB);
+        assert_eq!(events_mirror_config("hub").max_bytes, EIGHT_GIB);
+        assert_eq!(events_mirror_mesh_config(&["p".into()]).max_bytes, EIGHT_GIB);
+        assert_eq!(events_aggregate_config().max_bytes, EIGHT_GIB);
+        assert_eq!(PATTERNS_MAX_BYTES, 1_073_741_824);
+    }
 
     #[test]
     fn solo_events_stream_binds_everything() {

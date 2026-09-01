@@ -344,7 +344,7 @@ With bidirectional propagation, every connected node should converge to the same
 2. The Open Story instance that's missing data is subscribing to `events.>`: check its startup logs for `NATS bus: nats://...` (vs the warning `Falling back to local mode (no bus)`)
 3. The instance's JetStream stream exists: `docker exec <container> sh -c 'echo done'` and check NATS monitoring at `:8222/jsz`
 
-A common cause: `ensure_streams()` failing because the JetStream `max_file` config is smaller than the 1GB the `events` stream wants. Check NATS startup logs for storage errors.
+A common cause: `ensure_streams()` failing because the JetStream `max_file` config is smaller than the sum of the stream caps (events 8GB + local 8GB + mirrors/agg 8GB each + patterns 1GB). Check NATS startup logs for storage errors.
 
 ### Token mismatch
 
