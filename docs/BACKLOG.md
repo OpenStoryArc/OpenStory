@@ -147,6 +147,25 @@ inline — the overlay becomes a lightweight review surface.
 
 ## Federation & transport — follow-ups from the host-in-subject work
 
+### Persist consumer wedges when it falls behind the Limits discard horizon
+The `events` stream uses `RetentionPolicy::Limits` with a hard byte cap
+(`EVENTS_MAX_BYTES`). When the stream fills, JetStream discards the oldest
+messages and advances `first_seq`. If a durable consumer's saved position is
+*below* the new `first_seq` (i.e. the message it wanted to resume at was
+discarded out from under it), it deadlocks: `delivered` stays frozen at the
+old cursor, `num_pending` climbs with every new publish, and nothing is ever
+delivered — silent, no error in the log. This stopped ingestion for a week
+(2026-06-26 → 07-04): every server restart just rebound the same poisoned
+durable consumer, so even a known-good binary couldn't recover; only wiping
+the JetStream store cleared it. Raising the cap to 2 GiB (`fix/events-stream-cap-2gb`)
+only *delays* recurrence. The durable fix: on consumer bind/startup, detect
+`ack_floor.stream_seq < stream.first_seq` and fast-forward the consumer to
+`first_seq` (log the gap as observed loss — those events still exist in the
+transcript files and reconcile/backfill re-ingests them), OR move the persist
+consumer to a policy where a lagging reader can't be silently stranded.
+Instrument it so a stalled consumer (pending climbing, delivered flat) raises
+a metric/log instead of failing mute.
+
 ### Container/e2e tests: NATS-at-boot
 `rs/tests/test_container.rs` fails because the `open-story:test` image's
 CMD (`serve …` with no `--manage-nats` and no bundled NATS) can't reach a
