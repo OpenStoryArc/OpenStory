@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenStory · Reports tab — static mock</title>
+<style>
+  /* Tokyonight tokens — the same values the app should expose as shadcn CSS vars.
+     This mock hardcodes them only because it's a standalone file with no build. */
+  :root{
+    --bg:#1a1b26; --card:#24283b; --muted:#2f3348; --muted2:#414868;
+    --fg:#c0caf5; --muted-fg:#565f89; --primary:#7aa2f7;
+    --green:#9ece6a; --red:#f7768e; --orange:#e0af68; --purple:#bb9af7; --cyan:#2ac3de;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column; height:100vh;
+  }
+  .mono{font-family:ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,monospace}
+  /* ---- header / tab bar ---- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 16px; background:var(--card); border-bottom:1px solid var(--muted);
+  }
+  .brand{display:flex; align-items:center; gap:16px}
+  .brand h1{font-size:16px; font-weight:600; margin:0}
+  .tabs{display:flex; gap:4px}
+  .tab{
+    padding:4px 12px; border-radius:6px; font-size:13px; color:var(--muted-fg);
+    background:transparent; border:none; cursor:pointer;
+  }
+  .tab:hover{color:var(--fg); background:var(--muted)}
+  .tab.active{background:var(--primary); color:var(--bg); font-weight:600}
+  .badge-count{
+    display:inline-block; margin-left:6px; padding:0 6px; border-radius:9px;
+    font-size:11px; background:rgba(122,162,247,.2); color:var(--primary);
+  }
+  .tab.active .badge-count{background:rgba(26,27,38,.25); color:var(--bg)}
+  .conn{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted-fg)}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--green)}
+  .dot.pulse{animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  /* ---- reports layout ---- */
+  .reports{display:flex; flex:1; min-height:0}
+  .toolbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 16px; border-bottom:1px solid var(--muted); font-size:12px; color:var(--muted-fg);
+  }
+  .kbd{
+    font-family:ui-monospace,monospace; font-size:11px; padding:2px 6px;
+    border:1px solid var(--muted2); border-radius:5px; color:var(--fg); background:var(--bg);
+  }
+  .btn{
+    font-size:12px; padding:4px 10px; border-radius:6px; border:1px solid var(--muted2);
+    background:transparent; color:var(--fg); cursor:pointer;
+  }
+  .btn.primary{background:var(--primary); color:var(--bg); border-color:var(--primary); font-weight:600}
+  .btn.ghost{border-color:transparent; color:var(--muted-fg)}
+  .btn.ghost:hover{color:var(--fg); background:var(--muted)}
+  /* ---- library (left) ---- */
+  .library{
+    width:340px; min-width:300px; border-right:1px solid var(--muted);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .lib-head{padding:12px 14px; border-bottom:1px solid var(--muted)}
+  .search{
+    width:100%; padding:7px 10px; border-radius:7px; border:1px solid var(--muted2);
+    background:var(--bg); color:var(--fg); font-size:13px; margin-bottom:8px;
+  }
+  .search::placeholder{color:var(--muted-fg)}
+  .facets{display:flex; gap:6px; flex-wrap:wrap}
+  .facet{
+    font-size:11px; padding:3px 8px; border-radius:6px; border:1px solid var(--muted2);
+    color:var(--muted-fg); background:transparent; cursor:pointer;
+  }
+  .facet:hover{color:var(--fg)}
+  .lib-list{overflow:auto; padding:8px}
+  .report-row{
+    padding:10px 12px; border-radius:var(--radius); border:1px solid transparent;
+    cursor:pointer; margin-bottom:4px;
+  }
+  .report-row:hover{background:var(--card)}
+  .report-row.sel{background:var(--card); border-color:var(--primary)}
+  .rr-top{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .rr-title{font-size:13px; font-weight:600}
+  .rr-sub{font-size:11px; color:var(--muted-fg); margin-top:3px}
+  .pill{font-size:10px; padding:1px 7px; border-radius:9px; white-space:nowrap}
+  .pill.live{background:rgba(122,162,247,.18); color:var(--primary)}
+  .pill.static{background:rgba(86,95,137,.25); color:var(--muted-fg)}
+  .pill.session{background:rgba(187,154,247,.18); color:var(--purple)}
+  /* ---- viewer (right) ---- */
+  .viewer{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
+  .v-head{padding:12px 18px; border-bottom:1px solid var(--muted); display:flex; align-items:flex-start; justify-content:space-between}
+  .v-eyebrow{font-size:11px; color:var(--muted-fg); text-transform:uppercase; letter-spacing:.04em}
+  .v-title{font-size:16px; font-weight:600; margin-top:2px}
+  .v-actions{display:flex; gap:6px}
+  .v-stale{font-size:11px; color:var(--green); margin-left:8px}
+  /* the "iframe" — a report owns its own visual language (Georgetown serif), framed by the app */
+  .frame-wrap{flex:1; overflow:auto; padding:18px; background:#0f1018}
+  .report{
+    max-width:760px; margin:0 auto; background:#fbfaf7; color:#13233d; border-radius:8px;
+    box-shadow:0 8px 30px rgba(0,0,0,.4); overflow:hidden;
+  }
+  .report .r-head{padding:26px 32px 18px; border-bottom:3px solid #e08a00}
+  .report .r-eyebrow{font:11px ui-monospace,monospace; color:#0074cc; letter-spacing:.08em; text-transform:uppercase}
+  .report .r-h1{font-family:"Iowan Old Style",Georgia,"Times New Roman",serif; font-size:26px; margin:8px 0 0; font-weight:600}
+  .report .r-body{padding:22px 32px 30px}
+  .kpis{display:flex; gap:14px; margin-bottom:22px}
+  .kpi{flex:1; background:#fff; border:1px solid #e7e3da; border-radius:8px; padding:14px}
+  .kpi .n{font:22px/1 "Iowan Old Style",Georgia,serif; font-weight:700}
+  .kpi .l{font-size:11px; color:#6a7384; margin-top:5px; text-transform:uppercase; letter-spacing:.04em}
+  .spark{display:flex; align-items:flex-end; gap:5px; height:64px; margin:6px 0 24px}
+  .spark span{flex:1; background:#0074cc; border-radius:3px 3px 0 0; opacity:.85}
+  .rtable{width:100%; border-collapse:collapse; font-size:13px}
+  .rtable th{text-align:left; color:#6a7384; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px; border-bottom:1px solid #e7e3da}
+  .rtable td{padding:8px; border-bottom:1px solid #f0ede6}
+  .rtable td.num{text-align:right; font-family:ui-monospace,monospace}
+  /* ---- ⌘K palette overlay ---- */
+  .palette-note{
+    position:fixed; right:18px; bottom:16px; width:340px; background:var(--card);
+    border:1px solid var(--muted2); border-radius:var(--radius); box-shadow:0 12px 40px rgba(0,0,0,.5);
+    font-size:12px; overflow:hidden;
+  }
+  .pal-input{padding:10px 12px; border-bottom:1px solid var(--muted); color:var(--muted-fg)}
+  .pal-input .caret{color:var(--fg)}
+  .pal-group{padding:6px 12px 2px; font-size:10px; color:var(--muted-fg); text-transform:uppercase; letter-spacing:.05em}
+  .pal-item{padding:6px 12px; display:flex; gap:8px; color:var(--fg)}
+  .pal-item:hover{background:var(--muted)}
+  .pal-item.on{background:var(--muted)}
+  .caption{position:fixed; left:18px; bottom:14px; font-size:11px; color:var(--muted-fg); max-width:520px}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Open Story</h1>
+      <nav class="tabs">
+        <button class="tab">Live</button>
+        <button class="tab">Explore</button>
+        <button class="tab">Story</button>
+        <button class="tab">Users</button>
+        <button class="tab">Command<span class="badge-count">4</span></button>
+        <button class="tab active">Reports</button>
+      </nav>
+    </div>
+    <div class="conn"><span class="dot pulse"></span>Connected</div>
+  </header>
+
+  <div class="toolbar">
+    <span>Reports — agent-generated artifacts, indexed from <span class="mono">data/reports/</span></span>
+    <span><span class="kbd">⌘K</span> &nbsp; <button class="btn ghost">↻ Generate…</button></span>
+  </div>
+
+  <div class="reports">
+    <!-- LIBRARY -->
+    <aside class="library">
+      <div class="lib-head">
+        <input class="search" placeholder="Search reports…">
+        <div class="facets">
+          <button class="facet">Type ▾</button>
+          <button class="facet">Project ▾</button>
+          <button class="facet">7 days ▾</button>
+        </div>
+      </div>
+      <div class="lib-list">
+        <div class="report-row sel">
+          <div class="rr-top"><span class="rr-title">Cost</span><span class="pill live">live</span></div>
+          <div class="rr-sub">2m ago · georgetown · /openstory:cost</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Recap</span><span class="pill live">live</span></div>
+          <div class="rr-sub">2m ago · georgetown · /openstory:recap</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Standup</span><span class="pill live">live</span></div>
+          <div class="rr-sub">2m ago · georgetown · /openstory:standup</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Archetype distribution</span><span class="pill static">static</span></div>
+          <div class="rr-sub">1h ago · deliberate ↔ spontaneous</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Developer profile</span><span class="pill static">static</span></div>
+          <div class="rr-sub">1h ago · 5 dimensions</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Session story</span><span class="pill session">session</span></div>
+          <div class="rr-sub">3h ago · OpenStory · a1f3c…</div>
+        </div>
+        <div class="report-row">
+          <div class="rr-top"><span class="rr-title">Prompt library</span><span class="pill static">static</span></div>
+          <div class="rr-sub">1d ago · 20 templates</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- VIEWER -->
+    <section class="viewer">
+      <div class="v-head">
+        <div>
+          <div class="v-eyebrow">OpenStory · /openstory:cost · live over REST<span class="v-stale">● fresh · 2m ago</span></div>
+          <div class="v-title">What have my agent sessions cost?</div>
+        </div>
+        <div class="v-actions">
+          <button class="btn ghost" title="Open in new tab">↗ Open</button>
+          <button class="btn ghost" title="Regenerate against REST API">⟳ Refresh</button>
+          <button class="btn ghost" title="Download HTML">⤓</button>
+        </div>
+      </div>
+      <div class="frame-wrap">
+        <!-- represents a sandboxed <iframe> rendering the self-contained report HTML;
+             the report keeps its OWN visual language (Georgetown serif), framed by the app. -->
+        <article class="report">
+          <div class="r-head">
+            <div class="r-eyebrow">OpenStory · live over REST</div>
+            <div class="r-h1">What have my agent sessions cost?</div>
+          </div>
+          <div class="r-body">
+            <div class="kpis">
+              <div class="kpi"><div class="n">$4.12</div><div class="l">spent · 7 days</div></div>
+              <div class="kpi"><div class="n">84%</div><div class="l">cache savings</div></div>
+              <div class="kpi"><div class="n">2.1M</div><div class="l">tokens</div></div>
+            </div>
+            <div class="spark">
+              <span style="height:30%"></span><span style="height:48%"></span><span style="height:70%"></span>
+              <span style="height:96%"></span><span style="height:62%"></span><span style="height:40%"></span>
+              <span style="height:74%"></span><span style="height:88%"></span>
+            </div>
+            <table class="rtable">
+              <thead><tr><th>Project</th><th style="text-align:right">in ↑</th><th style="text-align:right">out ↓</th><th style="text-align:right">est. $</th></tr></thead>
+              <tbody>
+                <tr><td>OpenStory</td><td class="num">1.2M</td><td class="num">180k</td><td class="num">$2.40</td></tr>
+                <tr><td>web-dashboard</td><td class="num">520k</td><td class="num">71k</td><td class="num">$1.10</td></tr>
+                <tr><td>infra-deploy</td><td class="num">210k</td><td class="num">28k</td><td class="num">$0.62</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <!-- ⌘K palette (shown open to illustrate the shared command surface) -->
+  <div class="palette-note">
+    <div class="pal-input">&gt; <span class="caret">cost</span>▌</div>
+    <div class="pal-group">Reports</div>
+    <div class="pal-item on">↳ Open &nbsp;Cost &nbsp;<span style="color:var(--muted-fg)">(live · 2m ago)</span></div>
+    <div class="pal-item">⟳ Regenerate &nbsp;Cost</div>
+    <div class="pal-group">Generate</div>
+    <div class="pal-item">+ New report… &nbsp;<span style="color:var(--muted-fg)">cost · recap · standup · coach · scan</span></div>
+  </div>
+
+  <div class="caption">
+    Static mock — no build/deps. App chrome (tab bar, library, ⌘K) in Tokyonight; the report
+    renders in a sandboxed iframe keeping its own portable visual language. Both honest about
+    their source: live app state vs durable artifact.
+  </div>
+</body>
+</html>

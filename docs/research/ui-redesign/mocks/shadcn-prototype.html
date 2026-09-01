@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenStory · shadcn iteration — interactive prototype</title>
+<style>
+  /* ============================================================================
+     shadcn/ui token system, mapped to OpenStory's Tokyonight palette.
+     These are the exact CSS-variable names shadcn generates — a real adoption
+     would put these in index.css and Tailwind would read them. Hardcoded here
+     only because this is a standalone no-build file.
+     ============================================================================ */
+  :root{
+    --background:#1a1b26;
+    --foreground:#c0caf5;
+    --card:#1f2335;
+    --card-foreground:#c0caf5;
+    --popover:#24283b;
+    --popover-foreground:#c0caf5;
+    --primary:#7aa2f7;
+    --primary-foreground:#16161e;
+    --secondary:#292e42;
+    --secondary-foreground:#c0caf5;
+    --muted:#222639;
+    --muted-foreground:#565f89;
+    --accent:#292e42;
+    --accent-foreground:#c0caf5;
+    --destructive:#f7768e;
+    --destructive-foreground:#16161e;
+    --success:#9ece6a;
+    --warning:#e0af68;
+    --purple:#bb9af7;
+    --border:#2a2e44;
+    --input:#2a2e44;
+    --ring:#7aa2f7;
+    --radius:0.6rem;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--background); color:var(--foreground);
+    font:14px/1.55 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; height:100vh; display:flex; flex-direction:column;
+  }
+  .mono{font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,monospace}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--muted-foreground)}
+
+  /* ---------- shadcn primitives ---------- */
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; justify-content:center;
+    font-size:13px; font-weight:500; height:34px; padding:0 13px; border-radius:calc(var(--radius) - .15rem);
+    border:1px solid transparent; cursor:pointer; transition:.12s; white-space:nowrap; color:var(--foreground);
+    background:transparent;
+  }
+  .btn:focus-visible{outline:none; box-shadow:0 0 0 2px var(--background),0 0 0 4px var(--ring)}
+  .btn-sm{height:30px; padding:0 10px; font-size:12px}
+  .btn-primary{background:var(--primary); color:var(--primary-foreground); font-weight:600}
+  .btn-primary:hover{background:#8fb3ff}
+  .btn-outline{border-color:var(--input); background:transparent}
+  .btn-outline:hover{background:var(--accent)}
+  .btn-ghost{background:transparent}
+  .btn-ghost:hover{background:var(--accent)}
+  .btn-icon{width:32px; height:32px; padding:0}
+
+  .badge{
+    display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600;
+    padding:1px 9px; border-radius:9999px; border:1px solid transparent; line-height:1.5;
+  }
+  .badge-primary{background:rgba(122,162,247,.15); color:var(--primary); border-color:rgba(122,162,247,.3)}
+  .badge-muted{background:var(--muted); color:var(--muted-foreground); border-color:var(--border)}
+  .badge-purple{background:rgba(187,154,247,.14); color:var(--purple); border-color:rgba(187,154,247,.3)}
+  .badge-destructive{background:rgba(247,118,142,.14); color:var(--destructive); border-color:rgba(247,118,142,.35)}
+  .badge-success{background:rgba(158,206,106,.14); color:var(--success); border-color:rgba(158,206,106,.3)}
+
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:0 1px 2px rgba(0,0,0,.25);
+  }
+  .input{
+    height:34px; width:100%; border-radius:calc(var(--radius) - .15rem); border:1px solid var(--input);
+    background:var(--background); color:var(--foreground); padding:0 11px; font-size:13px;
+  }
+  .input::placeholder{color:var(--muted-foreground)}
+  .input:focus{outline:none; border-color:var(--ring); box-shadow:0 0 0 2px rgba(122,162,247,.25)}
+  .kbd{
+    font:11px ui-monospace,monospace; padding:2px 6px; border:1px solid var(--border);
+    border-radius:5px; color:var(--muted-foreground); background:var(--muted);
+  }
+  .sep{height:1px; background:var(--border); border:none; margin:0}
+
+  /* ---------- app shell ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:9px 16px; border-bottom:1px solid var(--border); background:var(--background);
+  }
+  .brand{display:flex; align-items:center; gap:18px}
+  .brand h1{font-size:15px; font-weight:650; margin:0; letter-spacing:-.01em}
+  /* shadcn Tabs */
+  .tabs{display:inline-flex; gap:2px; background:var(--muted); padding:3px; border-radius:calc(var(--radius) - .1rem)}
+  .tab{
+    border:none; background:transparent; color:var(--muted-foreground); cursor:pointer;
+    font-size:13px; font-weight:500; padding:5px 12px; border-radius:calc(var(--radius) - .25rem);
+    display:inline-flex; align-items:center; gap:6px; transition:.12s;
+  }
+  .tab:hover{color:var(--foreground)}
+  .tab.active{background:var(--background); color:var(--foreground); box-shadow:0 1px 2px rgba(0,0,0,.3)}
+  .conn{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted-foreground)}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .dot-green{background:var(--success)}
+  .pulse{animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .live-dot{width:6px;height:6px;border-radius:50%;background:var(--success);display:inline-block}
+
+  main{flex:1; min-height:0; display:flex; flex-direction:column}
+  .view{display:none; flex:1; min-height:0; flex-direction:column}
+  .view.show{display:flex}
+  .subbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 16px; border-bottom:1px solid var(--border); font-size:12px; color:var(--muted-foreground);
+  }
+
+  /* ---------- Command: 2x2 grid ---------- */
+  .grid{flex:1; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:12px; padding:14px; min-height:0}
+  .agent-card{display:flex; flex-direction:column; min-height:0; overflow:hidden; position:relative}
+  .agent-card.errored{border-color:rgba(247,118,142,.5)}
+  .agent-card.errored::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--destructive)}
+  .ac-head{display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid var(--border)}
+  .ac-id{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600}
+  .ac-meta{font-size:11px; color:var(--muted-foreground)}
+  .ac-meta b{color:var(--foreground); font-weight:500}
+  .ac-body{flex:1; overflow:auto; padding:8px 12px; font-family:ui-monospace,monospace; font-size:12px; line-height:1.7}
+  .row{display:flex; gap:10px; color:var(--foreground)}
+  .row .t{color:var(--muted-foreground); flex-shrink:0}
+  .row .k{color:var(--primary); width:46px; flex-shrink:0}
+  .row.think .k{color:var(--purple)}
+  .row.err .k{color:var(--destructive)}
+  .row.dim{color:var(--muted-foreground)}
+  .row.dim .k{color:var(--muted-foreground)}
+  .caret{display:inline-block; width:7px; height:13px; background:var(--success); margin-left:4px; vertical-align:middle; animation:pulse 1.1s steps(2) infinite}
+  .ac-foot{padding:8px 12px; border-top:1px solid var(--border); font-size:12px; color:var(--muted-foreground); display:flex; justify-content:space-between; gap:8px}
+  .ac-foot.err{color:var(--destructive)}
+  .idle-hint{text-align:center; color:var(--muted-foreground); font-style:italic; padding:6px}
+
+  /* ---------- Reports: gallery + viewer ---------- */
+  .reports{flex:1; display:flex; min-height:0}
+  .library{width:330px; min-width:300px; border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0}
+  .lib-head{padding:12px; border-bottom:1px solid var(--border)}
+  .facets{display:flex; gap:6px; margin-top:9px}
+  .lib-list{overflow:auto; padding:8px; display:flex; flex-direction:column; gap:5px}
+  .rrow{padding:10px 12px; border-radius:calc(var(--radius) - .1rem); border:1px solid transparent; cursor:pointer}
+  .rrow:hover{background:var(--accent)}
+  .rrow.sel{background:var(--accent); border-color:var(--ring)}
+  .rrow-top{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .rrow-title{font-size:13px; font-weight:600}
+  .rrow-sub{font-size:11px; color:var(--muted-foreground); margin-top:3px}
+  .viewer{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
+  .v-head{display:flex; align-items:flex-start; justify-content:space-between; padding:13px 18px; border-bottom:1px solid var(--border)}
+  .v-eyebrow{font-size:11px; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:.05em}
+  .v-title{font-size:17px; font-weight:650; margin-top:3px; letter-spacing:-.01em}
+  .frame-wrap{flex:1; overflow:auto; padding:20px; background:#0e0f17}
+  /* the report keeps its OWN visual language (Georgetown serif) — framed, not restyled */
+  .report{max-width:740px; margin:0 auto; background:#fbfaf7; color:#13233d; border-radius:8px; box-shadow:0 10px 34px rgba(0,0,0,.5); overflow:hidden}
+  .r-head{padding:26px 32px 18px; border-bottom:3px solid #e08a00}
+  .r-eyebrow{font:11px ui-monospace,monospace; color:#0074cc; letter-spacing:.09em; text-transform:uppercase}
+  .r-h1{font-family:"Iowan Old Style",Georgia,"Times New Roman",serif; font-size:25px; margin:8px 0 0; font-weight:600}
+  .r-body{padding:22px 32px 30px}
+  .kpis{display:flex; gap:14px; margin-bottom:22px}
+  .kpi{flex:1; background:#fff; border:1px solid #e7e3da; border-radius:8px; padding:14px}
+  .kpi .n{font:23px/1 "Iowan Old Style",Georgia,serif; font-weight:700}
+  .kpi .l{font-size:11px; color:#6a7384; margin-top:5px; text-transform:uppercase; letter-spacing:.04em}
+  .spark{display:flex; align-items:flex-end; gap:5px; height:62px; margin:4px 0 24px}
+  .spark span{flex:1; background:#0074cc; border-radius:3px 3px 0 0; opacity:.85}
+  .rtable{width:100%; border-collapse:collapse; font-size:13px}
+  .rtable th{text-align:left; color:#6a7384; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:6px 8px; border-bottom:1px solid #e7e3da}
+  .rtable td{padding:8px; border-bottom:1px solid #f0ede6}
+  .rtable td.num{text-align:right; font-family:ui-monospace,monospace}
+
+  /* ---------- ⌘K command palette (cmdk) ---------- */
+  .overlay{position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:flex-start; justify-content:center; padding-top:14vh; z-index:50}
+  .overlay.show{display:flex}
+  .palette{width:560px; max-width:92vw; background:var(--popover); border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 24px 70px rgba(0,0,0,.6); overflow:hidden}
+  .pal-input-wrap{display:flex; align-items:center; gap:9px; padding:13px 15px; border-bottom:1px solid var(--border)}
+  .pal-input-wrap input{flex:1; background:transparent; border:none; outline:none; color:var(--foreground); font-size:15px}
+  .pal-input-wrap input::placeholder{color:var(--muted-foreground)}
+  .pal-list{max-height:340px; overflow:auto; padding:6px}
+  .pal-group{padding:8px 10px 4px; font-size:10px; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:.06em}
+  .pal-item{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:calc(var(--radius) - .2rem); cursor:pointer; font-size:13px}
+  .pal-item:hover,.pal-item.on{background:var(--accent)}
+  .pal-item .meta{margin-left:auto; color:var(--muted-foreground); font-size:11px}
+  .hint{position:fixed; left:16px; bottom:13px; font-size:11px; color:var(--muted-foreground)}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Open Story</h1>
+      <nav class="tabs" id="tabs">
+        <button class="tab" data-view="live">Live</button>
+        <button class="tab" data-view="explore">Explore</button>
+        <button class="tab" data-view="story">Story</button>
+        <button class="tab" data-view="users">Users</button>
+        <button class="tab active" data-view="command"><span class="live-dot pulse"></span>Command<span class="badge badge-primary" style="margin-left:2px">4</span></button>
+        <button class="tab" data-view="reports">Reports</button>
+      </nav>
+    </div>
+    <div class="conn"><span class="dot dot-green pulse"></span>Connected · <span class="kbd">⌘K</span></div>
+  </header>
+
+  <main>
+    <!-- ======================= COMMAND ======================= -->
+    <section class="view show" id="view-command">
+      <div class="subbar">
+        <span>Watching 4 of 6 live sessions · read-only mirror</span>
+        <span style="display:flex; gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="openPalette()">⌘K bind…</button>
+          <button class="btn btn-outline btn-sm">grid · focus</button>
+        </span>
+      </div>
+      <div class="grid">
+        <!-- active -->
+        <div class="card agent-card">
+          <div class="ac-head">
+            <div class="ac-id"><span class="dot dot-green pulse"></span>OpenStory</div>
+            <div class="ac-meta"><b>main</b> · a1 · @you · 4s</div>
+          </div>
+          <div class="ac-body">
+            <div class="row"><span class="t">14:22:51</span><span class="k">Bash</span><span>cargo test -p server</span></div>
+            <div class="row think"><span class="t">14:23:09</span><span class="k">Think</span><span>"broadcast channel needs a bounded buffer…"</span></div>
+            <div class="row"><span class="t">14:23:12</span><span class="k">Bash</span><span>cargo test ✓ 214 passed</span></div>
+            <div class="row"><span class="t">14:23:18</span><span class="k">Edit</span><span>ws.rs +18 −4</span></div>
+            <div class="row"><span class="t">14:23:20</span><span class="k">Read</span><span>router.rs<span class="caret"></span></span></div>
+          </div>
+          <div class="ac-foot"><span>⏎ editing router.rs</span><span class="mono">1.2k · 84k↑12k↓ · ~$0.41</span></div>
+        </div>
+        <!-- active -->
+        <div class="card agent-card">
+          <div class="ac-head">
+            <div class="ac-id"><span class="dot dot-green pulse"></span>agent-harness</div>
+            <div class="ac-meta"><b>dev</b> · a1 · @you · 9s</div>
+          </div>
+          <div class="ac-body">
+            <div class="row"><span class="t">14:22:38</span><span class="k">Read</span><span>src/harness/run.py</span></div>
+            <div class="row"><span class="t">14:22:44</span><span class="k">Edit</span><span>src/harness/run.py +6</span></div>
+            <div class="row"><span class="t">14:22:55</span><span class="k">Bash</span><span>pytest -k smoke</span></div>
+            <div class="row"><span class="t">14:23:01</span><span class="k">Read</span><span>tests/test_run.py</span></div>
+            <div class="row"><span class="t">14:23:10</span><span class="k">Write</span><span>fixtures/seed.json<span class="caret"></span></span></div>
+          </div>
+          <div class="ac-foot"><span>⏎ running pytest</span><span class="mono">642 · 31k↑5k↓ · ~$0.14</span></div>
+        </div>
+        <!-- errored -->
+        <div class="card agent-card errored">
+          <div class="ac-head">
+            <div class="ac-id"><span class="badge badge-destructive">⚠ errored</span>infra-deploy</div>
+            <div class="ac-meta"><b>main</b> · b2 · @teammate · 41s</div>
+          </div>
+          <div class="ac-body">
+            <div class="row"><span class="t">14:23:01</span><span class="k">Bash</span><span>terraform apply</span></div>
+            <div class="row err"><span class="t">14:23:04</span><span class="k">ERR</span><span>bucket already exists; apply aborted (1)<span class="caret" style="background:var(--destructive)"></span></span></div>
+          </div>
+          <div class="ac-foot err"><span>✖ ERRORED · halted 41s ago</span><button class="btn btn-ghost btn-sm" style="color:var(--destructive)">open log →</button></div>
+        </div>
+        <!-- idle -->
+        <div class="card agent-card">
+          <div class="ac-head">
+            <div class="ac-id"><span class="dot" style="background:var(--muted-foreground)"></span>web-dashboard</div>
+            <div class="ac-meta"><b>feat</b> · b2 · @teammate · 6m</div>
+          </div>
+          <div class="ac-body">
+            <div class="row dim"><span class="t">14:17:02</span><span class="k">Bash</span><span>npm test ✓ 88 passed</span></div>
+            <div class="row dim"><span class="t">14:17:08</span><span class="k">Text</span><span>"all tests pass"</span></div>
+            <div class="row dim"><span class="t">14:17:09</span><span class="k">Turn</span><span>⏹ turn complete</span></div>
+            <div class="idle-hint">· idle 6m — awaiting input ·</div>
+          </div>
+          <div class="ac-foot"><span>○ IDLE · last turn 6m ago</span><span class="mono">980 ev</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================= REPORTS ======================= -->
+    <section class="view" id="view-reports">
+      <div class="subbar">
+        <span>Reports — agent-generated artifacts, indexed from <span class="mono">data/reports/</span></span>
+        <span style="display:flex; gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="openPalette()">⌘K</button>
+          <button class="btn btn-primary btn-sm">↻ Generate…</button>
+        </span>
+      </div>
+      <div class="reports">
+        <aside class="library">
+          <div class="lib-head">
+            <input class="input" placeholder="Search reports…">
+            <div class="facets">
+              <button class="btn btn-outline btn-sm">Type ▾</button>
+              <button class="btn btn-outline btn-sm">Project ▾</button>
+              <button class="btn btn-outline btn-sm">7 days ▾</button>
+            </div>
+          </div>
+          <div class="lib-list" id="rlist">
+            <div class="rrow sel" data-title="What have my agent sessions cost?" data-eyebrow="OpenStory · /openstory:cost · live over REST">
+              <div class="rrow-top"><span class="rrow-title">Cost</span><span class="badge badge-primary">live</span></div>
+              <div class="rrow-sub">2m ago · georgetown · /openstory:cost</div>
+            </div>
+            <div class="rrow" data-title="What did I ship this week?" data-eyebrow="OpenStory · /openstory:recap · live over REST">
+              <div class="rrow-top"><span class="rrow-title">Recap</span><span class="badge badge-primary">live</span></div>
+              <div class="rrow-sub">2m ago · georgetown · /openstory:recap</div>
+            </div>
+            <div class="rrow" data-title="What's my standup?" data-eyebrow="OpenStory · /openstory:standup · live over REST">
+              <div class="rrow-top"><span class="rrow-title">Standup</span><span class="badge badge-primary">live</span></div>
+              <div class="rrow-sub">2m ago · georgetown · /openstory:standup</div>
+            </div>
+            <div class="rrow" data-title="Deliberate ↔ spontaneous distribution" data-eyebrow="OpenStory · archetype · static snapshot">
+              <div class="rrow-top"><span class="rrow-title">Archetype distribution</span><span class="badge badge-muted">static</span></div>
+              <div class="rrow-sub">1h ago · deliberate ↔ spontaneous</div>
+            </div>
+            <div class="rrow" data-title="Your five developer dimensions" data-eyebrow="OpenStory · profile · static snapshot">
+              <div class="rrow-top"><span class="rrow-title">Developer profile</span><span class="badge badge-muted">static</span></div>
+              <div class="rrow-sub">1h ago · 5 dimensions</div>
+            </div>
+            <div class="rrow" data-title="The turn-by-turn shape of one session" data-eyebrow="OpenStory · session story · a1f3c…">
+              <div class="rrow-top"><span class="rrow-title">Session story</span><span class="badge badge-purple">session</span></div>
+              <div class="rrow-sub">3h ago · OpenStory · a1f3c…</div>
+            </div>
+          </div>
+        </aside>
+        <section class="viewer">
+          <div class="v-head">
+            <div>
+              <div class="v-eyebrow" id="v-eyebrow">OpenStory · /openstory:cost · live over REST &nbsp;<span class="badge badge-success" style="margin-left:4px">● fresh · 2m</span></div>
+              <div class="v-title" id="v-title">What have my agent sessions cost?</div>
+            </div>
+            <div style="display:flex; gap:6px">
+              <button class="btn btn-outline btn-sm">↗ Open</button>
+              <button class="btn btn-outline btn-sm">⟳ Refresh</button>
+              <button class="btn btn-ghost btn-icon">⤓</button>
+            </div>
+          </div>
+          <div class="frame-wrap">
+            <!-- represents a sandboxed <iframe>; the report owns its visual language -->
+            <article class="report">
+              <div class="r-head">
+                <div class="r-eyebrow">OpenStory · live over REST</div>
+                <div class="r-h1">What have my agent sessions cost?</div>
+              </div>
+              <div class="r-body">
+                <div class="kpis">
+                  <div class="kpi"><div class="n">$4.12</div><div class="l">spent · 7 days</div></div>
+                  <div class="kpi"><div class="n">84%</div><div class="l">cache savings</div></div>
+                  <div class="kpi"><div class="n">2.1M</div><div class="l">tokens</div></div>
+                </div>
+                <div class="spark">
+                  <span style="height:30%"></span><span style="height:48%"></span><span style="height:70%"></span>
+                  <span style="height:96%"></span><span style="height:62%"></span><span style="height:40%"></span>
+                  <span style="height:74%"></span><span style="height:88%"></span>
+                </div>
+                <table class="rtable">
+                  <thead><tr><th>Project</th><th style="text-align:right">in ↑</th><th style="text-align:right">out ↓</th><th style="text-align:right">est. $</th></tr></thead>
+                  <tbody>
+                    <tr><td>OpenStory</td><td class="num">1.2M</td><td class="num">180k</td><td class="num">$2.40</td></tr>
+                    <tr><td>web-dashboard</td><td class="num">520k</td><td class="num">71k</td><td class="num">$1.10</td></tr>
+                    <tr><td>infra-deploy</td><td class="num">210k</td><td class="num">28k</td><td class="num">$0.62</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ======================= placeholder for existing tabs ======================= -->
+    <section class="view" id="view-other">
+      <div style="margin:auto; text-align:center; color:var(--muted-foreground)">
+        <div style="font-size:15px; color:var(--foreground); margin-bottom:6px">Existing tab — unchanged</div>
+        This prototype focuses the iteration on the two new tabs.<br>
+        Live / Explore / Story / Users keep their current views (now token-driven, same look).
+      </div>
+    </section>
+  </main>
+
+  <!-- ⌘K palette -->
+  <div class="overlay" id="overlay" onclick="if(event.target===this)closePalette()">
+    <div class="palette">
+      <div class="pal-input-wrap">
+        <span style="color:var(--muted-foreground)">⌘</span>
+        <input id="palInput" placeholder="Bind a session, open a report, jump a tab…" oninput="filterPalette(this.value)">
+        <span class="kbd">esc</span>
+      </div>
+      <div class="pal-list" id="palList">
+        <div class="pal-group">Bind to quadrant</div>
+        <div class="pal-item on" data-k="terraform infra"><span class="live-dot"></span>infra-deploy <span style="color:var(--muted-foreground)">main · b2 · @teammate</span><span class="meta">3s ago</span></div>
+        <div class="pal-item" data-k="terraform module"><span class="live-dot"></span>terraform-mod <span style="color:var(--muted-foreground)">main · b2 · @teammate</span><span class="meta">1m ago</span></div>
+        <div class="pal-group">Actions</div>
+        <div class="pal-item" data-k="focus quadrant 1">⤢ Focus quadrant 1</div>
+        <div class="pal-item" data-k="unbind quadrant 2">⏹ Unbind quadrant 2</div>
+        <div class="pal-group">Reports</div>
+        <div class="pal-item" data-k="open cost report">↳ Open Cost report <span class="meta">live · 2m</span></div>
+        <div class="pal-item" data-k="generate new report">+ New report… <span class="meta">cost · recap · standup · coach · scan</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">Click the <b>Command</b> / <b>Reports</b> tabs · press <span class="kbd">⌘K</span> (or <span class="kbd">Ctrl K</span>) · click a report on the left</div>
+
+<script>
+  // tab switching
+  const views = {command:'view-command', reports:'view-reports'};
+  document.querySelectorAll('#tabs .tab').forEach(t=>{
+    t.addEventListener('click',()=>{
+      document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      const v = t.dataset.view;
+      document.querySelectorAll('.view').forEach(x=>x.classList.remove('show'));
+      document.getElementById(views[v] || 'view-other').classList.add('show');
+    });
+  });
+  // report selection
+  document.querySelectorAll('#rlist .rrow').forEach(r=>{
+    r.addEventListener('click',()=>{
+      document.querySelectorAll('#rlist .rrow').forEach(x=>x.classList.remove('sel'));
+      r.classList.add('sel');
+      document.getElementById('v-title').textContent = r.dataset.title;
+      document.getElementById('v-eyebrow').innerHTML = r.dataset.eyebrow + ' &nbsp;<span class="badge badge-success" style="margin-left:4px">● fresh · 2m</span>';
+    });
+  });
+  // ⌘K palette
+  const overlay = document.getElementById('overlay');
+  function openPalette(){overlay.classList.add('show'); const i=document.getElementById('palInput'); i.value=''; filterPalette(''); setTimeout(()=>i.focus(),0);}
+  function closePalette(){overlay.classList.remove('show');}
+  function filterPalette(q){
+    q=q.toLowerCase();
+    document.querySelectorAll('#palList .pal-item').forEach(it=>{
+      it.style.display = it.dataset.k.includes(q) ? '' : 'none';
+    });
+  }
+  window.addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){e.preventDefault(); overlay.classList.contains('show')?closePalette():openPalette();}
+    if(e.key==='Escape') closePalette();
+  });
+</script>
+</body>
+</html>

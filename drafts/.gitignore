@@ -1,0 +1,5 @@
+# the rendered deck PDF is large (~9MB) and regenerates from prompt-library.deck.md
+prompt-library-deck.pdf
+
+# intermediate per-skill captures; the merged skill_report_data.json is the source
+_part_*.json

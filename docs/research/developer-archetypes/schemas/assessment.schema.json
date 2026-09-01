@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openstory://archetype/assessment",
+  "title": "Assessment",
+  "description": "A single traceable verdict — the Toulmin argument, with backing as the citation hook.",
+  "type": "object",
+  "x-citation": {
+    "theory_id": "toulmin-1958",
+    "warrant_strength": "validated",
+    "warrant": "argument decomposes into claim/grounds/warrant/backing/qualifier/rebuttal",
+    "primary_source": "Stephen E. Toulmin (1958). The Uses of Argument (Cambridge University Press). https://www.humanities.mcmaster.ca/~hitchckd/Toulminswarrants.pdf"
+  },
+  "required": [
+    "claim",
+    "grounds",
+    "warrant",
+    "backing",
+    "qualifier",
+    "rebuttal"
+  ],
+  "properties": {
+    "claim": {
+      "type": "string",
+      "x-citation": {
+        "theory_id": "dietrich-2004",
+        "warrant_strength": "analogical",
+        "warrant": "the verdict label (a processing-mode pole)",
+        "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731"
+      }
+    },
+    "grounds": {
+      "type": "object",
+      "x-citation": {
+        "theory_id": "rhodes-1961",
+        "warrant_strength": "validated",
+        "warrant": "the evidence — process metrics + the events that produced them (downward provenance)",
+        "primary_source": "Mel Rhodes (1961). An Analysis of Creativity, Phi Delta Kappan 42(7):305-310. https://www.jstor.org/stable/20342603"
+      },
+      "required": [
+        "metrics"
+      ],
+      "properties": {
+        "metrics": {
+          "type": "object"
+        },
+        "n_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "net_lean": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "evidence_event_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "warrant": {
+      "type": "string",
+      "x-citation": {
+        "theory_id": "dietrich-2004",
+        "warrant_strength": "analogical",
+        "warrant": "the bridge: these process signals indicate this processing mode",
+        "primary_source": "Arne Dietrich (2004). The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026. https://link.springer.com/article/10.3758/BF03196731"
+      }
+    },
+    "backing": {
+      "type": "array",
+      "x-citation": {
+        "theory_id": "toulmin-1958",
+        "warrant_strength": "validated",
+        "warrant": "backing = the evidence beneath the warrant — the citation hook (upward provenance)",
+        "primary_source": "Stephen E. Toulmin (1958). The Uses of Argument (Cambridge University Press). https://www.humanities.mcmaster.ca/~hitchckd/Toulminswarrants.pdf"
+      },
+      "items": {
+        "type": "object",
+        "required": [
+          "theory_id",
+          "warrant_strength"
+        ],
+        "properties": {
+          "theory_id": {
+            "type": "string"
+          },
+          "warrant_strength": {
+            "type": "string",
+            "enum": [
+              "validated",
+              "validated-frame",
+              "analogical",
+              "metaphorical",
+              "none",
+              "refuted"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "qualifier": {
+      "type": "object",
+      "x-citation": {
+        "theory_id": "cronbach-meehl-1955",
+        "warrant_strength": "validated",
+        "warrant": "warrant strength + confidence — 'rationalization is not validation'",
+        "primary_source": "Lee J. Cronbach, Paul E. Meehl (1955). Construct Validity in Psychological Tests, Psychological Bulletin 52(4):281-302. https://meehl.umn.edu/sites/meehl.umn.edu/files/files/036constructvalidityidx.pdf"
+      },
+      "required": [
+        "warrant_strength"
+      ],
+      "properties": {
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warrant_strength": {
+          "type": "string",
+          "enum": [
+            "validated",
+            "validated-frame",
+            "analogical",
+            "metaphorical",
+            "none",
+            "refuted"
+          ]
+        }
+      }
+    },
+    "rebuttal": {
+      "type": "string",
+      "x-citation": {
+        "theory_id": "cronbach-meehl-1955",
+        "warrant_strength": "validated",
+        "warrant": "the falsifiability hook — what would refute the claim",
+        "primary_source": "Lee J. Cronbach, Paul E. Meehl (1955). Construct Validity in Psychological Tests, Psychological Bulletin 52(4):281-302. https://meehl.umn.edu/sites/meehl.umn.edu/files/files/036constructvalidityidx.pdf"
+      }
+    }
+  }
+}

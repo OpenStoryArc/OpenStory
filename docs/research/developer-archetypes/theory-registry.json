@@ -1,0 +1,262 @@
+{
+  "$comment": "Theory registry SEED. Records verified by deep-research pass 1 (2026-06-20, 3-vote adversarial, all 3-0 primary-source). Schema: ./registry-schema.md. Pass-2 constructs (Kirton, Rhodes, Guilford, Csikszentmihalyi, Sawyer, Kaufman-Beghetto, ...) are intentionally absent until verified. Never add an unverified record.",
+  "schema_version": "0.1",
+  "generated": "2026-06-20",
+  "records": [
+    {
+      "id": "sternberg-1999",
+      "scholar": "Robert J. Sternberg",
+      "year": 1999,
+      "primary_work": "A Propulsion Model of Types of Creative Contributions, Review of General Psychology 3(2):83-100",
+      "primary_source": "https://journals.sagepub.com/doi/10.1037/1089-2680.3.2.83",
+      "core_claim": "Creative contributions differ not only in the amounts of creativity they display but also in the types — classified by stance toward a field's prevailing paradigm (4 types accept current paradigms, 3 reject them).",
+      "measures": "product",
+      "kind": "style",
+      "lineage": [
+        { "relation": "descends_from", "target_id_or_name": "Sternberg, Kaufman & Pretz (2003); Sternberg & Kaufman (2010)", "note": "1999 defines 7 types; later expanded to 8 (added integrate/reinitiate). Anchor to 1999." }
+      ],
+      "history_note": "A deliberate turn away from amount-of-creativity scoring (Guilford/Torrance lineage) toward a typology of KINDS of contribution by paradigm stance — the canonical 'style, not score' move on the contribution side.",
+      "caveats": ["Anchor the record to the 1999 7-type version; treat the 8-type expansion as a lineage edge, not the origin."],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://journals.sagepub.com/doi/10.1037/1089-2680.3.2.83"] }
+    },
+    {
+      "id": "boden-1990",
+      "scholar": "Margaret A. Boden",
+      "year": 1990,
+      "primary_work": "The Creative Mind: Myths and Mechanisms (rev. 2004); concise statement in 'Creativity in a Nutshell'",
+      "primary_source": "https://plato.stanford.edu/entries/creativity/",
+      "core_claim": "Creativity is the ability to come up with ideas or artefacts that are new, surprising, and valuable, via three routes: combinational (unfamiliar combinations of familiar ideas), exploratory (new ideas within a conceptual space), and transformational (changing the space itself).",
+      "measures": "process",
+      "kind": "style",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "Sternberg propulsion model", "note": "Both are type-of-creativity typologies; Boden's is computational and space-relative." }
+      ],
+      "history_note": "The canonical COMPUTATIONAL creativity typology, built to be intelligible to AI. 'Conceptual spaces are structured styles of thought... not originated by one individual mind' — creativity is relative to an inherited space, which is why transformational creativity (changing the space) is the rarest and most surprising.",
+      "caveats": ["ResearchGate PDF intermittently 403s; use SEP or interaliamag.org reprint as stable mirrors.", "Boden's triad describes the CREATIVE ACT (process) and its outputs; mapping it to coding-move types is analogical, not validated."],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://plato.stanford.edu/entries/creativity/", "https://www.researchgate.net/profile/Margaret-Boden-2/publication/209436199_Creativity_in_a_nutshell"] }
+    },
+    {
+      "id": "amabile-1983",
+      "scholar": "Teresa M. Amabile",
+      "year": 1983,
+      "primary_work": "The Social Psychology of Creativity (1983); canonical restatement: 'Componential Theory of Creativity', HBS Working Paper 12-096 (2012)",
+      "primary_source": "https://www.hbs.edu/ris/Publication%20Files/12-096.pdf",
+      "core_claim": "Any creative response requires four components: three within the person (domain-relevant skills, creativity-relevant processes, intrinsic task motivation) and one outside it (the social/work environment). Creativity = outcomes both novel and appropriate on a heuristic task.",
+      "measures": "person",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "Csikszentmihalyi systems model", "note": "Both place an environmental/social locus alongside the individual (Amabile's 'environment' ~ Rhodes' Press)." }
+      ],
+      "history_note": "Brought social psychology into a field dominated by personality/cognition. The 'intrinsic motivation principle' is its signature and its most contested tenet; Amabile's later 'motivational synergy' work qualified it.",
+      "caveats": ["'creativity-relevant processes' was 'creativity-relevant SKILLS' in the 1983 version.", "Do NOT claim extrinsic motivators are always harmful — motivational synergy shows some help.", "Uniquely names a Press (environment) component — useful for framing a coding session as person-in-environment-with-agent."],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://www.hbs.edu/ris/Publication%20Files/12-096.pdf"] }
+    },
+    {
+      "id": "dora-2018",
+      "scholar": "Nicole Forsgren, Jez Humble, Gene Kim",
+      "year": 2018,
+      "primary_work": "Accelerate: The Science of Lean Software and DevOps (IT Revolution, 2018); academic grounding: 'A Taxonomy of Software Delivery Performance Profiles', AMCIS 2020",
+      "primary_source": "https://aisel.aisnet.org/amcis2020/systems_analysis_design/systems_analysis_design/8/",
+      "core_claim": "Four key software-delivery-performance metrics: deployment frequency, lead time for changes, change failure rate, time to restore service (two throughput, two stability).",
+      "measures": "product",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "space-2021", "note": "Shared lead author (Forsgren); SPACE generalizes beyond delivery to multidimensional productivity." }
+      ],
+      "history_note": "Moved DevOps from anecdote to measurement via large-N survey + cluster analysis (n=7,522). The four metrics are durable; the famous Elite/High/Medium/Low LADDER is a later annual-report artifact, not in the book and not peer-reviewed.",
+      "caveats": ["REFUTED (0-3): the 4-tier Elite/High/Medium/Low scheme is NOT from the 2018 book and NOT peer-reviewed; the AMCIS paper found THREE empirical clusters. Treat 4-tier as popular reporting.", "SESSION-OBSERVABILITY: deployment frequency, change failure rate, time-to-restore generally need production/incident data and are NOT observable from one coding session. Only lead-time-like intervals and activity/flow are session-observable."],
+      "verification": { "vote": "3-0 (four-metric claim); 0-3 (four-tier claim, refuted)", "pass": 1, "sources": ["https://itrevolution.com/product/accelerate/", "https://nicolefv.com/research", "https://aisel.aisnet.org/amcis2020/systems_analysis_design/systems_analysis_design/8/"] }
+    },
+    {
+      "id": "space-2021",
+      "scholar": "Forsgren, Storey, Maddila, Zimmermann, Houck, Butler",
+      "year": 2021,
+      "primary_work": "The SPACE of Developer Productivity: There's more to it than you think, ACM Queue 19(1):20-48, DOI 10.1145/3454122.3454124",
+      "primary_source": "https://www.microsoft.com/en-us/research/publication/the-space-of-developer-productivity-theres-more-to-it-than-you-think/",
+      "core_claim": "Developer productivity is multidimensional and cannot be captured by a single metric or dimension. Five dimensions: Satisfaction, Performance, Activity, Communication/collaboration, Efficiency/flow (use at least three).",
+      "measures": "process",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "responds_to", "target_id_or_name": "single-metric productivity measurement (incl. naive use of DORA)", "note": "Explicitly argues against reducing productivity to one number." }
+      ],
+      "history_note": "The strongest delivery-side warrant for 'style, not score': a peer-reviewed source from the DORA authors themselves cautioning against single-metric evaluation of developers.",
+      "caveats": ["'Tom' vs 'Thomas' Zimmermann are the same author.", "Also reprinted in Communications of the ACM 64(6):46-53 (2021)."],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://www.microsoft.com/en-us/research/publication/the-space-of-developer-productivity-theres-more-to-it-than-you-think/", "https://nicolefv.com/research"] }
+    },
+    {
+      "id": "toulmin-1958",
+      "scholar": "Stephen E. Toulmin",
+      "year": 1958,
+      "primary_work": "The Uses of Argument (Cambridge University Press)",
+      "primary_source": "https://www.humanities.mcmaster.ca/~hitchckd/Toulminswarrants.pdf",
+      "core_claim": "An argument decomposes into claim, data/grounds, warrant, backing, qualifier, rebuttal. The warrant is the bridge justifying the leap from data to claim; backing is the evidence supporting the warrant.",
+      "measures": "method",
+      "kind": "method",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "Kane interpretation-use argument (IUA)", "note": "Kane applies Toulmin's structure to assessment validity, recommending the full argument be made explicit for high-stakes decisions." }
+      ],
+      "history_note": "Toulmin's layout of argument is the schema's spine: 'backing' is the citation hook, and chained inferences (one claim becomes the next's datum) give the genealogy hook for a whole lineage of reasoning.",
+      "caveats": [],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://pmc.ncbi.nlm.nih.gov/articles/PMC9796688/", "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12390866/"] }
+    },
+    {
+      "id": "cronbach-meehl-1955",
+      "scholar": "Lee J. Cronbach, Paul E. Meehl",
+      "year": 1955,
+      "primary_work": "Construct Validity in Psychological Tests, Psychological Bulletin 52(4):281-302",
+      "primary_source": "https://meehl.umn.edu/sites/meehl.umn.edu/files/files/036constructvalidityidx.pdf",
+      "core_claim": "Construct validation applies when an attribute is not operationally defined; a construct is admissible only if embedded in a nomological net whose laws touch observables; the interpretation must be falsifiable — 'Rationalization is not construct validation.'",
+      "measures": "method",
+      "kind": "method",
+      "lineage": [
+        { "relation": "descends_from", "target_id_or_name": "Messick unified construct validity; Borsboom (2009); Haig", "note": "The 1955 four-type validity taxonomy was later collapsed/unified and critiqued; cite 1955 for the origin record." }
+      ],
+      "history_note": "The discipline that prevents citation theater. Supplies the warrant-strength tiers: validated operationalization (net contact with observables) > analogical proxy > metaphorical inspiration.",
+      "caveats": ["Nomological-net theory has been critiqued/superseded as a forward-looking theory of validity, but remains accurately attributable as the 1955 origin."],
+      "verification": { "vote": "3-0", "pass": 1, "sources": ["https://meehl.umn.edu/sites/meehl.umn.edu/files/files/036constructvalidityidx.pdf", "https://pmc.ncbi.nlm.nih.gov/articles/PMC9796688/"] }
+    },
+    {
+      "id": "rhodes-1961",
+      "scholar": "Mel Rhodes",
+      "year": 1961,
+      "primary_work": "An Analysis of Creativity, Phi Delta Kappan 42(7):305-310",
+      "primary_source": "https://www.jstor.org/stable/20342603",
+      "core_claim": "Creativity analyzes into four interdependent strands — Person, Process, Press, Product — distinct analytical lenses, not a typology of people. Verbatim: 'the four P's of creativity, i.e., (1) person, (2) process, (3) press, (4) products.'",
+      "measures": "method",
+      "kind": "method",
+      "lineage": [],
+      "history_note": "Grounds the registry's own `measures` field. The four Ps are loci of analysis, interdependent in function ('only in unity do the four strands operate functionally'). OpenStory observes the PROCESS strand — which is exactly why Person/Product constructs cap at analogical.",
+      "caveats": ["Primary PDF is FlateDecode-compressed and could not be machine-parsed; rests on consistent secondary reproductions of the verbatim text.", "Journal is Phi Delta Kappan (some snippets misspell 'Phi Beta Kappan')."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://ead.ufpa.br/pluginfile.php/542154/mod_folder/content/0/Leitura_04.pdf"] }
+    },
+    {
+      "id": "kirton-1976",
+      "scholar": "Michael J. Kirton",
+      "year": 1976,
+      "primary_work": "Adaptors and Innovators: A Description and Measure, Journal of Applied Psychology 61(5):622-629",
+      "primary_source": "https://eric.ed.gov/?id=EJ148010",
+      "core_claim": "The KAI rates respondents on a continuous adaptor↔innovator dimension of cognitive STYLE, explicitly independent of cognitive LEVEL/capacity ('no better style'; correlations with ability tests < 0.1).",
+      "measures": "person",
+      "kind": "style",
+      "lineage": [
+        { "relation": "responds_to", "target_id_or_name": "guilford-1950", "note": "Separates creative STYLE from the divergent-thinking ABILITY/level tradition Guilford launched." },
+        { "relation": "sibling_of", "target_id_or_name": "sternberg-1999", "note": "Both are 'type/style, not score' framings." }
+      ],
+      "history_note": "The cleanest 'style not level' instrument and the natural anchor for an adaptor↔innovator archetype axis. PERSON-locus, so linking it to OpenStory's process signal is analogical, never validated.",
+      "caveats": ["'measures cognitive style to the exclusion of cognitive level' is a paraphrase (Wikipedia/kai.foundation), NOT Kirton's 1976 verbatim — do not present as a 1976 quotation.", "kai.foundation is vendor-adjacent; substance corroborated by the peer-reviewed article + secondary literature.", "Taylor (1989) challenges the three-factor sufficiency — cite as a starting point, not pure confirmation."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://eric.ed.gov/?id=EJ148010", "https://onlinelibrary.wiley.com/doi/abs/10.1002/job.4030100402", "https://kai.foundation/"] }
+    },
+    {
+      "id": "guilford-1950",
+      "scholar": "J.P. Guilford",
+      "year": 1950,
+      "primary_work": "Creativity (APA presidential address), American Psychologist 5(9):444-454",
+      "primary_source": "https://psycnet.apa.org/record/1951-06438-001",
+      "core_claim": "The agenda-setting address that put creativity on psychology's agenda ('The neglect of this subject by psychologists is appalling'); introduces the divergent vs convergent production distinction within the Structure of Intellect program.",
+      "measures": "person",
+      "kind": "style",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "Torrance Tests of Creative Thinking", "note": "The ability/level measurement tradition that operationalized divergent thinking (TTCT unverified — pending pass)." }
+      ],
+      "history_note": "The modern origin point for creativity research. Divergent/convergent is the proto-style distinction Kirton later reframed as style-not-level. Person/ability locus.",
+      "caveats": ["Best cited as the agenda-setting / call-to-arms text; the full divergent/convergent apparatus is the broader Structure of Intellect program.", "A weak hosting domain surfaced the PDF; bibliographic facts rest on Oxford Bibliographies, Taylor & Francis, SciRP."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://pdfcoffee.com/guilford-1950-pdf-free.html"] }
+    },
+    {
+      "id": "csikszentmihalyi-flow-1996",
+      "scholar": "Mihaly Csikszentmihalyi",
+      "year": 1996,
+      "primary_work": "Creativity: Flow and the Psychology of Discovery and Invention (HarperCollins)",
+      "primary_source": "https://books.google.com/books/about/Creativity.html?id=K0buAAAAMAAJ",
+      "core_claim": "Flow — a state of optimal experience marked by intense concentration and deep enjoyment during an activity; a transient in-activity experiential state.",
+      "measures": "process",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "csikszentmihalyi-systems-1988", "note": "Same author/book; a separate construct at a different locus." }
+      ],
+      "history_note": "PROCESS-locus → one of only three constructs in the registry eligible for a VALIDATED (not merely analogical) warrant against session-event signals (e.g. sustained, uninterrupted tool cadence).",
+      "caveats": ["Challenge-skill balance is a precondition of flow, not flow itself.", "Do not conflate with the systems model (different locus)."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://journals.sagepub.com/doi/10.1177/001698629704100309"] }
+    },
+    {
+      "id": "csikszentmihalyi-systems-1988",
+      "scholar": "Mihaly Csikszentmihalyi",
+      "year": 1988,
+      "primary_work": "Society, Culture, and Person: A Systems View of Creativity (in The Nature of Creativity, ed. Sternberg)",
+      "primary_source": "https://books.google.com/books/about/Creativity.html?id=K0buAAAAMAAJ",
+      "core_claim": "Creativity emerges from the interaction of person × domain × field, not the individual alone.",
+      "measures": "press",
+      "kind": "method",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "amabile-1983", "note": "Both add an environmental/social locus alongside the individual." }
+      ],
+      "history_note": "The systems/Press model — creativity as a property of a system, not a person. Aligns with OpenStory framing a session as person + agent + domain.",
+      "caveats": ["ATTRIBUTION ONLY: the 1988/1999 systems-model chapters were NOT separately fetched in pass 2; rests on the documented contents of the 1996 book. Lower evidentiary footing than the Flow claim — re-verify before citing as backing."],
+      "verification": { "vote": "attribution only (chapters not independently fetched)", "pass": 2, "sources": ["https://books.google.com/books/about/Creativity.html?id=K0buAAAAMAAJ"] }
+    },
+    {
+      "id": "sawyer-2009",
+      "scholar": "R. Keith Sawyer & Stacy DeZutter",
+      "year": 2009,
+      "primary_work": "Distributed Creativity: How Collective Creations Emerge From Collaboration, Psychology of Aesthetics, Creativity, and the Arts 3(2):81-92",
+      "primary_source": "https://keithsawyer.com/PDFs/DC.pdf",
+      "core_claim": "Collaborative emergence / 'distributed creativity': a nonindividualistic group process whose creative product is determined by no single participant. Four marks: unpredictable outcome, moment-to-moment contingency, interactional contingency, roughly equal contribution.",
+      "measures": "process",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "descends_from", "target_id_or_name": "csikszentmihalyi-systems-1988", "note": "Extends the social/distributed view of creativity to moment-to-moment group interaction." }
+      ],
+      "history_note": "PROCESS (collaborative) locus. ⚠️ REFUTES the 'Conductor' archetype: Sawyer places the conductor-led orchestra at the PREDICTABLE/CONSTRAINED pole as his counter-example — the OPPOSITE of emergence. Verbatim: 'a symphony orchestra performs from a score and is guided by a conductor' is the predictable example; single-individual-controlled encounters are LESS likely to manifest collaborative emergence.",
+      "caveats": ["A leadership/orchestration archetype CANNOT be grounded here — it would invert the author's meaning.", "Empirical basis: interaction analysis of 5 improvised teen-theater performances (ages 11-17)."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://keithsawyer.com/PDFs/DC.pdf"] }
+    },
+    {
+      "id": "kaufman-beghetto-2009",
+      "scholar": "James C. Kaufman & Ronald A. Beghetto",
+      "year": 2009,
+      "primary_work": "Beyond Big and Little: The Four C Model of Creativity, Review of General Psychology 13(1):1-12",
+      "primary_source": "https://journals.sagepub.com/doi/10.1037/a0013688",
+      "core_claim": "Four-C: mini-c (creativity in learning), little-c (everyday), Pro-c (professional-level expertise), Big-C (eminent). A developmental trajectory of magnitude, not a style typology.",
+      "measures": "person",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "descends_from", "target_id_or_name": "the Big-C / little-c distinction", "note": "Extends a two-level scheme into a four-level developmental trajectory." }
+      ],
+      "history_note": "DEGREE, not style → feeds a growth-edge / trajectory axis, never the style axis. One can be Pro-c in one domain and little-c in another (not a fixed tier).",
+      "caveats": ["mini-c is intrapersonal/subjective (novel 'to the person'), leaning Process — so not a pure magnitude band."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://journals.sagepub.com/doi/10.1037/a0013688"] }
+    },
+    {
+      "id": "dietrich-2004",
+      "scholar": "Arne Dietrich",
+      "year": 2004,
+      "primary_work": "The cognitive neuroscience of creativity, Psychonomic Bulletin & Review 11(6):1011-1026",
+      "primary_source": "https://link.springer.com/article/10.3758/BF03196731",
+      "core_claim": "Four basic types of creative INSIGHT from crossing two processing modes (deliberate vs spontaneous) × two content sources (cognitive vs emotional), each mediated by a distinct neural circuit.",
+      "measures": "process",
+      "kind": "style",
+      "lineage": [
+        { "relation": "sibling_of", "target_id_or_name": "boden-1990", "note": "Both are process-level typologies of the creative act rather than of creators." }
+      ],
+      "history_note": "⭐ PROCESS-locus + a style-like 2×2 typology → the strongest candidate for a VALIDATED (not merely analogical) style axis matched to session-event signals (deliberate/sequenced vs spontaneous/exploratory work). A possible process-native alternative to a Person-locus style axis.",
+      "caveats": ["It taxonomizes INSIGHTS, not creators; popularized blogs misread it as 'four types of creative people' — do not."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://link.springer.com/article/10.3758/BF03196731", "https://pubmed.ncbi.nlm.nih.gov/15875970/"] }
+    },
+    {
+      "id": "deyoung-2014",
+      "scholar": "Colin G. DeYoung, Quilty, Peterson & Gray",
+      "year": 2014,
+      "primary_work": "Openness to Experience, Intellect, and Cognitive Ability, Journal of Personality Assessment 96(1):46-52",
+      "primary_source": "https://pubmed.ncbi.nlm.nih.gov/23795918/",
+      "core_claim": "Within Big Five Openness/Intellect, Openness and Intellect are separable aspects (measured by the BFAS): Intellect tracks general intelligence; Openness tracks verbal/aesthetic engagement.",
+      "measures": "person",
+      "kind": "degree",
+      "lineage": [
+        { "relation": "descends_from", "target_id_or_name": "Big Five Openness/Intellect domain", "note": "A mid-level 'aspect' split below the domain (DeYoung, Quilty & Peterson 2007)." }
+      ],
+      "history_note": "PERSON-locus trait aspects → analogical only. Useful for interpretation, not a style axis.",
+      "caveats": ["Single two-sample study (N=125 / N=189), not meta-analytic; 'Intellect tracks g' lightly simplifies 'independently associated with g'."],
+      "verification": { "vote": "3-0", "pass": 2, "sources": ["https://pubmed.ncbi.nlm.nih.gov/23795918/", "https://www.tandfonline.com/doi/10.1080/00223891.2013.806327"] }
+    }
+  ]
+}

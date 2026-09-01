@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenStory — Watch Command Center</title>
+<style>
+  /* Tokyonight palette — borrowed from ui/src/index.css */
+  :root {
+    --bg: #1a1b26;
+    --bg-surface: #24283b;
+    --bg-hover: #2f3348;
+    --text: #c0caf5;
+    --text-muted: #565f89;
+    --accent: #7aa2f7;
+    --green: #9ece6a;
+    --red: #f7768e;
+    --orange: #e0af68;
+    --purple: #bb9af7;
+    --cyan: #2ac3de;
+    --turn: #3b4261;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", ui-monospace, monospace;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes event-flash {
+    0% { background-color: rgba(122,162,247,0.18); }
+    100% { background-color: transparent; }
+  }
+  .pulse { animation: pulse-dot 1.5s ease-in-out infinite; }
+  .flash { animation: event-flash 1.6s ease-out; }
+
+  /* ---- app chrome ---- */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--bg-hover);
+    background: var(--bg-surface);
+    flex: 0 0 auto;
+  }
+  .topbar .brand { color: var(--text); font-weight: 600; letter-spacing: 0.3px; }
+  .topbar .brand .dim { color: var(--text-muted); font-weight: 400; }
+  .topbar .spacer { flex: 1; }
+  .topbar .meta { color: var(--text-muted); font-size: 12px; }
+  .topbar .meta b { color: var(--text); font-weight: 600; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); }
+  .legend span b { font-weight: 400; }
+
+  /* ---- 2x2 grid ---- */
+  .grid {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    min-height: 0;
+  }
+
+  /* ---- card ---- */
+  .card {
+    display: flex; flex-direction: column;
+    background: var(--bg-surface);
+    border: 1px solid var(--bg-hover);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .card.idle    { border-left-color: var(--text-muted); opacity: 0.78; }
+  .card.errored { border-left-color: var(--red); }
+  .card.done    { border-left-color: var(--green); }
+
+  .card-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--bg-hover);
+    flex: 0 0 auto;
+  }
+  .dot { font-size: 11px; line-height: 1; }
+  .dot.live { color: var(--accent); }
+  .dot.idle { color: var(--text-muted); }
+  .dot.err  { color: var(--red); }
+  .dot.ok   { color: var(--green); }
+
+  .proj { color: var(--text); font-weight: 600; }
+  .card.idle .proj { color: var(--text-muted); }
+  .ctx { color: var(--text-muted); font-size: 12px; }
+  .ctx .b { color: var(--purple); }    /* branch */
+  .ctx .h { color: var(--cyan); }      /* host */
+  .ctx .u { color: var(--orange); }    /* user */
+  .head-spacer { flex: 1; }
+  .ago { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+  .ago.warn { color: var(--red); }
+  .focusbtn {
+    color: var(--text-muted); cursor: pointer; font-size: 13px;
+    padding: 0 2px; user-select: none;
+  }
+  .focusbtn:hover { color: var(--accent); }
+
+  /* ---- ticker body ---- */
+  .ticker {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 4px 0;
+    display: flex; flex-direction: column; justify-content: flex-end; /* newest at bottom */
+    min-height: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 62px 52px 1fr auto;
+    gap: 8px;
+    padding: 2px 10px;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .row .ts { color: var(--text-muted); }
+  .row .tool { font-weight: 600; }
+  .row .tool.Read   { color: var(--cyan); }
+  .row .tool.Edit   { color: var(--accent); }
+  .row .tool.Write  { color: var(--accent); }
+  .row .tool.Bash   { color: var(--green); }
+  .row .tool.Think  { color: var(--purple); }
+  .row .tool.Task   { color: var(--orange); }
+  .row .tool.Text   { color: var(--purple); }
+  .row .tool.Turn   { color: var(--text-muted); }
+  .row .tool.ERR    { color: var(--red); }
+  .row .tool.Result { color: var(--cyan); }
+  .row .detail { color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+  .card.idle .row .detail { color: var(--text-muted); }
+  .row .detail.muted { color: var(--text-muted); }
+  .row .detail.errtext { color: var(--red); }
+  .row .delta { color: var(--green); font-size: 11px; }
+  .row .delta.minus { color: var(--red); }
+  .row .ok { color: var(--green); }
+  .caret { color: var(--accent); font-weight: 700; }
+
+  .hint {
+    text-align: center; color: var(--text-muted); font-size: 12px;
+    padding: 8px; font-style: italic;
+  }
+
+  /* ---- footer stat strip ---- */
+  .foot {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--bg-hover);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex: 0 0 auto;
+  }
+  .activity { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.idle .activity { color: var(--text-muted); }
+  .foot .spacer { flex: 1; }
+  .stat { white-space: nowrap; }
+  .stat b { color: var(--text); font-weight: 600; }
+  .tin { color: var(--cyan); }
+  .tout { color: var(--purple); }
+  .cost { color: var(--orange); }
+
+  .foot.err-banner {
+    background: rgba(247,118,142,0.10);
+    color: var(--red);
+    justify-content: space-between;
+  }
+  .foot.err-banner .act { color: var(--red); font-weight: 600; cursor: pointer; }
+  .foot.err-banner .act:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== top bar ===== -->
+  <div class="topbar">
+    <span class="brand">OpenStory <span class="dim">· Watch Command Center</span></span>
+    <span class="spacer"></span>
+    <span class="legend">
+      <span class="dot live">●</span><b>live</b>
+      <span class="dot idle">○</span><b>idle</b>
+      <span class="dot err">⚠</span><b>error</b>
+      <span class="dot ok">✓</span><b>done</b>
+    </span>
+    <span class="meta"><b>4</b> watched · <b>1</b> needs attention · keys <b>1-4</b> focus · <b>esc</b> grid</span>
+  </div>
+
+  <!-- ===== 2x2 grid — mixed state (money shot) ===== -->
+  <div class="grid">
+
+    <!-- Q1: ACTIVE — OpenStory -->
+    <div class="card">
+      <div class="card-head">
+        <span class="dot live pulse">●</span>
+        <span class="proj">OpenStory</span>
+        <span class="ctx"><span class="b">main</span> · <span class="h">a1</span> · <span class="u">@max</span></span>
+        <span class="head-spacer"></span>
+        <span class="ago">3s ago</span>
+        <span class="focusbtn" title="focus (1)">⤢</span>
+      </div>
+      <div class="ticker">
+        <div class="row"><span class="ts">14:22:58</span><span class="tool Result">Result</span><span class="detail">214 passed; 0 failed; 6.10s</span><span></span></div>
+        <div class="row"><span class="ts">14:23:09</span><span class="tool Think">Think</span><span class="detail muted">"broadcast channel needs a bounded buffer…"</span><span></span></div>
+        <div class="row"><span class="ts">14:23:12</span><span class="tool Bash">Bash</span><span class="detail">cargo test <span class="ok">✓ 214</span></span><span></span></div>
+        <div class="row"><span class="ts">14:23:18</span><span class="tool Edit">Edit</span><span class="detail">rs/server/src/ws.rs <span class="delta">+18</span> <span class="delta minus">−4</span></span><span></span></div>
+        <div class="row flash"><span class="ts">14:23:20</span><span class="tool Read">Read</span><span class="detail">rs/server/src/router.rs</span><span class="caret">▌</span></div>
+      </div>
+      <div class="foot">
+        <span class="activity">⏎ editing router.rs</span>
+        <span class="spacer"></span>
+        <span class="stat"><b>1.2k</b> ev</span>
+        <span class="stat"><span class="tin">84k↑</span> <span class="tout">12k↓</span></span>
+        <span class="stat cost">~$0.41</span>
+      </div>
+    </div>
+
+    <!-- Q2: ERRORED — infra-deploy -->
+    <div class="card errored">
+      <div class="card-head">
+        <span class="dot err pulse">⚠</span>
+        <span class="proj">infra-deploy</span>
+        <span class="ctx"><span class="b">main</span> · <span class="h">b2</span> · <span class="u">@kat</span></span>
+        <span class="head-spacer"></span>
+        <span class="ago warn">41s ago</span>
+        <span class="focusbtn" title="focus (2)">⤢</span>
+      </div>
+      <div class="ticker">
+        <div class="row"><span class="ts">14:22:48</span><span class="tool Bash">Bash</span><span class="detail">terraform plan</span><span></span></div>
+        <div class="row"><span class="ts">14:22:59</span><span class="tool Edit">Edit</span><span class="detail">main.tf <span class="delta">+4</span> <span class="delta minus">−1</span></span><span></span></div>
+        <div class="row"><span class="ts">14:23:01</span><span class="tool Bash">Bash</span><span class="detail">terraform apply</span><span></span></div>
+        <div class="row flash"><span class="ts">14:23:04</span><span class="tool ERR">⚠ERR</span><span class="detail errtext">bucket already exists; apply aborted (exit 1)</span><span class="caret">▌</span></div>
+      </div>
+      <div class="foot err-banner">
+        <span>✖ ERRORED · halted 41s ago</span>
+        <span class="act">open log →</span>
+      </div>
+    </div>
+
+    <!-- Q3: ACTIVE — web-dashboard -->
+    <div class="card">
+      <div class="card-head">
+        <span class="dot live pulse">●</span>
+        <span class="proj">web-dashboard</span>
+        <span class="ctx"><span class="b">feat/grid</span> · <span class="h">b2</span> · <span class="u">@kat</span></span>
+        <span class="head-spacer"></span>
+        <span class="ago">5s ago</span>
+        <span class="focusbtn" title="focus (3)">⤢</span>
+      </div>
+      <div class="ticker">
+        <div class="row"><span class="ts">14:23:02</span><span class="tool Edit">Edit</span><span class="detail">App.tsx <span class="delta">+22</span> <span class="delta minus">−9</span></span><span></span></div>
+        <div class="row"><span class="ts">14:23:08</span><span class="tool Bash">Bash</span><span class="detail">npm run build</span><span></span></div>
+        <div class="row"><span class="ts">14:23:14</span><span class="tool Read">Read</span><span class="detail">vite.config.ts</span><span></span></div>
+        <div class="row"><span class="ts">14:23:17</span><span class="tool Edit">Edit</span><span class="detail">index.css <span class="delta">+3</span></span><span></span></div>
+        <div class="row flash"><span class="ts">14:23:19</span><span class="tool Bash">Bash</span><span class="detail">npm test <span class="ok">✓ 88 passed</span></span><span class="caret">▌</span></div>
+      </div>
+      <div class="foot">
+        <span class="activity">⏎ running vitest</span>
+        <span class="spacer"></span>
+        <span class="stat"><b>980</b> ev</span>
+        <span class="stat"><span class="tin">52k↑</span> <span class="tout">9k↓</span></span>
+        <span class="stat cost">~$0.27</span>
+      </div>
+    </div>
+
+    <!-- Q4: IDLE/STALE — agent-harness -->
+    <div class="card idle">
+      <div class="card-head">
+        <span class="dot idle">○</span>
+        <span class="proj">agent-harness</span>
+        <span class="ctx"><span class="b">dev</span> · <span class="h">a1</span> · <span class="u">@max</span></span>
+        <span class="head-spacer"></span>
+        <span class="ago">6m ago</span>
+        <span class="focusbtn" title="focus (4)">⤢</span>
+      </div>
+      <div class="ticker">
+        <div class="row"><span class="ts">14:17:02</span><span class="tool Bash">Bash</span><span class="detail">pytest -k smoke <span class="ok">✓</span></span><span></span></div>
+        <div class="row"><span class="ts">14:17:08</span><span class="tool Text">Text</span><span class="detail muted">"all smoke tests pass"</span><span></span></div>
+        <div class="row"><span class="ts">14:17:09</span><span class="tool Turn">Turn</span><span class="detail muted">⏹ turn complete</span><span></span></div>
+        <div class="hint">· idle 6m — awaiting input ·</div>
+      </div>
+      <div class="foot">
+        <span class="activity">○ IDLE · last turn 6m ago</span>
+        <span class="spacer"></span>
+        <span class="stat"><b>642</b> ev</span>
+        <span class="stat"><span class="tin">31k↑</span> <span class="tout">5k↓</span></span>
+        <span class="stat cost">~$0.14</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
