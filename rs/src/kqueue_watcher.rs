@@ -45,16 +45,17 @@ use std::time::Instant;
 
 use walkdir::WalkDir;
 
+mod fd_limit;
+
 /// Cap on simultaneously-watched *file* descriptors. Dirs are unbounded (few).
 ///
 /// Sized to cover the full transcript tree, not a small working set: an active
 /// session appended to right now must stay watched even when hundreds of older
 /// sessions exist, or its writes fire no vnode event and never stream. Matches
 /// `watcher::MAX_WATCH_STATES` (the per-file offset table also caps at 4096), so
-/// watching more files than this would be wasted anyway. 4096 open fds is
-/// trivial against a modern `RLIMIT_NOFILE` (1,048,576 soft on macOS); the old
-/// 128 assumed a 256 soft limit that no longer holds and silently dropped
-/// active sessions once the tree grew past it.
+/// watching more files than this would be wasted anyway. Watcher initialization
+/// raises the process soft descriptor limit before opening any watches: GUI
+/// launches can still inherit a limit of only 256 on macOS.
 pub const DEFAULT_FILE_BUDGET: usize = 4096;
 
 // ── kqueue / kevent FFI (the only unsafe surface) ───────────────────────────
@@ -177,6 +178,7 @@ pub struct KqueueWatcher {
 
 impl KqueueWatcher {
     pub fn new(file_budget: usize) -> io::Result<Self> {
+        fd_limit::prepare()?;
         // SAFETY: kqueue() takes no args and returns an fd or -1.
         let kq = unsafe { libc::kqueue() };
         if kq < 0 {
