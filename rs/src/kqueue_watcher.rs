@@ -300,9 +300,10 @@ fn register_tree(w: &mut KqueueWatcher, root: &Path) {
     }
 }
 
-/// Rescan a directory and register any `.jsonl` files / subdirs we don't yet
-/// watch. Returns the paths of newly-registered files so the caller can do an
-/// initial incremental read of each.
+/// Rescan a directory, descending into newly discovered subdirectories.
+/// Their contents may predate registration, so waiting for another directory
+/// notification would miss already-created rollouts. Returns newly registered
+/// files for an initial incremental read; existing subtrees keep their watches.
 fn rescan_dir(w: &mut KqueueWatcher, dir: &Path) -> Vec<PathBuf> {
     let mut fresh = Vec::new();
     let read = match std::fs::read_dir(dir) {
@@ -316,7 +317,9 @@ fn rescan_dir(w: &mut KqueueWatcher, dir: &Path) -> Vec<PathBuf> {
             Err(_) => continue,
         };
         if ft.is_dir() {
-            let _ = w.register(&path, true);
+            if !w.by_path.contains_key(&path) && w.register(&path, true).is_ok() {
+                fresh.extend(rescan_dir(w, &path));
+            }
         } else if ft.is_file()
             && is_watchable_file(&path)
             && !w.by_path.contains_key(&path)
@@ -350,8 +353,8 @@ where
     );
 
     loop {
-        // 1s timeout keeps the loop responsive to shutdown and lets a freshly
-        // created date dir get picked up even if its parent event was missed.
+        // Directory discovery is driven by vnode notifications, including
+        // an immediate recursive scan when a new directory is registered.
         let events = w.kevent_poll_events()?;
         for ev in events {
             let Some(entry) = w.entries.get(&ev.fd) else {
@@ -431,6 +434,42 @@ mod tests {
         let again = dir.join("c.jsonl");
         w.register(&again, false).unwrap();
         assert_eq!(w.entries.len(), before, "re-register must not add an fd");
+    }
+
+    #[test]
+    fn discovers_populated_date_directories_and_watches_later_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let year = dir.path().join("2026");
+        std::fs::create_dir(&year).unwrap();
+        let mut w = KqueueWatcher::new(64).unwrap();
+        register_tree(&mut w, dir.path());
+
+        // Codex creates the month, day, and rollout before we handle the
+        // year's directory notification. New watches cannot replay those
+        // earlier child-creation events.
+        let day = year.join("09/07");
+        std::fs::create_dir_all(&day).unwrap();
+        let file = day.join("rollout.jsonl");
+        std::fs::write(&file, b"{\"seq\":0}\n").unwrap();
+        std::fs::write(day.join("unrelated.txt"), b"ignore").unwrap();
+
+        let fresh = rescan_dir(&mut w, &year);
+        assert_eq!(fresh, vec![file.clone()], "discover existing nested rollouts");
+        assert!(w.by_path.contains_key(&day), "watch the day for future sessions");
+        assert!(rescan_dir(&mut w, &year).is_empty(), "discovery is idempotent");
+
+        let fd = w.by_path[&file];
+        let mut writer = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+        writeln!(writer, "{{\"seq\":1}}").unwrap();
+        writer.flush().unwrap();
+        let events = kevent_poll(w.kq, 2000).unwrap();
+        assert!(events.iter().any(|e| {
+            e.fd == fd && e.fflags & (libc::NOTE_WRITE | libc::NOTE_EXTEND) != 0
+        }), "newly discovered rollouts must remain live");
+
+        let next = day.join("second-rollout.jsonl");
+        std::fs::write(&next, b"{\"seq\":0}\n").unwrap();
+        assert_eq!(rescan_dir(&mut w, &day), vec![next]);
     }
 
     #[test]
