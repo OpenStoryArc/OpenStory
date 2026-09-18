@@ -118,13 +118,47 @@ fn prompt_text(spec: &GoldenSpec, i: usize) -> String {
     }
 }
 
-fn tool_args(tool: &str, object: &str) -> serde_json::Value {
+/// Arguments shaped so `eval_apply::summarize_tool_input` and the sentence
+/// verb extractor reproduce the spec's verb: a `committed` turn runs
+/// `git commit`, a `ran tests` turn runs a test command, and so on.
+fn tool_args(tool: &str, verb: &str, object: &str) -> serde_json::Value {
     match tool {
-        "Read" | "Edit" | "Write" | "Glob" | "Grep" => serde_json::json!({ "file_path": object }),
-        "Bash" => serde_json::json!({ "command": format!("ls {object}") }),
+        "Read" | "Edit" | "Write" => serde_json::json!({ "file_path": object }),
+        "Glob" | "Grep" => serde_json::json!({ "pattern": object }),
+        "Agent" => serde_json::json!({ "description": object }),
+        "Bash" => {
+            let command = match verb {
+                "committed" => format!("git commit -m 'golden: {object}'"),
+                "pushed" => "git push".to_string(),
+                "ran tests" => format!("cargo test {object}"),
+                _ => format!("ls {object}"),
+            };
+            serde_json::json!({ "command": command })
+        }
         "Skill" => serde_json::json!({ "skill": object }),
         _ => serde_json::json!({ "input": object }),
     }
+}
+
+use crate::story::ENTITY_TOOLS;
+
+/// The entity a tool_use event names, per `summarize_tool_input`'s keys.
+pub fn entity_of_args(tool: &str, args: &serde_json::Value) -> Option<String> {
+    if !ENTITY_TOOLS.contains(&tool) {
+        return None;
+    }
+    let key = match tool {
+        "Read" | "Edit" | "Write" => "file_path",
+        "Glob" | "Grep" => "pattern",
+        "Agent" => "description",
+        "WebFetch" => "url",
+        "WebSearch" => "query",
+        _ => return None,
+    };
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Accumulator for the generator: immutable spec in, events out, one
@@ -212,7 +246,7 @@ pub fn generate(spec: &GoldenSpec) -> Vec<CloudEvent> {
                         .next()
                         .cloned()
                         .unwrap_or_else(|| "the project".to_string());
-                    let args = tool_args(tool, &object);
+                    let args = tool_args(tool, &turn.verb, &object);
                     let tool_name = tool.clone();
                     g.push(i, j + 1, "message.assistant.tool_use", |p| {
                         p.text = Some(format!("Claude will {} {}", turn.verb, object));
@@ -370,22 +404,39 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                 .get(g + 1)
                 .map(|next| prompts[next[0]])
                 .unwrap_or(events.len());
+            // Entities and tools are read off the generated tool_use events with
+            // the same rule the fold uses (ENTITY_TOOLS), so spec objects that
+            // never became a tool call do not count. A rich turn applies a tool.
             let mut entities = BTreeMap::new();
             let mut tools = BTreeMap::new();
-            let mut rich_turns = 0;
-            for &m in members {
-                for turn in &spec.exchanges[m].turns {
-                    for o in &turn.objects {
-                        *entities.entry(o.clone()).or_insert(0) += 1;
-                    }
-                    for (t, c) in &turn.tools {
-                        *tools.entry(t.clone()).or_insert(0) += c;
-                    }
-                    if turn.rich {
-                        rich_turns += 1;
+            for ev in &events[start..end] {
+                if ev.subtype.as_deref() != Some("message.assistant.tool_use") {
+                    continue;
+                }
+                if let Some(AgentPayload::ClaudeCode(cc)) = &ev.data.agent_payload {
+                    if let Some(tool) = cc.tool.as_deref() {
+                        *tools.entry(tool.to_string()).or_insert(0) += 1;
+                        if let Some(e) = cc.args.as_ref().and_then(|a| entity_of_args(tool, a)) {
+                            *entities.entry(e).or_insert(0) += 1;
+                        }
                     }
                 }
             }
+            // Structural turns: an Injected entry's first turn continues the
+            // previous open turn (generate defers that turn's close), so it
+            // merges; every other spec turn is its own structural turn.
+            let mut structural: Vec<u32> = Vec::new();
+            for &m in members {
+                for (j, turn) in spec.exchanges[m].turns.iter().enumerate() {
+                    let calls: u32 = turn.tools.iter().map(|(_, c)| *c).sum();
+                    let merges = spec.exchanges[m].kind == ExchangeKind::Injected && j == 0;
+                    match (merges, structural.last_mut()) {
+                        (true, Some(prev)) => *prev += calls,
+                        _ => structural.push(calls),
+                    }
+                }
+            }
+            let rich_turns = structural.iter().filter(|c| **c > 0).count() as u32;
             let first_verb = spec.exchanges[members[0]]
                 .turns
                 .first()

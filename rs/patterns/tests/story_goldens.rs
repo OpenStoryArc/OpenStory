@@ -235,8 +235,14 @@ mod when_expected_is_built {
             Some(&2),
             "injected turn's tools fold in"
         );
-        assert_eq!(first.entities.get("src/lib.rs"), Some(&1));
-        assert_eq!(first.rich_turns, 2);
+        assert!(
+            first.entities.is_empty(),
+            "Skill and Bash calls name no entities"
+        );
+        assert_eq!(
+            first.rich_turns, 1,
+            "the injected entry's first turn merges into the open structural turn"
+        );
         assert_eq!(expected.arcs.len(), 1);
         assert_eq!(
             expected.arcs[0].exchanges,
@@ -256,7 +262,10 @@ mod when_expected_is_built {
             Some(&2),
             "same object across two exchanges counts twice"
         );
-        assert_eq!(expected.arcs[1].entities.get("src/b.rs"), Some(&1));
+        assert!(
+            expected.arcs[1].entities.is_empty(),
+            "a Bash call names no entity"
+        );
     }
 }
 

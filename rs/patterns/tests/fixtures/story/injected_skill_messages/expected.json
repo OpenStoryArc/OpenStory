@@ -27,14 +27,12 @@
       ],
       "started_at": "2026-01-01T09:00:00.000Z",
       "ended_at": "2026-01-01T09:00:15.000Z",
-      "entities": {
-        "src/lib.rs": 2
-      },
+      "entities": {},
       "tools": {
         "Bash": 4,
         "Skill": 1
       },
-      "rich_turns": 2,
+      "rich_turns": 1,
       "first_verb": "read",
       "last_verb": "explained"
     },
@@ -65,7 +63,7 @@
         "Skill": 1,
         "Write": 2
       },
-      "rich_turns": 2,
+      "rich_turns": 1,
       "first_verb": "wrote",
       "last_verb": "wrote"
     },
@@ -84,9 +82,7 @@
       ],
       "started_at": "2026-01-01T09:15:28.000Z",
       "ended_at": "2026-01-01T09:15:32.000Z",
-      "entities": {
-        "docs/design.md": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 1
       },
@@ -142,8 +138,7 @@
       "started_at": "2026-01-01T09:00:00.000Z",
       "ended_at": "2026-01-01T09:15:32.000Z",
       "entities": {
-        "docs/design.md": 3,
-        "src/lib.rs": 2
+        "docs/design.md": 2
       },
       "tools": {
         "Bash": 5,

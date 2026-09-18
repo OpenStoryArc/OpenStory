@@ -69,9 +69,7 @@
       ],
       "started_at": "2026-01-01T09:41:10.000Z",
       "ended_at": "2026-01-01T09:41:16.000Z",
-      "entities": {
-        "src/app.rs": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 2
       },
@@ -97,7 +95,7 @@
       "started_at": "2026-01-01T09:41:32.000Z",
       "ended_at": "2026-01-01T09:41:38.000Z",
       "entities": {
-        "src/app.rs": 1
+        "src/app.rs": 2
       },
       "tools": {
         "Edit": 2

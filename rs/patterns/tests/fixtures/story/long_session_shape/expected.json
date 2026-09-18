@@ -27,9 +27,7 @@
       ],
       "started_at": "2026-01-01T09:00:00.000Z",
       "ended_at": "2026-01-01T09:00:18.000Z",
-      "entities": {
-        "notes/a.md": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 5
       },
@@ -58,10 +56,7 @@
       ],
       "started_at": "2026-01-01T09:02:37.000Z",
       "ended_at": "2026-01-01T09:02:47.000Z",
-      "entities": {
-        "notes/a.md": 1,
-        "scripts/x.py": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 4
       },
@@ -98,9 +93,7 @@
       ],
       "started_at": "2026-01-01T09:05:18.000Z",
       "ended_at": "2026-01-01T09:05:36.000Z",
-      "entities": {
-        "notes/b.md": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 8
       },
@@ -123,7 +116,7 @@
       "ended_at": "2026-01-01T09:10:57.000Z",
       "entities": {},
       "tools": {},
-      "rich_turns": 1,
+      "rich_turns": 0,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -152,9 +145,7 @@
       ],
       "started_at": "2026-01-01T09:11:46.000Z",
       "ended_at": "2026-01-01T09:12:00.000Z",
-      "entities": {
-        "docs/c.md": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 6
       },
@@ -192,8 +183,8 @@
       "started_at": "2026-01-01T09:26:19.000Z",
       "ended_at": "2026-01-01T09:26:37.000Z",
       "entities": {
-        "notes/d.md": 1,
-        "out/page.html": 1
+        "notes/d.md": 2,
+        "out/page.html": 2
       },
       "tools": {
         "Bash": 2,
@@ -273,8 +264,8 @@
       "started_at": "2026-01-01T09:41:01.000Z",
       "ended_at": "2026-01-01T09:41:15.000Z",
       "entities": {
-        "notes/f.md": 1,
-        "notes/g.md": 1
+        "notes/f.md": 2,
+        "notes/g.md": 2
       },
       "tools": {
         "Bash": 2,
@@ -299,9 +290,7 @@
       ],
       "started_at": "2026-01-01T09:53:58.000Z",
       "ended_at": "2026-01-01T09:54:02.000Z",
-      "entities": {
-        "notes/f.md": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 1
       },
@@ -324,7 +313,7 @@
       "ended_at": "2026-01-01T09:56:59.000Z",
       "entities": {},
       "tools": {},
-      "rich_turns": 1,
+      "rich_turns": 0,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -343,7 +332,7 @@
       "ended_at": "2026-01-01T10:00:20.000Z",
       "entities": {},
       "tools": {},
-      "rich_turns": 1,
+      "rich_turns": 0,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -368,9 +357,7 @@
       ],
       "started_at": "2026-01-01T10:02:09.000Z",
       "ended_at": "2026-01-01T10:02:19.000Z",
-      "entities": {
-        "scripts/y.py": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 4
       },
@@ -547,16 +534,11 @@
       "started_at": "2026-01-01T09:00:00.000Z",
       "ended_at": "2026-01-01T10:02:19.000Z",
       "entities": {
-        "docs/c.md": 1,
-        "notes/a.md": 2,
-        "notes/b.md": 1,
-        "notes/d.md": 1,
+        "notes/d.md": 2,
         "notes/e.md": 1,
         "notes/f.md": 2,
-        "notes/g.md": 1,
-        "out/page.html": 1,
-        "scripts/x.py": 1,
-        "scripts/y.py": 1
+        "notes/g.md": 2,
+        "out/page.html": 2
       },
       "tools": {
         "Bash": 40,

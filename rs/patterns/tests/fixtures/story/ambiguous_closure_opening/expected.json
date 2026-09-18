@@ -42,9 +42,7 @@
       ],
       "started_at": "2026-01-01T09:00:25.000Z",
       "ended_at": "2026-01-01T09:00:29.000Z",
-      "entities": {
-        "src/a.rs": 1
-      },
+      "entities": {},
       "tools": {
         "Bash": 1
       },
@@ -72,7 +70,7 @@
       "started_at": "2026-01-01T09:02:00.000Z",
       "ended_at": "2026-01-01T09:02:08.000Z",
       "entities": {
-        "docs/next.md": 1
+        "docs/next.md": 3
       },
       "tools": {
         "Glob": 2,
@@ -150,8 +148,8 @@
       "started_at": "2026-01-01T09:00:00.000Z",
       "ended_at": "2026-01-01T09:02:53.000Z",
       "entities": {
-        "docs/next.md": 2,
-        "src/a.rs": 2
+        "docs/next.md": 4,
+        "src/a.rs": 1
       },
       "tools": {
         "Bash": 1,
