@@ -652,3 +652,91 @@ mod when_related_is_asked_with_a_session_id {
         assert_eq!(sessions[0], sid, "the arc's own session comes first");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// D-05: story_summary carries what a host wrote
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_an_enrichment_exists {
+    use super::*;
+    use open_story_patterns::story::{Author, MemoryKind, MemoryRecord, Standing};
+
+    fn rec(
+        sid: &str,
+        handle: &str,
+        kind: MemoryKind,
+        standing: Option<Standing>,
+        host: &str,
+        payload: serde_json::Value,
+    ) -> MemoryRecord {
+        MemoryRecord::new(
+            sid,
+            handle,
+            kind,
+            standing,
+            Author {
+                host: host.into(),
+                model: "m".into(),
+            },
+            "2026-09-18T20:00:00Z",
+            payload,
+        )
+    }
+
+    #[tokio::test]
+    async fn story_summary_carries_the_title_and_author() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let sid = seed_golden(&store, "two_arcs_gap").await;
+        let expected = golden_expected("two_arcs_gap");
+        let arc = &expected["arcs"][0];
+        let h = arc["handle"].as_str().unwrap();
+        store.insert_memory(&rec(&sid, h, MemoryKind::Enrichment, None, "claude-code",
+            json!({ "handle": h, "title": "Plan, then build", "question": "q", "resolution": "r", "summary": "s",
+                    "slots": { "decisions": ["hands, not agents"] } }))).await.unwrap();
+        store.insert_memory(&rec(&sid, h, MemoryKind::Enrichment, None, "codex",
+            json!({ "handle": h, "title": "A different title", "question": "q", "resolution": "r", "summary": "s" }))).await.unwrap();
+        store.insert_memory(&rec(&sid, h, MemoryKind::Reading, Some(Standing::Final), "claude-code",
+            json!({ "handle": h, "standing": "final", "paragraphs": [ { "exchanges": arc["exchanges"], "intent": "one" } ] }))).await.unwrap();
+        store.insert_memory(&rec(&sid, h, MemoryKind::Verdict, None, "claude-code",
+            json!({ "handle": h, "seam": 1, "verdict": "same_theme", "reason": "answers the first" }))).await.unwrap();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+
+        let summary = call(
+            server,
+            "story_summary",
+            json!({ "handle": h, "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            summary["title"], "Plan, then build",
+            "the first author's title is the headline"
+        );
+        assert_eq!(summary["slots"]["decisions"][0], "hands, not agents");
+        let enrichments = summary["enrichments"].as_array().unwrap();
+        assert_eq!(enrichments.len(), 2, "one per author");
+        assert_eq!(enrichments[1]["author"]["host"], "codex");
+        assert_eq!(enrichments[1]["title"], "A different title");
+        let readings = summary["readings"].as_array().unwrap();
+        assert_eq!(readings.len(), 1);
+        assert_eq!(readings[0]["standing"], "final");
+        assert_eq!(readings[0]["paragraphs"][0]["intent"], "one");
+        assert_eq!(summary["verdicts"][0]["verdict"], "same_theme");
+    }
+
+    #[tokio::test]
+    async fn without_one_the_fields_stay_absent() {
+        let (server, sids, _tmp) = server_with(&["two_arcs_gap"]).await;
+        let arc = golden_expected("two_arcs_gap")["arcs"][0].clone();
+        let summary = call(
+            server,
+            "story_summary",
+            json!({ "handle": arc["handle"], "session_id": sids[0] }),
+        )
+        .await
+        .unwrap();
+        assert!(summary.get("title").is_none());
+        assert!(summary.get("enrichments").is_none());
+        assert!(summary.get("readings").is_none());
+    }
+}

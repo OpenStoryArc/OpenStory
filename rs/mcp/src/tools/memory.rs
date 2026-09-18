@@ -216,7 +216,7 @@ pub async fn story_summary(store: &Arc<dyn EventStore>, args: Value) -> Result<V
         .map(|s| json!(meta_str(s, "handle")))
         .collect();
 
-    Ok(json!({
+    let mut summary = json!({
         "handle": handle_s,
         "session_id": found.session_id,
         "arc_index": arc.metadata.get("arc_index"),
@@ -230,7 +230,9 @@ pub async fn story_summary(store: &Arc<dyn EventStore>, args: Value) -> Result<V
         "ambiguous_seams": arc.metadata.get("ambiguous_seams"),
         "down": arc.metadata.get("exchanges"),
         "across": across,
-    }))
+    });
+    merge_memory(store, handle_s, &mut summary).await?;
+    Ok(summary)
 }
 
 /// Content address for a sentence: derived from its event ids, the same
@@ -841,4 +843,75 @@ pub async fn story_related(store: &Arc<dyn EventStore>, args: Value) -> Result<V
     Ok(Value::Array(
         scored.into_iter().take(limit).map(|(_, v)| v).collect(),
     ))
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// D-05: what hosts wrote about a node, merged into its summary
+// ═══════════════════════════════════════════════════════════════════
+
+/// Merge memory records for `handle` into a summary: `title` and `slots`
+/// from the earliest enrichment, then `enrichments`, `readings`,
+/// `verdicts`, `sagas`, `keeps` — each author-stamped. Fields stay absent
+/// when nothing was written, so a host can tell "unread" from "empty".
+async fn merge_memory(
+    store: &Arc<dyn EventStore>,
+    handle: &str,
+    summary: &mut Value,
+) -> Result<(), String> {
+    let records = store
+        .memory_for_handle(handle)
+        .await
+        .map_err(|e| format!("memory_for_handle failed: {e}"))?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    use open_story_patterns::story::MemoryKind;
+    let mut enrichments = Vec::new();
+    let mut readings = Vec::new();
+    let mut verdicts = Vec::new();
+    let mut sagas = Vec::new();
+    let mut keeps = Vec::new();
+    for r in &records {
+        let mut item = r.payload.clone();
+        if let Some(obj) = item.as_object_mut() {
+            obj.insert(
+                "author".into(),
+                serde_json::to_value(&r.author).unwrap_or(Value::Null),
+            );
+            obj.insert("created_at".into(), json!(r.created_at));
+            if let Some(st) = r.standing {
+                obj.insert(
+                    "standing".into(),
+                    serde_json::to_value(st).unwrap_or(Value::Null),
+                );
+            }
+        }
+        match r.kind {
+            MemoryKind::Enrichment => enrichments.push(item),
+            MemoryKind::Reading => readings.push(item),
+            MemoryKind::Verdict => verdicts.push(item),
+            MemoryKind::Saga => sagas.push(item),
+            MemoryKind::Keep => keeps.push(item),
+        }
+    }
+    if let Some(first) = enrichments.first() {
+        if let Some(t) = first.get("title") {
+            summary["title"] = t.clone();
+        }
+        if let Some(sl) = first.get("slots") {
+            summary["slots"] = sl.clone();
+        }
+    }
+    for (key, items) in [
+        ("enrichments", enrichments),
+        ("readings", readings),
+        ("verdicts", verdicts),
+        ("sagas", sagas),
+        ("keeps", keeps),
+    ] {
+        if !items.is_empty() {
+            summary[key] = Value::Array(items);
+        }
+    }
+    Ok(())
 }

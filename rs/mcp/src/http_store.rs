@@ -123,6 +123,12 @@ struct PatternsEnvelope {
     patterns: Vec<PatternEvent>,
 }
 
+/// `GET /api/memory/{handle}` and `GET /api/sessions/{id}/memory` → `{"memory":[…]}`
+#[derive(serde::Deserialize)]
+struct MemoryEnvelope {
+    memory: Vec<open_story_patterns::story::MemoryRecord>,
+}
+
 /// Envelope: `GET /api/sessions` returns `{"sessions": […], "total": N}`.
 #[derive(Deserialize)]
 struct SessionsEnvelope {
@@ -217,6 +223,26 @@ impl EventStore for HttpEventStore {
             .get(&format!("/api/sessions/{session_id}/patterns"), &query)
             .await?;
         Ok(env.patterns)
+    }
+
+    // Memory hands (D-05): reads only. Writes go through /api/memory via
+    // the write hands, never through this store.
+    async fn memory_for_handle(
+        &self,
+        handle: &str,
+    ) -> Result<Vec<open_story_patterns::story::MemoryRecord>> {
+        let env: MemoryEnvelope = self.get(&format!("/api/memory/{handle}"), &[]).await?;
+        Ok(env.memory)
+    }
+
+    async fn session_memory(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<open_story_patterns::story::MemoryRecord>> {
+        let env: MemoryEnvelope = self
+            .get(&format!("/api/sessions/{session_id}/memory"), &[])
+            .await?;
+        Ok(env.memory)
     }
 
     // ── Analytics / narrative query methods (infallible signatures) ──
@@ -363,26 +389,38 @@ impl EventStore for HttpEventStore {
     // ── Writes: this store is read-only. The MCP never calls these. ──
 
     async fn insert_event(&self, _session_id: &str, _event: &Value) -> Result<bool> {
-        Err(anyhow!("HttpEventStore is read-only: insert_event unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_event unsupported"
+        ))
     }
 
     async fn insert_batch(&self, _session_id: &str, _events: &[Value]) -> Result<usize> {
-        Err(anyhow!("HttpEventStore is read-only: insert_batch unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_batch unsupported"
+        ))
     }
 
     async fn upsert_session(&self, _session: &SessionRow) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: upsert_session unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: upsert_session unsupported"
+        ))
     }
 
     async fn insert_pattern(&self, _session_id: &str, _pattern: &PatternEvent) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: insert_pattern unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_pattern unsupported"
+        ))
     }
 
     async fn insert_turn(&self, _session_id: &str, _turn: &StructuralTurn) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: insert_turn unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_turn unsupported"
+        ))
     }
 
     async fn upsert_plan(&self, _plan_id: &str, _session_id: &str, _content: &str) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: upsert_plan unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: upsert_plan unsupported"
+        ))
     }
 }
