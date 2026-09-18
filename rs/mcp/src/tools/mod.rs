@@ -325,7 +325,28 @@ pub const TOOLS: &[ToolDef] = &[
                       (input/output/cache). Cancel via notifications/cancelled.",
         input_schema: subscribe_session_schema,
     },
+    ToolDef {
+        name: "subscribe_arcs",
+        description: "WHEN: narrate as the story closes — the memory hands stream. MOTION: live / remember. \
+                      CALL: { session_id?, from_seq? }. Follows closed story exchanges and arcs; from_seq resumes \
+                      from a stored batch sequence (lazy list cursor, see data.batch_seq). \
+                      RETURNS: started, then notifications/openstory/arcs with data {kind, handle, session_id, skeleton, needs}. \
+                      needs: enrich | adjudicate | read. Cancel via notifications/cancelled. \
+                      NEXT: story_context on the handle, then your judgment.",
+        input_schema: subscribe_arcs_schema,
+    },
 ];
+
+fn subscribe_arcs_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Follow one session; omit to follow every session"},
+            "from_seq": {"type": "integer", "minimum": 1, "description": "Resume from this stored batch sequence"}
+        },
+        "additionalProperties": false
+    })
+}
 
 fn subscribe_session_schema() -> Value {
     json!({

@@ -130,6 +130,9 @@ async fn handle_line<S: Subscribe>(
             "subscribe_ui_state" => {
                 handle_subscribe_ui_state(parsed, server, out, subs).await;
             }
+            "subscribe_arcs" => {
+                handle_subscribe_arcs(parsed, server, out, subs).await;
+            }
             _ => {
                 let result = crate::tools::dispatch_query_tool(server, name, args).await;
                 let response = crate::protocol::JsonRpcResponse::success(id, result);
@@ -390,4 +393,84 @@ fn id_as_key(id: &Value) -> String {
         Value::String(s) => s.clone(),
         other => other.to_string(),
     }
+}
+
+/// `subscribe_arcs` — memory hands stream hand (group C). Follows closed
+/// story exchanges and arcs for one session (or all), optionally resuming
+/// from a stored batch sequence. Ack `{stream_id, session_id, status}`,
+/// then `notifications/openstory/arcs` per story pattern with
+/// `{stream_id, seq, session_id, data: ArcClosed}`. Cancel via
+/// `notifications/cancelled` against the request id.
+async fn handle_subscribe_arcs<S: Subscribe>(
+    parsed: Value,
+    server: &Server<S>,
+    out: &mpsc::Sender<String>,
+    subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+) {
+    let id = parsed.get("id").cloned().unwrap_or(Value::Null);
+    let id_key = id_as_key(&id);
+    let args = parsed.get("params").and_then(|p| p.get("arguments"));
+    let session_id = args
+        .and_then(|a| a.get("session_id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let from_seq = args
+        .and_then(|a| a.get("from_seq"))
+        .and_then(|v| v.as_u64());
+    let mut subscription = match server
+        .subscriber
+        .subscribe_arcs(session_id.as_deref(), from_seq)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            let resp = crate::protocol::JsonRpcResponse::failure(
+                id,
+                crate::protocol::error_code::INTERNAL_ERROR,
+                &format!("subscribe_arcs failed: {e}"),
+            );
+            let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+            return;
+        }
+    };
+    let stream_id = subscription.stream_id.to_string();
+    let result = json!({
+        "isError": false,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "stream_id": stream_id,
+                "session_id": session_id,
+                "from_seq": from_seq,
+                "status": "started",
+            })).unwrap(),
+        }]
+    });
+    let response = crate::protocol::JsonRpcResponse::success(id, result);
+    let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+
+    let pump_out = out.clone();
+    let pump_stream_id = stream_id.clone();
+    let handle = tokio::spawn(async move {
+        while let Some(event) = subscription.recv().await {
+            let notif = json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/openstory/arcs",
+                "params": {
+                    "stream_id": pump_stream_id,
+                    "seq": event.seq,
+                    "session_id": event.session_id,
+                    "data": event.data,
+                }
+            });
+            if pump_out
+                .send(serde_json::to_string(&notif).unwrap())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    subs.lock().await.insert(id_key, handle);
 }

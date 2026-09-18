@@ -90,7 +90,10 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let batch = batch_with_raw(&session_id, serde_json::json!({"from": "subagent"}));
-        let subject = format!("events.test-host.test-project.{}.agent.aabb1122", session_id);
+        let subject = format!(
+            "events.test-host.test-project.{}.agent.aabb1122",
+            session_id
+        );
         publisher.publish(&subject, &batch).await.unwrap();
 
         let event = timeout(Duration::from_secs(2), sub.recv())
@@ -98,5 +101,73 @@ mod when_a_subscriber_listens_on_nats_and_an_event_is_published_via_jetstream {
             .expect("subagent event must arrive within 2s")
             .expect("open");
         assert_eq!(event.session_id, session_id);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// C-06: subscribe_arcs over a real JetStream (memory hands)
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_a_story_arc_is_published_to_nats {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_host_receives_it() {
+        let Some(url) = nats_url() else {
+            eprintln!("skipped: OPENSTORY_NATS_URL=skip");
+            return;
+        };
+        let Some((publisher, subscriber)) = connect_or_skip(&url).await else {
+            eprintln!("skipped: NATS not reachable at {url}");
+            return;
+        };
+        let sid = format!("arcs-smoke-{}", uuid::Uuid::new_v4());
+        let mut sub = subscriber
+            .subscribe_arcs(Some(&sid), None)
+            .await
+            .expect("subscribe_arcs over NATS");
+
+        // Publish the way Actor 2 does: a JSON array of PatternEvent on
+        // patterns.{project}.{session}. A sentence rides along and must be
+        // filtered out; the arc must arrive.
+        let batch = serde_json::json!([
+            { "pattern_type": "turn.sentence", "session_id": sid, "event_ids": ["e1"],
+              "started_at": "2026-01-01T09:00:00Z", "ended_at": "2026-01-01T09:00:01Z",
+              "summary": "Claude read a file", "metadata": { "verb": "read" } },
+            { "pattern_type": "story.arc", "session_id": sid, "event_ids": ["e1", "e2"],
+              "started_at": "2026-01-01T09:00:00Z", "ended_at": "2026-01-01T09:05:00Z",
+              "summary": "golden prompt 0", "metadata": { "handle": "arc0000000000abc", "ambiguous_seams": [2],
+              "exchanges": ["ex00000000000001"], "closed_by": "end_of_stream" } }
+        ]);
+        publisher
+            .publish_bytes(
+                &format!("patterns.smoke.{sid}"),
+                &serde_json::to_vec(&batch).unwrap(),
+            )
+            .await
+            .expect("publish patterns batch");
+
+        let ev = timeout(Duration::from_secs(5), sub.recv())
+            .await
+            .expect("arc arrives within 5s")
+            .expect("stream open");
+        assert_eq!(ev.session_id, sid);
+        assert_eq!(ev.seq, 1);
+        assert_eq!(ev.data["kind"], "arc");
+        assert_eq!(ev.data["handle"], "arc0000000000abc");
+        assert_eq!(
+            ev.data["needs"],
+            serde_json::json!(["enrich", "adjudicate"])
+        );
+        assert!(
+            ev.data["batch_seq"].as_u64().unwrap() >= 1,
+            "JetStream sequence is the cursor"
+        );
+        assert!(
+            timeout(Duration::from_millis(500), sub.recv())
+                .await
+                .is_err(),
+            "the sentence in the same batch is not delivered"
+        );
     }
 }
