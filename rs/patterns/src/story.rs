@@ -26,7 +26,11 @@
 //! cannot drift: the content-address function and the verb classes that
 //! mark an ambiguous seam.
 
+use crate::{PatternEvent, StructuralTurn, TurnDetector};
 use uuid::Uuid;
+
+/// Production arc gap threshold: 30 minutes of event time.
+pub const DEFAULT_GAP_THRESHOLD_SECS: u64 = 1800;
 
 /// Verbs that close a piece of work. A seam where one of these is
 /// followed by an opening verb on new entities is `Ambiguous` (A-07).
@@ -52,4 +56,38 @@ pub fn is_closure_verb(verb: &str) -> bool {
 
 pub fn is_opening_verb(verb: &str) -> bool {
     OPENING_VERBS.contains(&verb)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// StoryDetector — phase 3: StructuralTurn → story.exchange / story.arc
+// ═══════════════════════════════════════════════════════════════════
+
+/// Folds turns into exchanges and exchanges into arcs. Pure over its
+/// own state; the only inputs are turns, the only outputs are patterns.
+pub struct StoryDetector {
+    gap_threshold_secs: u64,
+}
+
+impl StoryDetector {
+    pub fn new(gap_threshold_secs: u64) -> Self {
+        Self { gap_threshold_secs }
+    }
+
+    pub fn gap_threshold_secs(&self) -> u64 {
+        self.gap_threshold_secs
+    }
+}
+
+impl TurnDetector for StoryDetector {
+    fn feed_turn(&mut self, _turn: &StructuralTurn) -> Vec<PatternEvent> {
+        Vec::new()
+    }
+
+    fn flush(&mut self) -> Vec<PatternEvent> {
+        Vec::new()
+    }
+
+    fn name(&self) -> &str {
+        "story"
+    }
 }

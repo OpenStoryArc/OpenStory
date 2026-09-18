@@ -39,6 +39,10 @@ pub struct StructuralTurn {
     pub turn_number: u32,
     pub scope_depth: u32,
     pub human: Option<HumanInput>,
+    /// User-role messages that arrived while this turn was already open:
+    /// injected skill bodies, tool-loaded notices. Never the human prompt.
+    #[serde(default)]
+    pub injected: Vec<HumanInput>,
     pub thinking: Option<ThinkingRecord>,
     pub eval: Option<EvalOutput>,
     pub applies: Vec<ApplyRecord>,
@@ -122,6 +126,7 @@ pub struct Accumulator {
     pub agent: Option<String>,
     /// Turn being assembled.
     pub pending_human: Option<HumanInput>,
+    pub pending_injected: Vec<HumanInput>,
     pub pending_thinking: Option<ThinkingRecord>,
     pub pending_eval: Option<EvalOutput>,
     pub completed_applies: Vec<ApplyRecord>,
@@ -151,6 +156,7 @@ impl Default for Accumulator {
             session_id: String::new(),
             agent: None,
             pending_human: None,
+            pending_injected: Vec::new(),
             pending_thinking: None,
             pending_eval: None,
             completed_applies: Vec::new(),
@@ -230,10 +236,16 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
         s if s.starts_with("message.user.prompt") => {
             acc.env_size += 1;
             let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-            acc.pending_human = Some(HumanInput {
+            let input = HumanInput {
                 content,
                 timestamp: ts.to_string(),
-            });
+            };
+            // First prompt of a turn is the human; any later prompt inside
+            // the same open turn was injected by the harness (A-03).
+            match acc.pending_human {
+                None => acc.pending_human = Some(input),
+                Some(_) => acc.pending_injected.push(input),
+            }
         }
 
         // ── Tool result: apply phase complete ──
@@ -382,6 +394,7 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 turn_number: acc.turn_number,
                 scope_depth: acc.scope_depth,
                 human: acc.pending_human.take(),
+                injected: std::mem::take(&mut acc.pending_injected),
                 thinking: acc.pending_thinking.take(),
                 eval: acc.pending_eval.take(),
                 applies: std::mem::take(&mut acc.completed_applies),
@@ -527,6 +540,7 @@ impl EvalApplyDetector {
                 turn_number: self.acc.turn_number,
                 scope_depth: self.acc.scope_depth,
                 human: self.acc.pending_human.take(),
+                injected: std::mem::take(&mut self.acc.pending_injected),
                 thinking: self.acc.pending_thinking.take(),
                 eval: self.acc.pending_eval.take(),
                 applies: std::mem::take(&mut self.acc.completed_applies),
@@ -735,6 +749,30 @@ mod tests {
             turns[0].human.as_ref().unwrap().content,
             "Tell me about SICP"
         );
+    }
+
+    // A-03 (memory hands): a second user prompt inside an open turn is an
+    // injected message (skill body, tool-loaded notice), not the human.
+    #[test]
+    fn ce_second_prompt_in_open_turn_is_injected_not_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("please load the skill"));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "loading",
+            "Skill",
+            serde_json::json!({"skill": "x"}),
+        ));
+        det.feed_cloud_event(&tool_result_ce("ok", None));
+        det.feed_cloud_event(&user_prompt_ce("Base directory for this skill: /x"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1, "an injected prompt does not start a turn");
+        let t = &turns[0];
+        assert_eq!(t.human.as_ref().unwrap().content, "please load the skill");
+        assert_eq!(t.injected.len(), 1);
+        assert_eq!(t.injected[0].content, "Base directory for this skill: /x");
     }
 
     #[test]

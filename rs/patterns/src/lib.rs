@@ -90,8 +90,16 @@ impl PatternPipeline {
     pub fn new() -> Self {
         PatternPipeline {
             eval_apply: EvalApplyDetector::new(),
-            turn_detectors: vec![Box::new(SentenceDetector::new())],
+            turn_detectors: vec![
+                Box::new(SentenceDetector::new()),
+                Box::new(story::StoryDetector::new(story::DEFAULT_GAP_THRESHOLD_SECS)),
+            ],
         }
+    }
+
+    /// Names of the phase-2 detectors, in feed order. Used by tests.
+    pub fn turn_detector_names(&self) -> Vec<&str> {
+        self.turn_detectors.iter().map(|d| d.name()).collect()
     }
 
     /// Create a pipeline with custom turn detectors. Used in tests.

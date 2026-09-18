@@ -330,6 +330,14 @@
         }
       ]
     },
+    "injected": {
+      "default": [],
+      "description": "User-role messages that arrived while this turn was already open: injected skill bodies, tool-loaded notices. Never the human prompt.",
+      "items": {
+        "$ref": "#/definitions/HumanInput"
+      },
+      "type": "array"
+    },
     "is_terminal": {
       "type": "boolean"
     },
