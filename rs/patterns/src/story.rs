@@ -511,3 +511,107 @@ pub struct Verdict {
     pub reason: String,
     pub author: Author,
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// The reading laws (E-04) — enforced here, never trusted to the model
+// ═══════════════════════════════════════════════════════════════════
+
+/// Why a reading is not a valid grouping of an arc's exchanges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadingError {
+    /// Exchange handles of the arc that appear in no group.
+    Missing(Vec<String>),
+    /// Handles that appear in more than one group.
+    Duplicated(Vec<String>),
+    /// Handles that the arc does not hold: a reading never introduces one.
+    Unknown(Vec<String>),
+    /// The groups, concatenated, must follow the arc's order.
+    OutOfOrder { expected: String, found: String },
+    /// A paragraph with no exchanges (index into `paragraphs`).
+    EmptyGroup(usize),
+}
+
+impl std::fmt::Display for ReadingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadingError::Missing(h) => write!(f, "exchanges in no group: {}", h.join(", ")),
+            ReadingError::Duplicated(h) => {
+                write!(f, "exchanges in more than one group: {}", h.join(", "))
+            }
+            ReadingError::Unknown(h) => {
+                write!(f, "handles the arc does not hold: {}", h.join(", "))
+            }
+            ReadingError::OutOfOrder { expected, found } => {
+                write!(
+                    f,
+                    "groups must follow the arc's order: expected {expected}, found {found}"
+                )
+            }
+            ReadingError::EmptyGroup(i) => write!(f, "paragraph {i} has no exchanges"),
+        }
+    }
+}
+
+impl std::error::Error for ReadingError {}
+
+/// Pure: check a reading against the arc's exchange handles, in arc order.
+/// Every handle exactly once, in order, no strangers, no empty groups.
+pub fn validate_reading(reading: &Reading, arc_exchanges: &[String]) -> Result<(), ReadingError> {
+    use std::collections::{BTreeSet, HashSet};
+
+    if let Some(i) = reading
+        .paragraphs
+        .iter()
+        .position(|p| p.exchanges.is_empty())
+    {
+        return Err(ReadingError::EmptyGroup(i));
+    }
+    let arc: HashSet<&str> = arc_exchanges.iter().map(String::as_str).collect();
+    let flat: Vec<&str> = reading
+        .paragraphs
+        .iter()
+        .flat_map(|p| p.exchanges.iter().map(String::as_str))
+        .collect();
+
+    let unknown: Vec<String> = {
+        let mut seen = BTreeSet::new();
+        flat.iter()
+            .filter(|h| !arc.contains(*h) && seen.insert(**h))
+            .map(|h| h.to_string())
+            .collect()
+    };
+    if !unknown.is_empty() {
+        return Err(ReadingError::Unknown(unknown));
+    }
+    let duplicated: Vec<String> = {
+        let mut seen = HashSet::new();
+        let mut dups = BTreeSet::new();
+        for h in &flat {
+            if !seen.insert(*h) {
+                dups.insert(h.to_string());
+            }
+        }
+        dups.into_iter().collect()
+    };
+    if !duplicated.is_empty() {
+        return Err(ReadingError::Duplicated(duplicated));
+    }
+    let present: HashSet<&str> = flat.iter().copied().collect();
+    let missing: Vec<String> = arc_exchanges
+        .iter()
+        .filter(|h| !present.contains(h.as_str()))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(ReadingError::Missing(missing));
+    }
+    for (expected, found) in arc_exchanges.iter().zip(&flat) {
+        if expected != found {
+            return Err(ReadingError::OutOfOrder {
+                expected: expected.clone(),
+                found: found.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
