@@ -47,6 +47,32 @@ where
         }
     });
 
+    // Channel mode (E-12): push closed story nodes as channel events from the
+    // moment the transport is up, with no tool call from the host.
+    let mut channel_task: Option<tokio::task::JoinHandle<()>> = None;
+    if let Some(channel) = server.channel.clone() {
+        match server
+            .subscriber
+            .subscribe_arcs(channel.session_id.as_deref(), None)
+            .await
+        {
+            Ok(mut subscription) => {
+                let channel_out = tx.clone();
+                channel_task = Some(tokio::spawn(async move {
+                    while let Some(event) = subscription.recv().await {
+                        let line = channel_notification(&event.data);
+                        if channel_out.send(line).await.is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            Err(e) => {
+                eprintln!("open-story-mcp: channel mode could not subscribe to story arcs: {e}")
+            }
+        }
+    }
+
     // Active subscriptions keyed by the request id that opened them, so
     // notifications/cancelled (which references the request id) can find
     // and tear them down.
@@ -67,6 +93,9 @@ where
         for (_, handle) in subs.drain() {
             handle.abort();
         }
+    }
+    if let Some(task) = channel_task {
+        task.abort();
     }
     drop(tx);
     let _ = writer.await;
@@ -164,6 +193,22 @@ async fn handle_line<S: Subscribe>(
             ),
         };
         let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+        return;
+    }
+
+    // initialize in channel mode: the pure handler's answer plus the
+    // experimental capability and what to do with channel events.
+    if method == "initialize" && server.channel.is_some() {
+        if let Some(resp) = crate::protocol::handle_message(line) {
+            let mut value = serde_json::to_value(&resp).unwrap_or(Value::Null);
+            value["result"]["capabilities"]["experimental"]["claude/channel"] = json!({});
+            let base = value["result"]["instructions"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            value["result"]["instructions"] = json!(format!("{base}\n\n{CHANNEL_INSTRUCTIONS}"));
+            let _ = out.send(serde_json::to_string(&value).unwrap()).await;
+        }
         return;
     }
 
@@ -498,4 +543,43 @@ async fn handle_subscribe_arcs<S: Subscribe>(
         }
     });
     subs.lock().await.insert(id_key, handle);
+}
+
+/// What Claude Code shows the model when this server connects in channel
+/// mode: what arrives and what to do with it.
+pub const CHANNEL_INSTRUCTIONS: &str = "Channel mode (memory hands): closed story exchanges and arcs arrive as \
+<channel source=\"openstory\" kind=\"arc|exchange\" handle=\"…\" session_id=\"…\" needs=\"enrich,adjudicate|read\">JSON</channel>. \
+The JSON body is the ArcClosed record: {kind, handle, session_id, needs, prompts, skeleton, batch_seq}. \
+For each entry in `prompts`, call prompts/get with that name and arguments, follow the returned instruction, \
+and hand the result back through the write hand it names (or show it, until write hands ship). \
+Never invent a handle; author-stamp your output. These events are one-way; no reply is expected.";
+
+/// One `notifications/claude/channel` line for a closed story node.
+/// `content` is the ArcClosed JSON; `meta` values must be strings and each
+/// becomes an attribute on the `<channel>` tag.
+fn channel_notification(data: &Value) -> String {
+    let needs = data
+        .get("needs")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    let notif = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/claude/channel",
+        "params": {
+            "content": serde_json::to_string(data).unwrap_or_default(),
+            "meta": {
+                "kind": data.get("kind").and_then(|v| v.as_str()).unwrap_or(""),
+                "handle": data.get("handle").and_then(|v| v.as_str()).unwrap_or(""),
+                "session_id": data.get("session_id").and_then(|v| v.as_str()).unwrap_or(""),
+                "needs": needs,
+            }
+        }
+    });
+    serde_json::to_string(&notif).unwrap_or_default()
 }
