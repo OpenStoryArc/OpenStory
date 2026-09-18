@@ -348,3 +348,262 @@ mod when_a_prefix_is_ambiguous {
         assert!(err.contains("at least 4"), "{err}");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// B-06 search · B-07 related · B-09 golden parity · B-10 ceilings
+// ═══════════════════════════════════════════════════════════════════
+
+use common::story_fixture::seed_spec;
+use open_story_patterns::golden::{ExchangeKind, ExchangeSpec, GoldenSpec, PromptClass, TurnSpec};
+
+fn t(verb: &str, objects: &[&str], tools: &[(&str, u32)]) -> TurnSpec {
+    TurnSpec {
+        verb: verb.to_string(),
+        objects: objects.iter().map(|s| s.to_string()).collect(),
+        tools: tools.iter().map(|(n, c)| (n.to_string(), *c)).collect(),
+        rich: true,
+    }
+}
+
+fn h(gap: u64, turns: Vec<TurnSpec>) -> ExchangeSpec {
+    ExchangeSpec {
+        kind: ExchangeKind::Human,
+        prompt_class: PromptClass::Short,
+        gap_before_secs: gap,
+        turns,
+    }
+}
+
+/// Three arcs: the first two share src/a.rs, the third shares nothing.
+fn spec_shared_entities() -> GoldenSpec {
+    GoldenSpec {
+        session_id: "story-shared-entities".to_string(),
+        started_at: "2026-01-01T09:00:00Z".to_string(),
+        gap_threshold_secs: 1800,
+        exchanges: vec![
+            h(0, vec![t("edited", &["src/a.rs"], &[("Edit", 1)])]),
+            h(
+                2400,
+                vec![t("edited", &["src/a.rs", "src/b.rs"], &[("Edit", 2)])],
+            ),
+            h(2400, vec![t("read", &["docs/z.md"], &[("Read", 1)])]),
+        ],
+    }
+}
+
+mod when_search_matches_an_entity {
+    use super::*;
+
+    #[tokio::test]
+    async fn it_returns_the_arc_handle() {
+        let (server, sids, _tmp) = server_with(&["two_arcs_gap"]).await;
+        let expected = golden_expected("two_arcs_gap");
+        let arc1 = &expected["arcs"][1];
+        let hits = call(
+            server,
+            "story_search",
+            json!({ "query": "src/app.rs", "session_id": sids[0] }),
+        )
+        .await
+        .unwrap();
+        let arcs: Vec<&serde_json::Value> = hits
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x["kind"] == "arc")
+            .collect();
+        assert_eq!(arcs.len(), 1, "one arc names src/app.rs: {hits}");
+        assert_eq!(arcs[0]["handle"], arc1["handle"]);
+        assert!(arcs[0]["matched"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "entities"));
+    }
+
+    #[tokio::test]
+    async fn a_prompt_phrase_finds_the_exchange() {
+        let (server, sids, _tmp) = server_with(&["two_arcs_gap"]).await;
+        let expected = golden_expected("two_arcs_gap");
+        let hits = call(
+            server,
+            "story_search",
+            json!({ "query": "GOLDEN PROMPT 3", "session_id": sids[0] }),
+        )
+        .await
+        .unwrap();
+        let ex: Vec<&serde_json::Value> = hits
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x["kind"] == "exchange")
+            .collect();
+        assert_eq!(ex.len(), 1, "case-insensitive match on the prompt: {hits}");
+        assert_eq!(ex[0]["handle"], expected["exchanges"][3]["handle"]);
+    }
+}
+
+mod when_two_arcs_share_entities {
+    use super::*;
+
+    #[tokio::test]
+    async fn related_returns_the_other_first() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let sid = seed_spec(&store, &spec_shared_entities()).await;
+        let arcs = store
+            .session_patterns(&sid, Some("story.arc"))
+            .await
+            .unwrap();
+        assert_eq!(arcs.len(), 3);
+        let h0 = arcs[0].metadata["handle"].as_str().unwrap().to_string();
+        let h1 = arcs[1].metadata["handle"].as_str().unwrap().to_string();
+        let h2 = arcs[2].metadata["handle"].as_str().unwrap().to_string();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let related = call(
+            server,
+            "story_related",
+            json!({ "handle": h0, "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        let got = handles(&related);
+        assert_eq!(
+            got,
+            vec![h1.clone()],
+            "only the arc sharing src/a.rs, not {h2}"
+        );
+        assert_eq!(related[0]["shared"], json!(["src/a.rs"]));
+    }
+}
+
+mod when_golden_is_walked {
+    use super::*;
+
+    #[tokio::test]
+    async fn every_hand_matches_expected() {
+        for name in [
+            "single_arc_plain",
+            "two_arcs_gap",
+            "thin_turn_only",
+            "ambiguous_closure_opening",
+            "injected_skill_messages",
+            "long_session_shape",
+        ] {
+            let expected = golden_expected(name);
+            let want_arcs = expected["arcs"].as_array().unwrap();
+            let want_ex = expected["exchanges"].as_array().unwrap();
+
+            let (s, sids, _t) = server_with(&[name]).await;
+            let list = call(s, "story_list", json!({ "session_id": sids[0] }))
+                .await
+                .unwrap();
+            assert_eq!(
+                handles(&list),
+                want_arcs
+                    .iter()
+                    .map(|a| a["handle"].as_str().unwrap().to_string())
+                    .collect::<Vec<_>>(),
+                "{name}: list"
+            );
+
+            for arc in want_arcs {
+                let (s, sids, _t) = server_with(&[name]).await;
+                let summary = call(
+                    s,
+                    "story_summary",
+                    json!({ "handle": arc["handle"], "session_id": sids[0] }),
+                )
+                .await
+                .unwrap();
+                assert_eq!(summary["down"], arc["exchanges"], "{name}: summary.down");
+                let (s, sids, _t) = server_with(&[name]).await;
+                let kids = call(
+                    s,
+                    "story_descend",
+                    json!({ "node": arc["handle"], "session_id": sids[0] }),
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    json!(handles(&kids)),
+                    arc["exchanges"],
+                    "{name}: descend(arc)"
+                );
+            }
+
+            for (i, ex) in want_ex.iter().enumerate() {
+                let arc = want_arcs
+                    .iter()
+                    .find(|a| {
+                        a["exchanges"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|h| h == &ex["handle"])
+                    })
+                    .unwrap();
+                let event_id = ex["event_ids"][0].as_str().unwrap();
+                let (s, sids, _t) = server_with(&[name]).await;
+                let up = call(
+                    s,
+                    "story_surface",
+                    json!({ "node": event_id, "session_id": sids[0] }),
+                )
+                .await
+                .unwrap();
+                let up = up.as_array().unwrap();
+                let ex_up = up
+                    .iter()
+                    .find(|a| a["kind"] == "exchange")
+                    .unwrap_or_else(|| {
+                        panic!("{name}: exchange {i} surfaces from its first event")
+                    });
+                assert_eq!(
+                    ex_up["handle"], ex["handle"],
+                    "{name}: surface → exchange {i}"
+                );
+                assert_eq!(
+                    up.last().unwrap()["handle"],
+                    arc["handle"],
+                    "{name}: surface → arc"
+                );
+            }
+        }
+    }
+}
+
+mod when_hands_answer_on_a_golden {
+    use super::*;
+
+    async fn text_len(name: &str, args: serde_json::Value, golden: &str) -> usize {
+        let (s, sids, _t) = server_with(&[golden]).await;
+        let mut args = args;
+        args["session_id"] = json!(sids[0]);
+        let response = call_tool(s, name, args).await;
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .len()
+    }
+
+    #[tokio::test]
+    async fn responses_stay_under_the_byte_ceilings() {
+        let expected = golden_expected("two_arcs_gap");
+        let arc0 = expected["arcs"][0]["handle"].clone();
+        let ex0 = expected["exchanges"][0]["handle"].clone();
+        let ev0 = expected["exchanges"][0]["event_ids"][0].clone();
+        let cases: Vec<(&str, serde_json::Value, usize)> = vec![
+            ("story_list", json!({}), 1000),
+            ("story_search", json!({ "query": "src/app.rs" }), 800),
+            ("story_summary", json!({ "handle": arc0 }), 1200),
+            ("story_descend", json!({ "node": arc0 }), 2400),
+            ("story_surface", json!({ "node": ev0 }), 1200),
+            ("story_context", json!({ "node": ex0 }), 3000),
+            ("story_related", json!({ "handle": arc0 }), 600),
+        ];
+        for (name, args, ceiling) in cases {
+            let n = text_len(name, args, "two_arcs_gap").await;
+            assert!(n <= ceiling, "{name}: {n} bytes > ceiling {ceiling}");
+        }
+    }
+}

@@ -87,3 +87,36 @@ pub async fn seed_golden_as(store: &Arc<dyn EventStore>, name: &str, sid: &str) 
     }
     sid.to_string()
 }
+
+/// Seed a store from a GoldenSpec directly (generate → fold → insert), for
+/// shapes the six committed goldens do not cover.
+pub async fn seed_spec(
+    store: &Arc<dyn EventStore>,
+    spec: &open_story_patterns::golden::GoldenSpec,
+) -> String {
+    let events: Vec<serde_json::Value> = open_story_patterns::golden::generate(spec)
+        .iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect();
+    let sid = spec.session_id.clone();
+    store.insert_batch(&sid, &events).await.unwrap();
+    let row: SessionRow = serde_json::from_value(serde_json::json!({
+        "id": sid,
+        "event_count": events.len(),
+        "first_event": events[0]["time"],
+        "last_event": events[events.len() - 1]["time"],
+    }))
+    .unwrap();
+    store.upsert_session(&row).await.unwrap();
+    let mut pipeline = PatternPipeline::new();
+    let mut patterns = Vec::new();
+    for value in &events {
+        let ev: CloudEvent = serde_json::from_value(value.clone()).unwrap();
+        patterns.extend(pipeline.feed_event(&ev).0);
+    }
+    patterns.extend(pipeline.flush().0);
+    for p in &patterns {
+        store.insert_pattern(&sid, p).await.unwrap();
+    }
+    sid
+}

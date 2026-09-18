@@ -661,3 +661,184 @@ pub async fn story_context(store: &Arc<dyn EventStore>, args: Value) -> Result<V
     };
     Ok(json!({ "node": node.view, "ancestors": up, "siblings": siblings }))
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// story_search · story_related
+// ═══════════════════════════════════════════════════════════════════
+
+pub fn story_search_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Case-insensitive substring over arc questions/resolutions/entities and exchange prompts/results"},
+            "session_id": {"type": "string", "description": "Restrict to one session; otherwise the newest 50 sessions are scanned"},
+            "limit": {"type": "integer", "minimum": 1, "description": "Max hits (default 20)"}
+        },
+        "required": ["query"],
+        "additionalProperties": false
+    })
+}
+
+pub fn story_related_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "handle": {"type": "string", "description": "Arc handle (16 hex) or 4+ char prefix"},
+            "session_id": {"type": "string", "description": "Session of the arc (recommended)"},
+            "limit": {"type": "integer", "minimum": 1, "description": "Max related arcs (default 10)"}
+        },
+        "required": ["handle"],
+        "additionalProperties": false
+    })
+}
+
+fn matches(hay: Option<&str>, needle: &str) -> bool {
+    hay.map(|h| h.to_lowercase().contains(needle))
+        .unwrap_or(false)
+}
+
+fn entity_keys(p: &PatternEvent) -> Vec<String> {
+    p.metadata
+        .get("entities")
+        .and_then(|v| v.as_object())
+        .map(|m| m.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// `story_search { query, session_id?, limit? }` → hits, arcs before
+/// exchanges, more matched fields first. Substring search over the story
+/// layer's own text; a handle is what comes back, not content.
+pub async fn story_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty())
+        .ok_or_else(|| "story_search requires a non-empty `query`".to_string())?;
+    let session_id = args.get("session_id").and_then(|v| v.as_str());
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+    let mut hits: Vec<(usize, u8, Value)> = Vec::new(); // (matched count, kind rank, view)
+    for sid in candidate_sessions(store, session_id).await? {
+        let story = load_story(store, &sid).await?;
+        for a in &story.arcs {
+            let mut matched = Vec::new();
+            if matches(meta_str(a, "question"), &query) {
+                matched.push("question");
+            }
+            if matches(meta_str(a, "resolution"), &query) {
+                matched.push("resolution");
+            }
+            if entity_keys(a)
+                .iter()
+                .any(|k| k.to_lowercase().contains(&query))
+            {
+                matched.push("entities");
+            }
+            if !matched.is_empty() {
+                hits.push((
+                    matched.len(),
+                    0,
+                    json!({
+                        "kind": "arc",
+                        "handle": meta_str(a, "handle"),
+                        "session_id": sid,
+                        "question": meta_str(a, "question").map(|q| truncate(q, 80)),
+                        "matched": matched,
+                    }),
+                ));
+            }
+        }
+        for e in &story.exchanges {
+            let mut matched = Vec::new();
+            if matches(meta_str(e, "user_prompt"), &query) {
+                matched.push("user_prompt");
+            }
+            if matches(meta_str(e, "eval_result"), &query) {
+                matched.push("eval_result");
+            }
+            if entity_keys(e)
+                .iter()
+                .any(|k| k.to_lowercase().contains(&query))
+            {
+                matched.push("entities");
+            }
+            if !matched.is_empty() {
+                hits.push((
+                    matched.len(),
+                    1,
+                    json!({
+                        "kind": "exchange",
+                        "handle": meta_str(e, "handle"),
+                        "session_id": sid,
+                        "user_prompt": meta_str(e, "user_prompt").map(|q| truncate(q, 80)),
+                        "matched": matched,
+                    }),
+                ));
+            }
+        }
+    }
+    hits.sort_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)));
+    Ok(Value::Array(
+        hits.into_iter().take(limit).map(|(_, _, v)| v).collect(),
+    ))
+}
+
+/// `story_related { handle, session_id?, limit? }` → arcs sharing entities
+/// with the given arc, most shared first. Scans the candidate sessions.
+pub async fn story_related(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let prefix = args
+        .get("handle")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "story_related requires `handle`".to_string())?;
+    let session_id = args.get("session_id").and_then(|v| v.as_str());
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+    let found = resolve_arc(store, prefix, session_id).await?;
+    let mine_handle = meta_str(&found.pattern, "handle").unwrap_or("").to_string();
+    let mine: std::collections::BTreeSet<String> =
+        entity_keys(&found.pattern).into_iter().collect();
+    if mine.is_empty() {
+        return Ok(Value::Array(Vec::new()));
+    }
+
+    let mut scored: Vec<(Vec<String>, Value)> = Vec::new();
+    // The arc's own session first, then (without a session filter) the rest.
+    let mut sessions = vec![found.session_id.clone()];
+    if session_id.is_none() {
+        for sid in candidate_sessions(store, None).await? {
+            if sid != found.session_id {
+                sessions.push(sid);
+            }
+        }
+    }
+    for sid in sessions {
+        let arcs = store
+            .session_patterns(&sid, Some("story.arc"))
+            .await
+            .map_err(|e| format!("session_patterns failed: {e}"))?;
+        for a in &arcs {
+            if meta_str(a, "handle") == Some(mine_handle.as_str()) {
+                continue;
+            }
+            let shared: Vec<String> = entity_keys(a)
+                .into_iter()
+                .filter(|k| mine.contains(k))
+                .collect();
+            if !shared.is_empty() {
+                scored.push((
+                    shared.clone(),
+                    json!({
+                        "handle": meta_str(a, "handle"),
+                        "session_id": sid,
+                        "question": meta_str(a, "question").map(|q| truncate(q, 80)),
+                        "shared": shared,
+                    }),
+                ));
+            }
+        }
+    }
+    scored.sort_by_key(|(shared, _)| std::cmp::Reverse(shared.len()));
+    Ok(Value::Array(
+        scored.into_iter().take(limit).map(|(_, v)| v).collect(),
+    ))
+}

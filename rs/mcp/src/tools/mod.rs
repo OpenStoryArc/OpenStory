@@ -293,6 +293,21 @@ pub const TOOLS: &[ToolDef] = &[
                       NEXT: answer, or story_descend one level further.",
         input_schema: memory::node_schema,
     },
+    ToolDef {
+        name: "story_search",
+        description: "WHEN: you have words, not a handle — discovery over the story layer. MOTION: find / remember. \
+                      CALL: { query, session_id?, limit? }. Case-insensitive substring over arc question/resolution/entities \
+                      and exchange prompt/result. RETURNS: [{kind, handle, session_id, matched}] arcs first. \
+                      NEXT: story_summary on an arc hit; story_context on an exchange hit.",
+        input_schema: memory::story_search_schema,
+    },
+    ToolDef {
+        name: "story_related",
+        description: "WHEN: you hold an arc and want its neighbours across time — the pointers across. MOTION: remember. \
+                      CALL: { handle, session_id?, limit? }. RETURNS: [{handle, session_id, question, shared: [entity]}] most shared first. \
+                      NEXT: story_summary on a related handle.",
+        input_schema: memory::story_related_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -381,6 +396,8 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "story_descend" => memory::story_descend(&server.store, args).await,
         "story_surface" => memory::story_surface(&server.store, args).await,
         "story_context" => memory::story_context(&server.store, args).await,
+        "story_search" => memory::story_search(&server.store, args).await,
+        "story_related" => memory::story_related(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
