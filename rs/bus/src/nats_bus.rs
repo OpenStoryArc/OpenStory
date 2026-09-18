@@ -251,6 +251,24 @@ impl NatsBus {
             .await
             .context("failed to create/get 'patterns' JetStream stream")?;
 
+        // Memory stream — memory hands (D-01). Carries a host's judgment about
+        // history: enrichments, readings, verdicts, sagas, keep proposals,
+        // one MemoryRecord JSON per message on `memory.{kind}.{session}`,
+        // published by the server's /api/memory handler after it stored the
+        // record. Durable, limits-based like patterns: readings are history
+        // about history and a listener may join late. STRICTLY separate from
+        // the observed `events.*` stream — nothing here writes history.
+        self.jetstream
+            .get_or_create_stream(stream::Config {
+                name: "memory".to_string(),
+                subjects: vec!["memory.>".to_string()],
+                retention: stream::RetentionPolicy::Limits,
+                max_bytes: 268_435_456, // 256 MB
+                ..Default::default()
+            })
+            .await
+            .context("failed to create/get 'memory' JetStream stream")?;
+
         // UI stream — the AUTHORED agent-in-UI namespace (interactions, control,
         // annotations published to `ui.*` by the server). Interest-based (kept
         // only while a subscriber — e.g. the MCP's subscribe_ui_state — is
