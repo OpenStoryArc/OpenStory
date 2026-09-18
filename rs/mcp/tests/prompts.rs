@@ -208,3 +208,61 @@ mod when_a_host_reads_the_schema_resources {
         assert!(schema["properties"]["paragraphs"].is_object(), "{schema}");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// E-11: curriculum parity — help, hands resource, prompts agree
+// ═══════════════════════════════════════════════════════════════════
+
+mod help_and_prompts_agree {
+    use super::*;
+
+    #[tokio::test]
+    async fn every_prompt_is_taught_by_the_hands_resource_and_the_help_cards() {
+        let (server, _sid, _tmp) = seeded("two_arcs_gap").await;
+        let list = rpc(
+            server,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "prompts/list", "params": {} }),
+        )
+        .await;
+        let names: Vec<String> = list["result"]["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap().to_string())
+            .collect();
+
+        let (server, _sid, _tmp) = seeded("two_arcs_gap").await;
+        let hands = rpc(server, json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": { "uri": "openstory://docs/hands" } })).await;
+        let hands_text = hands["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        for name in &names {
+            assert!(
+                hands_text.contains(name.as_str()),
+                "hands curriculum names prompt {name}"
+            );
+        }
+        assert!(
+            hands_text.contains("prompts/get"),
+            "hands curriculum says how to fetch a prompt"
+        );
+
+        for (need, expect) in [("remember", "remember"), ("narrate", "narrate_arc")] {
+            let (server, _sid, _tmp) = seeded("two_arcs_gap").await;
+            let help = rpc(
+                server,
+                json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": { "name": "openstory_help", "arguments": { "need": need } } }),
+            )
+            .await;
+            let text = help["result"]["content"][0]["text"].as_str().unwrap();
+            let card: Value = serde_json::from_str(text).unwrap_or(json!({ "text": text }));
+            let card_text = card["text"].as_str().unwrap_or(text);
+            assert!(
+                card_text.contains("prompts/get") && card_text.contains(expect),
+                "help need={need} names prompt {expect} and prompts/get: {card_text}"
+            );
+        }
+    }
+}

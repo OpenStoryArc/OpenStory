@@ -128,6 +128,7 @@ Carry handles, not transcripts. Every hand is read-only; nothing here writes his
    context = node + ancestors + siblings, never a naked event            (~500)
 4. story_related { handle }              — pointers across: arcs sharing entities   (~100)
 Budget: answer a creator question in ~1,400 tokens; stop when answered or spent.
+The instruction itself is an MCP prompt: prompts/get { name: remember, arguments: { question } }.
 Handles are content addresses (layer + event ids); a 4+ char prefix resolves.
 Live: subscribe_arcs { session_id?, from_seq? } — closed arcs as they land (need: narrate)."#
             .to_string(),
@@ -136,8 +137,9 @@ Live: subscribe_arcs { session_id?, from_seq? } — closed arcs as they land (ne
    data: {kind, handle, skeleton, needs}, needs ∈ enrich | adjudicate | read;
    data.batch_seq is the cursor for from_seq (stored prefix, then the live tail).
 2. story_context { node: handle }             — what the skeleton was for
-3. Your judgment: a reading (grouping over exchange handles + intent), an enrichment
-   (title, question, resolution, slots), or a verdict on an ambiguous seam.
+3. prompts/get with the entries the notification names (data.prompts): narrate_arc for an
+   enrichment, segment_arc for the final reading, adjudicate_seam per ambiguous seam,
+   read_exchange for one streaming step. Each returns the instruction + the node's context.
    Write it author-stamped; never move a handle. Cancel via notifications/cancelled."#
             .to_string(),
         "cost" | "tokens" | "spend" => r#"# Motion: cost

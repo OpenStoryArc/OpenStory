@@ -132,6 +132,26 @@ Handles are content addresses (layer + event ids): stable across re-narration,
 a 4+ character prefix resolves, ambiguity is an error naming the candidates.
 Nothing in this motion writes; there is no write path to `events.*`.
 
+### Prompts: the instruction, rendered per node (memory hands)
+
+The MCP carries the judgment instructions itself. `prompts/list` advertises
+them; `prompts/get { name, arguments }` returns the instruction (what to
+produce, the JSON shape from `openstory://schemas/*`, the budget, the laws)
+together with the node's `story_context` as an embedded resource:
+
+| prompt | arguments | serves |
+|---|---|---|
+| `narrate_arc` | `{ handle, session_id? }` | `needs: enrich` → an enrichment (title, question, resolution, summary, slots) |
+| `segment_arc` | `{ handle, session_id? }` | the final reading: paragraphs over the arc's exchange handles |
+| `read_exchange` | `{ handle, session_id?, reading? }` | one step of the streaming fold (provisional reading) |
+| `adjudicate_seam` | `{ handle, session_id?, seam }` | `needs: adjudicate` → same_theme / new_theme with a reason |
+| `remember` | `{ question, session_id? }` | traversal under a ~1,400 token budget |
+| `curate` | `{ session_id }` | what to keep past the retention cliff |
+
+Every `subscribe_arcs` notification names the prompts to run in `data.prompts`.
+Laws (enforced by the write hands): never invent a handle; author-stamp; a
+final reading supersedes a provisional one and never deletes it.
+
 ### Narrate as it closes (memory hands, live)
 
 1. `subscribe_arcs { session_id?, from_seq? }` — every closed exchange and arc,
