@@ -14,6 +14,7 @@
 pub mod nats_container;
 pub mod store_fixture;
 
+pub mod story_fixture;
 pub use store_fixture::make_test_store;
 
 use open_story_mcp::server::Server;

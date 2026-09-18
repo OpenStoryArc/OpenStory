@@ -14,6 +14,7 @@
 pub mod analytics;
 pub mod control;
 pub mod help;
+pub mod memory;
 pub mod per_session;
 pub mod projects;
 pub mod reels;
@@ -251,6 +252,25 @@ pub const TOOLS: &[ToolDef] = &[
                       NOT: an LLM interpretation of intent.",
         input_schema: story::session_story_schema,
     },
+    // Memory hands — the story layer (exchanges, arcs) as handles a host can carry.
+    ToolDef {
+        name: "story_list",
+        description: "WHEN: you need handles for what happened before — the memory primitives. \
+                      MOTION: orient / remember. CALL: { session_id?, limit? }. \
+                      RETURNS: one line per arc {handle, session_id, arc_index, question, exchanges, closed_by}. \
+                      ~50 tokens per line; carry a few handles, dereference on demand. \
+                      NEXT: story_summary on a handle.",
+        input_schema: memory::story_list_schema,
+    },
+    ToolDef {
+        name: "story_summary",
+        description: "WHEN: you hold an arc handle and want its top node. MOTION: remember. \
+                      CALL: { handle, session_id? } (4+ char prefix ok). \
+                      RETURNS: {handle, question, resolution, entities, tools, closed_by, ambiguous_seams, \
+                      down: [exchange handles], across: [related arc handles]}. title/slots appear only once enriched. \
+                      NEXT: story_descend for exchanges; story_context for a node with its neighbours.",
+        input_schema: memory::story_summary_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -334,6 +354,8 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "daily_token_usage" => analytics::daily_token_usage(&server.store, args).await,
         "productivity" => analytics::productivity(&server.store, args).await,
         "session_story" => story::session_story(&server.store, args).await,
+        "story_list" => memory::story_list(&server.store, args).await,
+        "story_summary" => memory::story_summary(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
