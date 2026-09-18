@@ -615,3 +615,93 @@ pub fn validate_reading(reading: &Reading, arc_exchanges: &[String]) -> Result<(
     }
     Ok(())
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// MemoryRecord — a host's judgment, as the store keeps it (D-07)
+// ═══════════════════════════════════════════════════════════════════
+
+/// What kind of judgment a memory record holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    Enrichment,
+    Reading,
+    Verdict,
+    Saga,
+    Keep,
+}
+
+impl MemoryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MemoryKind::Enrichment => "enrichment",
+            MemoryKind::Reading => "reading",
+            MemoryKind::Verdict => "verdict",
+            MemoryKind::Saga => "saga",
+            MemoryKind::Keep => "keep",
+        }
+    }
+}
+
+/// One stored judgment about a node. Keyed so that a re-narration by the
+/// same author replaces, another author adds a row, and a provisional and
+/// a final reading coexist (final supersedes, never deletes).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MemoryRecord {
+    /// `kind:handle:standing:author.host:author.model` — see `MemoryRecord::id_for`.
+    pub id: String,
+    pub session_id: String,
+    pub handle: String,
+    pub kind: MemoryKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing: Option<Standing>,
+    pub author: Author,
+    /// RFC 3339, set by the server when the record is stored.
+    pub created_at: String,
+    /// The Enrichment / Reading / Verdict / Saga / Keep JSON, as validated.
+    pub payload: serde_json::Value,
+}
+
+impl MemoryRecord {
+    pub fn id_for(
+        kind: MemoryKind,
+        handle: &str,
+        standing: Option<Standing>,
+        author: &Author,
+    ) -> String {
+        let standing = match standing {
+            Some(Standing::Provisional) => "provisional",
+            Some(Standing::Final) => "final",
+            None => "-",
+        };
+        format!(
+            "{}:{}:{}:{}:{}",
+            kind.as_str(),
+            handle,
+            standing,
+            author.host,
+            author.model
+        )
+    }
+
+    pub fn new(
+        session_id: &str,
+        handle: &str,
+        kind: MemoryKind,
+        standing: Option<Standing>,
+        author: Author,
+        created_at: &str,
+        payload: serde_json::Value,
+    ) -> Self {
+        Self {
+            id: Self::id_for(kind, handle, standing, &author),
+            session_id: session_id.to_string(),
+            handle: handle.to_string(),
+            kind,
+            standing,
+            author,
+            created_at: created_at.to_string(),
+            payload,
+        }
+    }
+}
