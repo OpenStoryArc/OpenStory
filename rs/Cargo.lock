@@ -3029,6 +3029,7 @@ dependencies = [
  "chrono",
  "open-story-core",
  "open-story-views",
+ "proptest",
  "schemars 0.8.22",
  "serde",
  "serde_json",

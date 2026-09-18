@@ -23,6 +23,7 @@ pub mod metrics;
 pub mod principal_resolver;
 pub mod reconcile;
 pub mod reproject;
+pub mod story_backfill;
 pub mod router;
 pub mod state;
 pub mod tool_schemas;

@@ -100,7 +100,8 @@ fn bump(map: &mut BTreeMap<String, u32>, key: impl Into<String>, by: u32) {
     *map.entry(key.into()).or_insert(0) += by;
 }
 
-fn merge(into: &mut BTreeMap<String, u32>, from: &BTreeMap<String, u32>) {
+/// The count monoid: associative, with the empty map as identity (A-11).
+pub fn merge_counts(into: &mut BTreeMap<String, u32>, from: &BTreeMap<String, u32>) {
     for (k, v) in from {
         bump(into, k.clone(), *v);
     }
@@ -180,7 +181,7 @@ impl ExchangeAcc {
     fn fold(&mut self, turn: &StructuralTurn, sentence: &TurnSentence) {
         self.event_ids.extend(turn.event_ids.iter().cloned());
         self.ended_at = turn_ended_at(turn);
-        merge(&mut self.entities, &turn_entities(turn));
+        merge_counts(&mut self.entities, &turn_entities(turn));
         for a in &turn.applies {
             bump(&mut self.tools, a.tool_name.clone(), 1);
             let role = classify_tool(&a.tool_name, &a.input_summary);
@@ -267,8 +268,8 @@ impl ArcAcc {
         let mut tools = BTreeMap::new();
         let mut event_ids = Vec::new();
         for ex in &self.exchanges {
-            merge(&mut entities, &ex.entities);
-            merge(&mut tools, &ex.tools);
+            merge_counts(&mut entities, &ex.entities);
+            merge_counts(&mut tools, &ex.tools);
             event_ids.extend(ex.event_ids.iter().cloned());
         }
         let question = self.exchanges.first().and_then(|e| e.user_prompt.clone());

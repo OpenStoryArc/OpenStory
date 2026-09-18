@@ -220,6 +220,9 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
     // Track event IDs and timestamps
     acc.event_ids.push(id.to_string());
+    // Was this turn already open before this event? A user prompt that
+    // arrives into an open turn is injected, never the human (A-03).
+    let turn_already_open = acc.start_ts.is_some();
     if acc.start_ts.is_none() {
         acc.start_ts = Some(ts.to_string());
         acc.env_size_at_start = acc.env_size;
@@ -240,11 +243,13 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 content,
                 timestamp: ts.to_string(),
             };
-            // First prompt of a turn is the human; any later prompt inside
-            // the same open turn was injected by the harness (A-03).
-            match acc.pending_human {
-                None => acc.pending_human = Some(input),
-                Some(_) => acc.pending_injected.push(input),
+            // The prompt that opens a turn is the human; any prompt arriving
+            // into an already-open turn (after a human prompt, or in a
+            // continuation turn) was injected by the harness (A-03).
+            if turn_already_open {
+                acc.pending_injected.push(input);
+            } else {
+                acc.pending_human = Some(input);
             }
         }
 
@@ -773,6 +778,31 @@ mod tests {
         assert_eq!(t.human.as_ref().unwrap().content, "please load the skill");
         assert_eq!(t.injected.len(), 1);
         assert_eq!(t.injected[0].content, "Base directory for this skill: /x");
+    }
+
+    // A-03: a prompt that arrives in a continuation turn (no human prompt of
+    // its own, e.g. Claude called Skill three turns into an exchange) is
+    // injected too. Found by prop_turns_partition.
+    #[test]
+    fn ce_prompt_in_open_continuation_turn_is_injected() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "loading",
+            "Skill",
+            serde_json::json!({"skill": "x"}),
+        ));
+        det.feed_cloud_event(&tool_result_ce("ok", None));
+        det.feed_cloud_event(&user_prompt_ce("Base directory for this skill: /x"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert!(
+            turns[0].human.is_none(),
+            "a continuation turn has no human prompt"
+        );
+        assert_eq!(turns[0].injected.len(), 1);
     }
 
     #[test]
