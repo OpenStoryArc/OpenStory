@@ -271,6 +271,28 @@ pub const TOOLS: &[ToolDef] = &[
                       NEXT: story_descend for exchanges; story_context for a node with its neighbours.",
         input_schema: memory::story_summary_schema,
     },
+    ToolDef {
+        name: "story_descend",
+        description: "WHEN: you hold a handle and want what is beneath it. MOTION: remember. \
+                      CALL: { node, session_id? }. arc → its exchanges; exchange → its sentences; sentence → its events. \
+                      RETURNS: [child view]. NEXT: story_context on a child to keep its neighbours.",
+        input_schema: memory::node_schema,
+    },
+    ToolDef {
+        name: "story_surface",
+        description: "WHEN: you hold an event, sentence or exchange and want the way back up. MOTION: remember. \
+                      CALL: { node, session_id? } (session_id required for event ids). \
+                      RETURNS: ancestors nearest first, up to the arc. NEXT: story_summary on the arc.",
+        input_schema: memory::node_schema,
+    },
+    ToolDef {
+        name: "story_context",
+        description: "WHEN: you reach for one thing and must not lose what it was for — the load-bearing hand. \
+                      MOTION: remember. CALL: { node, session_id? }. \
+                      RETURNS: {node, ancestors: surface(node), siblings: descend(parent)}. Never a naked event. \
+                      NEXT: answer, or story_descend one level further.",
+        input_schema: memory::node_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -356,6 +378,9 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "session_story" => story::session_story(&server.store, args).await,
         "story_list" => memory::story_list(&server.store, args).await,
         "story_summary" => memory::story_summary(&server.store, args).await,
+        "story_descend" => memory::story_descend(&server.store, args).await,
+        "story_surface" => memory::story_surface(&server.store, args).await,
+        "story_context" => memory::story_context(&server.store, args).await,
         unknown => {
             return tool_not_found(unknown);
         }

@@ -57,3 +57,33 @@ pub async fn seed_golden(store: &Arc<dyn EventStore>, name: &str) -> String {
     }
     sid
 }
+
+/// Seed the same golden under a different session id (events rewritten),
+/// so handles collide across sessions and prefix ambiguity can be tested.
+pub async fn seed_golden_as(store: &Arc<dyn EventStore>, name: &str, sid: &str) -> String {
+    let mut events = golden_events(name);
+    for e in &mut events {
+        e["data"]["session_id"] = serde_json::json!(sid);
+        e["subject"] = serde_json::json!(sid);
+    }
+    store.insert_batch(sid, &events).await.unwrap();
+    let row: SessionRow = serde_json::from_value(serde_json::json!({
+        "id": sid,
+        "event_count": events.len(),
+        "first_event": events[0]["time"],
+        "last_event": events[events.len() - 1]["time"],
+    }))
+    .unwrap();
+    store.upsert_session(&row).await.unwrap();
+    let mut pipeline = PatternPipeline::new();
+    let mut patterns = Vec::new();
+    for value in &events {
+        let ev: CloudEvent = serde_json::from_value(value.clone()).unwrap();
+        patterns.extend(pipeline.feed_event(&ev).0);
+    }
+    patterns.extend(pipeline.flush().0);
+    for p in &patterns {
+        store.insert_pattern(sid, p).await.unwrap();
+    }
+    sid.to_string()
+}

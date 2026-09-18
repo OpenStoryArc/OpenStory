@@ -163,8 +163,9 @@ async fn resolve_arc(
                 .iter()
                 .map(|f| {
                     format!(
-                        "{} ({})",
+                        "arc {} in session {} ({})",
                         meta_str(&f.pattern, "handle").unwrap_or(""),
+                        f.session_id,
                         truncate(meta_str(&f.pattern, "question").unwrap_or(""), 60)
                     )
                 })
@@ -235,5 +236,428 @@ pub async fn story_summary(store: &Arc<dyn EventStore>, args: Value) -> Result<V
 /// Content address for a sentence: derived from its event ids, the same
 /// function arcs and exchanges use, so sentences can be addressed too.
 pub fn sentence_handle(p: &PatternEvent) -> String {
-    content_handle(&p.event_ids)
+    content_handle("sentence", &p.event_ids)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Nodes: arcs, exchanges, sentences, events — one address space
+// ═══════════════════════════════════════════════════════════════════
+
+/// Everything the story layer knows about one session, loaded once per call.
+struct SessionStory {
+    session_id: String,
+    arcs: Vec<PatternEvent>,
+    exchanges: Vec<PatternEvent>,
+    sentences: Vec<PatternEvent>,
+}
+
+async fn load_story(store: &Arc<dyn EventStore>, sid: &str) -> Result<SessionStory, String> {
+    let get = |t: &'static str| async move {
+        store
+            .session_patterns(sid, Some(t))
+            .await
+            .map_err(|e| format!("session_patterns({t}) failed: {e}"))
+    };
+    let arcs = get("story.arc").await?;
+    let exchanges = get("story.exchange").await?;
+    let mut sentences = get("turn.sentence").await?;
+    sentences.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    Ok(SessionStory {
+        session_id: sid.to_string(),
+        arcs,
+        exchanges,
+        sentences,
+    })
+}
+
+impl SessionStory {
+    fn arc_by_handle(&self, h: &str) -> Option<&PatternEvent> {
+        self.arcs.iter().find(|a| meta_str(a, "handle") == Some(h))
+    }
+    fn exchange_by_handle(&self, h: &str) -> Option<&PatternEvent> {
+        self.exchanges
+            .iter()
+            .find(|e| meta_str(e, "handle") == Some(h))
+    }
+    fn arc_of_exchange(&self, h: &str) -> Option<&PatternEvent> {
+        self.arcs.iter().find(|a| {
+            a.metadata
+                .get("exchanges")
+                .and_then(|v| v.as_array())
+                .map(|xs| xs.iter().any(|x| x.as_str() == Some(h)))
+                .unwrap_or(false)
+        })
+    }
+    fn exchange_containing(&self, event_id: &str) -> Option<&PatternEvent> {
+        self.exchanges
+            .iter()
+            .find(|e| e.event_ids.iter().any(|id| id == event_id))
+    }
+    fn sentence_containing(&self, event_id: &str) -> Option<&PatternEvent> {
+        self.sentences
+            .iter()
+            .find(|s| s.event_ids.iter().any(|id| id == event_id))
+    }
+    /// Sentences whose events all lie inside the exchange, in time order.
+    fn sentences_of_exchange(&self, ex: &PatternEvent) -> Vec<&PatternEvent> {
+        let ids: std::collections::HashSet<&str> =
+            ex.event_ids.iter().map(String::as_str).collect();
+        self.sentences
+            .iter()
+            .filter(|s| {
+                !s.event_ids.is_empty() && s.event_ids.iter().all(|id| ids.contains(id.as_str()))
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    Arc,
+    Exchange,
+    Sentence,
+    Event,
+}
+
+impl Kind {
+    fn name(self) -> &'static str {
+        match self {
+            Kind::Arc => "arc",
+            Kind::Exchange => "exchange",
+            Kind::Sentence => "sentence",
+            Kind::Event => "event",
+        }
+    }
+}
+
+/// A resolved node: its kind, session, and a compact view.
+struct Node {
+    kind: Kind,
+    session_id: String,
+    /// Arc / exchange / sentence handle, or the event id.
+    id: String,
+    view: Value,
+}
+
+fn exchange_view(sid: &str, ex: &PatternEvent) -> Value {
+    json!({
+        "kind": "exchange",
+        "handle": meta_str(ex, "handle"),
+        "session_id": sid,
+        "started_at": ex.started_at,
+        "ended_at": ex.ended_at,
+        "user_prompt": meta_str(ex, "user_prompt").map(|p| truncate(p, 120)),
+        "turns": ex.metadata.get("turns"),
+        "rich_turns": ex.metadata.get("rich_turns"),
+        "injected_count": ex.metadata.get("injected_count"),
+        "first_verb": ex.metadata.get("first_verb"),
+        "last_verb": ex.metadata.get("last_verb"),
+        "entities": ex.metadata.get("entities"),
+        "tools": ex.metadata.get("tools"),
+    })
+}
+
+fn arc_view(sid: &str, arc: &PatternEvent) -> Value {
+    let mut v = arc_line(sid, arc);
+    v["kind"] = json!("arc");
+    v
+}
+
+fn sentence_view(sid: &str, s: &PatternEvent) -> Value {
+    json!({
+        "kind": "sentence",
+        "handle": sentence_handle(s),
+        "session_id": sid,
+        "started_at": s.started_at,
+        "one_liner": truncate(&s.summary, 160),
+        "verb": s.metadata.get("verb"),
+        "object": s.metadata.get("object"),
+        "turn": s.metadata.get("turn"),
+        "event_ids": s.event_ids,
+    })
+}
+
+fn event_view(sid: &str, ev: &Value) -> Value {
+    let text = ev
+        .pointer("/data/agent_payload/text")
+        .and_then(|v| v.as_str())
+        .map(|t| truncate(t, 160));
+    json!({
+        "kind": "event",
+        "id": ev.get("id"),
+        "session_id": sid,
+        "subtype": ev.get("subtype"),
+        "time": ev.get("time"),
+        "tool": ev.pointer("/data/agent_payload/tool"),
+        "text": text,
+    })
+}
+
+/// Resolve a node id (handle or event id, 4+ char prefix) to exactly one node.
+/// Event ids are only searched when `session_id` is given: they need the
+/// session's event stream, which is not scanned across sessions.
+async fn resolve_node(
+    store: &Arc<dyn EventStore>,
+    prefix: &str,
+    session_id: Option<&str>,
+) -> Result<(Node, SessionStory), String> {
+    if prefix.len() < 4 {
+        return Err(format!(
+            "node `{prefix}` is too short; give at least 4 characters"
+        ));
+    }
+    let mut hits: Vec<(Node, SessionStory)> = Vec::new();
+    for sid in candidate_sessions(store, session_id).await? {
+        let story = load_story(store, &sid).await?;
+        let mut found: Vec<Node> = Vec::new();
+        for a in &story.arcs {
+            if let Some(h) = meta_str(a, "handle").filter(|h| h.starts_with(prefix)) {
+                found.push(Node {
+                    kind: Kind::Arc,
+                    session_id: sid.clone(),
+                    id: h.to_string(),
+                    view: arc_view(&sid, a),
+                });
+            }
+        }
+        for e in &story.exchanges {
+            if let Some(h) = meta_str(e, "handle").filter(|h| h.starts_with(prefix)) {
+                found.push(Node {
+                    kind: Kind::Exchange,
+                    session_id: sid.clone(),
+                    id: h.to_string(),
+                    view: exchange_view(&sid, e),
+                });
+            }
+        }
+        for s in &story.sentences {
+            let h = sentence_handle(s);
+            if h.starts_with(prefix) {
+                found.push(Node {
+                    kind: Kind::Sentence,
+                    session_id: sid.clone(),
+                    id: h,
+                    view: sentence_view(&sid, s),
+                });
+            }
+        }
+        if session_id.is_some() && found.is_empty() {
+            let events = store
+                .session_events(&sid)
+                .await
+                .map_err(|e| format!("session_events failed: {e}"))?;
+            for ev in &events {
+                if let Some(id) = ev
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .filter(|id| id.starts_with(prefix))
+                {
+                    found.push(Node {
+                        kind: Kind::Event,
+                        session_id: sid.clone(),
+                        id: id.to_string(),
+                        view: event_view(&sid, ev),
+                    });
+                }
+            }
+        }
+        // Each hit needs its own loaded story; clone the story per hit only if several.
+        if found.len() == 1 {
+            hits.push((found.remove(0), story));
+        } else {
+            for n in found {
+                hits.push((
+                    n,
+                    SessionStory {
+                        session_id: story.session_id.clone(),
+                        arcs: story.arcs.clone(),
+                        exchanges: story.exchanges.clone(),
+                        sentences: story.sentences.clone(),
+                    },
+                ));
+            }
+        }
+    }
+    match hits.len() {
+        0 => Err(format!("no node matches `{prefix}`")),
+        1 => Ok(hits.remove(0)),
+        _ => {
+            let candidates: Vec<String> = hits
+                .iter()
+                .map(|(n, _)| format!("{} {} in session {}", n.kind.name(), n.id, n.session_id))
+                .collect();
+            Err(format!(
+                "`{prefix}` is ambiguous; candidates: {}",
+                candidates.join("; ")
+            ))
+        }
+    }
+}
+
+fn node_args(args: &Value) -> Result<(&str, Option<&str>), String> {
+    let node = args
+        .get("node")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "requires `node` (a handle or event id, 4+ char prefix)".to_string())?;
+    Ok((node, args.get("session_id").and_then(|v| v.as_str())))
+}
+
+pub fn node_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "node": {"type": "string", "description": "Arc/exchange/sentence handle or event id; 4+ char prefix resolves"},
+            "session_id": {"type": "string", "description": "Session to look in (required to address events)"}
+        },
+        "required": ["node"],
+        "additionalProperties": false
+    })
+}
+
+/// Children of a node: exchanges of an arc, sentences of an exchange, events of a sentence.
+async fn children(
+    store: &Arc<dyn EventStore>,
+    node: &Node,
+    story: &SessionStory,
+) -> Result<Vec<Value>, String> {
+    let sid = &story.session_id;
+    Ok(match node.kind {
+        Kind::Arc => {
+            let arc = story.arc_by_handle(&node.id).ok_or("arc vanished")?;
+            arc.metadata
+                .get("exchanges")
+                .and_then(|v| v.as_array())
+                .map(|hs| {
+                    hs.iter()
+                        .filter_map(|h| h.as_str())
+                        .filter_map(|h| story.exchange_by_handle(h))
+                        .map(|e| exchange_view(sid, e))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        Kind::Exchange => {
+            let ex = story
+                .exchange_by_handle(&node.id)
+                .ok_or("exchange vanished")?;
+            story
+                .sentences_of_exchange(ex)
+                .into_iter()
+                .map(|s| sentence_view(sid, s))
+                .collect()
+        }
+        Kind::Sentence => {
+            let s = story
+                .sentences
+                .iter()
+                .find(|s| sentence_handle(s) == node.id)
+                .ok_or("sentence vanished")?;
+            let wanted: std::collections::HashSet<&str> =
+                s.event_ids.iter().map(String::as_str).collect();
+            let events = store
+                .session_events(sid)
+                .await
+                .map_err(|e| format!("session_events failed: {e}"))?;
+            events
+                .iter()
+                .filter(|ev| {
+                    ev.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(|id| wanted.contains(id))
+                        .unwrap_or(false)
+                })
+                .map(|ev| event_view(sid, ev))
+                .collect()
+        }
+        Kind::Event => Vec::new(),
+    })
+}
+
+/// Ancestors of a node, nearest first, up to its arc.
+fn ancestors(node: &Node, story: &SessionStory) -> Vec<Value> {
+    let sid = &story.session_id;
+    let mut out = Vec::new();
+    let exchange_handle = match node.kind {
+        Kind::Arc => None,
+        Kind::Exchange => Some(node.id.clone()),
+        Kind::Sentence => {
+            let s = story
+                .sentences
+                .iter()
+                .find(|s| sentence_handle(s) == node.id);
+            s.and_then(|s| s.event_ids.first())
+                .and_then(|id| story.exchange_containing(id))
+                .and_then(|e| meta_str(e, "handle"))
+                .map(String::from)
+        }
+        Kind::Event => {
+            if let Some(s) = story.sentence_containing(&node.id) {
+                out.push(sentence_view(sid, s));
+            }
+            story
+                .exchange_containing(&node.id)
+                .and_then(|e| meta_str(e, "handle"))
+                .map(String::from)
+        }
+    };
+    if let Some(h) = exchange_handle {
+        if node.kind != Kind::Exchange {
+            if let Some(e) = story.exchange_by_handle(&h) {
+                out.push(exchange_view(sid, e));
+            }
+        }
+        if let Some(a) = story.arc_of_exchange(&h) {
+            out.push(arc_view(sid, a));
+        }
+    }
+    out
+}
+
+/// `story_descend { node, session_id? }` → children.
+pub async fn story_descend(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let (prefix, sid) = node_args(&args)?;
+    let (node, story) = resolve_node(store, prefix, sid).await?;
+    Ok(Value::Array(children(store, &node, &story).await?))
+}
+
+/// `story_surface { node, session_id? }` → ancestors, nearest first.
+pub async fn story_surface(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let (prefix, sid) = node_args(&args)?;
+    let (node, story) = resolve_node(store, prefix, sid).await?;
+    Ok(Value::Array(ancestors(&node, &story)))
+}
+
+/// `story_context { node, session_id? }` → the node with its ancestors and
+/// its siblings (the children of its parent). Never a naked node.
+pub async fn story_context(store: &Arc<dyn EventStore>, args: Value) -> Result<Value, String> {
+    let (prefix, sid) = node_args(&args)?;
+    let (node, story) = resolve_node(store, prefix, sid).await?;
+    let up = ancestors(&node, &story);
+    let siblings = match up.first() {
+        Some(parent) => {
+            let parent_id = parent
+                .get("handle")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let kind = match parent["kind"].as_str() {
+                Some("arc") => Kind::Arc,
+                Some("exchange") => Kind::Exchange,
+                _ => Kind::Sentence,
+            };
+            let parent_node = Node {
+                kind,
+                session_id: story.session_id.clone(),
+                id: parent_id,
+                view: parent.clone(),
+            };
+            children(store, &parent_node, &story).await?
+        }
+        None => story
+            .arcs
+            .iter()
+            .map(|a| arc_view(&story.session_id, a))
+            .collect(),
+    };
+    Ok(json!({ "node": node.view, "ancestors": up, "siblings": siblings }))
 }
