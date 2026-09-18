@@ -17,6 +17,7 @@ pub mod help;
 pub mod memory;
 pub mod per_session;
 pub mod projects;
+pub mod prompts;
 pub mod reels;
 pub mod search;
 pub mod sessions;

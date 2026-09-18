@@ -142,6 +142,31 @@ async fn handle_line<S: Subscribe>(
         return;
     }
 
+    // prompts/get — renders the instruction with the node's context (reads the store).
+    if method == "prompts/get" {
+        let id = parsed.get("id").cloned().unwrap_or(Value::Null);
+        let name = parsed
+            .get("params")
+            .and_then(|p| p.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let args = parsed
+            .get("params")
+            .and_then(|p| p.get("arguments"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let response = match crate::tools::prompts::render(server, name, &args).await {
+            Ok(result) => crate::protocol::JsonRpcResponse::success(id, result),
+            Err(e) => crate::protocol::JsonRpcResponse::failure(
+                id,
+                crate::protocol::error_code::INVALID_PARAMS,
+                &e,
+            ),
+        };
+        let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+        return;
+    }
+
     // Everything else (initialize, tools/list, …): pure protocol handler.
     if let Some(resp) = crate::protocol::handle_message(line) {
         let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
