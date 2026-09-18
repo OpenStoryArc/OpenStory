@@ -41,9 +41,9 @@ pub struct TurnSpec {
     pub objects: Vec<String>,
     /// Tool name and call count, in emission order.
     pub tools: Vec<(String, u32)>,
-    /// Whether the turn is rich enough to produce a `turn.sentence`.
-    /// `false` yields a thin turn (requirement A-04).
-    pub has_sentence: bool,
+    /// Whether the turn applies tools. `false` yields a thin turn: a
+    /// text-only reply that contributes no entities or tools (A-04).
+    pub rich: bool,
 }
 
 /// One user-role message and the turns that answer it.
@@ -229,7 +229,7 @@ pub fn generate(spec: &GoldenSpec) -> Vec<CloudEvent> {
 
             let last_turn = j + 1 == ex.turns.len();
             let leave_open = last_turn && next_is_injected;
-            let closing_text = if turn.has_sentence {
+            let closing_text = if turn.rich {
                 format!("Claude {} {}", turn.verb, turn.objects.join(", "))
             } else {
                 "ok".to_string()
@@ -283,7 +283,7 @@ pub struct ExpectedExchange {
     pub ended_at: String,
     pub entities: BTreeMap<String, u32>,
     pub tools: BTreeMap<String, u32>,
-    pub sentence_count: u32,
+    pub rich_turns: u32,
     pub first_verb: Option<String>,
     pub last_verb: Option<String>,
 }
@@ -372,7 +372,7 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                 .unwrap_or(events.len());
             let mut entities = BTreeMap::new();
             let mut tools = BTreeMap::new();
-            let mut sentence_count = 0;
+            let mut rich_turns = 0;
             for &m in members {
                 for turn in &spec.exchanges[m].turns {
                     for o in &turn.objects {
@@ -381,8 +381,8 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                     for (t, c) in &turn.tools {
                         *tools.entry(t.clone()).or_insert(0) += c;
                     }
-                    if turn.has_sentence {
-                        sentence_count += 1;
+                    if turn.rich {
+                        rich_turns += 1;
                     }
                 }
             }
@@ -403,7 +403,7 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                 ended_at: events[end - 1].time.clone(),
                 entities,
                 tools,
-                sentence_count,
+                rich_turns,
                 first_verb,
                 last_verb,
             }

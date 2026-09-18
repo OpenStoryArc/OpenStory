@@ -23,7 +23,7 @@
       "tools": {
         "Read": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "read",
       "last_verb": "read"
     },
@@ -48,7 +48,7 @@
       "tools": {
         "Write": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "wrote",
       "last_verb": "wrote"
     },
@@ -75,7 +75,7 @@
       "tools": {
         "Bash": 2
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     },
@@ -102,7 +102,7 @@
       "tools": {
         "Edit": 2
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "edited",
       "last_verb": "edited"
     }

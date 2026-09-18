@@ -33,7 +33,7 @@
       "tools": {
         "Bash": 5
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "checked"
     },
@@ -65,7 +65,7 @@
       "tools": {
         "Bash": 4
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     },
@@ -104,7 +104,7 @@
       "tools": {
         "Bash": 8
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     },
@@ -123,7 +123,7 @@
       "ended_at": "2026-01-01T09:10:57.000Z",
       "entities": {},
       "tools": {},
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -158,7 +158,7 @@
       "tools": {
         "Bash": 6
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     },
@@ -199,7 +199,7 @@
         "Bash": 2,
         "Write": 4
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "wrote"
     },
@@ -243,7 +243,7 @@
         "Bash": 8,
         "Write": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "wrote"
     },
@@ -280,7 +280,7 @@
         "Bash": 2,
         "Write": 4
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "wrote",
       "last_verb": "wrote"
     },
@@ -305,7 +305,7 @@
       "tools": {
         "Bash": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     },
@@ -324,7 +324,7 @@
       "ended_at": "2026-01-01T09:56:59.000Z",
       "entities": {},
       "tools": {},
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -343,7 +343,7 @@
       "ended_at": "2026-01-01T10:00:20.000Z",
       "entities": {},
       "tools": {},
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "explained",
       "last_verb": "explained"
     },
@@ -374,7 +374,7 @@
       "tools": {
         "Bash": 4
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     }

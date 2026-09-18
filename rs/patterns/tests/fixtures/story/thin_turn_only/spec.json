@@ -12,7 +12,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": false
+          "rich": false
         }
       ]
     }

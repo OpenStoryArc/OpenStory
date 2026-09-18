@@ -50,16 +50,16 @@
     "TurnSpec": {
       "description": "One assistant turn inside an exchange.",
       "properties": {
-        "has_sentence": {
-          "description": "Whether the turn is rich enough to produce a `turn.sentence`. `false` yields a thin turn (requirement A-04).",
-          "type": "boolean"
-        },
         "objects": {
           "description": "Objects the turn acts on; become entities in the expected output.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "rich": {
+          "description": "Whether the turn applies tools. `false` yields a thin turn: a text-only reply that contributes no entities or tools (A-04).",
+          "type": "boolean"
         },
         "tools": {
           "description": "Tool name and call count, in emission order.",
@@ -86,8 +86,8 @@
         }
       },
       "required": [
-        "has_sentence",
         "objects",
+        "rich",
         "tools",
         "verb"
       ],

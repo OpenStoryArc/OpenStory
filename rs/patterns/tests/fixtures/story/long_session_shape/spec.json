@@ -12,7 +12,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": false
+          "rich": false
         }
       ]
     },
@@ -32,7 +32,7 @@
               5
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -53,7 +53,7 @@
               4
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -73,7 +73,7 @@
               8
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -86,7 +86,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -106,7 +106,7 @@
               6
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -119,7 +119,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": false
+          "rich": false
         }
       ]
     },
@@ -132,7 +132,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": false
+          "rich": false
         }
       ]
     },
@@ -157,7 +157,7 @@
               2
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -170,7 +170,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": false
+          "rich": false
         }
       ]
     },
@@ -194,7 +194,7 @@
               1
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -219,7 +219,7 @@
               2
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -239,7 +239,7 @@
               1
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -252,7 +252,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -265,7 +265,7 @@
           "verb": "explained",
           "objects": [],
           "tools": [],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -285,7 +285,7 @@
               4
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     }

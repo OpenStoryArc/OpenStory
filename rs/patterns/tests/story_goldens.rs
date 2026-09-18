@@ -9,12 +9,12 @@ use open_story_patterns::golden::{
     generate, ExchangeKind, ExchangeSpec, GoldenSpec, PromptClass, TurnSpec,
 };
 
-fn turn(verb: &str, objects: &[&str], tools: &[(&str, u32)], has_sentence: bool) -> TurnSpec {
+fn turn(verb: &str, objects: &[&str], tools: &[(&str, u32)], rich: bool) -> TurnSpec {
     TurnSpec {
         verb: verb.to_string(),
         objects: objects.iter().map(|s| s.to_string()).collect(),
         tools: tools.iter().map(|(n, c)| (n.to_string(), *c)).collect(),
-        has_sentence,
+        rich,
     }
 }
 
@@ -236,7 +236,7 @@ mod when_expected_is_built {
             "injected turn's tools fold in"
         );
         assert_eq!(first.entities.get("src/lib.rs"), Some(&1));
-        assert_eq!(first.sentence_count, 2);
+        assert_eq!(first.rich_turns, 2);
         assert_eq!(expected.arcs.len(), 1);
         assert_eq!(
             expected.arcs[0].exchanges,

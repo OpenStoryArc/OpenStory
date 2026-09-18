@@ -17,7 +17,7 @@
       "ended_at": "2026-01-01T09:00:02.000Z",
       "entities": {},
       "tools": {},
-      "sentence_count": 0,
+      "rich_turns": 0,
       "first_verb": "explained",
       "last_verb": "explained"
     }

@@ -19,7 +19,7 @@
               1
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -39,7 +39,7 @@
               1
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -59,7 +59,7 @@
               2
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     },
@@ -79,7 +79,7 @@
               2
             ]
           ],
-          "has_sentence": true
+          "rich": true
         }
       ]
     }

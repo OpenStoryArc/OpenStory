@@ -27,7 +27,7 @@ fn example_spec() -> GoldenSpec {
                     verb: "read".to_string(),
                     objects: vec!["src/lib.rs".to_string()],
                     tools: vec![("Read".to_string(), 2)],
-                    has_sentence: true,
+                    rich: true,
                 }],
             },
             ExchangeSpec {
@@ -38,7 +38,7 @@ fn example_spec() -> GoldenSpec {
                     verb: "checked".to_string(),
                     objects: vec![],
                     tools: vec![("Bash".to_string(), 1)],
-                    has_sentence: false,
+                    rich: false,
                 }],
             },
         ],

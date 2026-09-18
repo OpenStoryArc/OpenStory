@@ -26,7 +26,7 @@
       "tools": {
         "Read": 2
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "read",
       "last_verb": "read"
     },
@@ -54,7 +54,7 @@
         "Bash": 1,
         "Edit": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "edited",
       "last_verb": "edited"
     },
@@ -83,7 +83,7 @@
       "tools": {
         "Bash": 3
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "ran tests",
       "last_verb": "ran tests"
     },
@@ -110,7 +110,7 @@
       "tools": {
         "Bash": 2
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "committed",
       "last_verb": "committed"
     }

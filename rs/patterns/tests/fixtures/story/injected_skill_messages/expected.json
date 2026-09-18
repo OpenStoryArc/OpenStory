@@ -34,7 +34,7 @@
         "Bash": 4,
         "Skill": 1
       },
-      "sentence_count": 2,
+      "rich_turns": 2,
       "first_verb": "read",
       "last_verb": "explained"
     },
@@ -65,7 +65,7 @@
         "Skill": 1,
         "Write": 2
       },
-      "sentence_count": 2,
+      "rich_turns": 2,
       "first_verb": "wrote",
       "last_verb": "wrote"
     },
@@ -90,7 +90,7 @@
       "tools": {
         "Bash": 1
       },
-      "sentence_count": 1,
+      "rich_turns": 1,
       "first_verb": "checked",
       "last_verb": "checked"
     }
