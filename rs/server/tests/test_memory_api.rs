@@ -152,3 +152,32 @@ mod when_a_memory_record_is_posted {
         assert!(body["id"].as_str().unwrap().contains(":final:"));
     }
 }
+
+mod when_a_memory_record_is_stored {
+    use super::*;
+    use open_story_server::broadcast::BroadcastMessage;
+
+    #[tokio::test]
+    async fn the_dashboard_is_told() {
+        let mut app = app_with(&["two_arcs_gap"]).await;
+        let arc = golden_expected("two_arcs_gap")["arcs"][0].clone();
+        let (status, body) = post(&app, json!({
+            "kind": "enrichment", "handle": arc["handle"], "session_id": "golden-two_arcs_gap", "author": author(),
+            "payload": { "handle": arc["handle"], "title": "t", "question": "q", "resolution": "r", "summary": "s", "author": author() }
+        })).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let msg = app.broadcast_rx.try_recv().expect("one broadcast message");
+        match msg {
+            BroadcastMessage::Memory { record } => {
+                assert_eq!(record.id, body["id"].as_str().unwrap());
+                assert_eq!(record.session_id, "golden-two_arcs_gap");
+            }
+            other => panic!("expected a Memory broadcast, got {other:?}"),
+        }
+        let wire = serde_json::to_value(BroadcastMessage::Memory {
+            record: serde_json::from_value(body.clone()).unwrap(),
+        })
+        .unwrap();
+        assert_eq!(wire["kind"], "memory", "wire tag the UI switches on");
+    }
+}

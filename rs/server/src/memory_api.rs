@@ -174,6 +174,16 @@ pub async fn post_memory(
         .await
         .map_err(|e| internal(format!("insert_memory: {e}")))?;
 
+    // Tell open dashboards (D-03). Best-effort: no subscriber is fine.
+    {
+        let s = state.read().await;
+        let _ = s
+            .broadcast_tx
+            .send(crate::broadcast::BroadcastMessage::Memory {
+                record: record.clone(),
+            });
+    }
+
     // Best-effort publish of the stored record: durable copy is already in the store.
     let subject = format!("memory.{}.{}", record.kind.as_str(), record.session_id);
     match serde_json::to_vec(&record) {

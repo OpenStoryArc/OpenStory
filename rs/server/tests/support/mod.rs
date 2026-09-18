@@ -17,10 +17,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, RwLock};
 
+/// (subject, payload) pairs a RecordingBus saw.
+pub type Published = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+
 /// A bus that records `publish_bytes` calls and does nothing else.
 #[derive(Default)]
 pub struct RecordingBus {
-    pub published: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    pub published: Published,
 }
 
 impl RecordingBus {
@@ -110,6 +113,7 @@ pub async fn seed_golden(store: &Arc<dyn EventStore>, name: &str) -> String {
 
 pub struct TestApp {
     pub router: Router,
+    pub broadcast_rx: broadcast::Receiver<open_story_server::broadcast::BroadcastMessage>,
     pub store: Arc<dyn EventStore>,
     pub bus: Arc<RecordingBus>,
     pub api_token: String,
@@ -126,7 +130,7 @@ pub async fn app_with(goldens: &[&str]) -> TestApp {
     for g in goldens {
         seed_golden(&store, g).await;
     }
-    let (broadcast_tx, _) = broadcast::channel(256);
+    let (broadcast_tx, broadcast_rx) = broadcast::channel(256);
     let mut config = Config::default();
     config.api_token = "api-secret".to_string();
     config.admin_token = "admin-secret".to_string();
@@ -163,6 +167,7 @@ pub async fn app_with(goldens: &[&str]) -> TestApp {
     }));
     TestApp {
         router: build_router(state, None, &config),
+        broadcast_rx,
         store,
         bus,
         api_token: "api-secret".into(),
