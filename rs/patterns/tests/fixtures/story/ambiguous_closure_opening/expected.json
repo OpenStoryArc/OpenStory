@@ -1,0 +1,169 @@
+{
+  "session_id": "golden-ambiguous_closure_opening",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "b33566140671596f",
+      "event_range": [
+        0,
+        5
+      ],
+      "event_ids": [
+        "d428fc50-de73-5420-bc6b-9420bdac6e46",
+        "7f23accd-5775-5739-95e2-8acffe602685",
+        "6b83ebd7-cc0c-5f25-860d-3a667b470c93",
+        "f472732f-f775-5552-87b3-20ce005e0e58",
+        "6ada2f4b-4cdc-57fa-b147-4d41eb1e423c"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:04.000Z",
+      "entities": {
+        "src/a.rs": 1
+      },
+      "tools": {
+        "Edit": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "edited",
+      "last_verb": "edited"
+    },
+    {
+      "handle": "7369e58ae099596a",
+      "event_range": [
+        5,
+        10
+      ],
+      "event_ids": [
+        "fa0f13c9-bc73-5553-957a-0f21a879215d",
+        "689da4a5-ec2c-5f38-956a-cbc6bdf2ef54",
+        "86399f64-a64e-5f45-93a7-b4faeaa6acd4",
+        "bac098f9-941e-5eac-a1ab-e79a38bf0a8f",
+        "2517d1dc-9c81-55d9-8493-9fb82e261168"
+      ],
+      "started_at": "2026-01-01T09:00:25.000Z",
+      "ended_at": "2026-01-01T09:00:29.000Z",
+      "entities": {
+        "src/a.rs": 1
+      },
+      "tools": {
+        "Bash": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "committed",
+      "last_verb": "committed"
+    },
+    {
+      "handle": "84bb31f270ec5523",
+      "event_range": [
+        10,
+        19
+      ],
+      "event_ids": [
+        "2d29bd15-9e3b-5a7c-9478-802b01d830c2",
+        "36a41167-6be1-58ae-b42c-d540f37ecf5f",
+        "5460762f-e4d4-5b25-bf3c-9291f2220cb9",
+        "9103d4dd-8ac5-590f-ae1e-e8a74e68403f",
+        "6243b429-38d8-50df-8fbc-94efdef4c0d7",
+        "63286098-6d4e-55fb-a418-95f8d4ab7ad0",
+        "0860c7fc-e9b4-58a3-8330-bb24d826234e",
+        "8adc001e-a38c-5e24-8198-90ce24dd55be",
+        "60d67ae4-2bbf-54ec-a09b-973b865ce4bc"
+      ],
+      "started_at": "2026-01-01T09:02:00.000Z",
+      "ended_at": "2026-01-01T09:02:08.000Z",
+      "entities": {
+        "docs/next.md": 1
+      },
+      "tools": {
+        "Glob": 2,
+        "Read": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "explored",
+      "last_verb": "explored"
+    },
+    {
+      "handle": "6351a605e0ca58c1",
+      "event_range": [
+        19,
+        24
+      ],
+      "event_ids": [
+        "9779dfdf-3044-5ba2-9456-70c77cb9036a",
+        "98c18c7d-582c-5bc8-9f18-f5c01dde9620",
+        "daf56ea3-343f-5054-8b2a-4152515ab05b",
+        "935ecf1e-0ee4-566c-95b8-26bf0c9069a8",
+        "f26c4755-41a8-59c7-a5d5-8c1a6353f281"
+      ],
+      "started_at": "2026-01-01T09:02:49.000Z",
+      "ended_at": "2026-01-01T09:02:53.000Z",
+      "entities": {
+        "docs/next.md": 1
+      },
+      "tools": {
+        "Write": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "wrote",
+      "last_verb": "wrote"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "b4aad70f0be459ac",
+      "exchange_range": [
+        0,
+        4
+      ],
+      "exchanges": [
+        "b33566140671596f",
+        "7369e58ae099596a",
+        "84bb31f270ec5523",
+        "6351a605e0ca58c1"
+      ],
+      "event_ids": [
+        "d428fc50-de73-5420-bc6b-9420bdac6e46",
+        "7f23accd-5775-5739-95e2-8acffe602685",
+        "6b83ebd7-cc0c-5f25-860d-3a667b470c93",
+        "f472732f-f775-5552-87b3-20ce005e0e58",
+        "6ada2f4b-4cdc-57fa-b147-4d41eb1e423c",
+        "fa0f13c9-bc73-5553-957a-0f21a879215d",
+        "689da4a5-ec2c-5f38-956a-cbc6bdf2ef54",
+        "86399f64-a64e-5f45-93a7-b4faeaa6acd4",
+        "bac098f9-941e-5eac-a1ab-e79a38bf0a8f",
+        "2517d1dc-9c81-55d9-8493-9fb82e261168",
+        "2d29bd15-9e3b-5a7c-9478-802b01d830c2",
+        "36a41167-6be1-58ae-b42c-d540f37ecf5f",
+        "5460762f-e4d4-5b25-bf3c-9291f2220cb9",
+        "9103d4dd-8ac5-590f-ae1e-e8a74e68403f",
+        "6243b429-38d8-50df-8fbc-94efdef4c0d7",
+        "63286098-6d4e-55fb-a418-95f8d4ab7ad0",
+        "0860c7fc-e9b4-58a3-8330-bb24d826234e",
+        "8adc001e-a38c-5e24-8198-90ce24dd55be",
+        "60d67ae4-2bbf-54ec-a09b-973b865ce4bc",
+        "9779dfdf-3044-5ba2-9456-70c77cb9036a",
+        "98c18c7d-582c-5bc8-9f18-f5c01dde9620",
+        "daf56ea3-343f-5054-8b2a-4152515ab05b",
+        "935ecf1e-0ee4-566c-95b8-26bf0c9069a8",
+        "f26c4755-41a8-59c7-a5d5-8c1a6353f281"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:02:53.000Z",
+      "entities": {
+        "docs/next.md": 2,
+        "src/a.rs": 2
+      },
+      "tools": {
+        "Bash": 1,
+        "Edit": 1,
+        "Glob": 2,
+        "Read": 1,
+        "Write": 1
+      },
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": [
+        2
+      ]
+    }
+  ]
+}

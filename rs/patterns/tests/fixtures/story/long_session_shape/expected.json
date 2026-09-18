@@ -1,0 +1,569 @@
+{
+  "session_id": "golden-long_session_shape",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "0530fdfdf7c8547c",
+      "event_range": [
+        0,
+        15
+      ],
+      "event_ids": [
+        "8789e2a9-8604-53a9-aabc-e83b3e01e792",
+        "618fd058-e155-575b-bf78-c9a09a9250a0",
+        "2882b5fc-434f-57b7-b635-8645b1ac8ed6",
+        "fa3fcecc-80f8-51fb-b673-03c96c42474d",
+        "b6a64d4f-fde5-5b14-ac4a-d988cd6ca4a1",
+        "f4ab2732-b595-5804-9a47-65abfe692e3e",
+        "3870032c-1d79-5185-aaf7-68ffdb22c6a4",
+        "7676c330-965b-55cf-9564-600ecea22573",
+        "5286fa69-de4b-525d-b0ca-cd7a5626772d",
+        "95b5d32e-4f4f-511b-9e81-a870a6272b46",
+        "4c0ef6e3-dda5-5712-abcd-b7f0cc040721",
+        "12a3281f-c4ba-5d59-b9bb-d86d3a87704d",
+        "567865ae-6181-5b89-ac58-1e97ac6832b4",
+        "17b10571-2a8f-573d-9485-ff8f18220f06",
+        "77d8cc48-d1f1-5fa1-877e-2fc5921a3ec6"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:18.000Z",
+      "entities": {
+        "notes/a.md": 1
+      },
+      "tools": {
+        "Bash": 5
+      },
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "5f823039ea3f5df8",
+      "event_range": [
+        15,
+        26
+      ],
+      "event_ids": [
+        "94fad27c-684f-5400-bf6f-d0f995e0c47f",
+        "0d3247e9-8203-5ef7-9da3-64a55dc29170",
+        "9fbb785e-5e61-5e9d-9df5-9d70f22b7a5e",
+        "af2a8afc-3c9b-56b7-ac08-4f51c84e8311",
+        "ff856981-ee55-5009-b0e3-d89b69f10ae9",
+        "1f87da47-4ca4-52f4-9212-0a5d0cff90ff",
+        "e9fc4ab7-0636-5a0e-b5a6-52aba2e251c6",
+        "8f4eed54-ca88-532c-8a87-edd8a27a3564",
+        "35ef98c9-a220-5ab1-ae71-4ff04fbd975b",
+        "42e82177-33d4-5c68-acf5-090f0f262b72",
+        "3becabdf-3eb6-58a9-89e6-46a497908b59"
+      ],
+      "started_at": "2026-01-01T09:02:37.000Z",
+      "ended_at": "2026-01-01T09:02:47.000Z",
+      "entities": {
+        "notes/a.md": 1,
+        "scripts/x.py": 1
+      },
+      "tools": {
+        "Bash": 4
+      },
+      "sentence_count": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "3adf52143bad51dc",
+      "event_range": [
+        26,
+        45
+      ],
+      "event_ids": [
+        "f1c77f05-abd1-587b-a114-d26d26664d3c",
+        "0c41a3ea-235e-5772-83f8-91f56f44323a",
+        "d8d63391-9c4f-5d45-8e60-09a03ecd385f",
+        "d58f666b-899d-52e2-a66a-768eea2f04db",
+        "eb4db565-a3dd-545f-be5f-fa5692b08b56",
+        "ffae3d18-916d-5b0a-8759-3c00ba757764",
+        "e3844f13-4570-5b9d-8168-3f0b50d3b458",
+        "d6c4bd7e-27cf-5047-b445-0cc232b62310",
+        "c8f25ab4-5429-5a1c-9be6-2488e9e203a1",
+        "f0f92ed5-d383-5234-8bef-67092f431774",
+        "37080622-1c65-5bff-adf9-109f4a27b133",
+        "7076d673-dbdd-5496-b994-e4690bf876af",
+        "ccca07e2-2f49-5dac-a668-f02db2eec780",
+        "7de5d6dc-8966-5903-b656-35156944bdf1",
+        "5ceac603-6bb3-54be-853d-54eb8c581ef9",
+        "d0748aab-f716-5d81-83f3-178fb5c0b785",
+        "08d2c50a-74c6-5b1c-892c-1eda5d00ccd6",
+        "b39f3114-c9ce-59e8-8f89-15453a5e89d0",
+        "7791f6aa-02b4-5fd5-9310-80286d0bd52c"
+      ],
+      "started_at": "2026-01-01T09:05:18.000Z",
+      "ended_at": "2026-01-01T09:05:36.000Z",
+      "entities": {
+        "notes/b.md": 1
+      },
+      "tools": {
+        "Bash": 8
+      },
+      "sentence_count": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "f4ccac7c69f05a1b",
+      "event_range": [
+        45,
+        48
+      ],
+      "event_ids": [
+        "c054cb67-20b6-5386-8515-101668f2236b",
+        "7ed13396-4232-5364-878f-42b7d1070284",
+        "b1c16cf3-624e-5818-ade8-5b7a81f3af14"
+      ],
+      "started_at": "2026-01-01T09:10:55.000Z",
+      "ended_at": "2026-01-01T09:10:57.000Z",
+      "entities": {},
+      "tools": {},
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "explained"
+    },
+    {
+      "handle": "bd58c25e94825d84",
+      "event_range": [
+        48,
+        63
+      ],
+      "event_ids": [
+        "6e892288-be0d-5aac-8cf6-19172e93e9b3",
+        "aaf7d038-bf9e-50e1-bc43-2c9d8158c736",
+        "4effc667-5f39-5ca9-8c47-64e29c7f14cb",
+        "b512444f-2c22-5c58-879b-a8948ecd4562",
+        "d3e98f3a-6dd1-5476-943c-1a221f8251e7",
+        "efa7ecce-11bb-5384-93b0-1af74e50b7d8",
+        "10b3cc36-173d-536d-8b49-da24d873155d",
+        "1a64a494-819b-5603-aac8-a125419976b7",
+        "3d3c4451-e74b-595e-a2c6-66c6ba7b2904",
+        "f8c44b7c-47ae-5ff0-a895-138ea00a5be6",
+        "d13293d1-a716-57f1-87a0-0257f34e090a",
+        "725026dd-b8c1-5ce6-8856-3abb0df86213",
+        "49e716b4-1d46-5f85-a37e-804094e6628b",
+        "726a55e5-583d-5307-9f19-8f9f9faceb0e",
+        "05e1d36f-6458-5d29-a9a4-58765c4474dc"
+      ],
+      "started_at": "2026-01-01T09:11:46.000Z",
+      "ended_at": "2026-01-01T09:12:00.000Z",
+      "entities": {
+        "docs/c.md": 1
+      },
+      "tools": {
+        "Bash": 6
+      },
+      "sentence_count": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "3fa74ca456875a7c",
+      "event_range": [
+        63,
+        82
+      ],
+      "event_ids": [
+        "583800a1-db5e-56fe-9bcf-763b629f78e8",
+        "3c3fb875-7eb0-5516-8277-b180a9e9784e",
+        "6e5fd49c-841f-53d9-9a84-d275354f9759",
+        "2f3c1dea-b82f-5f6c-8c9e-519855968edf",
+        "b727cbc0-a5d1-5c2b-8570-e7b1af1c1742",
+        "b054a4d3-e89a-58ae-8c5d-ef18a7c1e545",
+        "7e33359c-3b24-5c3e-94f4-30d6e60297dc",
+        "383d6170-5aee-5952-be55-afa7d512a8b2",
+        "0e88f250-3e46-5243-a68c-4f9a3cbabc65",
+        "07e94606-9af0-52d2-b103-1a798088d841",
+        "dacd57fb-5513-5549-9358-e0ad7faf1d5c",
+        "c0b89bcc-2702-502e-8216-c922262cc167",
+        "1a2436cf-49cc-5899-93b6-ede1264f2705",
+        "4751d9c9-5b30-538a-a833-182120ec64a1",
+        "cea989d3-5706-51f2-9e2b-86b49d408fa2",
+        "ff1d07b3-d615-5a16-8adf-cdd6c277a663",
+        "82ef1847-048c-59d5-ba68-b94de8d97ce0",
+        "3f40c18b-f796-55aa-a6d3-a3cf210f49c6",
+        "eeddf029-257d-599f-838c-6630b9e202c1"
+      ],
+      "started_at": "2026-01-01T09:26:19.000Z",
+      "ended_at": "2026-01-01T09:26:37.000Z",
+      "entities": {
+        "notes/d.md": 1,
+        "out/page.html": 1
+      },
+      "tools": {
+        "Bash": 2,
+        "Write": 4
+      },
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "wrote"
+    },
+    {
+      "handle": "1b65a5c594e45b22",
+      "event_range": [
+        82,
+        105
+      ],
+      "event_ids": [
+        "3dd18cf5-3d5e-5469-a52f-71bcae28f20a",
+        "5a542c70-34bb-51fc-86c1-3228c067be88",
+        "3b14bbcb-83bb-5635-a8b9-ef6cc2e64fc5",
+        "c60b45d4-d4bf-5ba0-8f72-4bab4e88142c",
+        "bcd0c75c-8b48-5262-af18-44cde472cdca",
+        "9c33d470-9a7d-5750-9c4b-bdc81d7784b0",
+        "27ca28a1-5474-55cd-a69b-e22371cdebbc",
+        "74666864-2aa6-5ae7-9733-5259065ed7c7",
+        "35b33c0b-1bfa-56ed-b6e6-be7087cae718",
+        "60d5937d-4c17-54d9-bcad-7ed65caccf7a",
+        "b5f1a7bc-18e8-5464-a281-33925b9cfe42",
+        "c9fb1b1d-1a5a-514f-851c-f1ad3faaf418",
+        "9afa444a-0fa8-5a0f-a546-2aa1e6160563",
+        "c7f38b1d-a521-51a8-9f21-3a3ee3344618",
+        "690eec66-93ba-52e5-b320-bac16b9fc2a8",
+        "c5955852-dfa5-5018-b7dd-25fa90c37e0e",
+        "af83f4c4-da9d-5d17-9406-9fe5082ecf4c",
+        "b47af968-49f8-5fe6-b637-d566875717bd",
+        "375eb80c-b057-52dd-9ae8-9c67c4ed51d8",
+        "a0ddd8f4-4d09-523a-b41d-b00d055ef225",
+        "f6055da9-c6fa-5862-a7e8-621c0642de6c",
+        "b7ee47f3-0dc6-533a-8ae4-9e281940ca69",
+        "f15d2b89-09aa-5239-aaf1-c03fcbc6a722"
+      ],
+      "started_at": "2026-01-01T09:32:08.000Z",
+      "ended_at": "2026-01-01T09:32:30.000Z",
+      "entities": {
+        "notes/e.md": 1
+      },
+      "tools": {
+        "Bash": 8,
+        "Write": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "wrote"
+    },
+    {
+      "handle": "6b1edd13970d502a",
+      "event_range": [
+        105,
+        120
+      ],
+      "event_ids": [
+        "ae2f0f0e-b541-5181-a9cf-6dbc3af278e6",
+        "a90b14ac-d4a0-5122-b8ea-49d2558e6aca",
+        "f8173a03-fe0a-5ffc-b9e3-67edb385aee6",
+        "466882e1-6382-58f1-9868-25429f36d0a7",
+        "2a4531f5-922f-586a-8bcf-0c6a35e8d312",
+        "2139e2ce-628d-508f-94d6-6eda851771a1",
+        "ea0feae3-a988-5a2f-aba5-71d7f00c9bc0",
+        "4cee3e61-21a5-554d-b551-bd645875fe64",
+        "3ba24e62-eba0-5164-990f-ab909dc5f914",
+        "c97680f5-b61b-5034-9f1a-7071af3db305",
+        "1340ff81-5678-5e98-9e03-3c6f0c725693",
+        "48716e66-f2af-56d3-8f99-e901cfd0801e",
+        "d0ae678f-ce9a-5ea5-9f4b-ce3bf65087b4",
+        "b7e881e3-29f1-5bbd-8f04-3fd4bf7684ed",
+        "122aa4ea-c976-5358-9328-30a21c623dda"
+      ],
+      "started_at": "2026-01-01T09:41:01.000Z",
+      "ended_at": "2026-01-01T09:41:15.000Z",
+      "entities": {
+        "notes/f.md": 1,
+        "notes/g.md": 1
+      },
+      "tools": {
+        "Bash": 2,
+        "Write": 4
+      },
+      "sentence_count": 1,
+      "first_verb": "wrote",
+      "last_verb": "wrote"
+    },
+    {
+      "handle": "30621e60e32a5a0c",
+      "event_range": [
+        120,
+        125
+      ],
+      "event_ids": [
+        "2e47f08e-2ef6-5116-ac5c-f692c9a68fab",
+        "acc814d2-90bc-517e-b9ca-d29f2cd34843",
+        "f26a3488-df4c-5096-8f12-b707670acc11",
+        "80f209bd-a0f9-52be-8818-66da6eadd46d",
+        "60b35123-661e-5527-a446-6c630329412c"
+      ],
+      "started_at": "2026-01-01T09:53:58.000Z",
+      "ended_at": "2026-01-01T09:54:02.000Z",
+      "entities": {
+        "notes/f.md": 1
+      },
+      "tools": {
+        "Bash": 1
+      },
+      "sentence_count": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "43f874d91eeb5f54",
+      "event_range": [
+        125,
+        128
+      ],
+      "event_ids": [
+        "a59fc497-29ad-5c9c-baaa-50279f6bdee6",
+        "1057a0bf-4b1d-56b4-8990-e70c5cd7ce9a",
+        "a31da2ee-976d-5d36-856b-0a5d690c1932"
+      ],
+      "started_at": "2026-01-01T09:56:57.000Z",
+      "ended_at": "2026-01-01T09:56:59.000Z",
+      "entities": {},
+      "tools": {},
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "explained"
+    },
+    {
+      "handle": "5c928d90d6725460",
+      "event_range": [
+        128,
+        131
+      ],
+      "event_ids": [
+        "35c6bdad-4989-5b34-aea4-5a3e4f7427a5",
+        "32aeaafb-6f1a-5d44-8a90-a1f12b2ae844",
+        "ba880a54-7e28-5072-823f-4bd947b5f7b2"
+      ],
+      "started_at": "2026-01-01T10:00:18.000Z",
+      "ended_at": "2026-01-01T10:00:20.000Z",
+      "entities": {},
+      "tools": {},
+      "sentence_count": 1,
+      "first_verb": "explained",
+      "last_verb": "explained"
+    },
+    {
+      "handle": "4f49275010fd536d",
+      "event_range": [
+        131,
+        142
+      ],
+      "event_ids": [
+        "01aca638-5b21-5311-b4e3-43af5efbdbf9",
+        "200e990d-5e8d-511c-a4fb-c5d80424b7cf",
+        "14fdf4bd-129e-5f74-9d18-2027089095b0",
+        "5fe97729-6d63-593a-995c-09bd2c2bede3",
+        "3fe3f435-ac81-5122-852f-46cdf7aff8bd",
+        "b8989ee8-4ad0-5c0c-b643-82bf60edd96c",
+        "64e82250-e0ef-57aa-9bc5-c6904ce1c3bd",
+        "f71d1c39-54e0-5334-bdb8-35d8e666f569",
+        "2e31e195-7ef9-5d98-a696-c3d6cd17e945",
+        "d26cae49-cc61-5111-b037-b0095b65d48f",
+        "f7866e8d-7083-5cd6-834d-52354bb08959"
+      ],
+      "started_at": "2026-01-01T10:02:09.000Z",
+      "ended_at": "2026-01-01T10:02:19.000Z",
+      "entities": {
+        "scripts/y.py": 1
+      },
+      "tools": {
+        "Bash": 4
+      },
+      "sentence_count": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "bf752a940ada5966",
+      "exchange_range": [
+        0,
+        12
+      ],
+      "exchanges": [
+        "0530fdfdf7c8547c",
+        "5f823039ea3f5df8",
+        "3adf52143bad51dc",
+        "f4ccac7c69f05a1b",
+        "bd58c25e94825d84",
+        "3fa74ca456875a7c",
+        "1b65a5c594e45b22",
+        "6b1edd13970d502a",
+        "30621e60e32a5a0c",
+        "43f874d91eeb5f54",
+        "5c928d90d6725460",
+        "4f49275010fd536d"
+      ],
+      "event_ids": [
+        "8789e2a9-8604-53a9-aabc-e83b3e01e792",
+        "618fd058-e155-575b-bf78-c9a09a9250a0",
+        "2882b5fc-434f-57b7-b635-8645b1ac8ed6",
+        "fa3fcecc-80f8-51fb-b673-03c96c42474d",
+        "b6a64d4f-fde5-5b14-ac4a-d988cd6ca4a1",
+        "f4ab2732-b595-5804-9a47-65abfe692e3e",
+        "3870032c-1d79-5185-aaf7-68ffdb22c6a4",
+        "7676c330-965b-55cf-9564-600ecea22573",
+        "5286fa69-de4b-525d-b0ca-cd7a5626772d",
+        "95b5d32e-4f4f-511b-9e81-a870a6272b46",
+        "4c0ef6e3-dda5-5712-abcd-b7f0cc040721",
+        "12a3281f-c4ba-5d59-b9bb-d86d3a87704d",
+        "567865ae-6181-5b89-ac58-1e97ac6832b4",
+        "17b10571-2a8f-573d-9485-ff8f18220f06",
+        "77d8cc48-d1f1-5fa1-877e-2fc5921a3ec6",
+        "94fad27c-684f-5400-bf6f-d0f995e0c47f",
+        "0d3247e9-8203-5ef7-9da3-64a55dc29170",
+        "9fbb785e-5e61-5e9d-9df5-9d70f22b7a5e",
+        "af2a8afc-3c9b-56b7-ac08-4f51c84e8311",
+        "ff856981-ee55-5009-b0e3-d89b69f10ae9",
+        "1f87da47-4ca4-52f4-9212-0a5d0cff90ff",
+        "e9fc4ab7-0636-5a0e-b5a6-52aba2e251c6",
+        "8f4eed54-ca88-532c-8a87-edd8a27a3564",
+        "35ef98c9-a220-5ab1-ae71-4ff04fbd975b",
+        "42e82177-33d4-5c68-acf5-090f0f262b72",
+        "3becabdf-3eb6-58a9-89e6-46a497908b59",
+        "f1c77f05-abd1-587b-a114-d26d26664d3c",
+        "0c41a3ea-235e-5772-83f8-91f56f44323a",
+        "d8d63391-9c4f-5d45-8e60-09a03ecd385f",
+        "d58f666b-899d-52e2-a66a-768eea2f04db",
+        "eb4db565-a3dd-545f-be5f-fa5692b08b56",
+        "ffae3d18-916d-5b0a-8759-3c00ba757764",
+        "e3844f13-4570-5b9d-8168-3f0b50d3b458",
+        "d6c4bd7e-27cf-5047-b445-0cc232b62310",
+        "c8f25ab4-5429-5a1c-9be6-2488e9e203a1",
+        "f0f92ed5-d383-5234-8bef-67092f431774",
+        "37080622-1c65-5bff-adf9-109f4a27b133",
+        "7076d673-dbdd-5496-b994-e4690bf876af",
+        "ccca07e2-2f49-5dac-a668-f02db2eec780",
+        "7de5d6dc-8966-5903-b656-35156944bdf1",
+        "5ceac603-6bb3-54be-853d-54eb8c581ef9",
+        "d0748aab-f716-5d81-83f3-178fb5c0b785",
+        "08d2c50a-74c6-5b1c-892c-1eda5d00ccd6",
+        "b39f3114-c9ce-59e8-8f89-15453a5e89d0",
+        "7791f6aa-02b4-5fd5-9310-80286d0bd52c",
+        "c054cb67-20b6-5386-8515-101668f2236b",
+        "7ed13396-4232-5364-878f-42b7d1070284",
+        "b1c16cf3-624e-5818-ade8-5b7a81f3af14",
+        "6e892288-be0d-5aac-8cf6-19172e93e9b3",
+        "aaf7d038-bf9e-50e1-bc43-2c9d8158c736",
+        "4effc667-5f39-5ca9-8c47-64e29c7f14cb",
+        "b512444f-2c22-5c58-879b-a8948ecd4562",
+        "d3e98f3a-6dd1-5476-943c-1a221f8251e7",
+        "efa7ecce-11bb-5384-93b0-1af74e50b7d8",
+        "10b3cc36-173d-536d-8b49-da24d873155d",
+        "1a64a494-819b-5603-aac8-a125419976b7",
+        "3d3c4451-e74b-595e-a2c6-66c6ba7b2904",
+        "f8c44b7c-47ae-5ff0-a895-138ea00a5be6",
+        "d13293d1-a716-57f1-87a0-0257f34e090a",
+        "725026dd-b8c1-5ce6-8856-3abb0df86213",
+        "49e716b4-1d46-5f85-a37e-804094e6628b",
+        "726a55e5-583d-5307-9f19-8f9f9faceb0e",
+        "05e1d36f-6458-5d29-a9a4-58765c4474dc",
+        "583800a1-db5e-56fe-9bcf-763b629f78e8",
+        "3c3fb875-7eb0-5516-8277-b180a9e9784e",
+        "6e5fd49c-841f-53d9-9a84-d275354f9759",
+        "2f3c1dea-b82f-5f6c-8c9e-519855968edf",
+        "b727cbc0-a5d1-5c2b-8570-e7b1af1c1742",
+        "b054a4d3-e89a-58ae-8c5d-ef18a7c1e545",
+        "7e33359c-3b24-5c3e-94f4-30d6e60297dc",
+        "383d6170-5aee-5952-be55-afa7d512a8b2",
+        "0e88f250-3e46-5243-a68c-4f9a3cbabc65",
+        "07e94606-9af0-52d2-b103-1a798088d841",
+        "dacd57fb-5513-5549-9358-e0ad7faf1d5c",
+        "c0b89bcc-2702-502e-8216-c922262cc167",
+        "1a2436cf-49cc-5899-93b6-ede1264f2705",
+        "4751d9c9-5b30-538a-a833-182120ec64a1",
+        "cea989d3-5706-51f2-9e2b-86b49d408fa2",
+        "ff1d07b3-d615-5a16-8adf-cdd6c277a663",
+        "82ef1847-048c-59d5-ba68-b94de8d97ce0",
+        "3f40c18b-f796-55aa-a6d3-a3cf210f49c6",
+        "eeddf029-257d-599f-838c-6630b9e202c1",
+        "3dd18cf5-3d5e-5469-a52f-71bcae28f20a",
+        "5a542c70-34bb-51fc-86c1-3228c067be88",
+        "3b14bbcb-83bb-5635-a8b9-ef6cc2e64fc5",
+        "c60b45d4-d4bf-5ba0-8f72-4bab4e88142c",
+        "bcd0c75c-8b48-5262-af18-44cde472cdca",
+        "9c33d470-9a7d-5750-9c4b-bdc81d7784b0",
+        "27ca28a1-5474-55cd-a69b-e22371cdebbc",
+        "74666864-2aa6-5ae7-9733-5259065ed7c7",
+        "35b33c0b-1bfa-56ed-b6e6-be7087cae718",
+        "60d5937d-4c17-54d9-bcad-7ed65caccf7a",
+        "b5f1a7bc-18e8-5464-a281-33925b9cfe42",
+        "c9fb1b1d-1a5a-514f-851c-f1ad3faaf418",
+        "9afa444a-0fa8-5a0f-a546-2aa1e6160563",
+        "c7f38b1d-a521-51a8-9f21-3a3ee3344618",
+        "690eec66-93ba-52e5-b320-bac16b9fc2a8",
+        "c5955852-dfa5-5018-b7dd-25fa90c37e0e",
+        "af83f4c4-da9d-5d17-9406-9fe5082ecf4c",
+        "b47af968-49f8-5fe6-b637-d566875717bd",
+        "375eb80c-b057-52dd-9ae8-9c67c4ed51d8",
+        "a0ddd8f4-4d09-523a-b41d-b00d055ef225",
+        "f6055da9-c6fa-5862-a7e8-621c0642de6c",
+        "b7ee47f3-0dc6-533a-8ae4-9e281940ca69",
+        "f15d2b89-09aa-5239-aaf1-c03fcbc6a722",
+        "ae2f0f0e-b541-5181-a9cf-6dbc3af278e6",
+        "a90b14ac-d4a0-5122-b8ea-49d2558e6aca",
+        "f8173a03-fe0a-5ffc-b9e3-67edb385aee6",
+        "466882e1-6382-58f1-9868-25429f36d0a7",
+        "2a4531f5-922f-586a-8bcf-0c6a35e8d312",
+        "2139e2ce-628d-508f-94d6-6eda851771a1",
+        "ea0feae3-a988-5a2f-aba5-71d7f00c9bc0",
+        "4cee3e61-21a5-554d-b551-bd645875fe64",
+        "3ba24e62-eba0-5164-990f-ab909dc5f914",
+        "c97680f5-b61b-5034-9f1a-7071af3db305",
+        "1340ff81-5678-5e98-9e03-3c6f0c725693",
+        "48716e66-f2af-56d3-8f99-e901cfd0801e",
+        "d0ae678f-ce9a-5ea5-9f4b-ce3bf65087b4",
+        "b7e881e3-29f1-5bbd-8f04-3fd4bf7684ed",
+        "122aa4ea-c976-5358-9328-30a21c623dda",
+        "2e47f08e-2ef6-5116-ac5c-f692c9a68fab",
+        "acc814d2-90bc-517e-b9ca-d29f2cd34843",
+        "f26a3488-df4c-5096-8f12-b707670acc11",
+        "80f209bd-a0f9-52be-8818-66da6eadd46d",
+        "60b35123-661e-5527-a446-6c630329412c",
+        "a59fc497-29ad-5c9c-baaa-50279f6bdee6",
+        "1057a0bf-4b1d-56b4-8990-e70c5cd7ce9a",
+        "a31da2ee-976d-5d36-856b-0a5d690c1932",
+        "35c6bdad-4989-5b34-aea4-5a3e4f7427a5",
+        "32aeaafb-6f1a-5d44-8a90-a1f12b2ae844",
+        "ba880a54-7e28-5072-823f-4bd947b5f7b2",
+        "01aca638-5b21-5311-b4e3-43af5efbdbf9",
+        "200e990d-5e8d-511c-a4fb-c5d80424b7cf",
+        "14fdf4bd-129e-5f74-9d18-2027089095b0",
+        "5fe97729-6d63-593a-995c-09bd2c2bede3",
+        "3fe3f435-ac81-5122-852f-46cdf7aff8bd",
+        "b8989ee8-4ad0-5c0c-b643-82bf60edd96c",
+        "64e82250-e0ef-57aa-9bc5-c6904ce1c3bd",
+        "f71d1c39-54e0-5334-bdb8-35d8e666f569",
+        "2e31e195-7ef9-5d98-a696-c3d6cd17e945",
+        "d26cae49-cc61-5111-b037-b0095b65d48f",
+        "f7866e8d-7083-5cd6-834d-52354bb08959"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T10:02:19.000Z",
+      "entities": {
+        "docs/c.md": 1,
+        "notes/a.md": 2,
+        "notes/b.md": 1,
+        "notes/d.md": 1,
+        "notes/e.md": 1,
+        "notes/f.md": 2,
+        "notes/g.md": 1,
+        "out/page.html": 1,
+        "scripts/x.py": 1,
+        "scripts/y.py": 1
+      },
+      "tools": {
+        "Bash": 40,
+        "Write": 9
+      },
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": []
+    }
+  ]
+}

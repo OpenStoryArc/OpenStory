@@ -1,0 +1,48 @@
+{
+  "session_id": "golden-thin_turn_only",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "81b5734280995761",
+      "event_range": [
+        0,
+        3
+      ],
+      "event_ids": [
+        "7d1f0406-18c0-5594-bd1c-ff0967d59682",
+        "1e997d51-fa0b-51a3-a215-19848c064ccc",
+        "4cfd7bdc-8a17-57b1-97cf-5c7fbc74a8a0"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:02.000Z",
+      "entities": {},
+      "tools": {},
+      "sentence_count": 0,
+      "first_verb": "explained",
+      "last_verb": "explained"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "81b5734280995761",
+      "exchange_range": [
+        0,
+        1
+      ],
+      "exchanges": [
+        "81b5734280995761"
+      ],
+      "event_ids": [
+        "7d1f0406-18c0-5594-bd1c-ff0967d59682",
+        "1e997d51-fa0b-51a3-a215-19848c064ccc",
+        "4cfd7bdc-8a17-57b1-97cf-5c7fbc74a8a0"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:02.000Z",
+      "entities": {},
+      "tools": {},
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": []
+    }
+  ]
+}

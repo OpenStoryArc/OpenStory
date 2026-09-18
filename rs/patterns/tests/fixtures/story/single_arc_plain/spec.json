@@ -1,0 +1,92 @@
+{
+  "session_id": "golden-single_arc_plain",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "read",
+          "objects": [
+            "src/lib.rs",
+            "src/main.rs"
+          ],
+          "tools": [
+            [
+              "Read",
+              2
+            ]
+          ],
+          "has_sentence": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 45,
+      "turns": [
+        {
+          "verb": "edited",
+          "objects": [
+            "src/lib.rs"
+          ],
+          "tools": [
+            [
+              "Edit",
+              1
+            ],
+            [
+              "Bash",
+              1
+            ]
+          ],
+          "has_sentence": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 120,
+      "turns": [
+        {
+          "verb": "ran tests",
+          "objects": [
+            "tests/lib.rs"
+          ],
+          "tools": [
+            [
+              "Bash",
+              3
+            ]
+          ],
+          "has_sentence": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 30,
+      "turns": [
+        {
+          "verb": "committed",
+          "objects": [
+            "src/lib.rs"
+          ],
+          "tools": [
+            [
+              "Bash",
+              2
+            ]
+          ],
+          "has_sentence": true
+        }
+      ]
+    }
+  ]
+}
