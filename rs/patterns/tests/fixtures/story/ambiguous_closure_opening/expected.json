@@ -3,7 +3,7 @@
   "gap_threshold_secs": 1800,
   "exchanges": [
     {
-      "handle": "b33566140671596f",
+      "handle": "1a0635bb4a815713",
       "event_range": [
         0,
         5
@@ -28,7 +28,7 @@
       "last_verb": "edited"
     },
     {
-      "handle": "7369e58ae099596a",
+      "handle": "108f6f62359f5231",
       "event_range": [
         5,
         10
@@ -51,7 +51,7 @@
       "last_verb": "committed"
     },
     {
-      "handle": "84bb31f270ec5523",
+      "handle": "fe4bdf7614ff5c35",
       "event_range": [
         10,
         19
@@ -81,7 +81,7 @@
       "last_verb": "explored"
     },
     {
-      "handle": "6351a605e0ca58c1",
+      "handle": "97aa29d264af5de9",
       "event_range": [
         19,
         24
@@ -108,16 +108,16 @@
   ],
   "arcs": [
     {
-      "handle": "b4aad70f0be459ac",
+      "handle": "4c434a389df853e1",
       "exchange_range": [
         0,
         4
       ],
       "exchanges": [
-        "b33566140671596f",
-        "7369e58ae099596a",
-        "84bb31f270ec5523",
-        "6351a605e0ca58c1"
+        "1a0635bb4a815713",
+        "108f6f62359f5231",
+        "fe4bdf7614ff5c35",
+        "97aa29d264af5de9"
       ],
       "event_ids": [
         "d428fc50-de73-5420-bc6b-9420bdac6e46",

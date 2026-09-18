@@ -354,7 +354,7 @@ mod when_an_arc_is_emitted {
         let handle_s = ar[0].metadata["handle"].as_str().unwrap();
         assert_eq!(handle_s.len(), 16);
         assert!(handle_s.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(handle_s, handle(&ar[0].event_ids));
+        assert_eq!(handle_s, handle("arc", &ar[0].event_ids));
         let ex_handles: Vec<String> = exchanges(&out)
             .iter()
             .map(|p| p.metadata["handle"].as_str().unwrap().to_string())
@@ -395,7 +395,7 @@ mod when_an_exchange_closes {
         let ex = &out[first_exchange];
         assert_eq!(
             ex.metadata["handle"].as_str().unwrap(),
-            handle(&ex.event_ids)
+            handle("exchange", &ex.event_ids)
         );
     }
 }

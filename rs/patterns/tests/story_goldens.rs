@@ -311,12 +311,17 @@ mod when_handles_are_computed {
 
     #[test]
     fn they_are_sixteen_hex_and_order_independent() {
-        let a = handle(&["e2".to_string(), "e1".to_string()]);
-        let b = handle(&["e1".to_string(), "e2".to_string()]);
+        let a = handle("exchange", &["e2".to_string(), "e1".to_string()]);
+        let b = handle("exchange", &["e1".to_string(), "e2".to_string()]);
         assert_eq!(a, b);
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_ne!(a, handle(&["e1".to_string()]));
+        assert_ne!(a, handle("exchange", &["e1".to_string()]));
+        assert_ne!(
+            a,
+            handle("arc", &["e2".to_string(), "e1".to_string()]),
+            "the layer is part of the address"
+        );
     }
 
     #[test]
@@ -329,7 +334,7 @@ mod when_handles_are_computed {
             .iter()
             .map(|e| e.id.clone())
             .collect();
-        assert_eq!(ex0.handle, handle(&ids));
+        assert_eq!(ex0.handle, handle("exchange", &ids));
         assert_eq!(ex0.event_ids, ids);
     }
 }

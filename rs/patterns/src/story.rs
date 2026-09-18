@@ -57,12 +57,14 @@ pub const ENTITY_TOOLS: &[&str] = &[
 ];
 
 /// Content-addressed handle of a node: 16 hex characters derived from the
-/// sorted event ids beneath it. Order-independent; stable across
-/// re-narration because summaries and readings never feed into it (G-06).
-pub fn handle(event_ids: &[String]) -> String {
+/// layer name and the sorted event ids beneath it. Order-independent;
+/// stable across re-narration because summaries and readings never feed
+/// into it (G-06). The layer is part of the address because a one-turn
+/// exchange, its sentence, and a one-exchange arc cover the same events.
+pub fn handle(layer: &str, event_ids: &[String]) -> String {
     let mut ids: Vec<&str> = event_ids.iter().map(String::as_str).collect();
     ids.sort_unstable();
-    let joined = ids.join("\n");
+    let joined = format!("{layer}\n{}", ids.join("\n"));
     let full = Uuid::new_v5(&Uuid::NAMESPACE_OID, joined.as_bytes());
     full.simple().to_string()[..16].to_string()
 }
@@ -201,7 +203,7 @@ impl ExchangeAcc {
     }
 
     fn close(self, session_id: &str) -> (PatternEvent, ExchangeSummary) {
-        let handle = handle(&self.event_ids);
+        let handle = handle("exchange", &self.event_ids);
         let summary_line = self
             .user_prompt
             .as_deref()
@@ -278,7 +280,7 @@ impl ArcAcc {
             .iter()
             .rev()
             .find_map(|e| e.eval_result.clone());
-        let handle = handle(&event_ids);
+        let handle = handle("arc", &event_ids);
         PatternEvent {
             pattern_type: "story.arc".to_string(),
             session_id: session_id.to_string(),

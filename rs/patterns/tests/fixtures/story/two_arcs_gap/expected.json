@@ -3,7 +3,7 @@
   "gap_threshold_secs": 1800,
   "exchanges": [
     {
-      "handle": "507afd42b5165984",
+      "handle": "89eeae068d4e5443",
       "event_range": [
         0,
         5
@@ -28,7 +28,7 @@
       "last_verb": "read"
     },
     {
-      "handle": "65d1a736ce1f5f72",
+      "handle": "a0f4ef34981d557a",
       "event_range": [
         5,
         10
@@ -53,7 +53,7 @@
       "last_verb": "wrote"
     },
     {
-      "handle": "d13386f42f44526a",
+      "handle": "f28c2a22003354d9",
       "event_range": [
         10,
         17
@@ -78,7 +78,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "92b0b6bd44f55acc",
+      "handle": "5acc10607696584a",
       "event_range": [
         17,
         24
@@ -107,14 +107,14 @@
   ],
   "arcs": [
     {
-      "handle": "b882742cbac057fe",
+      "handle": "03f57e05fd33593c",
       "exchange_range": [
         0,
         2
       ],
       "exchanges": [
-        "507afd42b5165984",
-        "65d1a736ce1f5f72"
+        "89eeae068d4e5443",
+        "a0f4ef34981d557a"
       ],
       "event_ids": [
         "430cf089-00e8-5f5b-83fc-3287039687ed",
@@ -141,14 +141,14 @@
       "ambiguous_seams": []
     },
     {
-      "handle": "4c252a7c32ff569f",
+      "handle": "1963ea66f29356be",
       "exchange_range": [
         2,
         4
       ],
       "exchanges": [
-        "d13386f42f44526a",
-        "92b0b6bd44f55acc"
+        "f28c2a22003354d9",
+        "5acc10607696584a"
       ],
       "event_ids": [
         "32ecc2f7-2a4d-557f-af2a-647c1cee2a21",

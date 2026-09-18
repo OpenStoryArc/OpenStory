@@ -3,7 +3,7 @@
   "gap_threshold_secs": 1800,
   "exchanges": [
     {
-      "handle": "a7111923368456b2",
+      "handle": "f2f2b36cec7f56ba",
       "event_range": [
         0,
         15
@@ -37,7 +37,7 @@
       "last_verb": "explained"
     },
     {
-      "handle": "c212d661b03a5353",
+      "handle": "e9c4e896cdf45e6f",
       "event_range": [
         15,
         25
@@ -68,7 +68,7 @@
       "last_verb": "wrote"
     },
     {
-      "handle": "1dee012cddc855a1",
+      "handle": "9d1f7b331c52525a",
       "event_range": [
         25,
         30
@@ -93,15 +93,15 @@
   ],
   "arcs": [
     {
-      "handle": "c1459e21a9e7553c",
+      "handle": "e3b4ab29cb0752ea",
       "exchange_range": [
         0,
         3
       ],
       "exchanges": [
-        "a7111923368456b2",
-        "c212d661b03a5353",
-        "1dee012cddc855a1"
+        "f2f2b36cec7f56ba",
+        "e9c4e896cdf45e6f",
+        "9d1f7b331c52525a"
       ],
       "event_ids": [
         "2ab2be15-97e5-5099-a98c-01de08e18852",

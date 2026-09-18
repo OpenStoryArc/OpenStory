@@ -3,7 +3,7 @@
   "gap_threshold_secs": 1800,
   "exchanges": [
     {
-      "handle": "930bfe1e51485900",
+      "handle": "b63d63f91b58501d",
       "event_range": [
         0,
         7
@@ -31,7 +31,7 @@
       "last_verb": "read"
     },
     {
-      "handle": "1f00d2f69bfb5798",
+      "handle": "606704fee7785da7",
       "event_range": [
         7,
         14
@@ -59,7 +59,7 @@
       "last_verb": "edited"
     },
     {
-      "handle": "1e6cbeca844c507a",
+      "handle": "8f1e17bc81a25d74",
       "event_range": [
         14,
         23
@@ -86,7 +86,7 @@
       "last_verb": "ran tests"
     },
     {
-      "handle": "18f73624c89350f8",
+      "handle": "4d513b2fc23157ef",
       "event_range": [
         23,
         30
@@ -113,16 +113,16 @@
   ],
   "arcs": [
     {
-      "handle": "3eeba1986ccb5a28",
+      "handle": "6f537f9d561b5fcd",
       "exchange_range": [
         0,
         4
       ],
       "exchanges": [
-        "930bfe1e51485900",
-        "1f00d2f69bfb5798",
-        "1e6cbeca844c507a",
-        "18f73624c89350f8"
+        "b63d63f91b58501d",
+        "606704fee7785da7",
+        "8f1e17bc81a25d74",
+        "4d513b2fc23157ef"
       ],
       "event_ids": [
         "e2d697cf-ab6f-5620-ab6c-1d47e101af59",

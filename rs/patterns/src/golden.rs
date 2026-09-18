@@ -447,7 +447,7 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                 .find_map(|&m| spec.exchanges[m].turns.last().map(|t| t.verb.clone()));
             let event_ids: Vec<String> = events[start..end].iter().map(|e| e.id.clone()).collect();
             ExpectedExchange {
-                handle: handle(&event_ids),
+                handle: handle("exchange", &event_ids),
                 event_range: (start, end),
                 event_ids,
                 started_at: events[start].time.clone(),
@@ -477,7 +477,7 @@ pub fn expect(spec: &GoldenSpec, events: &[CloudEvent]) -> Expected {
                 event_ids.extend(ex.event_ids.iter().cloned());
             }
             ExpectedArc {
-                handle: handle(&event_ids),
+                handle: handle("arc", &event_ids),
                 exchange_range: (start, end),
                 exchanges: members.iter().map(|e| e.handle.clone()).collect(),
                 event_ids,

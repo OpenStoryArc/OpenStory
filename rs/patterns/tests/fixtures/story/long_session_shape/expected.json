@@ -3,7 +3,7 @@
   "gap_threshold_secs": 1800,
   "exchanges": [
     {
-      "handle": "0530fdfdf7c8547c",
+      "handle": "2edcb1a3bd905a67",
       "event_range": [
         0,
         15
@@ -36,7 +36,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "5f823039ea3f5df8",
+      "handle": "fb061f52bb375288",
       "event_range": [
         15,
         26
@@ -65,7 +65,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "3adf52143bad51dc",
+      "handle": "c85546c49db25baa",
       "event_range": [
         26,
         45
@@ -102,7 +102,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "f4ccac7c69f05a1b",
+      "handle": "a9e15c58627b52c2",
       "event_range": [
         45,
         48
@@ -121,7 +121,7 @@
       "last_verb": "explained"
     },
     {
-      "handle": "bd58c25e94825d84",
+      "handle": "1ae94f02026e5ff6",
       "event_range": [
         48,
         63
@@ -154,7 +154,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "3fa74ca456875a7c",
+      "handle": "0d0f5b9ecd515838",
       "event_range": [
         63,
         82
@@ -195,7 +195,7 @@
       "last_verb": "wrote"
     },
     {
-      "handle": "1b65a5c594e45b22",
+      "handle": "30568d9ec17355d3",
       "event_range": [
         82,
         105
@@ -239,7 +239,7 @@
       "last_verb": "wrote"
     },
     {
-      "handle": "6b1edd13970d502a",
+      "handle": "3e64f3f18a0551e1",
       "event_range": [
         105,
         120
@@ -276,7 +276,7 @@
       "last_verb": "wrote"
     },
     {
-      "handle": "30621e60e32a5a0c",
+      "handle": "51b0e064012e506f",
       "event_range": [
         120,
         125
@@ -299,7 +299,7 @@
       "last_verb": "checked"
     },
     {
-      "handle": "43f874d91eeb5f54",
+      "handle": "ca004fd138bd5818",
       "event_range": [
         125,
         128
@@ -318,7 +318,7 @@
       "last_verb": "explained"
     },
     {
-      "handle": "5c928d90d6725460",
+      "handle": "5df39e57edf35667",
       "event_range": [
         128,
         131
@@ -337,7 +337,7 @@
       "last_verb": "explained"
     },
     {
-      "handle": "4f49275010fd536d",
+      "handle": "41b1c11558b35c32",
       "event_range": [
         131,
         142
@@ -368,24 +368,24 @@
   ],
   "arcs": [
     {
-      "handle": "bf752a940ada5966",
+      "handle": "399622f3a2455d64",
       "exchange_range": [
         0,
         12
       ],
       "exchanges": [
-        "0530fdfdf7c8547c",
-        "5f823039ea3f5df8",
-        "3adf52143bad51dc",
-        "f4ccac7c69f05a1b",
-        "bd58c25e94825d84",
-        "3fa74ca456875a7c",
-        "1b65a5c594e45b22",
-        "6b1edd13970d502a",
-        "30621e60e32a5a0c",
-        "43f874d91eeb5f54",
-        "5c928d90d6725460",
-        "4f49275010fd536d"
+        "2edcb1a3bd905a67",
+        "fb061f52bb375288",
+        "c85546c49db25baa",
+        "a9e15c58627b52c2",
+        "1ae94f02026e5ff6",
+        "0d0f5b9ecd515838",
+        "30568d9ec17355d3",
+        "3e64f3f18a0551e1",
+        "51b0e064012e506f",
+        "ca004fd138bd5818",
+        "5df39e57edf35667",
+        "41b1c11558b35c32"
       ],
       "event_ids": [
         "8789e2a9-8604-53a9-aabc-e83b3e01e792",
