@@ -98,6 +98,17 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
         .route("/api/control", axum::routing::post(crate::api::post_control))
+        // Memory hands (D-02): the write seam for a host's judgment about
+        // history. Validated, stored, published on memory.{kind}.{session}.
+        .route("/api/memory", axum::routing::post(crate::memory_api::post_memory))
+        .route(
+            "/api/memory/{handle}",
+            axum::routing::get(crate::memory_api::get_memory_for_handle),
+        )
+        .route(
+            "/api/sessions/{session_id}/memory",
+            axum::routing::get(crate::memory_api::get_session_memory),
+        )
         .route(
             "/api/annotations",
             axum::routing::post(crate::api::post_annotation).get(crate::api::list_annotations),
