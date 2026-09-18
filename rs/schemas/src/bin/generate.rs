@@ -9,7 +9,7 @@ use open_story_bus::IngestBatch;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::subtype::Subtype;
 use open_story_patterns::golden::GoldenSpec;
-use open_story_patterns::story::{Enrichment, Reading, Verdict};
+use open_story_patterns::story::{Enrichment, Keep, MemoryRecord, Reading, Saga, Verdict};
 use open_story_patterns::{PatternEvent, StructuralTurn};
 use open_story_schemas::{schema_dir, write_schema};
 use open_story_server::broadcast::BroadcastMessage;
@@ -36,6 +36,9 @@ fn main() -> Result<()> {
     write_schema::<Reading>("reading.schema.json")?;
     write_schema::<Enrichment>("enrichment.schema.json")?;
     write_schema::<Verdict>("verdict.schema.json")?;
+    write_schema::<Saga>("saga.schema.json")?;
+    write_schema::<Keep>("keep.schema.json")?;
+    write_schema::<MemoryRecord>("memory_record.schema.json")?;
 
     eprintln!("schemas written to {}", dir.display());
     Ok(())

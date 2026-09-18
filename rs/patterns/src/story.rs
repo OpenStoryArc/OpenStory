@@ -705,3 +705,24 @@ impl MemoryRecord {
         }
     }
 }
+
+/// A saga: the same problem returning across arcs, possibly across sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Saga {
+    /// The arc this saga was written from.
+    pub handle: String,
+    /// The arcs it links, this one included. At least two.
+    #[schemars(length(min = 2))]
+    pub handles: Vec<String>,
+    pub reason: String,
+    pub author: Author,
+}
+
+/// A keep proposal: this arc is worth keeping past the retention cliff.
+/// The host marks; the human keeps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Keep {
+    pub handle: String,
+    pub reason: String,
+    pub author: Author,
+}

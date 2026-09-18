@@ -259,6 +259,27 @@ fn agent_resources() -> &'static [(
             include_str!("../../../schemas/enrichment.schema.json"),
         ),
         (
+            "openstory://schemas/saga",
+            "Schema — saga",
+            "Output shape for link_saga: the arcs one problem spans, with a reason, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/saga.schema.json"),
+        ),
+        (
+            "openstory://schemas/keep",
+            "Schema — keep",
+            "Output shape for propose_keep: why this arc should outlive the retention cliff, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/keep.schema.json"),
+        ),
+        (
+            "openstory://schemas/memory_record",
+            "Schema — memory record",
+            "The stored envelope for any judgment: id, session, handle, kind, standing, author, created_at, payload.",
+            "application/schema+json",
+            include_str!("../../../schemas/memory_record.schema.json"),
+        ),
+        (
             "openstory://schemas/verdict",
             "Schema — verdict",
             "Output shape for adjudicate_seam: same_theme | new_theme with reason, author.",

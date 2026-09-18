@@ -79,3 +79,52 @@ mod when_a_host_answers_a_prompt {
         assert!(errors.is_empty(), "{errors:?}");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// The record envelope and the two remaining payload kinds
+// ═══════════════════════════════════════════════════════════════════
+
+use open_story_patterns::story::{Keep, MemoryRecord, Saga};
+
+drift_test!(
+    memory_record_schema_is_up_to_date,
+    MemoryRecord,
+    "memory_record.schema.json"
+);
+drift_test!(saga_schema_is_up_to_date, Saga, "saga.schema.json");
+drift_test!(keep_schema_is_up_to_date, Keep, "keep.schema.json");
+
+mod when_a_record_is_checked_off_the_wire {
+    use super::*;
+
+    #[test]
+    fn a_stored_record_validates_and_one_without_an_author_does_not() {
+        let v = validator("memory_record.schema.json");
+        let rec = json!({
+            "id": "enrichment:arc0000000000001:-:claude-code:m", "session_id": "s", "handle": "arc0000000000001",
+            "kind": "enrichment", "author": { "host": "claude-code", "model": "m" }, "created_at": "2026-09-18T20:00:00Z",
+            "payload": { "handle": "arc0000000000001", "title": "t" }
+        });
+        let errors: Vec<String> = v.iter_errors(&rec).map(|e| e.to_string()).collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut bad = rec.clone();
+        bad.as_object_mut().unwrap().remove("author");
+        assert!(!v.is_valid(&bad));
+        let mut bad_kind = rec.clone();
+        bad_kind["kind"] = json!("gossip");
+        assert!(!v.is_valid(&bad_kind), "kind is a closed set");
+    }
+
+    #[test]
+    fn saga_and_keep_have_shapes() {
+        let s = validator("saga.schema.json");
+        assert!(s.is_valid(&json!({ "handle": "a", "handles": ["a", "b"], "reason": "same problem", "author": { "host": "h", "model": "m" } })));
+        assert!(!s.is_valid(&json!({ "handle": "a", "handles": ["a"], "reason": "r", "author": { "host": "h", "model": "m" } })), "a saga links at least two arcs");
+        let k = validator("keep.schema.json");
+        assert!(k.is_valid(&json!({ "handle": "a", "reason": "produced the decision", "author": { "host": "h", "model": "m" } })));
+        assert!(
+            !k.is_valid(&json!({ "handle": "a", "author": { "host": "h", "model": "m" } })),
+            "a keep needs a reason"
+        );
+    }
+}

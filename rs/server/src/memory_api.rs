@@ -16,7 +16,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use open_story_patterns::story::{
-    validate_reading, Author, Enrichment, MemoryKind, MemoryRecord, Reading, Standing, Verdict,
+    validate_reading, Author, Enrichment, Keep, MemoryKind, MemoryRecord, Reading, Saga, Standing,
+    Verdict,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -97,9 +98,22 @@ fn validate(
             }
             Ok(None)
         }
-        MemoryKind::Saga | MemoryKind::Keep => {
-            if !payload.is_object() {
-                return Err("payload must be an object".into());
+        MemoryKind::Saga => {
+            let s: Saga =
+                serde_json::from_value(payload).map_err(|e| format!("saga payload: {e}"))?;
+            if s.handles.len() < 2 {
+                return Err("a saga links at least two arcs".into());
+            }
+            if !s.handles.iter().any(|h| h == &write.handle) {
+                return Err("saga.handles must include handle".into());
+            }
+            Ok(None)
+        }
+        MemoryKind::Keep => {
+            let k: Keep =
+                serde_json::from_value(payload).map_err(|e| format!("keep payload: {e}"))?;
+            if k.reason.trim().is_empty() {
+                return Err("keep.reason must be non-empty".into());
             }
             Ok(None)
         }
