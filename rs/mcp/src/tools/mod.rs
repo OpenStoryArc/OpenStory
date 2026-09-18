@@ -15,6 +15,7 @@ pub mod analytics;
 pub mod control;
 pub mod help;
 pub mod memory;
+pub mod memory_write;
 pub mod per_session;
 pub mod projects;
 pub mod prompts;
@@ -309,6 +310,35 @@ pub const TOOLS: &[ToolDef] = &[
                       NEXT: story_summary on a related handle.",
         input_schema: memory::story_related_schema,
     },
+    // Memory hands — write side. The only door into memory.*; never events.*.
+    ToolDef {
+        name: "enrich",
+        description: "WHEN: you ran narrate_arc and hold the enrichment. MOTION: narrate. \
+                      CALL: { handle, session_id, author: {host, model}, enrichment: {title, question, resolution, summary, slots?} }. \
+                      Server validates and stores; the next story_summary carries the title. \
+                      RETURNS: the stored MemoryRecord. Never invent a handle.",
+        input_schema: memory_write::enrich_schema,
+    },
+    ToolDef {
+        name: "adjudicate_boundary",
+        description: "WHEN: you ran adjudicate_seam on an ambiguous seam. MOTION: narrate. \
+                      CALL: { handle, session_id, author, seam, verdict: same_theme|new_theme, reason }. \
+                      RETURNS: the stored verdict record.",
+        input_schema: memory_write::adjudicate_schema,
+    },
+    ToolDef {
+        name: "link_saga",
+        description: "WHEN: the same problem returned across arcs or sessions. MOTION: narrate. \
+                      CALL: { handle, session_id, author, handles: [arc handles], reason }. \
+                      RETURNS: the stored saga record.",
+        input_schema: memory_write::link_saga_schema,
+    },
+    ToolDef {
+        name: "propose_keep",
+        description: "WHEN: an arc is worth keeping past the retention cliff (you mark; the human keeps). MOTION: curate. \
+                      CALL: { handle, session_id, author, reason }. RETURNS: the stored keep record.",
+        input_schema: memory_write::propose_keep_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -420,6 +450,10 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "story_context" => memory::story_context(&server.store, args).await,
         "story_search" => memory::story_search(&server.store, args).await,
         "story_related" => memory::story_related(&server.store, args).await,
+        "enrich" => memory_write::enrich(&server.api_base, args).await,
+        "adjudicate_boundary" => memory_write::adjudicate_boundary(&server.api_base, args).await,
+        "link_saga" => memory_write::link_saga(&server.api_base, args).await,
+        "propose_keep" => memory_write::propose_keep(&server.api_base, args).await,
         unknown => {
             return tool_not_found(unknown);
         }
