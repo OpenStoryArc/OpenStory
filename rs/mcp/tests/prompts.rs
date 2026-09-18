@@ -175,3 +175,36 @@ mod when_prompts_get_narrate_arc_is_called {
         assert!(resp.get("error").is_some(), "{resp}");
     }
 }
+
+mod when_a_host_reads_the_schema_resources {
+    use super::*;
+
+    #[tokio::test]
+    async fn resources_list_names_the_three_and_read_returns_json_schema() {
+        let (server, _sid, _tmp) = seeded("two_arcs_gap").await;
+        let resp = rpc(
+            server,
+            json!({ "jsonrpc": "2.0", "id": 5, "method": "resources/list", "params": {} }),
+        )
+        .await;
+        let uris: Vec<&str> = resp["result"]["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["uri"].as_str().unwrap())
+            .collect();
+        for want in [
+            "openstory://schemas/reading",
+            "openstory://schemas/enrichment",
+            "openstory://schemas/verdict",
+        ] {
+            assert!(uris.contains(&want), "resources/list has {want}: {uris:?}");
+        }
+        let (server, _sid, _tmp) = seeded("two_arcs_gap").await;
+        let resp = rpc(server, json!({ "jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": { "uri": "openstory://schemas/reading" } })).await;
+        let content = &resp["result"]["contents"][0];
+        assert_eq!(content["mimeType"], "application/schema+json");
+        let schema: Value = serde_json::from_str(content["text"].as_str().unwrap()).unwrap();
+        assert!(schema["properties"]["paragraphs"].is_object(), "{schema}");
+    }
+}

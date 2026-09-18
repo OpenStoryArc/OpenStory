@@ -194,43 +194,76 @@ fn handle_initialize(id: Value, params: Value) -> Value {
 }
 
 /// Catalog of embedded agent docs: (uri, name, description, body).
-fn agent_resources() -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
+fn agent_resources() -> &'static [(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)] {
     &[
         (
             HANDS_URI,
             "Hands — how to use this MCP",
             "Start here. Motions: orient, what-touched, find, cost, live, show-human. Read-only history; cite IDs.",
+            "text/markdown",
             HANDS_DOC,
         ),
         (
             PHYSICS_URI,
             "Physics — what is ground truth",
             "Events, turns, outcomes, sentences as projections; soft holes; citation path. No interpretation.",
+            "text/markdown",
             PHYSICS_DOC,
         ),
         (
             AGENT_IN_UI_URI,
             "Agent-in-UI seam",
             "How to drive, follow, and replay the OpenStory dashboard (ui.* only).",
+            "text/markdown",
             AGENT_IN_UI_DOC,
         ),
         (
             EXAMPLE_PICKUP_URI,
             "Example: pickup / resume",
             "Worked flow: list_sessions → session_story.",
+            "text/markdown",
             EXAMPLE_PICKUP_DOC,
         ),
         (
             EXAMPLE_FILE_LOCUS_URI,
             "Example: file locus",
             "Worked flow: file_impact / search → sentences.",
+            "text/markdown",
             EXAMPLE_FILE_LOCUS_DOC,
         ),
         (
             EXAMPLE_SHOW_HUMAN_URI,
             "Example: show the human",
             "Worked flow: where_is_user → ui_control (views, canvas, focus).",
+            "text/markdown",
             EXAMPLE_SHOW_HUMAN_DOC,
+        ),
+        (
+            "openstory://schemas/reading",
+            "Schema — reading",
+            "Output shape for segment_arc / read_exchange: paragraphs over exchange handles, standing, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/reading.schema.json"),
+        ),
+        (
+            "openstory://schemas/enrichment",
+            "Schema — enrichment",
+            "Output shape for narrate_arc: title, question, resolution, summary, slots, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/enrichment.schema.json"),
+        ),
+        (
+            "openstory://schemas/verdict",
+            "Schema — verdict",
+            "Output shape for adjudicate_seam: same_theme | new_theme with reason, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/verdict.schema.json"),
         ),
     ]
 }
@@ -239,12 +272,12 @@ fn agent_resources() -> &'static [(&'static str, &'static str, &'static str, &'s
 fn resources_list_result() -> Value {
     let resources: Vec<Value> = agent_resources()
         .iter()
-        .map(|(uri, name, description, _)| {
+        .map(|(uri, name, description, mime, _)| {
             serde_json::json!({
                 "uri": uri,
                 "name": name,
                 "description": description,
-                "mimeType": "text/markdown",
+                "mimeType": mime,
             })
         })
         .collect();
@@ -254,14 +287,15 @@ fn resources_list_result() -> Value {
 /// `resources/read` — return an embedded doc's content by URI.
 fn handle_resources_read(id: Value, params: Value) -> Value {
     let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-    let Some((_, _, _, body)) = agent_resources().iter().find(|(u, _, _, _)| *u == uri) else {
+    let Some((_, _, _, mime, body)) = agent_resources().iter().find(|(u, _, _, _, _)| *u == uri)
+    else {
         return JsonRpcResponse::failure(id, error_code::INVALID_PARAMS, "Unknown resource uri");
     };
     let result = serde_json::json!({
         "contents": [
             {
                 "uri": uri,
-                "mimeType": "text/markdown",
+                "mimeType": mime,
                 "text": body,
             }
         ]

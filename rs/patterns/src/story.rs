@@ -419,3 +419,95 @@ impl TurnDetector for StoryDetector {
         "story"
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Output shapes a host hands back (memory hands, E-03)
+// ═══════════════════════════════════════════════════════════════════
+//
+// These are the contracts for judgment. They are committed as JSON
+// schemas (schemas/*.schema.json), served by the MCP as resources, and
+// embedded in the prompts. The write hands (group D) validate against
+// them and against the laws in `validate_reading` before anything lands.
+
+use serde::{Deserialize, Serialize};
+
+/// Who read: the host that ran the prompt and the model it used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Author {
+    pub host: String,
+    pub model: String,
+}
+
+/// A reading's standing: provisional readings come from the streaming
+/// fold and are superseded by the final reading when the arc closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Standing {
+    Provisional,
+    Final,
+}
+
+/// One paragraph of a reading: consecutive exchanges sharing an intent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Paragraph {
+    /// Exchange handles, in arc order. Never a handle the arc does not hold.
+    pub exchanges: Vec<String>,
+    pub intent: String,
+}
+
+/// A reading: a grouping of an arc's exchanges into paragraphs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Reading {
+    /// The arc handle this reading is of.
+    pub handle: String,
+    pub standing: Standing,
+    pub paragraphs: Vec<Paragraph>,
+    pub author: Author,
+}
+
+/// The slots the twelve creator-question schemas need.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Slots {
+    #[serde(default)]
+    pub decisions: Vec<String>,
+    #[serde(default)]
+    pub deferrals: Vec<String>,
+    #[serde(default)]
+    pub tradeoffs: Vec<String>,
+    #[serde(default)]
+    pub failures: Vec<String>,
+    /// The human's positions, quoted, never strengthened.
+    #[serde(default)]
+    pub stance: Vec<String>,
+}
+
+/// An enrichment: the top-node text for an arc.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Enrichment {
+    pub handle: String,
+    pub title: String,
+    pub question: String,
+    pub resolution: String,
+    pub summary: String,
+    #[serde(default)]
+    pub slots: Slots,
+    pub author: Author,
+}
+
+/// A ruling on an ambiguous seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VerdictKind {
+    SameTheme,
+    NewTheme,
+}
+
+/// A verdict on the seam before exchange index `seam` of an arc.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Verdict {
+    pub handle: String,
+    pub seam: usize,
+    pub verdict: VerdictKind,
+    pub reason: String,
+    pub author: Author,
+}
