@@ -802,13 +802,13 @@ pub async fn story_related(store: &Arc<dyn EventStore>, args: Value) -> Result<V
     }
 
     let mut scored: Vec<(Vec<String>, Value)> = Vec::new();
-    // The arc's own session first, then (without a session filter) the rest.
+    // The arc's own session first, then the newest sessions: pointers
+    // across reach other sessions whether or not the caller named one
+    // (the session id locates the arc, it does not fence the search).
     let mut sessions = vec![found.session_id.clone()];
-    if session_id.is_none() {
-        for sid in candidate_sessions(store, None).await? {
-            if sid != found.session_id {
-                sessions.push(sid);
-            }
+    for sid in candidate_sessions(store, None).await? {
+        if sid != found.session_id {
+            sessions.push(sid);
         }
     }
     for sid in sessions {

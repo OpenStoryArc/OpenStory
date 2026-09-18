@@ -607,3 +607,48 @@ mod when_hands_answer_on_a_golden {
         }
     }
 }
+
+mod when_related_is_asked_with_a_session_id {
+    use super::*;
+
+    /// A second session whose only arc shares src/a.rs with the first spec's arcs.
+    fn spec_other_session() -> GoldenSpec {
+        GoldenSpec {
+            session_id: "story-other-session".to_string(),
+            started_at: "2026-01-02T09:00:00Z".to_string(),
+            gap_threshold_secs: 1800,
+            exchanges: vec![h(0, vec![t("read", &["src/a.rs"], &[("Read", 1)])])],
+        }
+    }
+
+    #[tokio::test]
+    async fn it_still_looks_across_other_sessions() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let sid = seed_spec(&store, &spec_shared_entities()).await;
+        let other = seed_spec(&store, &spec_other_session()).await;
+        let arcs = store
+            .session_patterns(&sid, Some("story.arc"))
+            .await
+            .unwrap();
+        let h0 = arcs[0].metadata["handle"].as_str().unwrap().to_string();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let related = call(
+            server,
+            "story_related",
+            json!({ "handle": h0, "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        let sessions: Vec<&str> = related
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["session_id"].as_str().unwrap())
+            .collect();
+        assert!(
+            sessions.contains(&other.as_str()),
+            "pointers across reach other sessions even when the arc's session is given: {related}"
+        );
+        assert_eq!(sessions[0], sid, "the arc's own session comes first");
+    }
+}
