@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod eval_apply;
+pub mod golden;
 pub mod sentence;
 
 // Re-export the only detectors that survived the cut.
