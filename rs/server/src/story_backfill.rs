@@ -132,3 +132,55 @@ pub async fn run(
     }
     Ok(report)
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Admin endpoint — POST /api/admin/story-backfill?write=true&gap_secs=1800
+// ═══════════════════════════════════════════════════════════════════
+
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use axum::Json;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct BackfillQuery {
+    /// Persist the story patterns (default: report only).
+    #[serde(default)]
+    pub write: bool,
+    /// Arc gap threshold in seconds (default 1800).
+    pub gap_secs: Option<u64>,
+}
+
+/// Fold every stored session through the story detector from inside the
+/// running server, so history gets `story.exchange` / `story.arc` patterns
+/// without a second process writing SQLite. Admin-gated like the other
+/// state-management operations. Returns the report as JSON.
+pub async fn admin_story_backfill(
+    State(state): State<crate::state::SharedState>,
+    Query(q): Query<BackfillQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = state.read().await.store.event_store.clone();
+    let gap = q
+        .gap_secs
+        .unwrap_or(open_story_patterns::story::DEFAULT_GAP_THRESHOLD_SECS);
+    let report = run(store.as_ref(), gap, q.write).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("story backfill failed: {e}"),
+        )
+    })?;
+    Ok(Json(serde_json::json!({
+        "sessions": report.sessions,
+        "sessions_without_events": report.sessions_without_events,
+        "exchanges": report.exchanges,
+        "arcs": report.arcs,
+        "gap_closed_arcs": report.gap_closed_arcs,
+        "ambiguous_arcs": report.ambiguous_arcs,
+        "ambiguous_share": report.ambiguous_share(),
+        "exchanges_per_arc": report.exchanges_per_arc(),
+        "patterns_written": report.patterns_written,
+        "write": q.write,
+        "gap_secs": gap,
+        "text": report.render(),
+    })))
+}

@@ -298,6 +298,13 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/admin/participants/{principal_id}",
             axum::routing::delete(crate::admin::delete_participant),
         )
+        // Memory hands: fold every stored session into story.exchange /
+        // story.arc patterns (report only unless ?write=true). Admin-gated
+        // state-management operation, like reproject.
+        .route(
+            "/api/admin/story-backfill",
+            axum::routing::post(crate::story_backfill::admin_story_backfill),
+        )
         // Layer order is outermost-first: the require_admin_role check
         // runs BEFORE the token check, but both must pass before the
         // handler runs. (Token check verifies the caller; role check
