@@ -29,6 +29,8 @@ resources listed at the end.
 | **live** — watch as it unfolds | `subscribe_session` / `subscribe_tokens` |
 | **show-human** — shared attention on the dashboard | **`navigate_to`** (primary) → `where_is_user`; low-level: `ui_control` |
 | **tell-story** — narrate a saved sequence | `search` / `session_story` → `save_reel` → `play_reel` |
+| **remember** — carry handles, descend on demand | `story_search` or `story_list` → `story_summary` → `story_descend` / `story_context` → `story_related` |
+| **narrate** — judgment as the story closes | `subscribe_arcs` → `story_context` → your reading / enrichment / verdict |
 | **stuck** | `openstory_help` with `need` or `topic` |
 
 ### navigate_to — primary click-parity hand
@@ -114,6 +116,30 @@ Survey: `node scripts/nav_path.mjs`.
 1. `where_is_user` — are they idle? (`GET` tempo: drive in rests when possible)
 2. `ui_control` — e.g. open Story, focus an event, present a banner
 3. Confirm with `where_is_user` again
+
+### Remember (memory hands)
+
+Handles, not transcripts. An arc is a small handle (question, resolution,
+entities, pointers down and across); everything beneath it is recoverable.
+
+1. `story_search { query }` — or `story_list { session_id? }` when you know where
+2. `story_summary { handle }` — the top node; `down` are exchange handles, `across` related arcs
+3. `story_descend { node }` one level at a time, or `story_context { node }` to
+   keep ancestors and siblings with it — you never get a naked event
+4. Stop when the question is answered. Budget: ~1,400 tokens per creator question.
+
+Handles are content addresses (layer + event ids): stable across re-narration,
+a 4+ character prefix resolves, ambiguity is an error naming the candidates.
+Nothing in this motion writes; there is no write path to `events.*`.
+
+### Narrate as it closes (memory hands, live)
+
+1. `subscribe_arcs { session_id?, from_seq? }` — every closed exchange and arc,
+   with `needs`: `read` (exchange), `enrich` (untitled arc), `adjudicate` (ambiguous seam)
+2. `story_context { node: handle }` — the skeleton with its neighbours
+3. Produce a reading, an enrichment, or a verdict — author-stamped, over handles,
+   never a new handle. `data.batch_seq` is the cursor: resume with `from_seq`.
+4. Cancel via `notifications/cancelled`.
 
 ### Tell a story (reel)
 

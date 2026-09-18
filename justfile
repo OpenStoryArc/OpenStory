@@ -31,6 +31,12 @@ test-rs:
 test-ui:
     cd ui && npm test -- --run
 
+# Memory hands gate: story folds, goldens, properties, read + stream hands, backfill
+test-memory:
+    cargo test --manifest-path rs/Cargo.toml -p open-story-patterns --test story_goldens --test story_detector --test story_properties
+    cargo test --manifest-path rs/Cargo.toml -p open-story-mcp --test story_hands --test arcs
+    cargo test --manifest-path rs/Cargo.toml -p open-story-server --test test_story_backfill
+
 # Attention / click-parity pure algebra tests
 test-attention:
     cd ui && npx vitest run tests/lib/attention.test.ts tests/lib/nav-path.test.ts tests/lib/ui-control.test.ts

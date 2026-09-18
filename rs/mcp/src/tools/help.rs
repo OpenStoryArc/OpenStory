@@ -119,6 +119,27 @@ Physics limits: {PHYSICS_URI}"#
 
 Curriculum: {HANDS_URI}"#
         ),
+        "remember" | "memory" | "recall" => r#"# Motion: remember (memory hands)
+Carry handles, not transcripts. Every hand is read-only; nothing here writes history.
+1. story_search { query, session_id? }   — words → [ {kind, handle} ]   (~50 tokens/hit)
+   or story_list { session_id?, limit? } — one line per arc               (~50 tokens/line)
+2. story_summary { handle }              — question, resolution, entities, down, across (~200)
+3. story_descend { node } / story_context { node }  — exchanges → sentences → events;
+   context = node + ancestors + siblings, never a naked event            (~500)
+4. story_related { handle }              — pointers across: arcs sharing entities   (~100)
+Budget: answer a creator question in ~1,400 tokens; stop when answered or spent.
+Handles are content addresses (layer + event ids); a 4+ char prefix resolves.
+Live: subscribe_arcs { session_id?, from_seq? } — closed arcs as they land (need: narrate)."#
+            .to_string(),
+        "narrate" | "listen" | "read" => r#"# Motion: narrate (memory hands, live)
+1. subscribe_arcs { session_id?, from_seq? }  — closed exchanges and arcs as they land;
+   data: {kind, handle, skeleton, needs}, needs ∈ enrich | adjudicate | read;
+   data.batch_seq is the cursor for from_seq (stored prefix, then the live tail).
+2. story_context { node: handle }             — what the skeleton was for
+3. Your judgment: a reading (grouping over exchange handles + intent), an enrichment
+   (title, question, resolution, slots), or a verdict on an ambiguous seam.
+   Write it author-stamped; never move a handle. Cancel via notifications/cancelled."#
+            .to_string(),
         "cost" | "tokens" | "spend" => r#"# Motion: cost
 1. daily_token_usage { days: 7 }
 2. token_usage { session_id? , days? , model? }
@@ -264,6 +285,28 @@ mod tests {
         let t = v["text"].as_str().unwrap();
         assert!(t.contains("session_story"));
         assert!(t.contains("list_sessions"));
+    }
+
+    // F-03 (memory hands): the curriculum teaches the memory motions.
+    #[test]
+    fn help_need_remember_points_at_memory_motions() {
+        let v = openstory_help(json!({"need": "remember"})).unwrap();
+        let t = v["text"].as_str().unwrap();
+        for hand in [
+            "story_list",
+            "story_search",
+            "story_summary",
+            "story_context",
+            "subscribe_arcs",
+        ] {
+            assert!(t.contains(hand), "remember card names {hand}: {t}");
+        }
+        assert!(
+            t.contains("1,400") || t.contains("budget"),
+            "names the token budget"
+        );
+        let v = openstory_help(json!({"need": "narrate"})).unwrap();
+        assert!(v["text"].as_str().unwrap().contains("subscribe_arcs"));
     }
 
     #[test]
