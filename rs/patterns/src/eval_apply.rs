@@ -39,8 +39,10 @@ pub struct StructuralTurn {
     pub turn_number: u32,
     pub scope_depth: u32,
     pub human: Option<HumanInput>,
-    /// User-role messages that arrived while this turn was already open:
-    /// injected skill bodies, tool-loaded notices. Never the human prompt.
+    /// User-role messages in this turn that are not the human prompt:
+    /// harness context sent before it (Codex AGENTS.md, environment) and
+    /// bodies injected after the assistant acted (skill loads, tool-loaded
+    /// notices). In emission order.
     #[serde(default)]
     pub injected: Vec<HumanInput>,
     pub thinking: Option<ThinkingRecord>,
@@ -220,9 +222,15 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
     // Track event IDs and timestamps
     acc.event_ids.push(id.to_string());
-    // Was this turn already open before this event? A user prompt that
-    // arrives into an open turn is injected, never the human (A-03).
-    let turn_already_open = acc.start_ts.is_some();
+    // Has the assistant already spoken or acted in this turn? A user prompt
+    // arriving after that is injected (a skill body, a tool-loaded notice),
+    // never the human (A-03). Meta events that precede the prompt in some
+    // transcripts (Codex token counts, turn context) do not count: only
+    // assistant output does. Found on session 019e5a13 (codex, 1,822 prompts).
+    let assistant_already_acted = acc.phase != Phase::Idle
+        || acc.pending_eval.is_some()
+        || acc.pending_thinking.is_some()
+        || !acc.pending_applies.is_empty();
     if acc.start_ts.is_none() {
         acc.start_ts = Some(ts.to_string());
         acc.env_size_at_start = acc.env_size;
@@ -246,10 +254,16 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
             // The prompt that opens a turn is the human; any prompt arriving
             // into an already-open turn (after a human prompt, or in a
             // continuation turn) was injected by the harness (A-03).
-            if turn_already_open {
+            if assistant_already_acted {
                 acc.pending_injected.push(input);
             } else {
-                acc.pending_human = Some(input);
+                // Several prompts before the assistant acts (Codex sends its
+                // AGENTS.md and environment context as user messages first):
+                // the last one is the human, the earlier ones are harness
+                // context and are kept as injected rather than dropped.
+                if let Some(previous) = acc.pending_human.replace(input) {
+                    acc.pending_injected.push(previous);
+                }
             }
         }
 
@@ -803,6 +817,36 @@ mod tests {
             "a continuation turn has no human prompt"
         );
         assert_eq!(turns[0].injected.len(), 1);
+    }
+
+    // A-03, Codex dialect: harness context (AGENTS.md instructions, environment)
+    // arrives as user prompts BEFORE the real prompt. The last prompt before the
+    // assistant acts is the human; the earlier ones are recorded as injected,
+    // not dropped. Found on session 019cf10a (codex, 502 prompts, 17 exchanges).
+    #[test]
+    fn ce_context_prompts_before_the_human_prompt_are_injected() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("# AGENTS.md instructions"));
+        det.feed_cloud_event(&user_prompt_ce("<environment_context>"));
+        det.feed_cloud_event(&user_prompt_ce("fix the flaky test"));
+        det.feed_cloud_event(&assistant_text_ce("on it"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].human.as_ref().unwrap().content,
+            "fix the flaky test"
+        );
+        let injected: Vec<&str> = turns[0]
+            .injected
+            .iter()
+            .map(|h| h.content.as_str())
+            .collect();
+        assert_eq!(
+            injected,
+            vec!["# AGENTS.md instructions", "<environment_context>"]
+        );
     }
 
     #[test]

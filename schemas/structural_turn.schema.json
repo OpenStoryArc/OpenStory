@@ -332,7 +332,7 @@
     },
     "injected": {
       "default": [],
-      "description": "User-role messages that arrived while this turn was already open: injected skill bodies, tool-loaded notices. Never the human prompt.",
+      "description": "User-role messages in this turn that are not the human prompt: harness context sent before it (Codex AGENTS.md, environment) and bodies injected after the assistant acted (skill loads, tool-loaded notices). In emission order.",
       "items": {
         "$ref": "#/definitions/HumanInput"
       },
