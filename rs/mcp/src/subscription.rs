@@ -132,6 +132,42 @@ pub fn arc_closed(session_id: &str, pattern: &Value) -> Option<Value> {
     } else {
         vec!["read"]
     };
+    // E-02: the prompt to run for each need — a ready-made prompts/get
+    // call, so a host with nothing but the wire can act on the notification.
+    let args = |extra: Option<(&str, Value)>| {
+        let mut a = serde_json::json!({ "handle": handle, "session_id": session_id });
+        if let Some((k, v)) = extra {
+            a[k] = v;
+        }
+        a
+    };
+    let mut prompts: Vec<Value> = Vec::new();
+    for need in &needs {
+        match *need {
+            "enrich" => {
+                prompts.push(serde_json::json!({ "name": "narrate_arc", "arguments": args(None) }));
+                prompts.push(serde_json::json!({ "name": "segment_arc", "arguments": args(None) }));
+            }
+            "adjudicate" => {
+                let seams = meta
+                    .get("ambiguous_seams")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                for seam in seams {
+                    prompts.push(serde_json::json!({
+                        "name": "adjudicate_seam",
+                        "arguments": args(Some(("seam", seam)))
+                    }));
+                }
+            }
+            "read" => {
+                prompts
+                    .push(serde_json::json!({ "name": "read_exchange", "arguments": args(None) }));
+            }
+            _ => {}
+        }
+    }
     Some(serde_json::json!({
         "kind": kind,
         "handle": handle,
@@ -139,6 +175,7 @@ pub fn arc_closed(session_id: &str, pattern: &Value) -> Option<Value> {
         "pattern_type": pattern.get("pattern_type"),
         "skeleton": pattern,
         "needs": needs,
+        "prompts": prompts,
     }))
 }
 

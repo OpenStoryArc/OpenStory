@@ -316,3 +316,85 @@ mod when_from_seq_is_given {
             .is_err());
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// E-02: the notification names the prompt to run for each need
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_an_arc_closes_the_notification_names_its_prompt {
+    use super::*;
+
+    #[test]
+    fn needs_map_to_prompts_with_arguments() {
+        let ambiguous = serde_json::to_value(pattern(
+            "story.arc",
+            "s",
+            "arc0000000000002",
+            json!({ "ambiguous_seams": [2, 5] }),
+        ))
+        .unwrap();
+        let a = arc_closed("s", &ambiguous).unwrap();
+        assert_eq!(
+            a["prompts"],
+            json!([
+                { "name": "narrate_arc", "arguments": { "handle": "arc0000000000002", "session_id": "s" } },
+                { "name": "segment_arc", "arguments": { "handle": "arc0000000000002", "session_id": "s" } },
+                { "name": "adjudicate_seam", "arguments": { "handle": "arc0000000000002", "session_id": "s", "seam": 2 } },
+                { "name": "adjudicate_seam", "arguments": { "handle": "arc0000000000002", "session_id": "s", "seam": 5 } },
+            ]),
+            "enrich → narrate_arc + segment_arc; each seam → adjudicate_seam"
+        );
+        let exchange = serde_json::to_value(pattern(
+            "story.exchange",
+            "s",
+            "ex00000000000001",
+            json!({}),
+        ))
+        .unwrap();
+        let e = arc_closed("s", &exchange).unwrap();
+        assert_eq!(
+            e["prompts"],
+            json!([{ "name": "read_exchange", "arguments": { "handle": "ex00000000000001", "session_id": "s" } }])
+        );
+    }
+
+    #[tokio::test]
+    async fn the_stdio_notification_carries_them() {
+        let subscriber = LoopbackSubscriber::new();
+        let (mut client_write, server_read) = tokio::io::duplex(8192);
+        let (server_write, client_read) = tokio::io::duplex(8192);
+        let (store, plan_store, _tmp) = make_test_store();
+        let test_server =
+            open_story_mcp::server::Server::new(subscriber.clone(), store, plan_store);
+        let server = tokio::spawn(async move {
+            stdio::run(server_read, server_write, test_server)
+                .await
+                .unwrap()
+        });
+        let request = json!({ "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+            "params": { "name": "subscribe_arcs", "arguments": { "session_id": "sid-a" } } });
+        client_write
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .unwrap();
+        let mut reader = BufReader::new(client_read).lines();
+        let _ack = read_line(&mut reader).await;
+        subscriber
+            .publish_patterns(
+                "sid-a",
+                vec![pattern("story.arc", "sid-a", "arc0000000000009", json!({}))],
+            )
+            .await;
+        let notif = read_line(&mut reader).await;
+        let prompts = notif["params"]["data"]["prompts"]
+            .as_array()
+            .expect("prompts on the wire");
+        assert_eq!(prompts[0]["name"], "narrate_arc");
+        assert_eq!(prompts[0]["arguments"]["handle"], "arc0000000000009");
+        drop(client_write);
+        timeout(Duration::from_millis(500), server)
+            .await
+            .expect("server exits")
+            .unwrap();
+    }
+}
