@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "A keep proposal: this arc is worth keeping past the retention cliff. The host marks; the human keeps.",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "author",
+    "handle",
+    "reason"
+  ],
+  "title": "Keep",
+  "type": "object"
+}

@@ -19,6 +19,7 @@ pub mod event_store_bridge;
 pub mod fleet;
 pub mod ingest;
 pub mod logging;
+pub mod memory_api;
 pub mod metrics;
 pub mod principal_resolver;
 pub mod reconcile;

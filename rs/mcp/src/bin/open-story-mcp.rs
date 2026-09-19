@@ -30,11 +30,13 @@ use std::sync::Arc;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let api_url = std::env::var("OPENSTORY_API_URL")
-        .unwrap_or_else(|_| "http://localhost:3002".to_string());
-    let api_token = std::env::var("OPENSTORY_API_TOKEN").ok().filter(|t| !t.is_empty());
-    let nats_url = std::env::var("OPENSTORY_NATS_URL")
-        .unwrap_or_else(|_| "nats://localhost:4222".to_string());
+    let api_url =
+        std::env::var("OPENSTORY_API_URL").unwrap_or_else(|_| "http://localhost:3002".to_string());
+    let api_token = std::env::var("OPENSTORY_API_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty());
+    let nats_url =
+        std::env::var("OPENSTORY_NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_string());
 
     let subscriber = NatsBus::connect(&nats_url).await.with_context(|| {
         format!(
@@ -44,20 +46,37 @@ async fn main() -> Result<()> {
     })?;
     eprintln!("open-story-mcp: connected to NATS at {nats_url}");
 
-    let store: Arc<dyn EventStore> =
-        Arc::new(HttpEventStore::new(&api_url, api_token.clone()));
-    let plan_store: Arc<dyn PlanSource> =
-        Arc::new(HttpPlanSource::new(&api_url, api_token));
+    let store: Arc<dyn EventStore> = Arc::new(HttpEventStore::new(&api_url, api_token.clone()));
+    let plan_store: Arc<dyn PlanSource> = Arc::new(HttpPlanSource::new(&api_url, api_token));
     eprintln!(
         "open-story-mcp: query tools read REST API at {api_url}{}",
-        if std::env::var("OPENSTORY_API_TOKEN").map(|t| !t.is_empty()).unwrap_or(false) {
+        if std::env::var("OPENSTORY_API_TOKEN")
+            .map(|t| !t.is_empty())
+            .unwrap_or(false)
+        {
             " (bearer auth)"
         } else {
             ""
         }
     );
 
-    let server = Server::new(subscriber, store, plan_store).with_api_base(api_url.clone());
+    let mut server = Server::new(subscriber, store, plan_store).with_api_base(api_url.clone());
+    // Channel mode (memory hands): OPENSTORY_CHANNEL=all | <session_id>.
+    if let Ok(channel) = std::env::var("OPENSTORY_CHANNEL") {
+        let channel = channel.trim().to_string();
+        if !channel.is_empty() {
+            let session_id = if channel == "all" {
+                None
+            } else {
+                Some(channel.clone())
+            };
+            eprintln!(
+                "open-story-mcp: channel mode on ({}) — closed story arcs push as notifications/claude/channel",
+                session_id.as_deref().unwrap_or("all sessions")
+            );
+            server = server.with_channel(open_story_mcp::server::ChannelConfig { session_id });
+        }
+    }
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     open_story_mcp::stdio::run(stdin, stdout, server).await?;

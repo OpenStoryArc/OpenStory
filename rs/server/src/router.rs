@@ -98,6 +98,17 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
         .route("/api/control", axum::routing::post(crate::api::post_control))
+        // Memory hands (D-02): the write seam for a host's judgment about
+        // history. Validated, stored, published on memory.{kind}.{session}.
+        .route("/api/memory", axum::routing::post(crate::memory_api::post_memory))
+        .route(
+            "/api/memory/{handle}",
+            axum::routing::get(crate::memory_api::get_memory_for_handle),
+        )
+        .route(
+            "/api/sessions/{session_id}/memory",
+            axum::routing::get(crate::memory_api::get_session_memory),
+        )
         .route(
             "/api/annotations",
             axum::routing::post(crate::api::post_annotation).get(crate::api::list_annotations),
@@ -297,6 +308,13 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .route(
             "/api/admin/participants/{principal_id}",
             axum::routing::delete(crate::admin::delete_participant),
+        )
+        // Memory hands: fold every stored session into story.exchange /
+        // story.arc patterns (report only unless ?write=true). Admin-gated
+        // state-management operation, like reproject.
+        .route(
+            "/api/admin/story-backfill",
+            axum::routing::post(crate::story_backfill::admin_story_backfill),
         )
         // Layer order is outermost-first: the require_admin_role check
         // runs BEFORE the token check, but both must pass before the

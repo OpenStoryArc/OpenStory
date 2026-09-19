@@ -91,7 +91,10 @@ async fn publish_and_subscribe_delivery() {
     let session_id = format!("test-{}", uuid::Uuid::new_v4());
 
     // Subscribe first
-    let mut sub = bus.subscribe(&format!("{prefix}.>")).await.expect("subscribe");
+    let mut sub = bus
+        .subscribe(&format!("{prefix}.>"))
+        .await
+        .expect("subscribe");
 
     // Publish
     let batch = test_batch(&session_id);
@@ -120,7 +123,10 @@ async fn multiple_batches_arrive_in_order() {
     let session_id = format!("test-{}", uuid::Uuid::new_v4());
     let subject = format!("{prefix}.session.{session_id}");
 
-    let mut sub = bus.subscribe(&format!("{prefix}.>")).await.expect("subscribe");
+    let mut sub = bus
+        .subscribe(&format!("{prefix}.>"))
+        .await
+        .expect("subscribe");
 
     // Small delay to let push consumer register
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -171,4 +177,29 @@ async fn replay_empty_stream_returns_empty() {
         result.unwrap().is_empty(),
         "an unused prefix must replay to an empty backlog"
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// D-01 (memory hands): the memory.> stream exists beside patterns and ui
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_streams_are_ensured {
+    use super::*;
+
+    /// A publish to a subject no stream claims errors at the broker, so a
+    /// successful publish is the proof the `memory` stream was declared.
+    #[tokio::test]
+    #[ignore]
+    async fn a_record_published_to_memory_lands_on_a_declared_stream() {
+        let bus = NatsBus::connect(&nats_url()).await.expect("connect");
+        bus.ensure_streams().await.expect("ensure streams");
+        let sid = format!("memory-smoke-{}", uuid::Uuid::new_v4());
+        let payload = serde_json::json!({ "id": "enrichment:h:-:t:m", "session_id": sid, "handle": "h", "kind": "enrichment" });
+        bus.publish_bytes(
+            &format!("memory.enrichment.{sid}"),
+            &serde_json::to_vec(&payload).unwrap(),
+        )
+        .await
+        .expect("publish to memory.> lands on a declared stream");
+    }
 }

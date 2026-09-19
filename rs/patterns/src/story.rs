@@ -419,3 +419,310 @@ impl TurnDetector for StoryDetector {
         "story"
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Output shapes a host hands back (memory hands, E-03)
+// ═══════════════════════════════════════════════════════════════════
+//
+// These are the contracts for judgment. They are committed as JSON
+// schemas (schemas/*.schema.json), served by the MCP as resources, and
+// embedded in the prompts. The write hands (group D) validate against
+// them and against the laws in `validate_reading` before anything lands.
+
+use serde::{Deserialize, Serialize};
+
+/// Who read: the host that ran the prompt and the model it used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Author {
+    pub host: String,
+    pub model: String,
+}
+
+/// A reading's standing: provisional readings come from the streaming
+/// fold and are superseded by the final reading when the arc closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Standing {
+    Provisional,
+    Final,
+}
+
+/// One paragraph of a reading: consecutive exchanges sharing an intent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Paragraph {
+    /// Exchange handles, in arc order. Never a handle the arc does not hold.
+    pub exchanges: Vec<String>,
+    pub intent: String,
+}
+
+/// A reading: a grouping of an arc's exchanges into paragraphs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Reading {
+    /// The arc handle this reading is of.
+    pub handle: String,
+    pub standing: Standing,
+    pub paragraphs: Vec<Paragraph>,
+    pub author: Author,
+}
+
+/// The slots the twelve creator-question schemas need.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Slots {
+    #[serde(default)]
+    pub decisions: Vec<String>,
+    #[serde(default)]
+    pub deferrals: Vec<String>,
+    #[serde(default)]
+    pub tradeoffs: Vec<String>,
+    #[serde(default)]
+    pub failures: Vec<String>,
+    /// The human's positions, quoted, never strengthened.
+    #[serde(default)]
+    pub stance: Vec<String>,
+}
+
+/// An enrichment: the top-node text for an arc.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Enrichment {
+    pub handle: String,
+    pub title: String,
+    pub question: String,
+    pub resolution: String,
+    pub summary: String,
+    #[serde(default)]
+    pub slots: Slots,
+    pub author: Author,
+}
+
+/// A ruling on an ambiguous seam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VerdictKind {
+    SameTheme,
+    NewTheme,
+}
+
+/// A verdict on the seam before exchange index `seam` of an arc.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Verdict {
+    pub handle: String,
+    pub seam: usize,
+    pub verdict: VerdictKind,
+    pub reason: String,
+    pub author: Author,
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// The reading laws (E-04) — enforced here, never trusted to the model
+// ═══════════════════════════════════════════════════════════════════
+
+/// Why a reading is not a valid grouping of an arc's exchanges.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadingError {
+    /// Exchange handles of the arc that appear in no group.
+    Missing(Vec<String>),
+    /// Handles that appear in more than one group.
+    Duplicated(Vec<String>),
+    /// Handles that the arc does not hold: a reading never introduces one.
+    Unknown(Vec<String>),
+    /// The groups, concatenated, must follow the arc's order.
+    OutOfOrder { expected: String, found: String },
+    /// A paragraph with no exchanges (index into `paragraphs`).
+    EmptyGroup(usize),
+}
+
+impl std::fmt::Display for ReadingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadingError::Missing(h) => write!(f, "exchanges in no group: {}", h.join(", ")),
+            ReadingError::Duplicated(h) => {
+                write!(f, "exchanges in more than one group: {}", h.join(", "))
+            }
+            ReadingError::Unknown(h) => {
+                write!(f, "handles the arc does not hold: {}", h.join(", "))
+            }
+            ReadingError::OutOfOrder { expected, found } => {
+                write!(
+                    f,
+                    "groups must follow the arc's order: expected {expected}, found {found}"
+                )
+            }
+            ReadingError::EmptyGroup(i) => write!(f, "paragraph {i} has no exchanges"),
+        }
+    }
+}
+
+impl std::error::Error for ReadingError {}
+
+/// Pure: check a reading against the arc's exchange handles, in arc order.
+/// Every handle exactly once, in order, no strangers, no empty groups.
+pub fn validate_reading(reading: &Reading, arc_exchanges: &[String]) -> Result<(), ReadingError> {
+    use std::collections::{BTreeSet, HashSet};
+
+    if let Some(i) = reading
+        .paragraphs
+        .iter()
+        .position(|p| p.exchanges.is_empty())
+    {
+        return Err(ReadingError::EmptyGroup(i));
+    }
+    let arc: HashSet<&str> = arc_exchanges.iter().map(String::as_str).collect();
+    let flat: Vec<&str> = reading
+        .paragraphs
+        .iter()
+        .flat_map(|p| p.exchanges.iter().map(String::as_str))
+        .collect();
+
+    let unknown: Vec<String> = {
+        let mut seen = BTreeSet::new();
+        flat.iter()
+            .filter(|h| !arc.contains(*h) && seen.insert(**h))
+            .map(|h| h.to_string())
+            .collect()
+    };
+    if !unknown.is_empty() {
+        return Err(ReadingError::Unknown(unknown));
+    }
+    let duplicated: Vec<String> = {
+        let mut seen = HashSet::new();
+        let mut dups = BTreeSet::new();
+        for h in &flat {
+            if !seen.insert(*h) {
+                dups.insert(h.to_string());
+            }
+        }
+        dups.into_iter().collect()
+    };
+    if !duplicated.is_empty() {
+        return Err(ReadingError::Duplicated(duplicated));
+    }
+    let present: HashSet<&str> = flat.iter().copied().collect();
+    let missing: Vec<String> = arc_exchanges
+        .iter()
+        .filter(|h| !present.contains(h.as_str()))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(ReadingError::Missing(missing));
+    }
+    for (expected, found) in arc_exchanges.iter().zip(&flat) {
+        if expected != found {
+            return Err(ReadingError::OutOfOrder {
+                expected: expected.clone(),
+                found: found.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MemoryRecord — a host's judgment, as the store keeps it (D-07)
+// ═══════════════════════════════════════════════════════════════════
+
+/// What kind of judgment a memory record holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryKind {
+    Enrichment,
+    Reading,
+    Verdict,
+    Saga,
+    Keep,
+}
+
+impl MemoryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MemoryKind::Enrichment => "enrichment",
+            MemoryKind::Reading => "reading",
+            MemoryKind::Verdict => "verdict",
+            MemoryKind::Saga => "saga",
+            MemoryKind::Keep => "keep",
+        }
+    }
+}
+
+/// One stored judgment about a node. Keyed so that a re-narration by the
+/// same author replaces, another author adds a row, and a provisional and
+/// a final reading coexist (final supersedes, never deletes).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct MemoryRecord {
+    /// `kind:handle:standing:author.host:author.model` — see `MemoryRecord::id_for`.
+    pub id: String,
+    pub session_id: String,
+    pub handle: String,
+    pub kind: MemoryKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing: Option<Standing>,
+    pub author: Author,
+    /// RFC 3339, set by the server when the record is stored.
+    pub created_at: String,
+    /// The Enrichment / Reading / Verdict / Saga / Keep JSON, as validated.
+    pub payload: serde_json::Value,
+}
+
+impl MemoryRecord {
+    pub fn id_for(
+        kind: MemoryKind,
+        handle: &str,
+        standing: Option<Standing>,
+        author: &Author,
+    ) -> String {
+        let standing = match standing {
+            Some(Standing::Provisional) => "provisional",
+            Some(Standing::Final) => "final",
+            None => "-",
+        };
+        format!(
+            "{}:{}:{}:{}:{}",
+            kind.as_str(),
+            handle,
+            standing,
+            author.host,
+            author.model
+        )
+    }
+
+    pub fn new(
+        session_id: &str,
+        handle: &str,
+        kind: MemoryKind,
+        standing: Option<Standing>,
+        author: Author,
+        created_at: &str,
+        payload: serde_json::Value,
+    ) -> Self {
+        Self {
+            id: Self::id_for(kind, handle, standing, &author),
+            session_id: session_id.to_string(),
+            handle: handle.to_string(),
+            kind,
+            standing,
+            author,
+            created_at: created_at.to_string(),
+            payload,
+        }
+    }
+}
+
+/// A saga: the same problem returning across arcs, possibly across sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Saga {
+    /// The arc this saga was written from.
+    pub handle: String,
+    /// The arcs it links, this one included. At least two.
+    #[schemars(length(min = 2))]
+    pub handles: Vec<String>,
+    pub reason: String,
+    pub author: Author,
+}
+
+/// A keep proposal: this arc is worth keeping past the retention cliff.
+/// The host marks; the human keeps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Keep {
+    pub handle: String,
+    pub reason: String,
+    pub author: Author,
+}

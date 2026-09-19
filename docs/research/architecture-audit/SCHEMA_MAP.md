@@ -120,6 +120,10 @@ Which type crosses which wire. This is the table Stage 2 tests will mirror.
 | 6 | REST `/api/sessions/{id}/view-records` | `Vec<ViewRecord>` | `view_record.schema.json` |
 | 7 | REST `/api/sessions/{id}/records` | `Vec<WireRecord>` | `wire_record.schema.json` |
 | 8 | WebSocket frames | `BroadcastMessage` (tagged) | `broadcast_message.schema.json` |
+| 9 | NATS `memory.{kind}.{session}` (memory hands) | `MemoryRecord` per message | `memory_record.schema.json` |
+| 10 | REST `POST /api/memory` → SQLite `memory.record` / Mongo `memory` | `MemoryRecord` envelope; `payload` is one of the judgment shapes by `kind` | `memory_record.schema.json` + `enrichment` / `reading` / `verdict` / `saga` / `keep` |
+| 11 | MCP `prompts/get` messages, `resources/read openstory://schemas/*` | the judgment shapes a host must hand back | `enrichment.schema.json`, `reading.schema.json`, `verdict.schema.json`, `saga.schema.json`, `keep.schema.json` |
+| 12 | REST `GET /api/sessions/{id}/patterns?type=story.*` and `rs/patterns/tests/fixtures/story/*` | `PatternEvent` with story metadata; goldens derived from `GoldenSpec` | `pattern_event.schema.json`, `golden_spec.schema.json` |
 | 9 | REST `/api/sessions` | `{ sessions: Vec<SessionRow> }` | `session_row.schema.json` |
 | 10 | REST `/api/search` | `Vec<FtsSearchResult>` | `fts_result.schema.json` |
 
@@ -185,6 +189,12 @@ Starting coarse, the schema files to produce in Stage 3 are:
 6. `pattern_event.schema.json` (from patterns crate)
 7. `session_row.schema.json`, `fts_result.schema.json` (REST list/search)
 8. `subtypes.schema.json` (enum of allowed subtype strings)
+
+Added by memory hands (2026-09-18), same tests (known-good, known-bad, drift), served by the MCP as `openstory://schemas/<name>`:
+
+9. `golden_spec.schema.json` — the typed spec story goldens are generated from
+10. `reading.schema.json`, `enrichment.schema.json`, `verdict.schema.json`, `saga.schema.json`, `keep.schema.json` — the judgment shapes a host hands back
+11. `memory_record.schema.json` — the stored envelope for any judgment (id, session, handle, kind, standing, author, created_at, payload)
 
 Eight schemas. Each will have a test of the shape:
 
