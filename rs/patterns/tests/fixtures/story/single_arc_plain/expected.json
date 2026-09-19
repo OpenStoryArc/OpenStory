@@ -1,0 +1,174 @@
+{
+  "session_id": "golden-single_arc_plain",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "b63d63f91b58501d",
+      "event_range": [
+        0,
+        7
+      ],
+      "event_ids": [
+        "e2d697cf-ab6f-5620-ab6c-1d47e101af59",
+        "6ac7355a-5df6-5630-8291-6a2075cebfef",
+        "1daf0bc0-dfb4-569a-b8e4-d34a46cd33b6",
+        "8d671453-91d8-549b-a790-0b7584357be4",
+        "0c2d89b2-dfc8-5133-9a77-8eb1d85a8e13",
+        "1c7a8521-e57a-5f37-83e2-08ce2b76dafe",
+        "5f35c499-6e89-5f2a-8cf9-bb7c3eba8a3f"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:06.000Z",
+      "entities": {
+        "src/lib.rs": 1,
+        "src/main.rs": 1
+      },
+      "tools": {
+        "Read": 2
+      },
+      "rich_turns": 1,
+      "first_verb": "read",
+      "last_verb": "read"
+    },
+    {
+      "handle": "606704fee7785da7",
+      "event_range": [
+        7,
+        14
+      ],
+      "event_ids": [
+        "40bc63ce-ff18-5295-bf0e-a9b56c44c07b",
+        "5528b40e-96a8-5cfe-9ac8-fd69aa1eb6d0",
+        "2c5ce078-4aa4-576a-9ca0-f96a350040f6",
+        "672baee0-746f-5207-9ac7-3f9394bb79cf",
+        "e0271152-2643-5fce-8531-afd5a6300c76",
+        "3c85b62e-a22c-5dd6-9526-973ba9913fb0",
+        "42af5a93-db60-53cd-b3f1-11190d9b6ba3"
+      ],
+      "started_at": "2026-01-01T09:00:52.000Z",
+      "ended_at": "2026-01-01T09:00:58.000Z",
+      "entities": {
+        "src/lib.rs": 1
+      },
+      "tools": {
+        "Bash": 1,
+        "Edit": 1
+      },
+      "rich_turns": 1,
+      "first_verb": "edited",
+      "last_verb": "edited"
+    },
+    {
+      "handle": "8f1e17bc81a25d74",
+      "event_range": [
+        14,
+        23
+      ],
+      "event_ids": [
+        "d75ebf55-5d33-5579-8cc3-4f4ce4e78d1e",
+        "8c855678-7118-5d56-a6da-3a67372b5b24",
+        "f5feca92-8358-5afa-a748-a4ed28dc464c",
+        "0aa8e459-7cf7-5676-8c53-011feb09eee7",
+        "8cc03aa6-5ea1-5157-9046-9416f0137ea6",
+        "7c099997-0589-5ae6-b557-ad0d356b7a1e",
+        "591c8528-63ee-54df-b0aa-e62f033e97d5",
+        "253883a5-0b9f-5cc2-b8c1-5264eb865dc6",
+        "1bdf4a39-e89b-5281-8f7c-b2aafdcbb965"
+      ],
+      "started_at": "2026-01-01T09:02:59.000Z",
+      "ended_at": "2026-01-01T09:03:07.000Z",
+      "entities": {},
+      "tools": {
+        "Bash": 3
+      },
+      "rich_turns": 1,
+      "first_verb": "ran tests",
+      "last_verb": "ran tests"
+    },
+    {
+      "handle": "4d513b2fc23157ef",
+      "event_range": [
+        23,
+        30
+      ],
+      "event_ids": [
+        "82ca4069-54cd-58b3-bdb1-42b168d5f116",
+        "4a1a0285-28b7-5bb8-829c-26c6c42f2eb2",
+        "825f5944-f2fa-5ca6-9500-cba8d393edc9",
+        "2b6fb8f0-b165-54de-bd0d-7180ac4a152e",
+        "2a240337-7162-55eb-ae41-88d3b34e8713",
+        "efeeb077-d79e-5f71-8415-43a63a66748b",
+        "0265b29a-4a35-55fa-8fa8-5d721c8a0586"
+      ],
+      "started_at": "2026-01-01T09:03:38.000Z",
+      "ended_at": "2026-01-01T09:03:44.000Z",
+      "entities": {},
+      "tools": {
+        "Bash": 2
+      },
+      "rich_turns": 1,
+      "first_verb": "committed",
+      "last_verb": "committed"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "6f537f9d561b5fcd",
+      "exchange_range": [
+        0,
+        4
+      ],
+      "exchanges": [
+        "b63d63f91b58501d",
+        "606704fee7785da7",
+        "8f1e17bc81a25d74",
+        "4d513b2fc23157ef"
+      ],
+      "event_ids": [
+        "e2d697cf-ab6f-5620-ab6c-1d47e101af59",
+        "6ac7355a-5df6-5630-8291-6a2075cebfef",
+        "1daf0bc0-dfb4-569a-b8e4-d34a46cd33b6",
+        "8d671453-91d8-549b-a790-0b7584357be4",
+        "0c2d89b2-dfc8-5133-9a77-8eb1d85a8e13",
+        "1c7a8521-e57a-5f37-83e2-08ce2b76dafe",
+        "5f35c499-6e89-5f2a-8cf9-bb7c3eba8a3f",
+        "40bc63ce-ff18-5295-bf0e-a9b56c44c07b",
+        "5528b40e-96a8-5cfe-9ac8-fd69aa1eb6d0",
+        "2c5ce078-4aa4-576a-9ca0-f96a350040f6",
+        "672baee0-746f-5207-9ac7-3f9394bb79cf",
+        "e0271152-2643-5fce-8531-afd5a6300c76",
+        "3c85b62e-a22c-5dd6-9526-973ba9913fb0",
+        "42af5a93-db60-53cd-b3f1-11190d9b6ba3",
+        "d75ebf55-5d33-5579-8cc3-4f4ce4e78d1e",
+        "8c855678-7118-5d56-a6da-3a67372b5b24",
+        "f5feca92-8358-5afa-a748-a4ed28dc464c",
+        "0aa8e459-7cf7-5676-8c53-011feb09eee7",
+        "8cc03aa6-5ea1-5157-9046-9416f0137ea6",
+        "7c099997-0589-5ae6-b557-ad0d356b7a1e",
+        "591c8528-63ee-54df-b0aa-e62f033e97d5",
+        "253883a5-0b9f-5cc2-b8c1-5264eb865dc6",
+        "1bdf4a39-e89b-5281-8f7c-b2aafdcbb965",
+        "82ca4069-54cd-58b3-bdb1-42b168d5f116",
+        "4a1a0285-28b7-5bb8-829c-26c6c42f2eb2",
+        "825f5944-f2fa-5ca6-9500-cba8d393edc9",
+        "2b6fb8f0-b165-54de-bd0d-7180ac4a152e",
+        "2a240337-7162-55eb-ae41-88d3b34e8713",
+        "efeeb077-d79e-5f71-8415-43a63a66748b",
+        "0265b29a-4a35-55fa-8fa8-5d721c8a0586"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:03:44.000Z",
+      "entities": {
+        "src/lib.rs": 2,
+        "src/main.rs": 1
+      },
+      "tools": {
+        "Bash": 6,
+        "Edit": 1,
+        "Read": 2
+      },
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": []
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "session_id": "golden-injected_skill_messages",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "f2f2b36cec7f56ba",
+      "event_range": [
+        0,
+        15
+      ],
+      "event_ids": [
+        "2ab2be15-97e5-5099-a98c-01de08e18852",
+        "3c69f39e-6411-5260-afbf-4928945991ac",
+        "888aa7ab-1153-5ccb-bebd-10ed91523b41",
+        "cb9cb9db-860c-5417-abdc-ed22260dfa1e",
+        "5d289b6f-d53a-5e06-a07a-d98edfdfb4f3",
+        "a69322c7-62d0-5215-b012-8c1f58dd2173",
+        "cb0b6a8c-3086-5346-81b0-ec06694f0fbc",
+        "be01fb16-cf10-53a3-8734-c85f14da0771",
+        "2dfc2c26-114f-5a8a-aba1-c0f82f5204bb",
+        "c0d078f3-20dd-55c0-b6f3-9411c81d30d2",
+        "51c61e99-9196-5bc2-85f7-3151fb9cc89b",
+        "6b16527d-7d91-514d-9103-b86bd2279970",
+        "4e7963dd-7d60-54cb-bd41-99e8be549d81",
+        "ee8f7598-1e3a-5cd6-85ee-e04b6a882650",
+        "c3d3aef0-9693-5a50-abc7-9baab1b7940a"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:15.000Z",
+      "entities": {},
+      "tools": {
+        "Bash": 4,
+        "Skill": 1
+      },
+      "rich_turns": 1,
+      "first_verb": "read",
+      "last_verb": "explained"
+    },
+    {
+      "handle": "e9c4e896cdf45e6f",
+      "event_range": [
+        15,
+        25
+      ],
+      "event_ids": [
+        "77f27cda-c9e6-58bb-971c-2e8a3d1359e9",
+        "73e2ba17-3b6e-57d8-8952-b5926bb89e3c",
+        "847c0d74-a2f2-52ab-820b-fbfad88a12bb",
+        "5a653103-f78b-54b0-aee1-85a9b1b862ec",
+        "29795b38-7298-580f-8b98-89188ab9cc7d",
+        "d7b8ac35-9047-5f52-9d88-4a618e7258b6",
+        "b961d987-9f40-57a2-99b1-f303550d6d38",
+        "65fef130-05e3-5c71-9859-aa89c27679c2",
+        "cf3c4616-d3f6-5858-a035-823802a85883",
+        "e116434c-4136-56bc-93fe-f1546f322fd9"
+      ],
+      "started_at": "2026-01-01T09:05:16.000Z",
+      "ended_at": "2026-01-01T09:05:27.000Z",
+      "entities": {
+        "docs/design.md": 2
+      },
+      "tools": {
+        "Skill": 1,
+        "Write": 2
+      },
+      "rich_turns": 1,
+      "first_verb": "wrote",
+      "last_verb": "wrote"
+    },
+    {
+      "handle": "9d1f7b331c52525a",
+      "event_range": [
+        25,
+        30
+      ],
+      "event_ids": [
+        "2614ae81-5e2d-5cf3-b388-5084fe54bf06",
+        "b2d7350e-36a8-5687-a0ff-a6be2aa9cba4",
+        "bf4eec55-d3d5-5e99-a6bc-8b5fbeacaec0",
+        "4c7fc533-1b24-5575-b44a-6ebe5d1a0c74",
+        "0e0b6b07-59ea-534e-999f-a2647dc8dd2c"
+      ],
+      "started_at": "2026-01-01T09:15:28.000Z",
+      "ended_at": "2026-01-01T09:15:32.000Z",
+      "entities": {},
+      "tools": {
+        "Bash": 1
+      },
+      "rich_turns": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "e3b4ab29cb0752ea",
+      "exchange_range": [
+        0,
+        3
+      ],
+      "exchanges": [
+        "f2f2b36cec7f56ba",
+        "e9c4e896cdf45e6f",
+        "9d1f7b331c52525a"
+      ],
+      "event_ids": [
+        "2ab2be15-97e5-5099-a98c-01de08e18852",
+        "3c69f39e-6411-5260-afbf-4928945991ac",
+        "888aa7ab-1153-5ccb-bebd-10ed91523b41",
+        "cb9cb9db-860c-5417-abdc-ed22260dfa1e",
+        "5d289b6f-d53a-5e06-a07a-d98edfdfb4f3",
+        "a69322c7-62d0-5215-b012-8c1f58dd2173",
+        "cb0b6a8c-3086-5346-81b0-ec06694f0fbc",
+        "be01fb16-cf10-53a3-8734-c85f14da0771",
+        "2dfc2c26-114f-5a8a-aba1-c0f82f5204bb",
+        "c0d078f3-20dd-55c0-b6f3-9411c81d30d2",
+        "51c61e99-9196-5bc2-85f7-3151fb9cc89b",
+        "6b16527d-7d91-514d-9103-b86bd2279970",
+        "4e7963dd-7d60-54cb-bd41-99e8be549d81",
+        "ee8f7598-1e3a-5cd6-85ee-e04b6a882650",
+        "c3d3aef0-9693-5a50-abc7-9baab1b7940a",
+        "77f27cda-c9e6-58bb-971c-2e8a3d1359e9",
+        "73e2ba17-3b6e-57d8-8952-b5926bb89e3c",
+        "847c0d74-a2f2-52ab-820b-fbfad88a12bb",
+        "5a653103-f78b-54b0-aee1-85a9b1b862ec",
+        "29795b38-7298-580f-8b98-89188ab9cc7d",
+        "d7b8ac35-9047-5f52-9d88-4a618e7258b6",
+        "b961d987-9f40-57a2-99b1-f303550d6d38",
+        "65fef130-05e3-5c71-9859-aa89c27679c2",
+        "cf3c4616-d3f6-5858-a035-823802a85883",
+        "e116434c-4136-56bc-93fe-f1546f322fd9",
+        "2614ae81-5e2d-5cf3-b388-5084fe54bf06",
+        "b2d7350e-36a8-5687-a0ff-a6be2aa9cba4",
+        "bf4eec55-d3d5-5e99-a6bc-8b5fbeacaec0",
+        "4c7fc533-1b24-5575-b44a-6ebe5d1a0c74",
+        "0e0b6b07-59ea-534e-999f-a2647dc8dd2c"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:15:32.000Z",
+      "entities": {
+        "docs/design.md": 2
+      },
+      "tools": {
+        "Bash": 5,
+        "Skill": 2,
+        "Write": 2
+      },
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": []
+    }
+  ]
+}

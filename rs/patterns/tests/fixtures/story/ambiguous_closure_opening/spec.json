@@ -1,0 +1,91 @@
+{
+  "session_id": "golden-ambiguous_closure_opening",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "edited",
+          "objects": [
+            "src/a.rs"
+          ],
+          "tools": [
+            [
+              "Edit",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 20,
+      "turns": [
+        {
+          "verb": "committed",
+          "objects": [
+            "src/a.rs"
+          ],
+          "tools": [
+            [
+              "Bash",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 90,
+      "turns": [
+        {
+          "verb": "explored",
+          "objects": [
+            "docs/next.md"
+          ],
+          "tools": [
+            [
+              "Glob",
+              2
+            ],
+            [
+              "Read",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 40,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "docs/next.md"
+          ],
+          "tools": [
+            [
+              "Write",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    }
+  ]
+}

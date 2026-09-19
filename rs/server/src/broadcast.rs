@@ -29,6 +29,12 @@ pub enum BroadcastMessage {
     },
     /// Enriched broadcast: durable WireRecords + ephemeral ViewRecords + filter deltas + patterns.
     /// Phase 3: separates persistent records from transient progress events.
+    /// Memory hands (D-03): a host's judgment landed in the store. The Story
+    /// tab redraws the arc's title, reading brackets, or verdict pip.
+    #[serde(rename = "memory")]
+    Memory {
+        record: open_story_patterns::story::MemoryRecord,
+    },
     #[serde(rename = "enriched")]
     Enriched {
         session_id: String,
@@ -65,9 +71,7 @@ pub enum BroadcastMessage {
     /// frame from the cached one. The UI's `admin$` BehaviorSubject
     /// emits each frame as it arrives — UI is a pure sink.
     #[serde(rename = "admin_topology_changed")]
-    AdminTopologyChanged {
-        topology: crate::admin::Topology,
-    },
+    AdminTopologyChanged { topology: crate::admin::Topology },
     /// Agent/operator "view intent": a request to drive the OpenStory UI
     /// (navigate, filter, highlight, present). This is the WRITE side of the
     /// agent-in-UI seam, and it is scoped by design — it only changes what the

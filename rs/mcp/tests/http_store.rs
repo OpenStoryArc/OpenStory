@@ -239,9 +239,18 @@ async fn list_sessions_unwraps_envelope_and_remaps_fields() {
     // when list_sessions runs, then it yields SessionRows with id/first_event.
     let rows = store().await.list_sessions().await.unwrap();
     assert_eq!(rows.len(), 2);
-    let newer = rows.iter().find(|r| r.id == "s-newer").expect("s-newer present");
-    assert_eq!(newer.first_event.as_deref(), Some("2026-06-13T10:00:00.000Z"));
-    assert_eq!(newer.last_event.as_deref(), Some("2026-06-13T11:00:00.000Z"));
+    let newer = rows
+        .iter()
+        .find(|r| r.id == "s-newer")
+        .expect("s-newer present");
+    assert_eq!(
+        newer.first_event.as_deref(),
+        Some("2026-06-13T10:00:00.000Z")
+    );
+    assert_eq!(
+        newer.last_event.as_deref(),
+        Some("2026-06-13T11:00:00.000Z")
+    );
     assert_eq!(newer.event_count, 42);
     assert_eq!(newer.project_name.as_deref(), Some("Project A"));
     // fields the trimmed shape omits map to None, not a decode error
@@ -259,7 +268,11 @@ async fn session_events_returns_raw_array() {
 
 #[tokio::test]
 async fn session_patterns_unwraps_patterns_key() {
-    let pats = store().await.session_patterns("s", Some("turn.sentence")).await.unwrap();
+    let pats = store()
+        .await
+        .session_patterns("s", Some("turn.sentence"))
+        .await
+        .unwrap();
     assert_eq!(pats.len(), 1);
     assert_eq!(pats[0].summary, "edited file");
     assert_eq!(pats[0].metadata.get("verb").unwrap(), "edit");
@@ -267,7 +280,11 @@ async fn session_patterns_unwraps_patterns_key() {
 
 #[tokio::test]
 async fn synopsis_decodes_when_present() {
-    let syn = store().await.query_session_synopsis("s-newer").await.expect("some synopsis");
+    let syn = store()
+        .await
+        .query_session_synopsis("s-newer")
+        .await
+        .expect("some synopsis");
     assert_eq!(syn.session_id, "s-newer");
     assert_eq!(syn.tool_count, 10);
     assert_eq!(syn.top_tools.len(), 2);
@@ -346,4 +363,53 @@ async fn token_usage_unreachable_returns_zero_with_model_echo() {
     let t = dead.query_token_usage(None, None, "haiku").await;
     assert_eq!(t.session_count, 0);
     assert_eq!(t.cost.model, "haiku");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// D-05: memory reads over REST (the write path stays closed)
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_memory_is_read_over_rest {
+    use super::*;
+    use open_story_patterns::story::{Author, MemoryKind, MemoryRecord};
+
+    fn memory_router() -> Router {
+        let rec = MemoryRecord::new(
+            "sess-m",
+            "arc0000000000001",
+            MemoryKind::Enrichment,
+            None,
+            Author {
+                host: "claude-code".into(),
+                model: "m".into(),
+            },
+            "2026-09-18T20:00:00Z",
+            serde_json::json!({ "handle": "arc0000000000001", "title": "t" }),
+        );
+        let by_handle = serde_json::json!({ "memory": [rec] });
+        let by_session = by_handle.clone();
+        Router::new()
+            .route(
+                "/api/memory/{handle}",
+                get(move || async move { axum::Json(by_handle) }),
+            )
+            .route(
+                "/api/sessions/{id}/memory",
+                get(move || async move { axum::Json(by_session) }),
+            )
+    }
+
+    #[tokio::test]
+    async fn it_decodes_the_envelope_and_never_writes() {
+        let base = spawn_mock(memory_router()).await;
+        let store = HttpEventStore::new(&base, None);
+        let rows = store.memory_for_handle("arc0000000000001").await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].payload["title"], "t");
+        assert_eq!(rows[0].author.host, "claude-code");
+        let rows = store.session_memory("sess-m").await.unwrap();
+        assert_eq!(rows.len(), 1);
+        let err = store.insert_memory(&rows[0]).await.unwrap_err().to_string();
+        assert!(err.contains("read-only"), "{err}");
+    }
 }

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    },
+    "Slots": {
+      "description": "The slots the twelve creator-question schemas need.",
+      "properties": {
+        "decisions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deferrals": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "failures": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "stance": {
+          "default": [],
+          "description": "The human's positions, quoted, never strengthened.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tradeoffs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "description": "An enrichment: the top-node text for an arc.",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "resolution": {
+      "type": "string"
+    },
+    "slots": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Slots"
+        }
+      ],
+      "default": {
+        "decisions": [],
+        "deferrals": [],
+        "failures": [],
+        "stance": [],
+        "tradeoffs": []
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "author",
+    "handle",
+    "question",
+    "resolution",
+    "summary",
+    "title"
+  ],
+  "title": "Enrichment",
+  "type": "object"
+}

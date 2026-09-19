@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7924d320fff5876feb453960f2bb916d58b31a8f5cee7eca9ba0848dd6c372cd # shrinks to spec = GoldenSpec { session_id: "prop-session", started_at: "2026-01-01T09:00:00Z", gap_threshold_secs: 1800, exchanges: [ExchangeSpec { kind: Human, prompt_class: Short, gap_before_secs: 0, turns: [TurnSpec { verb: "read", objects: [], tools: [], rich: false }] }, ExchangeSpec { kind: Human, prompt_class: Short, gap_before_secs: 0, turns: [TurnSpec { verb: "read", objects: [], tools: [], rich: false }, TurnSpec { verb: "read", objects: [], tools: [], rich: false }] }, ExchangeSpec { kind: Injected, prompt_class: Short, gap_before_secs: 0, turns: [TurnSpec { verb: "read", objects: [], tools: [], rich: false }] }] }

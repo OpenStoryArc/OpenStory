@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    },
+    "Paragraph": {
+      "description": "One paragraph of a reading: consecutive exchanges sharing an intent.",
+      "properties": {
+        "exchanges": {
+          "description": "Exchange handles, in arc order. Never a handle the arc does not hold.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "exchanges",
+        "intent"
+      ],
+      "type": "object"
+    },
+    "Standing": {
+      "description": "A reading's standing: provisional readings come from the streaming fold and are superseded by the final reading when the arc closes.",
+      "enum": [
+        "provisional",
+        "final"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "A reading: a grouping of an arc's exchanges into paragraphs.",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "handle": {
+      "description": "The arc handle this reading is of.",
+      "type": "string"
+    },
+    "paragraphs": {
+      "items": {
+        "$ref": "#/definitions/Paragraph"
+      },
+      "type": "array"
+    },
+    "standing": {
+      "$ref": "#/definitions/Standing"
+    }
+  },
+  "required": [
+    "author",
+    "handle",
+    "paragraphs",
+    "standing"
+  ],
+  "title": "Reading",
+  "type": "object"
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    },
+    "VerdictKind": {
+      "description": "A ruling on an ambiguous seam.",
+      "enum": [
+        "same_theme",
+        "new_theme"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "A verdict on the seam before exchange index `seam` of an arc.",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "seam": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "verdict": {
+      "$ref": "#/definitions/VerdictKind"
+    }
+  },
+  "required": [
+    "author",
+    "handle",
+    "reason",
+    "seam",
+    "verdict"
+  ],
+  "title": "Verdict",
+  "type": "object"
+}

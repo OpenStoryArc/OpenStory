@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use rusqlite::Connection;
 use serde_json::Value;
 
+use open_story_patterns::story::MemoryRecord;
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::event_store::{EventStore, SessionRow};
@@ -155,6 +156,20 @@ impl SqliteStore {
             );
             CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
 
+            CREATE TABLE IF NOT EXISTS memory (
+                id          TEXT PRIMARY KEY,
+                session_id  TEXT NOT NULL,
+                handle      TEXT NOT NULL,
+                kind        TEXT NOT NULL,
+                standing    TEXT,
+                author_host TEXT NOT NULL,
+                author_model TEXT NOT NULL,
+                created_at  TEXT NOT NULL DEFAULT '',
+                record      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_handle ON memory(handle);
+            CREATE INDEX IF NOT EXISTS idx_memory_session ON memory(session_id);
+
             CREATE TABLE IF NOT EXISTS plans (
                 id          TEXT PRIMARY KEY,
                 session_id  TEXT NOT NULL,
@@ -210,13 +225,16 @@ impl SqliteStore {
         // The "your fleet" sidebar grouping queries on this column, so
         // the index is worth its weight even at small scale.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN person_id TEXT");
-        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
+        let _ = conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_person ON sessions(person_id)");
 
         // Migration: add principal_id column + index. The UI groups sessions
         // by principal in the sidebar, so an index pays for itself even at
         // single-user scale.
         let _ = conn.execute_batch("ALTER TABLE sessions ADD COLUMN principal_id TEXT");
-        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id)");
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_principal ON sessions(principal_id)",
+        );
 
         Ok(())
     }
@@ -313,11 +331,7 @@ impl SqliteStore {
     /// Count of records in the FTS5 index (used for backfill check).
     fn fts_count_inner(&self) -> Result<u64> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM events_fts",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM events_fts", [], |row| row.get(0))?;
         Ok(count as u64)
     }
 
@@ -445,9 +459,8 @@ impl EventStore for SqliteStore {
 
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = conn.prepare(
-            "SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC")?;
         let rows = stmt.query_map([session_id], |row| {
             let payload: String = row.get(0)?;
             Ok(payload)
@@ -472,9 +485,7 @@ impl EventStore for SqliteStore {
         // The CAST(json_extract(...)) expression matches
         // idx_events_session_seq exactly, so this is an index range scan —
         // no whole-session load, no per-request JSON parse of every event.
-        let mut sql = String::from(
-            "SELECT payload FROM events WHERE session_id = ?1",
-        );
+        let mut sql = String::from("SELECT payload FROM events WHERE session_id = ?1");
         if before_seq.is_some() {
             sql.push_str(" AND CAST(json_extract(payload, '$.data.seq') AS INTEGER) < ?3");
         }
@@ -697,6 +708,15 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
+    async fn delete_session_patterns(&self, session_id: &str, type_prefix: &str) -> Result<u64> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let n = conn.execute(
+            "DELETE FROM patterns WHERE session_id = ?1 AND substr(type, 1, length(?2)) = ?2",
+            rusqlite::params![session_id, type_prefix],
+        )?;
+        Ok(n as u64)
+    }
+
     async fn session_patterns(
         &self,
         session_id: &str,
@@ -742,9 +762,8 @@ impl EventStore for SqliteStore {
 
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = conn.prepare(
-            "SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT data FROM turns WHERE session_id = ?1 ORDER BY turn_number")?;
         let turns = stmt
             .query_map([session_id], |row| {
                 let data: String = row.get(0)?;
@@ -756,12 +775,7 @@ impl EventStore for SqliteStore {
         Ok(turns)
     }
 
-    async fn upsert_plan(
-        &self,
-        plan_id: &str,
-        session_id: &str,
-        content: &str,
-    ) -> Result<()> {
+    async fn upsert_plan(&self, plan_id: &str, session_id: &str, content: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -854,6 +868,55 @@ impl EventStore for SqliteStore {
 
     // ── Lifecycle methods ───────────────────────────────────────────
 
+    async fn insert_memory(&self, record: &MemoryRecord) -> Result<()> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let standing = record.standing.map(|s| match s {
+            open_story_patterns::story::Standing::Provisional => "provisional",
+            open_story_patterns::story::Standing::Final => "final",
+        });
+        let json = serde_json::to_string(record)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO memory (id, session_id, handle, kind, standing, author_host, author_model, created_at, record)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![
+                record.id,
+                record.session_id,
+                record.handle,
+                record.kind.as_str(),
+                standing,
+                record.author.host,
+                record.author.model,
+                record.created_at,
+                json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    async fn memory_for_handle(&self, handle: &str) -> Result<Vec<MemoryRecord>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt =
+            conn.prepare("SELECT record FROM memory WHERE handle = ?1 ORDER BY created_at, id")?;
+        let rows = stmt.query_map([handle], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
+    }
+
+    async fn session_memory(&self, session_id: &str) -> Result<Vec<MemoryRecord>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn
+            .prepare("SELECT record FROM memory WHERE session_id = ?1 ORDER BY created_at, id")?;
+        let rows = stmt.query_map([session_id], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
+    }
+
     async fn delete_session(&self, session_id: &str) -> Result<u64> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         // Delete FTS5 entries before events (contentless table has no cascade triggers)
@@ -861,6 +924,7 @@ impl EventStore for SqliteStore {
         let events_deleted: u64 =
             conn.execute("DELETE FROM events WHERE session_id = ?1", [session_id])? as u64;
         conn.execute("DELETE FROM patterns WHERE session_id = ?1", [session_id])?;
+        conn.execute("DELETE FROM memory WHERE session_id = ?1", [session_id])?;
         conn.execute("DELETE FROM plans WHERE session_id = ?1", [session_id])?;
         conn.execute("DELETE FROM sessions WHERE id = ?1", [session_id])?;
         Ok(events_deleted)
@@ -886,7 +950,9 @@ impl EventStore for SqliteStore {
                    AND (host IS NULL OR host <> ?2)",
             )?;
             let rows = stmt
-                .query_map(rusqlite::params![&cutoff_str, host], |row| row.get::<_, String>(0))?
+                .query_map(rusqlite::params![&cutoff_str, host], |row| {
+                    row.get::<_, String>(0)
+                })?
                 .filter_map(|r| r.ok())
                 .collect();
             rows
@@ -1081,23 +1147,47 @@ mod tests {
         }
 
         // No cursor: the most-recent 3, oldest-first.
-        let page = store.session_events_before("sess-p", None, 3).await.unwrap();
-        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        let page = store
+            .session_events_before("sess-p", None, 3)
+            .await
+            .unwrap();
+        let seqs: Vec<u64> = page
+            .iter()
+            .map(|e| e["data"]["seq"].as_u64().unwrap())
+            .collect();
         assert_eq!(seqs, vec![8, 9, 10]);
 
         // Cursor: strictly below before_seq.
-        let page = store.session_events_before("sess-p", Some(8), 3).await.unwrap();
-        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        let page = store
+            .session_events_before("sess-p", Some(8), 3)
+            .await
+            .unwrap();
+        let seqs: Vec<u64> = page
+            .iter()
+            .map(|e| e["data"]["seq"].as_u64().unwrap())
+            .collect();
         assert_eq!(seqs, vec![5, 6, 7]);
 
         // Underfill: fewer events than limit returns what exists.
-        let page = store.session_events_before("sess-p", Some(3), 10).await.unwrap();
-        let seqs: Vec<u64> = page.iter().map(|e| e["data"]["seq"].as_u64().unwrap()).collect();
+        let page = store
+            .session_events_before("sess-p", Some(3), 10)
+            .await
+            .unwrap();
+        let seqs: Vec<u64> = page
+            .iter()
+            .map(|e| e["data"]["seq"].as_u64().unwrap())
+            .collect();
         assert_eq!(seqs, vec![1, 2]);
 
         // Other sessions never leak in.
-        store.insert_event("sess-other", &seq_event("other", 6)).await.unwrap();
-        let page = store.session_events_before("sess-p", Some(8), 100).await.unwrap();
+        store
+            .insert_event("sess-other", &seq_event("other", 6))
+            .await
+            .unwrap();
+        let page = store
+            .session_events_before("sess-p", Some(8), 100)
+            .await
+            .unwrap();
         assert_eq!(page.len(), 7);
     }
 
@@ -1882,7 +1972,11 @@ mod tests {
             .into_iter()
             .map(|s| s.id)
             .collect();
-        assert_eq!(remaining, vec!["sess-mine-old"], "own old session preserved");
+        assert_eq!(
+            remaining,
+            vec!["sess-mine-old"],
+            "own old session preserved"
+        );
     }
 
     #[tokio::test]

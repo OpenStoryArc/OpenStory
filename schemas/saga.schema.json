@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "A saga: the same problem returning across arcs, possibly across sessions.",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "handle": {
+      "description": "The arc this saga was written from.",
+      "type": "string"
+    },
+    "handles": {
+      "description": "The arcs it links, this one included. At least two.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "author",
+    "handle",
+    "handles",
+    "reason"
+  ],
+  "title": "Saga",
+  "type": "object"
+}

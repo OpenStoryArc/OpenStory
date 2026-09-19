@@ -35,6 +35,7 @@ use mongodb::error::{ErrorKind, InsertManyError, WriteFailure};
 use mongodb::{options::ClientOptions, Client, Collection, Database};
 use serde_json::Value;
 
+use open_story_patterns::story::MemoryRecord;
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::event_store::{EventStore, SessionRow};
@@ -49,6 +50,8 @@ const COLL_PATTERNS: &str = "patterns";
 const COLL_TURNS: &str = "turns";
 #[allow(dead_code)]
 const COLL_PLANS: &str = "plans";
+/// Memory records: a host's judgment about a node (memory hands, D-07).
+const COLL_MEMORY: &str = "memory";
 #[allow(dead_code)]
 const COLL_FTS: &str = "events_fts";
 
@@ -154,6 +157,27 @@ impl MongoStore {
             .map_err(|e| anyhow!("create events_fts session_id index: {e}"))?;
 
         Ok(())
+    }
+
+    /// Memory records matching a filter, oldest first.
+    async fn find_memory(&self, filter: Document) -> Result<Vec<MemoryRecord>> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_MEMORY);
+        let mut cursor = coll
+            .find(filter)
+            .sort(doc! { "created_at": 1, "_id": 1 })
+            .await
+            .map_err(|e| anyhow!("mongo find_memory: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let mut d = next.map_err(|e| anyhow!("mongo find_memory cursor: {e}"))?;
+            d.remove("_id");
+            out.push(
+                bson::from_document::<MemoryRecord>(d)
+                    .map_err(|e| anyhow!("memory bson → record: {e}"))?,
+            );
+        }
+        Ok(out)
     }
 }
 
@@ -388,11 +412,11 @@ impl EventStore for MongoStore {
         // Authoritative $set (not $min/$max-merge) so we can lower a polluted
         // bound. Bson::Null when there is no real-activity timestamp.
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
-        let existing_last: Option<String> = match sessions.find_one(doc! { "_id": session_id }).await
-        {
-            Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
-            _ => None,
-        };
+        let existing_last: Option<String> =
+            match sessions.find_one(doc! { "_id": session_id }).await {
+                Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
+                _ => None,
+            };
 
         // Preserve a strictly-ahead live frontier; otherwise heal. Both operands
         // must be present so the no-events case falls through to the recomputed
@@ -520,6 +544,26 @@ impl EventStore for MongoStore {
     /// Delete a session and all of its events, patterns, plans, and FTS
     /// entries. Returns the count of *events* deleted (matches the
     /// SqliteStore contract used by the API).
+    async fn insert_memory(&self, record: &MemoryRecord) -> Result<()> {
+        let coll: Collection<Document> = self.db.collection(COLL_MEMORY);
+        let mut doc =
+            bson::to_document(record).map_err(|e| anyhow!("memory record → bson: {e}"))?;
+        doc.insert("_id", record.id.clone());
+        coll.replace_one(doc! { "_id": &record.id }, doc)
+            .upsert(true)
+            .await
+            .map_err(|e| anyhow!("mongo insert_memory: {e}"))?;
+        Ok(())
+    }
+
+    async fn memory_for_handle(&self, handle: &str) -> Result<Vec<MemoryRecord>> {
+        self.find_memory(doc! { "handle": handle }).await
+    }
+
+    async fn session_memory(&self, session_id: &str) -> Result<Vec<MemoryRecord>> {
+        self.find_memory(doc! { "session_id": session_id }).await
+    }
+
     async fn delete_session(&self, session_id: &str) -> Result<u64> {
         let events: Collection<Document> = self.db.collection(COLL_EVENTS);
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
@@ -527,6 +571,8 @@ impl EventStore for MongoStore {
         let turns: Collection<Document> = self.db.collection(COLL_TURNS);
         let plans: Collection<Document> = self.db.collection(COLL_PLANS);
         let fts: Collection<Document> = self.db.collection(COLL_FTS);
+        let memory: Collection<Document> = self.db.collection(COLL_MEMORY);
+        let _ = memory.delete_many(doc! { "session_id": session_id }).await;
 
         let filter_sid = doc! { "session_id": session_id };
 
@@ -676,6 +722,20 @@ impl EventStore for MongoStore {
             rows.push(doc_to_session_row(&doc)?);
         }
         Ok(rows)
+    }
+
+    async fn delete_session_patterns(&self, session_id: &str, type_prefix: &str) -> Result<u64> {
+        let coll: Collection<Document> = self.db.collection(COLL_PATTERNS);
+        let pattern = format!("^{}", regex::escape(type_prefix));
+        let filter = doc! {
+            "session_id": session_id,
+            "pattern_type": bson::Regex { pattern, options: String::new() },
+        };
+        let r = coll
+            .delete_many(filter)
+            .await
+            .map_err(|e| anyhow!("mongo delete_session_patterns: {e}"))?;
+        Ok(r.deleted_count)
     }
 
     async fn session_patterns(
