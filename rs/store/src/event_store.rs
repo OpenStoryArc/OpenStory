@@ -75,12 +75,6 @@ impl SessionRow {
     }
 }
 
-/// Persistence interface for events, sessions, patterns, and plans.
-///
-/// Implementations:
-/// - `SqliteStore` — default, full query capability
-/// - `JsonlStore` — fallback, append-only, limited queries
-/// - `MongoStore` — distributed alternative (behind `mongo` feature)
 /// Pure: the row id of a stored pattern. Type, start time, and session
 /// make re-detection a no-op; a content-addressed `handle` in the metadata
 /// (the story folds) joins them, because re-ingested transcripts can put
@@ -98,6 +92,12 @@ pub fn pattern_row_id(session_id: &str, pattern: &PatternEvent) -> String {
     }
 }
 
+/// Persistence interface for events, sessions, patterns, and plans.
+///
+/// Implementations:
+/// - `SqliteStore` — default, full query capability
+/// - `JsonlStore` — fallback, append-only, limited queries
+/// - `MongoStore` — distributed alternative (behind `mongo` feature)
 #[async_trait]
 pub trait EventStore: Send + Sync {
     /// Insert an event. Returns true if new, false if duplicate.
