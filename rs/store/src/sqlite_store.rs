@@ -686,11 +686,7 @@ impl EventStore for SqliteStore {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let metadata = serde_json::to_string(&pattern.metadata)?;
         let event_ids = serde_json::to_string(&pattern.event_ids)?;
-        // Generate a deterministic ID from pattern type + start time + session
-        let id = format!(
-            "{}:{}:{}",
-            pattern.pattern_type, pattern.started_at, session_id
-        );
+        let id = crate::event_store::pattern_row_id(session_id, pattern);
         conn.execute(
             "INSERT OR IGNORE INTO patterns (id, session_id, type, start_time, end_time, metadata, summary, event_ids)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",

@@ -466,10 +466,7 @@ impl EventStore for MongoStore {
     /// dedupes — matches `SqliteStore`'s `INSERT OR IGNORE`.
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()> {
         let coll: Collection<Document> = self.db.collection(COLL_PATTERNS);
-        let id = format!(
-            "{}:{}:{}",
-            pattern.pattern_type, pattern.started_at, session_id
-        );
+        let id = crate::event_store::pattern_row_id(session_id, pattern);
         let metadata: Bson = bson::to_bson(&pattern.metadata)
             .map_err(|e| anyhow!("pattern metadata → bson: {e}"))?;
         let event_ids: Bson = bson::to_bson(&pattern.event_ids)

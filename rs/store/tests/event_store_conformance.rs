@@ -749,6 +749,36 @@ pub async fn it_persists_and_queries_a_detected_pattern(store: Arc<dyn EventStor
     assert_eq!(patterns[0].metadata["key"], "value");
 }
 
+pub async fn it_keeps_two_patterns_with_the_same_start_but_different_handles(
+    store: Arc<dyn EventStore>,
+) {
+    // Re-ingested Codex transcripts put every prompt on one millisecond, so
+    // two exchanges of one session share type and started_at. Found on the
+    // live store: 255 exchange rows lost across 14 sessions.
+    let mut a = test_pattern("sess-same-start", "story.exchange", "2025-01-14T00:00:00Z");
+    a.metadata = json!({ "handle": "aaaaaaaaaaaaaaaa" });
+    let mut b = test_pattern("sess-same-start", "story.exchange", "2025-01-14T00:00:00Z");
+    b.metadata = json!({ "handle": "bbbbbbbbbbbbbbbb" });
+    store.insert_pattern("sess-same-start", &a).await.unwrap();
+    store.insert_pattern("sess-same-start", &b).await.unwrap();
+    store.insert_pattern("sess-same-start", &a).await.unwrap();
+
+    let rows = store
+        .session_patterns("sess-same-start", Some("story.exchange"))
+        .await
+        .unwrap();
+    let mut handles: Vec<&str> = rows
+        .iter()
+        .filter_map(|p| p.metadata["handle"].as_str())
+        .collect();
+    handles.sort();
+    assert_eq!(
+        handles,
+        vec!["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"],
+        "both handles persist; re-inserting one is still a no-op"
+    );
+}
+
 pub async fn it_deletes_a_sessions_patterns_by_type_prefix(store: Arc<dyn EventStore>) {
     for (ptype, at) in [
         ("story.arc", "2025-01-14T00:00:00Z"),
@@ -2283,6 +2313,7 @@ macro_rules! for_each_conformance_test {
         $macro!(it_replaces_a_re_narration_by_the_same_author);
         $macro!(it_filters_session_patterns_by_type);
         $macro!(it_deletes_a_sessions_patterns_by_type_prefix);
+        $macro!(it_keeps_two_patterns_with_the_same_start_but_different_handles);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
         // Reads
