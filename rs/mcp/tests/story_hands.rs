@@ -158,6 +158,34 @@ mod when_descend_is_called_on_an_arc {
     }
 }
 
+mod when_an_exchange_is_viewed {
+    use super::*;
+
+    // The narrator sees what each exchange concluded, not only what opened
+    // it: the view carries the exchange's outcome text, clipped. Found on
+    // the live store: a narrate prompt over eight exchanges had prompts and
+    // verbs but no outcomes, so the resolution would have been a guess.
+    #[tokio::test]
+    async fn it_carries_the_clipped_outcome() {
+        let (server, sids, _tmp) = server_with(&["two_arcs_gap"]).await;
+        let arc0 = &golden_expected("two_arcs_gap")["arcs"][0];
+        let children = call(
+            server,
+            "story_descend",
+            json!({ "node": arc0["handle"], "session_id": sids[0] }),
+        )
+        .await
+        .unwrap();
+        for child in children.as_array().unwrap() {
+            let outcome = child["eval_result"]
+                .as_str()
+                .unwrap_or_else(|| panic!("exchange view lacks eval_result: {child}"));
+            assert!(!outcome.is_empty());
+            assert!(outcome.chars().count() <= 200, "clipped to 200 chars");
+        }
+    }
+}
+
 mod when_descend_is_called_on_an_exchange {
     use super::*;
 

@@ -349,6 +349,7 @@ fn exchange_view(sid: &str, ex: &PatternEvent) -> Value {
         "started_at": ex.started_at,
         "ended_at": ex.ended_at,
         "user_prompt": meta_str(ex, "user_prompt").map(|p| truncate(p, 120)),
+        "eval_result": meta_str(ex, "eval_result").map(|e| truncate(e, 200)),
         "turns": ex.metadata.get("turns"),
         "rich_turns": ex.metadata.get("rich_turns"),
         "injected_count": ex.metadata.get("injected_count"),
