@@ -32,6 +32,9 @@ pub struct StoryReport {
     pub ambiguous_arcs: usize,
     pub gap_closed_arcs: usize,
     pub patterns_written: usize,
+    /// Stale story rows removed before writing, so a changed fold never
+    /// leaves an old handle beside a fresh one.
+    pub patterns_replaced: usize,
     /// Story patterns that reached the bus. Counts only successful
     /// publishes, so it can trail `exchanges + arcs` when the bus is down.
     pub patterns_published: usize,
@@ -59,7 +62,7 @@ impl StoryReport {
     /// One line per fact, grep-able, in the project's logging style.
     pub fn render(&self) -> String {
         format!(
-            "story backfill\n  sessions: {}\n  sessions without events: {}\n  exchanges: {}\n  arcs: {}\n  exchanges per arc: {:.2}\n  arcs closed by gap: {}\n  ambiguous arcs: {} ({:.1}% ambiguous share)\n  patterns written: {}\n  patterns published: {}\n",
+            "story backfill\n  sessions: {}\n  sessions without events: {}\n  exchanges: {}\n  arcs: {}\n  exchanges per arc: {:.2}\n  arcs closed by gap: {}\n  ambiguous arcs: {} ({:.1}% ambiguous share)\n  patterns written: {}\n  patterns replaced: {}\n  patterns published: {}\n",
             self.sessions,
             self.sessions_without_events,
             self.exchanges,
@@ -69,6 +72,7 @@ impl StoryReport {
             self.ambiguous_arcs,
             self.ambiguous_share() * 100.0,
             self.patterns_written,
+            self.patterns_replaced,
             self.patterns_published,
         )
     }
@@ -159,6 +163,8 @@ pub async fn run_with_bus(
         let patterns = fold_session(&events, gap_threshold_secs);
         tally(&mut report, &patterns);
         if write {
+            report.patterns_replaced +=
+                store.delete_session_patterns(&row.id, "story.").await? as usize;
             for p in &patterns {
                 store.insert_pattern(&row.id, p).await?;
                 report.patterns_written += 1;

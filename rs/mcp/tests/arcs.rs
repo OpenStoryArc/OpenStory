@@ -127,6 +127,32 @@ mod when_three_arcs_close {
 mod when_an_arc_closes {
     use super::*;
 
+    // An arc of one exchange has nothing to narrate: its question and
+    // resolution are the exchange's own. Found on the live store, where
+    // seven arcs in ten are one exchange (heartbeats, one-shot asks).
+    #[test]
+    fn a_one_exchange_arc_needs_no_enrichment() {
+        let single = serde_json::to_value(pattern(
+            "story.arc",
+            "s",
+            "arc0000000000003",
+            json!({ "exchanges": ["ex00000000000001"] }),
+        ))
+        .unwrap();
+        let several = serde_json::to_value(pattern(
+            "story.arc",
+            "s",
+            "arc0000000000004",
+            json!({ "exchanges": ["ex00000000000001", "ex00000000000002"] }),
+        ))
+        .unwrap();
+        let a = arc_closed("s", &single).unwrap();
+        assert_eq!(a["needs"], json!([]), "one exchange: nothing to narrate");
+        assert_eq!(a["prompts"], json!([]));
+        let b = arc_closed("s", &several).unwrap();
+        assert_eq!(b["needs"], json!(["enrich"]));
+    }
+
     #[test]
     fn needs_is_derived_from_the_skeleton() {
         let plain =

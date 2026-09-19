@@ -342,3 +342,52 @@ mod when_the_admin_backfill_endpoint_is_posted {
         );
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Re-running after the fold changed: stale story rows must not survive
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_backfill_runs_after_the_fold_changed {
+    use super::*;
+    use open_story_patterns::PatternEvent;
+
+    // Pattern ids are type:started_at:session, so a changed fold produces
+    // the same id with a different handle and INSERT OR IGNORE would keep
+    // the stale row. A write run replaces the session's story patterns.
+    #[tokio::test]
+    async fn it_replaces_stale_story_patterns() {
+        let (store, _dir) = seeded_store().await;
+        let sid = golden_events("two_arcs_gap")[0]["data"]["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let stale = PatternEvent {
+            pattern_type: "story.arc".into(),
+            session_id: sid.clone(),
+            event_ids: vec![],
+            started_at: "2000-01-01T00:00:00Z".into(),
+            ended_at: "2000-01-01T00:00:01Z".into(),
+            summary: "stale".into(),
+            metadata: serde_json::json!({ "handle": "stalestalestale0" }),
+        };
+        store.insert_pattern(&sid, &stale).await.unwrap();
+
+        let r = run_with_bus(store.as_ref(), None, 1800, true)
+            .await
+            .unwrap();
+
+        let arcs = store
+            .session_patterns(&sid, Some("story.arc"))
+            .await
+            .unwrap();
+        assert_eq!(
+            arcs.len(),
+            2,
+            "two_arcs_gap folds to two arcs and the stale one is gone"
+        );
+        assert!(arcs
+            .iter()
+            .all(|p| p.metadata["handle"] != "stalestalestale0"));
+        assert_eq!(r.patterns_replaced, 1, "one stale row was removed");
+    }
+}

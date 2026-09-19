@@ -24,7 +24,7 @@ fn arc(sid: &str, handle: &str) -> PatternEvent {
         started_at: "2026-01-01T09:00:00Z".into(),
         ended_at: "2026-01-01T09:05:00Z".into(),
         summary: "golden prompt 0".into(),
-        metadata: json!({ "handle": handle, "ambiguous_seams": [2], "exchanges": ["ex00000000000001"] }),
+        metadata: json!({ "handle": handle, "ambiguous_seams": [2], "exchanges": ["ex00000000000001", "ex00000000000002"] }),
     }
 }
 

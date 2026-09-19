@@ -117,7 +117,14 @@ pub fn arc_closed(session_id: &str, pattern: &Value) -> Option<Value> {
     let handle = meta.get("handle")?.as_str()?;
     let needs: Vec<&str> = if kind == "arc" {
         let mut n = Vec::new();
-        if meta.get("title").is_none() {
+        // An arc of one exchange has nothing to narrate: its question and
+        // resolution are the exchange's own.
+        let single_exchange = meta
+            .get("exchanges")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len() == 1)
+            .unwrap_or(false);
+        if meta.get("title").is_none() && !single_exchange {
             n.push("enrich");
         }
         let ambiguous = meta

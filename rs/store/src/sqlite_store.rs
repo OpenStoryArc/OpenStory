@@ -708,6 +708,15 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
+    async fn delete_session_patterns(&self, session_id: &str, type_prefix: &str) -> Result<u64> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let n = conn.execute(
+            "DELETE FROM patterns WHERE session_id = ?1 AND substr(type, 1, length(?2)) = ?2",
+            rusqlite::params![session_id, type_prefix],
+        )?;
+        Ok(n as u64)
+    }
+
     async fn session_patterns(
         &self,
         session_id: &str,

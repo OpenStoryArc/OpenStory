@@ -174,6 +174,13 @@ pub trait EventStore: Send + Sync {
     /// Insert a detected pattern.
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()>;
 
+    /// Remove a session's patterns whose type starts with `type_prefix`
+    /// (`"story."` for the memory-hands fold). Returns how many went.
+    /// Read-only stores keep the default and refuse.
+    async fn delete_session_patterns(&self, _session_id: &str, _type_prefix: &str) -> Result<u64> {
+        anyhow::bail!("this store is read-only: delete_session_patterns unsupported")
+    }
+
     /// Query patterns for a session, optionally filtered by type.
     async fn session_patterns(
         &self,

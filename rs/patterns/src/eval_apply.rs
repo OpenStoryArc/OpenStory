@@ -61,6 +61,41 @@ pub struct StructuralTurn {
     pub agent: Option<String>,
 }
 
+/// Harness blocks a host prepends to, or sends instead of, the human's
+/// words in a user-role message. Claude Code sends `<system-reminder>`
+/// context and `<task-notification>` subagent notices this way.
+const HARNESS_NOTICE_TAGS: &[&str] = &["system-reminder", "task-notification"];
+
+/// Pure: split a user prompt into its leading harness blocks and the human's
+/// words. `"<system-reminder>…</system-reminder>\nmerge it"` gives one block
+/// and `"merge it"`; a bare notice gives one block and `""`; an ordinary
+/// prompt gives no blocks and the prompt untouched.
+pub fn split_harness_notice(content: &str) -> (Vec<String>, String) {
+    let mut blocks = Vec::new();
+    let mut rest = content;
+    'outer: loop {
+        let s = rest.trim_start();
+        for tag in HARNESS_NOTICE_TAGS {
+            let open = format!("<{tag}");
+            let close = format!("</{tag}>");
+            if s.starts_with(&open) {
+                if let Some(end) = s.find(&close) {
+                    let cut = end + close.len();
+                    blocks.push(s[..cut].to_string());
+                    rest = &s[cut..];
+                    continue 'outer;
+                }
+            }
+        }
+        break;
+    }
+    if blocks.is_empty() {
+        (blocks, content.to_string())
+    } else {
+        (blocks, rest.trim().to_string())
+    }
+}
+
 /// The human message that prompted this turn.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HumanInput {
@@ -246,9 +281,23 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
         // ── Human prompt: the input to eval ──
         s if s.starts_with("message.user.prompt") => {
             acc.env_size += 1;
-            let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            let raw = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            // Harness blocks (system reminders, subagent task notifications)
+            // are never the human: keep each as injected. A message that is
+            // nothing but harness blocks has no human at all.
+            let (blocks, words) = split_harness_notice(&raw);
+            let only_notice = !blocks.is_empty() && words.is_empty();
+            for block in blocks {
+                acc.pending_injected.push(HumanInput {
+                    content: block,
+                    timestamp: ts.to_string(),
+                });
+            }
+            if only_notice {
+                return StepResult::Continue { acc, patterns };
+            }
             let input = HumanInput {
-                content,
+                content: words,
                 timestamp: ts.to_string(),
             };
             // The prompt that opens a turn is the human; any prompt arriving
@@ -846,6 +895,78 @@ mod tests {
         assert_eq!(
             injected,
             vec!["# AGENTS.md instructions", "<environment_context>"]
+        );
+    }
+
+    // A harness notice arriving as a user message (a subagent's
+    // task-notification, a bare system-reminder) is never the human, even
+    // when it is the only prompt of its turn: the turn has no human and the
+    // notice is kept as injected. Found on the live store: 629 of 4,300
+    // exchanges in ninety days opened on a task-notification.
+    #[test]
+    fn ce_harness_notice_alone_is_injected_never_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("run the tests"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+        det.feed_cloud_event(&user_prompt_ce(
+            "<task-notification>\n<task-id>a5d8</task-id>\n<status>completed</status>\n</task-notification>",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("the subagent finished"));
+        det.feed_cloud_event(&turn_complete_ce());
+        det.feed_cloud_event(&user_prompt_ce(
+            "<system-reminder>\nThe user opened a file.\n</system-reminder>",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("noted"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 3);
+        assert_eq!(turns[0].human.as_ref().unwrap().content, "run the tests");
+        assert!(
+            turns[1].human.is_none(),
+            "a task-notification is not the human"
+        );
+        assert_eq!(turns[1].injected.len(), 1);
+        assert!(turns[1].injected[0]
+            .content
+            .starts_with("<task-notification>"));
+        assert!(
+            turns[2].human.is_none(),
+            "a bare system-reminder is not the human"
+        );
+        assert_eq!(turns[2].injected.len(), 1);
+    }
+
+    // Claude Code prefixes the human's words with system-reminder blocks in
+    // the same user message. The human is what remains once the leading
+    // harness blocks are stripped; the blocks are kept as injected.
+    #[test]
+    fn ce_human_words_after_a_system_reminder_are_the_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce(
+            "<system-reminder>\nAs you answer, use this context.\n</system-reminder>\n<system-reminder>\nAttribution rules.\n</system-reminder>\nmerge 119 into 118 please.",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("merging"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].human.as_ref().unwrap().content,
+            "merge 119 into 118 please."
+        );
+        let injected: Vec<&str> = turns[0]
+            .injected
+            .iter()
+            .map(|h| h.content.as_str())
+            .collect();
+        assert_eq!(
+            injected,
+            vec![
+                "<system-reminder>\nAs you answer, use this context.\n</system-reminder>",
+                "<system-reminder>\nAttribution rules.\n</system-reminder>"
+            ]
         );
     }
 

@@ -749,6 +749,41 @@ pub async fn it_persists_and_queries_a_detected_pattern(store: Arc<dyn EventStor
     assert_eq!(patterns[0].metadata["key"], "value");
 }
 
+pub async fn it_deletes_a_sessions_patterns_by_type_prefix(store: Arc<dyn EventStore>) {
+    for (ptype, at) in [
+        ("story.arc", "2025-01-14T00:00:00Z"),
+        ("story.exchange", "2025-01-14T00:00:01Z"),
+        ("test.cycle", "2025-01-14T00:00:02Z"),
+    ] {
+        store
+            .insert_pattern("sess-del", &test_pattern("sess-del", ptype, at))
+            .await
+            .unwrap();
+    }
+    store
+        .insert_pattern(
+            "sess-del-other",
+            &test_pattern("sess-del-other", "story.arc", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+
+    let deleted = store
+        .delete_session_patterns("sess-del", "story.")
+        .await
+        .unwrap();
+    assert_eq!(deleted, 2, "both story.* rows of the session go");
+
+    let left = store.session_patterns("sess-del", None).await.unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].pattern_type, "test.cycle");
+    let other = store
+        .session_patterns("sess-del-other", None)
+        .await
+        .unwrap();
+    assert_eq!(other.len(), 1, "another session's story rows stay");
+}
+
 pub async fn it_filters_session_patterns_by_type(store: Arc<dyn EventStore>) {
     store
         .insert_pattern(
@@ -2247,6 +2282,7 @@ macro_rules! for_each_conformance_test {
         $macro!(it_keeps_two_authors_and_two_standings);
         $macro!(it_replaces_a_re_narration_by_the_same_author);
         $macro!(it_filters_session_patterns_by_type);
+        $macro!(it_deletes_a_sessions_patterns_by_type_prefix);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
         // Reads

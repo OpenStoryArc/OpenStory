@@ -724,6 +724,20 @@ impl EventStore for MongoStore {
         Ok(rows)
     }
 
+    async fn delete_session_patterns(&self, session_id: &str, type_prefix: &str) -> Result<u64> {
+        let coll: Collection<Document> = self.db.collection(COLL_PATTERNS);
+        let pattern = format!("^{}", regex::escape(type_prefix));
+        let filter = doc! {
+            "session_id": session_id,
+            "pattern_type": bson::Regex { pattern, options: String::new() },
+        };
+        let r = coll
+            .delete_many(filter)
+            .await
+            .map_err(|e| anyhow!("mongo delete_session_patterns: {e}"))?;
+        Ok(r.deleted_count)
+    }
+
     async fn session_patterns(
         &self,
         session_id: &str,
