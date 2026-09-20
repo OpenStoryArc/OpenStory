@@ -70,6 +70,49 @@ fn truncate(s: &str, max: usize) -> String {
     open_story_core::strings::truncate_at_char_boundary(s, max).to_string()
 }
 
+/// Siblings a context carries: a window of this many on each side of the
+/// node. A forty-exchange arc would otherwise ride along with every
+/// exchange view (30 KB per call on the pilot's recall run).
+const SIBLING_WINDOW: usize = 4;
+
+/// Entities a summary carries: the most frequent few, with the total.
+const ENTITY_CAP: usize = 12;
+
+/// Pure: the slice of `siblings` within `SIBLING_WINDOW` of the entry whose
+/// handle is `handle` (all of them when the handle is absent).
+fn window_siblings(siblings: Vec<Value>, handle: &str) -> Vec<Value> {
+    let pos = siblings
+        .iter()
+        .position(|s| s.get("handle").and_then(|h| h.as_str()) == Some(handle));
+    match pos {
+        Some(i) => {
+            let start = i.saturating_sub(SIBLING_WINDOW);
+            let end = (i + SIBLING_WINDOW + 1).min(siblings.len());
+            siblings[start..end].to_vec()
+        }
+        None => siblings,
+    }
+}
+
+/// Pure: the `ENTITY_CAP` most frequent entities (count desc, name asc)
+/// and how many there were.
+fn cap_entities(entities: Option<&Value>) -> (Value, usize) {
+    let Some(map) = entities.and_then(|e| e.as_object()) else {
+        return (json!({}), 0);
+    };
+    let mut pairs: Vec<(&String, u64)> = map
+        .iter()
+        .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+        .collect();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let kept: serde_json::Map<String, Value> = pairs
+        .into_iter()
+        .take(ENTITY_CAP)
+        .map(|(k, v)| (k.clone(), json!(v)))
+        .collect();
+    (Value::Object(kept), map.len())
+}
+
 /// Sessions to scan for a call without `session_id`: newest first, capped.
 async fn candidate_sessions(
     store: &Arc<dyn EventStore>,
@@ -216,6 +259,7 @@ pub async fn story_summary(store: &Arc<dyn EventStore>, args: Value) -> Result<V
         .map(|s| json!(meta_str(s, "handle")))
         .collect();
 
+    let (entities, entities_total) = cap_entities(arc.metadata.get("entities"));
     let mut summary = json!({
         "handle": handle_s,
         "session_id": found.session_id,
@@ -224,7 +268,8 @@ pub async fn story_summary(store: &Arc<dyn EventStore>, args: Value) -> Result<V
         "ended_at": arc.ended_at,
         "question": arc.metadata.get("question"),
         "resolution": arc.metadata.get("resolution"),
-        "entities": arc.metadata.get("entities"),
+        "entities": entities,
+        "entities_total": entities_total,
         "tools": arc.metadata.get("tools"),
         "closed_by": arc.metadata.get("closed_by"),
         "ambiguous_seams": arc.metadata.get("ambiguous_seams"),
@@ -662,7 +707,14 @@ pub async fn story_context(store: &Arc<dyn EventStore>, args: Value) -> Result<V
             .map(|a| arc_view(&story.session_id, a))
             .collect(),
     };
-    Ok(json!({ "node": node.view, "ancestors": up, "siblings": siblings }))
+    let siblings_total = siblings.len();
+    let siblings = window_siblings(siblings, &node.id);
+    Ok(json!({
+        "node": node.view,
+        "ancestors": up,
+        "siblings": siblings,
+        "siblings_total": siblings_total,
+    }))
 }
 
 // ═══════════════════════════════════════════════════════════════════

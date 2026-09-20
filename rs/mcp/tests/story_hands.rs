@@ -418,6 +418,116 @@ mod when_search_runs_without_a_session {
     }
 }
 
+mod when_views_are_read_in_a_crowded_story {
+    use super::*;
+    use common::story_fixture::seed_spec;
+    use open_story_patterns::golden::{
+        ExchangeKind, ExchangeSpec, GoldenSpec, PromptClass, TurnSpec,
+    };
+
+    fn read_turn(object: &str) -> TurnSpec {
+        TurnSpec {
+            verb: "read".into(),
+            objects: vec![object.into()],
+            tools: vec![("Read".into(), 1)],
+            rich: true,
+        }
+    }
+
+    fn human(turns: Vec<TurnSpec>) -> ExchangeSpec {
+        ExchangeSpec {
+            kind: ExchangeKind::Human,
+            prompt_class: PromptClass::Short,
+            gap_before_secs: 60,
+            turns,
+        }
+    }
+
+    // The recall run read 30 KB context results because an exchange's
+    // siblings are every exchange of a forty-exchange arc. A context keeps
+    // a window around the node and says how many siblings there are.
+    #[tokio::test]
+    async fn it_windows_siblings_around_the_node() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let spec = GoldenSpec {
+            session_id: "golden-crowded-arc".into(),
+            started_at: "2026-01-01T09:00:00Z".into(),
+            gap_threshold_secs: 1800,
+            exchanges: (0..20)
+                .map(|i| human(vec![read_turn(&format!("src/f{i}.rs"))]))
+                .collect(),
+        };
+        let sid = seed_spec(&store, &spec).await;
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let arcs = call(server.clone(), "story_list", json!({ "session_id": sid }))
+            .await
+            .unwrap();
+        let arc = arcs[0]["handle"].as_str().unwrap().to_string();
+        let children = call(
+            server.clone(),
+            "story_descend",
+            json!({ "node": arc, "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        let ex: Vec<String> = handles(&children);
+        assert_eq!(ex.len(), 20);
+
+        let ctx = call(
+            server,
+            "story_context",
+            json!({ "node": ex[10], "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        let sibs = handles(&ctx["siblings"]);
+        assert_eq!(ctx["siblings_total"], 20);
+        assert!(
+            sibs.len() <= 9,
+            "a window, not the whole arc: {}",
+            sibs.len()
+        );
+        assert!(sibs.contains(&ex[10]), "the node sits inside its window");
+        assert!(sibs.contains(&ex[6]) && sibs.contains(&ex[14]));
+        assert!(!sibs.contains(&ex[0]) && !sibs.contains(&ex[19]));
+    }
+
+    // A summary carried every entity with its count (4.8 KB of paths on a
+    // real arc). It keeps the most frequent few and says how many there are.
+    #[tokio::test]
+    async fn it_caps_summary_entities_to_the_most_frequent() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let mut turns: Vec<TurnSpec> = (0..20)
+            .map(|i| read_turn(&format!("src/e{i:02}.rs")))
+            .collect();
+        turns.push(read_turn("src/hot.rs"));
+        turns.push(read_turn("src/hot.rs"));
+        let spec = GoldenSpec {
+            session_id: "golden-many-entities".into(),
+            started_at: "2026-01-01T09:00:00Z".into(),
+            gap_threshold_secs: 1800,
+            exchanges: vec![human(turns)],
+        };
+        let sid = seed_spec(&store, &spec).await;
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let arcs = call(server.clone(), "story_list", json!({ "session_id": sid }))
+            .await
+            .unwrap();
+        let arc = arcs[0]["handle"].as_str().unwrap().to_string();
+        let summary = call(
+            server,
+            "story_summary",
+            json!({ "handle": arc, "session_id": sid }),
+        )
+        .await
+        .unwrap();
+        let entities = summary["entities"].as_object().unwrap();
+        assert_eq!(summary["entities_total"], 21);
+        assert_eq!(entities.len(), 12, "twelve most frequent: {summary}");
+        assert_eq!(entities["src/hot.rs"], 2, "the hottest entity survives");
+    }
+}
+
 mod when_a_prefix_is_ambiguous {
     use super::*;
 
