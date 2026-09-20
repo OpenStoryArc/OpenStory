@@ -1,0 +1,20 @@
+{
+  "session_id": "golden-thin_turn_only",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    }
+  ]
+}

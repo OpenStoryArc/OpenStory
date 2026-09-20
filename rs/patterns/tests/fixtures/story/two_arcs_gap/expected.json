@@ -1,0 +1,182 @@
+{
+  "session_id": "golden-two_arcs_gap",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "handle": "89eeae068d4e5443",
+      "event_range": [
+        0,
+        5
+      ],
+      "event_ids": [
+        "430cf089-00e8-5f5b-83fc-3287039687ed",
+        "5fbd84f2-8a69-57da-bc19-6241e0f0e79d",
+        "ebf475a8-5d0a-55a0-98f5-56e70b7bb262",
+        "1192c13f-00d8-5c2d-a4de-7a5240d6bea0",
+        "09258566-5b7a-53a7-8be8-6c1b5a42f201"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:00:04.000Z",
+      "entities": {
+        "docs/plan.md": 1
+      },
+      "tools": {
+        "Read": 1
+      },
+      "rich_turns": 1,
+      "first_verb": "read",
+      "last_verb": "read"
+    },
+    {
+      "handle": "a0f4ef34981d557a",
+      "event_range": [
+        5,
+        10
+      ],
+      "event_ids": [
+        "449805bf-13e3-5f68-9e7f-c8716532a068",
+        "84722276-4952-53f1-91dd-b06f95eee168",
+        "bc4ecb18-0f81-570a-baea-a746fc5cf30c",
+        "2c5fa93e-e4e6-527e-8f7d-c46909ad78d6",
+        "2b5fa337-20c0-58e6-b19f-2f08d7b7fbcd"
+      ],
+      "started_at": "2026-01-01T09:01:05.000Z",
+      "ended_at": "2026-01-01T09:01:09.000Z",
+      "entities": {
+        "docs/plan.md": 1
+      },
+      "tools": {
+        "Write": 1
+      },
+      "rich_turns": 1,
+      "first_verb": "wrote",
+      "last_verb": "wrote"
+    },
+    {
+      "handle": "f28c2a22003354d9",
+      "event_range": [
+        10,
+        17
+      ],
+      "event_ids": [
+        "32ecc2f7-2a4d-557f-af2a-647c1cee2a21",
+        "dd41087c-1c77-5246-abbb-aed8a4ba3cbb",
+        "5906bf99-9130-53e1-a283-56b89bfeb1a8",
+        "ef32ee2a-786a-5a79-9ec5-038287085eb9",
+        "843894a6-3ed0-5335-99ba-1ccd99ca84a8",
+        "22dac57c-0a68-588b-9f59-7f979ae156ba",
+        "ffe99119-4741-5b74-aef4-d89e3254ee9b"
+      ],
+      "started_at": "2026-01-01T09:41:10.000Z",
+      "ended_at": "2026-01-01T09:41:16.000Z",
+      "entities": {},
+      "tools": {
+        "Bash": 2
+      },
+      "rich_turns": 1,
+      "first_verb": "checked",
+      "last_verb": "checked"
+    },
+    {
+      "handle": "5acc10607696584a",
+      "event_range": [
+        17,
+        24
+      ],
+      "event_ids": [
+        "ee180893-1785-5574-b75d-c83a7c32a2d6",
+        "e75940b2-669f-593b-8fa0-6af2f104e50d",
+        "981e54e4-8fcc-524a-ae7e-85cd44e0f37f",
+        "fc9719af-6d0b-5165-972b-209b6fc1727c",
+        "37dd8941-43f4-5be4-b14d-b5c5ce79b201",
+        "30ad01c7-b422-5c28-9fb9-55c80caa1579",
+        "caa1944a-a7da-5330-8222-054745579273"
+      ],
+      "started_at": "2026-01-01T09:41:32.000Z",
+      "ended_at": "2026-01-01T09:41:38.000Z",
+      "entities": {
+        "src/app.rs": 2
+      },
+      "tools": {
+        "Edit": 2
+      },
+      "rich_turns": 1,
+      "first_verb": "edited",
+      "last_verb": "edited"
+    }
+  ],
+  "arcs": [
+    {
+      "handle": "03f57e05fd33593c",
+      "exchange_range": [
+        0,
+        2
+      ],
+      "exchanges": [
+        "89eeae068d4e5443",
+        "a0f4ef34981d557a"
+      ],
+      "event_ids": [
+        "430cf089-00e8-5f5b-83fc-3287039687ed",
+        "5fbd84f2-8a69-57da-bc19-6241e0f0e79d",
+        "ebf475a8-5d0a-55a0-98f5-56e70b7bb262",
+        "1192c13f-00d8-5c2d-a4de-7a5240d6bea0",
+        "09258566-5b7a-53a7-8be8-6c1b5a42f201",
+        "449805bf-13e3-5f68-9e7f-c8716532a068",
+        "84722276-4952-53f1-91dd-b06f95eee168",
+        "bc4ecb18-0f81-570a-baea-a746fc5cf30c",
+        "2c5fa93e-e4e6-527e-8f7d-c46909ad78d6",
+        "2b5fa337-20c0-58e6-b19f-2f08d7b7fbcd"
+      ],
+      "started_at": "2026-01-01T09:00:00.000Z",
+      "ended_at": "2026-01-01T09:01:09.000Z",
+      "entities": {
+        "docs/plan.md": 2
+      },
+      "tools": {
+        "Read": 1,
+        "Write": 1
+      },
+      "closed_by": "gap",
+      "ambiguous_seams": []
+    },
+    {
+      "handle": "1963ea66f29356be",
+      "exchange_range": [
+        2,
+        4
+      ],
+      "exchanges": [
+        "f28c2a22003354d9",
+        "5acc10607696584a"
+      ],
+      "event_ids": [
+        "32ecc2f7-2a4d-557f-af2a-647c1cee2a21",
+        "dd41087c-1c77-5246-abbb-aed8a4ba3cbb",
+        "5906bf99-9130-53e1-a283-56b89bfeb1a8",
+        "ef32ee2a-786a-5a79-9ec5-038287085eb9",
+        "843894a6-3ed0-5335-99ba-1ccd99ca84a8",
+        "22dac57c-0a68-588b-9f59-7f979ae156ba",
+        "ffe99119-4741-5b74-aef4-d89e3254ee9b",
+        "ee180893-1785-5574-b75d-c83a7c32a2d6",
+        "e75940b2-669f-593b-8fa0-6af2f104e50d",
+        "981e54e4-8fcc-524a-ae7e-85cd44e0f37f",
+        "fc9719af-6d0b-5165-972b-209b6fc1727c",
+        "37dd8941-43f4-5be4-b14d-b5c5ce79b201",
+        "30ad01c7-b422-5c28-9fb9-55c80caa1579",
+        "caa1944a-a7da-5330-8222-054745579273"
+      ],
+      "started_at": "2026-01-01T09:41:10.000Z",
+      "ended_at": "2026-01-01T09:41:38.000Z",
+      "entities": {
+        "src/app.rs": 2
+      },
+      "tools": {
+        "Bash": 2,
+        "Edit": 2
+      },
+      "closed_by": "end_of_stream",
+      "ambiguous_seams": []
+    }
+  ]
+}

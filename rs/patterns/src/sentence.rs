@@ -714,6 +714,7 @@ mod tests {
             turn_number: 1,
             scope_depth: 0,
             human: None,
+            injected: vec![],
             thinking: None,
             eval: None,
             applies: vec![],

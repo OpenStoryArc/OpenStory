@@ -39,6 +39,12 @@ pub struct StructuralTurn {
     pub turn_number: u32,
     pub scope_depth: u32,
     pub human: Option<HumanInput>,
+    /// User-role messages in this turn that are not the human prompt:
+    /// harness context sent before it (Codex AGENTS.md, environment) and
+    /// bodies injected after the assistant acted (skill loads, tool-loaded
+    /// notices). In emission order.
+    #[serde(default)]
+    pub injected: Vec<HumanInput>,
     pub thinking: Option<ThinkingRecord>,
     pub eval: Option<EvalOutput>,
     pub applies: Vec<ApplyRecord>,
@@ -53,6 +59,41 @@ pub struct StructuralTurn {
     /// Used by the sentence builder to generate agent-appropriate subjects.
     #[serde(default)]
     pub agent: Option<String>,
+}
+
+/// Harness blocks a host prepends to, or sends instead of, the human's
+/// words in a user-role message. Claude Code sends `<system-reminder>`
+/// context and `<task-notification>` subagent notices this way.
+const HARNESS_NOTICE_TAGS: &[&str] = &["system-reminder", "task-notification"];
+
+/// Pure: split a user prompt into its leading harness blocks and the human's
+/// words. `"<system-reminder>…</system-reminder>\nmerge it"` gives one block
+/// and `"merge it"`; a bare notice gives one block and `""`; an ordinary
+/// prompt gives no blocks and the prompt untouched.
+pub fn split_harness_notice(content: &str) -> (Vec<String>, String) {
+    let mut blocks = Vec::new();
+    let mut rest = content;
+    'outer: loop {
+        let s = rest.trim_start();
+        for tag in HARNESS_NOTICE_TAGS {
+            let open = format!("<{tag}");
+            let close = format!("</{tag}>");
+            if s.starts_with(&open) {
+                if let Some(end) = s.find(&close) {
+                    let cut = end + close.len();
+                    blocks.push(s[..cut].to_string());
+                    rest = &s[cut..];
+                    continue 'outer;
+                }
+            }
+        }
+        break;
+    }
+    if blocks.is_empty() {
+        (blocks, content.to_string())
+    } else {
+        (blocks, rest.trim().to_string())
+    }
 }
 
 /// The human message that prompted this turn.
@@ -122,6 +163,7 @@ pub struct Accumulator {
     pub agent: Option<String>,
     /// Turn being assembled.
     pub pending_human: Option<HumanInput>,
+    pub pending_injected: Vec<HumanInput>,
     pub pending_thinking: Option<ThinkingRecord>,
     pub pending_eval: Option<EvalOutput>,
     pub completed_applies: Vec<ApplyRecord>,
@@ -151,6 +193,7 @@ impl Default for Accumulator {
             session_id: String::new(),
             agent: None,
             pending_human: None,
+            pending_injected: Vec::new(),
             pending_thinking: None,
             pending_eval: None,
             completed_applies: Vec::new(),
@@ -214,6 +257,15 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
 
     // Track event IDs and timestamps
     acc.event_ids.push(id.to_string());
+    // Has the assistant already spoken or acted in this turn? A user prompt
+    // arriving after that is injected (a skill body, a tool-loaded notice),
+    // never the human (A-03). Meta events that precede the prompt in some
+    // transcripts (Codex token counts, turn context) do not count: only
+    // assistant output does. Found on session 019e5a13 (codex, 1,822 prompts).
+    let assistant_already_acted = acc.phase != Phase::Idle
+        || acc.pending_eval.is_some()
+        || acc.pending_thinking.is_some()
+        || !acc.pending_applies.is_empty();
     if acc.start_ts.is_none() {
         acc.start_ts = Some(ts.to_string());
         acc.env_size_at_start = acc.env_size;
@@ -229,11 +281,39 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
         // ── Human prompt: the input to eval ──
         s if s.starts_with("message.user.prompt") => {
             acc.env_size += 1;
-            let content = ap.and_then(|p| p.text()).unwrap_or("").to_string();
-            acc.pending_human = Some(HumanInput {
-                content,
+            let raw = ap.and_then(|p| p.text()).unwrap_or("").to_string();
+            // Harness blocks (system reminders, subagent task notifications)
+            // are never the human: keep each as injected. A message that is
+            // nothing but harness blocks has no human at all.
+            let (blocks, words) = split_harness_notice(&raw);
+            let only_notice = !blocks.is_empty() && words.is_empty();
+            for block in blocks {
+                acc.pending_injected.push(HumanInput {
+                    content: block,
+                    timestamp: ts.to_string(),
+                });
+            }
+            if only_notice {
+                return StepResult::Continue { acc, patterns };
+            }
+            let input = HumanInput {
+                content: words,
                 timestamp: ts.to_string(),
-            });
+            };
+            // The prompt that opens a turn is the human; any prompt arriving
+            // into an already-open turn (after a human prompt, or in a
+            // continuation turn) was injected by the harness (A-03).
+            if assistant_already_acted {
+                acc.pending_injected.push(input);
+            } else {
+                // Several prompts before the assistant acts (Codex sends its
+                // AGENTS.md and environment context as user messages first):
+                // the last one is the human, the earlier ones are harness
+                // context and are kept as injected rather than dropped.
+                if let Some(previous) = acc.pending_human.replace(input) {
+                    acc.pending_injected.push(previous);
+                }
+            }
         }
 
         // ── Tool result: apply phase complete ──
@@ -382,6 +462,7 @@ pub fn step(mut acc: Accumulator, event: &CloudEvent) -> StepResult {
                 turn_number: acc.turn_number,
                 scope_depth: acc.scope_depth,
                 human: acc.pending_human.take(),
+                injected: std::mem::take(&mut acc.pending_injected),
                 thinking: acc.pending_thinking.take(),
                 eval: acc.pending_eval.take(),
                 applies: std::mem::take(&mut acc.completed_applies),
@@ -527,6 +608,7 @@ impl EvalApplyDetector {
                 turn_number: self.acc.turn_number,
                 scope_depth: self.acc.scope_depth,
                 human: self.acc.pending_human.take(),
+                injected: std::mem::take(&mut self.acc.pending_injected),
                 thinking: self.acc.pending_thinking.take(),
                 eval: self.acc.pending_eval.take(),
                 applies: std::mem::take(&mut self.acc.completed_applies),
@@ -734,6 +816,157 @@ mod tests {
         assert_eq!(
             turns[0].human.as_ref().unwrap().content,
             "Tell me about SICP"
+        );
+    }
+
+    // A-03 (memory hands): a second user prompt inside an open turn is an
+    // injected message (skill body, tool-loaded notice), not the human.
+    #[test]
+    fn ce_second_prompt_in_open_turn_is_injected_not_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("please load the skill"));
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "loading",
+            "Skill",
+            serde_json::json!({"skill": "x"}),
+        ));
+        det.feed_cloud_event(&tool_result_ce("ok", None));
+        det.feed_cloud_event(&user_prompt_ce("Base directory for this skill: /x"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1, "an injected prompt does not start a turn");
+        let t = &turns[0];
+        assert_eq!(t.human.as_ref().unwrap().content, "please load the skill");
+        assert_eq!(t.injected.len(), 1);
+        assert_eq!(t.injected[0].content, "Base directory for this skill: /x");
+    }
+
+    // A-03: a prompt that arrives in a continuation turn (no human prompt of
+    // its own, e.g. Claude called Skill three turns into an exchange) is
+    // injected too. Found by prop_turns_partition.
+    #[test]
+    fn ce_prompt_in_open_continuation_turn_is_injected() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&assistant_tool_use_ce(
+            "loading",
+            "Skill",
+            serde_json::json!({"skill": "x"}),
+        ));
+        det.feed_cloud_event(&tool_result_ce("ok", None));
+        det.feed_cloud_event(&user_prompt_ce("Base directory for this skill: /x"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert!(
+            turns[0].human.is_none(),
+            "a continuation turn has no human prompt"
+        );
+        assert_eq!(turns[0].injected.len(), 1);
+    }
+
+    // A-03, Codex dialect: harness context (AGENTS.md instructions, environment)
+    // arrives as user prompts BEFORE the real prompt. The last prompt before the
+    // assistant acts is the human; the earlier ones are recorded as injected,
+    // not dropped. Found on session 019cf10a (codex, 502 prompts, 17 exchanges).
+    #[test]
+    fn ce_context_prompts_before_the_human_prompt_are_injected() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("# AGENTS.md instructions"));
+        det.feed_cloud_event(&user_prompt_ce("<environment_context>"));
+        det.feed_cloud_event(&user_prompt_ce("fix the flaky test"));
+        det.feed_cloud_event(&assistant_text_ce("on it"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].human.as_ref().unwrap().content,
+            "fix the flaky test"
+        );
+        let injected: Vec<&str> = turns[0]
+            .injected
+            .iter()
+            .map(|h| h.content.as_str())
+            .collect();
+        assert_eq!(
+            injected,
+            vec!["# AGENTS.md instructions", "<environment_context>"]
+        );
+    }
+
+    // A harness notice arriving as a user message (a subagent's
+    // task-notification, a bare system-reminder) is never the human, even
+    // when it is the only prompt of its turn: the turn has no human and the
+    // notice is kept as injected. Found on the live store: 629 of 4,300
+    // exchanges in ninety days opened on a task-notification.
+    #[test]
+    fn ce_harness_notice_alone_is_injected_never_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce("run the tests"));
+        det.feed_cloud_event(&assistant_text_ce("done"));
+        det.feed_cloud_event(&turn_complete_ce());
+        det.feed_cloud_event(&user_prompt_ce(
+            "<task-notification>\n<task-id>a5d8</task-id>\n<status>completed</status>\n</task-notification>",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("the subagent finished"));
+        det.feed_cloud_event(&turn_complete_ce());
+        det.feed_cloud_event(&user_prompt_ce(
+            "<system-reminder>\nThe user opened a file.\n</system-reminder>",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("noted"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 3);
+        assert_eq!(turns[0].human.as_ref().unwrap().content, "run the tests");
+        assert!(
+            turns[1].human.is_none(),
+            "a task-notification is not the human"
+        );
+        assert_eq!(turns[1].injected.len(), 1);
+        assert!(turns[1].injected[0]
+            .content
+            .starts_with("<task-notification>"));
+        assert!(
+            turns[2].human.is_none(),
+            "a bare system-reminder is not the human"
+        );
+        assert_eq!(turns[2].injected.len(), 1);
+    }
+
+    // Claude Code prefixes the human's words with system-reminder blocks in
+    // the same user message. The human is what remains once the leading
+    // harness blocks are stripped; the blocks are kept as injected.
+    #[test]
+    fn ce_human_words_after_a_system_reminder_are_the_human() {
+        let mut det = EvalApplyDetector::new();
+        det.feed_cloud_event(&user_prompt_ce(
+            "<system-reminder>\nAs you answer, use this context.\n</system-reminder>\n<system-reminder>\nAttribution rules.\n</system-reminder>\nmerge 119 into 118 please.",
+        ));
+        det.feed_cloud_event(&assistant_text_ce("merging"));
+        det.feed_cloud_event(&turn_complete_ce());
+
+        let turns = det.take_completed_turns();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].human.as_ref().unwrap().content,
+            "merge 119 into 118 please."
+        );
+        let injected: Vec<&str> = turns[0]
+            .injected
+            .iter()
+            .map(|h| h.content.as_str())
+            .collect();
+        assert_eq!(
+            injected,
+            vec![
+                "<system-reminder>\nAs you answer, use this context.\n</system-reminder>",
+                "<system-reminder>\nAttribution rules.\n</system-reminder>"
+            ]
         );
     }
 

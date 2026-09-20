@@ -1,0 +1,87 @@
+{
+  "session_id": "golden-two_arcs_gap",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "read",
+          "objects": [
+            "docs/plan.md"
+          ],
+          "tools": [
+            [
+              "Read",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 60,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "docs/plan.md"
+          ],
+          "tools": [
+            [
+              "Write",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 2400,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "src/app.rs"
+          ],
+          "tools": [
+            [
+              "Bash",
+              2
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 15,
+      "turns": [
+        {
+          "verb": "edited",
+          "objects": [
+            "src/app.rs"
+          ],
+          "tools": [
+            [
+              "Edit",
+              2
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    }
+  ]
+}

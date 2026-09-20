@@ -3026,11 +3026,14 @@ dependencies = [
 name = "open-story-patterns"
 version = "0.4.0"
 dependencies = [
+ "chrono",
  "open-story-core",
  "open-story-views",
+ "proptest",
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

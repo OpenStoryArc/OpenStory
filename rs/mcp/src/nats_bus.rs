@@ -88,4 +88,33 @@ impl Subscribe for NatsBus {
 
         Ok(Subscription::from_parts(sub_id, session_id, rx, cancel))
     }
+
+    async fn subscribe_arcs(
+        &self,
+        session_id: Option<&str>,
+        from_seq: Option<u64>,
+    ) -> Result<Subscription> {
+        // Subject convention: patterns.{project}.{session}; payload is a
+        // JSON array of PatternEvent (rs/src/server/mod.rs, Actor 2).
+        let pattern = match session_id {
+            Some(sid) => format!("patterns.*.{sid}"),
+            None => "patterns.>".to_string(),
+        };
+        let bus_rx = self
+            .inner
+            .subscribe_json("patterns", &pattern, from_seq)
+            .await?;
+        let sub_id = uuid::Uuid::new_v4();
+        let label = session_id.unwrap_or("*").to_string();
+        let (tx, rx) = mpsc::channel(256);
+        let pump = tokio::spawn(crate::subscription::pump_patterns(
+            bus_rx,
+            tx,
+            session_id.map(String::from),
+        ));
+        let cancel = CancelGuard::from_fn(move || {
+            pump.abort();
+        });
+        Ok(Subscription::from_parts(sub_id, label, rx, cancel))
+    }
 }

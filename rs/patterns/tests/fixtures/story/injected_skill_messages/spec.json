@@ -1,0 +1,120 @@
+{
+  "session_id": "golden-injected_skill_messages",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "read",
+          "objects": [
+            "src/lib.rs"
+          ],
+          "tools": [
+            [
+              "Skill",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 1,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "src/lib.rs"
+          ],
+          "tools": [
+            [
+              "Bash",
+              4
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 300,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "docs/design.md"
+          ],
+          "tools": [
+            [
+              "Skill",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 2,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "docs/design.md"
+          ],
+          "tools": [
+            [
+              "Write",
+              2
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 600,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "docs/design.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    }
+  ]
+}

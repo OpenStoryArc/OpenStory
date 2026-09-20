@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use open_story_patterns::story::MemoryRecord;
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::queries;
@@ -74,6 +75,29 @@ impl SessionRow {
     }
 }
 
+/// Pure: escape a user string for a SQL `LIKE ... ESCAPE '\'` pattern.
+pub fn like_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// Pure: the row id of a stored pattern. Type, start time, and session
+/// make re-detection a no-op; a content-addressed `handle` in the metadata
+/// (the story folds) joins them, because re-ingested transcripts can put
+/// every prompt of a session on one millisecond.
+pub fn pattern_row_id(session_id: &str, pattern: &PatternEvent) -> String {
+    match pattern.metadata.get("handle").and_then(|h| h.as_str()) {
+        Some(handle) => format!(
+            "{}:{}:{}:{}",
+            pattern.pattern_type, pattern.started_at, session_id, handle
+        ),
+        None => format!(
+            "{}:{}:{}",
+            pattern.pattern_type, pattern.started_at, session_id
+        ),
+    }
+}
 
 /// Persistence interface for events, sessions, patterns, and plans.
 ///
@@ -174,6 +198,13 @@ pub trait EventStore: Send + Sync {
     /// Insert a detected pattern.
     async fn insert_pattern(&self, session_id: &str, pattern: &PatternEvent) -> Result<()>;
 
+    /// Remove a session's patterns whose type starts with `type_prefix`
+    /// (`"story."` for the memory-hands fold). Returns how many went.
+    /// Read-only stores keep the default and refuse.
+    async fn delete_session_patterns(&self, _session_id: &str, _type_prefix: &str) -> Result<u64> {
+        anyhow::bail!("this store is read-only: delete_session_patterns unsupported")
+    }
+
     /// Query patterns for a session, optionally filtered by type.
     async fn session_patterns(
         &self,
@@ -192,6 +223,36 @@ pub trait EventStore: Send + Sync {
 
     /// Get full payload for an event (un-truncated).
     async fn full_payload(&self, event_id: &str) -> Result<Option<String>>;
+
+    /// Store a host's judgment about a node (memory hands, D-07). Keyed by
+    /// `MemoryRecord::id`, so the same author re-narrating replaces, another
+    /// author adds a row, and provisional and final readings coexist.
+    /// Read-only stores keep the default and refuse.
+    async fn insert_memory(&self, _record: &MemoryRecord) -> Result<()> {
+        anyhow::bail!("this store is read-only: insert_memory unsupported")
+    }
+
+    /// Story patterns (`story.*`) anywhere in the store whose text contains
+    /// `query`, case-insensitively, newest first. Recall reaches every
+    /// session, never a capped scan. Read-only stores keep the default.
+    async fn search_story(&self, _query: &str, _limit: usize) -> Result<Vec<PatternEvent>> {
+        Ok(Vec::new())
+    }
+
+    /// Memory records anywhere in the store whose text contains `query`.
+    async fn search_memory(&self, _query: &str, _limit: usize) -> Result<Vec<MemoryRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Every memory record about one handle, any kind, any author.
+    async fn memory_for_handle(&self, _handle: &str) -> Result<Vec<MemoryRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Every memory record in one session.
+    async fn session_memory(&self, _session_id: &str) -> Result<Vec<MemoryRecord>> {
+        Ok(Vec::new())
+    }
 
     /// Set a user-defined custom label for a session.
     async fn update_session_label(&self, _session_id: &str, _label: &str) -> Result<()> {

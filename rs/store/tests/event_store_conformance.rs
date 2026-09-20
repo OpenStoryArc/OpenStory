@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use open_story_patterns::story::{Author, MemoryKind, MemoryRecord, Standing};
 use open_story_patterns::{PatternEvent, StructuralTurn};
 use open_story_store::event_store::{EventStore, SessionRow};
 // Analytics output struct imports get added back as new helpers are
@@ -398,15 +399,40 @@ fn bounds_event(id: &str, session_id: &str, subtype: &str, time: &str) -> Value 
 /// "Last Hour" regression where dead sessions re-surfaced as recent.
 pub async fn it_recompute_session_bounds_excludes_synthesized_subtypes(store: Arc<dyn EventStore>) {
     let sid = "sess-recompute-excl";
-    store.upsert_session(&test_session_row(sid, Some("x"))).await.unwrap();
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
+    store
+        .upsert_session(&test_session_row(sid, Some("x")))
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
     // Boot-stamped snapshot, far in the future — must be ignored.
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(first.as_deref(), Some("2025-01-14T00:00:00Z"));
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "snapshot time must not define last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "snapshot time must not define last_event"
+    );
 
     // The persisted row must reflect the recomputed bounds.
     let sessions = store.list_sessions().await.unwrap();
@@ -428,12 +454,34 @@ pub async fn it_recompute_session_bounds_lowers_a_polluted_value(store: Arc<dyn 
     store.upsert_session(&polluted).await.unwrap();
 
     // The only real activity ends at 00:05 — plus a boot-stamped snapshot.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "recompute must lower the polluted last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "recompute must lower the polluted last_event"
+    );
 
     let sessions = store.list_sessions().await.unwrap();
     let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
@@ -462,8 +510,20 @@ pub async fn it_recompute_session_bounds_preserves_live_frontier(store: Arc<dyn 
     // On disk: only earlier real events. The 20:00 event is still in flight
     // (NATS-bumped the row but hasn't been persisted) — nothing on disk reaches
     // the frontier.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(
@@ -687,6 +747,146 @@ pub async fn it_persists_and_queries_a_detected_pattern(store: Arc<dyn EventStor
     assert_eq!(patterns.len(), 1);
     assert_eq!(patterns[0].pattern_type, "test.cycle");
     assert_eq!(patterns[0].metadata["key"], "value");
+}
+
+pub async fn it_searches_story_patterns_store_wide(store: Arc<dyn EventStore>) {
+    // Recall must reach every session, not the newest fifty: the pilot's
+    // memory hands found one answer in ten because search was session-capped.
+    let mut old = test_pattern("sess-old", "story.arc", "2025-01-01T00:00:00Z");
+    old.metadata =
+        json!({ "handle": "arc0000000000old", "question": "why did the Kestrel watcher stop?" });
+    let mut new = test_pattern("sess-new", "story.exchange", "2025-06-01T00:00:00Z");
+    new.metadata =
+        json!({ "handle": "ex000000000000new", "eval_result": "the kestrel fix landed" });
+    let mut other = test_pattern("sess-new", "story.exchange", "2025-06-01T00:00:01Z");
+    other.metadata = json!({ "handle": "ex00000000000oth", "user_prompt": "unrelated" });
+    let mut not_story = test_pattern("sess-new", "test.cycle", "2025-06-01T00:00:02Z");
+    not_story.metadata = json!({ "note": "kestrel" });
+    for (sid, p) in [
+        ("sess-old", &old),
+        ("sess-new", &new),
+        ("sess-new", &other),
+        ("sess-new", &not_story),
+    ] {
+        store.insert_pattern(sid, p).await.unwrap();
+    }
+
+    let hits = store.search_story("KESTREL", 10).await.unwrap();
+    let mut handles: Vec<&str> = hits
+        .iter()
+        .filter_map(|p| p.metadata["handle"].as_str())
+        .collect();
+    handles.sort();
+    assert_eq!(
+        handles,
+        vec!["arc0000000000old", "ex000000000000new"],
+        "case-insensitive, across sessions, story.* only"
+    );
+    assert_eq!(
+        store.search_story("kestrel", 1).await.unwrap().len(),
+        1,
+        "limit"
+    );
+}
+
+pub async fn it_searches_memory_records_by_text(store: Arc<dyn EventStore>) {
+    let a = author("claude-code", "m");
+    store
+        .insert_memory(&memory(
+            "sess-m1",
+            "arc0000000000001",
+            MemoryKind::Enrichment,
+            None,
+            a.clone(),
+            "Kestrel migration lands",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "sess-m2",
+            "arc0000000000002",
+            MemoryKind::Enrichment,
+            None,
+            a.clone(),
+            "Reel export build",
+        ))
+        .await
+        .unwrap();
+
+    let hits = store.search_memory("kestrel", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].handle, "arc0000000000001");
+    assert!(store
+        .search_memory("nothing-matches-this", 10)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+pub async fn it_keeps_two_patterns_with_the_same_start_but_different_handles(
+    store: Arc<dyn EventStore>,
+) {
+    // Re-ingested Codex transcripts put every prompt on one millisecond, so
+    // two exchanges of one session share type and started_at. Found on the
+    // live store: 255 exchange rows lost across 14 sessions.
+    let mut a = test_pattern("sess-same-start", "story.exchange", "2025-01-14T00:00:00Z");
+    a.metadata = json!({ "handle": "aaaaaaaaaaaaaaaa" });
+    let mut b = test_pattern("sess-same-start", "story.exchange", "2025-01-14T00:00:00Z");
+    b.metadata = json!({ "handle": "bbbbbbbbbbbbbbbb" });
+    store.insert_pattern("sess-same-start", &a).await.unwrap();
+    store.insert_pattern("sess-same-start", &b).await.unwrap();
+    store.insert_pattern("sess-same-start", &a).await.unwrap();
+
+    let rows = store
+        .session_patterns("sess-same-start", Some("story.exchange"))
+        .await
+        .unwrap();
+    let mut handles: Vec<&str> = rows
+        .iter()
+        .filter_map(|p| p.metadata["handle"].as_str())
+        .collect();
+    handles.sort();
+    assert_eq!(
+        handles,
+        vec!["aaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbb"],
+        "both handles persist; re-inserting one is still a no-op"
+    );
+}
+
+pub async fn it_deletes_a_sessions_patterns_by_type_prefix(store: Arc<dyn EventStore>) {
+    for (ptype, at) in [
+        ("story.arc", "2025-01-14T00:00:00Z"),
+        ("story.exchange", "2025-01-14T00:00:01Z"),
+        ("test.cycle", "2025-01-14T00:00:02Z"),
+    ] {
+        store
+            .insert_pattern("sess-del", &test_pattern("sess-del", ptype, at))
+            .await
+            .unwrap();
+    }
+    store
+        .insert_pattern(
+            "sess-del-other",
+            &test_pattern("sess-del-other", "story.arc", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+
+    let deleted = store
+        .delete_session_patterns("sess-del", "story.")
+        .await
+        .unwrap();
+    assert_eq!(deleted, 2, "both story.* rows of the session go");
+
+    let left = store.session_patterns("sess-del", None).await.unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].pattern_type, "test.cycle");
+    let other = store
+        .session_patterns("sess-del-other", None)
+        .await
+        .unwrap();
+    assert_eq!(other.len(), 1, "another session's story rows stay");
 }
 
 pub async fn it_filters_session_patterns_by_type(store: Arc<dyn EventStore>) {
@@ -1993,6 +2193,149 @@ pub async fn it_returns_file_impact_with_reads_and_writes(store: Arc<dyn EventSt
 // ───────────────────────────────────────────────────────────────────────
 // Backend wrappers
 // ───────────────────────────────────────────────────────────────────────
+// Memory records (memory hands, D-07): a host's judgment, keyed by
+// kind, handle, standing, and author.
+// ───────────────────────────────────────────────────────────────────────
+
+fn author(host: &str, model: &str) -> Author {
+    Author {
+        host: host.to_string(),
+        model: model.to_string(),
+    }
+}
+
+fn memory(
+    session: &str,
+    handle: &str,
+    kind: MemoryKind,
+    standing: Option<Standing>,
+    a: Author,
+    title: &str,
+) -> MemoryRecord {
+    MemoryRecord::new(
+        session,
+        handle,
+        kind,
+        standing,
+        a,
+        "2026-09-18T12:00:00Z",
+        json!({ "handle": handle, "title": title }),
+    )
+}
+
+pub async fn it_persists_and_queries_memory_by_handle_and_session(store: Arc<dyn EventStore>) {
+    let rec = memory(
+        "sess-mem",
+        "arc0000000000001",
+        MemoryKind::Enrichment,
+        None,
+        author("claude-code", "fable"),
+        "first title",
+    );
+    store.insert_memory(&rec).await.unwrap();
+    let by_handle = store.memory_for_handle("arc0000000000001").await.unwrap();
+    assert_eq!(by_handle.len(), 1);
+    assert_eq!(by_handle[0], rec, "round-trips whole, payload included");
+    let by_session = store.session_memory("sess-mem").await.unwrap();
+    assert_eq!(by_session.len(), 1);
+    assert!(store
+        .memory_for_handle("arc0000000000002")
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(store.session_memory("sess-other").await.unwrap().is_empty());
+}
+
+pub async fn it_keeps_two_authors_and_two_standings(store: Arc<dyn EventStore>) {
+    let h = "arc0000000000003";
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Enrichment,
+            None,
+            author("claude-code", "fable"),
+            "by claude",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Enrichment,
+            None,
+            author("codex", "gpt"),
+            "by codex",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Reading,
+            Some(Standing::Provisional),
+            author("claude-code", "fable"),
+            "provisional",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Reading,
+            Some(Standing::Final),
+            author("claude-code", "fable"),
+            "final",
+        ))
+        .await
+        .unwrap();
+    let rows = store.memory_for_handle(h).await.unwrap();
+    assert_eq!(
+        rows.len(),
+        4,
+        "two authors' enrichments plus a provisional and a final reading all coexist"
+    );
+    let ids: std::collections::BTreeSet<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids.len(), 4);
+}
+
+pub async fn it_replaces_a_re_narration_by_the_same_author(store: Arc<dyn EventStore>) {
+    let h = "arc0000000000004";
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Enrichment,
+            None,
+            author("claude-code", "fable"),
+            "v1",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "s",
+            h,
+            MemoryKind::Enrichment,
+            None,
+            author("claude-code", "fable"),
+            "v2",
+        ))
+        .await
+        .unwrap();
+    let rows = store.memory_for_handle(h).await.unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "same kind, handle, standing, author → one row"
+    );
+    assert_eq!(rows[0].payload["title"], "v2", "the latest narration wins");
+}
+
+// ───────────────────────────────────────────────────────────────────────
 //
 // Each backend mod creates a fresh store and runs every helper above as
 // its own #[tokio::test]. When MongoStore lands, add a parallel `mod
@@ -2040,7 +2383,14 @@ macro_rules! for_each_conformance_test {
         $macro!(it_concurrent_upserts_converge_to_max_event_count);
         $macro!(it_never_overwrites_a_user_set_custom_label);
         $macro!(it_persists_and_queries_a_detected_pattern);
+        $macro!(it_persists_and_queries_memory_by_handle_and_session);
+        $macro!(it_keeps_two_authors_and_two_standings);
+        $macro!(it_replaces_a_re_narration_by_the_same_author);
         $macro!(it_filters_session_patterns_by_type);
+        $macro!(it_deletes_a_sessions_patterns_by_type_prefix);
+        $macro!(it_keeps_two_patterns_with_the_same_start_but_different_handles);
+        $macro!(it_searches_story_patterns_store_wide);
+        $macro!(it_searches_memory_records_by_text);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
         // Reads

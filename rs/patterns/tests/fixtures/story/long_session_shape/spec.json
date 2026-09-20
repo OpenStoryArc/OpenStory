@@ -1,0 +1,293 @@
+{
+  "session_id": "golden-long_session_shape",
+  "started_at": "2026-01-01T09:00:00Z",
+  "gap_threshold_secs": 1800,
+  "exchanges": [
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 4,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "notes/a.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              5
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 138,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "notes/a.md",
+            "scripts/x.py"
+          ],
+          "tools": [
+            [
+              "Bash",
+              4
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 150,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "notes/b.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              8
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 318,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 48,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "docs/c.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              6
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 858,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "out/page.html",
+            "notes/d.md"
+          ],
+          "tools": [
+            [
+              "Write",
+              4
+            ],
+            [
+              "Bash",
+              2
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 330,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": false
+        }
+      ]
+    },
+    {
+      "kind": "injected",
+      "prompt_class": "long",
+      "gap_before_secs": 0,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "notes/e.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              8
+            ],
+            [
+              "Write",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 510,
+      "turns": [
+        {
+          "verb": "wrote",
+          "objects": [
+            "notes/f.md",
+            "notes/g.md"
+          ],
+          "tools": [
+            [
+              "Write",
+              4
+            ],
+            [
+              "Bash",
+              2
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 762,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "notes/f.md"
+          ],
+          "tools": [
+            [
+              "Bash",
+              1
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 174,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 198,
+      "turns": [
+        {
+          "verb": "explained",
+          "objects": [],
+          "tools": [],
+          "rich": true
+        }
+      ]
+    },
+    {
+      "kind": "human",
+      "prompt_class": "short",
+      "gap_before_secs": 108,
+      "turns": [
+        {
+          "verb": "checked",
+          "objects": [
+            "scripts/y.py"
+          ],
+          "tools": [
+            [
+              "Bash",
+              4
+            ]
+          ],
+          "rich": true
+        }
+      ]
+    }
+  ]
+}

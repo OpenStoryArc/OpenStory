@@ -153,6 +153,11 @@ pub fn handle_message(raw: &str) -> Option<Value> {
         "tools/list" => JsonRpcResponse::success(id, crate::tools::list_tools_result()),
         "resources/list" => JsonRpcResponse::success(id, resources_list_result()),
         "resources/read" => handle_resources_read(id, params),
+        "prompts/list" => {
+            JsonRpcResponse::success(id, crate::tools::prompts::prompts_list_result())
+        }
+        // `prompts/get` renders a node's context from the store, so it is
+        // routed in `stdio.rs` beside `tools/call`.
         // `tools/call` is NOT routed here — it needs async access to
         // the store (for query tools) and the writer channel (for
         // streaming tools), both of which live in `stdio.rs`. The
@@ -179,7 +184,8 @@ fn handle_initialize(id: Value, params: Value) -> Value {
         },
         "capabilities": {
             "tools": {},
-            "resources": {}
+            "resources": {},
+            "prompts": {}
         },
         "instructions": INSTRUCTIONS,
     });
@@ -188,43 +194,97 @@ fn handle_initialize(id: Value, params: Value) -> Value {
 }
 
 /// Catalog of embedded agent docs: (uri, name, description, body).
-fn agent_resources() -> &'static [(&'static str, &'static str, &'static str, &'static str)] {
+fn agent_resources() -> &'static [(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)] {
     &[
         (
             HANDS_URI,
             "Hands — how to use this MCP",
             "Start here. Motions: orient, what-touched, find, cost, live, show-human. Read-only history; cite IDs.",
+            "text/markdown",
             HANDS_DOC,
         ),
         (
             PHYSICS_URI,
             "Physics — what is ground truth",
             "Events, turns, outcomes, sentences as projections; soft holes; citation path. No interpretation.",
+            "text/markdown",
             PHYSICS_DOC,
         ),
         (
             AGENT_IN_UI_URI,
             "Agent-in-UI seam",
             "How to drive, follow, and replay the OpenStory dashboard (ui.* only).",
+            "text/markdown",
             AGENT_IN_UI_DOC,
         ),
         (
             EXAMPLE_PICKUP_URI,
             "Example: pickup / resume",
             "Worked flow: list_sessions → session_story.",
+            "text/markdown",
             EXAMPLE_PICKUP_DOC,
         ),
         (
             EXAMPLE_FILE_LOCUS_URI,
             "Example: file locus",
             "Worked flow: file_impact / search → sentences.",
+            "text/markdown",
             EXAMPLE_FILE_LOCUS_DOC,
         ),
         (
             EXAMPLE_SHOW_HUMAN_URI,
             "Example: show the human",
             "Worked flow: where_is_user → ui_control (views, canvas, focus).",
+            "text/markdown",
             EXAMPLE_SHOW_HUMAN_DOC,
+        ),
+        (
+            "openstory://schemas/reading",
+            "Schema — reading",
+            "Output shape for segment_arc / read_exchange: paragraphs over exchange handles, standing, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/reading.schema.json"),
+        ),
+        (
+            "openstory://schemas/enrichment",
+            "Schema — enrichment",
+            "Output shape for narrate_arc: title, question, resolution, summary, slots, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/enrichment.schema.json"),
+        ),
+        (
+            "openstory://schemas/saga",
+            "Schema — saga",
+            "Output shape for link_saga: the arcs one problem spans, with a reason, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/saga.schema.json"),
+        ),
+        (
+            "openstory://schemas/keep",
+            "Schema — keep",
+            "Output shape for propose_keep: why this arc should outlive the retention cliff, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/keep.schema.json"),
+        ),
+        (
+            "openstory://schemas/memory_record",
+            "Schema — memory record",
+            "The stored envelope for any judgment: id, session, handle, kind, standing, author, created_at, payload.",
+            "application/schema+json",
+            include_str!("../../../schemas/memory_record.schema.json"),
+        ),
+        (
+            "openstory://schemas/verdict",
+            "Schema — verdict",
+            "Output shape for adjudicate_seam: same_theme | new_theme with reason, author.",
+            "application/schema+json",
+            include_str!("../../../schemas/verdict.schema.json"),
         ),
     ]
 }
@@ -233,12 +293,12 @@ fn agent_resources() -> &'static [(&'static str, &'static str, &'static str, &'s
 fn resources_list_result() -> Value {
     let resources: Vec<Value> = agent_resources()
         .iter()
-        .map(|(uri, name, description, _)| {
+        .map(|(uri, name, description, mime, _)| {
             serde_json::json!({
                 "uri": uri,
                 "name": name,
                 "description": description,
-                "mimeType": "text/markdown",
+                "mimeType": mime,
             })
         })
         .collect();
@@ -248,14 +308,15 @@ fn resources_list_result() -> Value {
 /// `resources/read` — return an embedded doc's content by URI.
 fn handle_resources_read(id: Value, params: Value) -> Value {
     let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-    let Some((_, _, _, body)) = agent_resources().iter().find(|(u, _, _, _)| *u == uri) else {
+    let Some((_, _, _, mime, body)) = agent_resources().iter().find(|(u, _, _, _, _)| *u == uri)
+    else {
         return JsonRpcResponse::failure(id, error_code::INVALID_PARAMS, "Unknown resource uri");
     };
     let result = serde_json::json!({
         "contents": [
             {
                 "uri": uri,
-                "mimeType": "text/markdown",
+                "mimeType": mime,
                 "text": body,
             }
         ]
@@ -282,9 +343,9 @@ mod tests {
             "{".into(),
             "}".into(),
             "[".into(),
-            "{\"method\":".into(),         // truncated
-            "{\"method\":\"x\",}".into(),   // trailing comma
-            "\u{0}".into(),                  // bare null byte
+            "{\"method\":".into(),                // truncated
+            "{\"method\":\"x\",}".into(),         // trailing comma
+            "\u{0}".into(),                       // bare null byte
             "{\"a\":\"\u{0}\u{1}\u{2}\"}".into(), // control chars in string
             "nan".into(),
             "Infinity".into(),
@@ -295,14 +356,14 @@ mod tests {
             "42".into(),
             "\"just a string\"".into(),
             "[]".into(),
-            "{}".into(),                                    // no method, no id
-            "{\"method\":123}".into(),                       // method wrong type
+            "{}".into(),               // no method, no id
+            "{\"method\":123}".into(), // method wrong type
             "{\"method\":null,\"id\":1}".into(),
             "{\"id\":{\"nested\":\"object\"},\"method\":\"initialize\"}".into(),
             "{\"id\":[1,2,3],\"method\":\"tools/list\"}".into(),
-            "{\"method\":\"x\"}".into(),                     // notification → None
-            "{\"id\":null,\"method\":\"initialize\"}".into(),// explicit null id
-            "{\"id\":1,\"method\":\"tools/call\"}".into(),   // not routed here → method-not-found
+            "{\"method\":\"x\"}".into(), // notification → None
+            "{\"id\":null,\"method\":\"initialize\"}".into(), // explicit null id
+            "{\"id\":1,\"method\":\"tools/call\"}".into(), // not routed here → method-not-found
             "{\"id\":1,\"method\":\"initialize\",\"params\":\"not-an-object\"}".into(),
             "{\"id\":1,\"method\":\"initialize\",\"params\":[1,2,3]}".into(),
             "{\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":999}}".into(),
@@ -377,11 +438,22 @@ mod tests {
     #[test]
     fn initialize_carries_agent_facing_instructions() {
         let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();
-        let instr = resp["result"]["instructions"].as_str().expect("instructions present");
+        let instr = resp["result"]["instructions"]
+            .as_str()
+            .expect("instructions present");
         assert!(instr.contains("open_view"), "mentions a control verb");
-        assert!(instr.contains("where_is_user"), "mentions the point-read tool");
-        assert!(instr.contains("session_story"), "mentions history orient tool");
-        assert!(instr.contains("openstory://docs/hands"), "points at hands curriculum");
+        assert!(
+            instr.contains("where_is_user"),
+            "mentions the point-read tool"
+        );
+        assert!(
+            instr.contains("session_story"),
+            "mentions history orient tool"
+        );
+        assert!(
+            instr.contains("openstory://docs/hands"),
+            "points at hands curriculum"
+        );
         assert!(instr.contains("openstory_help"), "points at help tool");
         assert!(
             instr.contains("Do not invent") || instr.contains("do not invent"),
@@ -392,9 +464,17 @@ mod tests {
     #[test]
     fn instructions_name_spotlight_and_reels() {
         let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();
-        let instr = resp["result"]["instructions"].as_str().expect("instructions present");
-        assert!(instr.contains("Event Spotlight"), "spotlight must be discoverable at first contact");
-        assert!(instr.contains("save_reel"), "reel authoring verb must be at first contact");
+        let instr = resp["result"]["instructions"]
+            .as_str()
+            .expect("instructions present");
+        assert!(
+            instr.contains("Event Spotlight"),
+            "spotlight must be discoverable at first contact"
+        );
+        assert!(
+            instr.contains("save_reel"),
+            "reel authoring verb must be at first contact"
+        );
         assert!(instr.contains("play_reel"));
     }
 
@@ -410,7 +490,9 @@ mod tests {
     #[test]
     fn resources_list_includes_hands_physics_and_ui() {
         let resp = handle_message("{\"id\":2,\"method\":\"resources/list\"}").unwrap();
-        let list = resp["result"]["resources"].as_array().expect("resources array");
+        let list = resp["result"]["resources"]
+            .as_array()
+            .expect("resources array");
         for uri in [HANDS_URI, PHYSICS_URI, AGENT_IN_UI_URI, EXAMPLE_PICKUP_URI] {
             let doc = list
                 .iter()
@@ -433,7 +515,9 @@ mod tests {
                 "{{\"id\":3,\"method\":\"resources/read\",\"params\":{{\"uri\":\"{uri}\"}}}}"
             );
             let resp = handle_message(&req).unwrap();
-            let contents = resp["result"]["contents"].as_array().expect("contents array");
+            let contents = resp["result"]["contents"]
+                .as_array()
+                .expect("contents array");
             let first = &contents[0];
             assert_eq!(first["uri"], uri);
             let text = first["text"].as_str().expect("doc text");

@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Author": {
+      "description": "Who read: the host that ran the prompt and the model it used.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "model"
+      ],
+      "type": "object"
+    },
+    "MemoryKind": {
+      "description": "What kind of judgment a memory record holds.",
+      "enum": [
+        "enrichment",
+        "reading",
+        "verdict",
+        "saga",
+        "keep"
+      ],
+      "type": "string"
+    },
+    "Standing": {
+      "description": "A reading's standing: provisional readings come from the streaming fold and are superseded by the final reading when the arc closes.",
+      "enum": [
+        "provisional",
+        "final"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "One stored judgment about a node. Keyed so that a re-narration by the same author replaces, another author adds a row, and a provisional and a final reading coexist (final supersedes, never deletes).",
+  "properties": {
+    "author": {
+      "$ref": "#/definitions/Author"
+    },
+    "created_at": {
+      "description": "RFC 3339, set by the server when the record is stored.",
+      "type": "string"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "id": {
+      "description": "`kind:handle:standing:author.host:author.model` — see `MemoryRecord::id_for`.",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/definitions/MemoryKind"
+    },
+    "payload": {
+      "description": "The Enrichment / Reading / Verdict / Saga / Keep JSON, as validated."
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "standing": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Standing"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "author",
+    "created_at",
+    "handle",
+    "id",
+    "kind",
+    "payload",
+    "session_id"
+  ],
+  "title": "MemoryRecord",
+  "type": "object"
+}

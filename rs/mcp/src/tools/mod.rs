@@ -14,8 +14,11 @@
 pub mod analytics;
 pub mod control;
 pub mod help;
+pub mod memory;
+pub mod memory_write;
 pub mod per_session;
 pub mod projects;
+pub mod prompts;
 pub mod reels;
 pub mod search;
 pub mod sessions;
@@ -251,6 +254,91 @@ pub const TOOLS: &[ToolDef] = &[
                       NOT: an LLM interpretation of intent.",
         input_schema: story::session_story_schema,
     },
+    // Memory hands — the story layer (exchanges, arcs) as handles a host can carry.
+    ToolDef {
+        name: "story_list",
+        description: "WHEN: you need handles for what happened before — the memory primitives. \
+                      MOTION: orient / remember. CALL: { session_id?, limit?, width? }. \
+                      RETURNS: one line per arc {handle, session_id, arc_index, question, exchanges, closed_by}. \
+                      ~50 tokens per line; carry a few handles, dereference on demand. \
+                      NEXT: story_summary on a handle.",
+        input_schema: memory::story_list_schema,
+    },
+    ToolDef {
+        name: "story_summary",
+        description: "WHEN: you hold an arc handle and want its top node. MOTION: remember. \
+                      CALL: { handle, session_id?, width? } (4+ char prefix ok). \
+                      RETURNS: {handle, question, resolution, entities, tools, closed_by, ambiguous_seams, \
+                      down: [exchange handles], across: [related arc handles]}. title/slots appear only once enriched. \
+                      NEXT: story_descend for exchanges; story_context for a node with its neighbours.",
+        input_schema: memory::story_summary_schema,
+    },
+    ToolDef {
+        name: "story_descend",
+        description: "WHEN: you hold a handle and want what is beneath it. MOTION: remember. \
+                      CALL: { node, session_id?, width? }. arc → its exchanges; exchange → its sentences; sentence → its events. \
+                      RETURNS: [child view]. NEXT: story_context on a child to keep its neighbours.",
+        input_schema: memory::node_schema,
+    },
+    ToolDef {
+        name: "story_surface",
+        description: "WHEN: you hold an event, sentence or exchange and want the way back up. MOTION: remember. \
+                      CALL: { node, session_id?, width? } (session_id required for event ids). \
+                      RETURNS: ancestors nearest first, up to the arc. NEXT: story_summary on the arc.",
+        input_schema: memory::node_schema,
+    },
+    ToolDef {
+        name: "story_context",
+        description: "WHEN: you reach for one thing and must not lose what it was for — the load-bearing hand. \
+                      MOTION: remember. CALL: { node, session_id?, width? }. \
+                      RETURNS: {node, ancestors: surface(node), siblings: descend(parent)}. Never a naked event. \
+                      NEXT: answer, or story_descend one level further.",
+        input_schema: memory::node_schema,
+    },
+    ToolDef {
+        name: "story_search",
+        description: "WHEN: you have words, not a handle — discovery over the story layer. MOTION: find / remember. \
+                      CALL: { query, session_id?, limit?, width? }. Case-insensitive substring over arc question/resolution/entities \
+                      and exchange prompt/result. RETURNS: [{kind, handle, session_id, matched}] arcs first. \
+                      NEXT: story_summary on an arc hit; story_context on an exchange hit.",
+        input_schema: memory::story_search_schema,
+    },
+    ToolDef {
+        name: "story_related",
+        description: "WHEN: you hold an arc and want its neighbours across time — the pointers across. MOTION: remember. \
+                      CALL: { handle, session_id?, limit? }. RETURNS: [{handle, session_id, question, shared: [entity]}] most shared first. \
+                      NEXT: story_summary on a related handle.",
+        input_schema: memory::story_related_schema,
+    },
+    // Memory hands — write side. The only door into memory.*; never events.*.
+    ToolDef {
+        name: "enrich",
+        description: "WHEN: you ran narrate_arc and hold the enrichment. MOTION: narrate. \
+                      CALL: { handle, session_id, author: {host, model}, enrichment: {title, question, resolution, summary, slots?} }. \
+                      Server validates and stores; the next story_summary carries the title. \
+                      RETURNS: the stored MemoryRecord. Never invent a handle.",
+        input_schema: memory_write::enrich_schema,
+    },
+    ToolDef {
+        name: "adjudicate_boundary",
+        description: "WHEN: you ran adjudicate_seam on an ambiguous seam. MOTION: narrate. \
+                      CALL: { handle, session_id, author, seam, verdict: same_theme|new_theme, reason }. \
+                      RETURNS: the stored verdict record.",
+        input_schema: memory_write::adjudicate_schema,
+    },
+    ToolDef {
+        name: "link_saga",
+        description: "WHEN: the same problem returned across arcs or sessions. MOTION: narrate. \
+                      CALL: { handle, session_id, author, handles: [arc handles], reason }. \
+                      RETURNS: the stored saga record.",
+        input_schema: memory_write::link_saga_schema,
+    },
+    ToolDef {
+        name: "propose_keep",
+        description: "WHEN: an arc is worth keeping past the retention cliff (you mark; the human keeps). MOTION: curate. \
+                      CALL: { handle, session_id, author, reason }. RETURNS: the stored keep record.",
+        input_schema: memory_write::propose_keep_schema,
+    },
     // Streaming tools (handled inline in stdio.rs; entries here so
     // tools/list reports them).
     ToolDef {
@@ -268,7 +356,28 @@ pub const TOOLS: &[ToolDef] = &[
                       (input/output/cache). Cancel via notifications/cancelled.",
         input_schema: subscribe_session_schema,
     },
+    ToolDef {
+        name: "subscribe_arcs",
+        description: "WHEN: narrate as the story closes — the memory hands stream. MOTION: live / remember. \
+                      CALL: { session_id?, from_seq? }. Follows closed story exchanges and arcs; from_seq resumes \
+                      from a stored batch sequence (lazy list cursor, see data.batch_seq). \
+                      RETURNS: started, then notifications/openstory/arcs with data {kind, handle, session_id, skeleton, needs}. \
+                      needs: enrich | adjudicate | read. Cancel via notifications/cancelled. \
+                      NEXT: story_context on the handle, then your judgment.",
+        input_schema: subscribe_arcs_schema,
+    },
 ];
+
+fn subscribe_arcs_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "Follow one session; omit to follow every session"},
+            "from_seq": {"type": "integer", "minimum": 1, "description": "Resume from this stored batch sequence"}
+        },
+        "additionalProperties": false
+    })
+}
 
 fn subscribe_session_schema() -> Value {
     json!({
@@ -334,6 +443,31 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "daily_token_usage" => analytics::daily_token_usage(&server.store, args).await,
         "productivity" => analytics::productivity(&server.store, args).await,
         "session_story" => story::session_story(&server.store, args).await,
+        "story_list" => memory::story_list(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_summary" => memory::story_summary(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_descend" => memory::story_descend(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_surface" => memory::story_surface(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_context" => memory::story_context(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_search" => memory::story_search(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_related" => memory::story_related(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "enrich" => memory_write::enrich(&server.api_base, args).await,
+        "adjudicate_boundary" => memory_write::adjudicate_boundary(&server.api_base, args).await,
+        "link_saga" => memory_write::link_saga(&server.api_base, args).await,
+        "propose_keep" => memory_write::propose_keep(&server.api_base, args).await,
         unknown => {
             return tool_not_found(unknown);
         }

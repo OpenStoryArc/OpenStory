@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ExchangeKind": {
+      "description": "Whether a user-role message was typed by the human or injected by the harness (a skill body, a tool-loaded notice, a task notification). Injected messages arrive while the assistant's turn is still open and must not open an exchange (requirement A-03).",
+      "enum": [
+        "human",
+        "injected"
+      ],
+      "type": "string"
+    },
+    "ExchangeSpec": {
+      "description": "One user-role message and the turns that answer it.",
+      "properties": {
+        "gap_before_secs": {
+          "description": "Event-time gap between the previous exchange's last event and this exchange's first event. Compared against `gap_threshold_secs` to place arc boundaries (requirement A-06).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/definitions/ExchangeKind"
+        },
+        "prompt_class": {
+          "$ref": "#/definitions/PromptClass"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/definitions/TurnSpec"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "gap_before_secs",
+        "kind",
+        "prompt_class",
+        "turns"
+      ],
+      "type": "object"
+    },
+    "PromptClass": {
+      "description": "Length class of the prompt text the generator writes. Content is synthetic either way; the class only shapes byte counts.",
+      "enum": [
+        "short",
+        "long"
+      ],
+      "type": "string"
+    },
+    "TurnSpec": {
+      "description": "One assistant turn inside an exchange.",
+      "properties": {
+        "objects": {
+          "description": "Objects the turn acts on; become entities in the expected output.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rich": {
+          "description": "Whether the turn applies tools. `false` yields a thin turn: a text-only reply that contributes no entities or tools (A-04).",
+          "type": "boolean"
+        },
+        "tools": {
+          "description": "Tool name and call count, in emission order.",
+          "items": {
+            "items": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": "integer"
+              }
+            ],
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "verb": {
+          "description": "Sentence verb the turn should fold to (`read`, `edited`, `committed`, ...).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "objects",
+        "rich",
+        "tools",
+        "verb"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "The whole spec for one synthetic session.",
+  "properties": {
+    "exchanges": {
+      "items": {
+        "$ref": "#/definitions/ExchangeSpec"
+      },
+      "type": "array"
+    },
+    "gap_threshold_secs": {
+      "description": "Arc gap threshold in seconds (default in production: 1800).",
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "started_at": {
+      "description": "RFC 3339 timestamp of the first event.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "exchanges",
+    "gap_threshold_secs",
+    "session_id",
+    "started_at"
+  ],
+  "title": "GoldenSpec",
+  "type": "object"
+}

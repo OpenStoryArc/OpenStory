@@ -2,9 +2,9 @@
 
 use std::path::Path;
 
-use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::middleware;
+use axum::Router;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 
@@ -97,7 +97,33 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::list_sessions),
         )
         .route("/api/health", axum::routing::get(crate::api::node_health))
-        .route("/api/control", axum::routing::post(crate::api::post_control))
+        .route(
+            "/api/control",
+            axum::routing::post(crate::api::post_control),
+        )
+        // Memory hands (D-02): the write seam for a host's judgment about
+        // history. Validated, stored, published on memory.{kind}.{session}.
+        .route(
+            "/api/memory",
+            axum::routing::post(crate::memory_api::post_memory),
+        )
+        // B-11: store-wide search over story patterns and memory records.
+        .route(
+            "/api/story/search",
+            axum::routing::get(crate::memory_api::search_story),
+        )
+        .route(
+            "/api/memory/search",
+            axum::routing::get(crate::memory_api::search_memory),
+        )
+        .route(
+            "/api/memory/{handle}",
+            axum::routing::get(crate::memory_api::get_memory_for_handle),
+        )
+        .route(
+            "/api/sessions/{session_id}/memory",
+            axum::routing::get(crate::memory_api::get_session_memory),
+        )
         .route(
             "/api/annotations",
             axum::routing::post(crate::api::post_annotation).get(crate::api::list_annotations),
@@ -106,10 +132,22 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/annotations/{id}",
             axum::routing::delete(crate::api::delete_annotation),
         )
-        .route("/api/interactions", axum::routing::post(crate::api::post_interaction))
-        .route("/api/ui-state", axum::routing::get(crate::api::get_ui_state))
-        .route("/api/ui-state/journey", axum::routing::get(crate::api::get_ui_journey))
-        .route("/api/digests", axum::routing::get(crate::api::session_digests))
+        .route(
+            "/api/interactions",
+            axum::routing::post(crate::api::post_interaction),
+        )
+        .route(
+            "/api/ui-state",
+            axum::routing::get(crate::api::get_ui_state),
+        )
+        .route(
+            "/api/ui-state/journey",
+            axum::routing::get(crate::api::get_ui_journey),
+        )
+        .route(
+            "/api/digests",
+            axum::routing::get(crate::api::session_digests),
+        )
         .route(
             "/api/watchers",
             axum::routing::get(crate::api::list_watchers),
@@ -298,6 +336,13 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             "/api/admin/participants/{principal_id}",
             axum::routing::delete(crate::admin::delete_participant),
         )
+        // Memory hands: fold every stored session into story.exchange /
+        // story.arc patterns (report only unless ?write=true). Admin-gated
+        // state-management operation, like reproject.
+        .route(
+            "/api/admin/story-backfill",
+            axum::routing::post(crate::story_backfill::admin_story_backfill),
+        )
         // Layer order is outermost-first: the require_admin_role check
         // runs BEFORE the token check, but both must pass before the
         // handler runs. (Token check verifies the caller; role check
@@ -305,9 +350,7 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         .layer(middleware::from_fn(move |req, next| {
             let api_t = api_token_for_admin.clone();
             let admin_t = admin_token.clone();
-            async move {
-                crate::auth::admin_only_middleware(req, next, api_t, admin_t).await
-            }
+            async move { crate::auth::admin_only_middleware(req, next, api_t, admin_t).await }
         }))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -382,7 +425,7 @@ mod tests {
         use open_story_store::state::StoreState;
         use std::collections::HashMap;
         use std::sync::Arc;
-        use tokio::sync::{RwLock, broadcast};
+        use tokio::sync::{broadcast, RwLock};
 
         let tmp = tempfile::tempdir().unwrap();
         let store = StoreState::new(tmp.path()).unwrap();
@@ -462,9 +505,9 @@ mod tests {
 
     #[tokio::test]
     async fn fleet_endpoint_returns_404_when_no_person_configured() {
-        use tower::ServiceExt;
-        use axum::http::Request;
         use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
 
         // test_state() uses Config::default() which has person: None.
         let state = test_state();
@@ -478,11 +521,11 @@ mod tests {
 
     #[tokio::test]
     async fn fleet_endpoint_returns_configured_fleet() {
-        use tower::ServiceExt;
-        use axum::http::Request;
-        use axum::body::Body;
-        use http_body_util::BodyExt;
         use crate::config::{Person, Principal, PrincipalMatchers};
+        use axum::body::Body;
+        use axum::http::Request;
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
 
         // Inject a Person + Principal into state's config so the endpoint
         // has a fleet to return.
@@ -493,18 +536,16 @@ mod tests {
                 id: "person-test".to_string(),
                 display_name: "Tester".to_string(),
                 email: "tester@example.test".to_string(),
-                principals: vec![
-                    Principal {
-                        id: "k-laptop".to_string(),
-                        display_name: "Laptop".to_string(),
-                        matchers: PrincipalMatchers {
-                            host: Some("test-host".into()),
-                            user: Some("tester".into()),
-                            agent: None,
-                            watch_dir_pattern: None,
-                        },
+                principals: vec![Principal {
+                    id: "k-laptop".to_string(),
+                    display_name: "Laptop".to_string(),
+                    matchers: PrincipalMatchers {
+                        host: Some("test-host".into()),
+                        user: Some("tester".into()),
+                        agent: None,
+                        watch_dir_pattern: None,
                     },
-                ],
+                }],
             });
         }
         let config = Config::default();
