@@ -237,3 +237,49 @@ pub async fn get_memory_for_handle(
         .map_err(|e| internal(format!("memory_for_handle: {e}")))?;
     Ok(Json(json!({ "memory": rows })))
 }
+
+/// `GET /api/story/search?q=&limit=` and `GET /api/memory/search?q=&limit=`
+/// (B-11): store-wide text search, so recall reaches every session.
+#[derive(Deserialize)]
+pub struct SearchParams {
+    #[serde(default)]
+    pub q: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+}
+
+fn default_search_limit() -> usize {
+    50
+}
+
+pub async fn search_story(
+    State(state): State<SharedState>,
+    axum::extract::Query(p): axum::extract::Query<SearchParams>,
+) -> Result<Json<Value>, ApiError> {
+    let q = p.q.trim().to_lowercase();
+    if q.is_empty() {
+        return Ok(Json(json!({ "patterns": [] })));
+    }
+    let store = state.read().await.store.event_store.clone();
+    let rows = store
+        .search_story(&q, p.limit.clamp(1, 500))
+        .await
+        .map_err(|e| internal(format!("search_story: {e}")))?;
+    Ok(Json(json!({ "patterns": rows })))
+}
+
+pub async fn search_memory(
+    State(state): State<SharedState>,
+    axum::extract::Query(p): axum::extract::Query<SearchParams>,
+) -> Result<Json<Value>, ApiError> {
+    let q = p.q.trim().to_lowercase();
+    if q.is_empty() {
+        return Ok(Json(json!({ "memory": [] })));
+    }
+    let store = state.read().await.store.event_store.clone();
+    let rows = store
+        .search_memory(&q, p.limit.clamp(1, 500))
+        .await
+        .map_err(|e| internal(format!("search_memory: {e}")))?;
+    Ok(Json(json!({ "memory": rows })))
+}

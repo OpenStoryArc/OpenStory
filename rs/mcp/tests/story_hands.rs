@@ -342,6 +342,82 @@ mod when_context_is_called {
     }
 }
 
+mod when_search_runs_without_a_session {
+    use super::*;
+    use common::story_fixture::seed_golden_as;
+    use open_story_patterns::story::{Author, MemoryKind, MemoryRecord};
+
+    // The pilot's recall run found one answer in ten: search scanned only
+    // the newest fifty sessions. It must reach every session in the store.
+    #[tokio::test]
+    async fn it_reaches_sessions_beyond_the_scan_cap() {
+        let (store, plan_store, _tmp) = make_test_store();
+        for i in 0..60 {
+            seed_golden_as(&store, "single_arc_plain", &format!("filler-{i:02}")).await;
+        }
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let hits = call(
+            server,
+            "story_search",
+            json!({ "query": "golden prompt 0", "limit": 200 }),
+        )
+        .await
+        .unwrap();
+        let sessions: std::collections::BTreeSet<&str> = hits
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|h| h["session_id"].as_str())
+            .collect();
+        assert_eq!(
+            sessions.len(),
+            60,
+            "every seeded session answers, not fifty"
+        );
+    }
+
+    // What a host narrated is how the next host finds the arc: the title
+    // and summary of an enrichment are searchable, and the hit says so.
+    #[tokio::test]
+    async fn it_finds_an_arc_by_its_narrated_title() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let sid = seed_golden(&store, "two_arcs_gap").await;
+        let arc = &golden_expected("two_arcs_gap")["arcs"][1];
+        let handle = arc["handle"].as_str().unwrap();
+        store
+            .insert_memory(&MemoryRecord::new(
+                &sid,
+                handle,
+                MemoryKind::Enrichment,
+                None,
+                Author { host: "claude-code".into(), model: "m".into() },
+                "2026-09-19T00:00:00Z",
+                json!({ "handle": handle, "title": "Kestrel watcher migration lands",
+                        "question": "q", "resolution": "r", "summary": "the fix was recursive rescan" }),
+            ))
+            .await
+            .unwrap();
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let hits = call(server, "story_search", json!({ "query": "kestrel" }))
+            .await
+            .unwrap();
+        let arcs: Vec<&serde_json::Value> = hits
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|h| h["handle"] == handle)
+            .collect();
+        assert_eq!(arcs.len(), 1, "the narrated arc is found: {hits}");
+        assert_eq!(arcs[0]["kind"], "arc");
+        assert_eq!(arcs[0]["title"], "Kestrel watcher migration lands");
+        assert!(arcs[0]["matched"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "memory"));
+    }
+}
+
 mod when_a_prefix_is_ambiguous {
     use super::*;
 

@@ -413,3 +413,46 @@ mod when_memory_is_read_over_rest {
         assert!(err.contains("read-only"), "{err}");
     }
 }
+
+mod when_search_runs_over_rest {
+    use super::*;
+
+    fn search_router() -> Router {
+        Router::new()
+            .route(
+                "/api/story/search",
+                get(|| async {
+                    Json(json!({ "patterns": [{
+                        "pattern_type": "story.arc", "session_id": "sess-far",
+                        "event_ids": ["e1"], "started_at": "2026-01-01T00:00:00Z",
+                        "ended_at": "2026-01-01T00:01:00Z", "summary": "s",
+                        "metadata": { "handle": "arc0000000000far", "question": "kestrel?" }
+                    }] }))
+                }),
+            )
+            .route(
+                "/api/memory/search",
+                get(|| async {
+                    Json(json!({ "memory": [{
+                        "id": "enrichment:arc0000000000far:-:claude-code:m",
+                        "session_id": "sess-far", "handle": "arc0000000000far",
+                        "kind": "enrichment", "author": { "host": "claude-code", "model": "m" },
+                        "created_at": "2026-09-18T12:00:00Z",
+                        "payload": { "handle": "arc0000000000far", "title": "Kestrel lands" }
+                    }] }))
+                }),
+            )
+    }
+
+    #[tokio::test]
+    async fn it_reaches_story_and_memory_search_endpoints() {
+        let base = spawn_mock(search_router()).await;
+        let store = HttpEventStore::new(&base, None);
+        let hits = store.search_story("kestrel", 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].metadata["handle"], "arc0000000000far");
+        let rows = store.search_memory("kestrel", 10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].payload["title"], "Kestrel lands");
+    }
+}

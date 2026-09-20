@@ -9,7 +9,7 @@
 //! are arcs, exchanges, sentences (handle derived from event ids), and
 //! events (their own id). Prefixes of four or more characters resolve.
 
-use open_story_patterns::story::handle as content_handle;
+use open_story_patterns::story::{handle as content_handle, MemoryRecord};
 use open_story_patterns::PatternEvent;
 use open_story_store::event_store::EventStore;
 use serde_json::{json, Value};
@@ -721,64 +721,127 @@ pub async fn story_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Va
     let session_id = args.get("session_id").and_then(|v| v.as_str());
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-    let mut hits: Vec<(usize, u8, Value)> = Vec::new(); // (matched count, kind rank, view)
-    for sid in candidate_sessions(store, session_id).await? {
-        let story = load_story(store, &sid).await?;
-        for a in &story.arcs {
-            let mut matched = Vec::new();
-            if matches(meta_str(a, "question"), &query) {
-                matched.push("question");
-            }
-            if matches(meta_str(a, "resolution"), &query) {
-                matched.push("resolution");
-            }
-            if entity_keys(a)
-                .iter()
-                .any(|k| k.to_lowercase().contains(&query))
-            {
-                matched.push("entities");
-            }
-            if !matched.is_empty() {
-                hits.push((
-                    matched.len(),
-                    0,
-                    json!({
-                        "kind": "arc",
-                        "handle": meta_str(a, "handle"),
-                        "session_id": sid,
-                        "question": meta_str(a, "question").map(|q| truncate(q, 80)),
-                        "matched": matched,
-                    }),
-                ));
-            }
+    // B-11: the candidate set is the whole store unless a session is named.
+    // Memory records count too: what one host narrated is how the next
+    // host finds the arc.
+    let (patterns, records): (Vec<PatternEvent>, Vec<MemoryRecord>) = match session_id {
+        Some(sid) => {
+            let story = load_story(store, sid).await?;
+            let mut ps = story.arcs.clone();
+            ps.extend(story.exchanges.iter().cloned());
+            let rs = store
+                .session_memory(sid)
+                .await
+                .map_err(|e| format!("session_memory failed: {e}"))?
+                .into_iter()
+                .filter(|r| r.payload.to_string().to_lowercase().contains(&query))
+                .collect();
+            (ps, rs)
         }
-        for e in &story.exchanges {
-            let mut matched = Vec::new();
-            if matches(meta_str(e, "user_prompt"), &query) {
-                matched.push("user_prompt");
+        None => {
+            let ps = store
+                .search_story(&query, limit.saturating_mul(4).max(50))
+                .await
+                .map_err(|e| format!("search_story failed: {e}"))?;
+            let rs = store
+                .search_memory(&query, limit)
+                .await
+                .map_err(|e| format!("search_memory failed: {e}"))?;
+            (ps, rs)
+        }
+    };
+
+    let mut hits: Vec<(usize, u8, Value)> = Vec::new(); // (matched count, kind rank, view)
+    for p in &patterns {
+        let sid = p.session_id.as_str();
+        match p.pattern_type.as_str() {
+            "story.arc" => {
+                let mut matched = Vec::new();
+                if matches(meta_str(p, "question"), &query) {
+                    matched.push("question");
+                }
+                if matches(meta_str(p, "resolution"), &query) {
+                    matched.push("resolution");
+                }
+                if entity_keys(p)
+                    .iter()
+                    .any(|k| k.to_lowercase().contains(&query))
+                {
+                    matched.push("entities");
+                }
+                if !matched.is_empty() {
+                    hits.push((
+                        matched.len(),
+                        0,
+                        json!({
+                            "kind": "arc",
+                            "handle": meta_str(p, "handle"),
+                            "session_id": sid,
+                            "question": meta_str(p, "question").map(|q| truncate(q, 80)),
+                            "matched": matched,
+                        }),
+                    ));
+                }
             }
-            if matches(meta_str(e, "eval_result"), &query) {
-                matched.push("eval_result");
+            "story.exchange" => {
+                let mut matched = Vec::new();
+                if matches(meta_str(p, "user_prompt"), &query) {
+                    matched.push("user_prompt");
+                }
+                if matches(meta_str(p, "eval_result"), &query) {
+                    matched.push("eval_result");
+                }
+                if entity_keys(p)
+                    .iter()
+                    .any(|k| k.to_lowercase().contains(&query))
+                {
+                    matched.push("entities");
+                }
+                if !matched.is_empty() {
+                    hits.push((
+                        matched.len(),
+                        1,
+                        json!({
+                            "kind": "exchange",
+                            "handle": meta_str(p, "handle"),
+                            "session_id": sid,
+                            "user_prompt": meta_str(p, "user_prompt").map(|q| truncate(q, 80)),
+                            "matched": matched,
+                        }),
+                    ));
+                }
             }
-            if entity_keys(e)
-                .iter()
-                .any(|k| k.to_lowercase().contains(&query))
-            {
-                matched.push("entities");
+            _ => {}
+        }
+    }
+    for r in &records {
+        let title = r
+            .payload
+            .get("title")
+            .and_then(|t| t.as_str())
+            .map(|t| truncate(t, 120));
+        if let Some(hit) = hits.iter_mut().find(|(_, _, v)| v["handle"] == r.handle) {
+            if let Some(m) = hit.2["matched"].as_array_mut() {
+                if !m.iter().any(|x| x == "memory") {
+                    m.push(json!("memory"));
+                    hit.0 += 1;
+                }
             }
-            if !matched.is_empty() {
-                hits.push((
-                    matched.len(),
-                    1,
-                    json!({
-                        "kind": "exchange",
-                        "handle": meta_str(e, "handle"),
-                        "session_id": sid,
-                        "user_prompt": meta_str(e, "user_prompt").map(|q| truncate(q, 80)),
-                        "matched": matched,
-                    }),
-                ));
+            if title.is_some() && hit.2.get("title").is_none() {
+                hit.2["title"] = json!(title);
             }
+        } else {
+            hits.push((
+                1,
+                0,
+                json!({
+                    "kind": "arc",
+                    "handle": r.handle,
+                    "session_id": r.session_id,
+                    "title": title,
+                    "matched": ["memory"],
+                }),
+            ));
         }
     }
     hits.sort_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)));

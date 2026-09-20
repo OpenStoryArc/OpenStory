@@ -227,6 +227,30 @@ impl EventStore for HttpEventStore {
 
     // Memory hands (D-05): reads only. Writes go through /api/memory via
     // the write hands, never through this store.
+    async fn search_story(&self, query: &str, limit: usize) -> Result<Vec<PatternEvent>> {
+        let env: PatternsEnvelope = self
+            .get(
+                "/api/story/search",
+                &[("q", query.to_string()), ("limit", limit.to_string())],
+            )
+            .await?;
+        Ok(env.patterns)
+    }
+
+    async fn search_memory(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<open_story_patterns::story::MemoryRecord>> {
+        let env: MemoryEnvelope = self
+            .get(
+                "/api/memory/search",
+                &[("q", query.to_string()), ("limit", limit.to_string())],
+            )
+            .await?;
+        Ok(env.memory)
+    }
+
     async fn memory_for_handle(
         &self,
         handle: &str,

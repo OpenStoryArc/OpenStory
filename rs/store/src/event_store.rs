@@ -75,6 +75,13 @@ impl SessionRow {
     }
 }
 
+/// Pure: escape a user string for a SQL `LIKE ... ESCAPE '\'` pattern.
+pub fn like_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Pure: the row id of a stored pattern. Type, start time, and session
 /// make re-detection a no-op; a content-addressed `handle` in the metadata
 /// (the story folds) joins them, because re-ingested transcripts can put
@@ -223,6 +230,18 @@ pub trait EventStore: Send + Sync {
     /// Read-only stores keep the default and refuse.
     async fn insert_memory(&self, _record: &MemoryRecord) -> Result<()> {
         anyhow::bail!("this store is read-only: insert_memory unsupported")
+    }
+
+    /// Story patterns (`story.*`) anywhere in the store whose text contains
+    /// `query`, case-insensitively, newest first. Recall reaches every
+    /// session, never a capped scan. Read-only stores keep the default.
+    async fn search_story(&self, _query: &str, _limit: usize) -> Result<Vec<PatternEvent>> {
+        Ok(Vec::new())
+    }
+
+    /// Memory records anywhere in the store whose text contains `query`.
+    async fn search_memory(&self, _query: &str, _limit: usize) -> Result<Vec<MemoryRecord>> {
+        Ok(Vec::new())
     }
 
     /// Every memory record about one handle, any kind, any author.

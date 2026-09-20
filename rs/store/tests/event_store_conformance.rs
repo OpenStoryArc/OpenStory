@@ -749,6 +749,81 @@ pub async fn it_persists_and_queries_a_detected_pattern(store: Arc<dyn EventStor
     assert_eq!(patterns[0].metadata["key"], "value");
 }
 
+pub async fn it_searches_story_patterns_store_wide(store: Arc<dyn EventStore>) {
+    // Recall must reach every session, not the newest fifty: the pilot's
+    // memory hands found one answer in ten because search was session-capped.
+    let mut old = test_pattern("sess-old", "story.arc", "2025-01-01T00:00:00Z");
+    old.metadata =
+        json!({ "handle": "arc0000000000old", "question": "why did the Kestrel watcher stop?" });
+    let mut new = test_pattern("sess-new", "story.exchange", "2025-06-01T00:00:00Z");
+    new.metadata =
+        json!({ "handle": "ex000000000000new", "eval_result": "the kestrel fix landed" });
+    let mut other = test_pattern("sess-new", "story.exchange", "2025-06-01T00:00:01Z");
+    other.metadata = json!({ "handle": "ex00000000000oth", "user_prompt": "unrelated" });
+    let mut not_story = test_pattern("sess-new", "test.cycle", "2025-06-01T00:00:02Z");
+    not_story.metadata = json!({ "note": "kestrel" });
+    for (sid, p) in [
+        ("sess-old", &old),
+        ("sess-new", &new),
+        ("sess-new", &other),
+        ("sess-new", &not_story),
+    ] {
+        store.insert_pattern(sid, p).await.unwrap();
+    }
+
+    let hits = store.search_story("KESTREL", 10).await.unwrap();
+    let mut handles: Vec<&str> = hits
+        .iter()
+        .filter_map(|p| p.metadata["handle"].as_str())
+        .collect();
+    handles.sort();
+    assert_eq!(
+        handles,
+        vec!["arc0000000000old", "ex000000000000new"],
+        "case-insensitive, across sessions, story.* only"
+    );
+    assert_eq!(
+        store.search_story("kestrel", 1).await.unwrap().len(),
+        1,
+        "limit"
+    );
+}
+
+pub async fn it_searches_memory_records_by_text(store: Arc<dyn EventStore>) {
+    let a = author("claude-code", "m");
+    store
+        .insert_memory(&memory(
+            "sess-m1",
+            "arc0000000000001",
+            MemoryKind::Enrichment,
+            None,
+            a.clone(),
+            "Kestrel migration lands",
+        ))
+        .await
+        .unwrap();
+    store
+        .insert_memory(&memory(
+            "sess-m2",
+            "arc0000000000002",
+            MemoryKind::Enrichment,
+            None,
+            a.clone(),
+            "Reel export build",
+        ))
+        .await
+        .unwrap();
+
+    let hits = store.search_memory("kestrel", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].handle, "arc0000000000001");
+    assert!(store
+        .search_memory("nothing-matches-this", 10)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
 pub async fn it_keeps_two_patterns_with_the_same_start_but_different_handles(
     store: Arc<dyn EventStore>,
 ) {
@@ -2314,6 +2389,8 @@ macro_rules! for_each_conformance_test {
         $macro!(it_filters_session_patterns_by_type);
         $macro!(it_deletes_a_sessions_patterns_by_type_prefix);
         $macro!(it_keeps_two_patterns_with_the_same_start_but_different_handles);
+        $macro!(it_searches_story_patterns_store_wide);
+        $macro!(it_searches_memory_records_by_text);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
         // Reads

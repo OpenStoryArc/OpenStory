@@ -889,6 +889,46 @@ impl EventStore for SqliteStore {
         Ok(())
     }
 
+    async fn search_story(&self, query: &str, limit: usize) -> Result<Vec<PatternEvent>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let needle = format!("%{}%", crate::event_store::like_escape(query));
+        let mut stmt = conn.prepare(
+            "SELECT session_id, type, start_time, end_time, summary, event_ids, metadata
+             FROM patterns
+             WHERE type LIKE 'story.%'
+               AND (summary LIKE ?1 ESCAPE '\\' OR metadata LIKE ?1 ESCAPE '\\')
+             ORDER BY start_time DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params![needle, limit as i64],
+                PatternRow::from_row,
+            )?
+            .collect::<Vec<_>>();
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?.into_pattern_event());
+        }
+        Ok(out)
+    }
+
+    async fn search_memory(&self, query: &str, limit: usize) -> Result<Vec<MemoryRecord>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let needle = format!("%{}%", crate::event_store::like_escape(query));
+        let mut stmt = conn.prepare(
+            "SELECT record FROM memory WHERE record LIKE ?1 ESCAPE '\\'
+             ORDER BY created_at DESC, id LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![needle, limit as i64], |r| {
+            r.get::<_, String>(0)
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?)?);
+        }
+        Ok(out)
+    }
+
     async fn memory_for_handle(&self, handle: &str) -> Result<Vec<MemoryRecord>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt =

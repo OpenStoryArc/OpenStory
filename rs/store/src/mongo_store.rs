@@ -553,6 +553,54 @@ impl EventStore for MongoStore {
         Ok(())
     }
 
+    async fn search_story(&self, query: &str, limit: usize) -> Result<Vec<PatternEvent>> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_PATTERNS);
+        let re = bson::Regex {
+            pattern: regex::escape(query),
+            options: "i".to_string(),
+        };
+        let filter = doc! {
+            "pattern_type": bson::Regex { pattern: "^story\\.".to_string(), options: String::new() },
+            "$or": [
+                { "summary": re.clone() },
+                { "metadata.question": re.clone() },
+                { "metadata.resolution": re.clone() },
+                { "metadata.user_prompt": re.clone() },
+                { "metadata.eval_result": re.clone() },
+                { "metadata.entities": re.clone() },
+            ],
+        };
+        let mut cursor = coll
+            .find(filter)
+            .sort(doc! { "started_at": -1 })
+            .limit(limit as i64)
+            .await
+            .map_err(|e| anyhow!("mongo search_story: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo search_story cursor: {e}"))?;
+            out.push(doc_to_pattern_event(&doc)?);
+        }
+        Ok(out)
+    }
+
+    async fn search_memory(&self, query: &str, limit: usize) -> Result<Vec<MemoryRecord>> {
+        let re = bson::Regex {
+            pattern: regex::escape(query),
+            options: "i".to_string(),
+        };
+        let filter = doc! { "$or": [
+            { "payload.title": re.clone() },
+            { "payload.summary": re.clone() },
+            { "payload.question": re.clone() },
+            { "payload.resolution": re.clone() },
+            { "payload.reason": re.clone() },
+        ] };
+        let rows = self.find_memory(filter).await?;
+        Ok(rows.into_iter().rev().take(limit).collect())
+    }
+
     async fn memory_for_handle(&self, handle: &str) -> Result<Vec<MemoryRecord>> {
         self.find_memory(doc! { "handle": handle }).await
     }

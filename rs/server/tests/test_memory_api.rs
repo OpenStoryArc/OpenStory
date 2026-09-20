@@ -181,3 +181,41 @@ mod when_a_memory_record_is_stored {
         assert_eq!(wire["kind"], "memory", "wire tag the UI switches on");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Store-wide search over story patterns and memory (B-11)
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_story_and_memory_are_searched {
+    use super::*;
+
+    #[tokio::test]
+    async fn it_finds_patterns_and_records_across_sessions() {
+        let app = app_with(&["two_arcs_gap", "single_arc_plain"]).await;
+        let (s, hits) = get(&app, "/api/story/search?q=golden%20prompt%200&limit=50").await;
+        assert_eq!(s, StatusCode::OK, "{hits}");
+        let sessions: std::collections::BTreeSet<&str> = hits["patterns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["session_id"].as_str())
+            .collect();
+        assert_eq!(sessions.len(), 2, "both seeded sessions answer: {hits}");
+
+        let arc = &golden_expected("two_arcs_gap")["arcs"][0];
+        let sid = "golden-two_arcs_gap";
+        let body = json!({
+            "kind": "enrichment", "handle": arc["handle"], "session_id": sid,
+            "author": { "host": "claude-code", "model": "m" },
+            "payload": { "handle": arc["handle"], "title": "Kestrel migration lands",
+                         "question": "q", "resolution": "r", "summary": "s" }
+        });
+        let (s, _) = post(&app, body).await;
+        assert_eq!(s, StatusCode::OK);
+
+        let (s, found) = get(&app, "/api/memory/search?q=kestrel").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(found["memory"].as_array().unwrap().len(), 1, "{found}");
+        assert_eq!(found["memory"][0]["handle"], arc["handle"]);
+    }
+}
