@@ -120,7 +120,7 @@ fn remember_instruction(question: &str) -> String {
     format!(
         "Answer this creator question by traversal, carrying handles rather than transcripts:\n  {question}\n\
 Procedure: story_search (or story_list when you know the session) -> story_summary on the best handle -> story_descend or story_context one level at a time -> stop when answered.\n\
-Budget: about 1,400 tokens of tool results in total. Report at the end: {{ \"answer\": ..., \"handles_visited\": [..], \"tokens_spent\": <your estimate> }}.\n\
+Budget: about 1,400 tokens of tool results in total; pass width: 300 on every story_* call so views come clipped, and drop it only to read one node whole. Report at the end: {{ \"answer\": ..., \"handles_visited\": [..], \"tokens_spent\": <your estimate> }}.\n\
 Cite handles and event ids you actually saw; never invent one."
     )
 }

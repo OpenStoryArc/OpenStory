@@ -219,7 +219,7 @@ impl ExchangeAcc {
             metadata: serde_json::json!({
                 "handle": handle,
                 "user_prompt": self.user_prompt,
-                "eval_result": self.eval_result.as_deref().map(|e| clip(e, 400)),
+                "eval_result": self.eval_result,
                 "entities": self.entities,
                 "tools": self.tools,
                 "tools_by_role": self.tools_by_role,
@@ -296,7 +296,7 @@ impl ArcAcc {
                 "arc_index": arc_index,
                 "exchanges": self.exchanges.iter().map(|e| e.handle.clone()).collect::<Vec<_>>(),
                 "question": question,
-                "resolution": resolution.as_deref().map(|r| clip(r, 400)),
+                "resolution": resolution,
                 "entities": entities,
                 "tools": tools,
                 "closed_by": match closed_by { Closed::Gap => "gap", Closed::EndOfStream => "end_of_stream" },

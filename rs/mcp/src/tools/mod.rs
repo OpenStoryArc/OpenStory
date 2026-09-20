@@ -258,7 +258,7 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "story_list",
         description: "WHEN: you need handles for what happened before — the memory primitives. \
-                      MOTION: orient / remember. CALL: { session_id?, limit? }. \
+                      MOTION: orient / remember. CALL: { session_id?, limit?, width? }. \
                       RETURNS: one line per arc {handle, session_id, arc_index, question, exchanges, closed_by}. \
                       ~50 tokens per line; carry a few handles, dereference on demand. \
                       NEXT: story_summary on a handle.",
@@ -267,7 +267,7 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "story_summary",
         description: "WHEN: you hold an arc handle and want its top node. MOTION: remember. \
-                      CALL: { handle, session_id? } (4+ char prefix ok). \
+                      CALL: { handle, session_id?, width? } (4+ char prefix ok). \
                       RETURNS: {handle, question, resolution, entities, tools, closed_by, ambiguous_seams, \
                       down: [exchange handles], across: [related arc handles]}. title/slots appear only once enriched. \
                       NEXT: story_descend for exchanges; story_context for a node with its neighbours.",
@@ -276,21 +276,21 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "story_descend",
         description: "WHEN: you hold a handle and want what is beneath it. MOTION: remember. \
-                      CALL: { node, session_id? }. arc → its exchanges; exchange → its sentences; sentence → its events. \
+                      CALL: { node, session_id?, width? }. arc → its exchanges; exchange → its sentences; sentence → its events. \
                       RETURNS: [child view]. NEXT: story_context on a child to keep its neighbours.",
         input_schema: memory::node_schema,
     },
     ToolDef {
         name: "story_surface",
         description: "WHEN: you hold an event, sentence or exchange and want the way back up. MOTION: remember. \
-                      CALL: { node, session_id? } (session_id required for event ids). \
+                      CALL: { node, session_id?, width? } (session_id required for event ids). \
                       RETURNS: ancestors nearest first, up to the arc. NEXT: story_summary on the arc.",
         input_schema: memory::node_schema,
     },
     ToolDef {
         name: "story_context",
         description: "WHEN: you reach for one thing and must not lose what it was for — the load-bearing hand. \
-                      MOTION: remember. CALL: { node, session_id? }. \
+                      MOTION: remember. CALL: { node, session_id?, width? }. \
                       RETURNS: {node, ancestors: surface(node), siblings: descend(parent)}. Never a naked event. \
                       NEXT: answer, or story_descend one level further.",
         input_schema: memory::node_schema,
@@ -298,7 +298,7 @@ pub const TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "story_search",
         description: "WHEN: you have words, not a handle — discovery over the story layer. MOTION: find / remember. \
-                      CALL: { query, session_id?, limit? }. Case-insensitive substring over arc question/resolution/entities \
+                      CALL: { query, session_id?, limit?, width? }. Case-insensitive substring over arc question/resolution/entities \
                       and exchange prompt/result. RETURNS: [{kind, handle, session_id, matched}] arcs first. \
                       NEXT: story_summary on an arc hit; story_context on an exchange hit.",
         input_schema: memory::story_search_schema,
@@ -443,13 +443,27 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "daily_token_usage" => analytics::daily_token_usage(&server.store, args).await,
         "productivity" => analytics::productivity(&server.store, args).await,
         "session_story" => story::session_story(&server.store, args).await,
-        "story_list" => memory::story_list(&server.store, args).await,
-        "story_summary" => memory::story_summary(&server.store, args).await,
-        "story_descend" => memory::story_descend(&server.store, args).await,
-        "story_surface" => memory::story_surface(&server.store, args).await,
-        "story_context" => memory::story_context(&server.store, args).await,
-        "story_search" => memory::story_search(&server.store, args).await,
-        "story_related" => memory::story_related(&server.store, args).await,
+        "story_list" => memory::story_list(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_summary" => memory::story_summary(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_descend" => memory::story_descend(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_surface" => memory::story_surface(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_context" => memory::story_context(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_search" => memory::story_search(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
+        "story_related" => memory::story_related(&server.store, args.clone())
+            .await
+            .map(|v| memory::clip_view(v, memory::width_of(&args))),
         "enrich" => memory_write::enrich(&server.api_base, args).await,
         "adjudicate_boundary" => memory_write::adjudicate_boundary(&server.api_base, args).await,
         "link_saga" => memory_write::link_saga(&server.api_base, args).await,

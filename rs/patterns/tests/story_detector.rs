@@ -512,3 +512,42 @@ mod when_a_golden_is_folded {
         assert_eq!(checked, 6);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Text the fold carries is whole: the exchange's outcome and the arc's
+// resolution are the assistant's words, not a 400-byte clip of them.
+// Found on the pilot: the cause of a blank PDF sat past the clip.
+// ═══════════════════════════════════════════════════════════════════
+
+mod when_an_outcome_is_long {
+    use super::*;
+
+    #[test]
+    fn it_is_kept_whole_in_the_exchange_and_the_arc() {
+        let objects: Vec<String> = (0..40)
+            .map(|i| format!("src/module_{i:02}/file.rs"))
+            .collect();
+        let refs: Vec<&str> = objects.iter().map(|s| s.as_str()).collect();
+        let s = spec(
+            "long-outcome",
+            1800,
+            vec![exchange(
+                ExchangeKind::Human,
+                0,
+                vec![turn("read", &refs, &[("Read", 40)], true)],
+            )],
+        );
+        let full = format!("Claude read {}", objects.join(", "));
+        assert!(full.len() > 400, "the fixture must exceed the old clip");
+
+        let mut pipeline = PatternPipeline::new();
+        let out = run(&s, &mut pipeline);
+        let ex = out
+            .iter()
+            .find(|p| p.pattern_type == "story.exchange")
+            .unwrap();
+        assert_eq!(ex.metadata["eval_result"], full, "outcome kept whole");
+        let arc = out.iter().find(|p| p.pattern_type == "story.arc").unwrap();
+        assert_eq!(arc.metadata["resolution"], full, "resolution kept whole");
+    }
+}

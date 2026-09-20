@@ -59,7 +59,7 @@ fn arc_line(session_id: &str, arc: &PatternEvent) -> Value {
         "arc_index": arc.metadata.get("arc_index"),
         "started_at": arc.started_at,
         "ended_at": arc.ended_at,
-        "question": meta_str(arc, "question").map(|q| truncate(q, 120)),
+        "question": meta_str(arc, "question"),
         "exchanges": exchanges,
         "closed_by": meta_str(arc, "closed_by"),
         "ambiguous_seams": arc.metadata.get("ambiguous_seams").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
@@ -393,8 +393,8 @@ fn exchange_view(sid: &str, ex: &PatternEvent) -> Value {
         "session_id": sid,
         "started_at": ex.started_at,
         "ended_at": ex.ended_at,
-        "user_prompt": meta_str(ex, "user_prompt").map(|p| truncate(p, 120)),
-        "eval_result": meta_str(ex, "eval_result").map(|e| truncate(e, 200)),
+        "user_prompt": meta_str(ex, "user_prompt"),
+        "eval_result": meta_str(ex, "eval_result"),
         "turns": ex.metadata.get("turns"),
         "rich_turns": ex.metadata.get("rich_turns"),
         "injected_count": ex.metadata.get("injected_count"),
@@ -829,7 +829,7 @@ pub async fn story_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Va
                             "kind": "arc",
                             "handle": meta_str(p, "handle"),
                             "session_id": sid,
-                            "question": meta_str(p, "question").map(|q| truncate(q, 80)),
+                            "question": meta_str(p, "question"),
                             "matched": matched,
                         }),
                     ));
@@ -857,7 +857,7 @@ pub async fn story_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Va
                             "kind": "exchange",
                             "handle": meta_str(p, "handle"),
                             "session_id": sid,
-                            "user_prompt": meta_str(p, "user_prompt").map(|q| truncate(q, 80)),
+                            "user_prompt": meta_str(p, "user_prompt"),
                             "matched": matched,
                         }),
                     ));
@@ -871,7 +871,7 @@ pub async fn story_search(store: &Arc<dyn EventStore>, args: Value) -> Result<Va
             .payload
             .get("title")
             .and_then(|t| t.as_str())
-            .map(|t| truncate(t, 120));
+            .map(|t| t.to_string());
         if let Some(hit) = hits.iter_mut().find(|(_, _, v)| v["handle"] == r.handle) {
             if let Some(m) = hit.2["matched"].as_array_mut() {
                 if !m.iter().any(|x| x == "memory") {
@@ -948,7 +948,7 @@ pub async fn story_related(store: &Arc<dyn EventStore>, args: Value) -> Result<V
                     json!({
                         "handle": meta_str(a, "handle"),
                         "session_id": sid,
-                        "question": meta_str(a, "question").map(|q| truncate(q, 80)),
+                        "question": meta_str(a, "question"),
                         "shared": shared,
                     }),
                 ));
@@ -1030,4 +1030,47 @@ async fn merge_memory(
         }
     }
     Ok(())
+}
+
+/// Text fields a caller's `width` clips. Views carry whole text by default;
+/// a host with a budget asks for a width and gets every one of these
+/// clipped at a char boundary, recursively, nothing else touched.
+const WIDTH_FIELDS: &[&str] = &[
+    "user_prompt",
+    "eval_result",
+    "question",
+    "resolution",
+    "title",
+    "summary",
+];
+
+/// Pure: the `width` a call asked for, if any.
+pub fn width_of(args: &Value) -> Option<usize> {
+    args.get("width")
+        .and_then(|w| w.as_u64())
+        .map(|w| w as usize)
+}
+
+/// Pure: `value` with every `WIDTH_FIELDS` string clipped to `width`.
+pub fn clip_view(value: Value, width: Option<usize>) -> Value {
+    let Some(w) = width else { return value };
+    match value {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| {
+                    let v = match v {
+                        Value::String(s) if WIDTH_FIELDS.contains(&k.as_str()) => {
+                            Value::String(truncate(&s, w))
+                        }
+                        other => clip_view(other, width),
+                    };
+                    (k, v)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(|v| clip_view(v, width)).collect())
+        }
+        other => other,
+    }
 }

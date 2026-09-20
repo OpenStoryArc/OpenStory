@@ -160,29 +160,74 @@ mod when_descend_is_called_on_an_arc {
 
 mod when_an_exchange_is_viewed {
     use super::*;
+    use common::story_fixture::seed_spec;
+    use open_story_patterns::golden::{
+        ExchangeKind, ExchangeSpec, GoldenSpec, PromptClass, TurnSpec,
+    };
 
     // The narrator sees what each exchange concluded, not only what opened
-    // it: the view carries the exchange's outcome text, clipped. Found on
-    // the live store: a narrate prompt over eight exchanges had prompts and
-    // verbs but no outcomes, so the resolution would have been a guess.
+    // it, and sees it whole: the view carries the exchange's prompt and
+    // outcome as stored. A caller with a budget passes `width` and gets
+    // them clipped; nothing is clipped for it.
     #[tokio::test]
-    async fn it_carries_the_clipped_outcome() {
-        let (server, sids, _tmp) = server_with(&["two_arcs_gap"]).await;
-        let arc0 = &golden_expected("two_arcs_gap")["arcs"][0];
-        let children = call(
-            server,
+    async fn it_carries_the_whole_prompt_and_outcome_unless_a_width_is_given() {
+        let (store, plan_store, _tmp) = make_test_store();
+        let long_prompt = ExchangeSpec {
+            kind: ExchangeKind::Human,
+            prompt_class: PromptClass::Long,
+            gap_before_secs: 0,
+            turns: vec![TurnSpec {
+                verb: "read".into(),
+                objects: vec!["docs/plan.md".into()],
+                tools: vec![("Read".into(), 1)],
+                rich: true,
+            }],
+        };
+        let spec = GoldenSpec {
+            session_id: "golden-long-prompt".into(),
+            started_at: "2026-01-01T09:00:00Z".into(),
+            gap_threshold_secs: 1800,
+            exchanges: vec![long_prompt],
+        };
+        let sid = seed_spec(&store, &spec).await;
+        let stored = store
+            .session_patterns(&sid, Some("story.exchange"))
+            .await
+            .unwrap();
+        let prompt = stored[0].metadata["user_prompt"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(prompt.chars().count() > 300, "the fixture prompt is long");
+        let server = Server::new(LoopbackSubscriber::new(), store, plan_store);
+        let arcs = call(server.clone(), "story_list", json!({ "session_id": sid }))
+            .await
+            .unwrap();
+        let arc = arcs[0]["handle"].as_str().unwrap().to_string();
+
+        let whole = call(
+            server.clone(),
             "story_descend",
-            json!({ "node": arc0["handle"], "session_id": sids[0] }),
+            json!({ "node": arc, "session_id": sid }),
         )
         .await
         .unwrap();
-        for child in children.as_array().unwrap() {
-            let outcome = child["eval_result"]
-                .as_str()
-                .unwrap_or_else(|| panic!("exchange view lacks eval_result: {child}"));
-            assert!(!outcome.is_empty());
-            assert!(outcome.chars().count() <= 200, "clipped to 200 chars");
-        }
+        assert_eq!(whole[0]["user_prompt"], prompt, "whole by default");
+        assert_eq!(whole[0]["eval_result"], "Claude read docs/plan.md");
+
+        let clipped = call(
+            server,
+            "story_descend",
+            json!({ "node": arc, "session_id": sid, "width": 40 }),
+        )
+        .await
+        .unwrap();
+        let short = clipped[0]["user_prompt"].as_str().unwrap();
+        assert!(
+            short.chars().count() <= 40,
+            "clipped to the width asked: {short}"
+        );
+        assert!(prompt.starts_with(short));
     }
 }
 
