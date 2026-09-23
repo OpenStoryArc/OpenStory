@@ -1021,6 +1021,37 @@ shape one level up:
 
 ---
 
+## Reel export: Kindle reading edition as the default format
+
+Unify the two export paths (the self-contained HTML from PR #112 and the Kindle
+reading edition on `codex/kindle-reel-reports`) behind one Export dialog with a
+format picker, Kindle first. Both formats render the same `ReelBundle`, so the
+sensitive-content scan and its receipt travel with every edition. Editions are
+durable snapshots under `reels/reports/`; delivery is download in v1. Why: a
+reader who wants "the reel, on my Kindle" should not have to know which of two
+buttons to press, and what leaves the machine must be checked whichever shape it
+takes. Design: `docs/superpowers/specs/2026-09-23-reel-export-kindle-default-design.md`.
+
+## The reel player wears the reading aesthetic
+
+Paper and ink tokens, a book serif for captions and narration, chrome that hides
+during playback with a thin footer (stop N of M left, percent right), and figure
+beats framed as the Kindle edition frames them. Why: the edition should look like
+the reel and the reel like the edition; this is the first surface to adopt the
+aesthetic before the whole-UI question is decided. Research:
+`docs/research/kindle-reading-aesthetic.md` (eight decisions, sourced).
+
+## Chart beats from the record
+
+`scripts/arc_figures.py` renders paper-and-ink PNG figures (commits per week,
+tokens per day, write-surface timeline, open PRs by age) and
+`scripts/post_reel.py` posts a reel spec with `{"figure": name}` image stops
+resolved from its manifest. Promote this into the product: a `chart` visual kind
+whose data comes from the analytics endpoints and is rendered client-side in the
+same palette, so a reel can carry a live figure without a script run. Why: the
+first illustrated arc reel (2026-09-23) proved figures carry the story better
+than a fourth spotlight; a figure that is a data URL is portable but frozen.
+
 ## Done (not tracked here)
 
 Completed work lives in git history. For reference, major completed features include: pattern detection pipeline (5 detectors), SQLite event store, pub/sub via NATS, live timeline, explore view split, subagent enrichment, stateful BFF projection, enriched event envelopes, view model crate, testcontainers E2E, configurable projects dir, syntax highlighting, and open-source licensing cleanup.
