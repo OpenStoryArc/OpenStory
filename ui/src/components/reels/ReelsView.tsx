@@ -28,6 +28,7 @@ import {
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
+import { pickNarrationVoice } from "@/lib/narration-voice";
 import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
 import { ExportReelDialog } from "@/components/reels/ExportReelDialog";
 import { normalizeStopKind } from "@/lib/reel-visual";
@@ -264,6 +265,12 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     if ("speechSynthesis" in window) {
       const u = new SpeechSynthesisUtterance(line);
       u.rate = 1.0;
+      // Prefer an installed premium voice over the browser default (which
+      // on a Mac is whatever System Settings picked, often a basic voice).
+      // `getVoices()` can be empty before Chrome has loaded its list; then
+      // the utterance keeps the default rather than waiting.
+      const voice = pickNarrationVoice(window.speechSynthesis.getVoices?.() ?? []);
+      if (voice) u.voice = voice;
       u.onend = () => {
         if (disposed) return;
         fallback = setTimeout(() => dispatch({ type: "ADVANCE" }), 2000);
