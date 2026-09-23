@@ -12,10 +12,16 @@ import type { DrawStroke } from "@/lib/draw";
 export function ReelBeatStage({
   stop,
   onClose,
+  reservedBottom = 0,
 }: {
   readonly stop: ReelStop;
   readonly onClose: () => void;
+  /** Height in px of the fixed caption band layered over the bottom of the
+   *  stage. Every beat keeps its content above it instead of centering in
+   *  the full viewport (which hid the bottom of image beats). */
+  readonly reservedBottom?: number;
 }) {
+  const band = { paddingBottom: reservedBottom };
   const kind = normalizeStopKind(stop.kind);
   const [strokes, setStrokes] = useState<DrawStroke[]>([]);
 
@@ -87,6 +93,7 @@ export function ReelBeatStage({
       <div
         className="spotlight-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
         data-testid="reel-beat-title"
+        style={band}
         onClick={onClose}
       >
         <p className="mx-8 max-w-3xl text-center text-3xl font-semibold leading-snug text-white md:text-4xl">
@@ -99,15 +106,18 @@ export function ReelBeatStage({
   if (kind === "image" && stop.visual?.imageHref) {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+        className="fixed inset-0 z-50 bg-black/80"
         data-testid="reel-beat-image"
+        style={band}
         onClick={onClose}
       >
-        <img
-          src={stop.visual.imageHref}
-          alt={stop.line}
-          className="max-h-[80vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-        />
+        <div className="flex h-full w-full items-center justify-center p-6">
+          <img
+            src={stop.visual.imageHref}
+            alt={stop.line}
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+          />
+        </div>
       </div>
     );
   }
@@ -117,6 +127,7 @@ export function ReelBeatStage({
     <div
       className="fixed inset-0 z-50 flex flex-col bg-[#1a1b26]"
       data-testid="reel-beat-diagram"
+      style={band}
     >
       <svg
         className="h-full w-full select-none"
