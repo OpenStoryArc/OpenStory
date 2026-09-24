@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
-use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord};
+use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
 
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::analysis;
@@ -187,7 +187,6 @@ pub async fn ingest_events(
                 }
             }
 
-
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
 
@@ -364,6 +363,58 @@ pub struct ReplayContext {
     pub session_project_names: Arc<dashmap::DashMap<String, String>>,
 }
 
+/// One progress report from boot replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplayReport {
+    pub done: usize,
+    pub total: usize,
+    pub percent: u8,
+    pub elapsed_ms: u64,
+}
+
+/// Decides when boot replay says something: on every 10 % of sessions and
+/// whenever 5 s have passed since the last report (L-07). Pure: the caller
+/// supplies the clock, so the rule is testable without waiting.
+pub struct ReplayProgress {
+    total: usize,
+    started: std::time::Instant,
+    last_report_at: std::time::Instant,
+    last_percent_step: u8,
+}
+
+impl ReplayProgress {
+    pub const INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+    pub fn new(total: usize, now: std::time::Instant) -> Self {
+        ReplayProgress {
+            total,
+            started: now,
+            last_report_at: now,
+            last_percent_step: 0,
+        }
+    }
+
+    pub fn observe(&mut self, done: usize, now: std::time::Instant) -> Option<ReplayReport> {
+        let percent = (done * 100)
+            .checked_div(self.total)
+            .map_or(100, |p| p.min(100) as u8);
+        let step = percent / 10;
+        let by_percent = step > self.last_percent_step;
+        let by_time = now.duration_since(self.last_report_at) >= Self::INTERVAL;
+        if !(by_percent || by_time) {
+            return None;
+        }
+        self.last_percent_step = step;
+        self.last_report_at = now;
+        Some(ReplayReport {
+            done,
+            total: self.total,
+            percent,
+            elapsed_ms: now.duration_since(self.started).as_millis() as u64,
+        })
+    }
+}
+
 /// Rebuild in-memory projections + truncation cache from SQLite.
 ///
 /// Replays every event of every known session through the projection
@@ -382,11 +433,28 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
         .map(|r| r.id.clone())
         .collect();
     let mut total_events = 0;
+    let started = std::time::Instant::now();
+    let mut progress = ReplayProgress::new(session_ids.len(), started);
+    let mut done = 0usize;
 
     // One-time FTS5 backfill: if the index is empty, populate during replay.
     let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
+        done += 1;
+        if let Some(r) = progress.observe(done, std::time::Instant::now()) {
+            tracing::info!(
+                event = "replay_progress",
+                done = r.done,
+                total = r.total,
+                percent = r.percent,
+                elapsed_ms = r.elapsed_ms,
+                "replay {}/{} sessions ({}%)",
+                r.done,
+                r.total,
+                r.percent
+            );
+        }
         let events = ctx
             .event_store
             .session_events(sid)
@@ -485,23 +553,21 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
         }
     }
 
-    if total_events > 0 {
-        let fts_note = if fts_needs_backfill {
-            let fts_count = ctx.event_store.fts_count().await.unwrap_or(0);
-            format!(", FTS5 backfill: {fts_count} indexed")
-        } else {
-            String::new()
-        };
-        crate::logging::log_event(
-            "boot",
-            &format!(
-                "replayed {} events across {} sessions{}",
-                total_events,
-                session_ids.len(),
-                fts_note,
-            ),
-        );
-    }
+    let fts_indexed = if fts_needs_backfill {
+        ctx.event_store.fts_count().await.unwrap_or(0)
+    } else {
+        0
+    };
+    tracing::info!(
+        event = "replay_done",
+        sessions = session_ids.len(),
+        events = total_events,
+        fts_indexed,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "replayed {} events across {} sessions",
+        total_events,
+        session_ids.len()
+    );
 }
 
 #[cfg(test)]
@@ -581,15 +647,13 @@ mod tests {
         let state = test_app_state(&tmp);
         let result = ingest_events(&state, "sess-1", &[], None).await;
         assert_eq!(result.count, 0);
-        assert!(
-            state
-                .store
-                .event_store
-                .list_sessions()
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(state
+            .store
+            .event_store
+            .list_sessions()
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

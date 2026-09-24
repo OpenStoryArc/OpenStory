@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (L-06 green).
+Last updated: 2026-09-23 (L-07 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -22,7 +22,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | Group | Requirements | GREEN | Notes |
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
-| L · logging | L-01 … L-08 | 6 / 8 | `tracing`, JSON lines, log ring |
+| L · logging | L-01 … L-08 | 7 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
@@ -68,7 +68,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | L-04 | GREEN. `log_event` is a thin shim over `tracing::info!(category, …)`, so every existing site flows through both formatters; the `TextLine` formatter keeps `HH:MM:SS  category  message` with fields after. Call sites gain named `event`s as the rows that touch them land (L-07, E-01, E-05). | `…::when_log_format_is_text::it_keeps_time_category_message_shape` |
 | L-05 | GREEN. The managed NATS child's stdout and stderr are captured to `<store_dir>/nats.log` (rotated at 50 MB), never `Stdio::null()`. | `rs/cli/src/managed_nats.rs::tests::when_child_writes_stderr::it_lands_in_nats_log` |
 | L-06 | GREEN. An in-process log ring keeps the last 5,000 lines (bounded by bytes, 8 MB) and is served at `GET /api/logs?since=<seq>&actor=&level=&limit=`. | `rs/tests/test_logs_api.rs::when_logs_are_requested_since_seq::it_returns_only_newer_lines` |
-| L-07 | Boot replay logs progress every 5 s and every 10 % (`event=replay_progress`, sessions done / total, elapsed) and a final `replay_done`. | `…::when_replay_runs::it_logs_progress_and_done` |
+| L-07 | GREEN. Boot replay logs progress every 5 s and every 10 % (`event=replay_progress`, sessions done / total, elapsed) and a final `replay_done`. | `…::when_replay_runs::it_logs_progress_and_done` |
 | L-08 | `scripts/scratch_node.sh` boots an isolated instance (port, data dir, managed loopback NATS on a scratch port, `log_format=json`) and prints its log path; `--stop` tears it down. | script `--test` on a dry run; used by every live test below |
 
 ## E · Errors and supervision
@@ -199,3 +199,10 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   seqs from 1) fed by a `RingLayer` in both subscribers; `GET /api/logs`
   with since, actor, level, limit, and a `next` cursor. Both formatters and
   the ring share one `json_object` builder. Next: L-07 (replay progress).
+- **2026-09-23 23:20 local.** L-07 GREEN. `ReplayProgress` (pure, injected
+  clock) reports on every 10 % and every 5 s; `replay_boot_sessions` emits
+  `replay_progress` and `replay_done` with counts and elapsed_ms; the
+  orchestration crate's duplicate completion print is gone. Tonight's
+  eleven-minute replay would have printed at least ten lines. Note: the
+  L-06 commit carried rustfmt churn in `api.rs` and `router.rs` (format
+  only). Next: L-08 (`scripts/scratch_node.sh`).

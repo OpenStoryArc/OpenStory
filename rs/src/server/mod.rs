@@ -163,13 +163,9 @@ pub async fn run_server(
             }
         };
         tokio::spawn(async move {
-            let start = std::time::Instant::now();
+            // replay_boot_sessions logs replay_progress and replay_done
+            // itself (L-07), with elapsed time on the done line.
             replay_boot_sessions(&ctx).await;
-            let elapsed = start.elapsed();
-            log_event(
-                "boot",
-                &format!("async replay complete in {}s", elapsed.as_secs()),
-            );
         });
     }
 
