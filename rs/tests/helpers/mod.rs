@@ -70,6 +70,11 @@ pub fn test_router(state: SharedState) -> Router {
     build_router(state, None, &config)
 }
 
+/// Build a router for an explicit config (metrics on, auth, and so on).
+pub fn test_router_with(state: SharedState, config: &Config) -> Router {
+    build_router(state, None, config)
+}
+
 /// Create a minimal valid CloudEvent.
 pub fn make_event(event_type: &str, session_id: &str) -> CloudEvent {
     let mut payload = ClaudeCodePayload::new();
