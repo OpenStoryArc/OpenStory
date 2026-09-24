@@ -19,6 +19,7 @@ import { TopologyMap } from "@/components/admin/TopologyMap";
 import { PersonClustersView } from "@/components/admin/PersonClustersView";
 import { ParticipantsPanel } from "@/components/admin/ParticipantsPanel";
 import { FleetGrid } from "@/components/admin/FleetGrid";
+import { FleetPresence } from "@/components/admin/FleetPresence";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { BetaBadge } from "@/components/admin/BetaBadge";
 import { DataSourceNote } from "@/components/admin/DataSourceNote";
@@ -167,6 +168,7 @@ export function AdminView() {
                 </p>
               </HowItWorks>
             </header>
+            <FleetPresence selfHost={topology.nodes.find((n) => n.is_self)?.host ?? null} />
             <FleetGrid nodes={topology.nodes} />
           </section>
 
