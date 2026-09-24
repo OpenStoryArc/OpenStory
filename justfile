@@ -21,6 +21,9 @@ dev:
 test:
     cargo test --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- --skip compose --skip container
     python3 scripts/swallowed_errors.py
+    python3 scripts/subject_publishers.py
+    python3 scripts/k8s_manifest_check.py
+    python3 scripts/check_docs.py
     cargo clippy --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- -D warnings
     cd ui && npm test -- --run
 

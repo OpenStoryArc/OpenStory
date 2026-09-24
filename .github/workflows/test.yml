@@ -43,6 +43,16 @@ jobs:
       - name: Clippy
         working-directory: rs
         run: cargo clippy --workspace --exclude open-story-cli -- -D warnings
+      - name: Static audits (D-03)
+        # The same gates `just test` runs: no swallowed fallible writes (E-01),
+        # every bus publisher on its lane (K-07), the k8s node shape (K-02),
+        # and the docs against the code (check_docs). PyYAML and kubectl are
+        # on the runner image.
+        run: |
+          python3 scripts/swallowed_errors.py
+          python3 scripts/subject_publishers.py
+          python3 scripts/k8s_manifest_check.py
+          python3 scripts/check_docs.py
 
   ui:
     name: UI tests

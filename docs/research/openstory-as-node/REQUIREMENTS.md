@@ -135,12 +135,12 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | acceptance test |
 |---|---|---|
-| K-01 | `deploy/k8s/` holds a kustomize base: Deployment (server + NATS leaf sidecar), two PVCs (store, jetstream), ConfigMap from `config.toml`, Secret for the leaf URL, Service on 3002, and a `os-loop-` namespace overlay for a1. `scripts/k3s_smoke.sh` applies it on a1, waits for ready, runs the probe against the pod, and tears the namespace down. | `scripts/k3s_smoke.sh --test` (dry run) and one real run on a1 recorded in the design doc |
-| K-02 | Probes: liveness `GET /health`, readiness `GET /api/health` (503 during replay), startupProbe `failureThreshold: 180`, `periodSeconds: 5`. | `scripts/k8s_manifest_check.py` asserts the probe fields; `--test` |
-| K-03 | The pod runs `Dockerfile.prod` with `--manage-nats` off and `nats_url` pointing at the sidecar; the sidecar uses the leaf config rendered by `render_leaf_config` (P-04) mounted from the ConfigMap. | `…::when_manifests_render::it_mounts_leaf_conf_and_points_nats_url_at_sidecar` |
-| K-04 | Logs go to stdout in JSON (L-01); `kubectl logs` shows one JSON object per line. | recorded in the a1 run |
-| K-05 | Horizontal scale is by node: the overlay for two principals produces two Deployments with distinct PVCs and subjects; a single Deployment never has `replicas > 1` (a check refuses it). | `scripts/k8s_manifest_check.py::test_when_replicas_exceed_one_it_fails` |
-| K-06 | Optional ops-agent pod: runs `open-story-mcp` against the node's Service with `automountServiceAccountToken: false`; no cluster credential in the pod. | manifest check asserts the field |
+| K-01 | PARTIAL (manifests, overlays, and `scripts/k3s_smoke.sh` done and rendered; the a1 apply needs a kubeconfig this machine lacks, owner runs `scripts/k3s_smoke.sh --context a1`). `deploy/k8s/` holds a kustomize base: Deployment (server + NATS leaf sidecar), two PVCs (store, jetstream), ConfigMap from `config.toml`, Secret for the leaf URL, Service on 3002, and a `os-loop-` namespace overlay for a1. `scripts/k3s_smoke.sh` applies it on a1, waits for ready, runs the probe against the pod, and tears the namespace down. | `scripts/k3s_smoke.sh --test` (dry run) and one real run on a1 recorded in the design doc |
+| K-02 | GREEN. Probes: liveness `GET /health`, readiness `GET /api/health` (503 during replay), startupProbe `failureThreshold: 180`, `periodSeconds: 5`. | `scripts/k8s_manifest_check.py` asserts the probe fields; `--test` |
+| K-03 | GREEN. The pod runs `Dockerfile.prod` with `--manage-nats` off and `nats_url` pointing at the sidecar; the sidecar uses the leaf config rendered by `render_leaf_config` (P-04) mounted from the ConfigMap. | `…::when_manifests_render::it_mounts_leaf_conf_and_points_nats_url_at_sidecar` |
+| K-04 | PARTIAL (the manifest sets `OPEN_STORY_LOG_FORMAT=json`, checked; the a1 run records it). Logs go to stdout in JSON (L-01); `kubectl logs` shows one JSON object per line. | recorded in the a1 run |
+| K-05 | GREEN. Horizontal scale is by node: the overlay for two principals produces two Deployments with distinct PVCs and subjects; a single Deployment never has `replicas > 1` (a check refuses it). | `scripts/k8s_manifest_check.py::test_when_replicas_exceed_one_it_fails` |
+| K-06 | GREEN. Optional ops-agent pod: runs `open-story-mcp` against the node's Service with `automountServiceAccountToken: false`; no cluster credential in the pod. | manifest check asserts the field |
 | K-07 | GREEN (wired into `just test` and CI under D-03). `scripts/subject_publishers.py` static audit: maps every `publish(` in `rs/` to a subject prefix; fails on any publisher of `events.`/`local.` outside translate and any MCP publisher outside `ops.proposal.`/`ui.`. | script `--test`; wired into `just test` |
 | K-08 | `rs/tests/test_stream_cap_wedge.rs` (testcontainers, needs docker): a node with a tiny events cap is flooded; `/api/health` flips to critical (H-04) before ingestion wedges; with a memory limit the NATS child's death is noticed (E-07). Runs on a1 via `scripts/remote_test.sh`. | the test itself |
 
@@ -150,7 +150,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|
 | D-01 | Every log line and `/api/health` carry `git_sha` and `built_at` (H-07), so a change is identifiable in every signal. | covered by H-07 and L-02 |
 | D-02 | GREEN. Every beat also appends one compact line to `{data_dir}/presence.jsonl` (the table keeps only the latest). `scripts/dora.py` computes the four keys from the node's own record and git: deployment frequency (distinct `git_sha` values seen in presence per day), lead time (commit timestamp to first presence with that sha), change failure rate (share of shas whose first hour of presence contained a critical), time to restore (critical to ok duration). `--test` on fixtures. | script `--test` |
-| D-03 | `just test` runs the two static audits (E-01, K-07) and the manifest check (K-02); CI runs the same. | `.github/workflows` diff and a green run |
+| D-03 | GREEN. `just test` runs the two static audits (E-01, K-07) and the manifest check (K-02); CI runs the same. | `.github/workflows` diff and a green run |
 | D-04 | GREEN. `scripts/node_health_probe.py --json` is the deploy gate: `scripts/deploy_gate.sh` refuses to roll a new sha while the running node's verdict is critical, and rolls back if the new sha is critical after the startup window. Dry-run test. | script `--test` |
 | D-05 | Rollback is a documented one-liner per host shape (brew, compose, k3s) in `docs/deploy/operations.md`, verified once on a1. | doc plus the a1 run |
 | D-06 | The DORA numbers appear on the Admin tab as four tiles from D-02's JSON, with the window selectable. | `ui/tests/components/dora-tiles.test.tsx::when_dora_json_loads::it_renders_four_keys` |
@@ -391,3 +391,17 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   group D (D-02 dora.py, D-04 deploy gate, D-06 tiles, D-03 wiring),
   then K's offline rows (K-07 audit, K-02/K-05 manifest check, K-01
   manifests).
+- **2026-09-24 01:17 local.** D-02, D-04, K-07, K-02, K-03, K-05, K-06, D-03 GREEN;
+  K-01 and K-04 PARTIAL (everything but the a1 run). Presence history
+  now lands in `data/presence.jsonl` and `scripts/dora.py` reads it with
+  git for the four keys; `scripts/deploy_gate.sh` refuses to roll onto a
+  critical node and rolls a critical build back; `scripts/
+  subject_publishers.py` maps all 12 bus publishers and holds history to
+  the watcher and catch-up and the MCP to its lanes; `deploy/k8s/` is a
+  kustomize base with the nats sidecar, probes, one replica, an
+  ops-agent without a token, and a two-principal overlay, all rendered
+  through `scripts/k8s_manifest_check.py`; `just test` and CI run the
+  audits, the manifest check, and check_docs. Owner must decide: run
+  `scripts/k3s_smoke.sh --context a1` once for K-01 and K-04; K-08
+  (testcontainers stream-cap wedge) needs docker and is not started.
+  Next: D-05 (operations.md rollback one-liners) and D-06 (DORA tiles).
