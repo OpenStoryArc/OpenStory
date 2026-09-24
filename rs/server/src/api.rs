@@ -403,6 +403,9 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
             "fresh": projections >= sessions,
         },
         "watchers": s.watcher_diagnostics.snapshots().len(),
+        // E-04: per-consumer supervision state (alive, restarts,
+        // last_restart, last_exit), from the supervisor's bookkeeping.
+        "consumers": crate::consumers::supervision::stats().snapshot(),
     }))
 }
 

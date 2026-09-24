@@ -228,7 +228,9 @@ mod when_a_consumer_restarts {
                 let n = starts_in.fetch_add(1, Ordering::SeqCst) + 1;
                 Box::pin(async move {
                     if n == 1 {
-                        Err(ConsumerExit::SubscribeFailed { error: "bus said no".into() })
+                        Err(ConsumerExit::SubscribeFailed {
+                            error: "bus said no".into(),
+                        })
                     } else {
                         std::future::pending().await
                     }
@@ -250,7 +252,12 @@ mod when_a_consumer_restarts {
         let probe = &body["consumers"]["e04-probe"];
         assert_eq!(probe["restarts"], 1, "{body}");
         assert_eq!(probe["alive"], true);
-        assert!(probe["last_restart"].as_str().is_some_and(|s| s.contains('T')), "RFC 3339: {probe}");
+        assert!(
+            probe["last_restart"]
+                .as_str()
+                .is_some_and(|s| s.contains('T')),
+            "RFC 3339: {probe}"
+        );
         assert_eq!(probe["last_exit"], "subscribe failed: bus said no");
         task.abort();
     }
