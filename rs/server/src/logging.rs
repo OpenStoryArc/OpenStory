@@ -537,6 +537,7 @@ where
 /// Install the process-wide subscriber: stderr, `RUST_LOG` if set (default
 /// `info`). Safe to call once; a second call is a no-op that returns false.
 pub fn init(format: LogFormat) -> bool {
+    crate::node_health::mark_started();
     let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     tracing::subscriber::set_global_default(build_subscriber(format, &filter, std::io::stderr))
         .is_ok()

@@ -423,9 +423,19 @@ pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<
             "status": if status == StatusCode::OK { "ok" } else { "starting" },
             "boot": boot,
             "version": env!("CARGO_PKG_VERSION"),
+            // H-07: the change this node runs, and its body.
+            "git_sha": crate::node_health::git_sha(),
+            "built_at": crate::node_health::built_at(),
+            "data_dir": s.store.data_dir.to_string_lossy(),
+            "process": {
+                "pid": std::process::id(),
+                "rss_bytes": crate::node_health::process_rss_bytes(),
+                "uptime_secs": crate::node_health::uptime_secs(),
+            },
             "store": {
                 "backend": s.config.data_backend.to_string(),
                 "sessions": sessions,
+                "size_bytes": crate::node_health::store_size_bytes(&s.store.data_dir),
             },
             // E-07: down as well when a managed NATS child has been seen to exit.
             "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },

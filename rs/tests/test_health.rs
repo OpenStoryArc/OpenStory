@@ -193,16 +193,35 @@ mod when_health_is_read {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(&tmp);
         boot::set_serving();
-        let body = body_json(send_request(state, Request::get("/api/health").body(Body::empty()).unwrap()).await).await;
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
 
         assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
         let sha = body["git_sha"].as_str().expect("git_sha is a string");
-        assert!(sha == "unknown" || (sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit())), "{sha}");
+        assert!(
+            sha == "unknown" || (sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit())),
+            "{sha}"
+        );
         let built = body["built_at"].as_str().expect("built_at is a string");
-        assert!(chrono::DateTime::parse_from_rfc3339(built).is_ok(), "RFC 3339: {built}");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(built).is_ok(),
+            "RFC 3339: {built}"
+        );
         assert_eq!(body["data_dir"], tmp.path().to_string_lossy().as_ref());
-        assert!(body["store"]["size_bytes"].as_u64().unwrap() > 0, "the SQLite file exists: {body}");
-        assert!(body["process"]["rss_bytes"].as_u64().unwrap() > 1_000_000, "a real process: {body}");
+        assert!(
+            body["store"]["size_bytes"].as_u64().unwrap() > 0,
+            "the SQLite file exists: {body}"
+        );
+        assert!(
+            body["process"]["rss_bytes"].as_u64().unwrap() > 1_000_000,
+            "a real process: {body}"
+        );
         assert!(body["process"]["uptime_secs"].is_u64());
         assert!(body["process"]["pid"].as_u64().unwrap() > 0);
     }

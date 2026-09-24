@@ -127,3 +127,91 @@ mod tests {
         }
     }
 }
+
+// ── H-07: build stamp and process facts ─────────────────────────────────
+
+/// The short git sha this binary was built from ("unknown" outside a repo).
+pub fn git_sha() -> &'static str {
+    env!("OPEN_STORY_GIT_SHA")
+}
+
+/// When this binary was built, RFC 3339 UTC.
+pub fn built_at() -> &'static str {
+    env!("OPEN_STORY_BUILT_AT")
+}
+
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Call once at boot so uptime counts from process start; otherwise it
+/// counts from the first health read.
+pub fn mark_started() {
+    let _ = STARTED.set(std::time::Instant::now());
+}
+
+pub fn uptime_secs() -> u64 {
+    STARTED
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs()
+}
+
+/// Bytes on disk under the data dir (store, JSONL, plans, reels, logs).
+pub fn store_size_bytes(data_dir: &std::path::Path) -> u64 {
+    walkdir::WalkDir::new(data_dir)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .map(|m| m.len())
+        .sum()
+}
+
+/// Resident set size of this process, via `ps` (macOS and Linux agree on
+/// `-o rss=` in kilobytes). None when `ps` is unavailable.
+pub fn process_rss_bytes() -> Option<u64> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|kb| kb * 1024)
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+
+    mod when_the_build_is_stamped {
+        use super::*;
+        #[test]
+        fn it_names_a_sha_and_an_rfc3339_time() {
+            let sha = git_sha();
+            assert!(
+                sha == "unknown" || sha.chars().all(|c| c.is_ascii_hexdigit()),
+                "{sha}"
+            );
+            assert!(
+                chrono::DateTime::parse_from_rfc3339(built_at()).is_ok(),
+                "{}",
+                built_at()
+            );
+        }
+    }
+
+    mod when_process_facts_are_read {
+        use super::*;
+        #[test]
+        fn it_measures_this_process_and_a_directory() {
+            assert!(process_rss_bytes().unwrap_or(0) > 0);
+            let tmp = tempfile::tempdir().unwrap();
+            std::fs::write(tmp.path().join("a.bin"), vec![0u8; 1500]).unwrap();
+            std::fs::create_dir_all(tmp.path().join("sub")).unwrap();
+            std::fs::write(tmp.path().join("sub/b.bin"), vec![0u8; 500]).unwrap();
+            assert_eq!(store_size_bytes(tmp.path()), 2000);
+            assert!(uptime_secs() < 3600);
+        }
+    }
+}
