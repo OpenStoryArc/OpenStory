@@ -298,3 +298,152 @@ mod when_metrics_are_scraped {
         );
     }
 }
+
+/// O-03: each event carries a span per stage, translate through persist,
+/// with `session_id`, `subject`, and `actor`; sampled at 1 % by default and
+/// fully under trace-level logging.
+mod when_an_event_flows {
+    use super::*;
+    use helpers::synth::transcript_line;
+    use open_story_core::trace;
+    use std::sync::Mutex;
+    use tracing::field::{Field, Visit};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+
+    #[derive(Debug, Default, Clone)]
+    struct Seen {
+        stage: String,
+        event_id: String,
+        session_id: String,
+        actor: String,
+        subject: String,
+    }
+
+    struct Fields<'a>(&'a mut Seen);
+    impl Visit for Fields<'_> {
+        fn record_str(&mut self, f: &Field, v: &str) {
+            match f.name() {
+                "stage" => self.0.stage = v.to_string(),
+                "event_id" => self.0.event_id = v.to_string(),
+                "session_id" => self.0.session_id = v.to_string(),
+                "actor" => self.0.actor = v.to_string(),
+                "subject" => self.0.subject = v.to_string(),
+                _ => {}
+            }
+        }
+        fn record_debug(&mut self, f: &Field, v: &dyn std::fmt::Debug) {
+            self.record_str(f, format!("{v:?}").trim_matches('"'));
+        }
+    }
+
+    /// A layer that remembers every `event` span it sees.
+    struct Catch(Arc<Mutex<Vec<Seen>>>);
+    impl<S: tracing::Subscriber> Layer<S> for Catch {
+        fn on_new_span(
+            &self,
+            attrs: &tracing::span::Attributes<'_>,
+            _id: &tracing::span::Id,
+            _ctx: Context<'_, S>,
+        ) {
+            if attrs.metadata().name() != "event" {
+                return;
+            }
+            let mut seen = Seen::default();
+            attrs.record(&mut Fields(&mut seen));
+            self.0.lock().unwrap().push(seen);
+        }
+    }
+
+    #[tokio::test]
+    async fn it_produces_one_span_per_stage() {
+        trace::set_sample_rate(1.0);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sub = tracing_subscriber::registry().with(Catch(seen.clone()));
+        let _g = tracing::subscriber::set_default(sub);
+
+        // translate: the reader's dispatch, the one site every format passes.
+        let uuid = "11111111-2222-4333-8444-555555555555";
+        let line: serde_json::Value =
+            serde_json::from_str(&transcript_line("user_prompt", uuid, None, "sess-t", 1, 64))
+                .unwrap();
+        let mut state = open_story_core::translate::TranscriptState::new("sess-t".into());
+        let events = open_story_core::reader::translate_record(&line, &mut state);
+        assert_eq!(events.len(), 1, "one event from one prompt line");
+        let ce = &events[0];
+
+        // publish: the watcher marks the batch under its egress subject.
+        trace::mark_batch(
+            "publish",
+            &events,
+            Some("events.h.p.sess-t.main"),
+            "claude-code",
+        );
+
+        // persist: the store marks what landed.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut actors = TestActors::new(&tmp).await;
+        let r = actors
+            .persist
+            .process_batch("sess-t", &events, Some("p"))
+            .await;
+        assert_eq!(r.persisted, 1);
+
+        let spans: Vec<Seen> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.event_id == ce.id)
+            .cloned()
+            .collect();
+        let stages: Vec<&str> = spans.iter().map(|s| s.stage.as_str()).collect();
+        assert_eq!(stages, ["translate", "publish", "persist"], "{spans:?}");
+        for s in &spans {
+            assert_eq!(s.session_id, "sess-t", "{s:?}");
+        }
+        assert_eq!(
+            spans[0].actor, "claude-code",
+            "translate is attributed to the producing agent"
+        );
+        assert_eq!(spans[1].actor, "claude-code");
+        assert_eq!(spans[1].subject, "events.h.p.sess-t.main");
+        assert_eq!(spans[2].actor, "persist");
+        assert!(
+            spans[0].subject.is_empty(),
+            "no subject before publish: {:?}",
+            spans[0]
+        );
+
+        // Unsampled: no spans at all for a fresh event.
+        trace::set_sample_rate(0.0);
+        let before = seen.lock().unwrap().len();
+        trace::mark_batch(
+            "publish",
+            &events,
+            Some("events.h.p.sess-t.main"),
+            "claude-code",
+        );
+        assert_eq!(seen.lock().unwrap().len(), before, "rate 0 marks nothing");
+        trace::set_sample_rate(1.0);
+    }
+
+    #[test]
+    fn the_sampler_is_deterministic_and_proportional() {
+        assert!(!trace::sampled("any-id", 0.0));
+        assert!(trace::sampled("any-id", 1.0));
+        let ids: Vec<String> = (0..10_000).map(|i| format!("event-{i}")).collect();
+        let hits = ids.iter().filter(|id| trace::sampled(id, 0.01)).count();
+        assert!((50..=150).contains(&hits), "about 1 % of 10,000: {hits}");
+        let again = ids.iter().filter(|id| trace::sampled(id, 0.01)).count();
+        assert_eq!(hits, again, "the same ids sample the same way");
+        let half = ids.iter().filter(|id| trace::sampled(id, 0.5)).count();
+        assert!((4_500..=5_500).contains(&half), "about half: {half}");
+    }
+
+    #[test]
+    fn trace_level_logging_samples_everything() {
+        assert_eq!(trace::effective_rate(0.01, true), 1.0);
+        assert_eq!(trace::effective_rate(0.01, false), 0.01);
+        assert_eq!(trace::effective_rate(7.0, false), 1.0, "clamped");
+        assert_eq!(trace::effective_rate(-1.0, false), 0.0, "clamped");
+    }
+}
