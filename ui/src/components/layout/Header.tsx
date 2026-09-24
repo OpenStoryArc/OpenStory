@@ -1,4 +1,5 @@
 import { useConnectionStatus } from "@/hooks/use-connection-status";
+import { HealthDot } from "@/components/layout/HealthDot";
 
 const STATUS_INDICATOR = {
   connected: { color: "bg-green-400", label: "Connected" },
@@ -16,9 +17,12 @@ export function Header() {
         <h1 className="text-lg font-semibold text-[color:var(--text)]">Open Story</h1>
         <span className="text-xs text-[color:var(--text-muted)]">Event Dashboard</span>
       </div>
-      <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]">
-        <span className={`w-2 h-2 rounded-full ${color}`} />
-        {label}
+      <div className="flex items-center gap-3 text-xs text-[color:var(--text-muted)]">
+        <HealthDot />
+        <span className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${color}`} />
+          {label}
+        </span>
       </div>
     </header>
   );
