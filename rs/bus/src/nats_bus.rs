@@ -417,6 +417,36 @@ impl Bus for NatsBus {
         self.client.connection_state() == async_nats::connection::State::Connected
     }
 
+    /// Bytes, messages, and cap for every stream this node declares (H-04).
+    /// A stream that does not exist on this server (federation-only ones on
+    /// a solo node) is simply absent.
+    async fn stream_stats(&self) -> Vec<crate::StreamStats> {
+        let mut out = Vec::new();
+        for name in [
+            "events",
+            "local",
+            "patterns",
+            "ui",
+            "changes",
+            "events-mirror",
+            "events-agg",
+        ] {
+            let Ok(mut stream) = self.jetstream.get_stream(name).await else {
+                continue;
+            };
+            let Ok(info) = stream.info().await else {
+                continue;
+            };
+            out.push(crate::StreamStats::new(
+                name,
+                info.state.bytes,
+                info.state.messages,
+                info.config.max_bytes,
+            ));
+        }
+        out
+    }
+
     async fn publish(&self, subject: &str, batch: &IngestBatch) -> Result<()> {
         let payload = serde_json::to_vec(batch).context("failed to serialize IngestBatch")?;
 

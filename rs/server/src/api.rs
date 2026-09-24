@@ -425,6 +425,8 @@ pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<
             // E-04: per-consumer supervision state (alive, restarts,
             // last_restart, last_exit), from the supervisor's bookkeeping.
             "consumers": crate::consumers::supervision::stats().snapshot(),
+            // H-04: per-stream bytes against the configured caps, from JetStream.
+            "streams": s.bus.stream_stats().await,
         })),
     )
 }

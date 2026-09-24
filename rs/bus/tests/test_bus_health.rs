@@ -103,7 +103,12 @@ mod when_streams_exist {
     fn event() -> CloudEvent {
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("x".repeat(2_000));
-        let data = EventData::with_payload(serde_json::json!({}), 0, "s".into(), AgentPayload::ClaudeCode(payload));
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            0,
+            "s".into(),
+            AgentPayload::ClaudeCode(payload),
+        );
         CloudEvent::new(
             "arc://test/s".into(),
             "io.arc.event".into(),
@@ -123,13 +128,20 @@ mod when_streams_exist {
             eprintln!("skipping: nats-server not on PATH");
             return;
         };
-        let bus = NatsBus::connect("nats://127.0.0.1:4398").await.expect("connect");
+        let bus = NatsBus::connect("nats://127.0.0.1:4398")
+            .await
+            .expect("connect");
+        bus.ensure_streams()
+            .await
+            .expect("declare the node's streams");
         let batch = IngestBatch {
             session_id: "s".into(),
             project_id: "p".into(),
             events: vec![event()],
         };
-        bus.publish("events.host.p.s.main", &batch).await.expect("publish");
+        bus.publish("events.host.p.s.main", &batch)
+            .await
+            .expect("publish");
 
         let stats = bus.stream_stats().await;
         let events = stats
@@ -137,12 +149,31 @@ mod when_streams_exist {
             .find(|s| s.name == "events")
             .unwrap_or_else(|| panic!("events stream reported: {stats:?}"));
         assert_eq!(events.messages, 1);
-        assert!(events.bytes > 2_000, "bytes reflect the stored batch: {}", events.bytes);
-        assert_eq!(events.max_bytes, Some(1_073_741_824), "the 1 GiB cap the code declares");
+        assert!(
+            events.bytes > 2_000,
+            "bytes reflect the stored batch: {}",
+            events.bytes
+        );
+        assert_eq!(
+            events.max_bytes,
+            Some(1_073_741_824),
+            "the 1 GiB cap the code declares"
+        );
         let pct = events.percent().expect("capped streams have a percent");
         assert!(pct > 0.0 && pct < 1.0, "{pct}");
         let names: Vec<&str> = stats.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"patterns") && names.contains(&"ui"), "{names:?}");
-        assert!(stats.iter().find(|s| s.name == "ui").unwrap().percent().is_none(), "uncapped streams have no percent");
+        assert!(
+            names.contains(&"patterns") && names.contains(&"ui"),
+            "{names:?}"
+        );
+        assert!(
+            stats
+                .iter()
+                .find(|s| s.name == "ui")
+                .unwrap()
+                .percent()
+                .is_none(),
+            "uncapped streams have no percent"
+        );
     }
 }

@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-24 (H-03 green).
+Last updated: 2026-09-24 (H-04 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -24,7 +24,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 7 / 7 | no swallowed errors, consumer supervisor |
-| H · health | H-01 … H-08 | 3 / 8 | `/api/health` can say no |
+| H · health | H-01 … H-08 | 4 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
 | M · ops hands on the MCP | M-01 … M-09 | 0 / 9 | tier 0 and tier 1 only |
@@ -90,7 +90,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | H-01 | GREEN. `NatsBus::is_active` reflects the real connection state; `bus.connected` in `/api/health` is false when the client is disconnected. | `rs/bus/tests/test_bus_health.rs::when_nats_drops::it_reports_disconnected` |
 | H-02 | GREEN. `/api/health` returns `boot.phase` (`starting`, `replaying`, `serving`) with `replay.done`, `replay.total`, `replay.elapsed_ms`. | `rs/tests/test_health.rs::when_replay_is_running::it_reports_phase_and_progress` |
 | H-03 | GREEN. `/api/health` returns HTTP 503 while `boot.phase != serving`, 200 after. `/health` stays 200 whenever the process is up. | `…::when_replaying::it_returns_503_for_readiness_and_200_for_liveness` |
-| H-04 | `/api/health` includes per-stream `bytes`, `max_bytes`, `messages`, `percent` for events, local, patterns, ui, changes, read from JetStream. | `…::when_streams_exist::it_reports_bytes_against_caps` |
+| H-04 | GREEN. `/api/health` includes per-stream `bytes`, `max_bytes`, `messages`, `percent` for events, local, patterns, ui, changes, read from JetStream. | `…::when_streams_exist::it_reports_bytes_against_caps` |
 | H-05 | `/api/health` includes per-consumer `alive`, `restarts`, `last_restart`, `lag` (pending messages). | `…::when_consumers_run::it_reports_alive_and_lag` |
 | H-06 | `/api/health` includes `leaf.configured`, `leaf.connected`, `leaf.hub` (redacted URL) and per-watcher `last_event_at`, `age_secs`, `publish_failures`. | `…::when_leaf_is_configured_but_down::it_reports_not_connected` |
 | H-07 | `/api/health` includes `version`, `git_sha`, `built_at`, `data_dir`, `store.size_bytes`, `process.rss_bytes`, `uptime_secs`. | `…::when_health_is_read::it_stamps_version_and_sha` |
@@ -286,3 +286,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   replaying on each progress report and serving at the end; `/api/health`
   carries `boot` and answers 503 until serving while `/health` stays 200.
   Next: H-04 (per-stream bytes against caps from JetStream).
+- **2026-09-24 03:00 local.** H-04 GREEN. `Bus::stream_stats()` (default
+  empty; `NatsBus` reads `get_stream(name).info()` for events, local,
+  patterns, ui, changes, and the federation streams when present) returns
+  `StreamStats {name, bytes, messages, max_bytes, percent}`; `/api/health`
+  carries `streams`. Proven against a scratch NATS with one published
+  batch: events at 1 message under the 1 GiB cap with a percent, ui
+  uncapped with none. Next: H-05 (per-consumer lag alongside alive and
+  restarts).

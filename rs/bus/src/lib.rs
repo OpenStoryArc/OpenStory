@@ -23,6 +23,36 @@ use open_story_core::cloud_event::CloudEvent;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
+/// One JetStream stream's size against its configured cap (H-04).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamStats {
+    pub name: String,
+    pub bytes: u64,
+    pub messages: u64,
+    /// The configured `max_bytes`; `None` when the stream is uncapped.
+    pub max_bytes: Option<i64>,
+    /// `bytes / max_bytes`, `None` when uncapped.
+    pub percent: Option<f64>,
+}
+
+impl StreamStats {
+    pub fn new(name: impl Into<String>, bytes: u64, messages: u64, max_bytes: i64) -> Self {
+        let cap = (max_bytes > 0).then_some(max_bytes);
+        let percent = cap.map(|c| bytes as f64 / c as f64);
+        StreamStats {
+            name: name.into(),
+            bytes,
+            messages,
+            max_bytes: cap,
+            percent,
+        }
+    }
+
+    pub fn percent(&self) -> Option<f64> {
+        self.percent
+    }
+}
+
 /// A batch of events to publish or received from the bus.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IngestBatch {
@@ -69,6 +99,12 @@ pub trait Bus: Send + Sync + 'static {
     /// through the bus or use direct ingest as fallback.
     fn is_active(&self) -> bool {
         true
+    }
+
+    /// Size of each stream this bus declares, against its cap (H-04).
+    /// Empty for a bus with no JetStream behind it.
+    async fn stream_stats(&self) -> Vec<StreamStats> {
+        vec![]
     }
 
     /// Optional JetStream context handle for admin/introspection use.

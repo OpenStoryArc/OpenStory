@@ -98,8 +98,22 @@ mod when_streams_exist {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(&tmp);
         boot::set_serving();
-        let body = body_json(send_request(state, Request::get("/api/health").body(Body::empty()).unwrap()).await).await;
-        assert!(body["streams"].is_array(), "streams is always present: {body}");
-        assert_eq!(body["streams"].as_array().unwrap().len(), 0, "no JetStream behind the NoopBus");
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body["streams"].is_array(),
+            "streams is always present: {body}"
+        );
+        assert_eq!(
+            body["streams"].as_array().unwrap().len(),
+            0,
+            "no JetStream behind the NoopBus"
+        );
     }
 }
