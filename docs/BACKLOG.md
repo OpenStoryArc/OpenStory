@@ -69,6 +69,11 @@ that feed this item: a health probe script, an agent-payload tolerance test for
 stream-cap wedge test. The three-tier line (read; derived state; substance held
 by a human credential) is the doctrine this item should implement.
 
+**Plan (2026-09-23):** design `docs/superpowers/specs/2026-09-23-node-ops-design.md`,
+scoreboard `docs/research/openstory-as-node/REQUIREMENTS.md` (59 requirements
+in eight groups), loop prompt `docs/prompts/node-ops-loop.md`. The groups are
+the entries under "Infrastructure: the node watches itself" below.
+
 Retires or advances: "Self-reporting `/api/health` endpoint (silent-state-mismatch detector)"; "WebSocket Lagged Notification (WS walk F-1)"; "HOTFIX: Redact NATS token from startup logs"; "Unify the interaction/control seam onto NATS" (the resumable fan-out).
 
 ### Notes in the margin
@@ -801,6 +806,89 @@ whose data comes from the analytics endpoints and is rendered client-side in the
 same palette, so a reel can carry a live figure without a script run. Why: the
 first illustrated arc reel (2026-09-23) proved figures carry the story better
 than a fourth spotlight; a figure that is a data URL is portable but frozen.
+
+## Infrastructure: the node watches itself
+
+Eight groups from the 2026-09-23 audit (`docs/research/openstory-as-node/`).
+Each is a requirement group in `REQUIREMENTS.md`; entries here say what and
+why, the scoreboard says how it is tested.
+
+### Structured logging with a log ring (group L)
+
+Adopt `tracing` with a JSON-lines formatter behind `log_format`, an `event`
+name and `actor` on every line, `session_id` and `subject` where they exist,
+the managed NATS child's output captured to a rotated file instead of null,
+replay progress logged, and an in-process ring served at `GET /api/logs`. Why:
+today everything is a bare print with no level or session, the NATS child is
+silent by construction, and a replay that took eleven minutes showed nothing.
+An agent watching the node has nothing to read.
+
+### No swallowed errors, supervised consumers (group E)
+
+A static audit fails the build on `let _ =` over a fallible persist, publish,
+append, or index; each failure logs and counts. A supervisor restarts a
+consumer that exits, with backoff, and exposes restart counts. Watcher publish
+failures log subject and error (fifteen Grok failures on a clean boot today
+are unexplained). Translate rejections count by reason. The NATS child's death
+is noticed within seconds. Why: consumers die silently and persist discards
+failed writes; the hub crash loop in July was invisible for the same reason.
+
+### A health endpoint that can say no (group H)
+
+`/api/health` reports boot phase with replay progress and returns 503 until
+serving; real bus connection; per-stream bytes against caps; per-consumer
+alive, restarts, lag; leaf configured and connected; per-watcher age and
+failures; version, sha, build time, store size, RSS. A header dot in the UI.
+Why: `bus.connected` is true forever because `NatsBus` never overrides
+`is_active`; the July stream-cap wedge that three PRs guess at is a number
+the node can read from its own NATS on `:8222` and does not.
+
+### Presence: the node's health as a fact on the bus (group P)
+
+A `presence.{host}.{principal}` CloudEvent every fifteen seconds with the
+health payload, stored in its own table, exported across the leaf link, read
+by the fleet tab and by `GET /api/fleet/presence` with staleness. Why: one
+signal for the hub, the fleet, the dashboard, and an ops agent; and the
+substrate DORA is measured on.
+
+### Telemetry without a vendor (group O)
+
+Metrics on by default at `/metrics` (events by agent, consumer lag, stream
+bytes, restarts, publish failures); optional OTLP export of the same plus a
+sampled span per event; one "Node" Grafana dashboard replacing the March
+ones; PR #46 closed in favour. Why: the observe stack has one commit from
+March and nobody has looked since; OTel is the right export, not the right
+logger.
+
+### Ops hands on the MCP, tiers 0 and 1 only (group M)
+
+`node_health`, `node_logs`, `node_streams`, `fleet_presence`,
+`subscribe_health` (read); `node_reproject`, `node_verify`, `node_catch_up`,
+`node_prune` (derived state, author stamped, on `ops.proposal.>` then
+`ops.command.>`, refused while not serving). Tier 2 (restart, resize, rotate)
+is never on the MCP; the agent files a proposal with evidence and a person
+acts. A test asserts the MCP publishes only `ops.proposal.>` and `ui.>`. Why:
+this is "monitor and drive" within the soul; an agent can watch, diagnose,
+fix what is derived, and propose the rest.
+
+### The Kubernetes shape: one pod, one node, one principal (group K)
+
+A kustomize base with the production image plus a NATS leaf sidecar, PVCs for
+store and JetStream, liveness on `/health`, readiness on `/api/health`, a
+startup probe sized for cold replay, JSON logs to stdout, a manifest check
+that refuses `replicas > 1`, an optional ops-agent pod with no cluster
+credential, `os-loop-` namespaces on a1 for experiments, and a testcontainers
+stream-cap wedge test. Why: horizontal scale is by node, not by replicating a
+node's ingestion; the shape must say so in YAML.
+
+### DORA from the node's own record (group D)
+
+Every signal carries the git sha. `scripts/dora.py` computes deployment
+frequency, lead time, change failure rate, and time to restore from presence
+and git; the health probe is the deploy gate with rollback on a critical
+after the startup window; rollback is one documented line per host shape;
+four tiles on the Admin tab. Why: the four keys are the standard, and this
+node already holds the data to compute them honestly.
 
 ## Done (not tracked here)
 
