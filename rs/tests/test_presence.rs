@@ -280,12 +280,14 @@ mod when_a_node_stops_reporting {
     /// P-03 (pure): a node older than three intervals is stale.
     #[test]
     fn it_is_stale_past_three_intervals() {
-        let now = chrono::Utc::now();
+        // Rows first, then `now`, so every age is at least what the fixture
+        // says (a beat built after `now` could truncate 46 s to 45 s).
         let rows = vec![
             beat("fresh", 5, "aaa"),
             beat("quiet", 46, "bbb"),
             beat("gone", 3600, "ccc"),
         ];
+        let now = chrono::Utc::now();
         let view = presence::fleet_view(&rows, now, 15);
         assert_eq!(view.len(), 3);
         let by_host = |h: &str| view.iter().find(|n| n["host"] == h).cloned().unwrap();
