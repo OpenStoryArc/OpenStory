@@ -203,6 +203,16 @@ impl NatsBus {
             .await
             .context("failed to create/get 'local' JetStream stream")?;
 
+        // Presence stream (P-01, P-04): each node's heartbeat on
+        // `presence.{host}.{principal}`. Its own observed family: never
+        // `events.*` (it is not agent history) and never `ui.*` (nobody
+        // authored it). A week of history so DORA reads (group D) have
+        // something to read. Same host rule as events under federation.
+        self.jetstream
+            .get_or_create_stream(presence_stream_config(host, fed_active))
+            .await
+            .context("failed to create/get 'presence' JetStream stream")?;
+
         if let Some(fed) = &self.federation {
             match &fed.peers {
                 FederationPeers::Hub { hub_domain } => {
@@ -210,6 +220,10 @@ impl NatsBus {
                         .get_or_create_stream(events_mirror_config(hub_domain))
                         .await
                         .context("failed to create/get 'events-mirror' (Hub) stream")?;
+                    self.jetstream
+                        .get_or_create_stream(presence_mirror_config(hub_domain))
+                        .await
+                        .context("failed to create/get 'presence-mirror' (Hub) stream")?;
                     register_self_with_hub(self.client.clone(), hub_domain, &fed.host)
                         .await
                         .context("failed to self-register as source on hub events-agg")?;
@@ -219,6 +233,10 @@ impl NatsBus {
                         .get_or_create_stream(events_mirror_mesh_config(peer_domains))
                         .await
                         .context("failed to create/get 'events-mirror' (Mesh) stream")?;
+                    self.jetstream
+                        .get_or_create_stream(presence_mirror_mesh_config(peer_domains))
+                        .await
+                        .context("failed to create/get 'presence-mirror' (Mesh) stream")?;
                 }
             }
         }
@@ -271,24 +289,6 @@ impl NatsBus {
             .await
             .context("failed to create/get 'ui' JetStream stream")?;
 
-        // Presence stream (P-01) — each node's heartbeat on
-        // `presence.{host}.{principal}`. Its own observed family: never
-        // `events.*` (it is not agent history) and never `ui.*` (nobody
-        // authored it). Limits-based with a week of history so DORA reads
-        // (group D: which sha ran when, how long a critical lasted) have
-        // something to read; 64 MB caps a chatty fleet.
-        self.jetstream
-            .get_or_create_stream(stream::Config {
-                name: "presence".to_string(),
-                subjects: vec!["presence.>".to_string()],
-                retention: stream::RetentionPolicy::Limits,
-                max_bytes: 67_108_864,
-                max_age: std::time::Duration::from_secs(7 * 24 * 3600),
-                ..Default::default()
-            })
-            .await
-            .context("failed to create/get 'presence' JetStream stream")?;
-
         Ok(())
     }
 
@@ -312,6 +312,10 @@ impl NatsBus {
             .get_or_create_stream(events_aggregate_config())
             .await
             .context("failed to create/get 'events-agg' JetStream stream")?;
+        self.jetstream
+            .get_or_create_stream(presence_aggregate_config())
+            .await
+            .context("failed to create/get 'presence-agg' JetStream stream")?;
         if !peer_hub_domains.is_empty() {
             let my_hub_domain = self
                 .jetstream_domain()
@@ -411,6 +415,9 @@ impl NatsBus {
     }
 }
 
+/// Streams that have a `{name}-mirror` twin under federation (P-04).
+const MIRRORED_STREAMS: [&str; 2] = ["events", "presence"];
+
 /// Bytes per JetStream publish, under the 8 MB `max_payload` with room for
 /// headers and the subject. Larger batches are split (see `split_batch`).
 pub const PUBLISH_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -449,6 +456,8 @@ impl Bus for NatsBus {
             "presence",
             "events-mirror",
             "events-agg",
+            "presence-mirror",
+            "presence-agg",
         ] {
             let Ok(mut stream) = self.jetstream.get_stream(name).await else {
                 continue;
@@ -521,9 +530,17 @@ impl Bus for NatsBus {
 
     async fn subscribe_stream(&self, stream: &str, pattern: &str) -> Result<BusSubscription> {
         let (tx, rx) = mpsc::channel(256);
-        self.spawn_consumer(tx, stream, pattern)
+        self.spawn_consumer(tx.clone(), stream, pattern)
             .await
             .with_context(|| format!("failed to spawn '{stream}' consumer"))?;
+        // P-04: a mirrored family reads the fleet's copy too when federated,
+        // so the presence table sees every node, not just this one.
+        if self.federation.is_some() && MIRRORED_STREAMS.contains(&stream) {
+            let mirror = format!("{stream}-mirror");
+            self.spawn_consumer(tx, &mirror, pattern)
+                .await
+                .with_context(|| format!("failed to spawn '{mirror}' consumer"))?;
+        }
         Ok(BusSubscription { receiver: rx })
     }
 
@@ -619,6 +636,11 @@ fn uuid_short() -> String {
 // docs/research/jetstream-sources-federation.md.
 
 const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
+/// P-04: presence beats keep a week of history under a 64 MB cap, on the
+/// node's own stream, its mirror, and the hub aggregate alike.
+pub(crate) const PRESENCE_MAX_BYTES: i64 = 67_108_864;
+pub(crate) const PRESENCE_MAX_AGE: std::time::Duration =
+    std::time::Duration::from_secs(7 * 24 * 3600);
 
 /// The local `events` stream this node publishes into.
 ///
@@ -655,6 +677,84 @@ pub(crate) fn local_stream_config() -> stream::Config {
         subjects: vec!["local.>".to_string()],
         retention: stream::RetentionPolicy::Limits,
         max_bytes: EVENTS_MAX_BYTES,
+        ..Default::default()
+    }
+}
+
+/// The `presence` stream (P-01, P-04): each node's beats. Solo it binds
+/// `presence.>`; federated it binds only `presence.{host}.>`, the same rule
+/// as events, so leafnode propagation cannot double-count a beat that also
+/// arrives through the mirror.
+pub(crate) fn presence_stream_config(host: &str, federation: bool) -> stream::Config {
+    let subjects = if federation {
+        vec![format!("presence.{host}.>")]
+    } else {
+        vec!["presence.>".to_string()]
+    };
+    stream::Config {
+        name: "presence".to_string(),
+        subjects,
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: PRESENCE_MAX_BYTES,
+        max_age: PRESENCE_MAX_AGE,
+        ..Default::default()
+    }
+}
+
+/// The source-only presence mirror (P-04): everyone else's beats, pulled
+/// from the hub's `presence-agg` across the domain boundary. The fleet's
+/// presence on a node is `presence ∪ presence-mirror`.
+pub(crate) fn presence_mirror_config(hub_domain: &str) -> stream::Config {
+    stream::Config {
+        name: "presence-mirror".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: PRESENCE_MAX_BYTES,
+        max_age: PRESENCE_MAX_AGE,
+        sources: Some(vec![external_source("presence-agg", hub_domain)]),
+        ..Default::default()
+    }
+}
+
+/// Mesh form of the presence mirror: one source per peer's own `presence`.
+pub(crate) fn presence_mirror_mesh_config(peer_domains: &[String]) -> stream::Config {
+    stream::Config {
+        name: "presence-mirror".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: PRESENCE_MAX_BYTES,
+        max_age: PRESENCE_MAX_AGE,
+        sources: Some(
+            peer_domains
+                .iter()
+                .map(|peer| external_source("presence", peer))
+                .collect(),
+        ),
+        ..Default::default()
+    }
+}
+
+/// The hub's presence aggregate (P-04): source-only, leaves register their
+/// `presence` streams into it the way they do on `events-agg`.
+pub(crate) fn presence_aggregate_config() -> stream::Config {
+    stream::Config {
+        name: "presence-agg".to_string(),
+        subjects: vec![],
+        retention: stream::RetentionPolicy::Limits,
+        max_bytes: PRESENCE_MAX_BYTES,
+        max_age: PRESENCE_MAX_AGE,
+        ..Default::default()
+    }
+}
+
+/// A stream source in another JetStream domain, by stream name.
+pub(crate) fn external_source(name: &str, domain: &str) -> stream::Source {
+    stream::Source {
+        name: name.to_string(),
+        external: Some(stream::External {
+            api_prefix: js_api_prefix(domain),
+            delivery_prefix: None,
+        }),
         ..Default::default()
     }
 }
@@ -802,32 +902,23 @@ pub(crate) fn events_mirror_mesh_config(peer_domains: &[String]) -> stream::Conf
     }
 }
 
-/// Idempotently add this leaf's `events` stream (in its own JetStream domain)
-/// as a source on the hub aggregate's source list. Returns `true` if a source
-/// was added, `false` if it was already present.
-///
-/// Sources are keyed by `(name, domain)`: every leaf names its stream `events`,
-/// so the **domain** distinguishes leaves. The merge is **additive** — it never
-/// drops a peer's source — which is what lets a read-modify-write across
-/// concurrently-joining leaves not lose registrations (the I/O layer still
-/// retries on a write conflict; this keeps the merge itself correct).
-pub(crate) fn ensure_self_source(sources: &mut Vec<stream::Source>, my_domain: &str) -> bool {
-    let want_prefix = js_api_prefix(my_domain);
+/// Idempotently add the stream `name` in `domain` as a source. Keyed by
+/// (name, domain); additive, never drops a peer. Serves `events` and
+/// `presence` on their aggregates and peer hubs' aggregates alike.
+pub(crate) fn ensure_named_source(
+    sources: &mut Vec<stream::Source>,
+    name: &str,
+    domain: &str,
+) -> bool {
+    let want_prefix = js_api_prefix(domain);
     let already = sources.iter().any(|s| {
-        s.name == "events"
+        s.name == name
             && s.external.as_ref().map(|e| e.api_prefix.as_str()) == Some(want_prefix.as_str())
     });
     if already {
         return false;
     }
-    sources.push(stream::Source {
-        name: "events".to_string(),
-        external: Some(stream::External {
-            api_prefix: want_prefix,
-            delivery_prefix: None,
-        }),
-        ..Default::default()
-    });
+    sources.push(external_source(name, domain));
     true
 }
 
@@ -842,40 +933,6 @@ pub(crate) fn events_aggregate_config() -> stream::Config {
         max_bytes: EVENTS_MAX_BYTES,
         ..Default::default()
     }
-}
-
-/// Idempotently add peer hubs' `events-agg` streams as sources on the
-/// shared aggregate list, so a leaf attached to *this* hub also receives
-/// events from leaves attached to peer hubs. Same merge semantics as
-/// [`ensure_self_source`] (idempotent + additive), keyed by
-/// `(name="events-agg", external.api="$JS.<peer>.API")`.
-///
-/// This is the T3 multi-hub mesh primitive. Combined with the per-host
-/// subject namespacing (`events.{host}.>`) each leaf publishes, hub-to-hub
-/// sourcing converges without double-counting: a given event has exactly
-/// one origin host, so it appears once in each hub's events-agg regardless
-/// of how many hops it took.
-pub(crate) fn ensure_peer_hub_source(
-    sources: &mut Vec<stream::Source>,
-    peer_hub_domain: &str,
-) -> bool {
-    let want_prefix = js_api_prefix(peer_hub_domain);
-    let already = sources.iter().any(|s| {
-        s.name == "events-agg"
-            && s.external.as_ref().map(|e| e.api_prefix.as_str()) == Some(want_prefix.as_str())
-    });
-    if already {
-        return false;
-    }
-    sources.push(stream::Source {
-        name: "events-agg".to_string(),
-        external: Some(stream::External {
-            api_prefix: want_prefix,
-            delivery_prefix: None,
-        }),
-        ..Default::default()
-    });
-    true
 }
 
 /// Cross-domain self-registration on the hub aggregate (Option 3 in action).
@@ -899,12 +956,24 @@ pub(crate) async fn register_peer_hubs(
     peer_hub_domains: &[String],
 ) -> Result<()> {
     let my_js = jetstream::with_domain(client, my_hub_domain);
+    // P-04: peer hubs' presence aggregates are sourced the same way.
+    for agg in ["events-agg", "presence-agg"] {
+        register_peer_hubs_on(&my_js, agg, peer_hub_domains).await?;
+    }
+    Ok(())
+}
+
+async fn register_peer_hubs_on(
+    my_js: &jetstream::Context,
+    agg_name: &str,
+    peer_hub_domains: &[String],
+) -> Result<()> {
     let mut last_err: Option<anyhow::Error> = None;
     for attempt in 0..5u32 {
-        let mut agg = match my_js.get_stream("events-agg").await {
+        let mut agg = match my_js.get_stream(agg_name).await {
             Ok(s) => s,
             Err(e) => {
-                last_err = Some(anyhow::anyhow!("get_stream(events-agg) failed: {e}"));
+                last_err = Some(anyhow::anyhow!("get_stream({agg_name}) failed: {e}"));
                 tokio::time::sleep(std::time::Duration::from_millis(100 * (1u64 << attempt))).await;
                 continue;
             }
@@ -912,13 +981,13 @@ pub(crate) async fn register_peer_hubs(
         let mut cfg = agg
             .info()
             .await
-            .with_context(|| "info(events-agg) failed")?
+            .with_context(|| format!("info({agg_name}) failed"))?
             .config
             .clone();
         let mut sources = cfg.sources.unwrap_or_default();
         let mut any_added = false;
         for peer in peer_hub_domains {
-            if ensure_peer_hub_source(&mut sources, peer) {
+            if ensure_named_source(&mut sources, agg_name, peer) {
                 any_added = true;
             }
         }
@@ -929,13 +998,13 @@ pub(crate) async fn register_peer_hubs(
         match my_js.update_stream(&cfg).await {
             Ok(_) => return Ok(()),
             Err(e) => {
-                last_err = Some(anyhow::anyhow!("update_stream(events-agg) failed: {e}"));
+                last_err = Some(anyhow::anyhow!("update_stream({agg_name}) failed: {e}"));
                 tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
             }
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("peer hub registration failed: unknown")))
-        .context("peer-hub registration on events-agg exhausted retries")
+        .with_context(|| format!("peer-hub registration on {agg_name} exhausted retries"))
 }
 
 pub(crate) async fn register_self_with_hub(
@@ -944,12 +1013,26 @@ pub(crate) async fn register_self_with_hub(
     my_domain: &str,
 ) -> Result<()> {
     let hub_js = jetstream::with_domain(client, hub_domain);
+    // P-04: the leaf's `presence` registers on `presence-agg` the same way
+    // its `events` registers on `events-agg`.
+    for (agg, stream) in [("events-agg", "events"), ("presence-agg", "presence")] {
+        register_source_on_hub(&hub_js, agg, stream, my_domain).await?;
+    }
+    Ok(())
+}
+
+async fn register_source_on_hub(
+    hub_js: &jetstream::Context,
+    agg_name: &str,
+    stream_name: &str,
+    my_domain: &str,
+) -> Result<()> {
     let mut last_err: Option<anyhow::Error> = None;
     for attempt in 0..5u32 {
-        let mut agg = match hub_js.get_stream("events-agg").await {
+        let mut agg = match hub_js.get_stream(agg_name).await {
             Ok(s) => s,
             Err(e) => {
-                last_err = Some(anyhow::anyhow!("get_stream(events-agg) failed: {e}"));
+                last_err = Some(anyhow::anyhow!("get_stream({agg_name}) failed: {e}"));
                 tokio::time::sleep(std::time::Duration::from_millis(100 * (1u64 << attempt))).await;
                 continue;
             }
@@ -957,11 +1040,11 @@ pub(crate) async fn register_self_with_hub(
         let mut cfg = agg
             .info()
             .await
-            .with_context(|| "info(events-agg) failed")?
+            .with_context(|| format!("info({agg_name}) failed"))?
             .config
             .clone();
         let mut sources = cfg.sources.unwrap_or_default();
-        let added = ensure_self_source(&mut sources, my_domain);
+        let added = ensure_named_source(&mut sources, stream_name, my_domain);
         cfg.sources = Some(sources);
         if !added {
             return Ok(());
@@ -969,13 +1052,13 @@ pub(crate) async fn register_self_with_hub(
         match hub_js.update_stream(&cfg).await {
             Ok(_) => return Ok(()),
             Err(e) => {
-                last_err = Some(anyhow::anyhow!("update_stream(events-agg) failed: {e}"));
+                last_err = Some(anyhow::anyhow!("update_stream({agg_name}) failed: {e}"));
                 tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
             }
         }
     }
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("hub registration failed: unknown")))
-        .context("hub events-agg self-registration exhausted retries")
+        .with_context(|| format!("hub {agg_name} self-registration exhausted retries"))
 }
 
 #[cfg(test)]
@@ -1330,7 +1413,7 @@ mod federation_config_tests {
     #[test]
     fn self_register_adds_own_source_to_empty_aggregate() {
         let mut sources = vec![];
-        let added = ensure_self_source(&mut sources, "leaf-maxs-air");
+        let added = ensure_named_source(&mut sources, "events", "leaf-maxs-air");
         assert!(added, "first registration adds a source");
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "events");
@@ -1341,8 +1424,8 @@ mod federation_config_tests {
     #[test]
     fn self_register_is_idempotent() {
         let mut sources = vec![];
-        ensure_self_source(&mut sources, "leaf-maxs-air");
-        let added_again = ensure_self_source(&mut sources, "leaf-maxs-air");
+        ensure_named_source(&mut sources, "events", "leaf-maxs-air");
+        let added_again = ensure_named_source(&mut sources, "events", "leaf-maxs-air");
         assert!(!added_again, "re-registration is a no-op");
         assert_eq!(sources.len(), 1, "no duplicate source for the same domain");
     }
@@ -1352,7 +1435,7 @@ mod federation_config_tests {
     #[test]
     fn peer_hub_register_adds_agg_source_to_empty_list() {
         let mut sources = vec![];
-        let added = ensure_peer_hub_source(&mut sources, "hub-B");
+        let added = ensure_named_source(&mut sources, "events-agg", "hub-B");
         assert!(added);
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].name, "events-agg");
@@ -1363,8 +1446,8 @@ mod federation_config_tests {
     #[test]
     fn peer_hub_register_is_idempotent() {
         let mut sources = vec![];
-        ensure_peer_hub_source(&mut sources, "hub-B");
-        let again = ensure_peer_hub_source(&mut sources, "hub-B");
+        ensure_named_source(&mut sources, "events-agg", "hub-B");
+        let again = ensure_named_source(&mut sources, "events-agg", "hub-B");
         assert!(!again);
         assert_eq!(sources.len(), 1);
     }
@@ -1375,8 +1458,8 @@ mod federation_config_tests {
         // hub sources (name=events-agg). The merge functions must not
         // collide with each other.
         let mut sources = vec![];
-        ensure_self_source(&mut sources, "leaf-maxs-air");
-        ensure_peer_hub_source(&mut sources, "hub-B");
+        ensure_named_source(&mut sources, "events", "leaf-maxs-air");
+        ensure_named_source(&mut sources, "events-agg", "hub-B");
         assert_eq!(sources.len(), 2);
         let names: Vec<_> = sources.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"events"));
@@ -1394,7 +1477,7 @@ mod federation_config_tests {
             }),
             ..Default::default()
         }];
-        let added = ensure_self_source(&mut sources, "leaf-maxs-air");
+        let added = ensure_named_source(&mut sources, "events", "leaf-maxs-air");
         assert!(added);
         assert_eq!(sources.len(), 2, "peer source preserved, own source added");
         let prefixes: Vec<_> = sources
@@ -1421,7 +1504,10 @@ mod presence_federation_tests {
         assert!(cfg.sources.is_none());
         assert!(matches!(cfg.retention, stream::RetentionPolicy::Limits));
         assert_eq!(cfg.max_bytes, PRESENCE_MAX_BYTES);
-        assert_eq!(cfg.max_age, PRESENCE_MAX_AGE, "a week of beats for DORA reads");
+        assert_eq!(
+            cfg.max_age, PRESENCE_MAX_AGE,
+            "a week of beats for DORA reads"
+        );
     }
 
     #[test]
@@ -1464,7 +1550,10 @@ mod presence_federation_tests {
         let sources = cfg.sources.as_ref().expect("sources");
         assert_eq!(sources.len(), 2);
         for s in sources {
-            assert_eq!(s.name, "presence", "mesh sources each peer's own presence stream");
+            assert_eq!(
+                s.name, "presence",
+                "mesh sources each peer's own presence stream"
+            );
         }
     }
 
@@ -1474,8 +1563,14 @@ mod presence_federation_tests {
         // `events-agg`, the leaf's `presence` on `presence-agg`.
         let mut sources = vec![];
         assert!(ensure_named_source(&mut sources, "presence", "leaf-1"));
-        assert!(!ensure_named_source(&mut sources, "presence", "leaf-1"), "idempotent");
-        assert!(ensure_named_source(&mut sources, "events", "leaf-1"), "a different stream is a different source");
+        assert!(
+            !ensure_named_source(&mut sources, "presence", "leaf-1"),
+            "idempotent"
+        );
+        assert!(
+            ensure_named_source(&mut sources, "events", "leaf-1"),
+            "a different stream is a different source"
+        );
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].name, "presence");
         assert_eq!(
