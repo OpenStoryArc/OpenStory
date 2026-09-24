@@ -441,3 +441,31 @@ mod when_replay_runs {
         assert_eq!(r.percent, 10);
     }
 }
+
+/// D-01: every JSON log line names the build that wrote it, so a change is
+/// identifiable in every signal, not only on /api/health.
+mod when_a_line_names_its_build {
+    use super::*;
+
+    #[test]
+    fn it_carries_git_sha_and_built_at() {
+        let _serial = serial();
+        let cap = Capture::default();
+        let _g = tracing::subscriber::set_default(build_subscriber(
+            LogFormat::Json,
+            "info",
+            cap.clone(),
+        ));
+        tracing::info!(event = "anything", "one line");
+        let text = String::from_utf8(cap.0.lock().unwrap().clone()).unwrap();
+        let line: serde_json::Value =
+            serde_json::from_str(text.lines().next().expect("one line")).unwrap();
+        let sha = line["git_sha"].as_str().expect("git_sha on every line");
+        assert!(!sha.is_empty());
+        assert_eq!(sha, open_story_server::node_health::git_sha(), "the same stamp /api/health carries");
+        assert_eq!(
+            line["built_at"].as_str().expect("built_at on every line"),
+            open_story_server::node_health::built_at()
+        );
+    }
+}
