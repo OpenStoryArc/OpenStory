@@ -191,7 +191,12 @@ mod when_verify_is_called {
         assert_eq!(r["store_events"], 2, "{r}");
         assert_eq!(r["jsonl_lines"], 2);
         assert_eq!(r["fts_documents"], 1);
-        assert_eq!(r["agree"], false, "FTS is one short");
+        // FTS holds only records with text, so it is reported, never the
+        // judge: the store and its backup agree, and that is what "agree"
+        // means. Found on the live node, 2026-09-24: a session whose store
+        // and JSONL matched exactly read as disagreeing.
+        assert_eq!(r["agree"], true, "store and JSONL match: {r}");
+        assert_eq!(r["fts_unindexed"], 1, "how many events FTS has no text for: {r}");
         assert_eq!(r["session_id"], "sess-3");
         let (_, again) = post(
             &state,
@@ -349,7 +354,10 @@ mod when_dora_is_read {
         let state = test_state(&tmp);
         let (status, body) = get(&state).await;
         assert_eq!(status, 404, "{body}");
-        assert!(body["error"].as_str().unwrap().contains("dora.py"), "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("dora.py"),
+            "{body}"
+        );
 
         let data_dir = state.read().await.store.data_dir.clone();
         let written = json!({
