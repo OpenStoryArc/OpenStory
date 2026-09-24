@@ -442,6 +442,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
     let started = std::time::Instant::now();
     let mut progress = ReplayProgress::new(session_ids.len(), started);
     let mut done = 0usize;
+    crate::boot::set_replaying(0, session_ids.len(), 0);
 
     // One-time FTS5 backfill: if the index is empty, populate during replay.
     let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
@@ -449,6 +450,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
     for sid in &session_ids {
         done += 1;
         if let Some(r) = progress.observe(done, std::time::Instant::now()) {
+            crate::boot::set_replaying(r.done, r.total, r.elapsed_ms);
             tracing::info!(
                 event = "replay_progress",
                 done = r.done,
@@ -566,6 +568,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
     } else {
         0
     };
+    crate::boot::set_serving();
     tracing::info!(
         event = "replay_done",
         sessions = session_ids.len(),

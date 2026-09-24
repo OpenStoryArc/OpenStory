@@ -17,6 +17,7 @@ pub mod consumers;
 pub mod directory;
 pub mod event_store_bridge;
 pub mod fleet;
+pub mod boot;
 pub mod ingest;
 pub mod logging;
 pub mod metrics;

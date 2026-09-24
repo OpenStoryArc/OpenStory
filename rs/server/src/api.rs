@@ -375,7 +375,7 @@ pub async fn delete_annotation(
     }
 }
 
-pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
+pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
     let s = state.read().await;
     let sessions = s
         .store
@@ -386,35 +386,47 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
         .unwrap_or(0);
     let projections = s.store.projections.resident_sessions();
 
-    Json(json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "store": {
-            "backend": s.config.data_backend.to_string(),
-            "sessions": sessions,
-        },
-        // E-07: down as well when a managed NATS child has been seen to exit.
-        "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
-        "projections": {
-            "count": projections,
-            "sessions": sessions,
-            // count covers every session ⇒ the read model is rehydrated.
-            // Goes false when a restart leaves projections un-rebuilt for
-            // source-less sessions (run `reproject`).
-            "fresh": projections >= sessions,
-        },
-        "watchers": s.watcher_diagnostics.snapshots().len(),
-        // E-05: publish failures across all watchers since boot.
-        "publish_failures": s
-            .watcher_diagnostics
-            .snapshots()
-            .iter()
-            .map(|w| w.counters.publish_failures)
-            .sum::<u64>(),
-        // E-04: per-consumer supervision state (alive, restarts,
-        // last_restart, last_exit), from the supervisor's bookkeeping.
-        "consumers": crate::consumers::supervision::stats().snapshot(),
-    }))
+    // H-02 / H-03: the boot phase with replay progress; readiness is 503
+    // until the node serves, and the body still explains itself.
+    let boot = crate::boot::snapshot();
+    let status = if crate::boot::is_serving() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(json!({
+            "status": if status == StatusCode::OK { "ok" } else { "starting" },
+            "boot": boot,
+            "version": env!("CARGO_PKG_VERSION"),
+            "store": {
+                "backend": s.config.data_backend.to_string(),
+                "sessions": sessions,
+            },
+            // E-07: down as well when a managed NATS child has been seen to exit.
+            "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
+            "projections": {
+                "count": projections,
+                "sessions": sessions,
+                // count covers every session ⇒ the read model is rehydrated.
+                // Goes false when a restart leaves projections un-rebuilt for
+                // source-less sessions (run `reproject`).
+                "fresh": projections >= sessions,
+            },
+            "watchers": s.watcher_diagnostics.snapshots().len(),
+            // E-05: publish failures across all watchers since boot.
+            "publish_failures": s
+                .watcher_diagnostics
+                .snapshots()
+                .iter()
+                .map(|w| w.counters.publish_failures)
+                .sum::<u64>(),
+            // E-04: per-consumer supervision state (alive, restarts,
+            // last_restart, last_exit), from the supervisor's bookkeeping.
+            "consumers": crate::consumers::supervision::stats().snapshot(),
+        })),
+    )
 }
 
 /// Per-session convergence digests — the shared primitive for network health

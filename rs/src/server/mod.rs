@@ -146,6 +146,8 @@ pub async fn run_server(
     // O(lifetime_events) — visibly minutes-long with large data dirs.
     // Now startup is O(1); full projection rebuild happens concurrently.
     if is_consumer {
+        // H-02: not ready until replay has run.
+        open_story_server::boot::set_starting();
         // Snapshot everything replay needs and drop the read guard
         // before spawning. The spawned future owns only `Arc`s and
         // small owned HashMaps, so it never contends with the outer
