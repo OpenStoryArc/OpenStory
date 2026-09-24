@@ -320,7 +320,8 @@ pub const TOOLS: &[ToolDef] = &[
         name: "node_verify",
         description: "WHEN: you suspect the store, the JSONL backup, and FTS disagree on a session. MOTION: propose. \\
                       CALL: { session_id, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.verify, then the node \\
-                      counts all three. RETURNS: {result{store_events, jsonl_lines, fts_documents, agree}}. Read-only act.",
+                      counts all three. RETURNS: {result{store_events, jsonl_lines, fts_documents, fts_unindexed, agree}}; agree means \\
+                      the store and its backup match, FTS is reported. Read-only act.",
         input_schema: ops::node_verify_schema,
     },
     ToolDef {

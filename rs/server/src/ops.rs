@@ -191,7 +191,7 @@ async fn reproject(state: &SharedState, session_id: Option<&str>) -> Value {
     }
 }
 
-/// Do the store, the JSONL backup, and the FTS index agree on a session?
+/// Do the store and the JSONL backup agree on a session? FTS is reported.
 async fn verify(state: &SharedState, session_id: &str) -> Value {
     let (store, data_dir) = {
         let s = state.read().await;
@@ -206,12 +206,16 @@ async fn verify(state: &SharedState, session_id: &str) -> Value {
         .map(|j| j.load_session(session_id).len() as u64)
         .unwrap_or(0);
     let fts_documents = store.fts_count_for_session(session_id).await.ok().flatten();
-    let agree = store_events == jsonl_lines && fts_documents.is_none_or(|f| f == store_events);
+    // FTS holds only records with text, so it is reported, never the judge:
+    // agreement is the store and its backup holding the same events.
+    let agree = store_events == jsonl_lines;
+    let fts_unindexed = fts_documents.map(|f| store_events.saturating_sub(f));
     json!({
         "session_id": session_id,
         "store_events": store_events,
         "jsonl_lines": jsonl_lines,
         "fts_documents": fts_documents,
+        "fts_unindexed": fts_unindexed,
         "agree": agree,
     })
 }
