@@ -9,6 +9,7 @@
 pub mod accounts;
 pub mod nats_bus;
 pub mod noop_bus;
+pub mod split;
 
 // Re-export the async-nats JetStream context so server-side code
 // (admin module) can hold a typed reference without depending on

@@ -34,6 +34,30 @@ pub fn failed(op: &str, err: &dyn std::fmt::Display) {
     metrics::counter!("openstory_op_failures_total", "op" => op.to_string()).increment(1);
 }
 
+/// A watcher's publish to the bus failed (E-05). Logs `event=publish_failed`
+/// at WARN with the actor, subject, session, batch size, and the whole error
+/// chain (`{err:#}`), never only its top line, and ticks
+/// `openstory_watcher_publish_failures_total{actor}`.
+pub fn publish_failed(
+    actor: &str,
+    subject: &str,
+    session_id: &str,
+    events: usize,
+    err: &anyhow::Error,
+) {
+    tracing::warn!(
+        event = "publish_failed",
+        actor,
+        subject,
+        session_id,
+        events,
+        error = %format!("{err:#}"),
+        "publish to {subject} failed: {err:#}"
+    );
+    metrics::counter!("openstory_watcher_publish_failures_total", "actor" => actor.to_string())
+        .increment(1);
+}
+
 /// Summarize a batch of CloudEvents as a compact subtype list.
 /// e.g. "message.user.prompt, progress.bash"
 pub fn event_type_summary(events: &[CloudEvent]) -> String {

@@ -393,19 +393,40 @@ impl NatsBus {
     }
 }
 
-#[async_trait]
-impl Bus for NatsBus {
-    async fn publish(&self, subject: &str, batch: &IngestBatch) -> Result<()> {
-        let payload = serde_json::to_vec(batch).context("failed to serialize IngestBatch")?;
+/// Bytes per JetStream publish, under the 8 MB `max_payload` with room for
+/// headers and the subject. Larger batches are split (see `split_batch`).
+pub const PUBLISH_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+impl NatsBus {
+    async fn publish_one(&self, subject: &str, payload: Vec<u8>) -> Result<()> {
         self.jetstream
             .publish(subject.to_string(), payload.into())
             .await
             .with_context(|| format!("failed to publish to {subject}"))?
             .await
             .with_context(|| format!("failed to confirm publish to {subject}"))?;
-
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Bus for NatsBus {
+    async fn publish(&self, subject: &str, batch: &IngestBatch) -> Result<()> {
+        let payload = serde_json::to_vec(batch).context("failed to serialize IngestBatch")?;
+
+        // E-05: the watcher batches by count; NATS caps by bytes (8 MB
+        // max_payload). A batch over the budget is split in order and
+        // published piece by piece, so a hundred-event Grok batch of 1 MB
+        // lines no longer fails whole.
+        if payload.len() > PUBLISH_MAX_BYTES && batch.events.len() > 1 {
+            for piece in crate::split::split_batch(batch.clone(), PUBLISH_MAX_BYTES) {
+                let bytes =
+                    serde_json::to_vec(&piece).context("failed to serialize IngestBatch")?;
+                self.publish_one(subject, bytes).await?;
+            }
+            return Ok(());
+        }
+        self.publish_one(subject, payload).await
     }
 
     async fn publish_bytes(&self, subject: &str, data: &[u8]) -> Result<()> {
@@ -425,16 +446,19 @@ impl Bus for NatsBus {
         // from the hub aggregate). Both pump into one shared mpsc so callers
         // see a single unified stream.
         let (tx, rx) = mpsc::channel(256);
-        self.spawn_consumer(tx.clone(), "events", pattern).await
+        self.spawn_consumer(tx.clone(), "events", pattern)
+            .await
             .context("failed to spawn 'events' consumer")?;
         // Own local-only events (`publish_sessions = false`) live in the
         // `local` stream, which federation never sources — read it too so a
         // node always sees its own sessions, published or not. Filter to
         // `local.>` so the `events.>`-shaped `pattern` doesn't exclude them.
-        self.spawn_consumer(tx.clone(), "local", "local.>").await
+        self.spawn_consumer(tx.clone(), "local", "local.>")
+            .await
             .context("failed to spawn 'local' consumer")?;
         if self.federation.is_some() {
-            self.spawn_consumer(tx, "events-mirror", pattern).await
+            self.spawn_consumer(tx, "events-mirror", pattern)
+                .await
                 .context("failed to spawn 'events-mirror' consumer")?;
         }
         Ok(BusSubscription { receiver: rx })
@@ -446,10 +470,12 @@ impl Bus for NatsBus {
         // aggregate). Order within each stream is preserved; cross-stream
         // ordering is not guaranteed (and event-ID dedup downstream makes
         // ordering irrelevant for correctness).
-        let mut all = replay_one(&self.jetstream, "events", pattern).await
+        let mut all = replay_one(&self.jetstream, "events", pattern)
+            .await
             .context("replay 'events' failed")?;
         if self.federation.is_some() {
-            let mirror = replay_one(&self.jetstream, "events-mirror", pattern).await
+            let mirror = replay_one(&self.jetstream, "events-mirror", pattern)
+                .await
                 .context("replay 'events-mirror' failed")?;
             all.extend(mirror);
         }
@@ -473,7 +499,9 @@ async fn replay_one(
         Err(_) => return Ok(vec![]),
     };
 
-    let info = stream.info().await
+    let info = stream
+        .info()
+        .await
         .with_context(|| format!("failed to get '{stream_name}' info"))?;
     let total = info.state.messages;
     if total == 0 {
@@ -818,7 +846,9 @@ pub(crate) async fn register_peer_hubs(
                 continue;
             }
         };
-        let mut cfg = agg.info().await
+        let mut cfg = agg
+            .info()
+            .await
             .with_context(|| "info(events-agg) failed")?
             .config
             .clone();
@@ -861,7 +891,9 @@ pub(crate) async fn register_self_with_hub(
                 continue;
             }
         };
-        let mut cfg = agg.info().await
+        let mut cfg = agg
+            .info()
+            .await
             .with_context(|| "info(events-agg) failed")?
             .config
             .clone();
@@ -898,8 +930,9 @@ mod url_credential_tests {
         assert_eq!(user, "person-id");
         assert_eq!(pass, "person-id-local-dev");
         // And it must NOT be mistaken for a token.
-        assert!(NatsBus::extract_token("nats://person-id:person-id-local-dev@localhost:4222")
-            .is_none());
+        assert!(
+            NatsBus::extract_token("nats://person-id:person-id-local-dev@localhost:4222").is_none()
+        );
     }
 
     #[test]
@@ -955,10 +988,7 @@ mod federation_config_tests {
         // T1 solo multi-device: no hub aggregate, one source per peer.
         // The mirror collects every peer's local `events` stream across
         // their own JetStream domain.
-        let cfg = events_mirror_mesh_config(&[
-            "laptop".to_string(),
-            "phone".to_string(),
-        ]);
+        let cfg = events_mirror_mesh_config(&["laptop".to_string(), "phone".to_string()]);
         assert_eq!(cfg.name, "events-mirror");
         assert!(cfg.subjects.is_empty(), "mesh mirror is source-only");
         let sources = cfg.sources.as_ref().expect("mesh mirror must have sources");
@@ -1000,7 +1030,10 @@ mod federation_config_tests {
         // Cross-domain reach is encoded as `external.api = "$JS.<domain>.API"`
         // (the wire format), not the convenience `domain` field — older
         // brokers reject `domain` as a top-level Source key.
-        let external = sources[0].external.as_ref().expect("must use external for cross-domain");
+        let external = sources[0]
+            .external
+            .as_ref()
+            .expect("must use external for cross-domain");
         assert_eq!(external.api_prefix, "$JS.hub.API");
     }
 
@@ -1028,7 +1061,11 @@ mod federation_config_tests {
         // The load-bearing property — any domain we emit must come back.
         for d in ["a1", "Maxs-Air", "node-99", "hub-b", "leaf-katies-mini"] {
             let emitted = js_api_prefix(d);
-            assert_eq!(parse_js_api_prefix(&emitted), Some(d.to_string()), "round-trip {d}");
+            assert_eq!(
+                parse_js_api_prefix(&emitted),
+                Some(d.to_string()),
+                "round-trip {d}"
+            );
         }
     }
 
@@ -1042,7 +1079,11 @@ mod federation_config_tests {
     fn parse_js_api_prefix_rejects_missing_suffix() {
         // No `.API` tail — could be a cluster prefix or a typo. Refuse.
         assert_eq!(parse_js_api_prefix("$JS.node-0"), None);
-        assert_eq!(parse_js_api_prefix("$JS.node-0.api"), None, "case-sensitive");
+        assert_eq!(
+            parse_js_api_prefix("$JS.node-0.api"),
+            None,
+            "case-sensitive"
+        );
     }
 
     #[test]

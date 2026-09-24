@@ -731,7 +731,15 @@ pub async fn run_server(
                         );
                         metrics::record_watcher_publish(&actor, success);
                         if let Err(e) = result {
-                            eprintln!("Bus publish error: {e}");
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                &actor,
+                                subject,
+                                session_id,
+                                events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {
@@ -800,7 +808,15 @@ pub async fn run_server(
                         );
                         metrics::record_watcher_publish(&actor, success);
                         if let Err(e) = result {
-                            eprintln!("Pi-mono bus publish error: {e}");
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                &actor,
+                                subject,
+                                session_id,
+                                events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {
@@ -856,7 +872,15 @@ pub async fn run_server(
                         if let Err(e) = rt.block_on(
                             watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
                         ) {
-                            eprintln!("Hermes bus publish error: {e}");
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                "hermes",
+                                subject,
+                                session_id,
+                                batch.events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {
