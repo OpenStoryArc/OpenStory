@@ -331,3 +331,185 @@ mod when_a_node_stops_reporting {
         assert!(gone["age_secs"].as_i64().unwrap() >= 599, "{gone}");
     }
 }
+
+/// P-06: a beat that fails to publish is logged in the E-05 shape and
+/// counted, and ingestion never waits on it.
+mod when_publish_fails {
+    use super::*;
+    use anyhow::Context;
+    use helpers::bus::TestActors;
+    use open_story_server::logging::{build_subscriber, LogFormat};
+    use std::io::Write;
+
+    #[derive(Clone, Default)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+    impl Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+        type Writer = CaptureWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            CaptureWriter(self.0.clone())
+        }
+    }
+
+    /// A bus whose every publish fails with a chained error.
+    struct FailingBus;
+    #[async_trait]
+    impl Bus for FailingBus {
+        async fn publish(&self, subject: &str, _batch: &IngestBatch) -> Result<()> {
+            Err(anyhow::Error::from(std::io::Error::other("nats: connection closed")))
+                .with_context(|| format!("failed to publish to {subject}"))
+        }
+        async fn publish_bytes(&self, _subject: &str, _data: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        async fn subscribe(&self, _pattern: &str) -> Result<BusSubscription> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(BusSubscription { receiver: rx })
+        }
+        async fn replay(&self, _pattern: &str) -> Result<Vec<IngestBatch>> {
+            Ok(vec![])
+        }
+    }
+
+    /// A bus whose publish never returns.
+    struct HangingBus;
+    #[async_trait]
+    impl Bus for HangingBus {
+        async fn publish(&self, _subject: &str, _batch: &IngestBatch) -> Result<()> {
+            std::future::pending::<()>().await;
+            Ok(())
+        }
+        async fn publish_bytes(&self, _subject: &str, _data: &[u8]) -> Result<()> {
+            Ok(())
+        }
+        async fn subscribe(&self, _pattern: &str) -> Result<BusSubscription> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(BusSubscription { receiver: rx })
+        }
+        async fn replay(&self, _pattern: &str) -> Result<Vec<IngestBatch>> {
+            Ok(vec![])
+        }
+    }
+
+    fn state_with_bus(bus: Arc<dyn Bus>, tmp: &tempfile::TempDir) -> SharedState {
+        let store = StoreState::new(tmp.path()).unwrap();
+        let (broadcast_tx, _) = broadcast::channel(256);
+        let watch_dir = tmp.path().join("watch");
+        std::fs::create_dir_all(&watch_dir).unwrap();
+        let config = Config::default();
+        let topology = open_story::server::admin::compute_topology(
+            "test-host",
+            config.role,
+            &open_story::server::admin::EnvInputs::default(),
+            &[],
+        );
+        let (admin_topology_tx, _) = tokio::sync::watch::channel(topology);
+        Arc::new(RwLock::new(AppState {
+            store,
+            transcript_states: HashMap::new(),
+            watcher_diagnostics:
+                open_story::server::watcher_diagnostics::WatcherDiagnostics::default(),
+            broadcast_tx,
+            bus,
+            admin_topology_tx,
+            config,
+            watch_dir,
+            account_config_writer: None,
+            account_config_reloader: None,
+            role_directory: Arc::new(open_story::server::directory::NoopRoleDirectory),
+        }))
+    }
+
+    async fn wait_for_failures(before: u64, want: u64) -> u64 {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while presence::stats().failures < before + want && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        presence::stats().failures - before
+    }
+
+    #[tokio::test]
+    async fn it_logs_and_continues() {
+        let cap = Capture::default();
+        let _g = tracing::subscriber::set_default(build_subscriber(
+            LogFormat::Json,
+            "info",
+            cap.clone(),
+        ));
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state_with_bus(Arc::new(FailingBus), &tmp);
+        let before = presence::stats().failures;
+
+        let handle = presence::spawn(state.clone(), Duration::from_millis(20));
+        let failed = wait_for_failures(before, 2).await;
+        assert!(failed >= 2, "the beat keeps trying after a failure: {failed} failures");
+
+        // Ingestion never waited on the beat: the persist actor, driven
+        // while the failing beat runs, still lands a batch.
+        let other = tempfile::tempdir().unwrap();
+        let mut actors = TestActors::new(&other).await;
+        let ce = presence::presence_event("node-x", None, "dev", serde_json::json!({"status": "ok"}));
+        let r = actors
+            .persist
+            .process_batch("presence:node-x", &[ce], Some(presence::SOURCE))
+            .await;
+        assert_eq!(r.persisted, 1, "ingestion continued while beats were failing");
+        handle.abort();
+
+        // The E-05 shape, with the presence actor and subject.
+        let text = String::from_utf8(cap.0.lock().unwrap().clone()).unwrap();
+        let line = text
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find(|l| l["event"] == "publish_failed" && l["actor"] == "presence")
+            .unwrap_or_else(|| panic!("a presence publish_failed line in:\n{text}"));
+        assert_eq!(line["level"], "WARN");
+        assert!(
+            line["subject"].as_str().unwrap().starts_with("presence."),
+            "{line}"
+        );
+        assert_eq!(line["events"], 1);
+        let error = line["error"].as_str().unwrap();
+        assert!(error.contains("failed to publish to"), "context kept: {error}");
+        assert!(error.contains("connection closed"), "root cause kept: {error}");
+
+        // Counted, and on the health body for the fleet to see.
+        let stats = presence::stats();
+        assert!(stats.failures >= before + 2);
+        assert!(stats.last_error.is_some());
+        let (_status, body) = open_story_server::api::health_body(&state).await;
+        assert!(body["presence"]["failures"].as_u64().unwrap() >= 2, "{}", body["presence"]);
+        assert!(body["presence"]["last_error"].is_string(), "{}", body["presence"]);
+        assert_eq!(body["presence"]["interval_secs"], 15);
+    }
+
+    #[tokio::test]
+    async fn it_times_out_a_hung_publish_and_keeps_beating() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = state_with_bus(Arc::new(HangingBus), &tmp);
+        let before = presence::stats().failures;
+
+        let handle = presence::spawn_with_timeout(
+            state,
+            Duration::from_millis(20),
+            Duration::from_millis(50),
+        );
+        let failed = wait_for_failures(before, 2).await;
+        handle.abort();
+        assert!(failed >= 2, "a hung publish is cut off and the beat goes on: {failed}");
+        let err = presence::stats().last_error.unwrap_or_default();
+        assert!(
+            err.contains("timed out") || err.contains("connection closed"),
+            "the last error names the cause: {err}"
+        );
+    }
+}
