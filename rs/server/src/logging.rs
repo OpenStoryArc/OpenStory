@@ -221,6 +221,158 @@ where
     }
 }
 
+/// The JSON object for one record: ts, level, target, span fields root to
+/// leaf, the record's own fields, and `event=unnamed` when none was given.
+/// Shared by the JSON line formatter and the log ring (L-06).
+fn json_object<'a, S>(
+    event: &tracing::Event<'_>,
+    scope: Option<tracing_subscriber::registry::Scope<'a, S>>,
+) -> serde_json::Map<String, serde_json::Value>
+where
+    S: Subscriber + for<'b> LookupSpan<'b>,
+{
+    let meta = event.metadata();
+    let mut fields = JsonFields::default();
+    event.record(&mut fields);
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "ts".into(),
+        serde_json::json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+    );
+    obj.insert("level".into(), serde_json::json!(meta.level().as_str()));
+    obj.insert("target".into(), serde_json::json!(meta.target()));
+    if let Some(scope) = scope {
+        for span in scope.from_root() {
+            if let Some(sf) = span.extensions().get::<JsonFields>() {
+                for (k, v) in &sf.0 {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    for (k, v) in fields.0 {
+        obj.insert(k, v);
+    }
+    obj.entry("event")
+        .or_insert_with(|| serde_json::json!("unnamed"));
+    obj
+}
+
+/// A bounded, in-process ring of recent log lines, each the JSON object the
+/// JSON formatter would write plus a monotonically increasing `seq`. Served
+/// at `GET /api/logs` so an agent reads a node's logs through the API.
+/// Bounded by line count and by bytes; the oldest lines are dropped first.
+pub struct LogRing {
+    inner: std::sync::Mutex<RingInner>,
+    max_lines: usize,
+    max_bytes: usize,
+}
+
+struct RingInner {
+    lines: std::collections::VecDeque<(u64, usize, serde_json::Value)>,
+    bytes: usize,
+    next_seq: u64,
+}
+
+impl LogRing {
+    pub const DEFAULT_MAX_LINES: usize = 5_000;
+    pub const DEFAULT_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+    pub fn with_limits(max_lines: usize, max_bytes: usize) -> Self {
+        LogRing {
+            inner: std::sync::Mutex::new(RingInner {
+                lines: std::collections::VecDeque::new(),
+                bytes: 0,
+                // Seqs start at 1 so an empty ring's cursor (0) resumes at
+                // the first line: `since` is exclusive.
+                next_seq: 1,
+            }),
+            max_lines,
+            max_bytes,
+        }
+    }
+
+    /// Append one line; returns its seq.
+    pub fn push(&self, mut obj: serde_json::Value) -> u64 {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let seq = g.next_seq;
+        g.next_seq += 1;
+        if let Some(map) = obj.as_object_mut() {
+            map.insert("seq".into(), serde_json::json!(seq));
+        }
+        let size = obj.to_string().len();
+        g.lines.push_back((seq, size, obj));
+        g.bytes += size;
+        while g.lines.len() > self.max_lines || g.bytes > self.max_bytes {
+            match g.lines.pop_front() {
+                Some((_, s, _)) => g.bytes -= s,
+                None => break,
+            }
+        }
+        seq
+    }
+
+    /// Lines with `seq > since`, oldest first, optionally filtered by
+    /// `actor` and `level` (exact, upper-case), at most `limit`. Returns the
+    /// lines and `next`: the last seq returned, or the newest seq in the
+    /// ring when nothing matched, so a caller can resume from it.
+    pub fn read(
+        &self,
+        since: u64,
+        actor: Option<&str>,
+        level: Option<&str>,
+        limit: usize,
+    ) -> (Vec<serde_json::Value>, u64) {
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out = Vec::new();
+        for (seq, _, obj) in g.lines.iter() {
+            if *seq <= since {
+                continue;
+            }
+            if let Some(a) = actor {
+                if obj.get("actor").and_then(|v| v.as_str()) != Some(a) {
+                    continue;
+                }
+            }
+            if let Some(l) = level {
+                if obj.get("level").and_then(|v| v.as_str()) != Some(l) {
+                    continue;
+                }
+            }
+            out.push(obj.clone());
+            if out.len() >= limit {
+                break;
+            }
+        }
+        let next = out
+            .last()
+            .and_then(|o| o.get("seq").and_then(|s| s.as_u64()))
+            .unwrap_or_else(|| g.next_seq.saturating_sub(1).max(since));
+        (out, next)
+    }
+}
+
+/// The process-wide ring every subscriber built here feeds.
+pub fn ring() -> &'static LogRing {
+    static RING: std::sync::OnceLock<LogRing> = std::sync::OnceLock::new();
+    RING.get_or_init(|| {
+        LogRing::with_limits(LogRing::DEFAULT_MAX_LINES, LogRing::DEFAULT_MAX_BYTES)
+    })
+}
+
+/// Feeds every record into the process-wide ring, whatever the format.
+struct RingLayer;
+
+impl<S> Layer<S> for RingLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
+        let obj = json_object(event, ctx.event_scope(event));
+        ring().push(serde_json::Value::Object(obj));
+    }
+}
+
 /// One JSON object per line: `{"ts","level","target","event",...fields}`.
 /// Span fields come first (root to leaf), then the record's own fields, so a
 /// leaf span or the record itself wins on a name clash. A record with no
@@ -238,32 +390,7 @@ where
         mut writer: Writer<'_>,
         event: &tracing::Event<'_>,
     ) -> std::fmt::Result {
-        let meta = event.metadata();
-        let mut fields = JsonFields::default();
-        event.record(&mut fields);
-        let mut obj = serde_json::Map::new();
-        obj.insert(
-            "ts".into(),
-            serde_json::json!(
-                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-            ),
-        );
-        obj.insert("level".into(), serde_json::json!(meta.level().as_str()));
-        obj.insert("target".into(), serde_json::json!(meta.target()));
-        if let Some(scope) = _ctx.event_scope() {
-            for span in scope.from_root() {
-                if let Some(sf) = span.extensions().get::<JsonFields>() {
-                    for (k, v) in &sf.0 {
-                        obj.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-        for (k, v) in fields.0 {
-            obj.insert(k, v);
-        }
-        obj.entry("event")
-            .or_insert_with(|| serde_json::json!("unnamed"));
+        let obj = json_object(event, _ctx.event_scope());
         let line = serde_json::to_string(&obj).map_err(|_| std::fmt::Error)?;
         writer.write_str(&line)?;
         writeln!(writer)
@@ -354,6 +481,7 @@ where
             tracing_subscriber::registry()
                 .with(filter)
                 .with(SpanFields)
+                .with(RingLayer)
                 .with(
                     tracing_subscriber::fmt::layer()
                         .event_format(JsonLine)
@@ -364,6 +492,7 @@ where
             tracing_subscriber::registry()
                 .with(filter)
                 .with(SpanFields)
+                .with(RingLayer)
                 .with(
                     tracing_subscriber::fmt::layer()
                         .event_format(TextLine)
