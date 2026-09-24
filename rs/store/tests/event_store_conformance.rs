@@ -398,15 +398,40 @@ fn bounds_event(id: &str, session_id: &str, subtype: &str, time: &str) -> Value 
 /// "Last Hour" regression where dead sessions re-surfaced as recent.
 pub async fn it_recompute_session_bounds_excludes_synthesized_subtypes(store: Arc<dyn EventStore>) {
     let sid = "sess-recompute-excl";
-    store.upsert_session(&test_session_row(sid, Some("x"))).await.unwrap();
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
+    store
+        .upsert_session(&test_session_row(sid, Some("x")))
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
     // Boot-stamped snapshot, far in the future — must be ignored.
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(first.as_deref(), Some("2025-01-14T00:00:00Z"));
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "snapshot time must not define last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "snapshot time must not define last_event"
+    );
 
     // The persisted row must reflect the recomputed bounds.
     let sessions = store.list_sessions().await.unwrap();
@@ -428,12 +453,34 @@ pub async fn it_recompute_session_bounds_lowers_a_polluted_value(store: Arc<dyn 
     store.upsert_session(&polluted).await.unwrap();
 
     // The only real activity ends at 00:05 — plus a boot-stamped snapshot.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "recompute must lower the polluted last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "recompute must lower the polluted last_event"
+    );
 
     let sessions = store.list_sessions().await.unwrap();
     let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
@@ -462,8 +509,20 @@ pub async fn it_recompute_session_bounds_preserves_live_frontier(store: Arc<dyn 
     // On disk: only earlier real events. The 20:00 event is still in flight
     // (NATS-bumped the row but hasn't been persisted) — nothing on disk reaches
     // the frontier.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(
@@ -784,7 +843,10 @@ pub async fn it_upserts_presence_and_returns_the_latest_per_node(store: Arc<dyn 
     assert_eq!(rows[0].host, "node-a");
     assert_eq!(rows[0].principal_id, "dev");
     assert_eq!(rows[0].person_id.as_deref(), Some("person-1"));
-    assert_eq!(rows[0].time, "2026-09-23T10:00:15.000Z", "the latest beat wins");
+    assert_eq!(
+        rows[0].time, "2026-09-23T10:00:15.000Z",
+        "the latest beat wins"
+    );
     assert_eq!(rows[0].body["git_sha"], "bbb");
     assert_eq!(rows[1].host, "node-b");
     assert_eq!(rows[1].body["git_sha"], "ccc");

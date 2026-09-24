@@ -284,6 +284,52 @@ pub async fn run_server(
             ));
         }
 
+        // ── Actor 1b: presence consumer (P-02) ──
+        // Subscribes to `presence.>` on the presence stream and keeps each
+        // node's latest beat in the presence table. Its own supervised task,
+        // so a fleet that stops reporting never touches session ingestion.
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let presence_bus = bus.clone();
+            tokio::spawn(tracing::Instrument::instrument(
+                consumers::supervision::supervise(
+                    "presence",
+                    move || {
+                        let event_store = event_store.clone();
+                        let presence_bus = presence_bus.clone();
+                        Box::pin(async move {
+                            match presence_bus
+                                .subscribe_stream("presence", "presence.>")
+                                .await
+                            {
+                                Ok(sub) => {
+                                    let mut driven = consumers::supervision::Driven::new(
+                                        "presence",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        consumers::presence::store_presence(
+                                            &*event_store,
+                                            &batch.events,
+                                        )
+                                        .await;
+                                    }
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
+                            }
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "presence"),
+            ));
+        }
+
         // ── Actor 2: patterns consumer ──
         // The sole pattern detector. Subscribes to events.>, runs the
         // eval-apply + sentence pipeline, persists turns + patterns to the

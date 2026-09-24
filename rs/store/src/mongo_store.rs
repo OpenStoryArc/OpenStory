@@ -37,7 +37,7 @@ use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
-use crate::event_store::{EventStore, SessionRow};
+use crate::event_store::{EventStore, PresenceRow, SessionRow};
 
 // Collection names — kept as const so any rename happens in one place.
 const COLL_EVENTS: &str = "events";
@@ -49,6 +49,8 @@ const COLL_PATTERNS: &str = "patterns";
 const COLL_TURNS: &str = "turns";
 #[allow(dead_code)]
 const COLL_PLANS: &str = "plans";
+/// P-02: one document per node, the latest presence beat.
+const COLL_PRESENCE: &str = "presence";
 #[allow(dead_code)]
 const COLL_FTS: &str = "events_fts";
 
@@ -388,11 +390,11 @@ impl EventStore for MongoStore {
         // Authoritative $set (not $min/$max-merge) so we can lower a polluted
         // bound. Bson::Null when there is no real-activity timestamp.
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
-        let existing_last: Option<String> = match sessions.find_one(doc! { "_id": session_id }).await
-        {
-            Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
-            _ => None,
-        };
+        let existing_last: Option<String> =
+            match sessions.find_one(doc! { "_id": session_id }).await {
+                Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
+                _ => None,
+            };
 
         // Preserve a strictly-ahead live frontier; otherwise heal. Both operands
         // must be present so the no-events case falls through to the recomputed
@@ -697,6 +699,58 @@ impl EventStore for MongoStore {
         while let Some(next) = cursor.next().await {
             let doc = next.map_err(|e| anyhow!("mongo session_patterns cursor: {e}"))?;
             out.push(doc_to_pattern_event(&doc)?);
+        }
+        Ok(out)
+    }
+
+    async fn upsert_presence(&self, row: &PresenceRow) -> Result<()> {
+        let coll: Collection<Document> = self.db.collection(COLL_PRESENCE);
+        let id = format!("{}/{}", row.host, row.principal_id);
+        let body: Bson = bson::to_bson(&row.body).map_err(|e| anyhow!("presence → bson: {e}"))?;
+        let doc = doc! {
+            "_id": &id,
+            "host": &row.host,
+            "principal_id": &row.principal_id,
+            "person_id": row.person_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "time": &row.time,
+            "data": body,
+        };
+        let opts = mongodb::options::ReplaceOptions::builder()
+            .upsert(true)
+            .build();
+        coll.replace_one(doc! { "_id": id }, doc)
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo upsert_presence: {e}"))?;
+        Ok(())
+    }
+
+    async fn latest_presence(&self) -> Result<Vec<PresenceRow>> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_PRESENCE);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "host": 1, "principal_id": 1 })
+            .build();
+        let mut cursor = coll
+            .find(doc! {})
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo latest_presence find: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let d = next.map_err(|e| anyhow!("mongo latest_presence cursor: {e}"))?;
+            let body = d
+                .get("data")
+                .cloned()
+                .map(|b| bson::from_bson::<Value>(b).unwrap_or(Value::Null))
+                .unwrap_or(Value::Null);
+            out.push(PresenceRow {
+                host: d.get_str("host").unwrap_or_default().to_string(),
+                principal_id: d.get_str("principal_id").unwrap_or_default().to_string(),
+                person_id: d.get_str("person_id").ok().map(str::to_string),
+                time: d.get_str("time").unwrap_or_default().to_string(),
+                body,
+            });
         }
         Ok(out)
     }

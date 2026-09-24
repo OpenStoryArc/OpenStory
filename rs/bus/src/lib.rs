@@ -90,6 +90,13 @@ pub trait Bus: Send + Sync + 'static {
     /// Returns a BusSubscription that yields batches as they arrive.
     async fn subscribe(&self, pattern: &str) -> Result<BusSubscription>;
 
+    /// Subscribe to `pattern` on a named stream that is not the events
+    /// family (P-02: `presence`). A bus with no stream notion falls back to
+    /// its plain subscribe.
+    async fn subscribe_stream(&self, _stream: &str, pattern: &str) -> Result<BusSubscription> {
+        self.subscribe(pattern).await
+    }
+
     /// Replay all historical events matching a pattern.
     /// Used for boot recovery — rebuilds store state from the event log.
     async fn replay(&self, pattern: &str) -> Result<Vec<IngestBatch>>;

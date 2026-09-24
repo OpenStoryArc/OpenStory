@@ -519,6 +519,14 @@ impl Bus for NatsBus {
         Ok(BusSubscription { receiver: rx })
     }
 
+    async fn subscribe_stream(&self, stream: &str, pattern: &str) -> Result<BusSubscription> {
+        let (tx, rx) = mpsc::channel(256);
+        self.spawn_consumer(tx, stream, pattern)
+            .await
+            .with_context(|| format!("failed to spawn '{stream}' consumer"))?;
+        Ok(BusSubscription { receiver: rx })
+    }
+
     async fn replay(&self, pattern: &str) -> Result<Vec<IngestBatch>> {
         // Solo: replay `events`. Federation: replay BOTH `events`
         // (own host's namespace) and `events-mirror` (fleet sourced from hub

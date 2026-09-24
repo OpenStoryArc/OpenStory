@@ -112,6 +112,16 @@ impl PersistConsumer {
         project_id: Option<&str>,
     ) -> PersistResult {
         let event_store = &*self.event_store;
+        // P-02: presence is its own family. It lands in the presence
+        // table and nowhere else: no session, no event row, no FTS, no
+        // JSONL. Routed before any of that machinery runs.
+        if !events.is_empty() && events.iter().all(super::presence::is_presence) {
+            let persisted = super::presence::store_presence(event_store, events).await;
+            return PersistResult {
+                persisted,
+                skipped: events.len() - persisted,
+            };
+        }
         let session_store = &self.session_store;
         let mut persisted = 0;
         let mut skipped = 0;

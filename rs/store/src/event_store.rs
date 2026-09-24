@@ -18,6 +18,18 @@ use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::queries;
 
+/// A node's presence beat as the store keeps it (P-02): who, when, and the
+/// health body it carried. `body` is the presence event's raw data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceRow {
+    pub host: String,
+    pub principal_id: String,
+    pub person_id: Option<String>,
+    /// The beat's time, RFC 3339 as the event carried it.
+    pub time: String,
+    pub body: Value,
+}
+
 /// Summary row for a session — materialized from SessionProjection.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionRow {
@@ -73,7 +85,6 @@ impl SessionRow {
         self.custom_label.as_deref().or(self.label.as_deref())
     }
 }
-
 
 /// Persistence interface for events, sessions, patterns, and plans.
 ///
@@ -186,6 +197,13 @@ pub trait EventStore: Send + Sync {
 
     /// Query structural turns for a session, ordered by turn_number.
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>>;
+
+    /// P-02: keep a node's latest presence beat. One row per (host,
+    /// principal); a newer beat replaces the older. Never an event row.
+    async fn upsert_presence(&self, row: &PresenceRow) -> Result<()>;
+
+    /// P-02: the latest presence beat of every node that has reported.
+    async fn latest_presence(&self) -> Result<Vec<PresenceRow>>;
 
     /// Store a plan.
     async fn upsert_plan(&self, plan_id: &str, session_id: &str, content: &str) -> Result<()>;
