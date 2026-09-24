@@ -300,6 +300,9 @@ pub struct Config {
     /// object per line for agents, log rings, and collectors). Env:
     /// OPEN_STORY_LOG_FORMAT. See logging::LogFormat.
     pub log_format: String,
+    /// Seconds between presence beats on `presence.{host}.{principal}`
+    /// (P-01). Default 15. Env: `OPEN_STORY_PRESENCE_INTERVAL_SECS`.
+    pub presence_interval_secs: u64,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
@@ -407,6 +410,7 @@ impl Default for Config {
             broadcast_channel_size: 256,
             metrics_enabled: false,
             log_format: "text".to_string(),
+            presence_interval_secs: 15,
             retention_days: 0,
             person: None,
         }
@@ -622,6 +626,9 @@ impl Config {
 # metrics_enabled = false
 # Log line format: "text" (terminal) or "json" (one object per line).
 # log_format = "text"
+
+# Seconds between presence beats on the bus (P-01).
+# presence_interval_secs = 15
 
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
@@ -910,6 +917,7 @@ mod tests {
             broadcast_channel_size: 512,
             metrics_enabled: true,
             log_format: "text".into(),
+            presence_interval_secs: 15,
             retention_days: 90,
             person: None,
         };

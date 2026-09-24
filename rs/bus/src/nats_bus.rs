@@ -271,6 +271,24 @@ impl NatsBus {
             .await
             .context("failed to create/get 'ui' JetStream stream")?;
 
+        // Presence stream (P-01) — each node's heartbeat on
+        // `presence.{host}.{principal}`. Its own observed family: never
+        // `events.*` (it is not agent history) and never `ui.*` (nobody
+        // authored it). Limits-based with a week of history so DORA reads
+        // (group D: which sha ran when, how long a critical lasted) have
+        // something to read; 64 MB caps a chatty fleet.
+        self.jetstream
+            .get_or_create_stream(stream::Config {
+                name: "presence".to_string(),
+                subjects: vec!["presence.>".to_string()],
+                retention: stream::RetentionPolicy::Limits,
+                max_bytes: 67_108_864,
+                max_age: std::time::Duration::from_secs(7 * 24 * 3600),
+                ..Default::default()
+            })
+            .await
+            .context("failed to create/get 'presence' JetStream stream")?;
+
         Ok(())
     }
 
@@ -428,6 +446,7 @@ impl Bus for NatsBus {
             "patterns",
             "ui",
             "changes",
+            "presence",
             "events-mirror",
             "events-agg",
         ] {

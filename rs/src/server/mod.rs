@@ -38,6 +38,7 @@ pub use open_story_server::config;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
 pub use open_story_server::directory;
+pub use open_story_server::presence;
 pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
@@ -655,6 +656,14 @@ pub async fn run_server(
     // time we reach here, but we tolerate None defensively.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     let person_snapshot: Option<config::Person> = state.read().await.config.person.clone();
+    // P-01: the node's presence beat. Every node, publisher or consumer,
+    // from the same health body `/api/health` serves. The task lives as
+    // long as the process; a failed beat is logged and the next one tries.
+    let presence_secs = state.read().await.config.presence_interval_secs.max(1);
+    let _presence = open_story_server::presence::spawn(
+        state.clone(),
+        std::time::Duration::from_secs(presence_secs),
+    );
     // Node-level publish switch: when false, own events are routed to the
     // `local.>` subject (stored + visible here, never federated) instead of
     // `events.{host}.>`. A plain Copy bool, captured per watcher closure.

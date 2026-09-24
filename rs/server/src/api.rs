@@ -376,6 +376,14 @@ pub async fn delete_annotation(
 }
 
 pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
+    let (status, body) = health_body(&state).await;
+    (status, Json(body))
+}
+
+/// The health body and its readiness status, shared by `/api/health` and
+/// the presence beat (P-01), so the fleet reads the same fact the operator
+/// does. Pure read; takes the state lock briefly.
+pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
     // H-06: ask the local NATS monitor about leaf links, briefly, before
     // taking the state lock. Unreachable monitor => connected false.
     let (leaf_url, monitor) = {
@@ -419,8 +427,9 @@ pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<
     };
     (
         status,
-        Json(json!({
+        json!({
             "status": if status == StatusCode::OK { "ok" } else { "starting" },
+            "host": open_story_core::host::host(),
             "boot": boot,
             "version": env!("CARGO_PKG_VERSION"),
             // H-07: the change this node runs, and its body.
@@ -466,7 +475,7 @@ pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<
                 &s.watcher_diagnostics.snapshots(),
                 chrono::Utc::now(),
             ),
-        })),
+        }),
     )
 }
 

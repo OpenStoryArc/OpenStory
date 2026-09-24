@@ -22,6 +22,7 @@ pub mod ingest;
 pub mod logging;
 pub mod metrics;
 pub mod node_health;
+pub mod presence;
 pub mod principal_resolver;
 pub mod reconcile;
 pub mod reproject;

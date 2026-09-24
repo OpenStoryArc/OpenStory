@@ -60,8 +60,7 @@ fn state_with(bus: Arc<RecordingBus>, tmp: &tempfile::TempDir) -> SharedState {
     let (broadcast_tx, _) = broadcast::channel(256);
     let watch_dir = tmp.path().join("watch");
     std::fs::create_dir_all(&watch_dir).unwrap();
-    let mut config = Config::default();
-    config.person = Some(Person {
+    let person = Some(Person {
         id: "person-1".to_string(),
         display_name: "Test person".to_string(),
         email: String::new(),
@@ -84,6 +83,10 @@ fn state_with(bus: Arc<RecordingBus>, tmp: &tempfile::TempDir) -> SharedState {
             },
         ],
     });
+    let config = Config {
+        person,
+        ..Config::default()
+    };
     let topology = open_story::server::admin::compute_topology(
         "test-host",
         config.role,
@@ -134,9 +137,15 @@ mod when_the_node_runs {
         let host = open_story_core::host::host();
         let expected = presence::subject(host, "this-node");
         assert!(expected.starts_with("presence."), "{expected}");
-        assert!(!expected.starts_with("events."), "presence never rides the observed stream");
+        assert!(
+            !expected.starts_with("events."),
+            "presence never rides the observed stream"
+        );
         let (subject, batch) = &published[0];
-        assert_eq!(subject, &expected, "the principal matching this host names the subject");
+        assert_eq!(
+            subject, &expected,
+            "the principal matching this host names the subject"
+        );
 
         assert_eq!(batch.events.len(), 1, "one presence event per beat");
         let ce = &batch.events[0];
@@ -148,8 +157,21 @@ mod when_the_node_runs {
 
         // The H-04 to H-07 payload rides in the event body.
         let raw = &ce.data.raw;
-        for key in ["boot", "git_sha", "built_at", "process", "store", "bus", "streams", "consumers", "watchers_detail"] {
-            assert!(raw.get(key).is_some(), "presence payload carries `{key}`: {raw}");
+        for key in [
+            "boot",
+            "git_sha",
+            "built_at",
+            "process",
+            "store",
+            "bus",
+            "streams",
+            "consumers",
+            "watchers_detail",
+        ] {
+            assert!(
+                raw.get(key).is_some(),
+                "presence payload carries `{key}`: {raw}"
+            );
         }
         assert_eq!(raw["host"], host, "the payload names its host");
         assert_eq!(raw["principal_id"], "this-node");
@@ -166,7 +188,10 @@ mod when_the_subject_is_built {
     #[test]
     fn it_keeps_nats_tokens_clean() {
         // Dots, spaces, and wildcards would split or widen the subject.
-        assert_eq!(presence::subject("Maxs Air.local", "p 1"), "presence.Maxs-Air-local.p-1");
+        assert_eq!(
+            presence::subject("Maxs Air.local", "p 1"),
+            "presence.Maxs-Air-local.p-1"
+        );
         assert_eq!(presence::subject("hub", "a*b>c"), "presence.hub.a-b-c");
         assert_eq!(presence::subject("", ""), "presence.unknown.unknown");
     }
