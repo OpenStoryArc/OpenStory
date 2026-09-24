@@ -7,8 +7,11 @@
 //! authored it. The subject names the node, so the hub, the fleet tab, and
 //! another node can read who is alive without asking anyone.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use open_story_bus::IngestBatch;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::event_data::EventData;
@@ -26,6 +29,47 @@ pub const AGENT: &str = "openstory";
 pub const SUBTYPE: &str = "node.presence";
 /// The CloudEvent source.
 pub const SOURCE: &str = "openstory-node";
+/// A publish that has not answered by then is cut off and counted as a
+/// failure (P-06), so a stuck bus never wedges the beat.
+pub const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+
+static BEATS: AtomicU64 = AtomicU64::new(0);
+static FAILURES: AtomicU64 = AtomicU64::new(0);
+static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// What the beat has done since boot (P-06): on the health body, so a
+/// node whose presence is not leaving the machine says so itself.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PresenceStats {
+    pub beats: u64,
+    pub failures: u64,
+    pub last_error: Option<String>,
+}
+
+pub fn stats() -> PresenceStats {
+    PresenceStats {
+        beats: BEATS.load(Ordering::Relaxed),
+        failures: FAILURES.load(Ordering::Relaxed),
+        last_error: LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+    }
+}
+
+/// The health body's `presence` block.
+pub fn stats_json(interval_secs: u64) -> Value {
+    let s = stats();
+    serde_json::json!({
+        "interval_secs": interval_secs,
+        "beats": s.beats,
+        "failures": s.failures,
+        "last_error": s.last_error,
+    })
+}
+
+fn record_failure(subject: &str, session_id: &str, err: &anyhow::Error) {
+    FAILURES.fetch_add(1, Ordering::Relaxed);
+    *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!("{err:#}"));
+    crate::logging::publish_failed("presence", subject, session_id, 1, err);
+}
 
 /// One NATS subject token. Dots would split it, wildcards would widen it,
 /// whitespace is not allowed; an empty token reads `unknown`.
@@ -165,8 +209,16 @@ pub fn batch(host: &str, ce: CloudEvent) -> IngestBatch {
 }
 
 /// One beat: build the health body, stamp identity, publish. Returns the
-/// subject it went to. A failure is logged in the E-05 shape and returned.
+/// subject it went to. A failure is logged in the E-05 shape, counted, and
+/// returned; a publish still pending after `PUBLISH_TIMEOUT` is a failure.
 pub async fn publish_once(state: &SharedState) -> anyhow::Result<String> {
+    publish_once_with_timeout(state, PUBLISH_TIMEOUT).await
+}
+
+pub async fn publish_once_with_timeout(
+    state: &SharedState,
+    timeout: Duration,
+) -> anyhow::Result<String> {
     let (_status, body) = crate::api::health_body(state).await;
     let host = open_story_core::host::host();
     let (bus, person) = {
@@ -179,22 +231,40 @@ pub async fn publish_once(state: &SharedState) -> anyhow::Result<String> {
         host,
         presence_event(host, person_id.as_deref(), &principal_id, body),
     );
-    if let Err(e) = bus.publish(&subject, &b).await {
-        crate::logging::publish_failed("presence", &subject, &b.session_id, 1, &e);
+    let published = match tokio::time::timeout(timeout, bus.publish(&subject, &b)).await {
+        Ok(r) => r,
+        Err(_) => Err(anyhow::anyhow!(
+            "publish timed out after {} ms",
+            timeout.as_millis()
+        ))
+        .with_context(|| format!("failed to publish to {subject}")),
+    };
+    if let Err(e) = published {
+        record_failure(&subject, &b.session_id, &e);
         return Err(e);
     }
+    BEATS.fetch_add(1, Ordering::Relaxed);
     Ok(subject)
 }
 
 /// The beat: a first presence right away, then one every `interval`.
 pub fn spawn(state: SharedState, interval: Duration) -> JoinHandle<()> {
+    spawn_with_timeout(state, interval, PUBLISH_TIMEOUT)
+}
+
+/// The beat with an explicit publish timeout (tests use a short one).
+pub fn spawn_with_timeout(
+    state: SharedState,
+    interval: Duration,
+    timeout: Duration,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(interval);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            // audit-ok: publish_once logs its own failure; the next tick retries
-            let _ = publish_once(&state).await;
+            // audit-ok: publish_once logs and counts its own failure; the next tick retries
+            let _ = publish_once_with_timeout(&state, timeout).await;
         }
     })
 }

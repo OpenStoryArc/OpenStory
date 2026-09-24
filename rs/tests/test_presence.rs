@@ -281,21 +281,34 @@ mod when_a_node_stops_reporting {
     #[test]
     fn it_is_stale_past_three_intervals() {
         let now = chrono::Utc::now();
-        let rows = vec![beat("fresh", 5, "aaa"), beat("quiet", 46, "bbb"), beat("gone", 3600, "ccc")];
+        let rows = vec![
+            beat("fresh", 5, "aaa"),
+            beat("quiet", 46, "bbb"),
+            beat("gone", 3600, "ccc"),
+        ];
         let view = presence::fleet_view(&rows, now, 15);
         assert_eq!(view.len(), 3);
         let by_host = |h: &str| view.iter().find(|n| n["host"] == h).cloned().unwrap();
         let fresh = by_host("fresh");
         assert_eq!(fresh["stale"], false);
-        assert!((4..=6).contains(&fresh["age_secs"].as_i64().unwrap()), "{fresh}");
+        assert!(
+            (4..=6).contains(&fresh["age_secs"].as_i64().unwrap()),
+            "{fresh}"
+        );
         let quiet = by_host("quiet");
         assert_eq!(quiet["stale"], true, "46 s is past 3 × 15 s: {quiet}");
         let gone = by_host("gone");
         assert_eq!(gone["stale"], true);
-        assert_eq!(gone["git_sha"], "ccc", "the beat's sha is lifted to the top level");
+        assert_eq!(
+            gone["git_sha"], "ccc",
+            "the beat's sha is lifted to the top level"
+        );
         assert_eq!(gone["principal_id"], "dev");
         assert_eq!(gone["person_id"], "person-1");
-        assert_eq!(gone["body"]["status"], "ok", "the whole beat still rides along");
+        assert_eq!(
+            gone["body"]["status"], "ok",
+            "the whole beat still rides along"
+        );
     }
 
     /// P-03 (edge): an unparseable time is stale with no age, never a crash.
@@ -314,14 +327,25 @@ mod when_a_node_stops_reporting {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(&tmp);
         let store = state.read().await.store.event_store.clone();
-        store.upsert_presence(&beat("fresh", 5, "aaa")).await.unwrap();
-        store.upsert_presence(&beat("gone", 600, "bbb")).await.unwrap();
+        store
+            .upsert_presence(&beat("fresh", 5, "aaa"))
+            .await
+            .unwrap();
+        store
+            .upsert_presence(&beat("gone", 600, "bbb"))
+            .await
+            .unwrap();
 
-        let req = Request::get("/api/fleet/presence").body(Body::empty()).unwrap();
+        let req = Request::get("/api/fleet/presence")
+            .body(Body::empty())
+            .unwrap();
         let resp = send_request(state, req).await;
         assert_eq!(resp.status(), 200);
         let body = body_json(resp).await;
-        assert_eq!(body["interval_secs"], 15, "the configured beat interval: {body}");
+        assert_eq!(
+            body["interval_secs"], 15,
+            "the configured beat interval: {body}"
+        );
         let nodes = body["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 2, "{body}");
         let fresh = nodes.iter().find(|n| n["host"] == "fresh").unwrap();
@@ -365,8 +389,10 @@ mod when_publish_fails {
     #[async_trait]
     impl Bus for FailingBus {
         async fn publish(&self, subject: &str, _batch: &IngestBatch) -> Result<()> {
-            Err(anyhow::Error::from(std::io::Error::other("nats: connection closed")))
-                .with_context(|| format!("failed to publish to {subject}"))
+            Err(anyhow::Error::from(std::io::Error::other(
+                "nats: connection closed",
+            )))
+            .with_context(|| format!("failed to publish to {subject}"))
         }
         async fn publish_bytes(&self, _subject: &str, _data: &[u8]) -> Result<()> {
             Ok(())
@@ -451,18 +477,25 @@ mod when_publish_fails {
 
         let handle = presence::spawn(state.clone(), Duration::from_millis(20));
         let failed = wait_for_failures(before, 2).await;
-        assert!(failed >= 2, "the beat keeps trying after a failure: {failed} failures");
+        assert!(
+            failed >= 2,
+            "the beat keeps trying after a failure: {failed} failures"
+        );
 
         // Ingestion never waited on the beat: the persist actor, driven
         // while the failing beat runs, still lands a batch.
         let other = tempfile::tempdir().unwrap();
         let mut actors = TestActors::new(&other).await;
-        let ce = presence::presence_event("node-x", None, "dev", serde_json::json!({"status": "ok"}));
+        let ce =
+            presence::presence_event("node-x", None, "dev", serde_json::json!({"status": "ok"}));
         let r = actors
             .persist
             .process_batch("presence:node-x", &[ce], Some(presence::SOURCE))
             .await;
-        assert_eq!(r.persisted, 1, "ingestion continued while beats were failing");
+        assert_eq!(
+            r.persisted, 1,
+            "ingestion continued while beats were failing"
+        );
         handle.abort();
 
         // The E-05 shape, with the presence actor and subject.
@@ -479,16 +512,30 @@ mod when_publish_fails {
         );
         assert_eq!(line["events"], 1);
         let error = line["error"].as_str().unwrap();
-        assert!(error.contains("failed to publish to"), "context kept: {error}");
-        assert!(error.contains("connection closed"), "root cause kept: {error}");
+        assert!(
+            error.contains("failed to publish to"),
+            "context kept: {error}"
+        );
+        assert!(
+            error.contains("connection closed"),
+            "root cause kept: {error}"
+        );
 
         // Counted, and on the health body for the fleet to see.
         let stats = presence::stats();
         assert!(stats.failures >= before + 2);
         assert!(stats.last_error.is_some());
         let (_status, body) = open_story_server::api::health_body(&state).await;
-        assert!(body["presence"]["failures"].as_u64().unwrap() >= 2, "{}", body["presence"]);
-        assert!(body["presence"]["last_error"].is_string(), "{}", body["presence"]);
+        assert!(
+            body["presence"]["failures"].as_u64().unwrap() >= 2,
+            "{}",
+            body["presence"]
+        );
+        assert!(
+            body["presence"]["last_error"].is_string(),
+            "{}",
+            body["presence"]
+        );
         assert_eq!(body["presence"]["interval_secs"], 15);
     }
 
@@ -505,7 +552,10 @@ mod when_publish_fails {
         );
         let failed = wait_for_failures(before, 2).await;
         handle.abort();
-        assert!(failed >= 2, "a hung publish is cut off and the beat goes on: {failed}");
+        assert!(
+            failed >= 2,
+            "a hung publish is cut off and the beat goes on: {failed}"
+        );
         let err = presence::stats().last_error.unwrap_or_default();
         assert!(
             err.contains("timed out") || err.contains("connection closed"),

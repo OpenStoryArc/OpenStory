@@ -469,6 +469,8 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
             "consumers": crate::consumers::supervision::stats().snapshot(),
             // H-04: per-stream bytes against the configured caps, from JetStream.
             "streams": s.bus.stream_stats().await,
+            // P-06: the beat's own bookkeeping.
+            "presence": crate::presence::stats_json(s.config.presence_interval_secs),
             // H-06: the leaf link and per-watcher detail.
             "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
             "watchers_detail": crate::node_health::watcher_detail(

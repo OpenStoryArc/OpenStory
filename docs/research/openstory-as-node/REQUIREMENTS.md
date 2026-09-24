@@ -105,7 +105,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | P-03 | GREEN. `GET /api/fleet/presence` returns the latest presence per node with `age_secs`; a node older than 3 intervals is `stale`. | `…::when_a_node_stops_reporting::it_becomes_stale` |
 | P-04 | GREEN. Presence crosses the leaf and the hub alongside events. The leaf template names no subjects (federation here is JetStream sourcing plus hub account grants), so the change lives in the bus: a `presence` stream bound per host under federation, a `presence-mirror` sourcing the hub's `presence-agg`, self-registration on both aggregates, the mirror read on subscribe, and `presence.>` in the observer and contributor grants. `openstory-deploy` must create `presence-agg` on the hub (it calls `ensure_aggregate`, which now does). | `rs/bus/src/nats_bus.rs::presence_federation_tests` (6), `rs/bus/src/accounts.rs::tests::observer_and_contributor_carry_presence_alongside_events`, `rs/bus/tests/test_bus_presence.rs::when_a_beat_is_published::it_reaches_the_presence_subscription_and_never_the_events_stream` |
 | P-05 | GREEN. The fleet tab shows each node with its dot and last presence; the local node reads its own presence, not a second path. | `ui/tests/components/fleet-presence.test.tsx::when_two_nodes_report::it_lists_both_with_ages` |
-| P-06 | A presence event that fails to publish is logged (E-05 shape) and counted; it never blocks ingestion. | `…::when_publish_fails::it_logs_and_continues` |
+| P-06 | GREEN. A presence event that fails to publish is logged (E-05 shape) and counted; it never blocks ingestion. | `…::when_publish_fails::it_logs_and_continues` |
 
 ## O · Telemetry
 
@@ -334,3 +334,12 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `presence-agg` through `ensure_aggregate`; nothing else. Next: P-05
   (the fleet tab reads presence) and P-06 (a failed beat is logged and
   counted, never blocks ingestion).
+- **2026-09-24 00:50 local.** P-05 and P-06 GREEN, group P complete (6/6).
+  The Admin tab's Fleet section lists every node from
+  `GET /api/fleet/presence` with its dot, age, sha, and a stale badge,
+  self through the same path (`lib/fleet-presence.ts` is pure). The beat
+  counts beats and failures, keeps the last error, cuts a hung publish
+  off at ten seconds, logs the E-05 shape under actor `presence`, and
+  reports all of it under `presence` on the health body; ingestion is a
+  separate actor and never waits on it. Owner must decide: nothing new.
+  Next: group O (telemetry), starting with O-01.
