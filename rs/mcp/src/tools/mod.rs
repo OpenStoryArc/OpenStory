@@ -299,6 +299,14 @@ pub const TOOLS: &[ToolDef] = &[
                       a node is stale past three beats.",
         input_schema: ops::empty_schema,
     },
+    ToolDef {
+        name: "subscribe_health",
+        description: "WHEN: you are watching a node and want to hear only when its verdict moves. MOTION: watch. \\
+                      CALL: { interval_secs? (default 15) }. RETURNS: started with the current verdict, then \\
+                      notifications/openstory/health {from, to, added, cleared, verdict, seq} on every transition; \\
+                      silence means nothing changed. Cancel via notifications/cancelled.",
+        input_schema: ops::subscribe_health_schema,
+    },
 ];
 
 fn subscribe_session_schema() -> Value {

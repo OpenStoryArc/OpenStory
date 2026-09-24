@@ -125,7 +125,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | M-02 | GREEN. `node_logs {since?, actor?, level?, limit?}` reads `/api/logs` (L-06). | `…::when_node_logs_is_called_with_actor::it_filters` |
 | M-03 | GREEN. `node_streams {}` returns per-stream bytes against caps with percent. | `…::when_node_streams_is_called::it_reports_percent_of_cap` |
 | M-04 | GREEN. `fleet_presence {}` returns P-03. | `…::when_fleet_presence_is_called::it_lists_nodes_with_staleness` |
-| M-05 | `subscribe_health {}` streams health changes (verdict transitions and any finding added or cleared) as notifications. | `…::when_health_flips_to_critical::it_notifies_once` |
+| M-05 | GREEN. `subscribe_health {}` streams health changes (verdict transitions and any finding added or cleared) as notifications. | `…::when_health_flips_to_critical::it_notifies_once` |
 | M-06 | Tier 1 hands `node_reproject {session_id}`, `node_verify {session_id}`, `node_catch_up {since}`, `node_prune {older_than_days}` publish an `ops.proposal.<hand>` CloudEvent with `author`, `evidence` (finding ids), and `idempotency_key`, then call the matching REST endpoint; the server records `ops.command.<hand>` with the result. | `…::when_node_reproject_is_called::it_publishes_proposal_then_command` |
 | M-07 | Tier 1 hands are refused with a clear error while `boot.phase != serving`. | `…::when_replaying::tier_one_hands_refuse` |
 | M-08 | The MCP can publish only subjects in `ops.proposal.>` and `ui.>`; a test enumerates every publish call in `rs/mcp` and asserts the prefix. | `…::when_mcp_publishes::it_only_touches_authored_subjects` |

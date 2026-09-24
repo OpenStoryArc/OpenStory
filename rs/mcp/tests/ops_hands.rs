@@ -303,7 +303,10 @@ mod when_health_flips_to_critical {
         let text: Value =
             serde_json::from_str(ack["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
         assert_eq!(text["status"], "started", "{text}");
-        assert_eq!(text["verdict"]["level"], "ok", "the ack carries the current verdict: {text}");
+        assert_eq!(
+            text["verdict"]["level"], "ok",
+            "the ack carries the current verdict: {text}"
+        );
         let stream_id = text["stream_id"].as_str().unwrap().to_string();
 
         let notif: Value = serde_json::from_str(
@@ -326,28 +329,45 @@ mod when_health_flips_to_critical {
 
         // Still critical, same findings: nothing more is said.
         let silence = timeout(Duration::from_millis(400), reader.next_line()).await;
-        assert!(silence.is_err(), "no notification while nothing changes: {silence:?}");
-        assert!(calls.load(Ordering::SeqCst) >= 4, "it kept polling meanwhile");
+        assert!(
+            silence.is_err(),
+            "no notification while nothing changes: {silence:?}"
+        );
+        assert!(
+            calls.load(Ordering::SeqCst) >= 4,
+            "it kept polling meanwhile"
+        );
 
         drop(client_w);
-        timeout(Duration::from_secs(2), task).await.expect("server exits when stdin closes").unwrap().unwrap();
+        timeout(Duration::from_secs(2), task)
+            .await
+            .expect("server exits when stdin closes")
+            .unwrap()
+            .unwrap();
     }
 
     #[test]
     fn a_transition_is_a_level_change_or_a_finding_added_or_cleared() {
         use open_story_mcp::tools::ops::health_transition;
         let ok = json!({"level": "ok", "findings": []});
-        let warn_a = json!({"level": "warn", "findings": [{"id": "a", "level": "warn", "text": "a"}]});
+        let warn_a =
+            json!({"level": "warn", "findings": [{"id": "a", "level": "warn", "text": "a"}]});
         let warn_ab = json!({"level": "warn", "findings": [
             {"id": "a", "level": "warn", "text": "a"}, {"id": "b", "level": "warn", "text": "b"}]});
-        assert!(health_transition(&ok, &ok).is_none(), "same verdict, no transition");
+        assert!(
+            health_transition(&ok, &ok).is_none(),
+            "same verdict, no transition"
+        );
         let t = health_transition(&ok, &warn_a).unwrap();
         assert_eq!(t["from"], "ok");
         assert_eq!(t["to"], "warn");
         assert_eq!(t["added"], json!(["a"]));
         let t = health_transition(&warn_a, &warn_ab).unwrap();
         assert_eq!(t["from"], "warn");
-        assert_eq!(t["to"], "warn", "same level, a finding added is still a transition");
+        assert_eq!(
+            t["to"], "warn",
+            "same level, a finding added is still a transition"
+        );
         assert_eq!(t["added"], json!(["b"]));
         let t = health_transition(&warn_ab, &ok).unwrap();
         assert_eq!(t["cleared"], json!(["a", "b"]));

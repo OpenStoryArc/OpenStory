@@ -122,6 +122,61 @@ pub async fn fleet_presence(api_base: &str, _args: Value) -> Result<Value, Strin
     get_json(&format!("{base}/api/fleet/presence"), "fleet_presence").await
 }
 
+pub fn subscribe_health_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "interval_secs": {"type": "number", "description": "Seconds between health reads (default 15)"}
+        },
+        "additionalProperties": false
+    })
+}
+
+fn finding_ids(verdict: &Value) -> Vec<String> {
+    let mut ids: Vec<String> = verdict["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["id"].as_str().map(str::to_string))
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// What changed between two verdicts (M-05): the level moved, or a
+/// finding appeared or cleared. `None` when nothing did, so a subscriber
+/// hears only transitions. Pure.
+pub fn health_transition(prev: &Value, next: &Value) -> Option<Value> {
+    let from = prev["level"].as_str().unwrap_or("unknown");
+    let to = next["level"].as_str().unwrap_or("unknown");
+    let before = finding_ids(prev);
+    let after = finding_ids(next);
+    let added: Vec<&String> = after.iter().filter(|id| !before.contains(id)).collect();
+    let cleared: Vec<&String> = before.iter().filter(|id| !after.contains(id)).collect();
+    if from == to && added.is_empty() && cleared.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "from": from,
+        "to": to,
+        "added": added,
+        "cleared": cleared,
+        "verdict": next,
+    }))
+}
+
+/// The verdict on a health body, or an `unknown` verdict naming the error
+/// when the node cannot be read, so an outage is itself a transition.
+pub async fn read_verdict(api_base: &str) -> Value {
+    match node_health(api_base, Value::Null).await {
+        Ok(body) if body.get("verdict").is_some() => body["verdict"].clone(),
+        Ok(_) => json!({"level": "unknown", "findings": [
+            {"id": "no_verdict", "level": "warn", "text": "health has no verdict on this build"}]}),
+        Err(e) => json!({"level": "unknown", "findings": [
+            {"id": "health_unreachable", "level": "critical", "text": e}]}),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
