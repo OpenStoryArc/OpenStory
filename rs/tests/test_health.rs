@@ -117,3 +117,43 @@ mod when_streams_exist {
         );
     }
 }
+
+// H-06: leaf configured / connected / hub (redacted) and per-watcher age
+// and publish failures.
+mod when_leaf_is_configured_but_down {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reports_not_connected() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        state.write().await.config.nats_leaf_url = "nats://secret-token@hub.example:7422".to_string();
+
+        let body = body_json(send_request(state, Request::get("/api/health").body(Body::empty()).unwrap()).await).await;
+        let leaf = &body["leaf"];
+        assert_eq!(leaf["configured"], true, "{body}");
+        assert_eq!(leaf["connected"], false, "no NATS monitor answers under test: not connected");
+        assert_eq!(leaf["hub"], "hub.example:7422", "the token never appears");
+        assert!(!body.to_string().contains("secret-token"), "redacted everywhere: {body}");
+        assert!(body["watchers_detail"].is_array(), "per-watcher detail is always present: {body}");
+    }
+}
+
+mod when_leaf_is_not_configured {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_says_solo_without_a_hub() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let body = body_json(send_request(state, Request::get("/api/health").body(Body::empty()).unwrap()).await).await;
+        assert_eq!(body["leaf"]["configured"], false);
+        assert!(body["leaf"]["hub"].is_null());
+    }
+}
