@@ -21,14 +21,91 @@ use anyhow::Result;
 /// drop. When we reused an existing server, `child` is `None` and drop is a
 /// no-op.
 pub struct NatsGuard {
-    child: Option<std::process::Child>,
+    child: Option<Arc<Mutex<std::process::Child>>>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    alive: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
+}
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+impl NatsGuard {
+    /// A guard over a server we did not start: nothing to watch or stop.
+    pub fn none() -> Self {
+        NatsGuard {
+            child: None,
+            alive: Arc::new(AtomicBool::new(true)),
+            stopping: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Own `child` and watch it (E-07): a thread polls every 500 ms; when the
+    /// child exits on its own the exit is logged at ERROR as
+    /// `nats_child_exited` with its code, `alive()` flips, and the bus health
+    /// flag goes down. Intentional stops (drop) are not errors.
+    pub fn watch(child: std::process::Child) -> Self {
+        let child = Arc::new(Mutex::new(child));
+        let alive = Arc::new(AtomicBool::new(true));
+        let stopping = Arc::new(AtomicBool::new(false));
+        open_story_bus::health::set_nats_child_alive(true);
+        let (c, a, s) = (child.clone(), alive.clone(), stopping.clone());
+        // The watcher thread logs under the dispatcher it was spawned under
+        // (a scoped subscriber in tests, the global one in production).
+        let dispatch = tracing::dispatcher::get_default(|d| d.clone());
+        std::thread::Builder::new()
+            .name("nats-child-watch".into())
+            .spawn(move || loop {
+                let _dispatch = tracing::dispatcher::set_default(&dispatch);
+                if s.load(Ordering::SeqCst) {
+                    return;
+                }
+                let status = match c.lock() {
+                    Ok(mut ch) => ch.try_wait(),
+                    Err(_) => return,
+                };
+                match status {
+                    Ok(Some(status)) => {
+                        a.store(false, Ordering::SeqCst);
+                        open_story_bus::health::set_nats_child_alive(false);
+                        let code = status.code().unwrap_or(-1);
+                        tracing::error!(
+                            event = "nats_child_exited",
+                            code,
+                            "managed nats-server exited with code {code}; see nats.log in the store dir"
+                        );
+                        return;
+                    }
+                    Ok(None) => {}
+                    Err(_) => return,
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            })
+            .expect("spawn nats child watcher");
+        NatsGuard {
+            child: Some(child),
+            alive,
+            stopping,
+        }
+    }
+
+    /// False once the watched child has exited. The process-wide fact is
+    /// `open_story_bus::health::nats_child_alive()`; this is the guard's own
+    /// view, read by tests (the binary itself reads the bus flag).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::SeqCst)
+    }
 }
 
 impl Drop for NatsGuard {
     fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+        self.stopping.store(true, Ordering::SeqCst);
+        if let Some(child) = self.child.as_ref() {
+            if let Ok(mut ch) = child.lock() {
+                let _ = ch.kill(); // audit-ok: stopping a child we own
+                let _ = ch.wait(); // audit-ok: reaping, nothing to do on error
+            }
         }
     }
 }
@@ -59,7 +136,7 @@ pub fn ensure_nats(
         eprintln!(
             "  \x1b[2mNATS:\x1b[0m         reusing server already listening on {host}:{port}"
         );
-        return Ok(NatsGuard { child: None });
+        return Ok(NatsGuard::none());
     }
 
     let bin = find_nats_binary(nats_bin).ok_or_else(|| {
@@ -107,7 +184,7 @@ pub fn ensure_nats(
     let deadline = Instant::now() + Duration::from_secs(15);
     while Instant::now() < deadline {
         if tcp_reachable(&host, port, Duration::from_millis(300)) {
-            return Ok(NatsGuard { child: Some(child) });
+            return Ok(NatsGuard::watch(child));
         }
         std::thread::sleep(Duration::from_millis(200));
     }

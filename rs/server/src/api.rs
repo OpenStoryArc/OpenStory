@@ -393,7 +393,8 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
             "backend": s.config.data_backend.to_string(),
             "sessions": sessions,
         },
-        "bus": { "connected": s.bus.is_active() },
+        // E-07: down as well when a managed NATS child has been seen to exit.
+        "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
         "projections": {
             "count": projections,
             "sessions": sessions,
