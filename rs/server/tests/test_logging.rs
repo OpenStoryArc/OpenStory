@@ -266,3 +266,52 @@ mod when_persist_logs_a_session {
         assert_eq!(batch["project_id"], "proj-x");
     }
 }
+
+// L-04: `log_event` flows through tracing, and the text formatter keeps
+// the terminal shape people know: `HH:MM:SS  category  message`, fields after.
+mod when_log_format_is_text_after_l04 {
+    use super::*;
+    use open_story_server::logging::log_event;
+
+    #[test]
+    fn it_keeps_time_category_message_shape() {
+        let cap = Capture::default();
+        let sub = build_subscriber(LogFormat::Text, "info", cap.clone());
+        tracing::subscriber::with_default(sub, || {
+            {
+                let span = tracing::info_span!("consumer", actor = "persist");
+                let _g = span.enter();
+                tracing::info!(event = "batch_persisted", session_id = "sess-1", persisted = 3, "persisted batch");
+            }
+            log_event("api", "GET /api/sessions");
+        });
+        let lines = cap.lines();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        let time = regex::Regex::new(r"^\x1b\[2m\d{2}:\d{2}:\d{2}\x1b\[0m ").unwrap();
+
+        assert!(time.is_match(&lines[0]), "starts with a dim HH:MM:SS: {:?}", lines[0]);
+        assert!(lines[0].contains("persist"), "category is the actor: {:?}", lines[0]);
+        assert!(lines[0].contains("persisted batch"), "{:?}", lines[0]);
+        assert!(lines[0].contains("session_id=sess-1"), "fields follow the message: {:?}", lines[0]);
+        assert!(lines[0].contains("persisted=3"), "{:?}", lines[0]);
+        assert!(!lines[0].contains("event="), "the event name is the line's identity, not noise: {:?}", lines[0]);
+
+        assert!(time.is_match(&lines[1]), "{:?}", lines[1]);
+        assert!(lines[1].contains("api"), "category from log_event's first argument: {:?}", lines[1]);
+        assert!(lines[1].contains("GET /api/sessions"), "{:?}", lines[1]);
+        assert!(serde_json::from_str::<serde_json::Value>(&lines[1]).is_err());
+    }
+
+    #[test]
+    fn it_routes_log_event_through_tracing_so_json_sees_it_too() {
+        let cap = Capture::default();
+        let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
+        tracing::subscriber::with_default(sub, || {
+            log_event("watch", "watching /Users/x/.claude/projects");
+        });
+        let line: serde_json::Value = serde_json::from_str(&cap.lines()[0]).unwrap();
+        assert_eq!(line["category"], "watch");
+        assert_eq!(line["message"], "watching /Users/x/.claude/projects");
+        assert_eq!(line["level"], "INFO");
+    }
+}
