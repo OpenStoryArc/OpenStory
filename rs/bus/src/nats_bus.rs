@@ -49,8 +49,6 @@ pub enum FederationPeers {
 pub struct NatsBus {
     /// The events cap in bytes (K-08), from OPEN_STORY_EVENTS_MAX_BYTES.
     events_cap: i64,
-    /// Bytes one publish may carry, from the server's advertised max_payload.
-    publish_budget: usize,
     /// JetStream context for *this node's own NATS*. In solo mode this is a
     /// vanilla context (`$JS.API.>`); in federation mode it's pinned to the
     /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
@@ -132,8 +130,6 @@ impl NatsBus {
             Some(d) => jetstream::with_domain(client.clone(), d),
         };
 
-        // The server says how much one publish may carry; the split follows it.
-        let budget = publish_budget(client.server_info().max_payload);
         Ok(Self {
             jetstream,
             local_domain,
@@ -143,7 +139,6 @@ impl NatsBus {
             events_cap: events_cap_from(
                 std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
             ),
-            publish_budget: budget,
         })
     }
 
@@ -519,8 +514,11 @@ impl Bus for NatsBus {
         // max_payload). A batch over the budget is split in order and
         // published piece by piece, so a hundred-event Grok batch of 1 MB
         // lines no longer fails whole.
-        if payload.len() > self.publish_budget && batch.events.len() > 1 {
-            for piece in crate::split::split_batch(batch.clone(), self.publish_budget) {
+        // The server says how much one publish may carry; read it now, not at
+        // connect, because the INFO frame can land after connect returns.
+        let budget = publish_budget(self.client.server_info().max_payload);
+        if payload.len() > budget && batch.events.len() > 1 {
+            for piece in crate::split::split_batch(batch.clone(), budget) {
                 let bytes =
                     serde_json::to_vec(&piece).context("failed to serialize IngestBatch")?;
                 self.publish_one(subject, bytes).await?;
