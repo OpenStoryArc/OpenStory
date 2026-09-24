@@ -226,3 +226,127 @@ mod when_health_is_read {
         assert!(body["process"]["pid"].as_u64().unwrap() > 0);
     }
 }
+
+/// M-01 (server half): the node computes its own verdict once, the way
+/// scripts/node_health_probe.py and the header dot do, and serves it on
+/// the health body so every reader agrees.
+mod when_the_verdict_is_computed {
+    use super::*;
+    use open_story_server::node_health::verdict;
+    use serde_json::json;
+
+    fn healthy() -> serde_json::Value {
+        json!({
+            "boot": {"phase": "serving", "replay": {"done": 3, "total": 3, "elapsed_ms": 1}},
+            "bus": {"connected": true},
+            "leaf": {"configured": true, "connected": true, "hub": "hub:7422"},
+            "projections": {"count": 3, "sessions": 3, "fresh": true},
+            "streams": [{"name": "events", "bytes": 10, "messages": 1, "max_bytes": 100, "percent": 0.1}],
+            "consumers": {"persist": {"alive": true, "restarts": 0, "lag": 0}},
+            "watchers_detail": [{"actor": "claude-code", "age_secs": 12, "publish_failures": 0}],
+            "publish_failures": 0,
+            "presence": {"beats": 10, "failures": 0, "last_error": null, "interval_secs": 15},
+        })
+    }
+
+    fn ids(v: &serde_json::Value) -> Vec<String> {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn it_ranks_like_the_probe() {
+        let ok = verdict(&healthy());
+        assert_eq!(ok["level"], "ok", "{ok}");
+        assert!(ok["findings"].as_array().unwrap().is_empty());
+
+        let mut b = healthy();
+        b["bus"]["connected"] = json!(false);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["bus_disconnected"]);
+        assert_eq!(v["findings"][0]["level"], "critical");
+        assert!(v["findings"][0]["text"].as_str().unwrap().contains("bus"));
+
+        let mut b = healthy();
+        b["leaf"]["connected"] = json!(false);
+        assert_eq!(ids(&verdict(&b)), ["leaf_down"]);
+
+        let mut b = healthy();
+        b["streams"][0]["percent"] = json!(0.7);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "warn");
+        assert_eq!(ids(&v), ["stream_cap:events"]);
+        b["streams"][0]["percent"] = json!(0.9);
+        assert_eq!(verdict(&b)["level"], "critical");
+
+        let mut b = healthy();
+        b["consumers"]["persist"]["alive"] = json!(false);
+        b["consumers"]["persist"]["restarts"] = json!(3);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["consumer_dead:persist"], "a dead consumer is one finding, not two");
+
+        let mut b = healthy();
+        b["consumers"]["persist"]["restarts"] = json!(2);
+        assert_eq!(ids(&verdict(&b)), ["consumer_restarted:persist"]);
+        assert_eq!(verdict(&b)["level"], "warn");
+
+        let mut b = healthy();
+        b["watchers_detail"][0]["age_secs"] = json!(301);
+        assert_eq!(ids(&verdict(&b)), ["watcher_quiet:claude-code"]);
+        b["watchers_detail"][0]["age_secs"] = json!(3601);
+        assert_eq!(verdict(&b)["level"], "critical");
+
+        let mut b = healthy();
+        b["watchers_detail"][0]["publish_failures"] = json!(16);
+        assert_eq!(ids(&verdict(&b)), ["publish_failures:claude-code"]);
+
+        let mut b = healthy();
+        b["boot"]["phase"] = json!("replaying");
+        b["boot"]["replay"]["done"] = json!(1);
+        let v = verdict(&b);
+        assert_eq!(ids(&v), ["replaying"]);
+        assert!(v["findings"][0]["text"].as_str().unwrap().contains("1 of 3"));
+
+        let mut b = healthy();
+        b["projections"]["fresh"] = json!(false);
+        assert_eq!(ids(&verdict(&b)), ["projections_stale"]);
+
+        let mut b = healthy();
+        b["presence"]["failures"] = json!(2);
+        assert_eq!(ids(&verdict(&b)), ["presence_failures"]);
+
+        // Worst first: a critical outranks a warn in the list.
+        let mut b = healthy();
+        b["streams"][0]["percent"] = json!(0.75);
+        b["bus"]["connected"] = json!(false);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["bus_disconnected", "stream_cap:events"]);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_rides_on_the_health_body() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        // The test state's bus is a NoopBus, which is never connected.
+        assert_eq!(body["verdict"]["level"], "critical", "{}", body["verdict"]);
+        let ids: Vec<&str> = body["verdict"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"bus_disconnected"), "{ids:?}");
+    }
+}
