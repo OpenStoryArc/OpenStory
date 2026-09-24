@@ -47,6 +47,8 @@ pub enum FederationPeers {
 /// Subscribers receive events via JetStream consumers. Replay reads from the
 /// beginning of the stream for boot recovery.
 pub struct NatsBus {
+    /// The events cap in bytes (K-08), from OPEN_STORY_EVENTS_MAX_BYTES.
+    events_cap: i64,
     /// JetStream context for *this node's own NATS*. In solo mode this is a
     /// vanilla context (`$JS.API.>`); in federation mode it's pinned to the
     /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
@@ -133,6 +135,10 @@ impl NatsBus {
             local_domain,
             client,
             federation,
+            // K-08: the cap is a knob at the edge; the builders stay pure.
+            events_cap: events_cap_from(
+                std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
+            ),
         })
     }
 
@@ -188,7 +194,7 @@ impl NatsBus {
             Some(fed) => (fed.host.as_str(), true),
         };
         self.jetstream
-            .get_or_create_stream(events_stream_config(host, fed_active))
+            .get_or_create_stream(events_stream_config(host, fed_active, self.events_cap))
             .await
             .context("failed to create/get 'events' JetStream stream")?;
 
@@ -199,7 +205,7 @@ impl NatsBus {
         // leave the machine. Always created so subscribers can read it
         // regardless of the publish switch.
         self.jetstream
-            .get_or_create_stream(local_stream_config())
+            .get_or_create_stream(local_stream_config(self.events_cap))
             .await
             .context("failed to create/get 'local' JetStream stream")?;
 
@@ -231,7 +237,7 @@ impl NatsBus {
             match &fed.peers {
                 FederationPeers::Hub { hub_domain } => {
                     self.jetstream
-                        .get_or_create_stream(events_mirror_config(hub_domain))
+                        .get_or_create_stream(events_mirror_config(hub_domain, self.events_cap))
                         .await
                         .context("failed to create/get 'events-mirror' (Hub) stream")?;
                     self.jetstream
@@ -651,6 +657,19 @@ fn uuid_short() -> String {
 // docs/research/jetstream-sources-federation.md.
 
 const EVENTS_MAX_BYTES: i64 = 1_073_741_824; // 1 GB
+/// The smallest events cap the knob accepts (K-08): below this a stream
+/// cannot hold one batch.
+pub(crate) const EVENTS_CAP_FLOOR: i64 = 65_536;
+
+/// The events cap from `OPEN_STORY_EVENTS_MAX_BYTES`: the default when
+/// unset or unreadable, the floor when too small. Pure.
+pub(crate) fn events_cap_from(env: Option<&str>) -> i64 {
+    match env.and_then(|s| s.trim().parse::<i64>().ok()) {
+        Some(n) if n >= EVENTS_CAP_FLOOR => n,
+        Some(_) => EVENTS_CAP_FLOOR,
+        None => EVENTS_MAX_BYTES,
+    }
+}
 /// P-04: presence beats keep a week of history under a 64 MB cap, on the
 /// node's own stream, its mirror, and the hub aggregate alike.
 pub(crate) const PRESENCE_MAX_BYTES: i64 = 67_108_864;
@@ -666,7 +685,7 @@ pub(crate) const PRESENCE_MAX_AGE: std::time::Duration =
 ///   peers can't double-count (the load-bearing spike finding). Publish-only,
 ///   no sources. Same shape for Hub (T2/T3) and Mesh (T1) — the `events-mirror`
 ///   carries the topology difference.
-pub(crate) fn events_stream_config(host: &str, federation: bool) -> stream::Config {
+pub(crate) fn events_stream_config(host: &str, federation: bool, cap: i64) -> stream::Config {
     let subjects = if federation {
         vec![format!("events.{host}.>")]
     } else {
@@ -676,7 +695,7 @@ pub(crate) fn events_stream_config(host: &str, federation: bool) -> stream::Conf
         name: "events".to_string(),
         subjects,
         retention: stream::RetentionPolicy::Limits,
-        max_bytes: EVENTS_MAX_BYTES,
+        max_bytes: cap,
         ..Default::default()
     }
 }
@@ -686,12 +705,12 @@ pub(crate) fn events_stream_config(host: &str, federation: bool) -> stream::Conf
 /// federation source (peers/hubs source the `events` stream by name), so its
 /// events are persisted and visible on this node but never propagate. Host is
 /// irrelevant — a node only ever publishes its OWN local events here.
-pub(crate) fn local_stream_config() -> stream::Config {
+pub(crate) fn local_stream_config(cap: i64) -> stream::Config {
     stream::Config {
         name: "local".to_string(),
         subjects: vec!["local.>".to_string()],
         retention: stream::RetentionPolicy::Limits,
-        max_bytes: EVENTS_MAX_BYTES,
+        max_bytes: cap,
         ..Default::default()
     }
 }
@@ -779,12 +798,12 @@ pub(crate) fn external_source(name: &str, domain: &str) -> stream::Source {
 /// publishers → structurally cannot loop (and JetStream self-origin loop
 /// prevention excludes this leaf's own events). The complete fleet view on a
 /// node is therefore `events ∪ events-mirror`.
-pub(crate) fn events_mirror_config(hub_domain: &str) -> stream::Config {
+pub(crate) fn events_mirror_config(hub_domain: &str, cap: i64) -> stream::Config {
     stream::Config {
         name: "events-mirror".to_string(),
         subjects: vec![],
         retention: stream::RetentionPolicy::Limits,
-        max_bytes: EVENTS_MAX_BYTES,
+        max_bytes: cap,
         sources: Some(vec![stream::Source {
             name: "events-agg".to_string(),
             external: Some(stream::External {
@@ -1114,7 +1133,7 @@ mod federation_config_tests {
     #[test]
     fn solo_events_stream_binds_everything() {
         // No federation → unchanged from today: capture `events.>`.
-        let cfg = events_stream_config("maxs-air", false);
+        let cfg = events_stream_config("maxs-air", false, EVENTS_MAX_BYTES);
         assert_eq!(cfg.name, "events");
         assert_eq!(cfg.subjects, vec!["events.>".to_string()]);
         assert!(cfg.sources.is_none(), "solo events stream sources nothing");
@@ -1126,7 +1145,7 @@ mod federation_config_tests {
         // Federation → bind ONLY this host's namespace so core leafnode
         // propagation can't cross-pollinate and peers can't double-count
         // (the load-bearing spike finding). Same shape for Hub + Mesh.
-        let cfg = events_stream_config("maxs-air", true);
+        let cfg = events_stream_config("maxs-air", true, EVENTS_MAX_BYTES);
         assert_eq!(cfg.name, "events");
         assert_eq!(cfg.subjects, vec!["events.maxs-air.>".to_string()]);
         assert!(cfg.sources.is_none(), "local events stream is publish-only");
@@ -1138,7 +1157,7 @@ mod federation_config_tests {
         // (`publish_sessions = false`). It binds `local.>` and has NO sources
         // — and crucially nothing ever sources IT (peers source the `events`
         // stream by name), so these events never leave the machine.
-        let cfg = local_stream_config();
+        let cfg = local_stream_config(EVENTS_MAX_BYTES);
         assert_eq!(cfg.name, "local");
         assert_eq!(cfg.subjects, vec!["local.>".to_string()]);
         assert!(cfg.sources.is_none());
@@ -1179,7 +1198,7 @@ mod federation_config_tests {
     fn mirror_stream_sources_the_hub_aggregate_cross_domain() {
         // Source-only (no subjects → no publishers → cannot loop). Pulls the
         // fleet down from `events-agg` living in the hub JetStream domain.
-        let cfg = events_mirror_config("hub");
+        let cfg = events_mirror_config("hub", EVENTS_MAX_BYTES);
         assert_eq!(cfg.name, "events-mirror");
         assert!(
             cfg.subjects.is_empty(),
@@ -1605,8 +1624,16 @@ mod events_cap_tests {
     fn the_cap_reads_from_the_env_with_a_default_and_a_floor() {
         assert_eq!(events_cap_from(None), EVENTS_MAX_BYTES, "default 1 GiB");
         assert_eq!(events_cap_from(Some("524288")), 524_288);
-        assert_eq!(events_cap_from(Some("not a number")), EVENTS_MAX_BYTES, "garbage is the default");
-        assert_eq!(events_cap_from(Some("10")), EVENTS_CAP_FLOOR, "below the floor is the floor");
+        assert_eq!(
+            events_cap_from(Some("not a number")),
+            EVENTS_MAX_BYTES,
+            "garbage is the default"
+        );
+        assert_eq!(
+            events_cap_from(Some("10")),
+            EVENTS_CAP_FLOOR,
+            "below the floor is the floor"
+        );
     }
 
     #[test]
@@ -1615,5 +1642,21 @@ mod events_cap_tests {
         assert_eq!(events_stream_config("h", true, 524_288).max_bytes, 524_288);
         assert_eq!(local_stream_config(524_288).max_bytes, 524_288);
         assert_eq!(events_mirror_config("hub", 524_288).max_bytes, 524_288);
+    }
+}
+
+#[cfg(test)]
+mod publish_budget_tests {
+    //! The split budget follows the server's advertised max_payload. A
+    //! managed standalone NATS runs the 1 MiB default; the E-05 split
+    //! assumed 8 MB and let 2 MB batches fail whole (found on the demo
+    //! node, 2026-09-24).
+    use super::*;
+
+    #[test]
+    fn the_budget_is_nine_tenths_of_the_server_limit_capped_at_four_mib() {
+        assert_eq!(publish_budget(1_048_576), 943_718, "a default server: under 1 MiB");
+        assert_eq!(publish_budget(8_388_608), PUBLISH_MAX_BYTES, "an 8 MB server: the 4 MiB cap");
+        assert_eq!(publish_budget(0), PUBLISH_MAX_BYTES, "an unknown limit reads as the cap");
     }
 }
