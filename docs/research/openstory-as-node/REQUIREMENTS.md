@@ -111,7 +111,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | acceptance test |
 |---|---|---|
-| O-01 | `metrics_enabled` default flips to `true`; `/metrics` serves Prometheus text with the existing gauges plus `openstory_events_ingested_total{agent}`, `openstory_consumer_lag{actor}`, `openstory_stream_bytes{stream}`, `openstory_consumer_restarts_total{actor}`, `openstory_publish_failures_total{watcher}`. | `rs/tests/test_metrics.rs::when_metrics_are_scraped::it_exposes_the_node_gauges` |
+| O-01 | GREEN. `metrics_enabled` default flips to `true`; `/metrics` serves Prometheus text with the existing gauges plus `openstory_events_ingested_total{agent}`, `openstory_consumer_lag{actor}`, `openstory_stream_bytes{stream}`, `openstory_consumer_restarts_total{actor}`, `openstory_publish_failures_total{watcher}`. | `rs/tests/test_metrics.rs::when_metrics_are_scraped::it_exposes_the_node_gauges` |
 | O-02 | An `otlp_endpoint` config/env, when set, exports the same metrics over OTLP with `service.name=openstory`, `service.instance.id=<principal>`, `host.name`. Unset means no exporter and no network. | `…::when_otlp_endpoint_is_unset::it_opens_no_socket` and a testcontainer collector receiving one batch |
 | O-03 | Each event carries a span from translate through persist with `session_id`, `subject`, `actor`; sampled at 1 % by default, 100 % under `RUST_LOG=trace`. | `…::when_an_event_flows::it_produces_one_span_per_stage` |
 | O-04 | The `observe/` stack (Prometheus and Grafana under `just observe`) gets one dashboard, "Node", with the O-01 gauges; the 2026-03 dashboards are removed or updated. | `scripts/check_docs.py` gains a check that dashboard panel queries reference existing metric names |

@@ -408,7 +408,7 @@ impl Default for Config {
             payload_cache_bytes: 256_000_000,
             stale_threshold_secs: 300,
             broadcast_channel_size: 256,
-            metrics_enabled: false,
+            metrics_enabled: true,
             log_format: "text".to_string(),
             presence_interval_secs: 15,
             retention_days: 0,
@@ -623,7 +623,7 @@ impl Config {
 
 # ── Observability ──
 # Enable Prometheus metrics endpoint at /metrics.
-# metrics_enabled = false
+# metrics_enabled = true
 # Log line format: "text" (terminal) or "json" (one object per line).
 # log_format = "text"
 
@@ -815,7 +815,7 @@ mod tests {
         assert_eq!(config.truncation_threshold, 100_000);
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
-        assert!(!config.metrics_enabled);
+        assert!(config.metrics_enabled, "O-01: metrics on by default");
         assert!(
             config.person.is_none(),
             "person defaults to None — first-boot bootstrap fills it"
@@ -946,7 +946,7 @@ mod tests {
             config.allowed_origins.is_empty(),
             "allowed_origins should default to empty"
         );
-        assert!(!config.metrics_enabled);
+        assert!(config.metrics_enabled, "O-01: metrics on by default");
     }
 
     // ── person section round-trip ──────────────────────────────────────

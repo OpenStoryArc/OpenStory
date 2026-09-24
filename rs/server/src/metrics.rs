@@ -20,6 +20,9 @@ pub mod names {
     pub const WATCHER_LAST_EVENT_TIMESTAMP: &str = "watcher_last_event_timestamp_seconds";
     pub const WATCHER_LAST_SUCCESS_TIMESTAMP: &str = "watcher_last_success_timestamp_seconds";
 
+    /// O-01: events persisted, by the agent that produced them.
+    pub const NODE_EVENTS_INGESTED: &str = "openstory_events_ingested_total";
+
     pub const SESSIONS_ACTIVE: &str = "sessions_active";
     pub const SESSIONS_TOTAL: &str = "sessions_total";
     pub const WS_CLIENTS_CONNECTED: &str = "ws_clients_connected";
@@ -37,6 +40,145 @@ pub mod names {
 pub fn init_recorder() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
     let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
     builder.install_recorder().ok()
+}
+
+/// O-01: `count` events from `agent` landed in the store.
+pub fn record_events_ingested_by_agent(agent: &str, count: u64) {
+    metrics::counter!(names::NODE_EVENTS_INGESTED, "agent" => agent.to_string()).increment(count);
+}
+
+/// The node's facts at scrape time (O-01): the same ones /api/health
+/// reports, rendered as Prometheus text by [`render_node_metrics`].
+pub struct NodeMetrics {
+    pub consumers:
+        std::collections::HashMap<&'static str, crate::consumers::supervision::ConsumerHealth>,
+    pub streams: Vec<open_story_bus::StreamStats>,
+    /// Publish failures since boot by watcher actor.
+    pub publish_failures: Vec<(String, u64)>,
+    pub presence: crate::presence::PresenceStats,
+}
+
+/// Render the node block (O-01). Pure: one sample per label set, HELP and
+/// TYPE once per metric, actors and streams in name order so a scrape is
+/// stable. A stream with no cap has no `max_bytes` sample.
+pub fn render_node_metrics(node: &NodeMetrics) -> String {
+    let mut out = String::new();
+    let mut actors: Vec<_> = node.consumers.iter().collect();
+    actors.sort_by_key(|(a, _)| **a);
+    let block = |out: &mut String, name: &str, kind: &str, help: &str, lines: &[String]| {
+        if lines.is_empty() {
+            return;
+        }
+        out.push_str(&format!("# HELP {name} {help}\n# TYPE {name} {kind}\n"));
+        for l in lines {
+            out.push_str(l);
+            out.push('\n');
+        }
+    };
+    let by_actor = |f: &dyn Fn(&crate::consumers::supervision::ConsumerHealth) -> f64| {
+        actors
+            .iter()
+            .map(|(a, h)| format!("{{actor=\"{a}\"}} {}", f(h)))
+            .collect::<Vec<_>>()
+    };
+    let named = |name: &str, samples: Vec<String>| {
+        samples
+            .into_iter()
+            .map(|s| format!("{name}{s}"))
+            .collect::<Vec<_>>()
+    };
+    block(
+        &mut out,
+        "openstory_consumer_lag",
+        "gauge",
+        "batches waiting in the consumer's channel at its last receive",
+        &named("openstory_consumer_lag", by_actor(&|h| h.lag as f64)),
+    );
+    block(
+        &mut out,
+        "openstory_consumer_restarts_total",
+        "counter",
+        "times the supervisor restarted the consumer since boot",
+        &named(
+            "openstory_consumer_restarts_total",
+            by_actor(&|h| h.restarts as f64),
+        ),
+    );
+    block(
+        &mut out,
+        "openstory_consumer_alive",
+        "gauge",
+        "1 while the consumer task is running",
+        &named(
+            "openstory_consumer_alive",
+            by_actor(&|h| if h.alive { 1.0 } else { 0.0 }),
+        ),
+    );
+
+    let mut streams: Vec<_> = node.streams.iter().collect();
+    streams.sort_by(|a, b| a.name.cmp(&b.name));
+    let by_stream = |f: &dyn Fn(&open_story_bus::StreamStats) -> Option<f64>| {
+        streams
+            .iter()
+            .filter_map(|s| f(s).map(|v| format!("{{stream=\"{}\"}} {v}", s.name)))
+            .collect::<Vec<_>>()
+    };
+    block(
+        &mut out,
+        "openstory_stream_bytes",
+        "gauge",
+        "bytes held by the JetStream stream",
+        &named(
+            "openstory_stream_bytes",
+            by_stream(&|s| Some(s.bytes as f64)),
+        ),
+    );
+    block(
+        &mut out,
+        "openstory_stream_max_bytes",
+        "gauge",
+        "the stream's configured cap, when it has one",
+        &named(
+            "openstory_stream_max_bytes",
+            by_stream(&|s| s.max_bytes.map(|m| m as f64)),
+        ),
+    );
+    block(
+        &mut out,
+        "openstory_stream_messages",
+        "gauge",
+        "messages held by the JetStream stream",
+        &named(
+            "openstory_stream_messages",
+            by_stream(&|s| Some(s.messages as f64)),
+        ),
+    );
+
+    let mut failures: Vec<(String, u64)> = node.publish_failures.clone();
+    failures.push(("presence".to_string(), node.presence.failures));
+    failures.sort();
+    let failure_lines = failures
+        .iter()
+        .map(|(w, n)| format!("openstory_publish_failures_total{{watcher=\"{w}\"}} {n}"))
+        .collect::<Vec<_>>();
+    block(
+        &mut out,
+        "openstory_publish_failures_total",
+        "counter",
+        "publishes to the bus that failed since boot, by watcher",
+        &failure_lines,
+    );
+    block(
+        &mut out,
+        "openstory_presence_beats_total",
+        "counter",
+        "presence beats published since boot",
+        &[format!(
+            "openstory_presence_beats_total {}",
+            node.presence.beats
+        )],
+    );
+    out
 }
 
 /// Record an event ingestion (counter increment by subtype).
@@ -168,7 +310,24 @@ pub fn metrics_router(
                             s.store.projections.evictions(),
                             s.store.full_payloads.resident_bytes(),
                         );
-                        let body = format!("{}{}", h.render(), cache_metrics);
+                        // O-01: the node block, from the same facts as /api/health.
+                        let node = NodeMetrics {
+                            consumers: crate::consumers::supervision::stats().snapshot(),
+                            streams: s.bus.stream_stats().await,
+                            publish_failures: s
+                                .watcher_diagnostics
+                                .snapshots()
+                                .iter()
+                                .map(|w| (w.actor.clone(), w.counters.publish_failures))
+                                .collect(),
+                            presence: crate::presence::stats(),
+                        };
+                        let body = format!(
+                            "{}{}{}",
+                            h.render(),
+                            cache_metrics,
+                            render_node_metrics(&node)
+                        );
                         (StatusCode::OK, body)
                     }
                 },

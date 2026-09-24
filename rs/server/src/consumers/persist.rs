@@ -125,6 +125,7 @@ impl PersistConsumer {
         let session_store = &self.session_store;
         let mut persisted = 0;
         let mut skipped = 0;
+        let mut by_agent: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
 
         // Remember the project id for this session if the batch carries one.
         if let Some(pid) = project_id {
@@ -212,6 +213,13 @@ impl PersistConsumer {
             }
 
             persisted += 1;
+            *by_agent
+                .entry(ces[i].agent.as_deref().unwrap_or("unknown").to_string())
+                .or_insert(0) += 1;
+        }
+        // O-01: what landed, by the agent that produced it.
+        for (agent, n) in &by_agent {
+            crate::metrics::record_events_ingested_by_agent(agent, *n);
         }
 
         if let Err(e) = session_store.append_batch(session_id, &new_vals) {

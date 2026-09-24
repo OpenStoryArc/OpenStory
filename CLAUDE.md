@@ -390,7 +390,7 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `watch_backfill_hours` | `24` | Hours of history to backfill from JSONL on first boot |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
-| `metrics_enabled` | `false` | Enable Prometheus `/metrics` endpoint |
+| `metrics_enabled` | `true` | Serve Prometheus `/metrics` (node gauges, cache gauges); set `false` to turn it off |
 | `retention_days` | `0` (no cleanup) | Auto-delete sessions older than N days on boot |
 
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).

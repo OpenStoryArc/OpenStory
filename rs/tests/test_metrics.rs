@@ -16,8 +16,8 @@ use helpers::bus::TestActors;
 use helpers::{make_event, test_router_with};
 use open_story::server::consumers::supervision::{ConsumerHealth, Driven};
 use open_story::server::{presence, AppState, Config, SharedState};
-use open_story_server::metrics;
 use open_story_bus::{Bus, BusSubscription, IngestBatch, StreamStats};
+use open_story_server::metrics;
 use open_story_store::state::StoreState;
 use tokio::sync::{broadcast, RwLock};
 
@@ -116,17 +116,63 @@ mod when_node_metrics_are_rendered {
             },
         };
         let text = metrics::render_node_metrics(&node);
-        assert_eq!(sample(&text, "openstory_consumer_lag", r#"actor="persist""#), Some(7.0), "{text}");
-        assert_eq!(sample(&text, "openstory_consumer_restarts_total", r#"actor="persist""#), Some(2.0));
-        assert_eq!(sample(&text, "openstory_consumer_alive", r#"actor="persist""#), Some(1.0));
-        assert_eq!(sample(&text, "openstory_stream_bytes", r#"stream="events""#), Some(1234.0));
-        assert_eq!(sample(&text, "openstory_stream_max_bytes", r#"stream="events""#), Some(1_073_741_824.0));
-        assert_eq!(sample(&text, "openstory_stream_messages", r#"stream="ui""#), Some(0.0));
-        assert!(sample(&text, "openstory_stream_max_bytes", r#"stream="ui""#).is_none(), "no cap, no sample: {text}");
-        assert_eq!(sample(&text, "openstory_publish_failures_total", r#"watcher="grok""#), Some(16.0));
-        assert_eq!(sample(&text, "openstory_publish_failures_total", r#"watcher="presence""#), Some(3.0));
-        assert_eq!(sample(&text, "openstory_presence_beats_total", ""), Some(40.0));
-        assert!(text.contains("# TYPE openstory_consumer_lag gauge"), "{text}");
+        assert_eq!(
+            sample(&text, "openstory_consumer_lag", r#"actor="persist""#),
+            Some(7.0),
+            "{text}"
+        );
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_consumer_restarts_total",
+                r#"actor="persist""#
+            ),
+            Some(2.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_consumer_alive", r#"actor="persist""#),
+            Some(1.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_stream_bytes", r#"stream="events""#),
+            Some(1234.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_stream_max_bytes", r#"stream="events""#),
+            Some(1_073_741_824.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_stream_messages", r#"stream="ui""#),
+            Some(0.0)
+        );
+        assert!(
+            sample(&text, "openstory_stream_max_bytes", r#"stream="ui""#).is_none(),
+            "no cap, no sample: {text}"
+        );
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_publish_failures_total",
+                r#"watcher="grok""#
+            ),
+            Some(16.0)
+        );
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_publish_failures_total",
+                r#"watcher="presence""#
+            ),
+            Some(3.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_presence_beats_total", ""),
+            Some(40.0)
+        );
+        assert!(
+            text.contains("# TYPE openstory_consumer_lag gauge"),
+            "{text}"
+        );
         assert!(text.contains("# TYPE openstory_consumer_restarts_total counter"));
         assert!(text.contains("# HELP openstory_stream_bytes "));
     }
@@ -149,24 +195,38 @@ mod when_metrics_are_scraped {
         // Events by agent: two Claude Code, one pi-mono, through persist.
         let other = tempfile::tempdir().unwrap();
         let mut actors = TestActors::new(&other).await;
-        let mut pi = make_event("message.user.prompt", "sess-pi");
-        pi.agent = Some("pi-mono".to_string());
+        let stamped = |subtype: &str, session: &str, agent: &str| {
+            let mut ce = make_event(subtype, session);
+            ce.agent = Some(agent.to_string());
+            ce
+        };
+        let pi = stamped("message.user.prompt", "sess-pi", "pi-mono");
         actors
             .persist
             .process_batch(
                 "sess-cc",
-                &[make_event("message.user.prompt", "sess-cc"), make_event("message.assistant.text", "sess-cc")],
+                &[
+                    stamped("message.user.prompt", "sess-cc", "claude-code"),
+                    stamped("message.assistant.text", "sess-cc", "claude-code"),
+                ],
                 Some("p"),
             )
             .await;
-        actors.persist.process_batch("sess-pi", &[pi], Some("p")).await;
+        actors
+            .persist
+            .process_batch("sess-pi", &[pi], Some("p"))
+            .await;
 
         // Consumer lag: three batches queued, one taken, two behind it.
         let (tx, rx) = tokio::sync::mpsc::channel(8);
         for _ in 0..3 {
-            tx.send(IngestBatch { session_id: "s".into(), project_id: "p".into(), events: vec![] })
-                .await
-                .unwrap();
+            tx.send(IngestBatch {
+                session_id: "s".into(),
+                project_id: "p".into(),
+                events: vec![],
+            })
+            .await
+            .unwrap();
         }
         let mut driven = Driven::new("persist", rx);
         driven.next().await;
@@ -179,19 +239,62 @@ mod when_metrics_are_scraped {
         let req = Request::get("/metrics").body(Body::empty()).unwrap();
         let resp = tower::ServiceExt::oneshot(router, req).await.unwrap();
         assert_eq!(resp.status(), 200);
-        let bytes = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
+        let bytes = http_body_util::BodyExt::collect(resp.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
         let text = String::from_utf8(bytes.to_vec()).unwrap();
 
-        assert_eq!(sample(&text, "openstory_events_ingested_total", r#"agent="claude-code""#), Some(2.0), "{text}");
-        assert_eq!(sample(&text, "openstory_events_ingested_total", r#"agent="pi-mono""#), Some(1.0));
-        assert_eq!(sample(&text, "openstory_consumer_lag", r#"actor="persist""#), Some(2.0));
-        assert_eq!(sample(&text, "openstory_consumer_restarts_total", r#"actor="persist""#), Some(0.0));
-        assert_eq!(sample(&text, "openstory_stream_bytes", r#"stream="events""#), Some(1234.0));
-        assert_eq!(sample(&text, "openstory_stream_max_bytes", r#"stream="events""#), Some(1_073_741_824.0));
-        assert!(
-            sample(&text, "openstory_publish_failures_total", r#"watcher="presence""#).unwrap_or(0.0) >= 1.0,
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_events_ingested_total",
+                r#"agent="claude-code""#
+            ),
+            Some(2.0),
             "{text}"
         );
-        assert!(text.contains("openstory_projection_cache_bytes "), "the cache gauges still ride along");
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_events_ingested_total",
+                r#"agent="pi-mono""#
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_consumer_lag", r#"actor="persist""#),
+            Some(2.0)
+        );
+        assert_eq!(
+            sample(
+                &text,
+                "openstory_consumer_restarts_total",
+                r#"actor="persist""#
+            ),
+            Some(0.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_stream_bytes", r#"stream="events""#),
+            Some(1234.0)
+        );
+        assert_eq!(
+            sample(&text, "openstory_stream_max_bytes", r#"stream="events""#),
+            Some(1_073_741_824.0)
+        );
+        assert!(
+            sample(
+                &text,
+                "openstory_publish_failures_total",
+                r#"watcher="presence""#
+            )
+            .unwrap_or(0.0)
+                >= 1.0,
+            "{text}"
+        );
+        assert!(
+            text.contains("openstory_projection_cache_bytes "),
+            "the cache gauges still ride along"
+        );
     }
 }
