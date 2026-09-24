@@ -102,7 +102,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|
 | P-01 | GREEN. The node publishes a `presence` CloudEvent every 15 s (configurable) on `presence.{host}.{principal}` with the H-04 to H-07 payload, `agent: "openstory"`, `subtype: node.presence`. | `rs/tests/test_presence.rs::when_the_node_runs::it_publishes_presence_on_its_subject` |
 | P-02 | GREEN. Presence is an observed family: the persist consumer stores it in its own table (`presence`), never in `events`. | `…::when_presence_arrives::it_lands_in_the_presence_table_not_events` |
-| P-03 | `GET /api/fleet/presence` returns the latest presence per node with `age_secs`; a node older than 3 intervals is `stale`. | `…::when_a_node_stops_reporting::it_becomes_stale` |
+| P-03 | GREEN. `GET /api/fleet/presence` returns the latest presence per node with `age_secs`; a node older than 3 intervals is `stale`. | `…::when_a_node_stops_reporting::it_becomes_stale` |
 | P-04 | The leaf and hub configs export and import `presence.>` alongside `events.>` (change lands in `openstory-deploy`; here: the leaf template in `managed_nats.rs`). | `rs/cli/src/managed_nats.rs::tests::when_leaf_config_is_rendered::it_includes_presence_subjects` |
 | P-05 | The fleet tab shows each node with its dot and last presence; the local node reads its own presence, not a second path. | `ui/tests/components/fleet-presence.test.tsx::when_two_nodes_report::it_lists_both_with_ages` |
 | P-06 | A presence event that fails to publish is logged (E-05 shape) and counted; it never blocks ingestion. | `…::when_publish_fails::it_logs_and_continues` |

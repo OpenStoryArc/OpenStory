@@ -137,6 +137,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
         )
         .route("/api/fleet", axum::routing::get(crate::api::get_fleet))
         .route(
+            "/api/fleet/presence",
+            axum::routing::get(crate::api::get_fleet_presence),
+        )
+        .route(
             "/api/admin/topology",
             axum::routing::get(crate::admin::get_topology),
         )

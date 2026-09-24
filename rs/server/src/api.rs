@@ -719,6 +719,28 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `GET /api/fleet/presence` — every node's latest beat with its age and
+/// whether it has gone stale (P-03). The local node is in here too, read
+/// through the same table as everyone else.
+pub async fn get_fleet_presence(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, StatusCode> {
+    let (store, interval_secs) = {
+        let s = state.read().await;
+        (s.store.event_store.clone(), s.config.presence_interval_secs)
+    };
+    let rows = store.latest_presence().await.map_err(|e| {
+        crate::logging::failed("fleet_presence_read", &format!("{e:#}"));
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let nodes = crate::presence::fleet_view(&rows, chrono::Utc::now(), interval_secs);
+    Ok(Json(json!({
+        "interval_secs": interval_secs,
+        "stale_after_secs": interval_secs.max(1) * crate::presence::STALE_AFTER_BEATS as u64,
+        "nodes": nodes,
+    })))
+}
+
 /// `GET /api/fleet` — return the configured Person + their principals.
 ///
 /// Source of truth for the UI's "your fleet" sidebar: provides the

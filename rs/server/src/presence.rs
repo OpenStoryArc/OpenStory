@@ -12,6 +12,7 @@ use std::time::Duration;
 use open_story_bus::IngestBatch;
 use open_story_core::cloud_event::CloudEvent;
 use open_story_core::event_data::EventData;
+use open_story_store::event_store::PresenceRow;
 use serde_json::Value;
 use tokio::task::JoinHandle;
 
@@ -116,6 +117,42 @@ pub fn presence_event(
         Some(p) => ce.with_person_id(p),
         None => ce,
     }
+}
+
+/// A node is stale once it has missed this many beats.
+pub const STALE_AFTER_BEATS: i64 = 3;
+
+/// The fleet as the latest beats tell it (P-03). Pure: rows in, one JSON
+/// object per node out, with `age_secs` against `now` and `stale` once the
+/// beat is older than three intervals. A beat whose time cannot be read is
+/// stale with a null age. The sha, level, and status are lifted to the top
+/// so a fleet tab needs no second path; the whole beat rides under `body`.
+pub fn fleet_view(
+    rows: &[PresenceRow],
+    now: chrono::DateTime<chrono::Utc>,
+    interval_secs: u64,
+) -> Vec<Value> {
+    let stale_after = (interval_secs as i64).max(1) * STALE_AFTER_BEATS;
+    rows.iter()
+        .map(|r| {
+            let age_secs = chrono::DateTime::parse_from_rfc3339(&r.time)
+                .ok()
+                .map(|t| (now - t.with_timezone(&chrono::Utc)).num_seconds());
+            let stale = age_secs.is_none_or(|a| a > stale_after);
+            serde_json::json!({
+                "host": r.host,
+                "principal_id": r.principal_id,
+                "person_id": r.person_id,
+                "time": r.time,
+                "age_secs": age_secs,
+                "stale": stale,
+                "status": r.body.get("status").cloned().unwrap_or(Value::Null),
+                "git_sha": r.body.get("git_sha").cloned().unwrap_or(Value::Null),
+                "version": r.body.get("version").cloned().unwrap_or(Value::Null),
+                "body": r.body,
+            })
+        })
+        .collect()
 }
 
 /// One presence event in the bus envelope.
