@@ -229,8 +229,12 @@ pub async fn run_server(
                         plan_store,
                     );
                     match persist_bus.subscribe("events.>").await {
-                        Ok(mut sub) => {
-                            while let Some(batch) = sub.receiver.recv().await {
+                        Ok(sub) => {
+                            // E-02: the loop is driven; when the subscription ends the driver
+                            // logs consumer_ended and returns an error (E-03 supervises it).
+                            let mut driven =
+                                consumers::supervision::Driven::new("persist", sub.receiver);
+                            while let Some(batch) = driven.next().await {
                                 let project_id = if batch.project_id.is_empty() {
                                     None
                                 } else {
@@ -243,6 +247,8 @@ pub async fn run_server(
                                 // event=batch_persisted with session_id).
                                 let _ = result;
                             }
+                            // E-02: a closed subscription is an error, never a silent return.
+                            let _exit = driven.finish();
                         }
                         Err(e) => eprintln!("Persist consumer error: {e}"),
                     }
@@ -267,8 +273,12 @@ pub async fn run_server(
                 async move {
                     let mut actor = consumers::patterns::PatternsConsumer::new();
                     match patterns_bus.subscribe("events.>").await {
-                        Ok(mut sub) => {
-                            while let Some(batch) = sub.receiver.recv().await {
+                        Ok(sub) => {
+                            // E-02: the loop is driven; when the subscription ends the driver
+                            // logs consumer_ended and returns an error (E-03 supervises it).
+                            let mut driven =
+                                consumers::supervision::Driven::new("patterns", sub.receiver);
+                            while let Some(batch) = driven.next().await {
                                 let result = actor.process_batch(&batch.session_id, &batch.events);
 
                                 // Persist turns and patterns to the EventStore
@@ -337,6 +347,8 @@ pub async fn run_server(
                                     );
                                 }
                             }
+                            // E-02: a closed subscription is an error, never a silent return.
+                            let _exit = driven.finish();
                         }
                         Err(e) => eprintln!("Patterns consumer error: {e}"),
                     }
@@ -370,10 +382,16 @@ pub async fn run_server(
                         shared_children,
                     );
                     match projections_bus.subscribe("events.>").await {
-                        Ok(mut sub) => {
-                            while let Some(batch) = sub.receiver.recv().await {
+                        Ok(sub) => {
+                            // E-02: the loop is driven; when the subscription ends the driver
+                            // logs consumer_ended and returns an error (E-03 supervises it).
+                            let mut driven =
+                                consumers::supervision::Driven::new("projections", sub.receiver);
+                            while let Some(batch) = driven.next().await {
                                 actor.process_batch(&batch.session_id, &batch.events).await;
                             }
+                            // E-02: a closed subscription is an error, never a silent return.
+                            let _exit = driven.finish();
                         }
                         Err(e) => eprintln!("Projections consumer error: {e}"),
                     }
@@ -397,8 +415,12 @@ pub async fn run_server(
                 async move {
                     let mut consumer = consumers::broadcast::BroadcastConsumer::new();
                     match broadcast_bus.subscribe("events.>").await {
-                        Ok(mut sub) => {
-                            while let Some(batch) = sub.receiver.recv().await {
+                        Ok(sub) => {
+                            // E-02: the loop is driven; when the subscription ends the driver
+                            // logs consumer_ended and returns an error (E-03 supervises it).
+                            let mut driven =
+                                consumers::supervision::Driven::new("broadcast", sub.receiver);
+                            while let Some(batch) = driven.next().await {
                                 let summary = event_type_summary(&batch.events);
                                 let session_id = batch.session_id.clone();
                                 let project_id = if batch.project_id.is_empty() {
@@ -459,6 +481,8 @@ pub async fn run_server(
                                     );
                                 }
                             }
+                            // E-02: a closed subscription is an error, never a silent return.
+                            let _exit = driven.finish();
                         }
                         Err(e) => eprintln!("Broadcast consumer error: {e}"),
                     }

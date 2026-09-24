@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (E-01 green).
+Last updated: 2026-09-24 (E-02 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -23,7 +23,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
-| E · errors and supervision | E-01 … E-07 | 1 / 7 | no swallowed errors, consumer supervisor |
+| E · errors and supervision | E-01 … E-07 | 2 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
@@ -76,7 +76,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | id | requirement | acceptance test |
 |---|---|---|
 | E-01 | GREEN. No `let _ =` on a fallible persist, index, append, or publish in `rs/server/src/consumers/` and `rs/src/server/`. Each failure logs `event=<op>_failed` with the error and increments a counter. | (Gate roots: `rs/server/src` and `rs/src/server`; the MCP's stdio response sends are M-08 / K-07 territory.) `scripts/swallowed_errors.py` static audit, `--test`, wired into `just test` |
-| E-02 | A consumer whose subscription ends logs `event=consumer_ended` with the reason and exits with an error, never silently. | `rs/tests/test_consumer_supervision.rs::when_subscription_ends::it_logs_and_errors` |
+| E-02 | GREEN. A consumer whose subscription ends logs `event=consumer_ended` with the reason and exits with an error, never silently. | `rs/tests/test_consumer_supervision.rs::when_subscription_ends::it_logs_and_errors` |
 | E-03 | A supervisor task owns the four consumers; on exit it restarts the consumer with exponential backoff (1 s, 2 s, 4 s, cap 30 s) and logs `event=consumer_restarted` with the attempt. | `…::when_a_consumer_dies::it_is_restarted_with_backoff` |
 | E-04 | Restart counts and last-restart timestamps per consumer are part of health (H-05). | `…::when_a_consumer_restarts::it_shows_in_health` |
 | E-05 | Watcher publish failures are logged per file with `event=publish_failed`, the subject, and the error; the count is part of health. Root-cause the 15 Grok failures seen on 2026-09-23 as part of this task. | `rs/tests/test_watcher_publish.rs::when_publish_fails::it_logs_subject_and_error` |
@@ -228,3 +228,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `openstory_op_failures_total{op}`; four broadcast sends are marked
   audit-ok (no subscribers is not a failure). `just test` runs the gate.
   Next: E-02.
+- **2026-09-24 00:15 local.** E-02 GREEN. `consumers::supervision::Driven`
+  wraps a subscription receiver: `next()` hands out batches and logs
+  `event=consumer_ended` at ERROR once when the channel closes;
+  `finish()` returns `ConsumerExit::SubscriptionClosed{batches}`. All four
+  consumer loops in the orchestration crate use it. A first cut as an
+  async-closure driver could not prove `Send` for the spawned tasks on
+  stable; inverting control (driver hands out batches, loop stays a loop)
+  kept the bodies untouched. Next: E-03 (supervisor with backoff).

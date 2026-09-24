@@ -2962,6 +2962,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "urlencoding",
  "uuid",
  "walkdir",

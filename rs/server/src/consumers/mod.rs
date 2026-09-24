@@ -14,3 +14,4 @@ pub mod broadcast_proptest;
 pub mod patterns;
 pub mod persist;
 pub mod projections;
+pub mod supervision;
