@@ -58,7 +58,7 @@ kctl() {
 
 run() {
   if [ "$DRY" = 1 ]; then echo "would run: $*"; return 0; fi
-  echo "+ $*"
+  echo "+ $*" >&2
   "$@"
 }
 
@@ -81,7 +81,9 @@ smoke() {
   guard_namespace "$NAMESPACE"
   local k; k="$(kctl)"
   # shellcheck disable=SC2086
-  run $k create namespace "$NAMESPACE" --dry-run=client -o yaml | { [ "$DRY" = 1 ] && cat || $k apply -f -; }
+  if [ "$DRY" = 1 ] || ! $k get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    run $k create namespace "$NAMESPACE"
+  fi
   # shellcheck disable=SC2086
   run $k apply -k "$OVERLAY" -n "$NAMESPACE"
   # shellcheck disable=SC2086
