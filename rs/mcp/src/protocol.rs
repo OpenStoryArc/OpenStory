@@ -389,6 +389,23 @@ mod tests {
         );
     }
 
+    /// M-09: the ops motions and the tier rule are at first contact.
+    #[test]
+    fn instructions_name_ops_motions_and_the_tier_rule() {
+        let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();
+        let instr = resp["result"]["instructions"].as_str().expect("instructions present");
+        for motion in ["watch", "diagnose", "propose"] {
+            assert!(instr.contains(motion), "names the {motion} motion");
+        }
+        for hand in ["node_health", "node_logs", "node_streams", "fleet_presence", "subscribe_health"] {
+            assert!(instr.contains(hand), "names {hand}");
+        }
+        assert!(instr.contains(TIER_RULE), "states the tier rule in one sentence");
+        assert!(HANDS_DOC.contains("## Ops motions"), "the hands curriculum has the ops section");
+        assert!(HANDS_DOC.contains(TIER_RULE), "the curriculum states the same tier rule");
+        assert!(HANDS_DOC.contains("subscribe_health"));
+    }
+
     #[test]
     fn instructions_name_spotlight_and_reels() {
         let resp = handle_message("{\"id\":1,\"method\":\"initialize\",\"params\":{}}").unwrap();

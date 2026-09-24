@@ -258,6 +258,29 @@ mod tests {
         assert!(t.contains("session_story"));
     }
 
+    /// M-09: the ops motions have cards, and the overview names them.
+    #[test]
+    fn help_knows_the_ops_motions() {
+        let t = openstory_help(json!({"need": "diagnose"})).unwrap()["text"].as_str().unwrap().to_string();
+        for hand in ["node_health", "node_logs", "node_streams"] {
+            assert!(t.contains(hand), "diagnose card names {hand}: {t}");
+        }
+        let t = openstory_help(json!({"need": "watch"})).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(t.contains("subscribe_health") && t.contains("fleet_presence"), "watch card: {t}");
+        let t = openstory_help(json!({"need": "propose"})).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(t.contains("ops.proposal") && t.contains("evidence"), "propose card: {t}");
+        let o = openstory_help(json!({})).unwrap()["text"].as_str().unwrap().to_string();
+        for motion in ["watch", "diagnose", "propose"] {
+            assert!(o.contains(&format!("| {motion} ")), "overview lists {motion}: {o}");
+        }
+        assert!(o.contains(crate::protocol::TIER_RULE), "overview states the tier rule");
+        let t = openstory_help(json!({"topic": "ops"})).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(t.contains("node_health") && t.contains(crate::protocol::TIER_RULE), "ops topic: {t}");
+        // `live` keeps its own card; `watch` is the node's.
+        let live = openstory_help(json!({"need": "live"})).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(live.contains("subscribe_session"), "{live}");
+    }
+
     #[test]
     fn help_need_orient_points_at_story() {
         let v = openstory_help(json!({"need": "orient"})).unwrap();

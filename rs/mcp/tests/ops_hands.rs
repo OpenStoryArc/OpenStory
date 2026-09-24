@@ -374,3 +374,116 @@ mod when_health_flips_to_critical {
         assert_eq!(t["added"], json!([]));
     }
 }
+
+/// M-08: the MCP may publish only under `ops.proposal.>` and `ui.>`. The
+/// spec reads the crate's own source, so a new publish site cannot slip a
+/// subject past it.
+mod when_mcp_publishes {
+    use std::path::Path;
+
+    const ALLOWED: [&str; 2] = ["ops.proposal.", "ui."];
+
+    /// Every `.publish…(` call: (file, line, first argument text).
+    fn publish_sites(src: &str, file: &str) -> Vec<(String, usize, String)> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while let Some(pos) = src[i..].find(".publish") {
+            let start = i + pos;
+            let rest = &src[start..];
+            let after = &rest[".publish".len()..];
+            let after = after
+                .strip_prefix("_bytes")
+                .or_else(|| after.strip_prefix("_one"))
+                .unwrap_or(after);
+            if let Some(body) = after.strip_prefix('(') {
+                let mut depth = 0i32;
+                let mut end = body.len();
+                for (j, c) in body.char_indices() {
+                    match c {
+                        '(' | '[' | '{' => depth += 1,
+                        ')' | ']' | '}' if depth == 0 => {
+                            end = j;
+                            break;
+                        }
+                        ')' | ']' | '}' => depth -= 1,
+                        ',' if depth == 0 => {
+                            end = j;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                let line = src[..start].matches('\n').count() + 1;
+                out.push((file.to_string(), line, body[..end].trim().to_string()));
+            }
+            i = start + ".publish".len();
+        }
+        out
+    }
+
+    /// The string literals inside an argument: what the subject starts with.
+    fn literals(arg: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = arg;
+        while let Some(a) = rest.find('"') {
+            let tail = &rest[a + 1..];
+            let Some(b) = tail.find('"') else { break };
+            out.push(tail[..b].to_string());
+            rest = &tail[b + 1..];
+        }
+        out
+    }
+
+    fn violations(sites: &[(String, usize, String)]) -> Vec<String> {
+        sites
+            .iter()
+            .filter_map(|(file, line, arg)| {
+                let lits = literals(arg);
+                let ok = !lits.is_empty() && lits.iter().all(|l| ALLOWED.iter().any(|p| l.starts_with(p)));
+                (!ok).then(|| format!("{file}:{line}: publish subject `{arg}` must be a literal under {ALLOWED:?}"))
+            })
+            .collect()
+    }
+
+    fn rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn it_only_touches_authored_subjects() {
+        // The scanner itself, on fixtures: an observed subject is a violation,
+        // an authored one is not, a variable with no literal is a violation.
+        let fixture = r#"
+            bus.publish("events.h.p.s.main", &batch).await;
+            bus.publish(&format!("ops.proposal.{hand}"), &b).await;
+            bus.publish_bytes("ui.control.x", &bytes).await;
+            bus.publish(subject, &batch).await;
+        "#;
+        let sites = publish_sites(fixture, "fixture.rs");
+        assert_eq!(sites.len(), 4, "{sites:?}");
+        let v = violations(&sites);
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(v[0].contains("events.h.p.s.main"));
+        assert!(v[1].contains("`subject`"));
+
+        // The crate's own source.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_files(&root, &mut files);
+        let mut sites = Vec::new();
+        for f in files {
+            let src = std::fs::read_to_string(&f).unwrap();
+            let rel = f.strip_prefix(&root).unwrap().display().to_string();
+            sites.extend(publish_sites(&src, &rel));
+        }
+        let v = violations(&sites);
+        assert!(v.is_empty(), "MCP publishes outside its lane:\n{}", v.join("\n"));
+    }
+}
