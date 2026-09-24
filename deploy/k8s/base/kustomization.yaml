@@ -1,0 +1,33 @@
+# OpenStory node — one pod is one node is one principal (REQUIREMENTS K-01).
+# The server container serves the API and UI from Dockerfile.prod; the nats
+# sidecar is the JetStream leaf the server publishes to, configured from the
+# ConfigMap below. Overlays set the namespace, the host name, and the image.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - pvc.yaml
+
+configMapGenerator:
+  - name: openstory-config
+    files:
+      - config.toml
+      - nats-leaf.conf
+
+# The leaf URL carries the hub token; keep it in a Secret, never in the
+# ConfigMap. Copy leaf.env.example to leaf.env and fill it; an empty URL
+# means the sidecar serves loopback only and the node federates nowhere.
+secretGenerator:
+  - name: openstory-leaf
+    envs:
+      - leaf.env
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: openstory
+    newName: ghcr.io/openstoryarc/openstory
+    newTag: latest

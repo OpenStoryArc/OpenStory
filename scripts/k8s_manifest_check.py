@@ -21,6 +21,7 @@ One pod is one node is one principal. The check renders an overlay with
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -190,6 +191,9 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.test:
         return _test()
+    if not shutil.which("kubectl"):
+        print("SKIP: kubectl not found; the manifests were not rendered (CI renders them)")
+        return 0
     ok = True
     for label, overlay, checks in [("one node", a.overlay, one_node_checks), ("two principals", a.two, lambda d: check_single_replica(d) + check_two_principals(d))]:
         try:

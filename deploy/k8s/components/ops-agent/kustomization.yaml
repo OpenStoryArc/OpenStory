@@ -1,0 +1,8 @@
+# Optional ops-agent pod (K-06): the MCP against the node's Service, with
+# no cluster credential in the pod. It can watch, diagnose, and propose;
+# it cannot touch the cluster.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - deployment.yaml

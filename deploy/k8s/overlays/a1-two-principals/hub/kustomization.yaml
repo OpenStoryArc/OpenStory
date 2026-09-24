@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namePrefix: hub-
+resources:
+  - ../../../base
+patches:
+  - target:
+      kind: Deployment
+      name: openstory
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: hub-node

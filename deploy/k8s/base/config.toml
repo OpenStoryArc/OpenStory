@@ -1,0 +1,11 @@
+# The node's config.toml, mounted at /data/config.toml (K-01). Every value
+# here has a default; these are the ones a pod pins.
+host = "0.0.0.0"
+port = 3002
+data_dir = "/data"
+watch_dir = "/watch"
+nats_url = "nats://127.0.0.1:4222"
+log_format = "json"
+metrics_enabled = true
+presence_interval_secs = 15
+watch_backfill_hours = 24
