@@ -206,3 +206,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   eleven-minute replay would have printed at least ten lines. Note: the
   L-06 commit carried rustfmt churn in `api.rs` and `router.rs` (format
   only). Next: L-08 (`scripts/scratch_node.sh`).
+  Correction: the L-07 commit was pushed with one red spec (the L-03 test
+  raced another test's scoped subscriber on the process-wide max-level
+  hint). The loop's commit gate keyed on grep's exit code instead of
+  cargo's; fixed in the next commit by serialising subscriber-installing
+  tests and gating on the test exit code.

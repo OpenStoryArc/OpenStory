@@ -7,6 +7,16 @@ use open_story_server::logging::{build_subscriber, LogFormat};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+/// Subscriber-installing tests run one at a time. `tracing` keeps one
+/// process-wide max-level hint rebuilt whenever a dispatcher is registered
+/// or dropped; two tests installing and dropping scoped subscribers on
+/// different threads can race that rebuild and one test then sees its
+/// `info!` short-circuited (observed: "no batch_persisted line in []").
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// A `MakeWriter` that appends to a shared buffer so a test can read back
 /// exactly what the subscriber wrote.
 #[derive(Clone, Default)]
@@ -46,6 +56,7 @@ mod when_log_format_is_json {
 
     #[test]
     fn it_emits_one_json_object_per_line() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -96,6 +107,7 @@ mod when_log_format_is_text {
 
     #[test]
     fn it_emits_a_human_line_not_json() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Text, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -116,6 +128,7 @@ mod when_log_format_is_parsed_from_config {
 
     #[test]
     fn it_accepts_text_and_json_case_insensitively_and_rejects_the_rest() {
+        let _serial = serial();
         assert_eq!("json".parse::<LogFormat>().unwrap(), LogFormat::Json);
         assert_eq!("JSON".parse::<LogFormat>().unwrap(), LogFormat::Json);
         assert_eq!("text".parse::<LogFormat>().unwrap(), LogFormat::Text);
@@ -131,6 +144,7 @@ mod when_a_consumer_logs {
 
     #[test]
     fn it_stamps_actor_and_event() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -174,6 +188,7 @@ mod when_a_consumer_logs {
 
     #[test]
     fn it_has_no_actor_outside_a_consumer_and_never_omits_event() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -240,6 +255,7 @@ mod when_persist_logs_a_session {
 
     #[tokio::test]
     async fn it_carries_session_id() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let mut persist = consumer(tmp.path());
         let cap = Capture::default();
@@ -275,6 +291,7 @@ mod when_log_format_is_text_after_l04 {
 
     #[test]
     fn it_keeps_time_category_message_shape() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Text, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -304,6 +321,7 @@ mod when_log_format_is_text_after_l04 {
 
     #[test]
     fn it_routes_log_event_through_tracing_so_json_sees_it_too() {
+        let _serial = serial();
         let cap = Capture::default();
         let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
@@ -356,6 +374,7 @@ mod when_replay_runs {
 
     #[tokio::test]
     async fn it_logs_progress_and_done() {
+        let _serial = serial();
         let tmp = tempfile::tempdir().unwrap();
         let event_store: Arc<dyn EventStore> = Arc::new(SqliteStore::new(tmp.path()).unwrap());
         let mut persist = PersistConsumer::new(
@@ -404,6 +423,7 @@ mod when_replay_runs {
 
     #[test]
     fn it_reports_on_time_even_without_a_percent_step() {
+        let _serial = serial();
         let t0 = Instant::now();
         let mut p = ReplayProgress::new(1000, t0);
         assert!(p.observe(1, t0).is_none(), "1 of 1000 is under 10 % and under 5 s");
