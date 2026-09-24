@@ -56,7 +56,9 @@ pub fn ensure_nats(
     let leaf_url = leaf_url.map(str::trim).filter(|s| !s.is_empty());
 
     if tcp_reachable(&host, port, Duration::from_millis(500)) {
-        eprintln!("  \x1b[2mNATS:\x1b[0m         reusing server already listening on {host}:{port}");
+        eprintln!(
+            "  \x1b[2mNATS:\x1b[0m         reusing server already listening on {host}:{port}"
+        );
         return Ok(NatsGuard { child: None });
     }
 
@@ -68,8 +70,9 @@ pub fn ensure_nats(
         )
     })?;
 
-    std::fs::create_dir_all(store_dir)
-        .map_err(|e| anyhow::anyhow!("cannot create NATS store dir {}: {e}", store_dir.display()))?;
+    std::fs::create_dir_all(store_dir).map_err(|e| {
+        anyhow::anyhow!("cannot create NATS store dir {}: {e}", store_dir.display())
+    })?;
 
     let mut command = std::process::Command::new(&bin);
     match leaf_url {
@@ -77,8 +80,9 @@ pub fn ensure_nats(
             // Networking on: write a leaf-node config and launch from it. The
             // config carries the hub remote, which bare args can't express.
             let conf_path = store_dir.join("leaf.conf");
-            std::fs::write(&conf_path, render_leaf_config(&host, port, store_dir, url))
-                .map_err(|e| anyhow::anyhow!("cannot write leaf config {}: {e}", conf_path.display()))?;
+            std::fs::write(&conf_path, render_leaf_config(&host, port, store_dir, url)).map_err(
+                |e| anyhow::anyhow!("cannot write leaf config {}: {e}", conf_path.display()),
+            )?;
             eprintln!(
                 "  \x1b[2mNATS:\x1b[0m         starting {} as JetStream leaf on {host}:{port} → hub {}",
                 bin.display(),
@@ -91,13 +95,12 @@ pub fn ensure_nats(
                 "  \x1b[2mNATS:\x1b[0m         starting {} with JetStream on {host}:{port} (loopback)",
                 bin.display()
             );
-            command.args(["-js", "-a", &host, "-p", &port.to_string(), "-sd"]).arg(store_dir);
+            command
+                .args(["-js", "-a", &host, "-p", &port.to_string(), "-sd"])
+                .arg(store_dir);
         }
     }
-    let child = command
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    let child = spawn_logged(command, store_dir)
         .map_err(|e| anyhow::anyhow!("failed to spawn nats-server ({}): {e}", bin.display()))?;
 
     // Wait for the spawned server to start accepting connections.
@@ -119,11 +122,46 @@ pub fn ensure_nats(
 /// Parse a `nats://host:port` URL into `(host, port)`. Defaults port to 4222
 /// and normalizes `localhost`/empty host to `127.0.0.1` (so we bind the
 /// spawned server to loopback rather than all interfaces).
+/// Rotate `nats.log` past this many bytes. One generation is kept as
+/// `nats.log.1`; a node that needs more ships its logs elsewhere.
+pub const NATS_LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Open `<store_dir>/nats.log` for appending, rotating it to `nats.log.1`
+/// first when it is already past `max_bytes`. The managed NATS child's
+/// stdout and stderr go here so a leaf that cannot dial its hub, a config
+/// the server rejects, or a JetStream storage error is readable (L-05).
+pub fn open_child_log(store_dir: &Path, max_bytes: u64) -> std::io::Result<std::fs::File> {
+    let path = store_dir.join("nats.log");
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() > max_bytes {
+            std::fs::rename(&path, store_dir.join("nats.log.1"))?;
+        }
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+}
+
+/// Spawn `command` with both output streams captured to the store's
+/// `nats.log` (see `open_child_log`). Never `Stdio::null()`.
+pub fn spawn_logged(
+    mut command: std::process::Command,
+    store_dir: &Path,
+) -> std::io::Result<std::process::Child> {
+    let out = open_child_log(store_dir, NATS_LOG_MAX_BYTES)?;
+    let err = out.try_clone()?;
+    command
+        .stdout(std::process::Stdio::from(out))
+        .stderr(std::process::Stdio::from(err))
+        .spawn()
+}
+
 pub fn parse_host_port(nats_url: &str) -> (String, u16) {
     let s = nats_url.strip_prefix("nats://").unwrap_or(nats_url);
     let s = s.split('/').next().unwrap_or(s); // drop any trailing path
-    // Drop `user:password@` userinfo: credentials belong to the client
-    // connection, never to the server's listen address.
+                                              // Drop `user:password@` userinfo: credentials belong to the client
+                                              // connection, never to the server's listen address.
     let s = s.rsplit_once('@').map_or(s, |(_, host_port)| host_port);
     match s.rsplit_once(':') {
         Some((host, port)) => (normalize_host(host), port.parse().unwrap_or(4222)),
@@ -231,20 +269,38 @@ mod tests {
 
     #[test]
     fn parse_host_port_handles_standard_url() {
-        assert_eq!(parse_host_port("nats://localhost:4222"), ("127.0.0.1".to_string(), 4222));
-        assert_eq!(parse_host_port("nats://127.0.0.1:4222"), ("127.0.0.1".to_string(), 4222));
-        assert_eq!(parse_host_port("nats://example.com:5555"), ("example.com".to_string(), 5555));
+        assert_eq!(
+            parse_host_port("nats://localhost:4222"),
+            ("127.0.0.1".to_string(), 4222)
+        );
+        assert_eq!(
+            parse_host_port("nats://127.0.0.1:4222"),
+            ("127.0.0.1".to_string(), 4222)
+        );
+        assert_eq!(
+            parse_host_port("nats://example.com:5555"),
+            ("example.com".to_string(), 5555)
+        );
     }
 
     #[test]
     fn parse_host_port_defaults_missing_port() {
-        assert_eq!(parse_host_port("nats://localhost"), ("127.0.0.1".to_string(), 4222));
-        assert_eq!(parse_host_port("localhost"), ("127.0.0.1".to_string(), 4222));
+        assert_eq!(
+            parse_host_port("nats://localhost"),
+            ("127.0.0.1".to_string(), 4222)
+        );
+        assert_eq!(
+            parse_host_port("localhost"),
+            ("127.0.0.1".to_string(), 4222)
+        );
     }
 
     #[test]
     fn parse_host_port_tolerates_no_scheme_and_trailing_slash() {
-        assert_eq!(parse_host_port("127.0.0.1:4300/"), ("127.0.0.1".to_string(), 4300));
+        assert_eq!(
+            parse_host_port("127.0.0.1:4300/"),
+            ("127.0.0.1".to_string(), 4300)
+        );
     }
 
     /// A node using the accounts feature carries `user:password@` in its
@@ -258,8 +314,14 @@ mod tests {
             parse_host_port("nats://29911d8f-3893:29911d8f-3893-local-dev@localhost:4222"),
             ("127.0.0.1".to_string(), 4222)
         );
-        assert_eq!(parse_host_port("nats://user:p%40ss@example.com:5555"), ("example.com".to_string(), 5555));
-        assert_eq!(parse_host_port("user:pass@localhost"), ("127.0.0.1".to_string(), 4222));
+        assert_eq!(
+            parse_host_port("nats://user:p%40ss@example.com:5555"),
+            ("example.com".to_string(), 5555)
+        );
+        assert_eq!(
+            parse_host_port("user:pass@localhost"),
+            ("127.0.0.1".to_string(), 4222)
+        );
     }
 
     #[test]
@@ -267,7 +329,10 @@ mod tests {
         // A real existing file stands in for the binary; resolution returns it.
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let path = tmp.path().to_string_lossy().to_string();
-        assert_eq!(find_nats_binary(Some(&path)), Some(tmp.path().to_path_buf()));
+        assert_eq!(
+            find_nats_binary(Some(&path)),
+            Some(tmp.path().to_path_buf())
+        );
     }
 
     #[test]
@@ -331,7 +396,8 @@ mod tests {
             cmd.args(["-c", "echo out-line; echo err-line 1>&2"]);
             let mut child = spawn_logged(cmd, tmp.path()).expect("spawn");
             child.wait().unwrap();
-            let log = std::fs::read_to_string(tmp.path().join("nats.log")).expect("nats.log exists");
+            let log =
+                std::fs::read_to_string(tmp.path().join("nats.log")).expect("nats.log exists");
             assert!(log.contains("out-line"), "stdout captured: {log:?}");
             assert!(log.contains("err-line"), "stderr captured: {log:?}");
         }
@@ -345,12 +411,23 @@ mod tests {
             use std::io::Write;
             writeln!(f, "fresh").unwrap();
             drop(f);
-            assert_eq!(std::fs::read_to_string(tmp.path().join("nats.log.1")).unwrap(), "x".repeat(20));
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\n", "new log starts empty");
+            assert_eq!(
+                std::fs::read_to_string(tmp.path().join("nats.log.1")).unwrap(),
+                "x".repeat(20)
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "fresh\n",
+                "new log starts empty"
+            );
             let mut f = open_child_log(tmp.path(), 10).expect("reopen below limit");
             writeln!(f, "again").unwrap();
             drop(f);
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\nagain\n", "appends when under the limit");
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "fresh\nagain\n",
+                "appends when under the limit"
+            );
         }
     }
 }

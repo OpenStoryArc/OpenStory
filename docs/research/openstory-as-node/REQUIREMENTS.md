@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (L-04 green).
+Last updated: 2026-09-23 (L-05 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -22,7 +22,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | Group | Requirements | GREEN | Notes |
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
-| L · logging | L-01 … L-08 | 4 / 8 | `tracing`, JSON lines, log ring |
+| L · logging | L-01 … L-08 | 5 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
@@ -66,7 +66,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | L-02 | GREEN. Every log line carries `ts` (RFC 3339), `level`, `target`, `event` (a stable snake_case name), and `actor` when emitted inside a consumer. | `…::when_a_consumer_logs::it_stamps_actor_and_event` |
 | L-03 | GREEN. Lines about a session carry `session_id`. (The `subject` half moves to E-05: `IngestBatch` carries no subject today; the watcher publish path is where a subject is known.) | `…::when_persist_logs_a_session::it_carries_session_id` |
 | L-04 | GREEN. `log_event` is a thin shim over `tracing::info!(category, …)`, so every existing site flows through both formatters; the `TextLine` formatter keeps `HH:MM:SS  category  message` with fields after. Call sites gain named `event`s as the rows that touch them land (L-07, E-01, E-05). | `…::when_log_format_is_text::it_keeps_time_category_message_shape` |
-| L-05 | The managed NATS child's stdout and stderr are captured to `<store_dir>/nats.log` (rotated at 50 MB), never `Stdio::null()`. | `rs/cli/src/managed_nats.rs::tests::when_child_writes_stderr::it_lands_in_nats_log` |
+| L-05 | GREEN. The managed NATS child's stdout and stderr are captured to `<store_dir>/nats.log` (rotated at 50 MB), never `Stdio::null()`. | `rs/cli/src/managed_nats.rs::tests::when_child_writes_stderr::it_lands_in_nats_log` |
 | L-06 | An in-process log ring keeps the last 5,000 lines (bounded by bytes, 8 MB) and is served at `GET /api/logs?since=<seq>&actor=&level=&limit=`. | `rs/tests/test_logs_api.rs::when_logs_are_requested_since_seq::it_returns_only_newer_lines` |
 | L-07 | Boot replay logs progress every 5 s and every 10 % (`event=replay_progress`, sessions done / total, elapsed) and a final `replay_done`. | `…::when_replay_runs::it_logs_progress_and_done` |
 | L-08 | `scripts/scratch_node.sh` boots an isolated instance (port, data dir, managed loopback NATS on a scratch port, `log_format=json`) and prints its log path; `--stop` tears it down. | script `--test` on a dry run; used by every live test below |
@@ -190,3 +190,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   ERROR, and appends fields as key=value. JSON sees `category` and
   `message` from every legacy site. Next: L-05 (managed NATS child output
   to a rotated file).
+- **2026-09-23 22:50 local.** L-05 GREEN. `spawn_logged` sends the managed
+  NATS child's stdout and stderr to `<store_dir>/nats.log`; `open_child_log`
+  rotates it to `nats.log.1` past 50 MB. Tonight's "did not become reachable
+  within 15s" would have shown "could not parse address string" in that
+  file. Next: L-06 (log ring + `GET /api/logs`).
