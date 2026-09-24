@@ -1594,3 +1594,26 @@ mod presence_federation_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod events_cap_tests {
+    //! K-08: the events cap is a knob, so a test can flood a tiny stream and
+    //! watch health flip before anything wedges.
+    use super::*;
+
+    #[test]
+    fn the_cap_reads_from_the_env_with_a_default_and_a_floor() {
+        assert_eq!(events_cap_from(None), EVENTS_MAX_BYTES, "default 1 GiB");
+        assert_eq!(events_cap_from(Some("524288")), 524_288);
+        assert_eq!(events_cap_from(Some("not a number")), EVENTS_MAX_BYTES, "garbage is the default");
+        assert_eq!(events_cap_from(Some("10")), EVENTS_CAP_FLOOR, "below the floor is the floor");
+    }
+
+    #[test]
+    fn the_events_streams_take_the_cap() {
+        assert_eq!(events_stream_config("h", false, 524_288).max_bytes, 524_288);
+        assert_eq!(events_stream_config("h", true, 524_288).max_bytes, 524_288);
+        assert_eq!(local_stream_config(524_288).max_bytes, 524_288);
+        assert_eq!(events_mirror_config("hub", 524_288).max_bytes, 524_288);
+    }
+}
