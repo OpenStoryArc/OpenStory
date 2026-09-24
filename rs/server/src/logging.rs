@@ -19,8 +19,11 @@ pub use open_story_core::strings::truncate_at_char_boundary;
 
 /// Format a log line with timestamp, category label, and message.
 pub fn log_event(category: &str, message: &str) {
-    let now = Local::now().format("%H:%M:%S");
-    eprintln!("\x1b[2m{now}\x1b[0m \x1b[36m{category:>5}\x1b[0m {message}");
+    // Since L-04 a thin shim over `tracing`: the text formatter prints it
+    // as before (`HH:MM:SS  category  message`); JSON carries `category`
+    // and `message` as fields. New code calls `tracing` macros directly
+    // with an `event` name; existing sites migrate as their rows land.
+    tracing::info!(category, "{message}");
 }
 
 /// Summarize a batch of CloudEvents as a compact subtype list.
@@ -267,6 +270,73 @@ where
     }
 }
 
+/// The terminal formatter: `HH:MM:SS  category  message key=value …`.
+/// Category is the enclosing consumer's `actor`, else the record's
+/// `category` field (what `log_event` passes), else the last segment of the
+/// target. The `event` name is not printed: it is the line's identity for
+/// machines, noise for a person. WARN and ERROR are prefixed.
+struct TextLine;
+
+impl<S, N> FormatEvent<S, N> for TextLine
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        let meta = event.metadata();
+        let mut fields = JsonFields::default();
+        event.record(&mut fields);
+        let mut span_fields = serde_json::Map::new();
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope.from_root() {
+                if let Some(sf) = span.extensions().get::<JsonFields>() {
+                    for (k, v) in &sf.0 {
+                        span_fields.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        let as_text = |v: &serde_json::Value| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        let category = span_fields
+            .get("actor")
+            .or_else(|| fields.0.get("category"))
+            .map(as_text)
+            .unwrap_or_else(|| {
+                meta.target()
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or("log")
+                    .to_string()
+            });
+        let message = fields.0.get("message").map(as_text).unwrap_or_default();
+        let now = Local::now().format("%H:%M:%S");
+        let level = match *meta.level() {
+            tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m ",
+            tracing::Level::WARN => "\x1b[33mWARN\x1b[0m ",
+            _ => "",
+        };
+        write!(
+            writer,
+            "\x1b[2m{now}\x1b[0m \x1b[36m{category:>5}\x1b[0m {level}{message}"
+        )?;
+        for (k, v) in fields.0.iter().chain(span_fields.iter()) {
+            if matches!(k.as_str(), "message" | "category" | "event" | "actor") {
+                continue;
+            }
+            write!(writer, " \x1b[2m{k}={}\x1b[0m", as_text(v))?;
+        }
+        writeln!(writer)
+    }
+}
+
 /// Build a subscriber for `format`, filtered by `filter` (an `EnvFilter`
 /// directive string such as `info` or `open_story=debug`), writing to
 /// `writer`. Pure with respect to process state: nothing global is set.
@@ -291,11 +361,14 @@ where
                 ),
         ),
         LogFormat::Text => Box::new(
-            tracing_subscriber::registry().with(filter).with(
-                tracing_subscriber::fmt::layer()
-                    .with_target(false)
-                    .with_writer(writer),
-            ),
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(SpanFields)
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .event_format(TextLine)
+                        .with_writer(writer),
+                ),
         ),
     }
 }
