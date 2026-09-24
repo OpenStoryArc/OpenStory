@@ -188,3 +188,81 @@ mod when_a_consumer_logs {
         assert_eq!(line["message"], "a line someone forgot to name");
     }
 }
+
+// L-03: a line about a session carries `session_id` as a field.
+mod when_persist_logs_a_session {
+    use super::*;
+    use dashmap::DashMap;
+    use open_story_core::cloud_event::CloudEvent;
+    use open_story_core::event_data::{AgentPayload, ClaudeCodePayload, EventData};
+    use open_story_server::consumers::persist::PersistConsumer;
+    use open_story_store::event_store::EventStore;
+    use open_story_store::persistence::SessionStore;
+    use open_story_store::plan_store::PlanStore;
+    use open_story_store::projection_cache::ProjectionCache;
+    use open_story_store::sqlite_store::SqliteStore;
+
+    fn consumer(dir: &std::path::Path) -> PersistConsumer {
+        let session_store = SessionStore::new(dir).unwrap();
+        let event_store: Arc<dyn EventStore> = Arc::new(SqliteStore::new(dir).unwrap());
+        let plan_store = PlanStore::new(&dir.join("plans")).unwrap();
+        PersistConsumer::new(
+            event_store,
+            session_store,
+            Arc::new(ProjectionCache::new(u64::MAX, 0)),
+            Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
+            plan_store,
+        )
+    }
+
+    fn event(id: &str) -> CloudEvent {
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("hello".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            0,
+            "sess-log-1".to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            "arc://test/sess-log-1".into(),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some(id.to_string()),
+            Some("2026-09-23T22:00:00Z".to_string()),
+            None,
+            None,
+            Some("claude-code".into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn it_carries_session_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut persist = consumer(tmp.path());
+        let cap = Capture::default();
+        let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
+        let _guard = tracing::subscriber::set_default(sub);
+
+        let result = persist
+            .process_batch("sess-log-1", &[event("e1"), event("e2")], Some("proj-x"))
+            .await;
+        assert_eq!(result.persisted, 2);
+
+        let lines: Vec<serde_json::Value> = cap
+            .lines()
+            .iter()
+            .map(|l| serde_json::from_str(l).expect("json line"))
+            .collect();
+        let batch = lines
+            .iter()
+            .find(|l| l["event"] == "batch_persisted")
+            .unwrap_or_else(|| panic!("no batch_persisted line in {lines:?}"));
+        assert_eq!(batch["session_id"], "sess-log-1");
+        assert_eq!(batch["persisted"], 2);
+        assert_eq!(batch["skipped"], 0);
+        assert_eq!(batch["project_id"], "proj-x");
+    }
+}
