@@ -1405,3 +1405,82 @@ mod federation_config_tests {
         assert!(prefixes.contains(&"$JS.leaf-maxs-air.API"));
     }
 }
+
+#[cfg(test)]
+mod presence_federation_tests {
+    //! P-04: presence crosses the leaf and the hub the way events do. The
+    //! leaf template names no subjects; federation is JetStream sourcing,
+    //! so the truth is in these pure config builders.
+    use super::*;
+
+    #[test]
+    fn solo_presence_stream_binds_everything() {
+        let cfg = presence_stream_config("maxs-air", false);
+        assert_eq!(cfg.name, "presence");
+        assert_eq!(cfg.subjects, vec!["presence.>".to_string()]);
+        assert!(cfg.sources.is_none());
+        assert!(matches!(cfg.retention, stream::RetentionPolicy::Limits));
+        assert_eq!(cfg.max_bytes, PRESENCE_MAX_BYTES);
+        assert_eq!(cfg.max_age, PRESENCE_MAX_AGE, "a week of beats for DORA reads");
+    }
+
+    #[test]
+    fn federation_presence_stream_binds_only_own_host() {
+        // Same rule as events: own namespace only, so leafnode propagation
+        // cannot double-count a beat that also arrives through the mirror.
+        let cfg = presence_stream_config("maxs-air", true);
+        assert_eq!(cfg.subjects, vec!["presence.maxs-air.>".to_string()]);
+        assert!(cfg.sources.is_none());
+    }
+
+    #[test]
+    fn presence_mirror_sources_the_hub_presence_aggregate() {
+        let cfg = presence_mirror_config("hub");
+        assert_eq!(cfg.name, "presence-mirror");
+        assert!(cfg.subjects.is_empty(), "the mirror is source-only");
+        let sources = cfg.sources.as_ref().expect("sources");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "presence-agg");
+        assert_eq!(
+            sources[0].external.as_ref().map(|e| e.api_prefix.as_str()),
+            Some("$JS.hub.API")
+        );
+        assert_eq!(cfg.max_age, PRESENCE_MAX_AGE);
+    }
+
+    #[test]
+    fn presence_aggregate_is_source_only() {
+        let cfg = presence_aggregate_config();
+        assert_eq!(cfg.name, "presence-agg");
+        assert!(cfg.subjects.is_empty());
+        assert_eq!(cfg.max_bytes, PRESENCE_MAX_BYTES);
+        assert_eq!(cfg.max_age, PRESENCE_MAX_AGE);
+    }
+
+    #[test]
+    fn mesh_presence_mirror_sources_each_peer() {
+        let cfg = presence_mirror_mesh_config(&["laptop".to_string(), "phone".to_string()]);
+        assert_eq!(cfg.name, "presence-mirror");
+        let sources = cfg.sources.as_ref().expect("sources");
+        assert_eq!(sources.len(), 2);
+        for s in sources {
+            assert_eq!(s.name, "presence", "mesh sources each peer's own presence stream");
+        }
+    }
+
+    #[test]
+    fn self_registration_is_keyed_by_stream_name_and_domain() {
+        // One helper serves both aggregates: the leaf's `events` on
+        // `events-agg`, the leaf's `presence` on `presence-agg`.
+        let mut sources = vec![];
+        assert!(ensure_named_source(&mut sources, "presence", "leaf-1"));
+        assert!(!ensure_named_source(&mut sources, "presence", "leaf-1"), "idempotent");
+        assert!(ensure_named_source(&mut sources, "events", "leaf-1"), "a different stream is a different source");
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0].name, "presence");
+        assert_eq!(
+            sources[0].external.as_ref().map(|e| e.api_prefix.as_str()),
+            Some("$JS.leaf-1.API")
+        );
+    }
+}

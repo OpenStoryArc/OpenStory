@@ -300,9 +300,7 @@ mod tests {
             allowed_accounts: vec!["PERSON_KATIE".into()],
         });
         let out = render_accounts_block(&[max]);
-        assert!(out.contains(
-            "{ stream: \"events.session-X.>\", accounts: [PERSON_KATIE] }"
-        ));
+        assert!(out.contains("{ stream: \"events.session-X.>\", accounts: [PERSON_KATIE] }"));
     }
 
     #[test]
@@ -333,9 +331,9 @@ mod tests {
             to: None,
         });
         let out = render_accounts_block(&[max, katie]);
-        assert!(out.contains(
-            "{ stream: { account: PERSON_MAX, subject: \"events.session-X.>\" } }"
-        ));
+        assert!(
+            out.contains("{ stream: { account: PERSON_MAX, subject: \"events.session-X.>\" } }")
+        );
     }
 
     #[test]
@@ -392,6 +390,25 @@ mod tests {
         let out = render_accounts_block(&[acc]);
         assert!(out.contains("publish: { allow: [\"events.>\"] }"));
         assert!(out.contains("subscribe: { allow: [\"events.>\"] }"));
+    }
+
+    /// P-04: presence crosses the hub alongside events, for readers and writers.
+    #[test]
+    fn observer_and_contributor_carry_presence_alongside_events() {
+        let observer = PermissionSet::observer();
+        assert!(observer.subscribe.contains(&"presence.>".to_string()), "{observer:?}");
+        assert!(observer.publish.is_empty(), "an observer still publishes nothing");
+        let contributor = PermissionSet::contributor();
+        assert!(contributor.publish.contains(&"presence.>".to_string()), "{contributor:?}");
+        assert!(contributor.subscribe.contains(&"presence.>".to_string()));
+        assert!(contributor.publish.contains(&"events.>".to_string()), "events stay granted");
+        let mut acc = person_max();
+        acc.users[0].permissions = Some(PermissionSet::contributor());
+        let out = render_accounts_block(&[acc]);
+        assert!(
+            out.contains("publish: { allow: [\"events.>\", \"presence.>\"] }"),
+            "rendered grant names both families; got:\n{out}"
+        );
     }
 
     #[test]
