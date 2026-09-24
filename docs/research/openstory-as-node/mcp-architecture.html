@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ops MCP, drawn</title>
+<meta name="description" content="Where the OpenStory ops MCP sits and what it does, as six readable views: the node, the MCP's two edges, the fleet, one act, the watch loop, and the hands.">
+<style>
+  :root {
+    --paper: #f6efe2; --ink: #2b241c; --ink-2: #6b5d4d; --rule: #d9cfbd; --accent: #c25a1e;
+    --card: #fbf7ee; --lane-observed: #2b241c; --lane-authored: #1f5f8b; --lane-ops: #c25a1e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #1e1a15; --ink: #ece4d4; --ink-2: #b8ab97; --rule: #3c342a; --accent: #e0803f; --card: #26211a;
+      --lane-observed: #ece4d4; --lane-authored: #7fb3d9; --lane-ops: #e0803f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #1e1a15; --ink: #ece4d4; --ink-2: #b8ab97; --rule: #3c342a; --accent: #e0803f; --card: #26211a;
+    --lane-observed: #ece4d4; --lane-authored: #7fb3d9; --lane-ops: #e0803f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); }
+  body { font: 16px/1.5 Charter, "Iowan Old Style", Georgia, serif; padding: 0 16px 48px; }
+  header { max-width: 1400px; margin: 0 auto; padding: 24px 0 8px; border-bottom: 1px solid var(--rule); }
+  h1 { font-size: 26px; margin: 0 0 4px; font-weight: 600; }
+  header p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+  nav { max-width: 1400px; margin: 12px auto 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  nav button { font: inherit; font-size: 15px; padding: 6px 12px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); border-radius: 6px; cursor: pointer; }
+  nav button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+  main { max-width: 1400px; margin: 0 auto; }
+  section[role="tabpanel"] { display: none; padding-top: 16px; }
+  section[role="tabpanel"].active { display: block; }
+  .lead { color: var(--ink-2); margin: 0 0 12px; max-width: 80ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; color: var(--ink-2); margin: 0 0 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 28px; height: 0; border-top: 3px solid var(--lane-observed); margin-right: 6px; vertical-align: middle; }
+  .legend .authored::before { border-top-color: var(--lane-authored); border-top-width: 5px; }
+  .legend .ops::before { border-top-style: dashed; border-top-color: var(--lane-ops); }
+  .toolbar { display: flex; gap: 6px; align-items: center; margin: 0 0 8px; }
+  .toolbar button { font: inherit; font-size: 14px; padding: 4px 10px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); border-radius: 6px; cursor: pointer; }
+  .toolbar .pct { color: var(--ink-2); font-size: 14px; min-width: 4ch; }
+  .frame { border: 1px solid var(--rule); background: var(--card); border-radius: 8px; overflow: auto; max-height: calc(100vh - 220px); }
+  .canvas { transform-origin: 0 0; padding: 16px; width: max-content; }
+  .canvas svg { display: block; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+  th { color: var(--ink-2); font-weight: 600; }
+  td code, .lead code { font: 13px/1.4 ui-monospace, Menlo, monospace; background: var(--card); padding: 1px 4px; border-radius: 3px; }
+  .tier { display: inline-block; min-width: 1.6em; text-align: center; border-radius: 999px; border: 1px solid var(--rule); font-size: 13px; padding: 0 6px; }
+  .tier.t0 { color: var(--ink); } .tier.t1 { color: var(--lane-ops); border-color: var(--lane-ops); } .tier.t2 { color: var(--ink-2); border-style: dashed; }
+  ul.plain { padding-left: 20px; max-width: 80ch; }
+  @media (max-width: 700px) { .frame { max-height: 70vh; } th, td { padding: 6px; font-size: 14px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ops MCP, drawn</h1>
+  <p>Where the OpenStory ops MCP sits in a node and what it does, split into views that fit on a screen. The rule under all of it: <em>tier 0 hands read; tier 1 hands change only what is derived and leave a proposal on the bus; tier 2 is a proposal a person or the host carries out.</em></p>
+</header>
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="node">1 · The node</button>
+  <button role="tab" aria-selected="false" data-tab="edges">2 · The MCP's two edges</button>
+  <button role="tab" aria-selected="false" data-tab="fleet">3 · The fleet</button>
+  <button role="tab" aria-selected="false" data-tab="act">4 · One act</button>
+  <button role="tab" aria-selected="false" data-tab="watch">5 · Watch</button>
+  <button role="tab" aria-selected="false" data-tab="hands">6 · The hands</button>
+</nav>
+<main>
+
+<section role="tabpanel" id="tab-node" class="active">
+  <p class="lead">One node, observed lane only. Transcripts become events, events become streams, actors read the streams into the store, and the API reads the store. The presence beat is the node telling the fleet how it feels.</p>
+  <div class="toolbar"><button data-zoom="-">−</button><span class="pct">100%</span><button data-zoom="+">+</button><button data-zoom="fit">fit width</button></div>
+  <div class="frame"><div class="canvas"><pre class="mermaid">
+flowchart LR
+  TR["Transcript files"] --> W["watcher"] --> T["translate"]
+  T --> SE["events stream"]
+  T --> SL["local stream"]
+  subgraph actors["Consumer actors"]
+    CP["persist"]
+    CPT["patterns"]
+    CPJ["projections"]
+    CB["broadcast"]
+  end
+  SE --> CP & CPT & CPJ & CB
+  SL --> CP & CPT & CPJ & CB
+  CPT --> SP["patterns stream"]
+  CPJ --> SC["changes stream"]
+  CP --> SQL[("SQLite store")]
+  CP --> JL[("JSONL per session")]
+  BEAT["presence beat, every 15 s"] --> SPR["presence stream"] --> CPR["presence actor"]
+  CPR --> SQL
+  CPR --> PJ[("presence.jsonl")]
+  SQL --> API["HTTP API on 3002"]
+  API --> H["/api/health with verdict"]
+  API --> L["/api/logs"]
+  API --> FP["/api/fleet/presence"]
+  API --> M["/metrics"]
+  API --> R["history reads"]
+  classDef store fill:#efe6d3,stroke:#6b5d4d,color:#2b241c;
+  class SQL,JL,PJ store;
+  </pre></div></div>
+</section>
+
+<section role="tabpanel" id="tab-edges">
+  <p class="lead">The MCP is a process on stdio between an agent and the node, with exactly two edges. Over REST it reads. Over NATS it subscribes to the observed and authored lanes and publishes only proposals. Nothing it does writes to the observed lane.</p>
+  <div class="legend"><span>observed, read only</span><span class="authored">authored, ui.*</span><span class="ops">ops, proposals and commands</span></div>
+  <div class="toolbar"><button data-zoom="-">−</button><span class="pct">100%</span><button data-zoom="+">+</button><button data-zoom="fit">fit width</button></div>
+  <div class="frame"><div class="canvas"><pre class="mermaid">
+flowchart LR
+  AG["Agent<br/>Claude Code or any MCP client"] <-->|"stdio JSON-RPC"| MCP["open-story-mcp<br/>tools, hands, subscriptions"]
+  subgraph rest["REST edge, reads"]
+    H["GET /api/health<br/>verdict with finding ids"]
+    L["GET /api/logs"]
+    FP["GET /api/fleet/presence"]
+    R["history reads"]
+    OPS["POST /api/ops/hand"]
+  end
+  subgraph nats["NATS edge"]
+    SE["events stream"]
+    SU["ui stream"]
+    SO["ops stream"]
+  end
+  MCP --> H
+  MCP --> L
+  MCP --> FP
+  MCP --> R
+  SE -->|"subscribe events.*.*.session.>"| MCP
+  SU ==>|"subscribe ui.>"| MCP
+  MCP ==>|"navigate_to, ui_control"| R
+  R ==>|"node publishes ui.*"| SU
+  MCP -.->|"publish ops.proposal.hand"| SO
+  MCP -.->|"POST hand args and key"| OPS
+  OPS -.->|"node publishes ops.command.hand"| SO
+  linkStyle 6,7,8 stroke:#1f5f8b,stroke-width:3px;
+  linkStyle 9,10,11 stroke:#c25a1e,stroke-dasharray:6 4;
+  </pre></div></div>
+</section>
+
+<section role="tabpanel" id="tab-fleet">
+  <p class="lead">Other nodes are reached only through the bus. A node publishes its own events and beats on host-scoped subjects; the hub aggregates every node's streams; each node mirrors the aggregates back. <code>fleet_presence</code> reads the result from the local store, never from another machine.</p>
+  <div class="toolbar"><button data-zoom="-">−</button><span class="pct">100%</span><button data-zoom="+">+</button><button data-zoom="fit">fit width</button></div>
+  <div class="frame"><div class="canvas"><pre class="mermaid">
+flowchart LR
+  subgraph this["This node"]
+    SE["events, own host"]
+    SPR["presence, own host"]
+    SEM["events-mirror"]
+    SPM["presence-mirror"]
+    CP["persist"]
+    CPR["presence actor"]
+    FP["/api/fleet/presence"]
+  end
+  subgraph hub["Hub"]
+    EA["events-agg"]
+    PA["presence-agg"]
+  end
+  subgraph peers["Other nodes"]
+    PE["events, their hosts"]
+    PP["presence, their hosts"]
+  end
+  SE -.->|"leaf link, self-registered source"| EA
+  SPR -.-> PA
+  PE -.-> EA
+  PP -.-> PA
+  EA -.->|"sourced"| SEM
+  PA -.->|"sourced"| SPM
+  SEM --> CP
+  SPM --> CPR --> FP
+  </pre></div></div>
+</section>
+
+<section role="tabpanel" id="tab-act">
+  <p class="lead">One tier-1 act, exactly as the code runs it. The MCP reads the verdict, refuses if the node isn't serving, publishes the proposal first and stops if it can't, then calls the node. The node checks the phase again, answers a seen key from its record without acting, or acts and records the command.</p>
+  <div class="toolbar"><button data-zoom="-">−</button><span class="pct">100%</span><button data-zoom="+">+</button><button data-zoom="fit">fit width</button></div>
+  <div class="frame"><div class="canvas"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant M as MCP
+  participant H as Node API
+  participant B as ops stream
+  participant S as Store
+  A->>M: node_health {}
+  M->>H: GET /api/health
+  H-->>M: body + verdict {level, findings[{id}]}
+  M-->>A: e.g. finding projections_stale
+  A->>M: node_reproject {session_id, evidence:[projections_stale]}
+  M->>H: GET /api/health
+  alt not serving
+    M-->>A: refused: replaying d of t, tier-1 waits for serving
+  else serving
+    Note over M: key = given or new UUID, author defaults to mcp
+    M->>B: publish ops.proposal.reproject {author, evidence, key, args}
+    alt proposal not published
+      M-->>A: error: no proposal, not acting
+    else published
+      M->>H: POST /api/ops/reproject {session_id, key, author, evidence}
+      alt key already seen
+        H-->>M: 200 recorded answer, replayed true, no new command
+      else first time
+        H->>S: rebuild the projection from the store
+        S-->>H: {sessions_reprojected, events_applied}
+        H->>B: publish ops.command.reproject {ok, result, key}
+        H-->>M: 200 {ok, result, command_subject}
+      end
+      M-->>A: {proposal, result, command_subject}
+    end
+  end
+  </pre></div></div>
+</section>
+
+<section role="tabpanel" id="tab-watch">
+  <p class="lead">The watch motion. <code>subscribe_health</code> answers once with the current verdict, then polls and speaks only when something moves. Silence means nothing changed; an unreachable node is itself a transition.</p>
+  <div class="toolbar"><button data-zoom="-">−</button><span class="pct">100%</span><button data-zoom="+">+</button><button data-zoom="fit">fit width</button></div>
+  <div class="frame"><div class="canvas"><pre class="mermaid">
+flowchart TD
+  S["subscribe_health {interval_secs}"] --> R0["read /api/health once"]
+  R0 --> ACK["ack: stream_id + current verdict"]
+  ACK --> TICK["wait interval, default 15 s"]
+  TICK --> RD["read /api/health"]
+  RD -->|"unreachable"| U["verdict unknown<br/>finding health_unreachable"]
+  RD -->|"body"| V["verdict"]
+  U --> D{"level moved, or a finding id added or cleared?"}
+  V --> D
+  D -->|"no"| TICK
+  D -->|"yes"| N["notifications/openstory/health<br/>{from, to, added, cleared, verdict, seq}"] --> TICK
+  </pre></div></div>
+</section>
+
+<section role="tabpanel" id="tab-hands">
+  <p class="lead">Every tier-1 call carries <code>evidence</code> (finding ids), an <code>idempotency_key</code> (generated when absent), and an <code>author</code>. A seen key is answered from the record with <code>replayed: true</code> and no second act.</p>
+  <table>
+    <thead><tr><th>hand</th><th>tier</th><th>motion</th><th>reads or changes</th><th>publishes</th><th>refuses when</th></tr></thead>
+    <tbody>
+      <tr><td><code>node_health {}</code></td><td><span class="tier t0">0</span></td><td>diagnose</td><td>the health body plus the node's verdict with finding ids</td><td>nothing</td><td>no API base configured</td></tr>
+      <tr><td><code>node_logs {since?, actor?, level?, limit?}</code></td><td><span class="tier t0">0</span></td><td>diagnose</td><td>the log ring, paged by <code>next</code></td><td>nothing</td><td>no API base configured</td></tr>
+      <tr><td><code>node_streams {}</code></td><td><span class="tier t0">0</span></td><td>diagnose</td><td>each stream's bytes against its cap, warn at 70 %, critical at 90 %</td><td>nothing</td><td>no API base configured</td></tr>
+      <tr><td><code>fleet_presence {}</code></td><td><span class="tier t0">0</span></td><td>watch</td><td>every node's latest beat with age, stale past three beats</td><td>nothing</td><td>no API base configured</td></tr>
+      <tr><td><code>subscribe_health {interval_secs?}</code></td><td><span class="tier t0">0</span></td><td>watch</td><td>polls health, emits only transitions</td><td>JSON-RPC notifications to the client, nothing on the bus</td><td>no API base configured</td></tr>
+      <tr><td><code>node_reproject {session_id?}</code></td><td><span class="tier t1">1</span></td><td>propose</td><td>rebuilds one session's projection from the store, or all</td><td><code>ops.proposal.reproject</code>, then the node records <code>ops.command.reproject</code></td><td>not serving; proposal publish fails</td></tr>
+      <tr><td><code>node_verify {session_id}</code></td><td><span class="tier t1">1</span></td><td>propose</td><td>counts store events, JSONL lines, FTS documents; agree means store and backup match; changes nothing</td><td><code>ops.proposal.verify</code>, then <code>ops.command.verify</code></td><td>not serving; missing session_id</td></tr>
+      <tr><td><code>node_catch_up {peer?}</code></td><td><span class="tier t1">1</span></td><td>propose</td><td>one digest diff against a peer, pulling missing sessions into the store</td><td><code>ops.proposal.catch_up</code>, then <code>ops.command.catch_up</code></td><td>not serving; no peer given or configured</td></tr>
+      <tr><td><code>node_prune {older_than_days}</code></td><td><span class="tier t1">1</span></td><td>propose</td><td>deletes fleet-mirrored sessions older than N days, never this host's own</td><td><code>ops.proposal.prune</code>, then <code>ops.command.prune</code></td><td>not serving; fewer than 1 day</td></tr>
+      <tr><td><code>restart_consumer</code>, <code>resize_stream</code>, <code>restart_nats</code>, <code>restart_node</code></td><td><span class="tier t2">2</span></td><td>propose</td><td><strong>no hand, proposal only</strong>: a person or the host carries it out</td><td><code>ops.proposal.&lt;name&gt;</code></td><td>always, as an act</td></tr>
+    </tbody>
+  </table>
+  <p class="lead" style="margin-top:16px">Finding ids the verdict can raise: <code>bus_disconnected</code>, <code>leaf_down</code>, <code>replaying</code>, <code>projections_stale</code>, <code>stream_cap:&lt;stream&gt;</code>, <code>consumer_dead:&lt;name&gt;</code>, <code>consumer_restarted:&lt;name&gt;</code>, <code>watcher_quiet:&lt;actor&gt;</code>, <code>publish_failures:&lt;actor&gt;</code>, <code>presence_failures</code>.</p>
+  <ul class="plain">
+    <li>Never publishes to <code>events.*</code> or <code>local.*</code>; a test reads the crate's own source for every publish.</li>
+    <li>Never restarts anything; tier 2 is a proposal a person or the host carries out.</li>
+    <li>Never reasons about the content of the coding agents' sessions.</li>
+    <li>Refuses tier-1 acts while the node is not serving, on both sides, naming the replay progress.</li>
+    <li>Never acts without a published proposal.</li>
+  </ul>
+</section>
+
+</main>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "base",
+    themeVariables: dark
+      ? { background: "#26211a", primaryColor: "#2f2921", primaryTextColor: "#ece4d4", primaryBorderColor: "#b8ab97", lineColor: "#ece4d4", secondaryColor: "#2f2921", tertiaryColor: "#1e1a15", fontFamily: "Charter, Georgia, serif", fontSize: "17px", clusterBkg: "#221d17", clusterBorder: "#3c342a", actorBkg: "#2f2921", actorBorder: "#b8ab97", actorTextColor: "#ece4d4", signalColor: "#ece4d4", signalTextColor: "#ece4d4", noteBkgColor: "#3a2f22", noteTextColor: "#ece4d4", labelBoxBkgColor: "#2f2921", labelTextColor: "#ece4d4", loopTextColor: "#ece4d4", altBackground: "#221d17" }
+      : { background: "#fbf7ee", primaryColor: "#fbf7ee", primaryTextColor: "#2b241c", primaryBorderColor: "#6b5d4d", lineColor: "#2b241c", secondaryColor: "#f6efe2", tertiaryColor: "#f6efe2", fontFamily: "Charter, Georgia, serif", fontSize: "17px", clusterBkg: "#f3ead9", clusterBorder: "#d9cfbd", actorBkg: "#fbf7ee", actorBorder: "#6b5d4d", actorTextColor: "#2b241c", signalColor: "#2b241c", signalTextColor: "#2b241c", noteBkgColor: "#efe6d3", noteTextColor: "#2b241c", labelBoxBkgColor: "#f3ead9", labelTextColor: "#2b241c", loopTextColor: "#6b5d4d", altBackground: "#f3ead9" },
+    flowchart: { useMaxWidth: false, nodeSpacing: 36, rankSpacing: 56, htmlLabels: true, curve: "basis" },
+    sequence: { useMaxWidth: false, actorMargin: 60, messageMargin: 44, width: 200, wrap: true, mirrorActors: false },
+  });
+
+  const rendered = new Set();
+  async function show(name) {
+    document.querySelectorAll("nav [role=tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
+    document.querySelectorAll("section[role=tabpanel]").forEach(s => s.classList.toggle("active", s.id === "tab-" + name));
+    const panel = document.getElementById("tab-" + name);
+    if (!rendered.has(name)) {
+      rendered.add(name);
+      const nodes = panel.querySelectorAll("pre.mermaid");
+      if (nodes.length) { await mermaid.run({ nodes }); fit(panel); }
+    }
+    try { localStorage.setItem("ops-mcp-tab", name); } catch (e) {}
+  }
+  function zoomOf(panel) { return Number(panel.dataset.zoom || 1); }
+  function apply(panel, z) {
+    panel.dataset.zoom = String(z);
+    const canvas = panel.querySelector(".canvas");
+    if (canvas) canvas.style.transform = `scale(${z})`;
+    const pct = panel.querySelector(".pct");
+    if (pct) pct.textContent = Math.round(z * 100) + "%";
+  }
+  function fit(panel) {
+    const frame = panel.querySelector(".frame"), canvas = panel.querySelector(".canvas");
+    if (!frame || !canvas) return;
+    canvas.style.transform = "scale(1)";
+    const z = Math.min(1.6, Math.max(0.3, (frame.clientWidth - 8) / canvas.scrollWidth));
+    apply(panel, z);
+  }
+  document.querySelectorAll("nav [role=tab]").forEach(b => b.addEventListener("click", () => show(b.dataset.tab)));
+  document.querySelectorAll(".toolbar button").forEach(b => b.addEventListener("click", () => {
+    const panel = b.closest("section");
+    if (b.dataset.zoom === "fit") return fit(panel);
+    apply(panel, Math.min(3, Math.max(0.3, zoomOf(panel) * (b.dataset.zoom === "+" ? 1.2 : 1 / 1.2))));
+  }));
+  let start = "node";
+  try { start = localStorage.getItem("ops-mcp-tab") || "node"; } catch (e) {}
+  if (!document.getElementById("tab-" + start)) start = "node";
+  show(start);
+  addEventListener("resize", () => { const p = document.querySelector("section.active"); if (p && rendered.has(p.id.slice(4))) fit(p); });
+</script>
+</body>
+</html>
