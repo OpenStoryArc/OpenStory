@@ -315,3 +315,103 @@ mod when_log_format_is_text_after_l04 {
         assert_eq!(line["level"], "INFO");
     }
 }
+
+// L-07: boot replay reports progress every 10 % (and every 5 s) and a final done.
+mod when_replay_runs {
+    use super::*;
+    use dashmap::DashMap;
+    use open_story_core::cloud_event::CloudEvent;
+    use open_story_core::event_data::{AgentPayload, ClaudeCodePayload, EventData};
+    use open_story_server::consumers::persist::PersistConsumer;
+    use open_story_server::ingest::{replay_boot_sessions, ReplayContext, ReplayProgress};
+    use open_story_store::event_store::EventStore;
+    use open_story_store::payload_cache::PayloadCache;
+    use open_story_store::persistence::SessionStore;
+    use open_story_store::plan_store::PlanStore;
+    use open_story_store::projection_cache::ProjectionCache;
+    use open_story_store::sqlite_store::SqliteStore;
+    use std::time::{Duration, Instant};
+
+    fn event(session: &str, id: &str) -> CloudEvent {
+        let mut payload = ClaudeCodePayload::new();
+        payload.text = Some("hello".to_string());
+        let data = EventData::with_payload(
+            serde_json::json!({}),
+            0,
+            session.to_string(),
+            AgentPayload::ClaudeCode(payload),
+        );
+        CloudEvent::new(
+            format!("arc://test/{session}"),
+            "io.arc.event".into(),
+            data,
+            Some("message.user.prompt".into()),
+            Some(id.to_string()),
+            Some("2026-09-23T22:00:00Z".to_string()),
+            None,
+            None,
+            Some("claude-code".into()),
+        )
+    }
+
+    #[tokio::test]
+    async fn it_logs_progress_and_done() {
+        let tmp = tempfile::tempdir().unwrap();
+        let event_store: Arc<dyn EventStore> = Arc::new(SqliteStore::new(tmp.path()).unwrap());
+        let mut persist = PersistConsumer::new(
+            event_store.clone(),
+            SessionStore::new(tmp.path()).unwrap(),
+            Arc::new(ProjectionCache::new(u64::MAX, 0)),
+            Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
+            PlanStore::new(&tmp.path().join("plans")).unwrap(),
+        );
+        for i in 0..20 {
+            let sid = format!("sess-{i:02}");
+            persist.process_batch(&sid, &[event(&sid, &format!("e-{i}"))], None).await;
+        }
+
+        let ctx = ReplayContext {
+            event_store,
+            projections: Arc::new(ProjectionCache::new(u64::MAX, 0)),
+            subagent_parents: Arc::new(DashMap::new()),
+            session_children: Arc::new(DashMap::new()),
+            full_payloads: Arc::new(PayloadCache::new(1_000_000)),
+            session_projects: Arc::new(DashMap::new()),
+            session_project_names: Arc::new(DashMap::new()),
+        };
+        let cap = Capture::default();
+        let _guard = tracing::subscriber::set_default(build_subscriber(LogFormat::Json, "info", cap.clone()));
+
+        replay_boot_sessions(&ctx).await;
+
+        let lines: Vec<serde_json::Value> =
+            cap.lines().iter().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let progress: Vec<&serde_json::Value> =
+            lines.iter().filter(|l| l["event"] == "replay_progress").collect();
+        let done: Vec<u64> = progress.iter().map(|l| l["done"].as_u64().unwrap()).collect();
+        assert_eq!(done, vec![2, 4, 6, 8, 10, 12, 14, 16, 18, 20], "one line per 10 % of 20 sessions: {lines:?}");
+        assert!(progress.iter().all(|l| l["total"] == 20), "{progress:?}");
+        assert_eq!(progress.last().unwrap()["percent"], 100);
+        assert!(progress.iter().all(|l| l["elapsed_ms"].is_u64()));
+
+        let finished: Vec<&serde_json::Value> = lines.iter().filter(|l| l["event"] == "replay_done").collect();
+        assert_eq!(finished.len(), 1, "{lines:?}");
+        assert_eq!(finished[0]["sessions"], 20);
+        assert_eq!(finished[0]["events"], 20);
+        assert!(finished[0]["elapsed_ms"].is_u64());
+    }
+
+    #[test]
+    fn it_reports_on_time_even_without_a_percent_step() {
+        let t0 = Instant::now();
+        let mut p = ReplayProgress::new(1000, t0);
+        assert!(p.observe(1, t0).is_none(), "1 of 1000 is under 10 % and under 5 s");
+        assert!(p.observe(2, t0 + Duration::from_secs(4)).is_none());
+        let r = p.observe(3, t0 + Duration::from_secs(6)).expect("5 s elapsed");
+        assert_eq!((r.done, r.total, r.percent), (3, 1000, 0));
+        assert!(p.observe(4, t0 + Duration::from_secs(7)).is_none(), "clock restarts after a report");
+        let r = p.observe(100, t0 + Duration::from_secs(8)).expect("10 % step");
+        assert_eq!(r.percent, 10);
+    }
+}
