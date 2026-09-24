@@ -256,3 +256,78 @@ mod when_presence_arrives {
         assert!(!jsonl.exists(), "presence never reaches the JSONL backup");
     }
 }
+
+mod when_a_node_stops_reporting {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use helpers::{body_json, send_request, test_state};
+    use open_story_store::event_store::PresenceRow;
+
+    fn beat(host: &str, seconds_ago: i64, sha: &str) -> PresenceRow {
+        let time = (chrono::Utc::now() - chrono::Duration::seconds(seconds_ago))
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        PresenceRow {
+            host: host.to_string(),
+            principal_id: "dev".to_string(),
+            person_id: Some("person-1".to_string()),
+            time,
+            body: serde_json::json!({"status": "ok", "git_sha": sha}),
+        }
+    }
+
+    /// P-03 (pure): a node older than three intervals is stale.
+    #[test]
+    fn it_is_stale_past_three_intervals() {
+        let now = chrono::Utc::now();
+        let rows = vec![beat("fresh", 5, "aaa"), beat("quiet", 46, "bbb"), beat("gone", 3600, "ccc")];
+        let view = presence::fleet_view(&rows, now, 15);
+        assert_eq!(view.len(), 3);
+        let by_host = |h: &str| view.iter().find(|n| n["host"] == h).cloned().unwrap();
+        let fresh = by_host("fresh");
+        assert_eq!(fresh["stale"], false);
+        assert!((4..=6).contains(&fresh["age_secs"].as_i64().unwrap()), "{fresh}");
+        let quiet = by_host("quiet");
+        assert_eq!(quiet["stale"], true, "46 s is past 3 × 15 s: {quiet}");
+        let gone = by_host("gone");
+        assert_eq!(gone["stale"], true);
+        assert_eq!(gone["git_sha"], "ccc", "the beat's sha is lifted to the top level");
+        assert_eq!(gone["principal_id"], "dev");
+        assert_eq!(gone["person_id"], "person-1");
+        assert_eq!(gone["body"]["status"], "ok", "the whole beat still rides along");
+    }
+
+    /// P-03 (edge): an unparseable time is stale with no age, never a crash.
+    #[test]
+    fn it_treats_an_unreadable_time_as_stale() {
+        let mut row = beat("odd", 0, "ddd");
+        row.time = "not a time".to_string();
+        let view = presence::fleet_view(&[row], chrono::Utc::now(), 15);
+        assert_eq!(view[0]["stale"], true);
+        assert!(view[0]["age_secs"].is_null(), "{}", view[0]);
+    }
+
+    /// P-03 (endpoint): the fleet reads the latest beat per node with ages.
+    #[tokio::test]
+    async fn it_becomes_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        let store = state.read().await.store.event_store.clone();
+        store.upsert_presence(&beat("fresh", 5, "aaa")).await.unwrap();
+        store.upsert_presence(&beat("gone", 600, "bbb")).await.unwrap();
+
+        let req = Request::get("/api/fleet/presence").body(Body::empty()).unwrap();
+        let resp = send_request(state, req).await;
+        assert_eq!(resp.status(), 200);
+        let body = body_json(resp).await;
+        assert_eq!(body["interval_secs"], 15, "the configured beat interval: {body}");
+        let nodes = body["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 2, "{body}");
+        let fresh = nodes.iter().find(|n| n["host"] == "fresh").unwrap();
+        assert_eq!(fresh["stale"], false);
+        let gone = nodes.iter().find(|n| n["host"] == "gone").unwrap();
+        assert_eq!(gone["stale"], true);
+        assert!(gone["age_secs"].as_i64().unwrap() >= 599, "{gone}");
+    }
+}
