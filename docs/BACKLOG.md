@@ -19,6 +19,15 @@ a live figure without a script run. Why: the illustrated arc reel proved figures
 carry the story, and a reader who wants "the reel, on my Kindle" should not have
 to know which of two buttons to press.
 
+**Shipped so far (2026-09-23, `feat/reel-chart-beats-kindle`):** the Export
+dialog has the format picker with the Kindle reading edition first; both
+formats bake from the same `ReelBundle` (`ui/src/lib/export-kindle.ts`), so
+the scan receipt rides in every edition; the bundle carries each figure's
+title for headings and alt text. Remaining: the player in paper and ink with
+hidden chrome, `chart` as a visual kind fed by the analytics endpoints, and
+retiring the server-side report renderer on the Codex branch in favour of the
+shared bundle (keep its edition store).
+
 Retires or advances: "Reel export: Kindle reading edition as the default format"; "The reel player wears the reading aesthetic"; "Chart beats from the record"; "Reels v1 follow-ups" (Tighten export scan regexes; Reel size caps at POST; Automated coverage for spotlight-snapshot capture).
 
 ### A human edits the reel

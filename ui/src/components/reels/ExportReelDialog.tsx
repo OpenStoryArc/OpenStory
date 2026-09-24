@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { collectBundle } from "@/lib/export-collect";
 import { scanBundle, type Finding } from "@/lib/export-scan";
 import { bakeReelHtml } from "@/lib/export-template";
+import { bakeKindleHtml } from "@/lib/export-kindle";
 import type { ReelBundle } from "@/lib/reel-bundle";
 
 type DialogState =
@@ -40,12 +41,25 @@ function slug(title: string): string {
   return s || "reel";
 }
 
-function downloadHtml(html: string, title: string): void {
+export type ExportFormat = "kindle" | "interactive";
+
+/** Both formats render the same bundle, so the scan receipt travels with
+ *  every edition. Kindle is the default: the reading edition survives Send
+ *  to Kindle and is what a reader who wants "the reel, on my Kindle" needs. */
+export function bakeForFormat(format: ExportFormat, bundle: ReelBundle): string {
+  return format === "kindle" ? bakeKindleHtml(bundle).html : bakeReelHtml(bundle);
+}
+
+export function fileNameFor(format: ExportFormat, title: string): string {
+  return `${slug(title)}.${format === "kindle" ? "kindle" : "reel"}.html`;
+}
+
+function downloadHtml(html: string, title: string, format: ExportFormat): void {
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${slug(title)}.reel.html`;
+  a.download = fileNameFor(format, title);
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -74,6 +88,7 @@ export function ExportReelDialog({
   readonly onClose: () => void;
 }) {
   const [state, setState] = useState<DialogState>({ phase: "collecting" });
+  const [format, setFormat] = useState<ExportFormat>("kindle");
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +109,7 @@ export function ExportReelDialog({
           ...collected,
           scan: { v: 1, findings: findings.length, acknowledged: false },
         };
-        const html = bakeReelHtml(bundle);
+        const html = bakeForFormat("kindle", bundle);
         setState({ phase: "ready", bundle, degraded, findings, html });
       })
       .catch((err: unknown) => {
@@ -117,9 +132,11 @@ export function ExportReelDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const previewHtml = state.phase === "ready" ? bakeForFormat(format, state.bundle) : "";
+
   const handleSave = () => {
     if (state.phase !== "ready") return;
-    downloadHtml(state.html, state.bundle.reel.title);
+    downloadHtml(previewHtml, state.bundle.reel.title, format);
   };
 
   const handleExportAnyway = () => {
@@ -128,8 +145,8 @@ export function ExportReelDialog({
       ...state.bundle,
       scan: { v: 1, findings: state.findings.length, acknowledged: true },
     };
-    const html = bakeReelHtml(acknowledged);
-    downloadHtml(html, acknowledged.reel.title);
+    const html = bakeForFormat(format, acknowledged);
+    downloadHtml(html, acknowledged.reel.title, format);
   };
 
   const groups = state.phase === "ready" ? groupBySlide(state.findings) : [];
@@ -178,15 +195,46 @@ export function ExportReelDialog({
 
           {state.phase === "ready" && (
             <>
+              <fieldset
+                className="mb-3 flex flex-wrap items-center gap-4 text-xs text-[color:var(--text-muted)]"
+                data-testid="export-reel-format"
+              >
+                <legend className="sr-only">Export format</legend>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="export-format"
+                    value="kindle"
+                    checked={format === "kindle"}
+                    onChange={() => setFormat("kindle")}
+                    data-testid="export-format-kindle"
+                  />
+                  Kindle reading edition
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="export-format"
+                    value="interactive"
+                    checked={format === "interactive"}
+                    onChange={() => setFormat("interactive")}
+                    data-testid="export-format-interactive"
+                  />
+                  Interactive HTML
+                </label>
+                <span className="opacity-60" title="Second consumer of the same bundle; see docs/research/reel-to-video.md">
+                  Video: coming
+                </span>
+              </fieldset>
               <div
                 className="mb-4 overflow-hidden rounded-lg border border-[color:var(--divider)]"
                 data-testid="export-reel-preview"
               >
                 <iframe
                   title="Reel preview"
-                  srcDoc={state.html}
-                  sandbox="allow-scripts"
-                  className="h-[360px] w-full bg-black"
+                  srcDoc={previewHtml}
+                  sandbox={format === "interactive" ? "allow-scripts" : ""}
+                  className={format === "interactive" ? "h-[360px] w-full bg-black" : "h-[360px] w-full bg-white"}
                   data-testid="export-reel-iframe"
                 />
               </div>
@@ -261,7 +309,7 @@ export function ExportReelDialog({
                 className="rounded-full bg-[color:var(--accent)] px-4 py-1.5 text-xs font-medium text-[color:var(--bg)] transition-opacity hover:opacity-90"
                 data-testid="export-reel-primary"
               >
-                Save reel file
+                {format === "kindle" ? "Save Kindle edition" : "Save reel file"}
               </button>
             ) : (
               <button
