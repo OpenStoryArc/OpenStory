@@ -15,6 +15,7 @@ commit was made. From those two records, per window:
     python3 scripts/dora.py                          # data/presence.jsonl, 7 days, table
     python3 scripts/dora.py --json --days 30
     python3 scripts/dora.py --log /path/presence.jsonl --git-dir /path/repo
+    python3 scripts/dora.py --write data/dora.json   # 7, 30, 90 d windows for the Admin tab (D-06)
     python3 scripts/dora.py --test                   # self-tests on fixtures
 """
 from __future__ import annotations
@@ -160,6 +161,18 @@ def compute(lines: list[dict], now: datetime, days: int, commit_time: Callable[[
     }
 
 
+WINDOWS = (7, 30, 90)
+
+
+def write_json(lines: list[dict], now: datetime, commit_time: Callable[[str], datetime | None], log: Path) -> dict:
+    """The Admin tab's file: every window at once, stamped."""
+    return {
+        "generated_at": now.isoformat(),
+        "log": str(log),
+        "windows": {str(d): compute(lines, now, d, commit_time) for d in WINDOWS},
+    }
+
+
 def render(r: dict) -> str:
     lt = r["lead_time_hours_median"]
     ttr = r["time_to_restore_minutes_median"]
@@ -226,7 +239,9 @@ def _test() -> int:
     empty = compute([], now, 7, lambda s: None)
     assert empty["deployments"] == 0 and empty["lead_time_hours_median"] is None and empty["change_failure_rate"] == 0.0
     assert "deployment frequency" in render(r) and "33%" in render(r)
-    print("ok: 14 assertions")
+    w = write_json(lines, now, lambda s: commits.get(s), Path("x.jsonl"))
+    assert sorted(w["windows"]) == ["30", "7", "90"] and w["windows"]["7"]["deployments"] == 3 and w["generated_at"].startswith("2026-09-24")
+    print("ok: 15 assertions")
     return 0
 
 
@@ -236,11 +251,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--git-dir", type=Path, default=REPO, help="repo to resolve commit times in")
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--write", type=Path, help="write every window as one JSON file (data/dora.json for the Admin tab)")
     ap.add_argument("--test", action="store_true")
     a = ap.parse_args(argv)
     if a.test:
         return _test()
     lines = read_log(a.log)
+    if a.write:
+        doc = write_json(lines, datetime.now(timezone.utc), git_commit_time(a.git_dir), a.log)
+        a.write.parent.mkdir(parents=True, exist_ok=True)
+        a.write.write_text(json.dumps(doc, indent=2) + "\n")
+        print(f"wrote {a.write} ({len(lines)} beats read)")
+        return 0
     r = compute(lines, datetime.now(timezone.utc), a.days, git_commit_time(a.git_dir))
     r["log"] = str(a.log)
     print(json.dumps(r, indent=2) if a.json else render(r))

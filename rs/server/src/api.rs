@@ -721,6 +721,24 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `GET /api/dora` — the four keys `scripts/dora.py --write` left in the
+/// data directory (D-06). 404 with the recipe until it exists.
+pub async fn get_dora(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
+    let path = state.read().await.store.data_dir.join("dora.json");
+    match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+    {
+        Some(doc) => (StatusCode::OK, Json(doc)),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "no dora.json in the data dir; run scripts/dora.py --write data/dora.json"
+            })),
+        ),
+    }
+}
+
 /// `POST /api/ops/{hand}` — a tier-1 hand (M-06): reproject, verify,
 /// catch_up, prune. Body: the hand's arguments plus `idempotency_key`,
 /// `author`, `evidence`. 503 while the node is not serving (M-07).

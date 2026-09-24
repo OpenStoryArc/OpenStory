@@ -153,7 +153,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | D-03 | GREEN. `just test` runs the two static audits (E-01, K-07) and the manifest check (K-02); CI runs the same. | `.github/workflows` diff and a green run |
 | D-04 | GREEN. `scripts/node_health_probe.py --json` is the deploy gate: `scripts/deploy_gate.sh` refuses to roll a new sha while the running node's verdict is critical, and rolls back if the new sha is critical after the startup window. Dry-run test. | script `--test` |
 | D-05 | Rollback is a documented one-liner per host shape (brew, compose, k3s) in `docs/deploy/operations.md`, verified once on a1. | doc plus the a1 run |
-| D-06 | The DORA numbers appear on the Admin tab as four tiles from D-02's JSON, with the window selectable. | `ui/tests/components/dora-tiles.test.tsx::when_dora_json_loads::it_renders_four_keys` |
+| D-06 | GREEN. The DORA numbers appear on the Admin tab as four tiles from D-02's JSON, with the window selectable. | `ui/tests/components/dora-tiles.test.tsx::when_dora_json_loads::it_renders_four_keys` |
 
 ## Loop log
 
