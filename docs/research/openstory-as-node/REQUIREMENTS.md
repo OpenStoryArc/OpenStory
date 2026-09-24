@@ -112,8 +112,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | id | requirement | acceptance test |
 |---|---|---|
 | O-01 | GREEN. `metrics_enabled` default flips to `true`; `/metrics` serves Prometheus text with the existing gauges plus `openstory_events_ingested_total{agent}`, `openstory_consumer_lag{actor}`, `openstory_stream_bytes{stream}`, `openstory_consumer_restarts_total{actor}`, `openstory_publish_failures_total{watcher}`. | `rs/tests/test_metrics.rs::when_metrics_are_scraped::it_exposes_the_node_gauges` |
-| O-02 | An `otlp_endpoint` config/env, when set, exports the same metrics over OTLP with `service.name=openstory`, `service.instance.id=<principal>`, `host.name`. Unset means no exporter and no network. | `…::when_otlp_endpoint_is_unset::it_opens_no_socket` and a testcontainer collector receiving one batch |
-| O-03 | Each event carries a span from translate through persist with `session_id`, `subject`, `actor`; sampled at 1 % by default, 100 % under `RUST_LOG=trace`. | `…::when_an_event_flows::it_produces_one_span_per_stage` |
+| O-02 | DEFERRED to the owner. Enabling OTLP export is the owner's call (loop prompt, "what the owner decides"), and the exporter brings the opentelemetry-otlp tree (tonic, prost) into the workspace, which needs the owner's dependency audit first. Once chosen: `otlp_endpoint` config/env, unset means no exporter and no socket; the O-01 node block and the O-03 spans are the data it would carry. An `otlp_endpoint` config/env, when set, exports the same metrics over OTLP with `service.name=openstory`, `service.instance.id=<principal>`, `host.name`. Unset means no exporter and no network. | `…::when_otlp_endpoint_is_unset::it_opens_no_socket` and a testcontainer collector receiving one batch |
+| O-03 | GREEN. Each event carries a span from translate through persist with `session_id`, `subject`, `actor`; sampled at 1 % by default, 100 % under `RUST_LOG=trace`. | `…::when_an_event_flows::it_produces_one_span_per_stage` |
 | O-04 | The `observe/` stack (Prometheus and Grafana under `just observe`) gets one dashboard, "Node", with the O-01 gauges; the 2026-03 dashboards are removed or updated. | `scripts/check_docs.py` gains a check that dashboard panel queries reference existing metric names |
 | O-05 | PR #46 is closed with a comment pointing at this work; nothing from it is merged. | reviewer gate |
 
@@ -343,3 +343,18 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   reports all of it under `presence` on the health body; ingestion is a
   separate actor and never waits on it. Owner must decide: nothing new.
   Next: group O (telemetry), starting with O-01.
+- **2026-09-24 01:35 local.** O-01 and O-03 GREEN; O-02 deferred to the
+  owner. `/metrics` is on by default and carries the node block
+  (`render_node_metrics`, pure, from the same facts as `/api/health`):
+  events ingested by agent, consumer lag, restarts, and alive, stream
+  bytes against caps, publish failures by watcher with presence as one,
+  presence beats. `open_story_core::trace` marks one `event` span per
+  stage (translate in the reader's new `translate_record`, publish at
+  all three watcher sites under the egress subject, persist on what
+  landed), sampled by FNV of the event id at `trace_sample_rate` (0.01)
+  and fully under `RUST_LOG=trace`; no new dependencies. Corrections
+  this hour: a flaky P-03 staleness spec (rows before the clock) and a
+  P-06 commit that went out on a grep exit code; both fixed, the gate is
+  now cargo's exit under pipefail. Owner must decide: OTLP export and
+  its dependency tree (O-02); PR #46 closure (O-05). Next: O-04 (the
+  "Node" dashboard and a check_docs check on its metric names).

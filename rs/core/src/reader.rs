@@ -135,35 +135,50 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             continue;
         }
 
-        // Detect format once per file, then lock.
-        // Order matters: Hermes check first (envelope.source == "hermes" is
-        // unambiguous), then Grok ACP (method session/update), then Codex,
-        // then pi-mono, then Claude Code as the default fallback.
-        if state.format == TranscriptFormat::Unknown {
-            state.format = if is_hermes_format(&obj) {
-                TranscriptFormat::Hermes
-            } else if is_grok_format(&obj) {
-                TranscriptFormat::Grok
-            } else if is_codex_rollout_format(&obj) {
-                TranscriptFormat::Codex
-            } else if is_pi_mono_format(&obj) {
-                TranscriptFormat::PiMono
-            } else {
-                TranscriptFormat::ClaudeCode
-            };
-        }
-
-        let new_events = match state.format {
-            TranscriptFormat::Hermes => translate_hermes_line(&obj, state),
-            TranscriptFormat::Grok => translate_grok_line(&obj, state),
-            TranscriptFormat::Codex => translate_codex_line(&obj, state),
-            TranscriptFormat::PiMono => translate_pi_line(&obj, state),
-            _ => translate_line(&obj, state),
-        };
-        events.extend(new_events);
+        events.extend(translate_record(&obj, state));
     }
 
     Ok(events)
+}
+
+/// One transcript record to CloudEvents: detect the format once per file,
+/// then dispatch to that format's translator. The one site every format
+/// passes, so it is where the translate stage is marked (O-03).
+///
+/// Order matters: Hermes first (envelope.source == "hermes" is
+/// unambiguous), then Grok ACP (method session/update), then Codex, then
+/// pi-mono, then Claude Code as the default fallback.
+pub fn translate_record(obj: &Value, state: &mut TranscriptState) -> Vec<CloudEvent> {
+    if state.format == TranscriptFormat::Unknown {
+        state.format = if is_hermes_format(obj) {
+            TranscriptFormat::Hermes
+        } else if is_grok_format(obj) {
+            TranscriptFormat::Grok
+        } else if is_codex_rollout_format(obj) {
+            TranscriptFormat::Codex
+        } else if is_pi_mono_format(obj) {
+            TranscriptFormat::PiMono
+        } else {
+            TranscriptFormat::ClaudeCode
+        };
+    }
+
+    let events = match state.format {
+        TranscriptFormat::Hermes => translate_hermes_line(obj, state),
+        TranscriptFormat::Grok => translate_grok_line(obj, state),
+        TranscriptFormat::Codex => translate_codex_line(obj, state),
+        TranscriptFormat::PiMono => translate_pi_line(obj, state),
+        _ => translate_line(obj, state),
+    };
+    for ce in &events {
+        crate::trace::mark(
+            "translate",
+            ce,
+            None,
+            ce.agent.as_deref().unwrap_or("unknown"),
+        );
+    }
+    events
 }
 
 #[cfg(test)]

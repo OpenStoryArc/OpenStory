@@ -213,6 +213,7 @@ impl PersistConsumer {
             }
 
             persisted += 1;
+            open_story_core::trace::mark("persist", ces[i], None, "persist");
             *by_agent
                 .entry(ces[i].agent.as_deref().unwrap_or("unknown").to_string())
                 .or_insert(0) += 1;

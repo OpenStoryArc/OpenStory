@@ -607,6 +607,13 @@ async fn main() -> Result<()> {
                 .parse()
                 .map_err(|e: String| anyhow::anyhow!(e))?;
             open_story_server::logging::init(log_format);
+            // O-03: the per-stage span sample rate, from config or env.
+            if let Ok(v) = std::env::var("OPEN_STORY_TRACE_SAMPLE_RATE") {
+                if let Ok(rate) = v.trim().parse::<f64>() {
+                    config.trace_sample_rate = rate;
+                }
+            }
+            open_story_core::trace::set_sample_rate(config.trace_sample_rate);
 
             let host = config.host.clone();
             let port = config.port;

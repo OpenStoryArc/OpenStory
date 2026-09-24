@@ -358,7 +358,11 @@ mod when_an_event_flows {
     async fn it_produces_one_span_per_stage() {
         trace::set_sample_rate(1.0);
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let sub = tracing_subscriber::registry().with(Catch(seen.clone()));
+        // At INFO, the configured rate applies; a bare registry would read
+        // as trace-level logging and sample everything.
+        let sub = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::INFO)
+            .with(Catch(seen.clone()));
         let _g = tracing::subscriber::set_default(sub);
 
         // translate: the reader's dispatch, the one site every format passes.

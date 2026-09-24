@@ -770,6 +770,14 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &events,
+                            Some(&egress),
+                            &actor,
+                        );
                         let result = rt.block_on(
                             watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
                         );
@@ -847,6 +855,14 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &events,
+                            Some(&egress),
+                            &actor,
+                        );
                         let result = rt.block_on(
                             watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
                         );
@@ -926,9 +942,15 @@ pub async fn run_server(
                             events,
                         };
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(
-                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
-                        ) {
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &batch.events,
+                            Some(&egress),
+                            "hermes",
+                        );
+                        if let Err(e) = rt.block_on(watcher_bus.publish(&egress, &batch)) {
                             // E-05: subject, session, size, and the whole error chain;
                             // `{e}` alone dropped the cause.
                             open_story_server::logging::publish_failed(

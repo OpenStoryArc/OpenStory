@@ -17,6 +17,7 @@ pub mod paths;
 pub mod reader;
 pub mod strings;
 pub mod subtype;
+pub mod trace;
 pub mod translate;
 pub mod translate_codex;
 pub mod translate_grok;

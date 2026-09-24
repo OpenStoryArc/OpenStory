@@ -303,6 +303,10 @@ pub struct Config {
     /// Seconds between presence beats on `presence.{host}.{principal}`
     /// (P-01). Default 15. Env: `OPEN_STORY_PRESENCE_INTERVAL_SECS`.
     pub presence_interval_secs: u64,
+    /// Share of events that carry a span per stage (O-03), 0 to 1.
+    /// Default 0.01; everything under `RUST_LOG=trace`. Env:
+    /// `OPEN_STORY_TRACE_SAMPLE_RATE`.
+    pub trace_sample_rate: f64,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
@@ -411,6 +415,7 @@ impl Default for Config {
             metrics_enabled: true,
             log_format: "text".to_string(),
             presence_interval_secs: 15,
+            trace_sample_rate: 0.01,
             retention_days: 0,
             person: None,
         }
@@ -629,6 +634,9 @@ impl Config {
 
 # Seconds between presence beats on the bus (P-01).
 # presence_interval_secs = 15
+
+# Share of events that carry a span per stage (O-03); all under RUST_LOG=trace.
+# trace_sample_rate = 0.01
 
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
@@ -918,6 +926,7 @@ mod tests {
             metrics_enabled: true,
             log_format: "text".into(),
             presence_interval_secs: 15,
+            trace_sample_rate: 0.01,
             retention_days: 90,
             person: None,
         };
