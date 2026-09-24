@@ -376,6 +376,29 @@ pub async fn delete_annotation(
 }
 
 pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
+    // H-06: ask the local NATS monitor about leaf links, briefly, before
+    // taking the state lock. Unreachable monitor => connected false.
+    let (leaf_url, monitor) = {
+        let s = state.read().await;
+        (
+            s.config.nats_leaf_url.clone(),
+            crate::node_health::monitor_url(&s.config.nats_url),
+        )
+    };
+    let leafz: Option<Value> = if leaf_url.trim().is_empty() {
+        None
+    } else {
+        match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(500))
+            .build()
+        {
+            Ok(c) => match c.get(format!("{monitor}/leafz")).send().await {
+                Ok(r) => r.json::<Value>().await.ok(),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    };
     let s = state.read().await;
     let sessions = s
         .store
@@ -427,6 +450,12 @@ pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<
             "consumers": crate::consumers::supervision::stats().snapshot(),
             // H-04: per-stream bytes against the configured caps, from JetStream.
             "streams": s.bus.stream_stats().await,
+            // H-06: the leaf link and per-watcher detail.
+            "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
+            "watchers_detail": crate::node_health::watcher_detail(
+                &s.watcher_diagnostics.snapshots(),
+                chrono::Utc::now(),
+            ),
         })),
     )
 }

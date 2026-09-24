@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-24 (H-05 green).
+Last updated: 2026-09-24 (H-06 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -24,7 +24,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 7 / 7 | no swallowed errors, consumer supervisor |
-| H · health | H-01 … H-08 | 5 / 8 | `/api/health` can say no |
+| H · health | H-01 … H-08 | 6 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
 | M · ops hands on the MCP | M-01 … M-09 | 0 / 9 | tier 0 and tier 1 only |
@@ -92,7 +92,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | H-03 | GREEN. `/api/health` returns HTTP 503 while `boot.phase != serving`, 200 after. `/health` stays 200 whenever the process is up. | `…::when_replaying::it_returns_503_for_readiness_and_200_for_liveness` |
 | H-04 | GREEN. `/api/health` includes per-stream `bytes`, `max_bytes`, `messages`, `percent` for events, local, patterns, ui, changes, read from JetStream. | `…::when_streams_exist::it_reports_bytes_against_caps` |
 | H-05 | GREEN. `/api/health` includes per-consumer `alive`, `restarts`, `last_restart`, `lag` (pending messages). | `…::when_consumers_run::it_reports_alive_and_lag` |
-| H-06 | `/api/health` includes `leaf.configured`, `leaf.connected`, `leaf.hub` (redacted URL) and per-watcher `last_event_at`, `age_secs`, `publish_failures`. | `…::when_leaf_is_configured_but_down::it_reports_not_connected` |
+| H-06 | GREEN. `/api/health` includes `leaf.configured`, `leaf.connected`, `leaf.hub` (redacted URL) and per-watcher `last_event_at`, `age_secs`, `publish_failures`. | `…::when_leaf_is_configured_but_down::it_reports_not_connected` |
 | H-07 | `/api/health` includes `version`, `git_sha`, `built_at`, `data_dir`, `store.size_bytes`, `process.rss_bytes`, `uptime_secs`. | `…::when_health_is_read::it_stamps_version_and_sha` |
 | H-08 | The dashboard header shows a dot: green when health is ok, amber on any warn, red on any critical, with the JSON one click away. | `ui/tests/components/health-dot.test.tsx::when_health_has_a_critical::it_shows_red_with_the_reason` |
 
@@ -298,3 +298,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   channel's remaining length as `lag` on the consumer's health entry, next
   to alive, restarts, last_restart, last_exit. Next: H-06 (leaf and
   watcher fields on health).
+- **2026-09-24 03:35 local.** H-06 GREEN. `server::node_health` (pure,
+  unit-tested): `redact_hub`, `monitor_url` (the NATS host on 8222),
+  `leaf_connected` from `/leafz`, `leaf_report`, `watcher_detail` with
+  age_secs and publish_failures. The handler asks the local monitor for
+  `/leafz` with a 500 ms timeout before taking the state lock; unreachable
+  means connected false with `monitor: "unreachable"`. `watchers` stays a
+  count; `watchers_detail` is the list. Next: H-07 (version, git sha,
+  built_at, store size, RSS, uptime).
