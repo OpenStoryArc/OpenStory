@@ -68,6 +68,7 @@ COPY rs/mcp/benches/ mcp/benches/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
+COPY rs/server/build.rs server/build.rs
 COPY rs/store/src/ store/src/
 COPY rs/views/src/ views/src/
 RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \

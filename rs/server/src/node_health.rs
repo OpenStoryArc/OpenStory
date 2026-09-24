@@ -279,12 +279,14 @@ mod tests {
 
 /// The short git sha this binary was built from ("unknown" outside a repo).
 pub fn git_sha() -> &'static str {
-    env!("OPEN_STORY_GIT_SHA")
+    // "unknown" when no build script ran (a source tree without build.rs
+    // copied in, as a container build once was); never a failed compile.
+    option_env!("OPEN_STORY_GIT_SHA").unwrap_or("unknown")
 }
 
 /// When this binary was built, RFC 3339 UTC.
 pub fn built_at() -> &'static str {
-    env!("OPEN_STORY_BUILT_AT")
+    option_env!("OPEN_STORY_BUILT_AT").unwrap_or("unknown")
 }
 
 static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();

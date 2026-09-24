@@ -29,5 +29,5 @@ generatorOptions:
 
 images:
   - name: openstory
-    newName: ghcr.io/openstoryarc/openstory
+    newName: ghcr.io/openstoryarc/open-story
     newTag: latest
