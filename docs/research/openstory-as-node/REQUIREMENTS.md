@@ -320,7 +320,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   the header beside the WebSocket light, names the findings in its title,
   and opens a panel with the findings and the JSON. An unreachable endpoint
   reads critical. Next: group P, starting with P-01 (the presence event).
-- **2026-09-24 00:20 local.** P-01 to P-04 GREEN. The node beats every
+- **2026-09-24 00:12 local.** P-01 to P-04 GREEN. The node beats every
   `presence_interval_secs` (15) on `presence.{host}.{principal}` with the
   same body `/api/health` serves (`api::health_body` is now shared);
   persist routes an all-presence batch to its own `presence` table on
@@ -334,7 +334,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `presence-agg` through `ensure_aggregate`; nothing else. Next: P-05
   (the fleet tab reads presence) and P-06 (a failed beat is logged and
   counted, never blocks ingestion).
-- **2026-09-24 00:50 local.** P-05 and P-06 GREEN, group P complete (6/6).
+- **2026-09-24 00:18 local.** P-05 and P-06 GREEN, group P complete (6/6).
   The Admin tab's Fleet section lists every node from
   `GET /api/fleet/presence` with its dot, age, sha, and a stale badge,
   self through the same path (`lib/fleet-presence.ts` is pure). The beat
@@ -343,7 +343,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   reports all of it under `presence` on the health body; ingestion is a
   separate actor and never waits on it. Owner must decide: nothing new.
   Next: group O (telemetry), starting with O-01.
-- **2026-09-24 01:35 local.** O-01 and O-03 GREEN; O-02 deferred to the
+- **2026-09-24 00:32 local.** O-01 and O-03 GREEN; O-02 deferred to the
   owner. `/metrics` is on by default and carries the node block
   (`render_node_metrics`, pure, from the same facts as `/api/health`):
   events ingested by agent, consumer lag, restarts, and alive, stream
@@ -358,7 +358,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   now cargo's exit under pipefail. Owner must decide: OTLP export and
   its dependency tree (O-02); PR #46 closure (O-05). Next: O-04 (the
   "Node" dashboard and a check_docs check on its metric names).
-- **2026-09-24 02:50 local.** O-04 GREEN (the "Node" dashboard from
+- **2026-09-24 00:52 local.** O-04 GREEN (the "Node" dashboard from
   `scripts/build_node_dashboard.py`, the March pipeline dashboard
   retired, `check_docs.py` now verifies every dashboard metric exists
   and that Node queries the five gauges); O-05 marked OWNER. M-01 to
