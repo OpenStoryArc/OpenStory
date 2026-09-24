@@ -405,3 +405,25 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `scripts/k3s_smoke.sh --context a1` once for K-01 and K-04; K-08
   (testcontainers stream-cap wedge) needs docker and is not started.
   Next: D-05 (operations.md rollback one-liners) and D-06 (DORA tiles).
+- **2026-09-24 01:46 local. Final entry.** The loop began at 21:48 on 2026-09-23
+  and stops here with every row green, partial with its owner action
+  named, deferred, or the owner's: 54 GREEN (L 8, E 7, H 8, P 6, O 3,
+  M 9, K 7, D 5, G 8 minus the partials), 2 PARTIAL (K-04 waits for the
+  branch image in the registry; D-05's rollbacks are written, not yet
+  exercised), 1 DEFERRED (O-02, OTLP export and its dependency tree),
+  1 OWNER (O-05, PR #46). 107 commits on
+  `feat/reel-chart-beats-kindle`, red before green throughout after the
+  L-03 lapse, every push after a green gate on cargo's exit under
+  pipefail. Verified on real infrastructure tonight: the k3s shape on
+  a1 (`os-loop-a1`, published image, rollout, probe ok, torn down), the
+  flooded node flipping critical on its cap in a container from the
+  branch image, presence and ops round trips on a scratch NATS. Live
+  probe's last verdict (the owner's node, still on the pre-loop 0.4.0
+  binary, never restarted by the loop): critical, on a stale Grok
+  watcher with 15 publish failures, the batch-size fault E-05's split
+  fixes, plus metrics off, the old default. Owner must decide: restart
+  the live node onto this build when convenient (about four minutes of
+  replay); push the branch image to ghcr for K-04; run one rollback per
+  host shape for D-05; OTLP (O-02); PR #46 (O-05); the hub's Tailscale
+  key; a1's own host NATS, whose events stream sits at 99.98 % of its
+  1 GiB cap. PR: https://github.com/OpenStoryArc/OpenStory/pull/120.
