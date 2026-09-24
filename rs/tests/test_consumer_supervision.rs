@@ -204,3 +204,54 @@ mod when_a_consumer_dies {
         task.abort();
     }
 }
+
+// E-04: restart counts and timestamps per consumer are part of /api/health.
+mod when_a_consumer_restarts {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use helpers::{body_json, send_request, test_state};
+    use open_story_server::consumers::supervision::supervise;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[tokio::test]
+    async fn it_shows_in_health() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        let starts = Arc::new(AtomicU32::new(0));
+        let starts_in = starts.clone();
+        // A distinct actor name: stats are process-wide and other specs in
+        // this binary supervise "patterns".
+        let task = tokio::spawn(supervise(
+            "e04-probe",
+            move || {
+                let n = starts_in.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move {
+                    if n == 1 {
+                        Err(ConsumerExit::SubscribeFailed { error: "bus said no".into() })
+                    } else {
+                        std::future::pending().await
+                    }
+                })
+            },
+            |_d| async {},
+        ));
+        for _ in 0..200 {
+            if starts.load(Ordering::SeqCst) >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let resp = send_request(state, req).await;
+        assert_eq!(resp.status(), 200);
+        let body = body_json(resp).await;
+        let probe = &body["consumers"]["e04-probe"];
+        assert_eq!(probe["restarts"], 1, "{body}");
+        assert_eq!(probe["alive"], true);
+        assert!(probe["last_restart"].as_str().is_some_and(|s| s.contains('T')), "RFC 3339: {probe}");
+        assert_eq!(probe["last_exit"], "subscribe failed: bus said no");
+        task.abort();
+    }
+}
