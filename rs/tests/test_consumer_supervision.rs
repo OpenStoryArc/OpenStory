@@ -262,3 +262,32 @@ mod when_a_consumer_restarts {
         task.abort();
     }
 }
+
+// H-05: per-consumer lag (batches waiting in the channel) on /api/health,
+// next to alive, restarts, last_restart.
+mod when_consumers_run {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use helpers::{body_json, send_request, test_state};
+
+    #[tokio::test]
+    async fn it_reports_alive_and_lag() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        let (tx, rx) = tokio::sync::mpsc::channel::<IngestBatch>(8);
+        for s in ["a", "b", "c"] {
+            tx.send(batch(s)).await.unwrap();
+        }
+        let mut driven = Driven::new("h05-probe", rx);
+        let first = driven.next().await.expect("one batch handed out");
+        assert_eq!(first.session_id, "a");
+
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        let probe = &body["consumers"]["h05-probe"];
+        assert_eq!(probe["lag"], 2, "two batches still queued: {body}");
+        assert_eq!(probe["restarts"], 0);
+        assert!(probe["alive"].is_boolean());
+    }
+}
