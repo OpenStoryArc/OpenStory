@@ -49,14 +49,14 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | how it is checked |
 |---|---|---|
-| G-01 | Nothing in this work writes to `events.*` or `local.*`. The only publishers of history remain the translators. | `scripts/subject_publishers.py` static audit (K-07) stays green; grep for `publish(` outside translate in review |
-| G-02 | No MCP hand performs a tier 2 action. Restarting a consumer, the NATS child, the watcher, or the process is never reachable from `rs/mcp`. | M-08 test: every `ops.command.*` subject the MCP can publish is in the tier 1 allowlist |
-| G-03 | All work happens in the worktree on branch `feat/reel-chart-beats-kindle` or a branch stacked on it. The main checkout `~/projects/OpenStory` is never edited. Nothing merges without the owner. | reviewer gate on each commit |
-| G-04 | The owner's live instance on `:3002` is never restarted by the loop. Live tests run an isolated instance (scratch port, scratch data dir) or a testcontainer. | `scripts/scratch_node.sh` (L-08) is the only way tests boot a server |
-| G-05 | No real session data is committed. Fixtures are synthetic or captured shapes with content replaced. | pre-commit grep for any id in `memory/hands/real/ids.txt` of the research repo; reviewer gate |
-| G-06 | Tests read as behaviour: Rust `mod when_<condition> { fn it_<outcome> }`, TypeScript `describe("when …") / it("should …")`, Python `test_when_<condition>_it_<outcome>`. Every test asserts values, not presence. | reviewer gate |
-| G-07 | No new logging or metrics vendor. `tracing`, `tracing-subscriber`, `opentelemetry` crates only; export is OTLP or Prometheus text. | `Cargo.toml` diff review |
-| G-08 | a1 is for experiments only: k3s namespaces prefixed `os-loop-`, torn down at the end of each task; never the hub, never the owner's a1 services. | K-01 teardown test; reviewer gate |
+| G-01 | GREEN (`scripts/subject_publishers.py`: 12 sites, history only from the watcher egress and catch-up). Nothing in this work writes to `events.*` or `local.*`. The only publishers of history remain the translators. | `scripts/subject_publishers.py` static audit (K-07) stays green; grep for `publish(` outside translate in review |
+| G-02 | GREEN (M-08 scan; the only MCP publish is `ops.proposal.`; tier 2 has no hand). No MCP hand performs a tier 2 action. Restarting a consumer, the NATS child, the watcher, or the process is never reachable from `rs/mcp`. | M-08 test: every `ops.command.*` subject the MCP can publish is in the tier 1 allowlist |
+| G-03 | GREEN (every commit made in `~/projects/openstory-wt-kindle` on `feat/reel-chart-beats-kindle`). All work happens in the worktree on branch `feat/reel-chart-beats-kindle` or a branch stacked on it. The main checkout `~/projects/OpenStory` is never edited. Nothing merges without the owner. | reviewer gate on each commit |
+| G-04 | GREEN (the live node still runs the pre-loop 0.4.0 binary; tests used scratch ports, a scratch NATS, testcontainers, and `os-loop-a1`). The owner's live instance on `:3002` is never restarted by the loop. Live tests run an isolated instance (scratch port, scratch data dir) or a testcontainer. | `scripts/scratch_node.sh` (L-08) is the only way tests boot a server |
+| G-05 | GREEN (fixtures are `helpers::synth` output and hand-written shapes; no session ids from the store). No real session data is committed. Fixtures are synthetic or captured shapes with content replaced. | pre-commit grep for any id in `memory/hands/real/ids.txt` of the research repo; reviewer gate |
+| G-06 | GREEN (`mod when_… { fn it_… }`, `describe("when …") / it("should …")`, `test_when_…` throughout). Tests read as behaviour: Rust `mod when_<condition> { fn it_<outcome> }`, TypeScript `describe("when …") / it("should …")`, Python `test_when_<condition>_it_<outcome>`. Every test asserts values, not presence. | reviewer gate |
+| G-07 | GREEN (Cargo diff against master adds only `tracing`, `tracing-subscriber`, and workspace paths; no exporter, no vendor). No new logging or metrics vendor. `tracing`, `tracing-subscriber`, `opentelemetry` crates only; export is OTLP or Prometheus text. | `Cargo.toml` diff review |
+| G-08 | GREEN (a1 touched only through `os-loop-a1` and `os-loop-smoke`, both deleted; the hub untouched). a1 is for experiments only: k3s namespaces prefixed `os-loop-`, torn down at the end of each task; never the hub, never the owner's a1 services. | K-01 teardown test; reviewer gate |
 
 ## L · Logging
 
