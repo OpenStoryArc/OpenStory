@@ -103,3 +103,50 @@ mod when_log_format_is_parsed_from_config {
         assert!(err.contains("yaml"), "error names the bad value: {err}");
     }
 }
+
+// L-02: every line carries `event`; inside a consumer it carries `actor`.
+mod when_a_consumer_logs {
+    use super::*;
+
+    #[test]
+    fn it_stamps_actor_and_event() {
+        let cap = Capture::default();
+        let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
+        tracing::subscriber::with_default(sub, || {
+            let consumer = tracing::info_span!("consumer", actor = "persist");
+            let _g = consumer.enter();
+            tracing::info!(event = "session_persisted", session_id = "s1", count = 4, "persisted");
+            {
+                let inner = tracing::info_span!("batch", subject = "events.host.s1.main");
+                let _g2 = inner.enter();
+                tracing::warn!(event = "index_failed", "fts index write failed");
+            }
+        });
+        let lines = cap.lines();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+
+        let first: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(first["actor"], "persist", "span field rides on the line: {first}");
+        assert_eq!(first["event"], "session_persisted");
+        assert_eq!(first["session_id"], "s1");
+        assert_eq!(first["count"], 4);
+
+        let second: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
+        assert_eq!(second["actor"], "persist", "outer span still applies: {second}");
+        assert_eq!(second["subject"], "events.host.s1.main", "inner span field too");
+        assert_eq!(second["event"], "index_failed");
+    }
+
+    #[test]
+    fn it_has_no_actor_outside_a_consumer_and_never_omits_event() {
+        let cap = Capture::default();
+        let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
+        tracing::subscriber::with_default(sub, || {
+            tracing::info!("a line someone forgot to name");
+        });
+        let line: serde_json::Value = serde_json::from_str(&cap.lines()[0]).unwrap();
+        assert!(line.get("actor").is_none(), "{line}");
+        assert_eq!(line["event"], "unnamed", "an unnamed line is findable, not silent: {line}");
+        assert_eq!(line["message"], "a line someone forgot to name");
+    }
+}
