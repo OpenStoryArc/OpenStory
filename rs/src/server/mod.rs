@@ -291,12 +291,15 @@ pub async fn run_server(
         {
             let event_store = state.read().await.store.event_store.clone();
             let presence_bus = bus.clone();
+            let presence_dir = state.read().await.store.data_dir.clone();
             tokio::spawn(tracing::Instrument::instrument(
                 consumers::supervision::supervise(
                     "presence",
                     move || {
                         let event_store = event_store.clone();
                         let presence_bus = presence_bus.clone();
+                        let presence_log =
+                            open_story_store::persistence::PresenceLog::new(&presence_dir).ok();
                         Box::pin(async move {
                             match presence_bus
                                 .subscribe_stream("presence", "presence.>")
@@ -310,6 +313,7 @@ pub async fn run_server(
                                     while let Some(batch) = driven.next().await {
                                         consumers::presence::store_presence(
                                             &*event_store,
+                                            presence_log.as_ref(),
                                             &batch.events,
                                         )
                                         .await;

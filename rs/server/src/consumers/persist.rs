@@ -60,6 +60,8 @@ pub struct PersistConsumer {
     /// Shared projection cache (read-only from this consumer's POV — it reads
     /// label/branch/event_count to assemble the SessionRow).
     projections: Arc<ProjectionCache>,
+    /// D-02: presence history in the data dir; None when it cannot be opened.
+    presence_log: Option<open_story_store::persistence::PresenceLog>,
     /// Shared project-id map — written here when `project_id` arrives on
     /// the batch envelope; read by other consumers / API.
     session_projects: Arc<DashMap<String, String>>,
@@ -91,7 +93,10 @@ impl PersistConsumer {
         session_project_names: Arc<DashMap<String, String>>,
         plan_store: PlanStore,
     ) -> Self {
+        let presence_log =
+            open_story_store::persistence::PresenceLog::new(session_store.data_dir()).ok();
         Self {
+            presence_log,
             event_store,
             session_store,
             projections,
@@ -116,7 +121,9 @@ impl PersistConsumer {
         // table and nowhere else: no session, no event row, no FTS, no
         // JSONL. Routed before any of that machinery runs.
         if !events.is_empty() && events.iter().all(super::presence::is_presence) {
-            let persisted = super::presence::store_presence(event_store, events).await;
+            let persisted =
+                super::presence::store_presence(event_store, self.presence_log.as_ref(), events)
+                    .await;
             return PersistResult {
                 persisted,
                 skipped: events.len() - persisted,

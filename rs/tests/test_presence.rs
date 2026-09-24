@@ -277,8 +277,6 @@ mod when_presence_arrives {
             )
         };
         let first = beat("aaa111", "critical");
-        let first_time = first.data.raw.get("time").cloned();
-        let _ = first_time;
         let t1 = first.time.clone();
         actors
             .persist
@@ -286,7 +284,11 @@ mod when_presence_arrives {
             .await;
         actors
             .persist
-            .process_batch("presence:node-a", &[beat("bbb222", "ok")], Some(presence::SOURCE))
+            .process_batch(
+                "presence:node-a",
+                &[beat("bbb222", "ok")],
+                Some(presence::SOURCE),
+            )
             .await;
 
         let data_dir = actors.state.read().await.store.data_dir.clone();
@@ -306,7 +308,10 @@ mod when_presence_arrives {
         assert_eq!(lines[0]["time"], t1, "the beat's own time");
         assert_eq!(lines[1]["git_sha"], "bbb222");
         assert_eq!(lines[1]["level"], "ok");
-        assert!(lines[0].get("streams").is_none(), "compact: not the whole body");
+        assert!(
+            lines[0].get("streams").is_none(),
+            "compact: not the whole body"
+        );
     }
 }
 

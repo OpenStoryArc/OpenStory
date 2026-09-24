@@ -149,7 +149,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | id | requirement | acceptance test |
 |---|---|---|
 | D-01 | Every log line and `/api/health` carry `git_sha` and `built_at` (H-07), so a change is identifiable in every signal. | covered by H-07 and L-02 |
-| D-02 | `scripts/dora.py` computes the four keys from the node's own record and git: deployment frequency (distinct `git_sha` values seen in presence per day), lead time (commit timestamp to first presence with that sha), change failure rate (share of shas whose first hour of presence contained a critical), time to restore (critical to ok duration). `--test` on fixtures. | script `--test` |
+| D-02 | GREEN. Every beat also appends one compact line to `{data_dir}/presence.jsonl` (the table keeps only the latest). `scripts/dora.py` computes the four keys from the node's own record and git: deployment frequency (distinct `git_sha` values seen in presence per day), lead time (commit timestamp to first presence with that sha), change failure rate (share of shas whose first hour of presence contained a critical), time to restore (critical to ok duration). `--test` on fixtures. | script `--test` |
 | D-03 | `just test` runs the two static audits (E-01, K-07) and the manifest check (K-02); CI runs the same. | `.github/workflows` diff and a green run |
 | D-04 | `scripts/node_health_probe.py --json` is the deploy gate: `scripts/deploy_gate.sh` refuses to roll a new sha while the running node's verdict is critical, and rolls back if the new sha is critical after the startup window. Dry-run test. | script `--test` |
 | D-05 | Rollback is a documented one-liner per host shape (brew, compose, k3s) in `docs/deploy/operations.md`, verified once on a1. | doc plus the a1 run |

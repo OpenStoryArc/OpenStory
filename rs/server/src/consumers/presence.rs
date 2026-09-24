@@ -7,6 +7,8 @@
 
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::event_store::{EventStore, PresenceRow};
+use open_story_store::persistence::PresenceLog;
+use serde_json::{json, Value};
 
 /// Is this event a node's presence beat?
 pub fn is_presence(ce: &CloudEvent) -> bool {
@@ -37,9 +39,35 @@ pub fn row_from(ce: &CloudEvent) -> Option<PresenceRow> {
     })
 }
 
-/// Store every presence beat in the batch. Returns how many landed; a
-/// failed upsert is logged (`event=presence_upsert_failed`) and counted.
-pub async fn store_presence(store: &dyn EventStore, events: &[CloudEvent]) -> usize {
+/// The compact history line for a beat (D-02): who, when, which build,
+/// and the verdict. Pure.
+pub fn log_line(row: &PresenceRow) -> Value {
+    let b = &row.body;
+    let findings: Vec<Value> = b["verdict"]["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f.get("id").cloned())
+        .collect();
+    json!({
+        "time": row.time,
+        "host": row.host,
+        "principal_id": row.principal_id,
+        "git_sha": b.get("git_sha").cloned().unwrap_or(Value::Null),
+        "built_at": b.get("built_at").cloned().unwrap_or(Value::Null),
+        "level": b["verdict"].get("level").cloned().unwrap_or(Value::Null),
+        "findings": findings,
+    })
+}
+
+/// Store every presence beat in the batch, and append its history line
+/// when a log is given. Returns how many landed; a failed upsert or append
+/// is logged and counted.
+pub async fn store_presence(
+    store: &dyn EventStore,
+    log: Option<&PresenceLog>,
+    events: &[CloudEvent],
+) -> usize {
     let mut stored = 0;
     for ce in events {
         let Some(row) = row_from(ce) else {
@@ -48,6 +76,11 @@ pub async fn store_presence(store: &dyn EventStore, events: &[CloudEvent]) -> us
         match store.upsert_presence(&row).await {
             Ok(()) => stored += 1,
             Err(e) => crate::logging::failed("presence_upsert", &format!("{e:#}")),
+        }
+        if let Some(log) = log {
+            if let Err(e) = log.append(&log_line(&row)) {
+                crate::logging::failed("presence_log_append", &format!("{e:#}"));
+            }
         }
     }
     stored
