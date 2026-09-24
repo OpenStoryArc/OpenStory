@@ -430,4 +430,65 @@ mod tests {
             );
         }
     }
+
+    // E-07: the managed child's death is noticed within 5 s, logged with its
+    // exit code, and the bus reports itself down.
+    mod when_child_exits {
+        use super::super::*;
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone, Default)]
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+        struct W(Arc<Mutex<Vec<u8>>>);
+        impl Write for W {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Capture {
+            type Writer = W;
+            fn make_writer(&'a self) -> W {
+                W(self.0.clone())
+            }
+        }
+
+        #[test]
+        fn it_is_noticed() {
+            let cap = Capture::default();
+            let sub = open_story_server::logging::build_subscriber(
+                open_story_server::logging::LogFormat::Json,
+                "info",
+                cap.clone(),
+            );
+            let _g = tracing::subscriber::set_default(sub);
+            let tmp = tempfile::tempdir().unwrap();
+            let mut cmd = std::process::Command::new("sh");
+            cmd.args(["-c", "exit 3"]);
+            let child = spawn_logged(cmd, tmp.path()).expect("spawn");
+            let guard = NatsGuard::watch(child);
+            assert!(guard.alive(), "just started");
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while guard.alive() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            assert!(!guard.alive(), "death noticed within 5 s");
+            assert!(!open_story_bus::health::nats_child_alive(), "the bus knows");
+
+            let text = String::from_utf8(cap.0.lock().unwrap().clone()).unwrap();
+            let line = text
+                .lines()
+                .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+                .find(|l| l["event"] == "nats_child_exited")
+                .unwrap_or_else(|| panic!("no nats_child_exited line in {text:?}"));
+            assert_eq!(line["level"], "ERROR");
+            assert_eq!(line["code"], 3);
+            open_story_bus::health::set_nats_child_alive(true); // leave the process flag as we found it
+        }
+    }
 }
