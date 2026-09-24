@@ -1106,8 +1106,10 @@ mod tests {
     #[test]
     fn conf_path_set_without_person_returns_no_writer() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.nats_accounts_conf_path = tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        let mut cfg = Config {
+            nats_accounts_conf_path: tmp.path().join("nats.conf").to_string_lossy().into_owned(),
+            ..Config::default()
+        };
         // No [person] block.
         cfg.person = None;
         let (writer, reloader) = build_account_config(&cfg);
@@ -1119,9 +1121,11 @@ mod tests {
     fn conf_path_set_with_person_builds_writer_and_persists_initial_conf() {
         let tmp = tempfile::tempdir().unwrap();
         let conf_path = tmp.path().join("nats.conf");
-        let mut cfg = Config::default();
-        cfg.nats_accounts_conf_path = conf_path.to_string_lossy().into_owned();
-        cfg.person = Some(person_max());
+        let mut cfg = Config {
+            nats_accounts_conf_path: conf_path.to_string_lossy().into_owned(),
+            person: Some(person_max()),
+            ..Config::default()
+        };
         // Use `true` as a no-op reload command so the unit test doesn't
         // try to pkill nats-server in CI.
         cfg.nats_reload_command = "true".into();
@@ -1142,9 +1146,10 @@ mod tests {
     #[test]
     fn empty_reload_command_disables_the_reloader() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut cfg = Config::default();
-        cfg.nats_accounts_conf_path =
-            tmp.path().join("nats.conf").to_string_lossy().into_owned();
+        let mut cfg = Config {
+            nats_accounts_conf_path: tmp.path().join("nats.conf").to_string_lossy().into_owned(),
+            ..Config::default()
+        };
         cfg.person = Some(person_max());
         cfg.nats_reload_command = String::new();
 

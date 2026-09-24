@@ -34,6 +34,10 @@ struct Cli {
     command: Option<Command>,
 }
 
+// `Serve` carries every serve-time flag (about 400 bytes) while the other
+// variants are small. Boxing a clap `#[command]` struct hurts more than the
+// one-off enum size; the enum is constructed once at startup.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Start the dashboard web server (default)
@@ -593,6 +597,16 @@ async fn main() -> Result<()> {
                 let v = v.trim().to_ascii_lowercase();
                 config.publish_sessions = matches!(v.as_str(), "1" | "true" | "yes" | "on");
             }
+            if let Ok(v) = std::env::var("OPEN_STORY_LOG_FORMAT") {
+                config.log_format = v;
+            }
+            // Structured logging (L-01): text for a terminal, JSON lines for
+            // agents and collectors. RUST_LOG filters; default info.
+            let log_format: open_story_server::logging::LogFormat = config
+                .log_format
+                .parse()
+                .map_err(|e: String| anyhow::anyhow!(e))?;
+            open_story_server::logging::init(log_format);
 
             let host = config.host.clone();
             let port = config.port;

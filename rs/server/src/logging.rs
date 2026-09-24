@@ -128,3 +128,126 @@ mod tests {
         assert_eq!(event_type_summary(&[]), "");
     }
 }
+
+// ── Structured logging (REQUIREMENTS L-01) ──────────────────────────────
+//
+// `tracing` is the API; this module owns the two formatters. `Text` keeps
+// the look a person expects at a terminal. `Json` writes one object per
+// line with stable top-level names so an agent, a log ring, or `jq` can
+// read a node's logs without guessing: `ts`, `level`, `target`, `event`,
+// `message`, then every field on the record. Never log message content.
+
+use tracing::Subscriber;
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields, MakeWriter};
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::EnvFilter;
+
+/// How log lines are written. Parsed from `log_format` in config or
+/// `OPEN_STORY_LOG_FORMAT`; empty means `Text`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+impl std::str::FromStr for LogFormat {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "text" => Ok(LogFormat::Text),
+            "json" => Ok(LogFormat::Json),
+            other => Err(format!("unknown log_format {other:?}; expected \"text\" or \"json\"")),
+        }
+    }
+}
+
+/// Collects a record's fields into a JSON map. `message` is the format
+/// string's rendered text; every other field keeps its name.
+#[derive(Default)]
+struct JsonFields(serde_json::Map<String, serde_json::Value>);
+
+impl tracing::field::Visit for JsonFields {
+    fn record_f64(&mut self, f: &tracing::field::Field, v: f64) {
+        self.0.insert(f.name().to_string(), serde_json::json!(v));
+    }
+    fn record_i64(&mut self, f: &tracing::field::Field, v: i64) {
+        self.0.insert(f.name().to_string(), serde_json::json!(v));
+    }
+    fn record_u64(&mut self, f: &tracing::field::Field, v: u64) {
+        self.0.insert(f.name().to_string(), serde_json::json!(v));
+    }
+    fn record_bool(&mut self, f: &tracing::field::Field, v: bool) {
+        self.0.insert(f.name().to_string(), serde_json::json!(v));
+    }
+    fn record_str(&mut self, f: &tracing::field::Field, v: &str) {
+        self.0.insert(f.name().to_string(), serde_json::json!(v));
+    }
+    fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+        self.0.insert(f.name().to_string(), serde_json::json!(format!("{v:?}")));
+    }
+}
+
+/// One JSON object per line: `{"ts","level","target","event",...fields}`.
+struct JsonLine;
+
+impl<S, N> FormatEvent<S, N> for JsonLine
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        _ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        let meta = event.metadata();
+        let mut fields = JsonFields::default();
+        event.record(&mut fields);
+        let mut obj = serde_json::Map::new();
+        obj.insert("ts".into(), serde_json::json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)));
+        obj.insert("level".into(), serde_json::json!(meta.level().as_str()));
+        obj.insert("target".into(), serde_json::json!(meta.target()));
+        for (k, v) in fields.0 {
+            obj.insert(k, v);
+        }
+        let line = serde_json::to_string(&obj).map_err(|_| std::fmt::Error)?;
+        writer.write_str(&line)?;
+        writeln!(writer)
+    }
+}
+
+/// Build a subscriber for `format`, filtered by `filter` (an `EnvFilter`
+/// directive string such as `info` or `open_story=debug`), writing to
+/// `writer`. Pure with respect to process state: nothing global is set.
+pub fn build_subscriber<W>(format: LogFormat, filter: &str, writer: W) -> Box<dyn Subscriber + Send + Sync>
+where
+    W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
+{
+    let filter = EnvFilter::try_new(filter).unwrap_or_else(|_| EnvFilter::new("info"));
+    match format {
+        LogFormat::Json => Box::new(
+            tracing_subscriber::fmt()
+                .event_format(JsonLine)
+                .with_writer(writer)
+                .with_env_filter(filter)
+                .finish(),
+        ),
+        LogFormat::Text => Box::new(
+            tracing_subscriber::fmt()
+                .with_target(false)
+                .with_writer(writer)
+                .with_env_filter(filter)
+                .finish(),
+        ),
+    }
+}
+
+/// Install the process-wide subscriber: stderr, `RUST_LOG` if set (default
+/// `info`). Safe to call once; a second call is a no-op that returns false.
+pub fn init(format: LogFormat) -> bool {
+    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    tracing::subscriber::set_global_default(build_subscriber(format, &filter, std::io::stderr)).is_ok()
+}

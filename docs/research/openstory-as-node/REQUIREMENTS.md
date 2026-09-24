@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (created).
+Last updated: 2026-09-23 (L-01 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -22,7 +22,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | Group | Requirements | GREEN | Notes |
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
-| L · logging | L-01 … L-08 | 0 / 8 | `tracing`, JSON lines, log ring |
+| L · logging | L-01 … L-08 | 1 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
@@ -62,7 +62,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | acceptance test |
 |---|---|---|
-| L-01 | The server initialises `tracing_subscriber` with an `EnvFilter` from `RUST_LOG` (default `info`) and a `log_format` config/env of `text` (default) or `json`. | `rs/server/tests/test_logging.rs::when_log_format_is_json::it_emits_one_json_object_per_line` |
+| L-01 | GREEN. The server initialises `tracing_subscriber` with an `EnvFilter` from `RUST_LOG` (default `info`) and a `log_format` config/env of `text` (default) or `json`. | `rs/server/tests/test_logging.rs::when_log_format_is_json::it_emits_one_json_object_per_line` |
 | L-02 | Every log line carries `ts` (RFC 3339), `level`, `target`, `event` (a stable snake_case name), and `actor` when emitted inside a consumer. | `…::when_a_consumer_logs::it_stamps_actor_and_event` |
 | L-03 | Lines about a session carry `session_id`; lines about a bus message carry `subject`. | `…::when_persist_logs_a_session::it_carries_session_id` |
 | L-04 | `rs/server/src/logging.rs` `log_event` is replaced by `tracing` macros; the ANSI text formatter keeps today's look for humans. | `…::when_log_format_is_text::it_keeps_time_category_message_shape` |
@@ -154,3 +154,18 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | D-04 | `scripts/node_health_probe.py --json` is the deploy gate: `scripts/deploy_gate.sh` refuses to roll a new sha while the running node's verdict is critical, and rolls back if the new sha is critical after the startup window. Dry-run test. | script `--test` |
 | D-05 | Rollback is a documented one-liner per host shape (brew, compose, k3s) in `docs/deploy/operations.md`, verified once on a1. | doc plus the a1 run |
 | D-06 | The DORA numbers appear on the Admin tab as four tiles from D-02's JSON, with the window selectable. | `ui/tests/components/dora-tiles.test.tsx::when_dora_json_loads::it_renders_four_keys` |
+
+## Loop log
+
+- **2026-09-23 22:10 local.** L-01 GREEN (`tracing` + `tracing-subscriber` in
+  `rs/server`; `LogFormat`, `build_subscriber`, `init`; `log_format` config
+  field and `OPEN_STORY_LOG_FORMAT`; boot wires it in `rs/cli`). Along the
+  way: the current stable toolchain (1.96) flags lints in the server and CLI
+  crates that CI, which tracks stable, will also flag; cleared them (default
+  field assignments, needless mut, `from_ref`, `sort_by_key`, and an allow
+  with rationale on the CLI `Command` enum). Owner must decide: nothing new.
+  Hub note from the replication check: the hub's Tailscale node key expired
+  at 09:59Z today; the box answers on openstory.live, so the fix is
+  `tailscale up --force-reauth` from the Hetzner console plus disabling key
+  expiry for that node. The probe should learn to flag peer key expiry
+  (candidate H-06 addition). Next: L-02.

@@ -296,6 +296,10 @@ pub struct Config {
     pub broadcast_channel_size: usize,
     /// Enable Prometheus metrics endpoint at /metrics. Default: false.
     pub metrics_enabled: bool,
+    /// Log line format: "text" (default, for a terminal) or "json" (one
+    /// object per line for agents, log rings, and collectors). Env:
+    /// OPEN_STORY_LOG_FORMAT. See logging::LogFormat.
+    pub log_format: String,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
@@ -402,6 +406,7 @@ impl Default for Config {
             stale_threshold_secs: 300,
             broadcast_channel_size: 256,
             metrics_enabled: false,
+            log_format: "text".to_string(),
             retention_days: 0,
             person: None,
         }
@@ -615,6 +620,8 @@ impl Config {
 # ── Observability ──
 # Enable Prometheus metrics endpoint at /metrics.
 # metrics_enabled = false
+# Log line format: "text" (terminal) or "json" (one object per line).
+# log_format = "text"
 
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
@@ -898,6 +905,7 @@ mod tests {
             stale_threshold_secs: 600,
             broadcast_channel_size: 512,
             metrics_enabled: true,
+            log_format: "text".into(),
             retention_days: 90,
             person: None,
         };
@@ -1041,8 +1049,10 @@ agent = "openclaw"
     fn ensure_person_bootstrap_preserves_explicit_local_principal_id() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.toml");
-        let mut config = Config::default();
-        config.local_principal_id = "pinned-by-operator".into();
+        let mut config = Config {
+            local_principal_id: "pinned-by-operator".into(),
+            ..Config::default()
+        };
         config.ensure_person_bootstrap(&path);
         assert_eq!(
             config.local_principal_id, "pinned-by-operator",
@@ -1124,9 +1134,11 @@ agent = "openclaw"
     fn ensure_person_bootstrap_preserves_existing_config_fields() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.toml");
-        let mut config = Config::default();
-        config.port = 9999;
-        config.api_token = "test-token".into();
+        let mut config = Config {
+            port: 9999,
+            api_token: "test-token".into(),
+            ..Config::default()
+        };
         config.ensure_person_bootstrap(&path);
 
         let written: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();

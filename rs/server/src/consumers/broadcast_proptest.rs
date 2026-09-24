@@ -167,7 +167,7 @@ mod tests {
     /// care about iteration order.
     fn sort_canonical(msgs: &[crate::broadcast::BroadcastMessage]) -> Vec<Value> {
         let mut out: Vec<Value> = msgs.iter().map(canonicalize).collect();
-        out.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        out.sort_by_key(|a| a.to_string());
         out
     }
 

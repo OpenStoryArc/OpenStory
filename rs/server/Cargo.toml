@@ -27,6 +27,8 @@ async-trait = "0.1"
 rusqlite = { version = "0.35", features = ["bundled"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt", "std", "ansi"] }
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 
