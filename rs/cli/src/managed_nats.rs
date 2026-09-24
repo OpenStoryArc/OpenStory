@@ -318,4 +318,39 @@ mod tests {
         // No credentials → nothing to redact.
         assert_eq!(redact_url("nats://hub:7422"), "nats://hub:7422");
     }
+
+    // L-05: the child's output is never discarded. It lands in
+    // <store_dir>/nats.log, rotated once past a byte limit.
+    mod when_child_writes_stderr {
+        use super::super::*;
+
+        #[test]
+        fn it_lands_in_nats_log() {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut cmd = std::process::Command::new("sh");
+            cmd.args(["-c", "echo out-line; echo err-line 1>&2"]);
+            let mut child = spawn_logged(cmd, tmp.path()).expect("spawn");
+            child.wait().unwrap();
+            let log = std::fs::read_to_string(tmp.path().join("nats.log")).expect("nats.log exists");
+            assert!(log.contains("out-line"), "stdout captured: {log:?}");
+            assert!(log.contains("err-line"), "stderr captured: {log:?}");
+        }
+
+        #[test]
+        fn it_rotates_the_log_once_past_the_limit() {
+            let tmp = tempfile::tempdir().unwrap();
+            let path = tmp.path().join("nats.log");
+            std::fs::write(&path, "x".repeat(20)).unwrap();
+            let mut f = open_child_log(tmp.path(), 10).expect("open");
+            use std::io::Write;
+            writeln!(f, "fresh").unwrap();
+            drop(f);
+            assert_eq!(std::fs::read_to_string(tmp.path().join("nats.log.1")).unwrap(), "x".repeat(20));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\n", "new log starts empty");
+            let mut f = open_child_log(tmp.path(), 10).expect("reopen below limit");
+            writeln!(f, "again").unwrap();
+            drop(f);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "fresh\nagain\n", "appends when under the limit");
+        }
+    }
 }
