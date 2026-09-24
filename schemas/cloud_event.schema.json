@@ -673,6 +673,21 @@
             "meta"
           ],
           "type": "object"
+        },
+        {
+          "description": "Any agent this build does not know (E-06). The raw object is kept whole so nothing is dropped and a later build can read it; `agent()` reports `meta.agent`, else the `_variant` tag, else \"unknown\". OpenActor's `agent: \"openactor\"` events were being discarded by the strict enum before this arm existed.",
+          "properties": {
+            "_variant": {
+              "enum": [
+                "Unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "_variant"
+          ],
+          "type": "object"
         }
       ]
     },

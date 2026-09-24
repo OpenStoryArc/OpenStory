@@ -225,6 +225,13 @@ pub enum AgentPayload {
     Codex(CodexPayload),
     #[serde(rename = "grok", alias = "grok-build")]
     Grok(GrokPayload),
+    /// Any agent this build does not know (E-06). The raw object is kept
+    /// whole so nothing is dropped and a later build can read it; `agent()`
+    /// reports `meta.agent`, else the `_variant` tag, else "unknown".
+    /// OpenActor's `agent: "openactor"` events were being discarded by the
+    /// strict enum before this arm existed.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 // ── Claude Code Payload ────────────────────────────────────────────
@@ -756,6 +763,11 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => &p.meta.agent,
             AgentPayload::Codex(p) => &p.meta.agent,
             AgentPayload::Grok(p) => &p.meta.agent,
+            AgentPayload::Unknown(v) => v
+                .pointer("/meta/agent")
+                .or_else(|| v.get("_variant"))
+                .and_then(|a| a.as_str())
+                .unwrap_or("unknown"),
         }
     }
 
@@ -767,6 +779,7 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => p.text.as_deref(),
             AgentPayload::Codex(p) => p.text.as_deref(),
             AgentPayload::Grok(p) => p.text.as_deref(),
+            AgentPayload::Unknown(v) => v.get("text").and_then(|x| x.as_str()),
         }
     }
 
@@ -778,6 +791,7 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => p.model.as_deref(),
             AgentPayload::Codex(p) => p.model.as_deref(),
             AgentPayload::Grok(p) => p.model.as_deref(),
+            AgentPayload::Unknown(v) => v.get("model").and_then(|x| x.as_str()),
         }
     }
 
@@ -789,6 +803,7 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => p.tool.as_deref(),
             AgentPayload::Codex(p) => p.tool.as_deref(),
             AgentPayload::Grok(p) => p.tool.as_deref(),
+            AgentPayload::Unknown(v) => v.get("tool").and_then(|x| x.as_str()),
         }
     }
 
@@ -800,6 +815,7 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => p.args.as_ref(),
             AgentPayload::Codex(p) => p.args.as_ref(),
             AgentPayload::Grok(p) => p.args.as_ref(),
+            AgentPayload::Unknown(v) => v.get("args"),
         }
     }
 
@@ -816,6 +832,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(p) => p.token_usage.as_ref(),
             AgentPayload::Grok(p) => p.token_usage.as_ref(),
+            AgentPayload::Unknown(v) => v.get("token_usage"),
         }
     }
 
@@ -831,6 +848,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
             AgentPayload::Grok(_) => None,
+            AgentPayload::Unknown(_) => None,
         }
     }
 
@@ -845,6 +863,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
             AgentPayload::Grok(_) => None,
+            AgentPayload::Unknown(_) => None,
         }
     }
 
@@ -859,6 +878,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(p) => p.cwd.as_deref(),
             AgentPayload::Grok(_) => None,
+            AgentPayload::Unknown(_) => None,
         }
     }
 
@@ -870,6 +890,7 @@ impl AgentPayload {
             AgentPayload::Hermes(p) => p.stop_reason.as_deref(),
             AgentPayload::Codex(_) => None,
             AgentPayload::Grok(p) => p.stop_reason.as_deref(),
+            AgentPayload::Unknown(v) => v.get("stop_reason").and_then(|x| x.as_str()),
         }
     }
 
@@ -884,6 +905,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
             AgentPayload::Grok(_) => None,
+            AgentPayload::Unknown(_) => None,
         }
     }
 
@@ -899,6 +921,7 @@ impl AgentPayload {
             AgentPayload::Hermes(_) => None,
             AgentPayload::Codex(_) => None,
             AgentPayload::Grok(p) => p.tool_outcome.as_ref(),
+            AgentPayload::Unknown(_) => None,
         }
     }
 }

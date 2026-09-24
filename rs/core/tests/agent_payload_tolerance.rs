@@ -59,19 +59,28 @@ mod when_agent_is_unknown {
         //    heard of still deserializes, names its agent, and round-trips
         //    byte for byte.
         let mut wire = serde_json::to_value(known_event()).unwrap();
-        assert!(retag(&mut wire, "openactor"), "fixture carries a variant tag");
-        let event: CloudEvent = serde_json::from_value(wire.clone()).expect("unknown agent is tolerated");
+        assert!(
+            retag(&mut wire, "openactor"),
+            "fixture carries a variant tag"
+        );
+        let event: CloudEvent =
+            serde_json::from_value(wire.clone()).expect("unknown agent is tolerated");
         let payload = event.data.agent_payload.as_ref().expect("payload kept");
         assert!(matches!(payload, AgentPayload::Unknown(_)), "{payload:?}");
         assert_eq!(payload.agent(), "openactor");
-        assert_eq!(serde_json::to_value(&event).unwrap(), wire, "raw survives a round trip untouched");
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            wire,
+            "raw survives a round trip untouched"
+        );
 
         // 2. Counting: a transcript with a malformed line is read to the end,
         //    the good lines translate, and the rejection is counted by reason.
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("t.jsonl");
         let fixture = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/synth_global.jsonl"),
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/fixtures/synth_global.jsonl"),
         )
         .unwrap();
         let mut lines: Vec<&str> = fixture.lines().take(2).collect();
@@ -82,7 +91,16 @@ mod when_agent_is_unknown {
         let mut state = TranscriptState::new("t".into());
         let events = read_new_lines(&path, &mut state).unwrap();
         assert!(!events.is_empty(), "good lines still translate");
-        assert_eq!(state.rejections.get("invalid_json"), Some(&1), "{:?}", state.rejections);
-        assert_eq!(state.rejections.values().sum::<u64>(), 1, "nothing else was rejected");
+        assert_eq!(
+            state.rejections.get("invalid_json"),
+            Some(&1),
+            "{:?}",
+            state.rejections
+        );
+        assert_eq!(
+            state.rejections.values().sum::<u64>(),
+            1,
+            "nothing else was rejected"
+        );
     }
 }

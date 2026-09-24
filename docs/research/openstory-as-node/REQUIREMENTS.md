@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-24 (E-05 green).
+Last updated: 2026-09-24 (E-06 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -23,7 +23,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
-| E · errors and supervision | E-01 … E-07 | 5 / 7 | no swallowed errors, consumer supervisor |
+| E · errors and supervision | E-01 … E-07 | 6 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
@@ -80,7 +80,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | E-03 | GREEN. A supervisor task owns the four consumers; on exit it restarts the consumer with exponential backoff (1 s, 2 s, 4 s, cap 30 s) and logs `event=consumer_restarted` with the attempt. | `…::when_a_consumer_dies::it_is_restarted_with_backoff` |
 | E-04 | GREEN. Restart counts and last-restart timestamps per consumer are part of health (H-05). | `…::when_a_consumer_restarts::it_shows_in_health` |
 | E-05 | GREEN. Watcher publish failures are logged per file with `event=publish_failed`, the subject, and the error; the count is part of health. Root-cause the 15 Grok failures seen on 2026-09-23 as part of this task. | Root cause: NATS `max_payload` 8 MB; Grok transcripts carry 0.5 to 1 MB lines, so a hundred-event batch reached 5 to 10 MB and the client refused it before sending. Fix: the bus splits any batch over 4 MB in order (`split_batch`). | `rs/tests/test_watcher_publish.rs::when_publish_fails::it_logs_subject_and_error` |
-| E-06 | Translate rejections (unknown agent, malformed line) increment a counter by reason and log once per file, not per line. | `rs/core/tests/agent_payload_tolerance.rs::when_agent_is_unknown::it_keeps_raw_and_counts_rejection` |
+| E-06 | GREEN. Translate rejections (unknown agent, malformed line) increment a counter by reason and log once per file, not per line. | Plus: `AgentPayload::Unknown(Value)` keeps an unknown agent's raw object whole; OpenActor's events are no longer dropped. | `rs/core/tests/agent_payload_tolerance.rs::when_agent_is_unknown::it_keeps_raw_and_counts_rejection` |
 | E-07 | The managed NATS child's death is detected within 5 s and logged `event=nats_child_exited` with its exit code; health flips `bus.connected=false`. | `rs/cli/src/managed_nats.rs::tests::when_child_exits::it_is_noticed` |
 
 ## H · Health
@@ -259,3 +259,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   verified against a live NATS from this branch (the live node runs the
   pre-loop binary); the split is unit-tested and the publish path compiles.
   Next: E-06.
+- **2026-09-24 01:45 local.** E-06 GREEN. `AgentPayload::Unknown(Value)`
+  (an `untagged` last arm) tolerates any agent tag with the raw object
+  kept whole and round-tripping byte for byte; `agent()` reads
+  `meta.agent`, else `_variant`, else "unknown"; ten accessors read the
+  same-named field from the raw object or return None. `TranscriptState`
+  counts rejections by reason; the reader counts `invalid_json` per file
+  and logs `translate_rejected` once per file. Schemas regenerated. Next:
+  E-07 (managed NATS child death noticed within 5 s).

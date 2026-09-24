@@ -79,10 +79,29 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
             continue;
         }
 
-        // Parse JSON — skip invalid lines
+        // Parse JSON. An invalid line is skipped, counted by reason on the
+        // transcript state, and logged once per file (E-06).
         let obj: Value = match serde_json::from_str(trimmed) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                let n = state
+                    .rejections
+                    .entry("invalid_json".to_string())
+                    .or_insert(0);
+                *n += 1;
+                if *n == 1 {
+                    tracing::warn!(
+                        event = "translate_rejected",
+                        reason = "invalid_json",
+                        file = %file_path.display(),
+                        session_id = %state.session_id,
+                        error = %e,
+                        "rejected a line in {} (further rejections in this file are counted, not logged)",
+                        file_path.display()
+                    );
+                }
+                continue;
+            }
         };
 
         // Pre-translated CloudEvent passthrough.
@@ -100,13 +119,11 @@ pub fn read_new_lines(file_path: &Path, state: &mut TranscriptState) -> Result<V
 
         // Grok L2: hunk_records.jsonl is not ACP — path-dispatch by basename
         // or hunk shape so we never lock the file as ClaudeCode.
-        let is_hunk_file = file_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            == Some("hunk_records.jsonl");
+        let is_hunk_file =
+            file_path.file_name().and_then(|s| s.to_str()) == Some("hunk_records.jsonl");
         if is_hunk_file || is_hunk_record(&obj) {
-            let sid = grok_session_id_from_path(file_path)
-                .unwrap_or_else(|| state.session_id.clone());
+            let sid =
+                grok_session_id_from_path(file_path).unwrap_or_else(|| state.session_id.clone());
             if !sid.is_empty() {
                 state.session_id = sid;
             }

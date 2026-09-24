@@ -64,6 +64,9 @@ pub struct TranscriptState {
     pub line_count: u64,
     pub seen_uuids: HashSet<String>,
     pub format: TranscriptFormat,
+    /// Lines this transcript rejected, by reason (E-06): `invalid_json`
+    /// today. Counted per file; the first of each reason is logged once.
+    pub rejections: std::collections::HashMap<String, u64>,
     seq: u64,
     /// tool_use_id → (tool_name, tool_input) for domain event derivation.
     pending_tool_calls: std::collections::HashMap<String, PendingToolCall>,
@@ -76,6 +79,7 @@ impl TranscriptState {
             byte_offset: 0,
             line_count: 0,
             seen_uuids: HashSet::new(),
+            rejections: std::collections::HashMap::new(),
             format: TranscriptFormat::Unknown,
             seq: 0,
             pending_tool_calls: std::collections::HashMap::new(),
