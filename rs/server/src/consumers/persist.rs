@@ -278,6 +278,16 @@ impl PersistConsumer {
             let _ = event_store.upsert_session(&row).await;
         }
 
+        // L-03: a line about a session carries its id as a field, never
+        // only inside the message text.
+        tracing::info!(
+            event = "batch_persisted",
+            session_id,
+            persisted,
+            skipped,
+            project_id = project_id.unwrap_or(""),
+            "persisted batch"
+        );
         PersistResult { persisted, skipped }
     }
 }

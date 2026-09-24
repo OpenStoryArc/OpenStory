@@ -243,17 +243,9 @@ pub async fn run_server(
                                 let result = actor
                                     .process_batch(&batch.session_id, &batch.events, project_id)
                                     .await;
-                                if result.persisted > 0 {
-                                    log_event(
-                                    "persist",
-                                    &format!(
-                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
-                                        short_id(&batch.session_id),
-                                        result.persisted,
-                                        result.skipped
-                                    ),
-                                );
-                                }
+                                // The consumer logs the batch itself (L-03,
+                                // event=batch_persisted with session_id).
+                                let _ = result;
                             }
                         }
                         Err(e) => eprintln!("Persist consumer error: {e}"),

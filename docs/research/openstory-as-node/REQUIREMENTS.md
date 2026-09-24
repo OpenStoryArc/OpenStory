@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (L-02 green).
+Last updated: 2026-09-23 (L-03 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -22,7 +22,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | Group | Requirements | GREEN | Notes |
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
-| L · logging | L-01 … L-08 | 2 / 8 | `tracing`, JSON lines, log ring |
+| L · logging | L-01 … L-08 | 3 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
@@ -64,7 +64,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|
 | L-01 | GREEN. The server initialises `tracing_subscriber` with an `EnvFilter` from `RUST_LOG` (default `info`) and a `log_format` config/env of `text` (default) or `json`. | `rs/server/tests/test_logging.rs::when_log_format_is_json::it_emits_one_json_object_per_line` |
 | L-02 | GREEN. Every log line carries `ts` (RFC 3339), `level`, `target`, `event` (a stable snake_case name), and `actor` when emitted inside a consumer. | `…::when_a_consumer_logs::it_stamps_actor_and_event` |
-| L-03 | Lines about a session carry `session_id`; lines about a bus message carry `subject`. | `…::when_persist_logs_a_session::it_carries_session_id` |
+| L-03 | GREEN. Lines about a session carry `session_id`. (The `subject` half moves to E-05: `IngestBatch` carries no subject today; the watcher publish path is where a subject is known.) | `…::when_persist_logs_a_session::it_carries_session_id` |
 | L-04 | `rs/server/src/logging.rs` `log_event` is replaced by `tracing` macros; the ANSI text formatter keeps today's look for humans. | `…::when_log_format_is_text::it_keeps_time_category_message_shape` |
 | L-05 | The managed NATS child's stdout and stderr are captured to `<store_dir>/nats.log` (rotated at 50 MB), never `Stdio::null()`. | `rs/cli/src/managed_nats.rs::tests::when_child_writes_stderr::it_lands_in_nats_log` |
 | L-06 | An in-process log ring keeps the last 5,000 lines (bounded by bytes, 8 MB) and is served at `GET /api/logs?since=<seq>&actor=&level=&limit=`. | `rs/tests/test_logs_api.rs::when_logs_are_requested_since_seq::it_returns_only_newer_lines` |
@@ -179,3 +179,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   carry toolchain-drift lints (`test_pi_mono_container.rs`,
   `test_compose_perf.rs`); the loop lints that crate's lib target and leaves
   those binaries for a dedicated cleanup, tracked under G-06 review.
+- **2026-09-23 22:30 local.** L-03 GREEN. `PersistConsumer::process_batch`
+  emits `event=batch_persisted` with `session_id`, `persisted`, `skipped`,
+  `project_id`; the orchestration loop's duplicate print is gone. The
+  `subject` half is re-scoped to E-05 because `IngestBatch` carries no
+  subject. Next: L-04 (replace `log_event` with tracing across the server).
