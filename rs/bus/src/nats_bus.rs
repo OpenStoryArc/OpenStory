@@ -411,6 +411,12 @@ impl NatsBus {
 
 #[async_trait]
 impl Bus for NatsBus {
+    /// The real client state (H-01). `Connected` only; `Pending` and
+    /// `Disconnected` both mean a publish would not reach the server now.
+    fn is_active(&self) -> bool {
+        self.client.connection_state() == async_nats::connection::State::Connected
+    }
+
     async fn publish(&self, subject: &str, batch: &IngestBatch) -> Result<()> {
         let payload = serde_json::to_vec(batch).context("failed to serialize IngestBatch")?;
 

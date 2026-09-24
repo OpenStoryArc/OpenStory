@@ -12,7 +12,10 @@ use std::time::{Duration, Instant};
 const PORT: u16 = 4399;
 
 /// A throwaway nats-server on a scratch port, killed on drop.
-struct Scratch(std::process::Child, tempfile::TempDir);
+struct Scratch {
+    child: std::process::Child,
+    _dir: tempfile::TempDir, // the store dir lives as long as the server
+}
 
 impl Scratch {
     fn start() -> Option<Self> {
@@ -27,16 +30,21 @@ impl Scratch {
             .ok()?;
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
-            if TcpStream::connect_timeout(&([127, 0, 0, 1], PORT).into(), Duration::from_millis(200)).is_ok() {
-                return Some(Scratch(child, dir));
+            if TcpStream::connect_timeout(
+                &([127, 0, 0, 1], PORT).into(),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+            {
+                return Some(Scratch { child, _dir: dir });
             }
             std::thread::sleep(Duration::from_millis(100));
         }
         None
     }
     fn kill(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -74,6 +82,9 @@ mod when_nats_drops {
         while bus.is_active() && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        assert!(!bus.is_active(), "the bus says disconnected within 5 s of the server dying");
+        assert!(
+            !bus.is_active(),
+            "the bus says disconnected within 5 s of the server dying"
+        );
     }
 }

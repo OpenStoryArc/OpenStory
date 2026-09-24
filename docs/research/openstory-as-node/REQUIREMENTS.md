@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-24 (E group complete).
+Last updated: 2026-09-24 (H-01 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -24,7 +24,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 7 / 7 | no swallowed errors, consumer supervisor |
-| H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
+| H · health | H-01 … H-08 | 1 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
 | M · ops hands on the MCP | M-01 … M-09 | 0 / 9 | tier 0 and tier 1 only |
@@ -87,7 +87,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | acceptance test |
 |---|---|---|
-| H-01 | `NatsBus::is_active` reflects the real connection state; `bus.connected` in `/api/health` is false when the client is disconnected. | `rs/bus/tests/test_bus_health.rs::when_nats_drops::it_reports_disconnected` |
+| H-01 | GREEN. `NatsBus::is_active` reflects the real connection state; `bus.connected` in `/api/health` is false when the client is disconnected. | `rs/bus/tests/test_bus_health.rs::when_nats_drops::it_reports_disconnected` |
 | H-02 | `/api/health` returns `boot.phase` (`starting`, `replaying`, `serving`) with `replay.done`, `replay.total`, `replay.elapsed_ms`. | `rs/tests/test_health.rs::when_replay_is_running::it_reports_phase_and_progress` |
 | H-03 | `/api/health` returns HTTP 503 while `boot.phase != serving`, 200 after. `/health` stays 200 whenever the process is up. | `…::when_replaying::it_returns_503_for_readiness_and_200_for_liveness` |
 | H-04 | `/api/health` includes per-stream `bytes`, `max_bytes`, `messages`, `percent` for events, local, patterns, ui, changes, read from JetStream. | `…::when_streams_exist::it_reports_bytes_against_caps` |
@@ -274,3 +274,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `open_story_bus::health::nats_child_alive`, which `/api/health` folds
   into `bus.connected`. Intentional stops (drop) are not errors. Next:
   group H, starting with H-01 (`NatsBus::is_active` truthful).
+- **2026-09-24 02:20 local.** H-01 GREEN. `NatsBus::is_active` returns the
+  client's `connection_state() == Connected`; a throwaway nats-server on a
+  scratch port proves the flip within a second of the server dying. The
+  test skips (with a message) where `nats-server` is not on PATH. Next:
+  H-02 (boot phase and replay progress on `/api/health`).
