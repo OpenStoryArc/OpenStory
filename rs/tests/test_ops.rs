@@ -329,3 +329,36 @@ mod when_the_hand_is_unknown {
         }
     }
 }
+
+/// D-06: the node serves the DORA JSON `scripts/dora.py --write` leaves in
+/// its data directory, so the Admin tab can show the four keys.
+mod when_dora_is_read {
+    use super::*;
+    use helpers::test_state;
+
+    async fn get(state: &SharedState) -> (u16, Value) {
+        let req = Request::get("/api/dora").body(Body::empty()).unwrap();
+        let resp = send_request(state.clone(), req).await;
+        let status = resp.status().as_u16();
+        (status, body_json(resp).await)
+    }
+
+    #[tokio::test]
+    async fn it_serves_the_written_file_and_says_how_to_make_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        let (status, body) = get(&state).await;
+        assert_eq!(status, 404, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("dora.py"), "{body}");
+
+        let data_dir = state.read().await.store.data_dir.clone();
+        let written = json!({
+            "generated_at": "2026-09-24T01:00:00Z",
+            "windows": {"7": {"window_days": 7, "deployments": 3}, "30": {"window_days": 30, "deployments": 9}}
+        });
+        std::fs::write(data_dir.join("dora.json"), written.to_string()).unwrap();
+        let (status, body) = get(&state).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body, written);
+    }
+}
