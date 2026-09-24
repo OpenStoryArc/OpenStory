@@ -104,15 +104,18 @@ smoke() {
   # shellcheck disable=SC2086
   run $k rollout status deployment/openstory -n "$NAMESPACE" --timeout="$TIMEOUT"
 
+  # The sidecar's monitor rides along, so the probe reads the pod's streams
+  # and never the host's NATS on the default port.
+  local monitor_port=$((LOCAL_PORT + 1))
   local pf_pid=""
   if [ "$DRY" = 0 ]; then
-    $k port-forward -n "$NAMESPACE" service/openstory "$LOCAL_PORT:3002" >/dev/null 2>&1 &
+    $k port-forward -n "$NAMESPACE" deployment/openstory "$LOCAL_PORT:3002" "$monitor_port:8222" >/dev/null 2>&1 &
     pf_pid=$!
     sleep 2
   else
-    echo "would run: $k port-forward -n $NAMESPACE service/openstory $LOCAL_PORT:3002"
+    echo "would run: $k port-forward -n $NAMESPACE deployment/openstory $LOCAL_PORT:3002 $monitor_port:8222"
   fi
-  run python3 "$REPO/scripts/node_health_probe.py" --json --api "http://127.0.0.1:$LOCAL_PORT" || true
+  run python3 "$REPO/scripts/node_health_probe.py" --json --api "http://127.0.0.1:$LOCAL_PORT" --nats-monitor "http://127.0.0.1:$monitor_port" || true
   # K-04: one JSON object per log line.
   # shellcheck disable=SC2086
   run $k logs -n "$NAMESPACE" deployment/openstory -c server --tail=3
