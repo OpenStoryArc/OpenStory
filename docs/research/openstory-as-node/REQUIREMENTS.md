@@ -142,7 +142,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | K-05 | GREEN. Horizontal scale is by node: the overlay for two principals produces two Deployments with distinct PVCs and subjects; a single Deployment never has `replicas > 1` (a check refuses it). | `scripts/k8s_manifest_check.py::test_when_replicas_exceed_one_it_fails` |
 | K-06 | GREEN. Optional ops-agent pod: runs `open-story-mcp` against the node's Service with `automountServiceAccountToken: false`; no cluster credential in the pod. | manifest check asserts the field |
 | K-07 | GREEN (wired into `just test` and CI under D-03). `scripts/subject_publishers.py` static audit: maps every `publish(` in `rs/` to a subject prefix; fails on any publisher of `events.`/`local.` outside translate and any MCP publisher outside `ops.proposal.`/`ui.`. | script `--test`; wired into `just test` |
-| K-08 | `rs/tests/test_stream_cap_wedge.rs` (testcontainers, needs docker): a node with a tiny events cap is flooded; `/api/health` flips to critical (H-04) before ingestion wedges; with a memory limit the NATS child's death is noticed (E-07). Runs on a1 via `scripts/remote_test.sh`. | the test itself |
+| K-08 | GREEN for the cap half (run locally against the branch image: 25 batches at 99.5 % of a 1 MiB cap, verdict critical with `stream_cap:events`, sessions still served, bus up); the memory-limit half needs a cgroup inside the image and is covered by E-07's own tests. `rs/tests/test_stream_cap_wedge.rs` (testcontainers, needs docker): a node with a tiny events cap is flooded; `/api/health` flips to critical (H-04) before ingestion wedges; with a memory limit the NATS child's death is noticed (E-07). Runs on a1 via `scripts/remote_test.sh`. | the test itself |
 
 ## D · DORA
 

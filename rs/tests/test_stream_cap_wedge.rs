@@ -14,11 +14,14 @@ use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn container_stream_cap_flips_critical_before_ingestion_wedges() {
-    // About 2.4 MB of synthetic sessions against a 512 KiB cap.
+    // Forty small sessions (about 30 KB each on the wire) against a 1 MiB
+    // cap: dozens of batches fit, so the stream fills past 90 % and stays
+    // there under discard-old. One big batch per session would never do
+    // that; each would evict the last and the fill would sit at one batch.
     let tmp = tempfile::tempdir().unwrap();
-    generate_fixture_dir(tmp.path(), 6, 200, 2_000);
+    generate_fixture_dir(tmp.path(), 40, 20, 1_000);
     let server =
-        start_open_story_with_env(tmp.path(), &[("OPEN_STORY_EVENTS_MAX_BYTES", "524288")]).await;
+        start_open_story_with_env(tmp.path(), &[("OPEN_STORY_EVENTS_MAX_BYTES", "1048576")]).await;
     let base = server.base_url();
     let client = reqwest::Client::new();
 
@@ -49,10 +52,11 @@ async fn container_stream_cap_flips_critical_before_ingestion_wedges() {
         .and_then(|s| s.iter().find(|x| x["name"] == "events").cloned())
         .expect("events stream reported");
     assert_eq!(
-        events["max_bytes"], 524_288,
+        events["max_bytes"], 1_048_576,
         "the cap the env set: {events}"
     );
     assert!(events["percent"].as_f64().unwrap() >= 0.9, "{events}");
+    eprintln!("K-08 events stream at the flip: {events}");
 
     // Ingestion did not wedge: the API answers and holds sessions.
     let sessions: Value = client
