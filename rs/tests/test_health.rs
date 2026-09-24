@@ -85,3 +85,21 @@ mod when_replaying {
         assert_eq!(ready.status(), 200);
     }
 }
+
+// H-04: the health body carries per-stream stats (empty under the NoopBus;
+// the live numbers are proven in the bus crate against a scratch NATS).
+mod when_streams_exist {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reports_bytes_against_caps() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let body = body_json(send_request(state, Request::get("/api/health").body(Body::empty()).unwrap()).await).await;
+        assert!(body["streams"].is_array(), "streams is always present: {body}");
+        assert_eq!(body["streams"].as_array().unwrap().len(), 0, "no JetStream behind the NoopBus");
+    }
+}
