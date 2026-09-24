@@ -196,3 +196,63 @@ mod when_the_subject_is_built {
         assert_eq!(presence::subject("", ""), "presence.unknown.unknown");
     }
 }
+
+mod when_presence_arrives {
+    use super::*;
+    use helpers::bus::TestActors;
+
+    /// P-02: the persist consumer routes presence to its own table. It never
+    /// becomes a session, an event row, or a JSONL line.
+    #[tokio::test]
+    async fn it_lands_in_the_presence_table_not_events() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut actors = TestActors::new(&tmp).await;
+        let host = "node-a";
+        let beat = |sha: &str| {
+            presence::presence_event(
+                host,
+                Some("person-1"),
+                "this-node",
+                serde_json::json!({"status": "ok", "git_sha": sha, "streams": []}),
+            )
+        };
+
+        let session = format!("presence:{host}");
+        let first = actors
+            .persist
+            .process_batch(&session, &[beat("aaa111")], Some(presence::SOURCE))
+            .await;
+        assert_eq!(first.persisted, 1, "the beat is stored");
+        let second = actors
+            .persist
+            .process_batch(&session, &[beat("bbb222")], Some(presence::SOURCE))
+            .await;
+        assert_eq!(second.persisted, 1);
+
+        let store = actors.state.read().await.store.event_store.clone();
+        let rows = store.latest_presence().await.unwrap();
+        assert_eq!(rows.len(), 1, "one row per node, the latest beat: {rows:?}");
+        let row = &rows[0];
+        assert_eq!(row.host, host);
+        assert_eq!(row.principal_id, "this-node");
+        assert_eq!(row.person_id.as_deref(), Some("person-1"));
+        assert_eq!(row.body["git_sha"], "bbb222", "the latest beat wins");
+        assert!(!row.time.is_empty(), "the beat's time is kept");
+
+        assert!(
+            store.session_events(&session).await.unwrap().is_empty(),
+            "presence never lands in events"
+        );
+        assert!(
+            store
+                .list_sessions()
+                .await
+                .unwrap()
+                .iter()
+                .all(|s| s.id != session),
+            "presence never becomes a session"
+        );
+        let jsonl = tmp.path().join(format!("{session}.jsonl"));
+        assert!(!jsonl.exists(), "presence never reaches the JSONL backup");
+    }
+}

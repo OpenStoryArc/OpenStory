@@ -25,7 +25,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
-use open_story_store::event_store::{EventStore, SessionRow};
+use open_story_store::event_store::{EventStore, PresenceRow, SessionRow};
 // Analytics output struct imports get added back as new helpers are
 // written. Keeping the import list minimal to silence unused-import
 // warnings during the Phase 5 TDD walk.
@@ -755,6 +755,44 @@ pub async fn it_upserts_a_plan_idempotently(store: Arc<dyn EventStore>) {
 // ───────────────────────────────────────────────────────────────────────
 // Read path conformance
 // ───────────────────────────────────────────────────────────────────────
+
+/// P-02: presence is its own table; one row per node, the latest beat wins.
+pub async fn it_upserts_presence_and_returns_the_latest_per_node(store: Arc<dyn EventStore>) {
+    let row = |host: &str, principal: &str, time: &str, sha: &str| PresenceRow {
+        host: host.to_string(),
+        principal_id: principal.to_string(),
+        person_id: Some("person-1".to_string()),
+        time: time.to_string(),
+        body: json!({"git_sha": sha, "status": "ok"}),
+    };
+    store
+        .upsert_presence(&row("node-a", "dev", "2026-09-23T10:00:00.000Z", "aaa"))
+        .await
+        .unwrap();
+    store
+        .upsert_presence(&row("node-a", "dev", "2026-09-23T10:00:15.000Z", "bbb"))
+        .await
+        .unwrap();
+    store
+        .upsert_presence(&row("node-b", "hub", "2026-09-23T09:59:00.000Z", "ccc"))
+        .await
+        .unwrap();
+
+    let mut rows = store.latest_presence().await.unwrap();
+    rows.sort_by(|a, b| a.host.cmp(&b.host));
+    assert_eq!(rows.len(), 2, "one row per (host, principal): {rows:?}");
+    assert_eq!(rows[0].host, "node-a");
+    assert_eq!(rows[0].principal_id, "dev");
+    assert_eq!(rows[0].person_id.as_deref(), Some("person-1"));
+    assert_eq!(rows[0].time, "2026-09-23T10:00:15.000Z", "the latest beat wins");
+    assert_eq!(rows[0].body["git_sha"], "bbb");
+    assert_eq!(rows[1].host, "node-b");
+    assert_eq!(rows[1].body["git_sha"], "ccc");
+    assert!(
+        store.list_sessions().await.unwrap().is_empty(),
+        "presence never becomes a session"
+    );
+}
 
 pub async fn it_returns_session_events_ordered_by_timestamp(store: Arc<dyn EventStore>) {
     // Insert out of order; they must come back ordered by `time`.
@@ -2043,6 +2081,7 @@ macro_rules! for_each_conformance_test {
         $macro!(it_filters_session_patterns_by_type);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
+        $macro!(it_upserts_presence_and_returns_the_latest_per_node);
         // Reads
         $macro!(it_returns_session_events_ordered_by_timestamp);
         $macro!(it_round_trips_an_event_payload_losslessly);
