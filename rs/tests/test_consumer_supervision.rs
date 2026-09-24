@@ -101,3 +101,81 @@ mod when_subscription_ends {
         assert_eq!(e.to_string(), "subscription closed after 7 batches");
     }
 }
+
+// E-03: a supervisor restarts a dead consumer with exponential backoff and
+// logs each restart with its attempt; restart counts are kept for health.
+mod when_a_consumer_dies {
+    use super::*;
+    use open_story_server::consumers::supervision::{backoff, stats, supervise};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn it_backs_off_exponentially_and_caps_at_thirty_seconds() {
+        let secs: Vec<u64> = (1..=8).map(|a| backoff(a).as_secs()).collect();
+        assert_eq!(secs, vec![1, 2, 4, 8, 16, 30, 30, 30]);
+    }
+
+    #[tokio::test]
+    async fn it_is_restarted_with_backoff() {
+        let cap = Capture::default();
+        let _guard = tracing::subscriber::set_default(build_subscriber(LogFormat::Json, "info", cap.clone()));
+        let starts = Arc::new(AtomicU32::new(0));
+        let slept = Arc::new(Mutex::new(Vec::<Duration>::new()));
+        let (starts_in, slept_in) = (starts.clone(), slept.clone());
+
+        let task = tokio::spawn(supervise(
+            "patterns",
+            move || {
+                let n = starts_in.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move {
+                    if n <= 3 {
+                        Err(ConsumerExit::SubscriptionClosed { batches: n as u64 })
+                    } else {
+                        std::future::pending::<Result<(), ConsumerExit>>().await
+                    }
+                })
+            },
+            move |d| {
+                let slept = slept_in.clone();
+                async move {
+                    slept.lock().unwrap().push(d);
+                }
+            },
+        ));
+
+        // Three deaths, three restarts, then the fourth run stays up.
+        for _ in 0..200 {
+            if starts.load(Ordering::SeqCst) >= 4 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(starts.load(Ordering::SeqCst), 4, "fourth run is alive and pending");
+        assert_eq!(
+            *slept.lock().unwrap(),
+            vec![Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)],
+            "backoff 1 s, 2 s, 4 s before each restart"
+        );
+
+        let lines = cap.json_lines();
+        let restarts: Vec<&serde_json::Value> =
+            lines.iter().filter(|l| l["event"] == "consumer_restarted").collect();
+        assert_eq!(restarts.len(), 3, "{lines:?}");
+        assert_eq!(restarts.iter().map(|l| l["attempt"].as_u64().unwrap()).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(restarts[0]["actor"], "patterns");
+        assert_eq!(restarts[0]["backoff_ms"], 1000);
+        assert_eq!(restarts[2]["backoff_ms"], 4000);
+        assert_eq!(restarts[0]["reason"], "subscription closed after 1 batches");
+        assert_eq!(restarts[0]["level"], "WARN");
+
+        let health = stats().snapshot();
+        let patterns = health.get("patterns").expect("stats for the supervised actor");
+        assert_eq!(patterns.restarts, 3);
+        assert!(patterns.alive, "the fourth run is up");
+        assert!(patterns.last_restart.is_some());
+        assert_eq!(patterns.last_exit.as_deref(), Some("subscription closed after 3 batches"));
+
+        task.abort();
+    }
+}
