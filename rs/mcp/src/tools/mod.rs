@@ -307,6 +307,36 @@ pub const TOOLS: &[ToolDef] = &[
                       silence means nothing changed. Cancel via notifications/cancelled.",
         input_schema: ops::subscribe_health_schema,
     },
+    // Ops hands, tier 1 (M-06): change only what is derived; propose first.
+    ToolDef {
+        name: "node_reproject",
+        description: "WHEN: projections_stale, or a session reads empty after a restart. MOTION: propose. \\
+                      CALL: { session_id?, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.reproject, \\
+                      then the node rebuilds the projection from the store and records ops.command.reproject. \\
+                      RETURNS: {proposal, result{sessions_reprojected, events_applied}, command_subject}. Refused while not serving.",
+        input_schema: ops::node_reproject_schema,
+    },
+    ToolDef {
+        name: "node_verify",
+        description: "WHEN: you suspect the store, the JSONL backup, and FTS disagree on a session. MOTION: propose. \\
+                      CALL: { session_id, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.verify, then the node \\
+                      counts all three. RETURNS: {result{store_events, jsonl_lines, fts_documents, agree}}. Read-only act.",
+        input_schema: ops::node_verify_schema,
+    },
+    ToolDef {
+        name: "node_catch_up",
+        description: "WHEN: a peer holds sessions this node is missing. MOTION: propose. \\
+                      CALL: { peer?, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.catch_up, then one \\
+                      digest diff against the peer, pulling what is missing. RETURNS: {result{peer, healed}}.",
+        input_schema: ops::node_catch_up_schema,
+    },
+    ToolDef {
+        name: "node_prune",
+        description: "WHEN: a stream_cap or store size finding and old fleet-mirrored sessions. MOTION: propose. \\
+                      CALL: { older_than_days, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.prune, then \\
+                      the node deletes fleet sessions older than that, never its own. RETURNS: {result{deleted}}.",
+        input_schema: ops::node_prune_schema,
+    },
 ];
 
 fn subscribe_session_schema() -> Value {
@@ -358,6 +388,10 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "node_logs" => ops::node_logs(&server.api_base, args).await,
         "node_streams" => ops::node_streams(&server.api_base, args).await,
         "fleet_presence" => ops::fleet_presence(&server.api_base, args).await,
+        "node_reproject" => ops::tier_one(server, "reproject", args).await,
+        "node_verify" => ops::tier_one(server, "verify", args).await,
+        "node_catch_up" => ops::tier_one(server, "catch_up", args).await,
+        "node_prune" => ops::tier_one(server, "prune", args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,

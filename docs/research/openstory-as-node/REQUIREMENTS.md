@@ -126,8 +126,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | M-03 | GREEN. `node_streams {}` returns per-stream bytes against caps with percent. | `…::when_node_streams_is_called::it_reports_percent_of_cap` |
 | M-04 | GREEN. `fleet_presence {}` returns P-03. | `…::when_fleet_presence_is_called::it_lists_nodes_with_staleness` |
 | M-05 | GREEN. `subscribe_health {}` streams health changes (verdict transitions and any finding added or cleared) as notifications. | `…::when_health_flips_to_critical::it_notifies_once` |
-| M-06 | Tier 1 hands `node_reproject {session_id}`, `node_verify {session_id}`, `node_catch_up {since}`, `node_prune {older_than_days}` publish an `ops.proposal.<hand>` CloudEvent with `author`, `evidence` (finding ids), and `idempotency_key`, then call the matching REST endpoint; the server records `ops.command.<hand>` with the result. | `…::when_node_reproject_is_called::it_publishes_proposal_then_command` |
-| M-07 | Tier 1 hands are refused with a clear error while `boot.phase != serving`. | `…::when_replaying::tier_one_hands_refuse` |
+| M-06 | GREEN. Tier 1 hands `node_reproject {session_id}`, `node_verify {session_id}`, `node_catch_up {since}`, `node_prune {older_than_days}` publish an `ops.proposal.<hand>` CloudEvent with `author`, `evidence` (finding ids), and `idempotency_key`, then call the matching REST endpoint; the server records `ops.command.<hand>` with the result. | `…::when_node_reproject_is_called::it_publishes_proposal_then_command` |
+| M-07 | GREEN. Tier 1 hands are refused with a clear error while `boot.phase != serving`. | `…::when_replaying::tier_one_hands_refuse` |
 | M-08 | GREEN. The MCP can publish only subjects in `ops.proposal.>` and `ui.>`; a test enumerates every publish call in `rs/mcp` and asserts the prefix. | `…::when_mcp_publishes::it_only_touches_authored_subjects` |
 | M-09 | GREEN. `openstory_help` and the hands resource document the ops motions (`watch`, `diagnose`, `propose`) with the tier rule stated in one sentence. | `rs/mcp` instructions test (existing pattern) |
 
@@ -374,3 +374,20 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   must decide: nothing new. Next: M-06 and M-07 (tier-1 hands need
   four new REST endpoints plus the proposal and command events), then
   D from presence history; K needs the a1 cluster and is last.
+- **2026-09-24 01:05 local.** M-06 and M-07 GREEN, group M complete for tiers 0 and
+  1 (9/9). `open_story_core::ops` builds the proposal and command
+  events; the bus has an `ops` stream; `POST /api/ops/{hand}` runs
+  reproject (one session or all), verify (store, JSONL, FTS via a new
+  `fts_count_for_session` on both backends, conformance helper 65),
+  catch_up (a peer, or the configured one), and prune (fleet sessions
+  only, never this host's), answers the same idempotency key from the
+  record without acting, records `ops.command.<hand>` on the bus, and
+  refuses with 503 naming the phase while not serving. The MCP's four
+  hands read the phase first, publish `ops.proposal.<hand>` through
+  `Subscribe::publish_proposal` (the NATS impl builds the subject from
+  the literal prefix the M-08 scan reads), then call the node. Two
+  earlier loop-log entries were re-timed from commits; entries now take
+  their time from the clock. Owner must decide: nothing new. Next:
+  group D (D-02 dora.py, D-04 deploy gate, D-06 tiles, D-03 wiring),
+  then K's offline rows (K-07 audit, K-02/K-05 manifest check, K-01
+  manifests).

@@ -996,6 +996,16 @@ impl EventStore for SqliteStore {
     async fn fts_count(&self) -> Result<u64> {
         self.fts_count_inner()
     }
+
+    async fn fts_count_for_session(&self, session_id: &str) -> Result<Option<u64>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let n: u64 = conn.query_row(
+            "SELECT COUNT(*) FROM events_fts WHERE session_id = ?1",
+            [session_id],
+            |r| r.get(0),
+        )?;
+        Ok(Some(n))
+    }
 }
 
 /// Helper for reading pattern rows from SQLite.

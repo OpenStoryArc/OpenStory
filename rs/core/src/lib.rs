@@ -12,6 +12,7 @@
 pub mod cloud_event;
 pub mod event_data;
 pub mod host;
+pub mod ops;
 pub mod output;
 pub mod paths;
 pub mod reader;

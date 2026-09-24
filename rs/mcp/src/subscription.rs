@@ -90,6 +90,13 @@ pub trait Subscribe: Clone + Send + Sync + 'static {
     async fn subscribe_ui(&self) -> Result<Subscription> {
         anyhow::bail!("this subscriber does not support ui.* streaming")
     }
+
+    /// M-06: leave a tier-1 proposal on the bus under `ops.proposal.<hand>`.
+    /// The only authored publish besides `ui.*` the MCP may make. Default:
+    /// unsupported, so test subscribers need not implement it.
+    async fn publish_proposal(&self, _hand: &str, _batch: &IngestBatch) -> Result<()> {
+        anyhow::bail!("this subscriber cannot publish proposals")
+    }
 }
 
 /// Pure transform: read `IngestBatch`es from a source channel, wrap each
@@ -118,4 +125,3 @@ pub async fn pump_subscription(
         }
     }
 }
-

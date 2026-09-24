@@ -815,6 +815,30 @@ pub async fn it_upserts_a_plan_idempotently(store: Arc<dyn EventStore>) {
 // Read path conformance
 // ───────────────────────────────────────────────────────────────────────
 
+/// M-06 verify: FTS documents are countable per session on every backend.
+pub async fn it_counts_fts_documents_for_a_session(store: Arc<dyn EventStore>) {
+    store
+        .index_fts("e1", "sess-fts", "message.user.prompt", "hello")
+        .await
+        .unwrap();
+    store
+        .index_fts("e2", "sess-fts", "message.assistant.text", "world")
+        .await
+        .unwrap();
+    store
+        .index_fts("e3", "sess-other", "message.user.prompt", "elsewhere")
+        .await
+        .unwrap();
+    assert_eq!(
+        store.fts_count_for_session("sess-fts").await.unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        store.fts_count_for_session("sess-none").await.unwrap(),
+        Some(0)
+    );
+}
+
 /// P-02: presence is its own table; one row per node, the latest beat wins.
 pub async fn it_upserts_presence_and_returns_the_latest_per_node(store: Arc<dyn EventStore>) {
     let row = |host: &str, principal: &str, time: &str, sha: &str| PresenceRow {
@@ -2144,6 +2168,7 @@ macro_rules! for_each_conformance_test {
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
         $macro!(it_upserts_presence_and_returns_the_latest_per_node);
+        $macro!(it_counts_fts_documents_for_a_session);
         // Reads
         $macro!(it_returns_session_events_ordered_by_timestamp);
         $macro!(it_round_trips_an_event_payload_losslessly);

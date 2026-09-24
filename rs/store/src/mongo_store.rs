@@ -1843,6 +1843,15 @@ impl EventStore for MongoStore {
     /// the `searchable_text` field where the text index lives. The
     /// `_id` is the event_id so re-indexing the same event overwrites
     /// (matches SQLite's contentless table behavior).
+    async fn fts_count_for_session(&self, session_id: &str) -> Result<Option<u64>> {
+        let coll: Collection<Document> = self.db.collection(COLL_FTS);
+        let n = coll
+            .count_documents(doc! { "session_id": session_id })
+            .await
+            .map_err(|e| anyhow!("mongo fts_count_for_session: {e}"))?;
+        Ok(Some(n))
+    }
+
     async fn index_fts(
         &self,
         event_id: &str,

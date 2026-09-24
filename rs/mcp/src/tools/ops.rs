@@ -177,6 +177,136 @@ pub async fn read_verdict(api_base: &str) -> Value {
     }
 }
 
+// ── Tier 1 (M-06, M-07) ─────────────────────────────────────────────────────
+
+fn tier_one_schema(required: &[&str], own: Value) -> Value {
+    let mut props = serde_json::Map::new();
+    if let Some(o) = own.as_object() {
+        props.extend(o.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    props.insert("evidence".into(), json!({"type": "array", "items": {"type": "string"}, "description": "Finding ids from node_health that justify this"}));
+    props.insert(
+        "idempotency_key".into(),
+        json!({"type": "string", "description": "Reuse to retry safely; generated when absent"}),
+    );
+    props.insert(
+        "author".into(),
+        json!({"type": "string", "description": "Who proposes (default mcp)"}),
+    );
+    json!({"type": "object", "properties": props, "required": required, "additionalProperties": false})
+}
+
+pub fn node_reproject_schema() -> Value {
+    tier_one_schema(
+        &[],
+        json!({"session_id": {"type": "string", "description": "One session to rebuild; all when absent"}}),
+    )
+}
+pub fn node_verify_schema() -> Value {
+    tier_one_schema(&["session_id"], json!({"session_id": {"type": "string"}}))
+}
+pub fn node_catch_up_schema() -> Value {
+    tier_one_schema(
+        &[],
+        json!({"peer": {"type": "string", "description": "Peer base URL; the node's configured peer when absent"}}),
+    )
+}
+pub fn node_prune_schema() -> Value {
+    tier_one_schema(
+        &["older_than_days"],
+        json!({"older_than_days": {"type": "integer", "minimum": 1}}),
+    )
+}
+
+/// A tier-1 hand: refuse up front unless the node is serving, leave the
+/// proposal on the bus, then call the node and return what it did.
+pub async fn tier_one<S: crate::subscription::Subscribe>(
+    server: &crate::server::Server<S>,
+    hand: &str,
+    mut args: Value,
+) -> Result<Value, String> {
+    let tool = format!("node_{hand}");
+    let base = require_api_base(&server.api_base, &tool)?;
+    let health = get_json(&format!("{base}/api/health"), &tool).await?;
+    let phase = health["boot"]["phase"].as_str().unwrap_or("unknown");
+    if phase != "serving" {
+        let r = &health["boot"]["replay"];
+        let progress = match (r["done"].as_u64(), r["total"].as_u64()) {
+            (Some(d), Some(t)) if t > 0 => format!(" ({d} of {t} sessions)"),
+            _ => String::new(),
+        };
+        return Err(format!(
+            "{tool}: node is {phase}{progress}; tier-1 hands wait for serving"
+        ));
+    }
+    let obj = args
+        .as_object_mut()
+        .ok_or_else(|| format!("{tool}: arguments must be an object"))?;
+    let key = match obj
+        .remove("idempotency_key")
+        .and_then(|v| v.as_str().map(str::to_string))
+    {
+        Some(k) if !k.is_empty() => k,
+        _ => uuid::Uuid::new_v4().to_string(),
+    };
+    let author = obj
+        .remove("author")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "mcp".to_string());
+    let evidence: Vec<String> = obj
+        .remove("evidence")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|s| s.as_str().map(str::to_string))
+        .collect();
+    let hand_args = Value::Object(obj.clone());
+
+    // Propose first: no proposal, no act.
+    let ce =
+        open_story_core::ops::proposal_event(hand, &author, &evidence, &key, hand_args.clone());
+    let batch = open_story_bus::IngestBatch {
+        session_id: open_story_core::ops::ops_session_id(hand),
+        project_id: open_story_core::ops::SOURCE.to_string(),
+        events: vec![ce],
+    };
+    server
+        .subscriber
+        .publish_proposal(hand, &batch)
+        .await
+        .map_err(|e| format!("{tool}: proposal not published, not acting: {e:#}"))?;
+
+    let mut body = hand_args;
+    body["idempotency_key"] = json!(key);
+    body["author"] = json!(author);
+    body["evidence"] = json!(evidence);
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/api/ops/{hand}"))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("{tool}: {e}"))?;
+    let status = resp.status();
+    let answer: Value = resp.json().await.map_err(|e| format!("{tool}: {e}"))?;
+    if !status.is_success() {
+        let msg = answer["error"].as_str().unwrap_or("no detail");
+        return Err(format!("{tool}: {status}: {msg}"));
+    }
+    Ok(json!({
+        "hand": hand,
+        "proposal": {
+            "subject": open_story_core::ops::proposal_subject(hand),
+            "idempotency_key": key,
+            "author": author,
+            "evidence": evidence,
+        },
+        "replayed": answer["replayed"],
+        "ok": answer["ok"],
+        "result": answer["result"],
+        "command_subject": answer["command_subject"],
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

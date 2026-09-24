@@ -359,6 +359,12 @@ pub trait EventStore: Send + Sync {
         Ok(())
     }
 
+    /// M-06 verify: FTS documents indexed for one session, or `None` when
+    /// the backend cannot say.
+    async fn fts_count_for_session(&self, _session_id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+
     /// Full-text search across indexed events.
     async fn search_fts(
         &self,

@@ -721,6 +721,18 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
     }))
 }
 
+/// `POST /api/ops/{hand}` — a tier-1 hand (M-06): reproject, verify,
+/// catch_up, prune. Body: the hand's arguments plus `idempotency_key`,
+/// `author`, `evidence`. 503 while the node is not serving (M-07).
+pub async fn ops_hand(
+    State(state): State<SharedState>,
+    axum::extract::Path(hand): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> (StatusCode, Json<Value>) {
+    let (status, body) = crate::ops::run_hand(&state, &hand, body).await;
+    (status, Json(body))
+}
+
 /// `GET /api/fleet/presence` — every node's latest beat with its age and
 /// whether it has gone stale (P-03). The local node is in here too, read
 /// through the same table as everyone else.
