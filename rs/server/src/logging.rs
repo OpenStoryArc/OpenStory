@@ -273,6 +273,15 @@ where
     );
     obj.insert("level".into(), serde_json::json!(meta.level().as_str()));
     obj.insert("target".into(), serde_json::json!(meta.target()));
+    // D-01: the build that wrote the line, the same stamps /api/health carries.
+    obj.insert(
+        "git_sha".into(),
+        serde_json::json!(crate::node_health::git_sha()),
+    );
+    obj.insert(
+        "built_at".into(),
+        serde_json::json!(crate::node_health::built_at()),
+    );
     if let Some(scope) = scope {
         for span in scope.from_root() {
             if let Some(sf) = span.extensions().get::<JsonFields>() {
