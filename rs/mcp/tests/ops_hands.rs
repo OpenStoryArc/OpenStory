@@ -491,3 +491,224 @@ mod when_mcp_publishes {
         );
     }
 }
+
+/// M-06 / M-07 (MCP half): a tier-1 hand publishes `ops.proposal.<hand>`
+/// with author, evidence, and an idempotency key, then calls the node's
+/// endpoint; it refuses up front while the node is not serving.
+mod when_node_reproject_is_called {
+    use super::*;
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use axum::extract::{Path as AxPath, State};
+    use axum::routing::post;
+    use open_story_bus::IngestBatch;
+    use open_story_mcp::subscription::{Subscribe, Subscription};
+    use std::sync::{Arc, Mutex};
+
+    /// The loopback plus a record of every proposal the MCP publishes.
+    #[derive(Clone, Default)]
+    struct Proposing {
+        inner: common::LoopbackSubscriber,
+        proposals: Arc<Mutex<Vec<(String, IngestBatch)>>>,
+    }
+    impl Proposing {
+        fn proposals(&self) -> Vec<(String, IngestBatch)> {
+            self.proposals.lock().unwrap().clone()
+        }
+    }
+    #[async_trait]
+    impl Subscribe for Proposing {
+        async fn subscribe(&self, session_id: &str) -> Result<Subscription> {
+            self.inner.subscribe(session_id).await
+        }
+        async fn publish_proposal(&self, hand: &str, batch: &IngestBatch) -> Result<()> {
+            self.proposals
+                .lock()
+                .unwrap()
+                .push((format!("ops.proposal.{hand}"), batch.clone()));
+            Ok(())
+        }
+    }
+
+    /// What the mock endpoint saw: the body, and whether the proposal was
+    /// already on the bus when the call arrived.
+    #[derive(Clone)]
+    struct Seen {
+        calls: Arc<Mutex<Vec<(String, Value, usize)>>>,
+        subscriber: Proposing,
+    }
+
+    fn router(seen: Seen, phase: &'static str) -> Router {
+        let mut health = health_body();
+        health["boot"]["phase"] = json!(phase);
+        health["boot"]["replay"] = json!({"done": 2, "total": 9, "elapsed_ms": 5});
+        Router::new()
+            .route(
+                "/api/health",
+                get(move || {
+                    let health = health.clone();
+                    async move { Json(health) }
+                }),
+            )
+            .route(
+                "/api/ops/{hand}",
+                post(
+                    |State(seen): State<Seen>,
+                     AxPath(hand): AxPath<String>,
+                     Json(body): Json<Value>| async move {
+                        let proposals_now = seen.subscriber.proposals().len();
+                        seen.calls.lock().unwrap().push((
+                            hand.clone(),
+                            body.clone(),
+                            proposals_now,
+                        ));
+                        Json(json!({
+                            "hand": hand,
+                            "idempotency_key": body["idempotency_key"],
+                            "replayed": false,
+                            "result": {"sessions_reprojected": 1, "events_applied": 7},
+                            "command_subject": format!("ops.command.{}", hand),
+                        }))
+                    },
+                ),
+            )
+            .with_state(seen)
+    }
+
+    async fn server_with(
+        phase: &'static str,
+    ) -> (
+        open_story_mcp::server::Server<Proposing>,
+        Seen,
+        tempfile::TempDir,
+    ) {
+        let subscriber = Proposing::default();
+        let seen = Seen {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            subscriber: subscriber.clone(),
+        };
+        let base = spawn_mock(router(seen.clone(), phase)).await;
+        let (store, plan_store, dir) = common::make_test_store();
+        let server =
+            open_story_mcp::server::Server::new(subscriber, store, plan_store).with_api_base(base);
+        (server, seen, dir)
+    }
+
+    #[tokio::test]
+    async fn it_publishes_proposal_then_command() {
+        let (server, seen, _dir) = server_with("serving").await;
+        let resp = call_tool(
+            server,
+            "node_reproject",
+            json!({"session_id": "s-1", "evidence": ["projections_stale"]}),
+        )
+        .await;
+        let v = unwrap_tool_result(&resp).expect("node_reproject succeeds");
+        assert_eq!(v["proposal"]["subject"], "ops.proposal.reproject", "{v}");
+        let key = v["proposal"]["idempotency_key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(!key.is_empty());
+        assert_eq!(v["result"]["sessions_reprojected"], 1);
+        assert_eq!(v["command_subject"], "ops.command.reproject");
+
+        let proposals = seen.subscriber.proposals();
+        assert_eq!(proposals.len(), 1, "{proposals:?}");
+        let (subject, batch) = &proposals[0];
+        assert_eq!(subject, "ops.proposal.reproject");
+        let ce = &batch.events[0];
+        assert_eq!(ce.subtype.as_deref(), Some("ops.proposal.reproject"));
+        assert_eq!(ce.data.raw["author"], "mcp");
+        assert_eq!(ce.data.raw["evidence"], json!(["projections_stale"]));
+        assert_eq!(ce.data.raw["idempotency_key"], key);
+        assert_eq!(ce.data.raw["args"]["session_id"], "s-1");
+
+        let calls = seen.calls.lock().unwrap().clone();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        let (hand, body, proposals_when_called) = &calls[0];
+        assert_eq!(hand, "reproject");
+        assert_eq!(
+            proposals_when_called, &1,
+            "the proposal was on the bus before the act"
+        );
+        assert_eq!(
+            body["idempotency_key"], key,
+            "the same key reaches the node"
+        );
+        assert_eq!(body["session_id"], "s-1");
+        assert_eq!(body["author"], "mcp");
+        assert_eq!(body["evidence"], json!(["projections_stale"]));
+    }
+
+    #[tokio::test]
+    async fn it_keeps_a_given_key() {
+        let (server, seen, _dir) = server_with("serving").await;
+        let resp = call_tool(
+            server,
+            "node_prune",
+            json!({"older_than_days": 30, "idempotency_key": "mine-1"}),
+        )
+        .await;
+        let v = unwrap_tool_result(&resp).expect("node_prune succeeds");
+        assert_eq!(v["proposal"]["idempotency_key"], "mine-1", "{v}");
+        let calls = seen.calls.lock().unwrap().clone();
+        assert_eq!(calls[0].0, "prune");
+        assert_eq!(calls[0].1["older_than_days"], 30);
+    }
+
+    #[tokio::test]
+    async fn every_tier_one_hand_is_registered_under_propose() {
+        for hand in [
+            "node_reproject",
+            "node_verify",
+            "node_catch_up",
+            "node_prune",
+        ] {
+            let def = open_story_mcp::tools::TOOLS
+                .iter()
+                .find(|t| t.name == hand)
+                .unwrap_or_else(|| panic!("{hand} registered"));
+            assert!(
+                def.description.contains("MOTION: propose"),
+                "{hand}: {}",
+                def.description
+            );
+            assert!(
+                def.description.contains("ops.proposal"),
+                "{hand} says it proposes first"
+            );
+        }
+    }
+
+    mod when_replaying {
+        use super::*;
+
+        #[tokio::test]
+        async fn tier_one_hands_refuse() {
+            for (hand, args) in [
+                ("node_reproject", json!({"session_id": "s"})),
+                ("node_verify", json!({"session_id": "s"})),
+                ("node_catch_up", json!({})),
+                ("node_prune", json!({"older_than_days": 30})),
+            ] {
+                let (server, seen, _dir) = server_with("replaying").await;
+                let resp = call_tool(server, hand, args).await;
+                let err = unwrap_tool_result(&resp).expect_err("refused while replaying");
+                assert!(
+                    err.contains("replaying") && err.contains("serving"),
+                    "{hand}: {err}"
+                );
+                assert!(err.contains("2 of 9"), "names the progress: {err}");
+                assert!(
+                    seen.subscriber.proposals().is_empty(),
+                    "{hand}: no proposal for a refused act"
+                );
+                assert!(
+                    seen.calls.lock().unwrap().is_empty(),
+                    "{hand}: the node was not called"
+                );
+            }
+        }
+    }
+}

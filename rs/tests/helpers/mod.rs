@@ -15,6 +15,8 @@ pub mod k8s;
 #[allow(dead_code)]
 pub mod openclaw;
 #[allow(dead_code)]
+pub mod recording_bus;
+#[allow(dead_code)]
 pub mod synth;
 
 use std::collections::HashMap;
