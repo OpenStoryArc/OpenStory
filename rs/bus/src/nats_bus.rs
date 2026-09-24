@@ -49,6 +49,8 @@ pub enum FederationPeers {
 pub struct NatsBus {
     /// The events cap in bytes (K-08), from OPEN_STORY_EVENTS_MAX_BYTES.
     events_cap: i64,
+    /// Bytes one publish may carry, from the server's advertised max_payload.
+    publish_budget: usize,
     /// JetStream context for *this node's own NATS*. In solo mode this is a
     /// vanilla context (`$JS.API.>`); in federation mode it's pinned to the
     /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
@@ -130,6 +132,8 @@ impl NatsBus {
             Some(d) => jetstream::with_domain(client.clone(), d),
         };
 
+        // The server says how much one publish may carry; the split follows it.
+        let budget = publish_budget(client.server_info().max_payload);
         Ok(Self {
             jetstream,
             local_domain,
@@ -139,6 +143,7 @@ impl NatsBus {
             events_cap: events_cap_from(
                 std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
             ),
+            publish_budget: budget,
         })
     }
 
@@ -442,6 +447,17 @@ const MIRRORED_STREAMS: [&str; 2] = ["events", "presence"];
 /// headers and the subject. Larger batches are split (see `split_batch`).
 pub const PUBLISH_MAX_BYTES: usize = 4 * 1024 * 1024;
 
+/// The bytes one publish may carry on a server whose max_payload is
+/// `server_max`: nine tenths of it, for headers and the subject, capped at
+/// `PUBLISH_MAX_BYTES`; the cap when the limit is unknown. A managed
+/// standalone nats-server runs the 1 MiB default. Pure.
+pub fn publish_budget(server_max: usize) -> usize {
+    if server_max == 0 {
+        return PUBLISH_MAX_BYTES;
+    }
+    (server_max * 9 / 10).min(PUBLISH_MAX_BYTES)
+}
+
 impl NatsBus {
     async fn publish_one(&self, subject: &str, payload: Vec<u8>) -> Result<()> {
         self.jetstream
@@ -503,8 +519,8 @@ impl Bus for NatsBus {
         // max_payload). A batch over the budget is split in order and
         // published piece by piece, so a hundred-event Grok batch of 1 MB
         // lines no longer fails whole.
-        if payload.len() > PUBLISH_MAX_BYTES && batch.events.len() > 1 {
-            for piece in crate::split::split_batch(batch.clone(), PUBLISH_MAX_BYTES) {
+        if payload.len() > self.publish_budget && batch.events.len() > 1 {
+            for piece in crate::split::split_batch(batch.clone(), self.publish_budget) {
                 let bytes =
                     serde_json::to_vec(&piece).context("failed to serialize IngestBatch")?;
                 self.publish_one(subject, bytes).await?;
@@ -1655,8 +1671,20 @@ mod publish_budget_tests {
 
     #[test]
     fn the_budget_is_nine_tenths_of_the_server_limit_capped_at_four_mib() {
-        assert_eq!(publish_budget(1_048_576), 943_718, "a default server: under 1 MiB");
-        assert_eq!(publish_budget(8_388_608), PUBLISH_MAX_BYTES, "an 8 MB server: the 4 MiB cap");
-        assert_eq!(publish_budget(0), PUBLISH_MAX_BYTES, "an unknown limit reads as the cap");
+        assert_eq!(
+            publish_budget(1_048_576),
+            943_718,
+            "a default server: under 1 MiB"
+        );
+        assert_eq!(
+            publish_budget(8_388_608),
+            PUBLISH_MAX_BYTES,
+            "an 8 MB server: the 4 MiB cap"
+        );
+        assert_eq!(
+            publish_budget(0),
+            PUBLISH_MAX_BYTES,
+            "an unknown limit reads as the cap"
+        );
     }
 }
