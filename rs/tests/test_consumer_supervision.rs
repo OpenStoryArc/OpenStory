@@ -119,7 +119,11 @@ mod when_a_consumer_dies {
     #[tokio::test]
     async fn it_is_restarted_with_backoff() {
         let cap = Capture::default();
-        let _guard = tracing::subscriber::set_default(build_subscriber(LogFormat::Json, "info", cap.clone()));
+        let _guard = tracing::subscriber::set_default(build_subscriber(
+            LogFormat::Json,
+            "info",
+            cap.clone(),
+        ));
         let starts = Arc::new(AtomicU32::new(0));
         let slept = Arc::new(Mutex::new(Vec::<Duration>::new()));
         let (starts_in, slept_in) = (starts.clone(), slept.clone());
@@ -151,18 +155,34 @@ mod when_a_consumer_dies {
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert_eq!(starts.load(Ordering::SeqCst), 4, "fourth run is alive and pending");
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            4,
+            "fourth run is alive and pending"
+        );
         assert_eq!(
             *slept.lock().unwrap(),
-            vec![Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)],
+            vec![
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+                Duration::from_secs(4)
+            ],
             "backoff 1 s, 2 s, 4 s before each restart"
         );
 
         let lines = cap.json_lines();
-        let restarts: Vec<&serde_json::Value> =
-            lines.iter().filter(|l| l["event"] == "consumer_restarted").collect();
+        let restarts: Vec<&serde_json::Value> = lines
+            .iter()
+            .filter(|l| l["event"] == "consumer_restarted")
+            .collect();
         assert_eq!(restarts.len(), 3, "{lines:?}");
-        assert_eq!(restarts.iter().map(|l| l["attempt"].as_u64().unwrap()).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(
+            restarts
+                .iter()
+                .map(|l| l["attempt"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
         assert_eq!(restarts[0]["actor"], "patterns");
         assert_eq!(restarts[0]["backoff_ms"], 1000);
         assert_eq!(restarts[2]["backoff_ms"], 4000);
@@ -170,11 +190,16 @@ mod when_a_consumer_dies {
         assert_eq!(restarts[0]["level"], "WARN");
 
         let health = stats().snapshot();
-        let patterns = health.get("patterns").expect("stats for the supervised actor");
+        let patterns = health
+            .get("patterns")
+            .expect("stats for the supervised actor");
         assert_eq!(patterns.restarts, 3);
         assert!(patterns.alive, "the fourth run is up");
         assert!(patterns.last_restart.is_some());
-        assert_eq!(patterns.last_exit.as_deref(), Some("subscription closed after 3 batches"));
+        assert_eq!(
+            patterns.last_exit.as_deref(),
+            Some("subscription closed after 3 batches")
+        );
 
         task.abort();
     }

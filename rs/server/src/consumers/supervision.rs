@@ -15,6 +15,8 @@ use tokio::sync::mpsc;
 pub enum ConsumerExit {
     /// The bus subscription's channel closed; `batches` were handled first.
     SubscriptionClosed { batches: u64 },
+    /// The bus refused the subscription.
+    SubscribeFailed { error: String },
 }
 
 impl std::fmt::Display for ConsumerExit {
@@ -23,6 +25,7 @@ impl std::fmt::Display for ConsumerExit {
             ConsumerExit::SubscriptionClosed { batches } => {
                 write!(f, "subscription closed after {batches} batches")
             }
+            ConsumerExit::SubscribeFailed { error } => write!(f, "subscribe failed: {error}"),
         }
     }
 }
@@ -83,6 +86,101 @@ impl Driven {
             })
         } else {
             Ok(())
+        }
+    }
+}
+
+// ── Supervisor (E-03) ───────────────────────────────────────────────────────
+
+/// Exponential backoff before restart attempt `attempt` (1-based):
+/// 1 s, 2 s, 4 s, … capped at 30 s.
+pub fn backoff(attempt: u32) -> std::time::Duration {
+    let secs = 1u64 << attempt.saturating_sub(1).min(5);
+    std::time::Duration::from_secs(secs.min(30))
+}
+
+/// What health reports per supervised consumer (E-04, H-05).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ConsumerHealth {
+    pub alive: bool,
+    pub restarts: u32,
+    pub last_restart: Option<String>,
+    pub last_exit: Option<String>,
+}
+
+/// Process-wide restart bookkeeping, read by `/api/health`.
+#[derive(Default)]
+pub struct SupervisorStats {
+    inner: std::sync::Mutex<std::collections::HashMap<&'static str, ConsumerHealth>>,
+}
+
+impl SupervisorStats {
+    fn update(&self, actor: &'static str, f: impl FnOnce(&mut ConsumerHealth)) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        f(g.entry(actor).or_default());
+    }
+
+    pub fn snapshot(&self) -> std::collections::HashMap<&'static str, ConsumerHealth> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+pub fn stats() -> &'static SupervisorStats {
+    static STATS: std::sync::OnceLock<SupervisorStats> = std::sync::OnceLock::new();
+    STATS.get_or_init(SupervisorStats::default)
+}
+
+/// A boxed run of one consumer attempt.
+pub type ConsumerRun =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), ConsumerExit>> + Send>>;
+
+/// Own a consumer: run `start` and, whenever the run returns an error,
+/// log `event=consumer_restarted` at WARN with the attempt, the backoff,
+/// and the reason, wait (via `sleep`, injectable for tests), and run it
+/// again. A run that returns `Ok(())` ended on purpose and is not
+/// restarted. Restart counts and timestamps land in `stats()`.
+pub async fn supervise<F, S, SF>(actor: &'static str, mut start: F, sleep: S)
+where
+    F: FnMut() -> ConsumerRun + Send,
+    S: Fn(std::time::Duration) -> SF + Send,
+    SF: std::future::Future<Output = ()> + Send,
+{
+    let mut attempt: u32 = 0;
+    loop {
+        stats().update(actor, |h| h.alive = true);
+        let result = start().await;
+        stats().update(actor, |h| h.alive = false);
+        match result {
+            Ok(()) => {
+                tracing::info!(
+                    event = "consumer_finished",
+                    actor,
+                    "consumer {actor} finished"
+                );
+                return;
+            }
+            Err(exit) => {
+                attempt += 1;
+                let delay = backoff(attempt);
+                let reason = exit.to_string();
+                tracing::warn!(
+                    event = "consumer_restarted",
+                    actor,
+                    attempt,
+                    backoff_ms = delay.as_millis() as u64,
+                    reason = %reason,
+                    "consumer {actor} died ({reason}); restart {attempt} in {}s",
+                    delay.as_secs()
+                );
+                stats().update(actor, |h| {
+                    h.restarts = attempt;
+                    h.last_restart = Some(chrono::Utc::now().to_rfc3339());
+                    h.last_exit = Some(reason.clone());
+                });
+                metrics::counter!("openstory_consumer_restarts_total", "actor" => actor)
+                    .increment(1);
+                sleep(delay).await;
+            }
         }
     }
 }
