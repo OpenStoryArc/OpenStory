@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (L-07 green).
+Last updated: 2026-09-23 (L group complete).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -22,7 +22,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | Group | Requirements | GREEN | Notes |
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
-| L · logging | L-01 … L-08 | 7 / 8 | `tracing`, JSON lines, log ring |
+| L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
 | E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
@@ -69,7 +69,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | L-05 | GREEN. The managed NATS child's stdout and stderr are captured to `<store_dir>/nats.log` (rotated at 50 MB), never `Stdio::null()`. | `rs/cli/src/managed_nats.rs::tests::when_child_writes_stderr::it_lands_in_nats_log` |
 | L-06 | GREEN. An in-process log ring keeps the last 5,000 lines (bounded by bytes, 8 MB) and is served at `GET /api/logs?since=<seq>&actor=&level=&limit=`. | `rs/tests/test_logs_api.rs::when_logs_are_requested_since_seq::it_returns_only_newer_lines` |
 | L-07 | GREEN. Boot replay logs progress every 5 s and every 10 % (`event=replay_progress`, sessions done / total, elapsed) and a final `replay_done`. | `…::when_replay_runs::it_logs_progress_and_done` |
-| L-08 | `scripts/scratch_node.sh` boots an isolated instance (port, data dir, managed loopback NATS on a scratch port, `log_format=json`) and prints its log path; `--stop` tears it down. | script `--test` on a dry run; used by every live test below |
+| L-08 | GREEN. `scripts/scratch_node.sh` boots an isolated instance (port, data dir, managed loopback NATS on a scratch port, `log_format=json`) and prints its log path; `--stop` tears it down. | script `--test` on a dry run; used by every live test below |
 
 ## E · Errors and supervision
 
@@ -211,3 +211,12 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   hint). The loop's commit gate keyed on grep's exit code instead of
   cargo's; fixed in the next commit by serialising subscriber-installing
   tests and gating on the test exit code.
+- **2026-09-23 23:40 local.** L-08 GREEN, group L complete (8/8).
+  `scripts/scratch_node.sh` refuses the live ports, renders a JSON-logging
+  loopback config whose watchers point at empty folders inside the scratch
+  data dir (a first run with empty strings fell back to the real
+  `~/.claude/projects` and ingested 22 real sessions; fixed and now asserted
+  by a check), boots with `--manage-nats`, waits for `/health`, prints one
+  JSON line, and `--stop` tears it down. Smoke: booted on :3106/:4322 with
+  the pre-loop release binary, health ok, 0 sessions, stopped clean. Next:
+  group E, starting with E-01 (`scripts/swallowed_errors.py`).
