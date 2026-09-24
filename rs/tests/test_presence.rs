@@ -255,6 +255,59 @@ mod when_presence_arrives {
         let jsonl = tmp.path().join(format!("{session}.jsonl"));
         assert!(!jsonl.exists(), "presence never reaches the JSONL backup");
     }
+
+    /// D-02: every beat also lands as one compact line in the data
+    /// directory's presence log, the history DORA reads (the table keeps
+    /// only the latest beat per node).
+    #[tokio::test]
+    async fn it_also_appends_to_the_presence_log() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut actors = TestActors::new(&tmp).await;
+        let beat = |sha: &str, level: &str| {
+            presence::presence_event(
+                "node-a",
+                Some("person-1"),
+                "this-node",
+                serde_json::json!({
+                    "status": "ok",
+                    "git_sha": sha,
+                    "built_at": "2026-09-24T00:00:00Z",
+                    "verdict": {"level": level, "findings": [{"id": "leaf_down", "level": level, "text": "x"}]},
+                }),
+            )
+        };
+        let first = beat("aaa111", "critical");
+        let first_time = first.data.raw.get("time").cloned();
+        let _ = first_time;
+        let t1 = first.time.clone();
+        actors
+            .persist
+            .process_batch("presence:node-a", &[first], Some(presence::SOURCE))
+            .await;
+        actors
+            .persist
+            .process_batch("presence:node-a", &[beat("bbb222", "ok")], Some(presence::SOURCE))
+            .await;
+
+        let data_dir = actors.state.read().await.store.data_dir.clone();
+        let log = data_dir.join("presence.jsonl");
+        let text = std::fs::read_to_string(&log).expect("presence.jsonl exists");
+        let lines: Vec<serde_json::Value> = text
+            .lines()
+            .map(|l| serde_json::from_str(l).expect("one JSON object per line"))
+            .collect();
+        assert_eq!(lines.len(), 2, "{text}");
+        assert_eq!(lines[0]["host"], "node-a");
+        assert_eq!(lines[0]["principal_id"], "this-node");
+        assert_eq!(lines[0]["git_sha"], "aaa111");
+        assert_eq!(lines[0]["built_at"], "2026-09-24T00:00:00Z");
+        assert_eq!(lines[0]["level"], "critical");
+        assert_eq!(lines[0]["findings"], serde_json::json!(["leaf_down"]));
+        assert_eq!(lines[0]["time"], t1, "the beat's own time");
+        assert_eq!(lines[1]["git_sha"], "bbb222");
+        assert_eq!(lines[1]["level"], "ok");
+        assert!(lines[0].get("streams").is_none(), "compact: not the whole body");
+    }
 }
 
 mod when_a_node_stops_reporting {
