@@ -57,6 +57,9 @@ impl Driven {
         match self.rx.recv().await {
             Some(batch) => {
                 self.batches += 1;
+                // H-05: what is still queued behind this batch.
+                let lag = self.rx.len() as u64;
+                stats().update(self.actor, |h| h.lag = lag);
                 Some(batch)
             }
             None => {
@@ -106,6 +109,8 @@ pub struct ConsumerHealth {
     pub restarts: u32,
     pub last_restart: Option<String>,
     pub last_exit: Option<String>,
+    /// Batches waiting in the consumer's channel at its last receive (H-05).
+    pub lag: u64,
 }
 
 /// Process-wide restart bookkeeping, read by `/api/health`.
