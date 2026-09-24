@@ -157,7 +157,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 ## Loop log
 
-- **2026-09-23 22:10 local.** L-01 GREEN (`tracing` + `tracing-subscriber` in
+- **2026-09-23 22:01 local.** L-01 GREEN (`tracing` + `tracing-subscriber` in
   `rs/server`; `LogFormat`, `build_subscriber`, `init`; `log_format` config
   field and `OPEN_STORY_LOG_FORMAT`; boot wires it in `rs/cli`). Along the
   way: the current stable toolchain (1.96) flags lints in the server and CLI
@@ -169,7 +169,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `tailscale up --force-reauth` from the Hetzner console plus disabling key
   expiry for that node. The probe should learn to flag peer key expiry
   (candidate H-06 addition). Next: L-02.
-- **2026-09-23 22:20 local.** L-02 GREEN. A `SpanFields` layer keeps each
+- **2026-09-23 22:14 local.** L-02 GREEN. A `SpanFields` layer keeps each
   span's fields in its extensions; the JSON line merges them root to leaf
   under the record's own fields, and stamps `event=unnamed` when a record has
   no event name. The four consumer tasks in `rs/src/server/mod.rs` now run
@@ -179,27 +179,27 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   carry toolchain-drift lints (`test_pi_mono_container.rs`,
   `test_compose_perf.rs`); the loop lints that crate's lib target and leaves
   those binaries for a dedicated cleanup, tracked under G-06 review.
-- **2026-09-23 22:30 local.** L-03 GREEN. `PersistConsumer::process_batch`
+- **2026-09-23 22:17 local.** L-03 GREEN. `PersistConsumer::process_batch`
   emits `event=batch_persisted` with `session_id`, `persisted`, `skipped`,
   `project_id`; the orchestration loop's duplicate print is gone. The
   `subject` half is re-scoped to E-05 because `IngestBatch` carries no
   subject. Next: L-04 (replace `log_event` with tracing across the server).
-- **2026-09-23 22:40 local.** L-04 GREEN. `log_event` is a tracing shim;
+- **2026-09-23 22:22 local.** L-04 GREEN. `log_event` is a tracing shim;
   `TextLine` prints the familiar terminal line from the actor span, the
   category field, or the target, hides the `event` name, prefixes WARN and
   ERROR, and appends fields as key=value. JSON sees `category` and
   `message` from every legacy site. Next: L-05 (managed NATS child output
   to a rotated file).
-- **2026-09-23 22:50 local.** L-05 GREEN. `spawn_logged` sends the managed
+- **2026-09-23 22:25 local.** L-05 GREEN. `spawn_logged` sends the managed
   NATS child's stdout and stderr to `<store_dir>/nats.log`; `open_child_log`
   rotates it to `nats.log.1` past 50 MB. Tonight's "did not become reachable
   within 15s" would have shown "could not parse address string" in that
   file. Next: L-06 (log ring + `GET /api/logs`).
-- **2026-09-23 23:05 local.** L-06 GREEN. `LogRing` (5,000 lines, 8 MB,
+- **2026-09-23 22:29 local.** L-06 GREEN. `LogRing` (5,000 lines, 8 MB,
   seqs from 1) fed by a `RingLayer` in both subscribers; `GET /api/logs`
   with since, actor, level, limit, and a `next` cursor. Both formatters and
   the ring share one `json_object` builder. Next: L-07 (replay progress).
-- **2026-09-23 23:20 local.** L-07 GREEN. `ReplayProgress` (pure, injected
+- **2026-09-23 22:33 local.** L-07 GREEN. `ReplayProgress` (pure, injected
   clock) reports on every 10 % and every 5 s; `replay_boot_sessions` emits
   `replay_progress` and `replay_done` with counts and elapsed_ms; the
   orchestration crate's duplicate completion print is gone. Tonight's
@@ -211,7 +211,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   hint). The loop's commit gate keyed on grep's exit code instead of
   cargo's; fixed in the next commit by serialising subscriber-installing
   tests and gating on the test exit code.
-- **2026-09-23 23:40 local.** L-08 GREEN, group L complete (8/8).
+- **2026-09-23 22:37 local.** L-08 GREEN, group L complete (8/8).
   `scripts/scratch_node.sh` refuses the live ports, renders a JSON-logging
   loopback config whose watchers point at empty folders inside the scratch
   data dir (a first run with empty strings fell back to the real
@@ -220,7 +220,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   JSON line, and `--stop` tears it down. Smoke: booted on :3106/:4322 with
   the pre-loop release binary, health ok, 0 sessions, stopped clean. Next:
   group E, starting with E-01 (`scripts/swallowed_errors.py`).
-- **2026-09-23 23:55 local.** E-01 GREEN. `scripts/swallowed_errors.py`
+- **2026-09-23 22:42 local.** E-01 GREEN. `scripts/swallowed_errors.py`
   (8 self-test assertions) found 27 swallowed writes across the server
   crate, the orchestration loop, and the MCP's stdio; the gate is scoped to
   `rs/server/src` and `rs/src/server`, where nine real writes now log
@@ -228,7 +228,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `openstory_op_failures_total{op}`; four broadcast sends are marked
   audit-ok (no subscribers is not a failure). `just test` runs the gate.
   Next: E-02.
-- **2026-09-24 00:15 local.** E-02 GREEN. `consumers::supervision::Driven`
+- **2026-09-23 22:48 local.** E-02 GREEN. `consumers::supervision::Driven`
   wraps a subscription receiver: `next()` hands out batches and logs
   `event=consumer_ended` at ERROR once when the channel closes;
   `finish()` returns `ConsumerExit::SubscriptionClosed{batches}`. All four
@@ -236,7 +236,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   async-closure driver could not prove `Send` for the spawned tasks on
   stable; inverting control (driver hands out batches, loop stays a loop)
   kept the bodies untouched. Next: E-03 (supervisor with backoff).
-- **2026-09-24 00:40 local.** E-03 GREEN. `supervise(actor, factory, sleep)`
+- **2026-09-23 22:54 local.** E-03 GREEN. `supervise(actor, factory, sleep)`
   reruns a consumer's factory on every error with `backoff(attempt)` (1, 2,
   4 … 30 s), logs `consumer_restarted` at WARN with attempt, backoff_ms,
   and reason, ticks `openstory_consumer_restarts_total{actor}`, and keeps
@@ -244,11 +244,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   H-05. All four consumers are supervised; the factory clones Arcs per run
   and recreates the JSONL SessionStore. A subscribe failure is now a
   `SubscribeFailed` exit (restarted) instead of a print. Next: E-04.
-- **2026-09-24 00:50 local.** E-04 GREEN. `/api/health` carries
+- **2026-09-23 22:55 local.** E-04 GREEN. `/api/health` carries
   `consumers: {actor: {alive, restarts, last_restart, last_exit}}` from the
   supervisor's stats. Next: E-05 (watcher publish failures logged with
   subject and error, and the fifteen Grok failures root-caused).
-- **2026-09-24 01:20 local.** E-05 GREEN. `logging::publish_failed` logs
+- **2026-09-23 23:03 local.** E-05 GREEN. `logging::publish_failed` logs
   actor, subject, session, batch size, and the whole error chain (`{e:#}`;
   the old print showed only "failed to publish to <subject>"); all three
   watcher publish sites use it; `/api/health` carries `publish_failures`.
@@ -259,7 +259,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   verified against a live NATS from this branch (the live node runs the
   pre-loop binary); the split is unit-tested and the publish path compiles.
   Next: E-06.
-- **2026-09-24 01:45 local.** E-06 GREEN. `AgentPayload::Unknown(Value)`
+- **2026-09-23 23:11 local.** E-06 GREEN. `AgentPayload::Unknown(Value)`
   (an `untagged` last arm) tolerates any agent tag with the raw object
   kept whole and round-tripping byte for byte; `agent()` reads
   `meta.agent`, else `_variant`, else "unknown"; ten accessors read the
@@ -267,26 +267,26 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   counts rejections by reason; the reader counts `invalid_json` per file
   and logs `translate_rejected` once per file. Schemas regenerated. Next:
   E-07 (managed NATS child death noticed within 5 s).
-- **2026-09-24 02:05 local.** E-07 GREEN, group E complete (7/7).
+- **2026-09-23 23:15 local.** E-07 GREEN, group E complete (7/7).
   `NatsGuard::watch` polls the managed child every 500 ms on a thread that
   inherits the tracing dispatcher; an exit logs `nats_child_exited` at
   ERROR with the code, flips `alive()`, and lowers
   `open_story_bus::health::nats_child_alive`, which `/api/health` folds
   into `bus.connected`. Intentional stops (drop) are not errors. Next:
   group H, starting with H-01 (`NatsBus::is_active` truthful).
-- **2026-09-24 02:20 local.** H-01 GREEN. `NatsBus::is_active` returns the
+- **2026-09-23 23:20 local.** H-01 GREEN. `NatsBus::is_active` returns the
   client's `connection_state() == Connected`; a throwaway nats-server on a
   scratch port proves the flip within a second of the server dying. The
   test skips (with a message) where `nats-server` is not on PATH. Next:
   H-02 (boot phase and replay progress on `/api/health`).
-- **2026-09-24 02:40 local.** H-02 and H-03 GREEN together. `server::boot`
+- **2026-09-23 23:23 local.** H-02 and H-03 GREEN together. `server::boot`
   keeps a process-wide phase (starting, replaying, serving; default
   serving) with replay done / total / elapsed_ms; the orchestration crate
   sets starting before spawning replay, `replay_boot_sessions` sets
   replaying on each progress report and serving at the end; `/api/health`
   carries `boot` and answers 503 until serving while `/health` stays 200.
   Next: H-04 (per-stream bytes against caps from JetStream).
-- **2026-09-24 03:00 local.** H-04 GREEN. `Bus::stream_stats()` (default
+- **2026-09-23 23:26 local.** H-04 GREEN. `Bus::stream_stats()` (default
   empty; `NatsBus` reads `get_stream(name).info()` for events, local,
   patterns, ui, changes, and the federation streams when present) returns
   `StreamStats {name, bytes, messages, max_bytes, percent}`; `/api/health`
@@ -294,11 +294,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   batch: events at 1 message under the 1 GiB cap with a percent, ui
   uncapped with none. Next: H-05 (per-consumer lag alongside alive and
   restarts).
-- **2026-09-24 03:15 local.** H-05 GREEN. `Driven::next` records the
+- **2026-09-23 23:30 local.** H-05 GREEN. `Driven::next` records the
   channel's remaining length as `lag` on the consumer's health entry, next
   to alive, restarts, last_restart, last_exit. Next: H-06 (leaf and
   watcher fields on health).
-- **2026-09-24 03:35 local.** H-06 GREEN. `server::node_health` (pure,
+- **2026-09-23 23:34 local.** H-06 GREEN. `server::node_health` (pure,
   unit-tested): `redact_hub`, `monitor_url` (the NATS host on 8222),
   `leaf_connected` from `/leafz`, `leaf_report`, `watcher_detail` with
   age_secs and publish_failures. The handler asks the local monitor for
@@ -306,7 +306,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   means connected false with `monitor: "unreachable"`. `watchers` stays a
   count; `watchers_detail` is the list. Next: H-07 (version, git sha,
   built_at, store size, RSS, uptime).
-- **2026-09-24 03:50 local.** H-07 GREEN. `rs/server/build.rs` stamps
+- **2026-09-23 23:38 local.** H-07 GREEN. `rs/server/build.rs` stamps
   `OPEN_STORY_GIT_SHA` (short sha, "unknown" outside a repo) and
   `OPEN_STORY_BUILT_AT` (RFC 3339 UTC, computed without chrono);
   `node_health` adds `git_sha`, `built_at`, `uptime_secs` (from
@@ -314,7 +314,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   `process_rss_bytes` (`ps -o rss=`), all on `/api/health` with `pid` and
   `data_dir`. D-01 is covered by this row plus L-02 once the sha rides on
   log lines (a follow-up in D). Next: H-08 (the header dot in the UI).
-- **2026-09-24 04:05 local.** H-08 GREEN, group H complete (8/8).
+- **2026-09-23 23:43 local.** H-08 GREEN, group H complete (8/8).
   `lib/health-verdict.ts` (pure) ranks findings with the probe's thresholds;
   `HealthDot` polls `/api/health` every 15 s, draws green / amber / red in
   the header beside the WebSocket light, names the findings in its title,
