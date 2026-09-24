@@ -14,6 +14,7 @@
 pub mod analytics;
 pub mod control;
 pub mod help;
+pub mod ops;
 pub mod per_session;
 pub mod projects;
 pub mod reels;
@@ -268,6 +269,36 @@ pub const TOOLS: &[ToolDef] = &[
                       (input/output/cache). Cancel via notifications/cancelled.",
         input_schema: subscribe_session_schema,
     },
+    // Ops hands, tier 0 (group M): watch and diagnose the node; read-only.
+    ToolDef {
+        name: "node_health",
+        description: "WHEN: something looks wrong, or before proposing any change. MOTION: diagnose. \
+                      CALL: {}. RETURNS: /api/health with the node's own verdict {level, findings[{id, level, text}]}; \
+                      a finding id is the evidence a proposal cites. NEXT: node_logs {actor} for the why; \
+                      node_streams for caps.",
+        input_schema: ops::empty_schema,
+    },
+    ToolDef {
+        name: "node_logs",
+        description: "WHEN: you need the why behind a finding. MOTION: diagnose. \
+                      CALL: { since?, actor?, level?, limit? }. RETURNS: {lines[{seq, level, actor, event, …}], next}; \
+                      pass next back as since to page. LAW: read-only.",
+        input_schema: ops::node_logs_schema,
+    },
+    ToolDef {
+        name: "node_streams",
+        description: "WHEN: a stream_cap finding, or before a resize proposal. MOTION: diagnose. \
+                      CALL: {}. RETURNS: {streams[{name, bytes, messages, max_bytes, percent, level}]}; \
+                      warn at 70 %, critical at 90 %.",
+        input_schema: ops::empty_schema,
+    },
+    ToolDef {
+        name: "fleet_presence",
+        description: "WHEN: who is alive across the fleet. MOTION: watch. \
+                      CALL: {}. RETURNS: {interval_secs, stale_after_secs, nodes[{host, principal_id, age_secs, stale, git_sha, …}]}; \
+                      a node is stale past three beats.",
+        input_schema: ops::empty_schema,
+    },
 ];
 
 fn subscribe_session_schema() -> Value {
@@ -315,6 +346,10 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "save_reel" => reels::save_reel(&server.api_base, args).await,
         "list_reels" => reels::list_reels(&server.api_base, args).await,
         "play_reel" => reels::play_reel(&server.api_base, args).await,
+        "node_health" => ops::node_health(&server.api_base, args).await,
+        "node_logs" => ops::node_logs(&server.api_base, args).await,
+        "node_streams" => ops::node_streams(&server.api_base, args).await,
+        "fleet_presence" => ops::fleet_presence(&server.api_base, args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,

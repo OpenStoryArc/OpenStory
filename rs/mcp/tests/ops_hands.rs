@@ -76,7 +76,10 @@ fn mock_router() -> Router {
         )
 }
 
-async fn server_against_mock() -> (open_story_mcp::server::Server<common::LoopbackSubscriber>, tempfile::TempDir) {
+async fn server_against_mock() -> (
+    open_story_mcp::server::Server<common::LoopbackSubscriber>,
+    tempfile::TempDir,
+) {
     let base = spawn_mock(mock_router()).await;
     let (server, _sub, dir) = make_test_server();
     (server.with_api_base(base), dir)
@@ -129,7 +132,11 @@ mod when_node_logs_is_called_with_actor {
         let (server, _dir) = server_against_mock().await;
         let resp = call_tool(server, "node_logs", json!({})).await;
         let v = unwrap_tool_result(&resp).expect("node_logs succeeds");
-        assert_eq!(v["query"], json!({}), "no filter means no query string: {v}");
+        assert_eq!(
+            v["query"],
+            json!({}),
+            "no filter means no query string: {v}"
+        );
     }
 }
 
@@ -147,10 +154,20 @@ mod when_node_streams_is_called {
         assert_eq!(streams[0]["bytes"], 750);
         assert_eq!(streams[0]["max_bytes"], 1000);
         assert_eq!(streams[0]["percent"], 0.75);
-        assert_eq!(streams[0]["level"], "warn", "70 % warns, as the verdict does");
-        assert_eq!(streams[1]["percent"], Value::Null, "an uncapped stream has no percent");
+        assert_eq!(
+            streams[0]["level"], "warn",
+            "70 % warns, as the verdict does"
+        );
+        assert_eq!(
+            streams[1]["percent"],
+            Value::Null,
+            "an uncapped stream has no percent"
+        );
         assert_eq!(streams[1]["level"], "ok");
-        assert!(v.get("verdict").is_none(), "streams only, not the whole body: {v}");
+        assert!(
+            v.get("verdict").is_none(),
+            "streams only, not the whole body: {v}"
+        );
     }
 }
 
@@ -188,22 +205,36 @@ mod when_the_api_base_is_unset {
 }
 
 mod when_tools_are_listed {
-    use super::*;
-
     #[test]
     fn the_tier_zero_hands_are_registered_with_schemas() {
-        let names: Vec<&str> = open_story_mcp::tools::TOOLS.iter().map(|t| t.name).collect();
+        let names: Vec<&str> = open_story_mcp::tools::TOOLS
+            .iter()
+            .map(|t| t.name)
+            .collect();
         for hand in ["node_health", "node_logs", "node_streams", "fleet_presence"] {
             assert!(names.contains(&hand), "{hand} registered; have {names:?}");
-            let def = open_story_mcp::tools::TOOLS.iter().find(|t| t.name == hand).unwrap();
+            let def = open_story_mcp::tools::TOOLS
+                .iter()
+                .find(|t| t.name == hand)
+                .unwrap();
             let schema = (def.input_schema)();
             assert_eq!(schema["type"], "object", "{hand} schema: {schema}");
-            assert!(def.description.contains("MOTION:"), "{hand} names its motion: {}", def.description);
+            assert!(
+                def.description.contains("MOTION:"),
+                "{hand} names its motion: {}",
+                def.description
+            );
         }
-        let logs = open_story_mcp::tools::TOOLS.iter().find(|t| t.name == "node_logs").unwrap();
+        let logs = open_story_mcp::tools::TOOLS
+            .iter()
+            .find(|t| t.name == "node_logs")
+            .unwrap();
         let schema = (logs.input_schema)();
         for key in ["since", "actor", "level", "limit"] {
-            assert!(schema["properties"].get(key).is_some(), "node_logs takes {key}: {schema}");
+            assert!(
+                schema["properties"].get(key).is_some(),
+                "node_logs takes {key}: {schema}"
+            );
         }
     }
 }
