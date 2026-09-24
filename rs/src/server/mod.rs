@@ -273,10 +273,18 @@ pub async fn run_server(
 
                                 // Persist turns and patterns to the EventStore
                                 for turn in &result.turns {
-                                    let _ = event_store.insert_turn(&batch.session_id, turn).await;
+                                    if let Err(e) =
+                                        event_store.insert_turn(&batch.session_id, turn).await
+                                    {
+                                        open_story_server::logging::failed("turn_insert", &e);
+                                    }
                                 }
                                 for pe in &result.patterns {
-                                    let _ = event_store.insert_pattern(&batch.session_id, pe).await;
+                                    if let Err(e) =
+                                        event_store.insert_pattern(&batch.session_id, pe).await
+                                    {
+                                        open_story_server::logging::failed("pattern_insert", &e);
+                                    }
                                 }
 
                                 if !result.patterns.is_empty() {
@@ -436,7 +444,7 @@ pub async fn run_server(
                                 );
                                 let emitted = messages.len();
                                 for msg in messages {
-                                    let _ = tx.send(msg);
+                                    let _ = tx.send(msg); // audit-ok: no subscribers is not a failure
                                 }
 
                                 if emitted > 0 {
@@ -509,7 +517,7 @@ pub async fn run_server(
                     let msg =
                         crate::server::BroadcastMessage::AdminTopologyChanged { topology: frame };
                     let tx = push_state.read().await.broadcast_tx.clone();
-                    let _ = tx.send(msg);
+                    let _ = tx.send(msg); // audit-ok: no subscribers is not a failure
                 }
             });
         }

@@ -253,6 +253,9 @@ mod when_persist_logs_a_session {
         )
     }
 
+    // The guard is held across awaits on purpose: these specs run on the
+    // current-thread test runtime and must not overlap (see serial()).
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn it_carries_session_id() {
         let _serial = serial();
@@ -372,6 +375,9 @@ mod when_replay_runs {
         )
     }
 
+    // The guard is held across awaits on purpose: these specs run on the
+    // current-thread test runtime and must not overlap (see serial()).
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn it_logs_progress_and_done() {
         let _serial = serial();

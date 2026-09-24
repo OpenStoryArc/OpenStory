@@ -133,7 +133,9 @@ pub async fn ingest_events(
                 });
                 if let Some(content) = plan_content {
                     let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
-                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
+                    if let Err(e) = state.store.plan_store.save(session_id, &content, timestamp) {
+                        crate::logging::failed("plan_save", &e);
+                    }
                     // Dual-write plan to EventStore
                     let plan_id = format!("plan:{}:{}", session_id, timestamp);
                     let _ = state
@@ -173,8 +175,12 @@ pub async fn ingest_events(
             // work. Under NATS, PersistConsumer owns these writes and
             // this block is skipped to keep the actor decomposition clean.
             if !state.bus.is_active() {
-                let _ = state.store.event_store.insert_event(session_id, &val).await;
-                let _ = state.store.session_store.append(session_id, &val);
+                if let Err(e) = state.store.event_store.insert_event(session_id, &val).await {
+                    crate::logging::failed("event_insert", &e);
+                }
+                if let Err(e) = state.store.session_store.append(session_id, &val) {
+                    crate::logging::failed("jsonl_append", &e);
+                }
                 for vr in from_cloud_event(ce).iter() {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let rt = open_story_store::extract::record_type_str(&vr.body);
@@ -540,7 +546,9 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 person_id: None,
                 principal_id: None,
             };
-            let _ = ctx.event_store.upsert_session(&row).await;
+            if let Err(e) = ctx.event_store.upsert_session(&row).await {
+                crate::logging::failed("session_upsert", &e);
+            }
 
             // first_event/last_event above come from the full timeline,
             // which includes `file.snapshot` events whose `time` is

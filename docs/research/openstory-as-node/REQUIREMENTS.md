@@ -6,7 +6,7 @@ it pass, refactor, flip its status, commit, repeat.
 Design: `docs/superpowers/specs/2026-09-23-node-ops-design.md`. Audit and
 vocabulary: `2026-09-23-openstory-as-node.md` and
 `2026-09-23-logging-and-ops-hands.md` in this directory.
-Last updated: 2026-09-23 (L group complete).
+Last updated: 2026-09-23 (E-01 green).
 
 Vocabulary: **tier 0** reads; **tier 1** derived state, idempotent, author
 stamped, on `ops.>`; **tier 2** substance (restart, resize, rotate), never on
@@ -23,7 +23,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 |---|---|---|---|
 | G · global constraints | G-01 … G-08 | 0 / 8 | enforced by every task |
 | L · logging | L-01 … L-08 | 8 / 8 | `tracing`, JSON lines, log ring |
-| E · errors and supervision | E-01 … E-07 | 0 / 7 | no swallowed errors, consumer supervisor |
+| E · errors and supervision | E-01 … E-07 | 1 / 7 | no swallowed errors, consumer supervisor |
 | H · health | H-01 … H-08 | 0 / 8 | `/api/health` can say no |
 | P · presence | P-01 … P-06 | 0 / 6 | the node's health as a fact on the bus |
 | O · telemetry | O-01 … O-05 | 0 / 5 | OTel metrics and spans, exported not vendored |
@@ -75,7 +75,7 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 
 | id | requirement | acceptance test |
 |---|---|---|
-| E-01 | No `let _ =` on a fallible persist, index, append, or publish in `rs/server/src/consumers/` and `rs/src/server/`. Each failure logs `event=<op>_failed` with the error and increments a counter. | `scripts/swallowed_errors.py` static audit, `--test`, wired into `just test` |
+| E-01 | GREEN. No `let _ =` on a fallible persist, index, append, or publish in `rs/server/src/consumers/` and `rs/src/server/`. Each failure logs `event=<op>_failed` with the error and increments a counter. | (Gate roots: `rs/server/src` and `rs/src/server`; the MCP's stdio response sends are M-08 / K-07 territory.) `scripts/swallowed_errors.py` static audit, `--test`, wired into `just test` |
 | E-02 | A consumer whose subscription ends logs `event=consumer_ended` with the reason and exits with an error, never silently. | `rs/tests/test_consumer_supervision.rs::when_subscription_ends::it_logs_and_errors` |
 | E-03 | A supervisor task owns the four consumers; on exit it restarts the consumer with exponential backoff (1 s, 2 s, 4 s, cap 30 s) and logs `event=consumer_restarted` with the attempt. | `…::when_a_consumer_dies::it_is_restarted_with_backoff` |
 | E-04 | Restart counts and last-restart timestamps per consumer are part of health (H-05). | `…::when_a_consumer_restarts::it_shows_in_health` |
@@ -220,3 +220,11 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   JSON line, and `--stop` tears it down. Smoke: booted on :3106/:4322 with
   the pre-loop release binary, health ok, 0 sessions, stopped clean. Next:
   group E, starting with E-01 (`scripts/swallowed_errors.py`).
+- **2026-09-23 23:55 local.** E-01 GREEN. `scripts/swallowed_errors.py`
+  (8 self-test assertions) found 27 swallowed writes across the server
+  crate, the orchestration loop, and the MCP's stdio; the gate is scoped to
+  `rs/server/src` and `rs/src/server`, where nine real writes now log
+  `event=<op>_failed` through `logging::failed` and tick
+  `openstory_op_failures_total{op}`; four broadcast sends are marked
+  audit-ok (no subscribers is not a failure). `just test` runs the gate.
+  Next: E-02.

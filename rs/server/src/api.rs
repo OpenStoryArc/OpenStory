@@ -177,6 +177,7 @@ pub async fn post_interaction(
         .bus
         .publish(&subject, &crate::ui_events::ui_batch(ce))
         .await;
+    // audit-ok: no subscribers is not a failure
     let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
         interaction: kind.to_string(),
         view,
@@ -309,6 +310,7 @@ pub async fn post_annotation(
         .bus
         .publish(&subject, &crate::ui_events::ui_batch(ce))
         .await;
+    // audit-ok: no subscribers is not a failure
     let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded {
         annotation: ann.clone(),
     });

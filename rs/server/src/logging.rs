@@ -26,6 +26,14 @@ pub fn log_event(category: &str, message: &str) {
     tracing::info!(category, "{message}");
 }
 
+/// Record a failed fallible write (E-01): `event=<op>_failed` at WARN with
+/// the error, and one tick on `openstory_op_failures_total{op}`. Use at
+/// every site that used to say `let _ = …`; never swallow.
+pub fn failed(op: &str, err: &dyn std::fmt::Display) {
+    tracing::warn!(event = %format!("{op}_failed"), op, error = %err, "{op} failed");
+    metrics::counter!("openstory_op_failures_total", "op" => op.to_string()).increment(1);
+}
+
 /// Summarize a batch of CloudEvents as a compact subtype list.
 /// e.g. "message.user.prompt, progress.bash"
 pub fn event_type_summary(events: &[CloudEvent]) -> String {

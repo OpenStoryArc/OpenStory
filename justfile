@@ -20,6 +20,7 @@ dev:
 # Run all tests (Rust + UI + Clippy — mirrors CI)
 test:
     cargo test --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- --skip compose --skip container
+    python3 scripts/swallowed_errors.py
     cargo clippy --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- -D warnings
     cd ui && npm test -- --run
 
