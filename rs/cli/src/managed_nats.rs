@@ -122,6 +122,9 @@ pub fn ensure_nats(
 pub fn parse_host_port(nats_url: &str) -> (String, u16) {
     let s = nats_url.strip_prefix("nats://").unwrap_or(nats_url);
     let s = s.split('/').next().unwrap_or(s); // drop any trailing path
+    // Drop `user:password@` userinfo: credentials belong to the client
+    // connection, never to the server's listen address.
+    let s = s.rsplit_once('@').map_or(s, |(_, host_port)| host_port);
     match s.rsplit_once(':') {
         Some((host, port)) => (normalize_host(host), port.parse().unwrap_or(4222)),
         None => (normalize_host(s), 4222),
@@ -242,6 +245,21 @@ mod tests {
     #[test]
     fn parse_host_port_tolerates_no_scheme_and_trailing_slash() {
         assert_eq!(parse_host_port("127.0.0.1:4300/"), ("127.0.0.1".to_string(), 4300));
+    }
+
+    /// A node using the accounts feature carries `user:password@` in its
+    /// nats_url. The credentials are not part of the listen address: rendering
+    /// them into `listen:` makes nats-server refuse the config ("could not
+    /// parse address string"), and managed mode dies after 15 s with the
+    /// child's stderr discarded. Seen on the owner's laptop, 2026-09-23.
+    #[test]
+    fn parse_host_port_strips_userinfo() {
+        assert_eq!(
+            parse_host_port("nats://29911d8f-3893:29911d8f-3893-local-dev@localhost:4222"),
+            ("127.0.0.1".to_string(), 4222)
+        );
+        assert_eq!(parse_host_port("nats://user:p%40ss@example.com:5555"), ("example.com".to_string(), 5555));
+        assert_eq!(parse_host_port("user:pass@localhost"), ("127.0.0.1".to_string(), 4222));
     }
 
     #[test]
