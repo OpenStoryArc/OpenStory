@@ -425,6 +425,20 @@ mod tests {
         );
     }
 
+    /// A standalone managed server gets a config too, so its payload limit
+    /// matches the leaf's 8 MB instead of nats-server's 1 MiB default. Found
+    /// on the demo node, 2026-09-24: four transcript lines over 1 MB could
+    /// never be published on a flags-only server.
+    #[test]
+    fn standalone_config_raises_max_payload_like_the_leaf() {
+        let conf = render_standalone_config("127.0.0.1", 4322, Path::new("/tmp/store"));
+        assert!(conf.contains("listen: 127.0.0.1:4322"), "{conf}");
+        assert!(conf.contains("max_payload: 8MB"), "the leaf's limit: {conf}");
+        assert!(conf.contains("store_dir: \"/tmp/store\""), "{conf}");
+        assert!(conf.contains("jetstream {"), "{conf}");
+        assert!(!conf.contains("leafnodes"), "standalone federates nowhere: {conf}");
+    }
+
     #[test]
     fn leaf_config_binds_local_listener_and_remotes_to_hub() {
         let conf = render_leaf_config(
