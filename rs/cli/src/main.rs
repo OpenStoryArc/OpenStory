@@ -14,11 +14,11 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use open_story::server;
-use open_story::server::Config;
 use open_story::server::config::{DataBackend, Role};
+use open_story::server::Config;
 use open_story::watcher;
-use open_story_bus::Bus;
 use open_story_bus::nats_bus::{Federation, FederationPeers, NatsBus};
+use open_story_bus::Bus;
 use open_story_store::sqlite_store::SqliteStore;
 
 mod init;
@@ -618,7 +618,8 @@ async fn main() -> Result<()> {
             // supervise one when none is reachable, otherwise reuse it. The
             // guard lives until serve exits and stops any child we started.
             let nats_guard = if cli_manage_nats {
-                let leaf_url = (!config.nats_leaf_url.is_empty()).then_some(config.nats_leaf_url.as_str());
+                let leaf_url =
+                    (!config.nats_leaf_url.is_empty()).then_some(config.nats_leaf_url.as_str());
                 Some(managed_nats::ensure_nats(
                     &nats_url,
                     &data_dir.join("nats"),
@@ -646,10 +647,17 @@ async fn main() -> Result<()> {
             // Leaf + hub_domain → Hub federation peers (Phase 2a/b).
             // Leaf + peer_domains → Mesh federation peers (Phase 2b Step 4).
             // Both unset → solo, as before.
-            let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok().filter(|s| !s.is_empty());
-            let peer_domains_raw = std::env::var("OPEN_STORY_PEER_DOMAINS").ok().filter(|s| !s.is_empty());
+            let hub_domain = std::env::var("OPEN_STORY_HUB_DOMAIN")
+                .ok()
+                .filter(|s| !s.is_empty());
+            let peer_domains_raw = std::env::var("OPEN_STORY_PEER_DOMAINS")
+                .ok()
+                .filter(|s| !s.is_empty());
             let peer_domains: Option<Vec<String>> = peer_domains_raw.as_ref().map(|s| {
-                s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+                s.split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty())
+                    .collect()
             });
             let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
 
@@ -657,7 +665,12 @@ async fn main() -> Result<()> {
             let peer_hub_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
                 .ok()
                 .filter(|s| !s.is_empty())
-                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_string())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default();
 
             let bus: Arc<dyn Bus> = if let Some(dom) = hub_domain.clone().filter(|_| is_hub) {
@@ -666,11 +679,19 @@ async fn main() -> Result<()> {
                 // In T3, also source peer hubs' events-agg streams.
                 match NatsBus::connect_hub(&nats_url, &dom).await {
                     Ok(nats_bus) => {
-                        nats_bus.ensure_streams().await
+                        nats_bus
+                            .ensure_streams()
+                            .await
                             .with_context(|| "NATS stream setup (hub) failed")?;
-                        nats_bus.ensure_aggregate(&peer_hub_domains).await
+                        nats_bus
+                            .ensure_aggregate(&peer_hub_domains)
+                            .await
                             .with_context(|| "NATS events-agg setup (hub) failed")?;
-                        let peer_label = if peer_hub_domains.is_empty() { String::new() } else { format!(" peers=[{}]", peer_hub_domains.join(",")) };
+                        let peer_label = if peer_hub_domains.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" peers=[{}]", peer_hub_domains.join(","))
+                        };
                         eprintln!("  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: hub domain={dom}{peer_label})");
                         Arc::new(nats_bus)
                     }
@@ -681,12 +702,15 @@ async fn main() -> Result<()> {
                 let host = open_story_core::host::host().to_string();
                 let fed = Federation {
                     host: host.clone(),
-                    peers: FederationPeers::Hub { hub_domain: dom.clone() },
+                    peers: FederationPeers::Hub {
+                        hub_domain: dom.clone(),
+                    },
                 };
                 match NatsBus::connect_federation(&nats_url, fed).await {
                     Ok(nats_bus) => {
-                        nats_bus.ensure_streams().await
-                            .with_context(|| format!("NATS stream setup (leaf, hub={dom}) failed"))?;
+                        nats_bus.ensure_streams().await.with_context(|| {
+                            format!("NATS stream setup (leaf, hub={dom}) failed")
+                        })?;
                         eprintln!(
                             "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: leaf host={host} → hub={dom})"
                         );
@@ -702,19 +726,24 @@ async fn main() -> Result<()> {
                 let peer_filtered: Vec<String> = peers.into_iter().filter(|p| p != &host).collect();
                 let fed = Federation {
                     host: host.clone(),
-                    peers: FederationPeers::Mesh { peer_domains: peer_filtered.clone() },
+                    peers: FederationPeers::Mesh {
+                        peer_domains: peer_filtered.clone(),
+                    },
                 };
                 match NatsBus::connect_federation(&nats_url, fed).await {
                     Ok(nats_bus) => {
-                        nats_bus.ensure_streams().await
-                            .with_context(|| format!("NATS stream setup (mesh, peers={peer_filtered:?}) failed"))?;
+                        nats_bus.ensure_streams().await.with_context(|| {
+                            format!("NATS stream setup (mesh, peers={peer_filtered:?}) failed")
+                        })?;
                         eprintln!(
                             "  \x1b[2mNATS bus:\x1b[0m        {nats_url} (federation: mesh host={host} peers={})",
                             peer_filtered.join(",")
                         );
                         Arc::new(nats_bus)
                     }
-                    Err(e) => anyhow::bail!("NATS unavailable (mesh leaf): {e}\nNATS URL: {nats_url}"),
+                    Err(e) => {
+                        anyhow::bail!("NATS unavailable (mesh leaf): {e}\nNATS URL: {nats_url}")
+                    }
                 }
             } else {
                 // Solo.
@@ -747,7 +776,13 @@ async fn main() -> Result<()> {
             // exit `nats_guard` drops and stops any nats-server we spawned —
             // Rust runs no destructors on a bare signal kill.
             let serving = server::run_server(
-                &host, port, &data_dir, static_dir.as_deref(), &watch_dirs, bus, config,
+                &host,
+                port,
+                &data_dir,
+                static_dir.as_deref(),
+                &watch_dirs,
+                bus,
+                config,
             );
             let outcome = tokio::select! {
                 res = serving => Some(res),    // server returned on its own (error path)
@@ -761,11 +796,11 @@ async fn main() -> Result<()> {
                 None => {
                     eprintln!("\n  \x1b[2mShutting down…\x1b[0m");
                     drop(nats_guard); // stop the managed nats-server BEFORE exiting
-                    // Force exit: serve's background watcher/consumer tasks would
-                    // otherwise stall the tokio runtime drop on a clean return.
-                    // Our data is durable (append-only JSONL + SQLite per write),
-                    // and the only external resource we own (nats-server) is
-                    // already stopped above.
+                                      // Force exit: serve's background watcher/consumer tasks would
+                                      // otherwise stall the tokio runtime drop on a clean return.
+                                      // Our data is durable (append-only JSONL + SQLite per write),
+                                      // and the only external resource we own (nats-server) is
+                                      // already stopped above.
                     std::process::exit(0);
                 }
             }
@@ -956,9 +991,7 @@ async fn main() -> Result<()> {
             use open_story::server::directory::{
                 EmbeddedRoleDirectory, Participant, Role, RoleDirectory,
             };
-            let role: Role = role
-                .parse()
-                .map_err(|e: String| anyhow::anyhow!(e))?;
+            let role: Role = role.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             if let Some(parent) = roles_db.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -1010,10 +1043,7 @@ async fn main() -> Result<()> {
                 )
             })?;
 
-            let account_name = format!(
-                "PERSON_{}",
-                person.id.to_uppercase().replace('-', "_")
-            );
+            let account_name = format!("PERSON_{}", person.id.to_uppercase().replace('-', "_"));
             let local_account = AccountSpec {
                 name: account_name.clone(),
                 users: vec![UserSpec {
@@ -1038,18 +1068,15 @@ async fn main() -> Result<()> {
                 .persist()
                 .map_err(|e| anyhow::anyhow!("persist to {}: {e}", output_path.display()))?;
 
-            println!(
-                "✓ wrote initial accounts conf to {}",
-                output_path.display()
-            );
+            println!("✓ wrote initial accounts conf to {}", output_path.display());
             println!("  account: {account_name}");
-            println!("  user:    {} (password: {}-local-dev)", person.id, person.id);
+            println!(
+                "  user:    {} (password: {}-local-dev)",
+                person.id, person.id
+            );
             println!();
             println!("Next:");
-            println!(
-                "  nats-server -c {} &disown",
-                output_path.display()
-            );
+            println!("  nats-server -c {} &disown", output_path.display());
             println!("  just serve");
             Ok(())
         }

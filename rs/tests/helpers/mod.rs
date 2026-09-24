@@ -1,4 +1,8 @@
 //! Shared test helpers for integration tests.
+//!
+//! Every test binary includes this module; not every binary uses every
+//! helper, so dead-code warnings here are noise, not a signal.
+#![allow(dead_code)]
 
 #[allow(dead_code)]
 pub mod bus;
@@ -18,13 +22,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tempfile::TempDir;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 
 use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story::server::{AppState, Config, SharedState, build_router};
+use open_story::server::{build_router, AppState, Config, SharedState};
 use open_story_bus::noop_bus::NoopBus;
 use open_story_store::state::StoreState;
 

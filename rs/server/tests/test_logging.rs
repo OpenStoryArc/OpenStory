@@ -50,21 +50,39 @@ mod when_log_format_is_json {
         let sub = build_subscriber(LogFormat::Json, "info", cap.clone());
         tracing::subscriber::with_default(sub, || {
             tracing::info!(event = "replay_done", sessions = 3, "replay finished");
-            tracing::warn!(event = "stream_near_cap", stream = "events", percent = 91.5, "near cap");
+            tracing::warn!(
+                event = "stream_near_cap",
+                stream = "events",
+                percent = 91.5,
+                "near cap"
+            );
             tracing::debug!(event = "hidden", "filtered out at info");
         });
 
         let lines = cap.lines();
-        assert_eq!(lines.len(), 2, "one line per emitted record above the filter: {lines:?}");
+        assert_eq!(
+            lines.len(),
+            2,
+            "one line per emitted record above the filter: {lines:?}"
+        );
 
         let first: serde_json::Value = serde_json::from_str(&lines[0]).expect("line 1 is JSON");
         assert_eq!(first["level"], "INFO");
         assert_eq!(first["event"], "replay_done");
         assert_eq!(first["sessions"], 3);
         assert_eq!(first["message"], "replay finished");
-        assert!(first["target"].as_str().unwrap().starts_with("test_logging"), "{first}");
+        assert!(
+            first["target"]
+                .as_str()
+                .unwrap()
+                .starts_with("test_logging"),
+            "{first}"
+        );
         let ts = first["ts"].as_str().expect("ts present");
-        assert!(chrono::DateTime::parse_from_rfc3339(ts).is_ok(), "ts is RFC 3339: {ts}");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(ts).is_ok(),
+            "ts is RFC 3339: {ts}"
+        );
 
         let second: serde_json::Value = serde_json::from_str(&lines[1]).expect("line 2 is JSON");
         assert_eq!(second["level"], "WARN");
@@ -85,7 +103,10 @@ mod when_log_format_is_text {
         });
         let lines = cap.lines();
         assert_eq!(lines.len(), 1);
-        assert!(serde_json::from_str::<serde_json::Value>(&lines[0]).is_err(), "text, not JSON");
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&lines[0]).is_err(),
+            "text, not JSON"
+        );
         assert!(lines[0].contains("serving on 3002"), "{}", lines[0]);
     }
 }
@@ -115,7 +136,12 @@ mod when_a_consumer_logs {
         tracing::subscriber::with_default(sub, || {
             let consumer = tracing::info_span!("consumer", actor = "persist");
             let _g = consumer.enter();
-            tracing::info!(event = "session_persisted", session_id = "s1", count = 4, "persisted");
+            tracing::info!(
+                event = "session_persisted",
+                session_id = "s1",
+                count = 4,
+                "persisted"
+            );
             {
                 let inner = tracing::info_span!("batch", subject = "events.host.s1.main");
                 let _g2 = inner.enter();
@@ -126,14 +152,23 @@ mod when_a_consumer_logs {
         assert_eq!(lines.len(), 2, "{lines:?}");
 
         let first: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-        assert_eq!(first["actor"], "persist", "span field rides on the line: {first}");
+        assert_eq!(
+            first["actor"], "persist",
+            "span field rides on the line: {first}"
+        );
         assert_eq!(first["event"], "session_persisted");
         assert_eq!(first["session_id"], "s1");
         assert_eq!(first["count"], 4);
 
         let second: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
-        assert_eq!(second["actor"], "persist", "outer span still applies: {second}");
-        assert_eq!(second["subject"], "events.host.s1.main", "inner span field too");
+        assert_eq!(
+            second["actor"], "persist",
+            "outer span still applies: {second}"
+        );
+        assert_eq!(
+            second["subject"], "events.host.s1.main",
+            "inner span field too"
+        );
         assert_eq!(second["event"], "index_failed");
     }
 
@@ -146,7 +181,10 @@ mod when_a_consumer_logs {
         });
         let line: serde_json::Value = serde_json::from_str(&cap.lines()[0]).unwrap();
         assert!(line.get("actor").is_none(), "{line}");
-        assert_eq!(line["event"], "unnamed", "an unnamed line is findable, not silent: {line}");
+        assert_eq!(
+            line["event"], "unnamed",
+            "an unnamed line is findable, not silent: {line}"
+        );
         assert_eq!(line["message"], "a line someone forgot to name");
     }
 }

@@ -660,7 +660,8 @@ impl Config {
     /// prompt for.
     pub fn apply_answers(mut self, a: WizardAnswers) -> Config {
         self.watch_backfill_hours = days_to_backfill_hours(a.days_history);
-        self.max_initial_records = recommended_initial_records(a.days_history, self.max_initial_records);
+        self.max_initial_records =
+            recommended_initial_records(a.days_history, self.max_initial_records);
         self.watch_dir = a.watch_dir;
         if let Some(p) = a.pi_watch_dir {
             self.pi_watch_dir = p;
@@ -808,14 +809,17 @@ mod tests {
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
         assert!(!config.metrics_enabled);
-        assert!(config.person.is_none(), "person defaults to None — first-boot bootstrap fills it");
+        assert!(
+            config.person.is_none(),
+            "person defaults to None — first-boot bootstrap fills it"
+        );
     }
 
     #[test]
     fn cache_bounds_have_sane_defaults() {
         let c = Config::default();
         assert_eq!(c.projection_cache_bytes, 4_000_000_000); // 4 GB
-        assert_eq!(c.payload_cache_bytes, 256_000_000);      // 256 MB
+        assert_eq!(c.payload_cache_bytes, 256_000_000); // 256 MB
         assert_eq!(c.working_set_days, 7);
     }
 
@@ -974,7 +978,10 @@ display_name = "Hetzner (Bobby)"
 agent = "openclaw"
 "#;
         let config: Config = toml::from_str(toml_input).unwrap();
-        let person = config.person.clone().expect("[person] section should parse");
+        let person = config
+            .person
+            .clone()
+            .expect("[person] section should parse");
         assert_eq!(person.id, "person-uuid-001");
         assert_eq!(person.display_name, "Max");
         assert_eq!(person.email, "max@example.test");
@@ -1010,7 +1017,10 @@ agent = "openclaw"
 
         config.ensure_person_bootstrap(&path);
 
-        let person = config.person.as_ref().expect("bootstrap must populate person");
+        let person = config
+            .person
+            .as_ref()
+            .expect("bootstrap must populate person");
         assert!(!person.id.is_empty(), "person.id must be populated");
         assert_eq!(person.display_name, "You");
         assert_eq!(person.principals.len(), 1, "exactly one default principal");
@@ -1087,16 +1097,27 @@ agent = "openclaw"
 
         // Any one of these revokes trust.
         assert!(
-            !Config { host: "0.0.0.0".into(), ..Config::default() }.is_trusted_local(),
+            !Config {
+                host: "0.0.0.0".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "LAN/public bind is not trusted-local"
         );
         assert!(
-            !Config { api_token: "secret".into(), ..Config::default() }.is_trusted_local(),
+            !Config {
+                api_token: "secret".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "an api_token means access is gated → not the trusted single-user case"
         );
         assert!(
-            !Config { nats_leaf_url: "nats://hub:7422".into(), ..Config::default() }
-                .is_trusted_local(),
+            !Config {
+                nats_leaf_url: "nats://hub:7422".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "configured hub → networked → not trusted-local"
         );
     }
@@ -1217,9 +1238,16 @@ matchers = {}
     #[test]
     fn recommended_initial_records_scales_and_caps_for_large_window() {
         let r30 = recommended_initial_records(30, 2000);
-        assert!(r30 > 2000, "30-day window should scale above baseline, got {r30}");
+        assert!(
+            r30 > 2000,
+            "30-day window should scale above baseline, got {r30}"
+        );
         assert!(r30 <= 10_000, "must stay capped at 10k, got {r30}");
-        assert_eq!(recommended_initial_records(365, 2000), 10_000, "wide window caps at 10k");
+        assert_eq!(
+            recommended_initial_records(365, 2000),
+            10_000,
+            "wide window caps at 10k"
+        );
     }
 
     #[test]
@@ -1310,7 +1338,10 @@ matchers = {}
             data_dir: "./data".into(),
         };
         let config = base.apply_answers(answers);
-        assert_eq!(config.api_token, "keep-me", "wizard must not clobber api_token");
+        assert_eq!(
+            config.api_token, "keep-me",
+            "wizard must not clobber api_token"
+        );
         assert_eq!(config.nats_url, "nats://custom:4222");
         assert_eq!(config.retention_days, 90);
     }

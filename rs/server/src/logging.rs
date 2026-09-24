@@ -140,6 +140,7 @@ mod tests {
 use tracing::Subscriber;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields, MakeWriter};
+use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::EnvFilter;
 
@@ -158,7 +159,9 @@ impl std::str::FromStr for LogFormat {
         match s.trim().to_ascii_lowercase().as_str() {
             "" | "text" => Ok(LogFormat::Text),
             "json" => Ok(LogFormat::Json),
-            other => Err(format!("unknown log_format {other:?}; expected \"text\" or \"json\"")),
+            other => Err(format!(
+                "unknown log_format {other:?}; expected \"text\" or \"json\""
+            )),
         }
     }
 }
@@ -185,11 +188,40 @@ impl tracing::field::Visit for JsonFields {
         self.0.insert(f.name().to_string(), serde_json::json!(v));
     }
     fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
-        self.0.insert(f.name().to_string(), serde_json::json!(format!("{v:?}")));
+        self.0
+            .insert(f.name().to_string(), serde_json::json!(format!("{v:?}")));
+    }
+}
+
+/// Keeps each span's fields as a JSON map in the span's extensions so the
+/// line formatter can merge them onto every event emitted inside the span.
+/// A consumer task runs inside `info_span!("consumer", actor = "persist")`;
+/// that is how `actor` reaches every line (L-02) without threading it
+/// through every call.
+struct SpanFields;
+
+impl<S> Layer<S> for SpanFields
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        id: &tracing::span::Id,
+        ctx: Context<'_, S>,
+    ) {
+        let mut fields = JsonFields::default();
+        attrs.record(&mut fields);
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(fields);
+        }
     }
 }
 
 /// One JSON object per line: `{"ts","level","target","event",...fields}`.
+/// Span fields come first (root to leaf), then the record's own fields, so a
+/// leaf span or the record itself wins on a name clash. A record with no
+/// `event` is stamped `event=unnamed`: findable, never silent.
 struct JsonLine;
 
 impl<S, N> FormatEvent<S, N> for JsonLine
@@ -207,12 +239,28 @@ where
         let mut fields = JsonFields::default();
         event.record(&mut fields);
         let mut obj = serde_json::Map::new();
-        obj.insert("ts".into(), serde_json::json!(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)));
+        obj.insert(
+            "ts".into(),
+            serde_json::json!(
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+            ),
+        );
         obj.insert("level".into(), serde_json::json!(meta.level().as_str()));
         obj.insert("target".into(), serde_json::json!(meta.target()));
+        if let Some(scope) = _ctx.event_scope() {
+            for span in scope.from_root() {
+                if let Some(sf) = span.extensions().get::<JsonFields>() {
+                    for (k, v) in &sf.0 {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
         for (k, v) in fields.0 {
             obj.insert(k, v);
         }
+        obj.entry("event")
+            .or_insert_with(|| serde_json::json!("unnamed"));
         let line = serde_json::to_string(&obj).map_err(|_| std::fmt::Error)?;
         writer.write_str(&line)?;
         writeln!(writer)
@@ -222,25 +270,32 @@ where
 /// Build a subscriber for `format`, filtered by `filter` (an `EnvFilter`
 /// directive string such as `info` or `open_story=debug`), writing to
 /// `writer`. Pure with respect to process state: nothing global is set.
-pub fn build_subscriber<W>(format: LogFormat, filter: &str, writer: W) -> Box<dyn Subscriber + Send + Sync>
+pub fn build_subscriber<W>(
+    format: LogFormat,
+    filter: &str,
+    writer: W,
+) -> Box<dyn Subscriber + Send + Sync>
 where
     W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
 {
     let filter = EnvFilter::try_new(filter).unwrap_or_else(|_| EnvFilter::new("info"));
     match format {
         LogFormat::Json => Box::new(
-            tracing_subscriber::fmt()
-                .event_format(JsonLine)
-                .with_writer(writer)
-                .with_env_filter(filter)
-                .finish(),
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(SpanFields)
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .event_format(JsonLine)
+                        .with_writer(writer),
+                ),
         ),
         LogFormat::Text => Box::new(
-            tracing_subscriber::fmt()
-                .with_target(false)
-                .with_writer(writer)
-                .with_env_filter(filter)
-                .finish(),
+            tracing_subscriber::registry().with(filter).with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(false)
+                    .with_writer(writer),
+            ),
         ),
     }
 }
@@ -249,5 +304,6 @@ where
 /// `info`). Safe to call once; a second call is a no-op that returns false.
 pub fn init(format: LogFormat) -> bool {
     let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    tracing::subscriber::set_global_default(build_subscriber(format, &filter, std::io::stderr)).is_ok()
+    tracing::subscriber::set_global_default(build_subscriber(format, &filter, std::io::stderr))
+        .is_ok()
 }

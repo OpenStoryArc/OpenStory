@@ -30,18 +30,18 @@ use open_story_server::watcher_diagnostics::{
 
 pub use broadcast::BroadcastMessage;
 pub use ingest::{
-    IngestResult, ReplayContext, ingest_events, is_plan_event, replay_boot_sessions, to_wire_record,
+    ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult, ReplayContext,
 };
 pub use open_story_server::account_config;
 pub use open_story_server::admin;
 pub use open_story_server::config;
-pub use open_story_server::directory;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
+pub use open_story_server::directory;
 pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
-pub use state::{AppState, SharedState, create_state, create_state_with_watch_dirs};
+pub use state::{create_state, create_state_with_watch_dirs, AppState, SharedState};
 
 fn agent_for_watch_dir(
     path: &Path,
@@ -201,7 +201,14 @@ pub async fn run_server(
         // SessionRow. It upserts after the batch's events are durable;
         // ingest_events no longer touches the `sessions` table.
         {
-            let (event_store, data_dir, shared_projections, shared_projects, shared_names, plan_store) = {
+            let (
+                event_store,
+                data_dir,
+                shared_projections,
+                shared_projects,
+                shared_names,
+                plan_store,
+            ) = {
                 let s = state.read().await;
                 (
                     s.store.event_store.clone(),
@@ -215,28 +222,29 @@ pub async fn run_server(
             let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
                 .expect("create session store for persist consumer");
             let persist_bus = bus.clone();
-            tokio::spawn(async move {
-                let mut actor = consumers::persist::PersistConsumer::new(
-                    event_store,
-                    session_store,
-                    shared_projections,
-                    shared_projects,
-                    shared_names,
-                    plan_store,
-                );
-                match persist_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let project_id = if batch.project_id.is_empty() {
-                                None
-                            } else {
-                                Some(batch.project_id.as_str())
-                            };
-                            let result = actor
-                                .process_batch(&batch.session_id, &batch.events, project_id)
-                                .await;
-                            if result.persisted > 0 {
-                                log_event(
+            tokio::spawn(tracing::Instrument::instrument(
+                async move {
+                    let mut actor = consumers::persist::PersistConsumer::new(
+                        event_store,
+                        session_store,
+                        shared_projections,
+                        shared_projects,
+                        shared_names,
+                        plan_store,
+                    );
+                    match persist_bus.subscribe("events.>").await {
+                        Ok(mut sub) => {
+                            while let Some(batch) = sub.receiver.recv().await {
+                                let project_id = if batch.project_id.is_empty() {
+                                    None
+                                } else {
+                                    Some(batch.project_id.as_str())
+                                };
+                                let result = actor
+                                    .process_batch(&batch.session_id, &batch.events, project_id)
+                                    .await;
+                                if result.persisted > 0 {
+                                    log_event(
                                     "persist",
                                     &format!(
                                         "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
@@ -245,12 +253,14 @@ pub async fn run_server(
                                         result.skipped
                                     ),
                                 );
+                                }
                             }
                         }
+                        Err(e) => eprintln!("Persist consumer error: {e}"),
                     }
-                    Err(e) => eprintln!("Persist consumer error: {e}"),
-                }
-            });
+                },
+                tracing::info_span!("consumer", actor = "persist"),
+            ));
         }
 
         // ── Actor 2: patterns consumer ──
@@ -265,74 +275,78 @@ pub async fn run_server(
             let event_store = state.read().await.store.event_store.clone();
             let patterns_bus = bus.clone();
             let patterns_state = state.clone();
-            tokio::spawn(async move {
-                let mut actor = consumers::patterns::PatternsConsumer::new();
-                match patterns_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let result = actor.process_batch(&batch.session_id, &batch.events);
+            tokio::spawn(tracing::Instrument::instrument(
+                async move {
+                    let mut actor = consumers::patterns::PatternsConsumer::new();
+                    match patterns_bus.subscribe("events.>").await {
+                        Ok(mut sub) => {
+                            while let Some(batch) = sub.receiver.recv().await {
+                                let result = actor.process_batch(&batch.session_id, &batch.events);
 
-                            // Persist turns and patterns to the EventStore
-                            for turn in &result.turns {
-                                let _ = event_store.insert_turn(&batch.session_id, turn).await;
-                            }
-                            for pe in &result.patterns {
-                                let _ = event_store.insert_pattern(&batch.session_id, pe).await;
-                            }
-
-                            if !result.patterns.is_empty() {
-                                // Mirror into AppState.detected_patterns so
-                                // the WebSocket initial_state handshake can
-                                // serve them to fresh clients without a DB
-                                // roundtrip. Shared Arc<DashMap> — no outer
-                                // lock needed.
-                                {
-                                    let s = patterns_state.read().await;
-                                    let mut entry = s
-                                        .store
-                                        .detected_patterns
-                                        .entry(batch.session_id.clone())
-                                        .or_default();
-                                    entry.extend(result.patterns.iter().cloned());
+                                // Persist turns and patterns to the EventStore
+                                for turn in &result.turns {
+                                    let _ = event_store.insert_turn(&batch.session_id, turn).await;
+                                }
+                                for pe in &result.patterns {
+                                    let _ = event_store.insert_pattern(&batch.session_id, pe).await;
                                 }
 
-                                // Publish to patterns.{project}.{session}
-                                // for downstream consumers (live story
-                                // broadcast, etc.). Best-effort: a publish
-                                // failure logs but doesn't block the
-                                // pipeline — the patterns are already
-                                // durable in the EventStore.
-                                let project = if batch.project_id.is_empty() {
-                                    "default"
-                                } else {
-                                    batch.project_id.as_str()
-                                };
-                                let subject = format!("patterns.{}.{}", project, batch.session_id,);
-                                if let Ok(payload) = serde_json::to_vec(&result.patterns) {
-                                    if let Err(e) =
-                                        patterns_bus.publish_bytes(&subject, &payload).await
+                                if !result.patterns.is_empty() {
+                                    // Mirror into AppState.detected_patterns so
+                                    // the WebSocket initial_state handshake can
+                                    // serve them to fresh clients without a DB
+                                    // roundtrip. Shared Arc<DashMap> — no outer
+                                    // lock needed.
                                     {
-                                        eprintln!(
+                                        let s = patterns_state.read().await;
+                                        let mut entry = s
+                                            .store
+                                            .detected_patterns
+                                            .entry(batch.session_id.clone())
+                                            .or_default();
+                                        entry.extend(result.patterns.iter().cloned());
+                                    }
+
+                                    // Publish to patterns.{project}.{session}
+                                    // for downstream consumers (live story
+                                    // broadcast, etc.). Best-effort: a publish
+                                    // failure logs but doesn't block the
+                                    // pipeline — the patterns are already
+                                    // durable in the EventStore.
+                                    let project = if batch.project_id.is_empty() {
+                                        "default"
+                                    } else {
+                                        batch.project_id.as_str()
+                                    };
+                                    let subject =
+                                        format!("patterns.{}.{}", project, batch.session_id,);
+                                    if let Ok(payload) = serde_json::to_vec(&result.patterns) {
+                                        if let Err(e) =
+                                            patterns_bus.publish_bytes(&subject, &payload).await
+                                        {
+                                            eprintln!(
                                             "patterns consumer publish_bytes({subject}) failed: {e}"
                                         );
+                                        }
                                     }
-                                }
 
-                                log_event(
-                                    "patterns",
-                                    &format!(
+                                    log_event(
+                                        "patterns",
+                                        &format!(
                                         "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
                                         short_id(&batch.session_id),
                                         result.patterns.len(),
                                         result.turns.len()
                                     ),
-                                );
+                                    );
+                                }
                             }
                         }
+                        Err(e) => eprintln!("Patterns consumer error: {e}"),
                     }
-                    Err(e) => eprintln!("Patterns consumer error: {e}"),
-                }
-            });
+                },
+                tracing::info_span!("consumer", actor = "patterns"),
+            ));
         }
 
         // ── Actor 3: projections consumer (owns session metadata) ──
@@ -351,22 +365,25 @@ pub async fn run_server(
                     s.store.session_children.clone(),
                 )
             };
-            tokio::spawn(async move {
-                let mut actor = consumers::projections::ProjectionsConsumer::new(
-                    shared_event_store,
-                    shared_projections,
-                    shared_parents,
-                    shared_children,
-                );
-                match projections_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            actor.process_batch(&batch.session_id, &batch.events).await;
+            tokio::spawn(tracing::Instrument::instrument(
+                async move {
+                    let mut actor = consumers::projections::ProjectionsConsumer::new(
+                        shared_event_store,
+                        shared_projections,
+                        shared_parents,
+                        shared_children,
+                    );
+                    match projections_bus.subscribe("events.>").await {
+                        Ok(mut sub) => {
+                            while let Some(batch) = sub.receiver.recv().await {
+                                actor.process_batch(&batch.session_id, &batch.events).await;
+                            }
                         }
+                        Err(e) => eprintln!("Projections consumer error: {e}"),
                     }
-                    Err(e) => eprintln!("Projections consumer error: {e}"),
-                }
-            });
+                },
+                tracing::info_span!("consumer", actor = "projections"),
+            ));
         }
 
         // ── Actor 4: broadcast consumer (WebSocket assembly only) ──
@@ -380,75 +397,78 @@ pub async fn run_server(
         {
             let broadcast_state = state.clone();
             let broadcast_bus = bus.clone();
-            tokio::spawn(async move {
-                let mut consumer = consumers::broadcast::BroadcastConsumer::new();
-                match broadcast_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let summary = event_type_summary(&batch.events);
-                            let session_id = batch.session_id.clone();
-                            let project_id = if batch.project_id.is_empty() {
-                                None
-                            } else {
-                                Some(batch.project_id.clone())
-                            };
+            tokio::spawn(tracing::Instrument::instrument(
+                async move {
+                    let mut consumer = consumers::broadcast::BroadcastConsumer::new();
+                    match broadcast_bus.subscribe("events.>").await {
+                        Ok(mut sub) => {
+                            while let Some(batch) = sub.receiver.recv().await {
+                                let summary = event_type_summary(&batch.events);
+                                let session_id = batch.session_id.clone();
+                                let project_id = if batch.project_id.is_empty() {
+                                    None
+                                } else {
+                                    Some(batch.project_id.clone())
+                                };
 
-                            // Snapshot projection + project display name from
-                            // the shared DashMaps. Drop the outer read guard
-                            // before invoking process_batch so API readers
-                            // and other actors aren't contended on the tokio
-                            // RwLock.
-                            let (projection, project_name, tx) = {
-                                let s = broadcast_state.read().await;
-                                let proj = s
-                                    .store
-                                    .projections
-                                    .get(&session_id)
-                                    .map(|r| r.value().clone());
-                                let pname = s
-                                    .store
-                                    .session_project_names
-                                    .get(&session_id)
-                                    .map(|r| r.value().clone());
-                                (proj, pname, s.broadcast_tx.clone())
-                            };
+                                // Snapshot projection + project display name from
+                                // the shared DashMaps. Drop the outer read guard
+                                // before invoking process_batch so API readers
+                                // and other actors aren't contended on the tokio
+                                // RwLock.
+                                let (projection, project_name, tx) = {
+                                    let s = broadcast_state.read().await;
+                                    let proj = s
+                                        .store
+                                        .projections
+                                        .get(&session_id)
+                                        .map(|r| r.value().clone());
+                                    let pname = s
+                                        .store
+                                        .session_project_names
+                                        .get(&session_id)
+                                        .map(|r| r.value().clone());
+                                    (proj, pname, s.broadcast_tx.clone())
+                                };
 
-                            let Some(proj_snapshot) = projection else {
-                                // ProjectionsConsumer hasn't processed this
-                                // session's first batch yet — skip broadcast
-                                // this tick; the next batch will have a
-                                // snapshot and catch up.
-                                continue;
-                            };
+                                let Some(proj_snapshot) = projection else {
+                                    // ProjectionsConsumer hasn't processed this
+                                    // session's first batch yet — skip broadcast
+                                    // this tick; the next batch will have a
+                                    // snapshot and catch up.
+                                    continue;
+                                };
 
-                            let messages = consumer.process_batch(
-                                &session_id,
-                                &batch.events,
-                                &proj_snapshot,
-                                project_id,
-                                project_name,
-                            );
-                            let emitted = messages.len();
-                            for msg in messages {
-                                let _ = tx.send(msg);
-                            }
-
-                            if emitted > 0 {
-                                log_event(
-                                    "broadcast",
-                                    &format!(
-                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                        short_id(&session_id),
-                                        emitted,
-                                        summary
-                                    ),
+                                let messages = consumer.process_batch(
+                                    &session_id,
+                                    &batch.events,
+                                    &proj_snapshot,
+                                    project_id,
+                                    project_name,
                                 );
+                                let emitted = messages.len();
+                                for msg in messages {
+                                    let _ = tx.send(msg);
+                                }
+
+                                if emitted > 0 {
+                                    log_event(
+                                        "broadcast",
+                                        &format!(
+                                            "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                            short_id(&session_id),
+                                            emitted,
+                                            summary
+                                        ),
+                                    );
+                                }
                             }
                         }
+                        Err(e) => eprintln!("Broadcast consumer error: {e}"),
                     }
-                    Err(e) => eprintln!("Broadcast consumer error: {e}"),
-                }
-            });
+                },
+                tracing::info_span!("consumer", actor = "broadcast"),
+            ));
         }
 
         // ── Actor 5: admin topology broadcaster (SICP stream-mux) ──
@@ -498,9 +518,8 @@ pub async fn run_server(
                         break; // broadcaster dropped
                     }
                     let frame = topology_rx.borrow_and_update().clone();
-                    let msg = crate::server::BroadcastMessage::AdminTopologyChanged {
-                        topology: frame,
-                    };
+                    let msg =
+                        crate::server::BroadcastMessage::AdminTopologyChanged { topology: frame };
                     let tx = push_state.read().await.broadcast_tx.clone();
                     let _ = tx.send(msg);
                 }

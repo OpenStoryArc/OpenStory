@@ -22,8 +22,8 @@ use open_story_bus::noop_bus::NoopBus;
 
 use std::sync::Arc;
 
-/// Full lifecycle: ingest → SQLite → API → restart → API.
-///
+// Full lifecycle: ingest → SQLite → API → restart → API.
+//
 // `synthetic_data_survives_full_lifecycle` retired — it asserted that
 // session rows written via `ingest_events` would survive a restart and
 // be visible in `event_store.list_sessions()` + `/api/sessions`.
