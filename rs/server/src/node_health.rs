@@ -75,6 +75,153 @@ pub fn watcher_detail(
         .collect()
 }
 
+// ── Verdict (M-01) ───────────────────────────────────────────────────────────
+
+/// Stream fill that warns, and the fill that is critical.
+pub const STREAM_WARN: f64 = 0.70;
+pub const STREAM_CRIT: f64 = 0.90;
+/// A watcher quiet this long warns, and this long is critical.
+pub const WATCHER_WARN_SECS: i64 = 300;
+pub const WATCHER_CRIT_SECS: i64 = 3600;
+
+fn rank(level: &str) -> u8 {
+    match level {
+        "critical" => 2,
+        "warn" => 1,
+        _ => 0,
+    }
+}
+
+fn finding(level: &str, id: String, text: String) -> Value {
+    json!({ "level": level, "id": id, "text": text })
+}
+
+/// The node's verdict from its own health body: `level` (ok, warn,
+/// critical) and `findings` worst first, each with a stable `id` a
+/// proposal can cite as evidence. The same rules as
+/// `scripts/node_health_probe.py` and the header dot, computed once here so
+/// every reader agrees. Pure.
+pub fn verdict(body: &Value) -> Value {
+    let mut findings: Vec<Value> = Vec::new();
+
+    if body["bus"]["connected"] == json!(false) {
+        findings.push(finding(
+            "critical",
+            "bus_disconnected".into(),
+            "the bus is not connected".into(),
+        ));
+    }
+    let leaf = &body["leaf"];
+    if leaf["configured"] == json!(true) && leaf["connected"] != json!(true) {
+        let hub = leaf["hub"].as_str().unwrap_or("the hub");
+        findings.push(finding(
+            "critical",
+            "leaf_down".into(),
+            format!("the leaf link to {hub} is not connected"),
+        ));
+    }
+    if let Some(phase) = body["boot"]["phase"].as_str() {
+        if phase != "serving" {
+            let r = &body["boot"]["replay"];
+            let text = match (r["done"].as_u64(), r["total"].as_u64()) {
+                (Some(d), Some(t)) if t > 0 => format!("replaying {d} of {t} sessions"),
+                _ => format!("the node is {phase}"),
+            };
+            findings.push(finding("warn", "replaying".into(), text));
+        }
+    }
+    if body["projections"]["fresh"] == json!(false) {
+        findings.push(finding(
+            "warn",
+            "projections_stale".into(),
+            format!(
+                "projections {} of {} sessions; run reproject",
+                body["projections"]["count"], body["projections"]["sessions"]
+            ),
+        ));
+    }
+    for s in body["streams"].as_array().into_iter().flatten() {
+        let name = s["name"].as_str().unwrap_or("?");
+        if let Some(pct) = s["percent"].as_f64() {
+            let level = if pct >= STREAM_CRIT {
+                "critical"
+            } else if pct >= STREAM_WARN {
+                "warn"
+            } else {
+                continue;
+            };
+            findings.push(finding(
+                level,
+                format!("stream_cap:{name}"),
+                format!("stream {name} is at {:.0}% of its cap", pct * 100.0),
+            ));
+        }
+    }
+    if let Some(consumers) = body["consumers"].as_object() {
+        let mut names: Vec<&String> = consumers.keys().collect();
+        names.sort();
+        for name in names {
+            let c = &consumers[name];
+            let restarts = c["restarts"].as_u64().unwrap_or(0);
+            if c["alive"] == json!(false) {
+                findings.push(finding(
+                    "critical",
+                    format!("consumer_dead:{name}"),
+                    format!("consumer {name} is not alive ({restarts} restarts)"),
+                ));
+            } else if restarts > 0 {
+                findings.push(finding(
+                    "warn",
+                    format!("consumer_restarted:{name}"),
+                    format!("consumer {name} restarted {restarts} times"),
+                ));
+            }
+        }
+    }
+    for w in body["watchers_detail"].as_array().into_iter().flatten() {
+        let actor = w["actor"].as_str().unwrap_or("?");
+        if let Some(age) = w["age_secs"].as_i64() {
+            let level = if age > WATCHER_CRIT_SECS {
+                Some("critical")
+            } else if age > WATCHER_WARN_SECS {
+                Some("warn")
+            } else {
+                None
+            };
+            if let Some(level) = level {
+                findings.push(finding(
+                    level,
+                    format!("watcher_quiet:{actor}"),
+                    format!("watcher {actor} last saw an event {age} s ago"),
+                ));
+            }
+        }
+        if let Some(n) = w["publish_failures"].as_u64().filter(|n| *n > 0) {
+            findings.push(finding(
+                "warn",
+                format!("publish_failures:{actor}"),
+                format!("watcher {actor} has {n} publish failures since boot"),
+            ));
+        }
+    }
+    if let Some(n) = body["presence"]["failures"].as_u64().filter(|n| *n > 0) {
+        let last = body["presence"]["last_error"].as_str().unwrap_or("");
+        findings.push(finding(
+            "warn",
+            "presence_failures".into(),
+            format!("{n} presence beats failed to publish; last: {last}"),
+        ));
+    }
+
+    findings.sort_by_key(|f| std::cmp::Reverse(rank(f["level"].as_str().unwrap_or("ok"))));
+    let level = findings
+        .iter()
+        .map(|f| f["level"].as_str().unwrap_or("ok"))
+        .max_by_key(|l| rank(l))
+        .unwrap_or("ok");
+    json!({ "level": level, "findings": findings })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

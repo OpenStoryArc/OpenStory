@@ -425,60 +425,60 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
-    (
-        status,
-        json!({
-            "status": if status == StatusCode::OK { "ok" } else { "starting" },
-            "host": open_story_core::host::host(),
-            "boot": boot,
-            "version": env!("CARGO_PKG_VERSION"),
-            // H-07: the change this node runs, and its body.
-            "git_sha": crate::node_health::git_sha(),
-            "built_at": crate::node_health::built_at(),
-            "data_dir": s.store.data_dir.to_string_lossy(),
-            "process": {
-                "pid": std::process::id(),
-                "rss_bytes": crate::node_health::process_rss_bytes(),
-                "uptime_secs": crate::node_health::uptime_secs(),
-            },
-            "store": {
-                "backend": s.config.data_backend.to_string(),
-                "sessions": sessions,
-                "size_bytes": crate::node_health::store_size_bytes(&s.store.data_dir),
-            },
-            // E-07: down as well when a managed NATS child has been seen to exit.
-            "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
-            "projections": {
-                "count": projections,
-                "sessions": sessions,
-                // count covers every session ⇒ the read model is rehydrated.
-                // Goes false when a restart leaves projections un-rebuilt for
-                // source-less sessions (run `reproject`).
-                "fresh": projections >= sessions,
-            },
-            "watchers": s.watcher_diagnostics.snapshots().len(),
-            // E-05: publish failures across all watchers since boot.
-            "publish_failures": s
-                .watcher_diagnostics
-                .snapshots()
-                .iter()
-                .map(|w| w.counters.publish_failures)
-                .sum::<u64>(),
-            // E-04: per-consumer supervision state (alive, restarts,
-            // last_restart, last_exit), from the supervisor's bookkeeping.
-            "consumers": crate::consumers::supervision::stats().snapshot(),
-            // H-04: per-stream bytes against the configured caps, from JetStream.
-            "streams": s.bus.stream_stats().await,
-            // P-06: the beat's own bookkeeping.
-            "presence": crate::presence::stats_json(s.config.presence_interval_secs),
-            // H-06: the leaf link and per-watcher detail.
-            "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
-            "watchers_detail": crate::node_health::watcher_detail(
-                &s.watcher_diagnostics.snapshots(),
-                chrono::Utc::now(),
-            ),
-        }),
-    )
+    let mut body = json!({
+        "status": if status == StatusCode::OK { "ok" } else { "starting" },
+        "host": open_story_core::host::host(),
+        "boot": boot,
+        "version": env!("CARGO_PKG_VERSION"),
+        // H-07: the change this node runs, and its body.
+        "git_sha": crate::node_health::git_sha(),
+        "built_at": crate::node_health::built_at(),
+        "data_dir": s.store.data_dir.to_string_lossy(),
+        "process": {
+            "pid": std::process::id(),
+            "rss_bytes": crate::node_health::process_rss_bytes(),
+            "uptime_secs": crate::node_health::uptime_secs(),
+        },
+        "store": {
+            "backend": s.config.data_backend.to_string(),
+            "sessions": sessions,
+            "size_bytes": crate::node_health::store_size_bytes(&s.store.data_dir),
+        },
+        // E-07: down as well when a managed NATS child has been seen to exit.
+        "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
+        "projections": {
+            "count": projections,
+            "sessions": sessions,
+            // count covers every session ⇒ the read model is rehydrated.
+            // Goes false when a restart leaves projections un-rebuilt for
+            // source-less sessions (run `reproject`).
+            "fresh": projections >= sessions,
+        },
+        "watchers": s.watcher_diagnostics.snapshots().len(),
+        // E-05: publish failures across all watchers since boot.
+        "publish_failures": s
+            .watcher_diagnostics
+            .snapshots()
+            .iter()
+            .map(|w| w.counters.publish_failures)
+            .sum::<u64>(),
+        // E-04: per-consumer supervision state (alive, restarts,
+        // last_restart, last_exit), from the supervisor's bookkeeping.
+        "consumers": crate::consumers::supervision::stats().snapshot(),
+        // H-04: per-stream bytes against the configured caps, from JetStream.
+        "streams": s.bus.stream_stats().await,
+        // P-06: the beat's own bookkeeping.
+        "presence": crate::presence::stats_json(s.config.presence_interval_secs),
+        // H-06: the leaf link and per-watcher detail.
+        "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
+        "watchers_detail": crate::node_health::watcher_detail(
+            &s.watcher_diagnostics.snapshots(),
+            chrono::Utc::now(),
+        ),
+    });
+    // M-01: the node's own verdict, from the body it just built.
+    body["verdict"] = crate::node_health::verdict(&body);
+    (status, body)
 }
 
 /// Per-session convergence digests — the shared primitive for network health
