@@ -17,7 +17,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OVERLAY="$REPO/deploy/k8s/overlays/a1"
 CONTEXT=""
-NAMESPACE="os-loop-smoke"
+NAMESPACE=""   # default: the overlay's own `namespace:`
 TIMEOUT="20m"
 LOCAL_PORT=3106
 KEEP=0
@@ -42,6 +42,11 @@ while [ $# -gt 0 ]; do
 done
 
 # ── pure helpers (tested) ────────────────────────────────────────────────────
+
+# The namespace an overlay pins (`namespace: …` in its kustomization.yaml).
+overlay_namespace() {
+  sed -n 's/^namespace:[[:space:]]*//p' "$1/kustomization.yaml" 2>/dev/null | head -1
+}
 
 # G-08: the loop only ever touches os-loop- namespaces.
 guard_namespace() {
@@ -70,14 +75,24 @@ self_test() {
   check '! guard_namespace kube-system 2>/dev/null' "when_namespace_is_kube_system_it_refuses"
   check '[ "$(CONTEXT= kctl)" = kubectl ]' "when_no_context_it_uses_the_current_one"
   check '[ "$(CONTEXT=a1 kctl)" = "kubectl --context a1" ]' "when_a_context_is_given_it_is_passed"
+  local d; d="$(mktemp -d)"; printf 'namespace: os-loop-a1\nresources: [x]\n' > "$d/kustomization.yaml"
+  check '[ "$(overlay_namespace "$d")" = os-loop-a1 ]' "when_the_overlay_pins_a_namespace_it_is_read"
+  check '[ -z "$(overlay_namespace /nonexistent)" ]' "when_there_is_no_overlay_the_namespace_is_empty"
+  rm -rf "$d"
   local out; out="$(DRY=1 run kubectl apply -k x)"
   check '[ "$out" = "would run: kubectl apply -k x" ]' "when_dry_run_it_prints_the_command"
-  if [ "$fails" = 0 ]; then echo "ok: 6 checks"; else echo "$fails check(s) failed" >&2; return 1; fi
+  if [ "$fails" = 0 ]; then echo "ok: 8 checks"; else echo "$fails check(s) failed" >&2; return 1; fi
 }
 
 # ── the smoke ────────────────────────────────────────────────────────────────
 
 smoke() {
+  local pinned; pinned="$(overlay_namespace "$OVERLAY")"
+  if [ -z "$NAMESPACE" ]; then NAMESPACE="$pinned"; fi
+  if [ -n "$pinned" ] && [ "$pinned" != "$NAMESPACE" ]; then
+    echo "the overlay pins namespace '$pinned'; pass --namespace $pinned or none" >&2
+    return 2
+  fi
   guard_namespace "$NAMESPACE"
   local k; k="$(kctl)"
   # shellcheck disable=SC2086
@@ -85,7 +100,7 @@ smoke() {
     run $k create namespace "$NAMESPACE"
   fi
   # shellcheck disable=SC2086
-  run $k apply -k "$OVERLAY" -n "$NAMESPACE"
+  run $k apply -k "$OVERLAY"
   # shellcheck disable=SC2086
   run $k rollout status deployment/openstory -n "$NAMESPACE" --timeout="$TIMEOUT"
 
