@@ -128,8 +128,8 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
 | M-05 | GREEN. `subscribe_health {}` streams health changes (verdict transitions and any finding added or cleared) as notifications. | `…::when_health_flips_to_critical::it_notifies_once` |
 | M-06 | Tier 1 hands `node_reproject {session_id}`, `node_verify {session_id}`, `node_catch_up {since}`, `node_prune {older_than_days}` publish an `ops.proposal.<hand>` CloudEvent with `author`, `evidence` (finding ids), and `idempotency_key`, then call the matching REST endpoint; the server records `ops.command.<hand>` with the result. | `…::when_node_reproject_is_called::it_publishes_proposal_then_command` |
 | M-07 | Tier 1 hands are refused with a clear error while `boot.phase != serving`. | `…::when_replaying::tier_one_hands_refuse` |
-| M-08 | The MCP can publish only subjects in `ops.proposal.>` and `ui.>`; a test enumerates every publish call in `rs/mcp` and asserts the prefix. | `…::when_mcp_publishes::it_only_touches_authored_subjects` |
-| M-09 | `openstory_help` and the hands resource document the ops motions (`watch`, `diagnose`, `propose`) with the tier rule stated in one sentence. | `rs/mcp` instructions test (existing pattern) |
+| M-08 | GREEN. The MCP can publish only subjects in `ops.proposal.>` and `ui.>`; a test enumerates every publish call in `rs/mcp` and asserts the prefix. | `…::when_mcp_publishes::it_only_touches_authored_subjects` |
+| M-09 | GREEN. `openstory_help` and the hands resource document the ops motions (`watch`, `diagnose`, `propose`) with the tier rule stated in one sentence. | `rs/mcp` instructions test (existing pattern) |
 
 ## K · Kubernetes shape
 
@@ -358,3 +358,19 @@ Status vocabulary: `TODO` (no test yet), `RED` (test written, failing), `GREEN`
   now cargo's exit under pipefail. Owner must decide: OTLP export and
   its dependency tree (O-02); PR #46 closure (O-05). Next: O-04 (the
   "Node" dashboard and a check_docs check on its metric names).
+- **2026-09-24 02:50 local.** O-04 GREEN (the "Node" dashboard from
+  `scripts/build_node_dashboard.py`, the March pipeline dashboard
+  retired, `check_docs.py` now verifies every dashboard metric exists
+  and that Node queries the five gauges); O-05 marked OWNER. M-01 to
+  M-05, M-08, M-09 GREEN: the node computes its verdict once
+  (`node_health::verdict`, finding ids as evidence) and the MCP's tier-0
+  hands relay it (`node_health`, `node_logs`, `node_streams`,
+  `fleet_presence`, `subscribe_health` streaming transitions only); the
+  publish-lane scan reads the crate's own source; instructions, help
+  cards, and the hands curriculum carry watch, diagnose, propose, and
+  the tier rule. Correction this hour: the MCP crate had not compiled
+  since P-02 (its HTTP store lacked the presence methods); fixed, and
+  the gate for any trait change now builds `-p open-story-mcp`. Owner
+  must decide: nothing new. Next: M-06 and M-07 (tier-1 hands need
+  four new REST endpoints plus the proposal and command events), then
+  D from presence history; K needs the a1 cluster and is last.

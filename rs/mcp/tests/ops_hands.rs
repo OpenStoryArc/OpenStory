@@ -484,6 +484,10 @@ mod when_mcp_publishes {
             sites.extend(publish_sites(&src, &rel));
         }
         let v = violations(&sites);
-        assert!(v.is_empty(), "MCP publishes outside its lane:\n{}", v.join("\n"));
+        assert!(
+            v.is_empty(),
+            "MCP publishes outside its lane:\n{}",
+            v.join("\n")
+        );
     }
 }
