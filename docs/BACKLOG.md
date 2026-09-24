@@ -62,6 +62,13 @@ and send a `{kind: "lagged", skipped: n}` frame instead of swallowing it. Why:
 the oldest open pain here is silent state mismatch, including the stream-cap
 wedge that three open PRs (#95, #97, #98) are guessing at.
 
+**Research (2026-09-23):** `docs/research/openstory-as-node/2026-09-23-openstory-as-node.md`
+frames the instance as an actor-shaped node and names four day-sized experiments
+that feed this item: a health probe script, an agent-payload tolerance test for
+`agent: "openactor"`, a static audit of subject publishers, and a testcontainers
+stream-cap wedge test. The three-tier line (read; derived state; substance held
+by a human credential) is the doctrine this item should implement.
+
 Retires or advances: "Self-reporting `/api/health` endpoint (silent-state-mismatch detector)"; "WebSocket Lagged Notification (WS walk F-1)"; "HOTFIX: Redact NATS token from startup logs"; "Unify the interaction/control seam onto NATS" (the resumable fan-out).
 
 ### Notes in the margin
