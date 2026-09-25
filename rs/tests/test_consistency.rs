@@ -21,7 +21,7 @@ use helpers::{body_json, make_event, send_request, test_state};
 use open_story::server::SharedState;
 use open_story_server::fleet::{digest_event_ids, rollup, PlacedDigest};
 use open_story_store::event_store::SessionRow;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn ids(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
@@ -274,5 +274,248 @@ mod when_the_node_beats {
             "{}",
             health["rollup"]
         );
+    }
+}
+
+// ── C-03: the report, pure ─────────────────────────────────────────────────
+//
+// `consistency::report(local, peers, interval_secs)` reads snapshots taken
+// from health and presence bodies and answers in the verdict's shape:
+// `{level, findings: [{id, level, text}]}`, so the header dot, the probe,
+// and an agent read it the way they read health.
+
+mod when_the_report_is_computed {
+    use super::*;
+    use open_story_server::consistency::{report, Snapshot};
+
+    fn snap(host: &str, digests: &[PlacedDigest]) -> Snapshot {
+        Snapshot {
+            host: host.to_string(),
+            rollup: Some(rollup(digests)),
+            ..Snapshot::default()
+        }
+    }
+
+    fn finding_ids(v: &Value) -> Vec<String> {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    fn finding<'a>(v: &'a Value, id: &str) -> &'a Value {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["id"] == id)
+            .unwrap_or_else(|| panic!("finding {id} in {v}"))
+    }
+
+    #[test]
+    fn it_is_all_clear_when_sets_and_watermarks_agree() {
+        let mut local = snap("node-a", &fleet());
+        local.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        let mut peer = snap("node-b", &fleet());
+        peer.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        let v = report(&local, &[peer], 15);
+        assert_eq!(v["level"], "ok", "{v}");
+        assert_eq!(v["findings"], json!([]));
+        assert_eq!(v["host"], "node-a");
+        assert_eq!(v["peers"][0]["host"], "node-b");
+        assert_eq!(v["peers"][0]["compared"], true);
+        assert_eq!(v["peers"][0]["differing_projects"], 0);
+    }
+
+    #[test]
+    fn it_names_diverged_hosts_with_project_counts() {
+        let local = snap("node-a", &fleet());
+        let mut grown = fleet();
+        grown[1] = placed("node-a", "proj-1", "s2", &["e3", "e3b"]);
+        let one_off = snap("node-b", &grown);
+        let v = report(&local, &[one_off], 15);
+        assert_eq!(finding_ids(&v), ["diverged:node-b"], "{v}");
+        let f = finding(&v, "diverged:node-b");
+        assert_eq!(f["level"], "warn", "one project apart is warn: {f}");
+        assert!(f["text"].as_str().unwrap().contains("1 project"), "{f}");
+        assert_eq!(v["level"], "warn");
+        assert_eq!(v["peers"][0]["differing_projects"], 1);
+
+        // Past the threshold it is critical: every project differs.
+        let other: Vec<PlacedDigest> = fleet()
+            .into_iter()
+            .map(|mut d| {
+                d.digest = digest_event_ids(&ids(&["elsewhere"]));
+                d
+            })
+            .collect();
+        let mut far = other;
+        far.push(placed("node-c", "proj-9", "s9", &["e9"]));
+        far.push(placed("node-c", "proj-8", "s8", &["e8"]));
+        let v = report(&local, &[snap("node-b", &far)], 15);
+        let f = finding(&v, "diverged:node-b");
+        assert_eq!(f["level"], "critical", "{f}");
+        assert!(f["text"].as_str().unwrap().contains("5 project"), "{f}");
+        assert_eq!(v["level"], "critical");
+
+        // A peer with no roll-up (an older build) is not compared, and says so.
+        let mut bare = snap("node-d", &fleet());
+        bare.rollup = None;
+        let v = report(&local, &[bare], 15);
+        assert_eq!(v["findings"], json!([]), "nothing to compare, nothing claimed");
+        assert_eq!(v["peers"][0]["compared"], false);
+    }
+
+    #[test]
+    fn it_names_a_peer_behind_us_with_the_gap() {
+        let mut local = snap("node-a", &fleet());
+        local.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        let mut behind = snap("node-b", &fleet());
+        behind.watermarks.insert("node-a".into(), "2026-09-25T09:58:00.000Z".into());
+        let v = report(&local, &[behind], 15);
+        assert_eq!(finding_ids(&v), ["behind:node-b"], "{v}");
+        let f = finding(&v, "behind:node-b");
+        assert_eq!(f["level"], "warn");
+        assert!(f["text"].as_str().unwrap().contains("120 s"), "{f}");
+
+        // Within two beats is the ordinary lag of a 15 s beat, not a finding.
+        let mut close = snap("node-b", &fleet());
+        close.watermarks.insert("node-a".into(), "2026-09-25T09:59:45.000Z".into());
+        let v = report(&local, &[close], 15);
+        assert_eq!(v["findings"], json!([]), "{v}");
+
+        // A peer that has never seen us is not behind, it is unknown.
+        let never = snap("node-b", &fleet());
+        let v = report(&local, &[never], 15);
+        assert_eq!(v["findings"], json!([]), "{v}");
+    }
+
+    #[test]
+    fn it_flags_consumer_lag_past_one_batch() {
+        let mut local = snap("node-a", &fleet());
+        local.consumers.insert("persist".into(), 5);
+        local.consumers.insert("patterns".into(), 1);
+        let v = report(&local, &[], 15);
+        assert_eq!(finding_ids(&v), ["lag:persist"], "{v}");
+        let f = finding(&v, "lag:persist");
+        assert_eq!(f["level"], "warn");
+        assert!(f["text"].as_str().unwrap().contains("5 batches"), "{f}");
+    }
+
+    #[test]
+    fn it_flags_unverified_as_critical() {
+        let mut local = snap("node-a", &fleet());
+        local.verify = Some(json!({"agree": false, "fts_unindexed": 3, "session_id": "s1"}));
+        let v = report(&local, &[], 15);
+        assert_eq!(finding_ids(&v), ["unverified"], "{v}");
+        assert_eq!(finding(&v, "unverified")["level"], "critical");
+        assert_eq!(v["level"], "critical");
+
+        let mut local = snap("node-a", &fleet());
+        local.verify = Some(json!({"agree": true, "fts_unindexed": 0}));
+        assert_eq!(report(&local, &[], 15)["findings"], json!([]));
+    }
+
+    #[test]
+    fn it_flags_a_stale_peer_and_ranks_worst_first() {
+        let local = snap("node-a", &fleet());
+        let mut stale = snap("node-b", &fleet());
+        stale.stale = true;
+        stale.age_secs = Some(600);
+        let mut local_bad = local.clone();
+        local_bad.verify = Some(json!({"agree": false}));
+        let v = report(&local_bad, &[stale], 15);
+        assert_eq!(finding_ids(&v), ["unverified", "stale_snapshot:node-b"], "{v}");
+        let f = finding(&v, "stale_snapshot:node-b");
+        assert_eq!(f["level"], "warn");
+        assert!(f["text"].as_str().unwrap().contains("600 s"), "{f}");
+    }
+
+    #[test]
+    fn it_reads_snapshots_from_health_and_presence_bodies() {
+        let r = rollup(&fleet());
+        let health = json!({
+            "host": "node-a",
+            "rollup": serde_json::to_value(&r).unwrap(),
+            "watermarks": {"node-a": "2026-09-25T10:00:00.000Z"},
+            "verify": {"agree": true, "fts_unindexed": 0},
+            "consumers": {"persist": {"alive": true, "restarts": 0, "lag": 4}},
+        });
+        let s = Snapshot::from_health(&health);
+        assert_eq!(s.host, "node-a");
+        assert_eq!(s.rollup.as_ref().unwrap().digest, r.digest);
+        assert_eq!(s.watermarks["node-a"], "2026-09-25T10:00:00.000Z");
+        assert_eq!(s.verify.as_ref().unwrap()["agree"], true);
+        assert_eq!(s.consumers["persist"], 4);
+        assert!(!s.stale);
+
+        let node = json!({
+            "host": "node-b", "age_secs": 700, "stale": true,
+            "body": {"host": "node-b", "rollup": serde_json::to_value(&r).unwrap()},
+        });
+        let p = Snapshot::from_presence(&node);
+        assert_eq!(p.host, "node-b");
+        assert!(p.stale);
+        assert_eq!(p.age_secs, Some(700));
+        assert_eq!(p.rollup.as_ref().unwrap().digest, r.digest);
+    }
+}
+
+mod when_consistency_is_read {
+    use super::*;
+    use open_story_store::event_store::PresenceRow;
+
+    #[tokio::test]
+    async fn it_reports_against_every_other_beat() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        let me = open_story_core::host::host();
+        seed_placed(&state, me, "proj-1", "sess-1", 2).await;
+
+        // Alone: all clear.
+        let (status, body) = get(&state, "/api/consistency").await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["level"], "ok", "{body}");
+        assert_eq!(body["host"], me);
+        assert_eq!(body["findings"], json!([]));
+
+        // A peer whose beat carries a different roll-up, and our own beat
+        // (which is never a peer).
+        let store = state.read().await.store.event_store.clone();
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let other = rollup(&[placed("node-b", "proj-1", "sess-b", &["x"])]);
+        for (host, r) in [("node-b", other), (me, rollup(&[]))] {
+            store
+                .upsert_presence(&PresenceRow {
+                    host: host.to_string(),
+                    principal_id: "dev".into(),
+                    person_id: None,
+                    time: now.clone(),
+                    body: json!({"host": host, "rollup": serde_json::to_value(&r).unwrap()}),
+                })
+                .await
+                .unwrap();
+        }
+        let (_, body) = get(&state, "/api/consistency").await;
+        assert_eq!(body["level"], "warn", "{body}");
+        let ids: Vec<&str> = body["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["diverged:node-b"], "{body}");
+        let f = &body["findings"][0];
+        assert_eq!(f["level"], "warn");
+        assert!(f["text"].as_str().unwrap().contains("node-b"), "{f}");
+        let peers: Vec<&str> = body["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["host"].as_str().unwrap())
+            .collect();
+        assert_eq!(peers, ["node-b"], "our own beat is not a peer: {body}");
     }
 }

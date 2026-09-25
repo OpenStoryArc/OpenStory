@@ -47,9 +47,24 @@ fn health_body() -> Value {
     })
 }
 
+/// What /api/consistency serves (C-03): the report in the verdict's shape.
+fn consistency_body() -> Value {
+    json!({
+        "host": "node-a",
+        "level": "warn",
+        "findings": [
+            {"id": "diverged:node-b", "level": "warn", "text": "node-b differs on 1 project of 3"}
+        ],
+        "peers": [
+            {"host": "node-b", "compared": true, "differing_projects": 1, "stale": false}
+        ]
+    })
+}
+
 fn mock_router() -> Router {
     Router::new()
         .route("/api/health", get(|| async { Json(health_body()) }))
+        .route("/api/consistency", get(|| async { Json(consistency_body()) }))
         // Echoes its query so a spec can see which filters the hand passed.
         .route(
             "/api/logs",
@@ -710,5 +725,41 @@ mod when_node_reproject_is_called {
                 );
             }
         }
+    }
+}
+
+/// C-03: `consistency_report {}` (tier 0) reads `/api/consistency` and
+/// returns the report in the verdict's shape, findings ranked worst first.
+mod when_consistency_report_is_called {
+    use super::*;
+
+    #[tokio::test]
+    async fn it_returns_findings_in_the_verdict_shape() {
+        let (server, _dir) = server_against_mock().await;
+        let resp = call_tool(server, "consistency_report", json!({})).await;
+        let v = unwrap_tool_result(&resp).expect("consistency_report succeeds");
+        assert_eq!(v["level"], "warn", "{v}");
+        assert_eq!(v["host"], "node-a");
+        let f = &v["findings"][0];
+        assert_eq!(f["id"], "diverged:node-b");
+        assert_eq!(f["level"], "warn");
+        assert!(f["text"].as_str().unwrap().contains("1 project"), "{f}");
+        assert_eq!(v["peers"][0]["host"], "node-b");
+        assert_eq!(v["peers"][0]["differing_projects"], 1);
+    }
+
+    #[test]
+    fn it_is_registered_under_diagnose_and_names_its_finding_ids() {
+        let def = open_story_mcp::tools::TOOLS
+            .iter()
+            .find(|t| t.name == "consistency_report")
+            .expect("consistency_report registered");
+        assert!(def.description.contains("MOTION: diagnose"), "{}", def.description);
+        for id in ["diverged:", "behind:", "lag:", "unverified", "stale_snapshot:"] {
+            assert!(def.description.contains(id), "names {id}: {}", def.description);
+        }
+        let schema = (def.input_schema)();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"], json!({}), "takes nothing: {schema}");
     }
 }
