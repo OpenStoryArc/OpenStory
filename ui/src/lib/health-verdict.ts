@@ -20,6 +20,8 @@ interface Stream {
 }
 interface Consumer {
   readonly alive: boolean;
+  /** B-05: `pending_start` while held until the node serves. */
+  readonly state?: string;
   readonly restarts: number;
   readonly lag?: number;
   readonly last_restart?: string | null;
@@ -63,8 +65,12 @@ export function verdictFor(h: HealthBody): Verdict {
     if (s.percent >= 0.9) critical.push(`stream ${s.name} at ${pct}% of its cap`);
     else if (s.percent >= 0.7) warn.push(`stream ${s.name} at ${pct}% of its cap`);
   }
+  const serving = !h.boot?.phase || h.boot.phase === "serving";
   for (const [name, c] of Object.entries(h.consumers ?? {})) {
-    if (!c.alive) critical.push(`consumer ${name} is not alive (${c.restarts} restarts)`);
+    if (c.state === "pending_start") {
+      // Held until the node serves: not dead. Still pending once serving is worth a look.
+      if (serving) warn.push(`consumer ${name} has not started yet`);
+    } else if (!c.alive) critical.push(`consumer ${name} is not alive (${c.restarts} restarts)`);
     else if (c.restarts > 0) warn.push(`consumer ${name} restarted ${c.restarts} times`);
   }
   for (const w of h.watchers_detail ?? []) {

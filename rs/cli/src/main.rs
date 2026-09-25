@@ -600,6 +600,9 @@ async fn main() -> Result<()> {
             if let Ok(v) = std::env::var("OPEN_STORY_LOG_FORMAT") {
                 config.log_format = v;
             }
+            if let Ok(v) = std::env::var("OPEN_STORY_CONSUMERS_START") {
+                config.consumers_start = v;
+            }
             // Structured logging (L-01): text for a terminal, JSON lines for
             // agents and collectors. RUST_LOG filters; default info.
             let log_format: open_story_server::logging::LogFormat = config

@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex};
 use axum::body::Body;
 use axum::http::Request;
 use helpers::{body_json, send_request, test_state};
+use open_story::server::Config;
 use open_story_server::boot::{self, ConsumersStart};
 use open_story_server::consumers::supervision::supervise_after;
-use open_story::server::Config;
 
 /// The boot phase is process-wide; the specs that move it must not overlap.
 fn serial() -> std::sync::MutexGuard<'static, ()> {
@@ -66,7 +66,10 @@ mod when_the_mode_is_configured {
         let path = tmp.path().join("config.toml");
         std::fs::write(&path, "consumers_start = \"boot\"\n").unwrap();
         assert_eq!(Config::from_file(&path).consumers_start, "boot");
-        assert_eq!("serving".parse::<ConsumersStart>(), Ok(ConsumersStart::Serving));
+        assert_eq!(
+            "serving".parse::<ConsumersStart>(),
+            Ok(ConsumersStart::Serving)
+        );
         assert_eq!("boot".parse::<ConsumersStart>(), Ok(ConsumersStart::Boot));
         assert!(
             "later".parse::<ConsumersStart>().is_err(),
@@ -103,7 +106,11 @@ mod when_consumers_start_at_serving {
 
         boot::set_serving();
         settle().await;
-        assert_eq!(starts.load(Ordering::SeqCst), 1, "started once the node serves");
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            1,
+            "started once the node serves"
+        );
         let running = consumer_state(&state, "b05-held").await;
         assert_eq!(running["state"], "running", "{running}");
         assert_eq!(running["alive"], true);
@@ -135,7 +142,6 @@ mod when_consumers_start_at_boot {
 }
 
 mod when_the_verdict_sees_a_pending_consumer {
-    use super::*;
     use open_story_server::node_health::verdict;
     use serde_json::json;
 
@@ -168,7 +174,8 @@ mod when_the_verdict_sees_a_pending_consumer {
 
         let mut serving = body.clone();
         serving["boot"]["phase"] = json!("serving");
-        serving["consumers"]["patterns"] = json!({"alive": true, "state": "running", "restarts": 0, "lag": 0});
+        serving["consumers"]["patterns"] =
+            json!({"alive": true, "state": "running", "restarts": 0, "lag": 0});
         let v = verdict(&serving);
         assert_eq!(ids(&v), ["consumer_pending:persist"], "{v}");
         assert_eq!(

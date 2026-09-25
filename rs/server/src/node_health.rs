@@ -157,13 +157,26 @@ pub fn verdict(body: &Value) -> Value {
             ));
         }
     }
+    let serving = body["boot"]["phase"]
+        .as_str()
+        .is_none_or(|p| p == "serving");
     if let Some(consumers) = body["consumers"].as_object() {
         let mut names: Vec<&String> = consumers.keys().collect();
         names.sort();
         for name in names {
             let c = &consumers[name];
             let restarts = c["restarts"].as_u64().unwrap_or(0);
-            if c["alive"] == json!(false) {
+            if c["state"] == json!("pending_start") {
+                // B-05: held until the node serves; not dead. Still pending
+                // once it serves is worth a look.
+                if serving {
+                    findings.push(finding(
+                        "warn",
+                        format!("consumer_pending:{name}"),
+                        format!("consumer {name} has not started yet"),
+                    ));
+                }
+            } else if c["alive"] == json!(false) {
                 findings.push(finding(
                     "critical",
                     format!("consumer_dead:{name}"),

@@ -39,9 +39,60 @@ static STATE: Mutex<BootState> = Mutex::new(BootState {
     },
 });
 
+/// The serving flag as a watch channel, so a task can wait for the phase
+/// to flip without polling (B-05: consumers hold until serving). Starts
+/// true because the default phase is serving.
+fn serving_tx() -> &'static tokio::sync::watch::Sender<bool> {
+    static TX: std::sync::OnceLock<tokio::sync::watch::Sender<bool>> = std::sync::OnceLock::new();
+    TX.get_or_init(|| tokio::sync::watch::channel(true).0)
+}
+
 fn update(f: impl FnOnce(&mut BootState)) {
     let mut g = STATE.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut g);
+    serving_tx().send_replace(g.phase == Phase::Serving);
+}
+
+/// Resolves once the node serves; at once when it already does.
+pub async fn wait_for_serving() {
+    let mut rx = serving_tx().subscribe();
+    // The sender is static and never dropped, so this cannot fail; if it
+    // ever did, holding a consumer forever would be the wrong answer.
+    let _ = rx.wait_for(|serving| *serving).await;
+}
+
+/// When the consumer actors may subscribe (B-05): at `serving` (the
+/// default — replay finishes with the store's heap alone, then the
+/// actors drain their backlog) or at `boot` (today's behaviour, both at
+/// once). Config `consumers_start`, env `OPEN_STORY_CONSUMERS_START`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsumersStart {
+    Serving,
+    Boot,
+}
+
+impl std::str::FromStr for ConsumersStart {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "serving" => Ok(ConsumersStart::Serving),
+            "boot" => Ok(ConsumersStart::Boot),
+            other => Err(format!(
+                "consumers_start must be \"serving\" or \"boot\", got \"{other}\""
+            )),
+        }
+    }
+}
+
+/// The future a supervisor awaits before its first run: ready now for
+/// `Boot`, the serving flip for `Serving`.
+pub fn consumer_gate(
+    mode: ConsumersStart,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    match mode {
+        ConsumersStart::Boot => Box::pin(std::future::ready(())),
+        ConsumersStart::Serving => Box::pin(wait_for_serving()),
+    }
 }
 
 /// The process has started and has not begun replay yet.
