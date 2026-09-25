@@ -128,7 +128,7 @@ OPS (the node you are reading from; ", tier_rule!(), "):
   diagnose     node_health (verdict + finding ids) → node_logs {actor} | node_streams
                consistency_report (this node against every peer's beat: diverged:<host>, behind:<host>, \
 lag:<consumer>, unverified, stale_snapshot:<host>)
-  propose      tier 1: node_reproject | node_verify | node_catch_up | node_prune → ops.proposal.<hand> \
+  propose      tier 1: node_reproject | node_verify | node_catch_up | node_prune | node_converge → ops.proposal.<hand> \
 with evidence ids (finding ids); tier 2 (restart_consumer, resize_stream, restart_nats, restart_node) \
 is a proposal only
 

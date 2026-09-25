@@ -427,9 +427,15 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
     } else {
         StatusCode::SERVICE_UNAVAILABLE
     };
+    let api_url = match s.config.advertise_url.trim().trim_end_matches('/') {
+        "" => Value::Null,
+        u => Value::String(u.to_string()),
+    };
     let mut body = json!({
         "status": if status == StatusCode::OK { "ok" } else { "starting" },
         "host": open_story_core::host::host(),
+        // C-05: where peers can reach this API, when advertised.
+        "api_url": api_url,
         "boot": boot,
         "version": env!("CARGO_PKG_VERSION"),
         // H-07: the change this node runs, and its body.
@@ -502,7 +508,9 @@ pub async fn session_digests(
 ) -> Result<Json<Value>, StatusCode> {
     let store = state.read().await.store.event_store.clone();
     let placed = crate::catch_up::placed_digests(&store).await;
-    let mut body = json!({ "sessions": crate::catch_up::session_digests(&placed) });
+    // Each row carries its placement (host, project) so a peer's catch-up
+    // can land the session under the same project it holds here.
+    let mut body = json!({ "sessions": placed });
     if q.get("rollup").is_some_and(|v| v == "1" || v == "true") {
         body["rollup"] = serde_json::to_value(crate::fleet::rollup(&placed)).unwrap_or(Value::Null);
     }

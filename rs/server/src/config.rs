@@ -309,6 +309,12 @@ pub struct Config {
     pub trace_sample_rate: f64,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
+    /// The URL peers can reach this node's API on (C-05), carried on the
+    /// health body and the presence beat as `api_url` so a peer's converge
+    /// can find us without configuration. Empty means unadvertised: the
+    /// node is still reported by presence, never attempted. Env:
+    /// `OPEN_STORY_ADVERTISE_URL`.
+    pub advertise_url: String,
 
     // ── person ──
     /// Person + fleet identity for stamping events with `person_id` and
@@ -417,6 +423,7 @@ impl Default for Config {
             presence_interval_secs: 15,
             trace_sample_rate: 0.01,
             retention_days: 0,
+            advertise_url: String::new(),
             person: None,
         }
     }
@@ -641,6 +648,11 @@ impl Config {
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
 # retention_days = 0
+
+# The URL peers can reach this node's API on; carried on the presence beat
+# so a peer's converge can find us. Empty = unadvertised (reported, never
+# attempted).
+# advertise_url = ""
 
 # ── Person ──
 # OpenStory's identity model — your sovereign self plus the fleet of
@@ -928,6 +940,7 @@ mod tests {
             presence_interval_secs: 15,
             trace_sample_rate: 0.01,
             retention_days: 90,
+            advertise_url: String::new(),
             person: None,
         };
         let toml_str = toml::to_string(&config).unwrap();

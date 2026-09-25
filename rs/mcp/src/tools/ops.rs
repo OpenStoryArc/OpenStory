@@ -236,6 +236,15 @@ pub fn node_catch_up_schema() -> Value {
         json!({"peer": {"type": "string", "description": "Peer base URL; the node's configured peer when absent"}}),
     )
 }
+pub fn node_converge_schema() -> Value {
+    tier_one_schema(
+        &[],
+        json!({
+            "peers": {"type": "array", "items": {"type": "string"}, "description": "Peer base URLs; when absent, the configured catch-up peer, else every beat that advertises an api_url"},
+            "max_rounds": {"type": "integer", "minimum": 1, "description": "Rounds before giving up (server default 3)"}
+        }),
+    )
+}
 pub fn node_prune_schema() -> Value {
     tier_one_schema(
         &["older_than_days"],

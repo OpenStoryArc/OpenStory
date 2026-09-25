@@ -117,6 +117,7 @@ pub async fn run_hand(state: &SharedState, hand: &str, body: Value) -> (StatusCo
                 "older_than_days must be at least 1".to_string(),
             )),
         },
+        "converge" => converge(state, &body).await,
         _ => unreachable!("hand checked above"),
     };
     let result = match outcome {
@@ -229,6 +230,239 @@ async fn catch_up(state: &SharedState, peer: &str) -> Value {
     let client = reqwest::Client::new();
     let healed = crate::catch_up::catch_up_once(&store, &bus, peer, &client).await;
     json!({ "peer": peer, "healed": healed })
+}
+
+// ── Converge (consistency C-05) ─────────────────────────────────────────────
+
+/// Rounds a converge run makes before it stops, unless told otherwise.
+pub const CONVERGE_MAX_ROUNDS: u64 = 3;
+/// How long a round waits after re-injecting for the consumers to persist
+/// (eventual consistency: the bus hands the batch to the persist actor).
+pub const CONVERGE_SETTLE_MS: u64 = 250;
+
+/// The peers a converge run attempts, and the ones it can only report.
+/// Given peers win; then the configured catch-up peer; then every other
+/// node's beat that advertises an `api_url`. A beat without one is known
+/// by host but not reachable, so it is listed under `unknown`.
+async fn converge_peers(state: &SharedState, body: &Value) -> (Vec<String>, Vec<String>) {
+    let given = strings(&body["peers"]);
+    if !given.is_empty() {
+        return (given, vec![]);
+    }
+    if let Some(p) = std::env::var("OPEN_STORY_CATCH_UP_PEER")
+        .ok()
+        .filter(|p| !p.trim().is_empty())
+    {
+        return (vec![p], vec![]);
+    }
+    let store = state.read().await.store.event_store.clone();
+    let me = open_story_core::host::host();
+    let mut peers = Vec::new();
+    let mut unknown = Vec::new();
+    for row in store.latest_presence().await.unwrap_or_default() {
+        if row.host == me {
+            continue;
+        }
+        match row.body["api_url"]
+            .as_str()
+            .filter(|u| !u.trim().is_empty())
+        {
+            Some(url) => peers.push(url.trim_end_matches('/').to_string()),
+            None => unknown.push(row.host.clone()),
+        }
+    }
+    peers.sort();
+    peers.dedup();
+    unknown.sort();
+    (peers, unknown)
+}
+
+/// Rebuild the projection of every session that has none resident.
+async fn reproject_stale(state: &SharedState) -> usize {
+    let s = state.read().await;
+    let rows = s
+        .store
+        .event_store
+        .list_sessions()
+        .await
+        .unwrap_or_default();
+    let mut n = 0;
+    for row in rows {
+        if s.store.projections.get(&row.id).is_some() {
+            continue;
+        }
+        if let Some(proj) =
+            open_story_store::rebuild::rebuild_session(s.store.event_store.as_ref(), &row.id).await
+        {
+            s.store.projections.insert(row.id.clone(), proj);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Do the store and the JSONL backup agree on each of `sessions`?
+async fn verify_sessions(state: &SharedState, sessions: &[String]) -> Value {
+    let (store, data_dir) = {
+        let s = state.read().await;
+        (s.store.event_store.clone(), s.store.data_dir.clone())
+    };
+    let jsonl = open_story_store::persistence::SessionStore::new(&data_dir).ok();
+    let mut disagreeing = Vec::new();
+    for sid in sessions {
+        let in_store = store
+            .session_event_ids(sid)
+            .await
+            .map(|v| v.len())
+            .unwrap_or(0);
+        let in_jsonl = jsonl
+            .as_ref()
+            .map(|j| j.load_session(sid).len())
+            .unwrap_or(0);
+        if in_store != in_jsonl {
+            disagreeing.push(
+                json!({"session_id": sid, "store_events": in_store, "jsonl_lines": in_jsonl}),
+            );
+        }
+    }
+    json!({
+        "checked": sessions.len(),
+        "agree": disagreeing.is_empty(),
+        "disagreeing": disagreeing,
+    })
+}
+
+/// A peer's root digest, if it serves one.
+async fn peer_rollup_digest(client: &reqwest::Client, peer: &str) -> Option<String> {
+    let body: Value = client
+        .get(format!("{peer}/api/digests?rollup=1"))
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    body["rollup"]["digest"].as_str().map(str::to_string)
+}
+
+/// Converge: for each round, reproject what is stale, catch up against
+/// every reachable peer (a union through the existing catch-up path),
+/// prune per retention, settle, verify what moved; stop when verify agrees
+/// and the roll-up matches every reachable peer, or when a round changed
+/// nothing. Never writes an event body.
+async fn converge(state: &SharedState, body: &Value) -> Result<Value, (StatusCode, String)> {
+    let (peers, unknown) = converge_peers(state, body).await;
+    if peers.is_empty() {
+        let known = if unknown.is_empty() {
+            String::new()
+        } else {
+            format!(" (present but unadvertised: {})", unknown.join(", "))
+        };
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "no peer: pass `peers`, set OPEN_STORY_CATCH_UP_PEER, or let peers set advertise_url{known}"
+            ),
+        ));
+    }
+    let max_rounds = body["max_rounds"]
+        .as_u64()
+        .filter(|n| *n >= 1)
+        .unwrap_or(CONVERGE_MAX_ROUNDS);
+    let settle_ms = body["settle_ms"].as_u64().unwrap_or(CONVERGE_SETTLE_MS);
+    let (store, bus, retention_days) = {
+        let s = state.read().await;
+        (
+            s.store.event_store.clone(),
+            s.bus.clone(),
+            s.config.retention_days,
+        )
+    };
+    let client = reqwest::Client::new();
+
+    let mut rounds = Vec::new();
+    let mut touched: Vec<String> = Vec::new();
+    let mut last_reports: HashMap<String, crate::catch_up::CatchUpReport> = HashMap::new();
+    let mut last_match: HashMap<String, Option<bool>> = HashMap::new();
+    let mut converged = false;
+    let mut changed = false;
+    for round in 1..=max_rounds {
+        let reprojected = reproject_stale(state).await;
+        let mut healed = serde_json::Map::new();
+        let mut pulled_events = 0usize;
+        for peer in &peers {
+            let r = crate::catch_up::catch_up_report(&store, &bus, peer, &client).await;
+            pulled_events += r.pulled_events;
+            for sid in &r.healed_sessions {
+                if !touched.contains(sid) {
+                    touched.push(sid.clone());
+                }
+            }
+            healed.insert(peer.clone(), json!(r.healed));
+            last_reports.insert(peer.clone(), r);
+        }
+        let deleted = if retention_days > 0 {
+            store
+                .cleanup_old_sessions(retention_days, Some(open_story_core::host::host()))
+                .await
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let round_changed = reprojected > 0 || pulled_events > 0 || deleted > 0;
+        changed |= round_changed;
+        if round_changed && settle_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(settle_ms)).await;
+        }
+        let verify = verify_sessions(state, &touched).await;
+
+        let mine = crate::fleet::rollup(&crate::catch_up::placed_digests(&store).await).digest;
+        let mut all_match = true;
+        for peer in &peers {
+            let theirs = peer_rollup_digest(&client, peer).await;
+            let m = theirs.as_ref().map(|d| *d == mine);
+            all_match &= m.unwrap_or(false);
+            last_match.insert(peer.clone(), m);
+        }
+        rounds.push(json!({
+            "round": round,
+            "reprojected": reprojected,
+            "healed": healed,
+            "pulled_events": pulled_events,
+            "deleted": deleted,
+            "verify": verify,
+            "rollups_match": all_match,
+        }));
+        converged = all_match && verify["agree"] == json!(true);
+        if converged || !round_changed {
+            break;
+        }
+    }
+
+    let peer_rows: Vec<Value> = peers
+        .iter()
+        .map(|p| {
+            let r = last_reports.get(p).cloned().unwrap_or_default();
+            json!({
+                "url": p,
+                "reachable": r.reachable,
+                "missing_here": r.missing_here,
+                "missing_there": r.missing_there,
+                "diverged": r.diverged,
+                "rollup_match": last_match.get(p).copied().flatten(),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "peers": peer_rows,
+        "unknown_peers": unknown,
+        "rounds": rounds,
+        "max_rounds": max_rounds,
+        "converged": converged,
+        "changed": changed,
+    }))
 }
 
 /// Apply the retention policy now, keeping this host's own sessions.

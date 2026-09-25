@@ -10,7 +10,7 @@ use crate::cloud_event::CloudEvent;
 use crate::event_data::EventData;
 
 /// The tier-1 hands: they change only what is derived.
-pub const HANDS: [&str; 4] = ["reproject", "verify", "catch_up", "prune"];
+pub const HANDS: [&str; 5] = ["reproject", "verify", "catch_up", "prune", "converge"];
 
 pub const AGENT: &str = "openstory";
 pub const SOURCE: &str = "openstory-ops";

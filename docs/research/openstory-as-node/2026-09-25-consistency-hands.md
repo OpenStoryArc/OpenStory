@@ -108,3 +108,29 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
   `notifications/openstory/convergence` (`from: warn, to: ok, cleared:
   [diverged:node-b], seq: 1`) and 400 ms of silence after, while polling
   continued (4+ reads).
+- **2026-09-25 15:32 UTC.** C-05 GREEN. Red `6634fee`, green: this commit. `POST
+  /api/ops/converge {peers?, max_rounds? (3), settle_ms? (250)}` and MCP
+  `node_converge`: per round reproject stale (rows with no resident
+  projection), `catch_up::catch_up_report` against each peer, prune per
+  `retention_days`, settle, verify the sessions the run touched, compare
+  root digests; stops when verify agrees and every peer's roll-up matches,
+  or when a round changed nothing. Peers: given, else
+  `OPEN_STORY_CATCH_UP_PEER`, else every other node's beat that carries
+  `api_url` (new `advertise_url` config, `OPEN_STORY_ADVERTISE_URL`);
+  beats without one are `unknown_peers`, reported not attempted; self is
+  never a peer. What the plan got wrong, found by the two-node spec: the
+  sets converged but the roll-ups did not, because catch-up batches carried
+  no `project_id`, so a pulled session placed under `unknown` on the
+  puller and `proj-1` at its origin. Placement is derived metadata the
+  union must carry: `/api/digests` rows now serve host and project, and
+  catch-up puts the origin's project on the envelope (the existing path,
+  filled in). Catch-up also re-injects only the ids the puller lacks, so a
+  round that finds nothing new heals nothing and the loop can see it.
+  Measured: partition healed, converge on A heals 2 sessions (4 events)
+  in round 1 and stops at round 2; converge on B reaches equal roll-ups
+  in 1 round; a third call reports `changed: false, converged: true` in 1
+  round; the same key replays; every `events.*` publish on A is its own
+  history or a session B holds. `scripts/subject_publishers.py` green.
+- Gate note: the UI bench `timeline-bench > toTimelineRows < 15ms`
+  now fails on this machine even idle (load average 50, another worktree
+  building); zero UI files changed on this branch.

@@ -67,13 +67,17 @@ async fn local_digests(event_store: &Arc<dyn EventStore>) -> Vec<SessionDigest> 
     session_digests(&placed_digests(event_store).await)
 }
 
-fn parse_remote_digests(body: &Value) -> Vec<SessionDigest> {
+/// A peer's digests with their placement (host, project) when the peer
+/// serves it; an older peer's rows place as `unknown`.
+fn parse_remote_digests(body: &Value) -> Vec<PlacedDigest> {
     body.get("sessions")
         .and_then(|s| s.as_array())
         .map(|arr| {
             arr.iter()
                 .filter_map(|d| {
-                    Some(SessionDigest {
+                    Some(PlacedDigest {
+                        host: d["host"].as_str().unwrap_or("").to_string(),
+                        project: d["project"].as_str().unwrap_or("").to_string(),
                         session_id: d["session_id"].as_str()?.to_string(),
                         count: d["count"].as_u64().unwrap_or(0) as usize,
                         digest: d["digest"].as_str()?.to_string(),
@@ -84,25 +88,58 @@ fn parse_remote_digests(body: &Value) -> Vec<SessionDigest> {
         .unwrap_or_default()
 }
 
-/// One reconciliation pass against `peer`. Returns the number of sessions healed
-/// (missing-here or diverged), each re-injected into the local bus.
-pub async fn catch_up_once(
+/// What one pass against a peer found and did (C-05).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CatchUpReport {
+    /// The peer answered `/api/digests`.
+    pub reachable: bool,
+    /// Sessions the peer has that we lacked, or that diverged, and for
+    /// which events we did not hold were re-injected here.
+    pub healed: usize,
+    /// Events re-injected: only ids this node did not already hold.
+    pub pulled_events: usize,
+    pub missing_here: usize,
+    pub missing_there: usize,
+    pub diverged: usize,
+    /// The sessions healed, so a caller can verify what moved.
+    pub healed_sessions: Vec<String>,
+}
+
+/// One reconciliation pass against `peer`, reported. For a diverged
+/// session only the ids we lack are re-injected: the union, never a
+/// replay of what we hold, so a pass that finds nothing new heals nothing
+/// and a converge loop can see that a round changed nothing.
+pub async fn catch_up_report(
     event_store: &Arc<dyn EventStore>,
     bus: &Arc<dyn Bus>,
     peer: &str,
     client: &reqwest::Client,
-) -> usize {
+) -> CatchUpReport {
+    let peer = peer.trim_end_matches('/');
     let local = local_digests(event_store).await;
     let remote = match client.get(format!("{peer}/api/digests")).send().await {
-        Ok(r) => match r.json::<Value>().await {
+        Ok(r) if r.status().is_success() => match r.json::<Value>().await {
             Ok(body) => parse_remote_digests(&body),
-            Err(_) => return 0,
+            Err(_) => return CatchUpReport::default(),
         },
-        Err(_) => return 0,
+        _ => return CatchUpReport::default(),
     };
 
-    let diff = diff_digests(&local, &remote);
-    let mut healed = 0;
+    // The origin's placement rides on the envelope, so the pulled session
+    // lands under the same project here as there: a union carries the
+    // derived placement with the set, or two equal sets roll up unequal.
+    let placement: std::collections::HashMap<&str, &str> = remote
+        .iter()
+        .map(|d| (d.session_id.as_str(), d.project.as_str()))
+        .collect();
+    let diff = diff_digests(&local, &session_digests(&remote));
+    let mut report = CatchUpReport {
+        reachable: true,
+        missing_here: diff.missing_here.len(),
+        missing_there: diff.missing_there.len(),
+        diverged: diff.diverged.len(),
+        ..CatchUpReport::default()
+    };
     for sid in diff.missing_here.iter().chain(diff.diverged.iter()) {
         let raw: Vec<Value> = match client
             .get(format!("{peer}/api/sessions/{sid}/events"))
@@ -112,25 +149,50 @@ pub async fn catch_up_once(
             Ok(r) => r.json().await.unwrap_or_default(),
             Err(_) => continue,
         };
+        let have: std::collections::HashSet<String> = event_store
+            .session_event_ids(sid)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         let events: Vec<CloudEvent> = raw
             .iter()
-            .filter_map(|v| serde_json::from_value(v.clone()).ok())
+            .filter_map(|v| serde_json::from_value::<CloudEvent>(v.clone()).ok())
+            .filter(|ce| !have.contains(&ce.id))
             .collect();
         if events.is_empty() {
             continue;
         }
-        // Re-inject into the local bus; the persist consumer dedups by PK, so
-        // pulling an event we already have (e.g. for a diverged session) is safe.
+        // Re-inject into the local bus: the same path the watcher egress
+        // uses, and the persist consumer dedups by PK behind it.
+        let n = events.len();
         let batch = IngestBatch {
             session_id: sid.clone(),
-            project_id: String::new(),
+            project_id: placement
+                .get(sid.as_str())
+                .copied()
+                .unwrap_or("")
+                .to_string(),
             events,
         };
         if bus.publish(&format!("events.{sid}"), &batch).await.is_ok() {
-            healed += 1;
+            report.healed += 1;
+            report.pulled_events += n;
+            report.healed_sessions.push(sid.clone());
         }
     }
-    healed
+    report
+}
+
+/// One reconciliation pass against `peer`. Returns the number of sessions healed
+/// (missing-here or diverged), each re-injected into the local bus.
+pub async fn catch_up_once(
+    event_store: &Arc<dyn EventStore>,
+    bus: &Arc<dyn Bus>,
+    peer: &str,
+    client: &reqwest::Client,
+) -> usize {
+    catch_up_report(event_store, bus, peer, client).await.healed
 }
 
 /// Spawn a background loop reconciling this node against `peer` forever.

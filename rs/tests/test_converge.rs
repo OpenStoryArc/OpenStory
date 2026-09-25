@@ -118,8 +118,12 @@ impl Node {
             names,
             plans,
         );
-        let mut proj =
-            consumers::projections::ProjectionsConsumer::new(event_store, projections, parents, children);
+        let mut proj = consumers::projections::ProjectionsConsumer::new(
+            event_store,
+            projections,
+            parents,
+            children,
+        );
         tokio::spawn(async move {
             while let Some(b) = rx.recv().await {
                 let pid = (!b.project_id.is_empty()).then_some(b.project_id.as_str());
@@ -209,14 +213,18 @@ impl Node {
             if r["events"] == json!(n) {
                 return;
             }
-            assert!(Instant::now() < deadline, "store never reached {n} events: {r}");
+            assert!(
+                Instant::now() < deadline,
+                "store never reached {n} events: {r}"
+            );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
 }
 
 /// Two nodes, partitioned, each observing its own history plus one shared
-/// session that diverges (each side holds an event the other lacks).
+/// session (node-a's) that diverges: each side holds an event the other
+/// lacks.
 async fn partitioned_pair() -> (Node, Node) {
     let a = Node::start().await;
     let b = Node::start().await;
@@ -225,7 +233,9 @@ async fn partitioned_pair() -> (Node, Node) {
     a.observe("node-a", "sess-a", &["a1", "a2", "a3"]).await;
     a.observe("node-a", "shared", &["s1", "s2"]).await;
     b.observe("node-b", "sess-b", &["b1", "b2"]).await;
-    b.observe("node-b", "shared", &["s1", "s3"]).await;
+    // The shared session is node-a's; B observed a mirror of it, and every
+    // event carries the host that produced it.
+    b.observe("node-a", "shared", &["s1", "s3"]).await;
     a.settle(5).await;
     b.settle(4).await;
     (a, b)
@@ -253,7 +263,11 @@ mod when_the_partition_holds {
         assert_eq!(r["changed"], false);
         assert_eq!(r["peers"][0]["url"], b.base);
         assert_eq!(r["peers"][0]["reachable"], false);
-        assert_eq!(r["rounds"].as_array().unwrap().len(), 1, "one round, nothing to do");
+        assert_eq!(
+            r["rounds"].as_array().unwrap().len(),
+            1,
+            "one round, nothing to do"
+        );
         assert_eq!(a.rollup().await, before, "nothing moved");
         assert_ne!(a.rollup().await["digest"], b.rollup().await["digest"]);
         assert_eq!(a.bus.under("ops.command.converge").len(), 1);
@@ -306,7 +320,11 @@ mod when_the_partition_heals {
         assert_eq!(r["converged"], true, "{r}");
         assert_eq!(r["changed"], true);
         b.settle(8).await;
-        assert_eq!(a.rollup().await, b.rollup().await, "equal sets, equal roll-ups");
+        assert_eq!(
+            a.rollup().await,
+            b.rollup().await,
+            "equal sets, equal roll-ups"
+        );
 
         // A third call changes nothing and says so, and is not a replay.
         let (_, body) = a
@@ -333,10 +351,10 @@ mod when_the_partition_heals {
             .await;
         assert_eq!(again["replayed"], true, "{again}");
 
-        // Each act left one command; no hand published to events.*: every
-        // events.* publish on A is the catch-up re-injection of history B
-        // already held (ids present on B), not a new event body.
-        assert_eq!(a.bus.under("ops.command.converge").len(), 3);
+        // Two acts, one replay: two commands. And no hand published to
+        // events.*: every events.* publish on A is either its own observed
+        // history or the catch-up re-injection of a session B holds.
+        assert_eq!(a.bus.under("ops.command.converge").len(), 2);
         let b_ids: Vec<String> = b.get("/api/digests").await["sessions"]
             .as_array()
             .unwrap()
@@ -346,7 +364,10 @@ mod when_the_partition_heals {
         for (subject, batch) in a.bus.under("events.") {
             if ["sess-a", "shared"].contains(&batch.session_id.as_str())
                 && subject == format!("events.{}", batch.session_id)
-                && batch.events.iter().all(|e| e.host.as_deref() == Some("node-a"))
+                && batch
+                    .events
+                    .iter()
+                    .all(|e| e.host.as_deref() == Some("node-a"))
             {
                 continue; // A's own observed history from the fixture watcher
             }
@@ -371,11 +392,16 @@ mod when_no_peer_is_given {
         a.partitioned.store(false, Ordering::SeqCst);
         b.partitioned.store(false, Ordering::SeqCst);
         let store = a.state.read().await.store.event_store.clone();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
         for (host, body) in [
             ("node-b", json!({"host": "node-b", "api_url": b.base})),
             ("node-c", json!({"host": "node-c"})),
-            (open_story_core::host::host(), json!({"host": open_story_core::host::host(), "api_url": a.base})),
+            (
+                open_story_core::host::host(),
+                json!({"host": open_story_core::host::host(), "api_url": a.base}),
+            ),
         ] {
             store
                 .upsert_presence(&PresenceRow {
@@ -396,9 +422,20 @@ mod when_no_peer_is_given {
             .await;
         assert_eq!(status, 200, "{body}");
         let r = &body["result"];
-        assert_eq!(r["peers"][0]["url"], b.base, "the one with a URL is attempted: {r}");
-        assert_eq!(r["peers"].as_array().unwrap().len(), 1, "self is never a peer: {r}");
-        assert_eq!(r["unknown_peers"], json!(["node-c"]), "no URL, reported not attempted: {r}");
+        assert_eq!(
+            r["peers"][0]["url"], b.base,
+            "the one with a URL is attempted: {r}"
+        );
+        assert_eq!(
+            r["peers"].as_array().unwrap().len(),
+            1,
+            "self is never a peer: {r}"
+        );
+        assert_eq!(
+            r["unknown_peers"],
+            json!(["node-c"]),
+            "no URL, reported not attempted: {r}"
+        );
         assert_eq!(r["changed"], true);
     }
 
@@ -425,9 +462,16 @@ mod when_an_advertise_url_is_configured {
     async fn the_health_body_and_so_the_beat_carry_it() {
         let a = Node::start().await;
         let health = a.get("/api/health").await;
-        assert!(health["api_url"].is_null(), "unset means null: {}", health["api_url"]);
+        assert!(
+            health["api_url"].is_null(),
+            "unset means null: {}",
+            health["api_url"]
+        );
         a.state.write().await.config.advertise_url = "http://a.example:3002/".to_string();
         let health = a.get("/api/health").await;
-        assert_eq!(health["api_url"], "http://a.example:3002", "trimmed of its slash");
+        assert_eq!(
+            health["api_url"], "http://a.example:3002",
+            "trimmed of its slash"
+        );
     }
 }

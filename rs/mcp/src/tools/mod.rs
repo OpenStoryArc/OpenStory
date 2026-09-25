@@ -356,6 +356,18 @@ pub const TOOLS: &[ToolDef] = &[
                       the node deletes fleet sessions older than that, never its own. RETURNS: {result{deleted}}.",
         input_schema: ops::node_prune_schema,
     },
+    ToolDef {
+        name: "node_converge",
+        description: "WHEN: consistency_report says diverged:<host> or behind:<host>. MOTION: propose. \
+                      CALL: { peers?, max_rounds?, evidence?, idempotency_key?, author? }. DOES: publishes ops.proposal.converge \
+                      once for the run, then the node loops (default 3 rounds): reproject stale, catch up against each peer \
+                      (a union: only events it lacks are pulled, through the existing path), prune per retention, verify what \
+                      moved; stops when verify agrees and its roll-up matches every peer, or when a round changed nothing. \
+                      Never writes an event body. RETURNS: {result{peers[{url, reachable, missing_here, missing_there, diverged, \
+                      rollup_match}], unknown_peers, rounds[{reprojected, healed, pulled_events, deleted, verify}], converged, changed}}. \
+                      Refused while not serving.",
+        input_schema: ops::node_converge_schema,
+    },
 ];
 
 fn subscribe_session_schema() -> Value {
@@ -412,6 +424,7 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "node_verify" => ops::tier_one(server, "verify", args).await,
         "node_catch_up" => ops::tier_one(server, "catch_up", args).await,
         "node_prune" => ops::tier_one(server, "prune", args).await,
+        "node_converge" => ops::tier_one(server, "converge", args).await,
         "list_sessions" => sessions::list_sessions(&server.store, args).await,
         "session_synopsis" => sessions::session_synopsis(&server.store, args).await,
         "project_pulse" => sessions::project_pulse(&server.store, args).await,
