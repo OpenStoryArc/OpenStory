@@ -258,14 +258,39 @@ returns to loopback-only.
 
 ```bash
 brew install nats-server
-nats-server -c deploy/nats-leaf.conf &          # edit the remote URL first
+export NATS_LEAF_URL="nats://<your-token>@debian-16gb-ash-1:7422"
+nats-server -c deploy/nats-leaf.conf &          # reads $NATS_LEAF_URL
 cd rs && cargo run -p open-story-cli -- serve   # defaults to nats://localhost:4222
 ```
 
 #### Option C: Docker Compose
 
+Put the hub URL and this machine's identity in a gitignored `.env` at the repo
+root, build the image, and start the stack:
+
 ```bash
-docker compose -f docker-compose.leaf.yml up -d
+cat > .env <<'EOF'
+NATS_LEAF_URL=nats://<your-token>@<hub-tailscale-ip>:7422
+OPEN_STORY_HOST=<this-machine>    # e.g. Katies-MacBook-Air; else events carry the container ID
+OPEN_STORY_USER=<you>
+EOF
+chmod 600 .env
+docker build -f Dockerfile.prod -t open-story:prod .
+docker compose -f docker-compose.leaf.yml up -d   # or: just leaf-up
+```
+
+Use the hub's **Tailscale IP**, not its MagicDNS name: Docker Desktop containers
+usually can't resolve tailnet names. The UI is served by the server itself at
+`http://localhost:3002`. Machine-specific tweaks (e.g. mounting `./data` instead
+of the named volume) go in a gitignored `docker-compose.leaf.local.yml`, which
+`just leaf-*` picks up automatically. `python3 scripts/check_leaf_compose.py`
+verifies the compose wiring.
+
+Verify the leaf joined:
+
+```bash
+curl -s localhost:8222/leafz | jq .leafnodes                       # 1
+curl -s localhost:3002/api/admin/topology | jq '[.nodes[].source]'  # includes "nats-leafnode-hub"
 ```
 
 ### 4. Add a friend's machine

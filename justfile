@@ -451,28 +451,33 @@ prod-build:
 
 # ── Leaf stack (NATS leaf node → Hetzner hub, SQLite, replicated events) ──
 
-# Start the leaf stack (NATS leaf + open-story:prod with local OPEN_STORY_USER/HOST)
+# Compose files for the leaf stack: the committed file, plus the gitignored
+# docker-compose.leaf.local.yml override when one exists (optional).
+leaf_compose := `[ -f docker-compose.leaf.local.yml ] && echo "-f docker-compose.leaf.yml -f docker-compose.leaf.local.yml" || echo "-f docker-compose.leaf.yml"`
+
+# Start the leaf stack (NATS leaf + open-story:prod). Reads NATS_LEAF_URL,
+# OPEN_STORY_HOST and OPEN_STORY_USER from the gitignored .env.
 leaf-up:
     #!/usr/bin/env bash
     set -e
-    if [ ! -f docker-compose.leaf.local.yml ]; then
-      echo "ERROR: docker-compose.leaf.local.yml not found." >&2
-      echo "       Copy docker-compose.leaf.yml to .leaf.local.yml and set" >&2
-      echo "       OPEN_STORY_HOST + OPEN_STORY_USER under the open-story service." >&2
+    if ! grep -qs '^NATS_LEAF_URL=.' .env; then
+      echo "ERROR: NATS_LEAF_URL not set in .env." >&2
+      echo "       Add NATS_LEAF_URL=nats://<token>@<hub-tailscale-ip>:7422," >&2
+      echo "       plus OPEN_STORY_HOST and OPEN_STORY_USER for this machine." >&2
       exit 1
     fi
-    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml up -d
+    docker compose {{leaf_compose}} up -d
 
 # Stop the leaf stack (volumes preserved)
 leaf-down:
-    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml down
+    docker compose {{leaf_compose}} down
 
 # Recreate the leaf open-story container + restart Vite (clears stuck WS proxy)
 leaf-restart:
     #!/usr/bin/env bash
     set -e
     echo "→ Recreating openstory-open-story-1 …"
-    docker compose -f docker-compose.leaf.yml -f docker-compose.leaf.local.yml up -d --force-recreate open-story
+    docker compose {{leaf_compose}} up -d --force-recreate open-story
     # Wait for the API to come back so the Vite proxy upstream is healthy
     # before we restart Vite — otherwise Vite's first WS upgrade attempt
     # races the container bind and we end up in the same stuck state.
