@@ -7,6 +7,7 @@ import {
   clearBeatInk,
   emptyBeatInkStore,
   getBeatInk,
+  hydrateBeatInkFromReel,
   normalizeBeatInkStore,
   parseBeatKey,
   setBeatInk,
@@ -181,5 +182,97 @@ describe("reels interaction matrix (permutations)", () => {
     expect(getBeatInk(s, { reelId: "r", beatIndex: 1 }).strokes).toHaveLength(0);
     expect(getBeatInk(s, { reelId: "r", beatIndex: 0 }).strokes).toHaveLength(1);
     expect(getBeatInk(s, { reelId: "r", beatIndex: 2 }).strokes).toHaveLength(1);
+  });
+});
+
+describe("when a reel arrives from the server carrying beatInk", () => {
+  const reelId = "reel-server";
+  const serverReel = {
+    id: reelId,
+    title: "t",
+    created: "",
+    author: "a",
+    stops: [],
+    beatInk: {
+      "1": {
+        strokes: [
+          { type: "path", points: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }] },
+          { type: "path", points: [{ x: 0.5, y: 0.5 }, { x: 0.6, y: 0.7 }] },
+        ],
+        updatedAt: "2026-09-25T00:32:33Z",
+      },
+    },
+  };
+
+  it("should hydrate that reel's beats from the server copy", () => {
+    scenario(
+      () => emptyBeatInkStore(),
+      (s) => hydrateBeatInkFromReel(s, serverReel),
+      (next) => {
+        const ink = getBeatInk(next, { reelId, beatIndex: 1 });
+        expect(ink.strokes).toHaveLength(2);
+        expect(ink.updatedAt).toBe("2026-09-25T00:32:33Z");
+        expect(getBeatInk(next, { reelId, beatIndex: 0 }).strokes).toHaveLength(0);
+      },
+    );
+  });
+
+  it("should let the server copy win over stale local ink for the same reel", () => {
+    scenario(
+      () =>
+        setBeatInk(emptyBeatInkStore(), { reelId, beatIndex: 3 }, [
+          { type: "circle", cx: 0.5, cy: 0.5, r: 0.1 },
+        ]),
+      (s) => hydrateBeatInkFromReel(s, serverReel),
+      (next) => {
+        expect(getBeatInk(next, { reelId, beatIndex: 3 }).strokes).toHaveLength(0);
+        expect(getBeatInk(next, { reelId, beatIndex: 1 }).strokes).toHaveLength(2);
+      },
+    );
+  });
+
+  it("should leave other reels' local ink untouched", () => {
+    scenario(
+      () =>
+        setBeatInk(emptyBeatInkStore(), { reelId: "reel-other", beatIndex: 0 }, [
+          { type: "circle", cx: 0.5, cy: 0.5, r: 0.1 },
+        ]),
+      (s) => hydrateBeatInkFromReel(s, serverReel),
+      (next) => {
+        expect(getBeatInk(next, { reelId: "reel-other", beatIndex: 0 }).strokes).toHaveLength(1);
+      },
+    );
+  });
+
+  it("should clear local ink for a reel the server says has none", () => {
+    scenario(
+      () =>
+        setBeatInk(emptyBeatInkStore(), { reelId, beatIndex: 1 }, [
+          { type: "circle", cx: 0.5, cy: 0.5, r: 0.1 },
+        ]),
+      (s) => hydrateBeatInkFromReel(s, { ...serverReel, beatInk: undefined }),
+      (next) => {
+        expect(summarizeReelInk(next, reelId)).toHaveLength(0);
+      },
+    );
+  });
+
+  it("should drop malformed strokes and non-numeric beat keys", () => {
+    scenario(
+      () => emptyBeatInkStore(),
+      (s) =>
+        hydrateBeatInkFromReel(s, {
+          ...serverReel,
+          beatInk: {
+            "2": { strokes: [{ type: "path", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }, { type: "nope" }], updatedAt: "" },
+            abc: { strokes: [{ type: "circle", cx: 0.5, cy: 0.5, r: 0.1 }], updatedAt: "" },
+          },
+        }),
+      (next) => {
+        expect(summarizeReelInk(next, reelId)).toEqual([
+          { beatIndex: 2, strokeCount: 1, empty: false },
+        ]);
+      },
+    );
   });
 });

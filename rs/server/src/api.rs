@@ -2496,6 +2496,56 @@ pub async fn post_reel(
     }
 }
 
+/// `PUT /api/reels/{reel_id}/ink/{beat_index}` — replace the marginalia on
+/// one beat of a saved reel. Body: `{ strokes: DrawStroke[], updatedAt? }`.
+/// Empty `strokes` forgets that beat. Strokes are kept verbatim (the server
+/// never interprets geometry); the only shape check is "an array of
+/// objects" so a typo can't wedge a reel file with junk.
+///
+/// This is the seam that moves beat ink out of one browser's localStorage
+/// and onto the reel record — curation about history, never history itself.
+pub async fn put_reel_beat_ink(
+    State(state): State<SharedState>,
+    AxumPath((reel_id, beat_index)): AxumPath<(String, usize)>,
+    Json(body): Json<Value>,
+) -> Response {
+    let Some(strokes) = body.get("strokes").and_then(|v| v.as_array()) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": "strokes must be an array"})),
+        )
+            .into_response();
+    };
+    if !strokes.iter().all(|s| s.is_object()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": "every stroke must be an object"})),
+        )
+            .into_response();
+    }
+    let updated_at = body
+        .get("updatedAt")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| Utc::now().to_rfc3339());
+    let s = state.read().await;
+    match s.store.reel_store.set_beat_ink(&reel_id, beat_index, strokes.clone(), &updated_at) {
+        Ok(Some(_)) => Json(json!({
+            "ok": true,
+            "beatIndex": beat_index,
+            "strokeCount": strokes.len(),
+        }))
+        .into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({"ok": false, "error": "reel not found"})))
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"ok": false, "error": e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 pub async fn delete_reel(
     State(state): State<SharedState>,
     AxumPath(reel_id): AxumPath<String>,

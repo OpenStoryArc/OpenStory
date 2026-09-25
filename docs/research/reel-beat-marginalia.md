@@ -1,6 +1,6 @@
 # Reel beat marginalia — 1:1 slide ink
 
-**Status:** implement · 2026-08-10 · `feat/agent-pen`  
+**Status:** implemented · 2026-08-10 · `feat/agent-pen` · ink-on-reel 2026-09-25 · `feat/reel-beat-ink-persist`  
 **Soul:** curation *about* a reading of history — not observed agent events.
 
 ## Vocabulary (avoid “event” for this)
@@ -39,10 +39,39 @@ Client-local (ui.* / browser):
 }
 ```
 
-Key: `` `${reelId}:${beatIndex}` ``  
-Later: optional merge into reel artifact or side-car JSON for portability.
+Key: `` `${reelId}:${beatIndex}` ``
 
-**Not** written to `events.*` / coding-agent sessions.
+## Store (v2, 2026-09-25) — ink lives on the reel
+
+The localStorage store above is now a **cache**. The copy that travels is
+on the reel record itself, in the same file the reel is saved in
+(`{data_dir}/reels/{id}.json`), keyed by beat index:
+
+```json
+{
+  "id": "reel-abc",
+  "stops": [ … ],
+  "beatInk": {
+    "2": { "strokes": [ … ], "updatedAt": "…" }
+  }
+}
+```
+
+- **Write-through.** Every ink change on a beat (human pen, agent
+  `commitBeatInkIntent`, clear) is `PUT /api/reels/{id}/ink/{beatIndex}`
+  with that beat's full stroke list; empty strokes forget the beat. The
+  server keeps strokes verbatim — it never interprets geometry.
+- **Hydrate on fetch.** When the player fetches a reel, its `beatInk`
+  replaces the cache for that reel (server wins). If the server has *no*
+  ink for the reel but this browser does, the local beats are pushed up
+  instead — ink drawn before v2 is migrated, not wiped.
+- **Offline.** A failed PUT keeps the local copy; the next fetch reconciles.
+- **Eyes.** An agent that wants to *see* the strokes reads the reel
+  (`GET /api/reels/{id}` → `beatInk`) — the `beatInk` field in `ui-state`
+  stays a light count/kind sample.
+
+**Not** written to `events.*` / coding-agent sessions — a reel with ink is
+still curation about history, never history.
 
 ## Runtime
 
