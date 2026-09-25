@@ -234,3 +234,28 @@ mod when_replay_walks_a_store_larger_than_the_budget {
         assert!(s.store.projections.contains(&evicted), "now resident");
     }
 }
+
+/// B-09 (c): a budget larger than the box is no bound. With a cgroup
+/// limit known, the projection budget the node runs with is the smaller
+/// of the configured value and a fixed share of the limit, so the read
+/// model can never fill the container by itself.
+mod when_the_configured_budget_exceeds_the_box {
+    use open_story::server::effective_projection_budget;
+
+    #[test]
+    fn it_is_clamped_to_a_share_of_the_cgroup_limit() {
+        let gb = 1_000_000_000u64;
+        // 4 GB configured inside a 2 GiB cgroup: 40 % of the limit.
+        assert_eq!(
+            effective_projection_budget(4 * gb, Some(2_147_483_648)),
+            2_147_483_648 * 2 / 5
+        );
+        // A configured budget below the share is kept as is.
+        assert_eq!(
+            effective_projection_budget(500_000_000, Some(2_147_483_648)),
+            500_000_000
+        );
+        // No limit known: the configured value stands.
+        assert_eq!(effective_projection_budget(4 * gb, None), 4 * gb);
+    }
+}
