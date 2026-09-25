@@ -245,10 +245,13 @@ mod when_the_configured_budget_exceeds_the_box {
     #[test]
     fn it_is_clamped_to_a_share_of_the_cgroup_limit() {
         let gb = 1_000_000_000u64;
-        // 4 GB configured inside a 2 GiB cgroup: 40 % of the limit.
+        // 4 GB configured inside a 2 GiB cgroup: 30 % of the limit (B-10
+        // lowered it from 40 %: on a 512 MiB box the node's non-cache floor
+        // is ~27 % of the limit, and two caches at 50 % left no room under
+        // the 75 % memory_pressure warn).
         assert_eq!(
             effective_projection_budget(4 * gb, Some(2_147_483_648)),
-            2_147_483_648 * 2 / 5
+            2_147_483_648 * 3 / 10
         );
         // A configured budget below the share is kept as is.
         assert_eq!(
