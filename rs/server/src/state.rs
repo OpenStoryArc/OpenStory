@@ -125,9 +125,26 @@ pub async fn create_state_with_store(
     // Size the bounded read-through caches from the parsed config, before
     // reconcile/reproject populate them. The store crate bakes in defaults; the
     // operator's `projection_cache_bytes` / `working_set_days` /
-    // `payload_cache_bytes` take effect here.
+    // `payload_cache_bytes` take effect here — clamped to the box (B-09 c):
+    // a budget larger than the cgroup limit bounds nothing.
+    let memory_limit = crate::node_health::process_memory_limit_bytes();
+    let projection_budget =
+        effective_projection_budget(config.projection_cache_bytes, memory_limit);
+    if projection_budget != config.projection_cache_bytes {
+        tracing::info!(
+            event = "projection_budget_clamped",
+            configured = config.projection_cache_bytes,
+            memory_limit_bytes = memory_limit.unwrap_or(0),
+            effective = projection_budget,
+            "projection cache budget {} B exceeds {}% of the {} B memory limit; using {} B",
+            config.projection_cache_bytes,
+            PROJECTION_BUDGET_SHARE_PCT,
+            memory_limit.unwrap_or(0),
+            projection_budget
+        );
+    }
     store.set_cache_budget(
-        config.projection_cache_bytes,
+        projection_budget,
         config.working_set_days,
         config.payload_cache_bytes,
     );
@@ -438,6 +455,21 @@ fn build_account_config(
 /// account names match across the two paths.
 pub(crate) fn person_account_name(person_id: &str) -> String {
     format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
+}
+
+/// The share of a cgroup memory limit the projection cache may use (B-09 c).
+/// Replay, the payload cache, the log ring, NATS client buffers, and the
+/// allocator's own slack share the rest.
+pub const PROJECTION_BUDGET_SHARE_PCT: u64 = 40;
+
+/// The projection budget the node runs with: the configured bytes, unless a
+/// cgroup memory limit is known and the configured value exceeds
+/// `PROJECTION_BUDGET_SHARE_PCT` of it — then that share. Pure.
+pub fn effective_projection_budget(configured: u64, memory_limit: Option<u64>) -> u64 {
+    match memory_limit {
+        Some(limit) if limit > 0 => configured.min(limit * PROJECTION_BUDGET_SHARE_PCT / 100),
+        _ => configured,
+    }
 }
 
 /// Boot from SQLite — sessions already in the DB.
