@@ -33,6 +33,7 @@ const TAB_ITEMS: PaletteItem[] = [
   { id: "tab-story", title: "Story", icon: "❧", group: "Navigate", searchText: "story narrative sentences turns", route: { view: "story" } },
   { id: "tab-users", title: "Users", icon: "☺", group: "Navigate", searchText: "users people fleet", route: { view: "users" } },
   { id: "tab-admin", title: "Admin", icon: "⚙", group: "Navigate", searchText: "admin federation topology", route: { view: "admin" } },
+  { id: "tab-fleet", title: "Fleet", icon: "⛁", group: "Navigate", searchText: "fleet presence consistency converge nodes", route: { view: "fleet" } },
 ];
 
 /** Build the searchable palette items from the session universe. Pure + testable. */

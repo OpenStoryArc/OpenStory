@@ -155,3 +155,23 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
   Note: the plan's "fake clock" is the explicit `now` given to
   `fleet_view` and to `summary`; nothing else in the checked properties
   reads a clock.
+- C-06 gate note: `test_consumers::persist_consumer_receives_and_can_store_events`
+  failed once with testcontainers `PortNotExposed 4222` (the NATS
+  container under a load average of 50); it passed in the four earlier
+  gates and touches nothing this row changed. Five UI wall-clock benches
+  failed in the same run for the same reason.
+- **2026-09-25 15:54 UTC.** C-07 GREEN. Red `fc6adea`, green: this commit.
+  `ui/src/lib/fleet-map.ts` (pure): `fleetMapRows(presence, report)`
+  folds `/api/fleet/presence` and `/api/consistency` into one row per
+  host with beat age, build (`sha (version)`), the verdict the beat
+  carried, and the consistency findings against that host;
+  `findingsFor` routes host-suffixed ids (`diverged:`, `behind:`,
+  `stale_snapshot:`) to that host and the rest (`lag:`, `unverified`) to
+  self; the dot is the worst of the beat's verdict, a stale beat, and the
+  host's findings. `HealthBody` now declares the `verdict` the node has
+  carried since M-01. `components/fleet/FleetMap.tsx` is its own tab
+  (`#/fleet`, `tab-fleet`, palette entry), not folded into Admin; the
+  P-05 panel in Admin stays as it was. Measured: 5 pure + 3 component
+  specs; two hosts with one diverged render `diverged:node-b` on node-b
+  only, self clear, the report's level heading the tab; UI suite 2089 of
+  2090 (the `< 15ms` bench, machine load).

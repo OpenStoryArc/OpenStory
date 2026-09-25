@@ -60,18 +60,38 @@ const consistency = {
   host: "node-a",
   level: "warn",
   findings: [
-    { id: "diverged:node-b", level: "warn", text: "node-b differs on 1 project of 3; converge would union and re-fold" },
+    {
+      id: "diverged:node-b",
+      level: "warn",
+      text: "node-b differs on 1 project of 3; converge would union and re-fold",
+    },
   ],
-  peers: [{ host: "node-b", compared: true, differing_projects: 1, stale: false, age_secs: 15 }],
+  peers: [
+    {
+      host: "node-b",
+      compared: true,
+      differing_projects: 1,
+      stale: false,
+      age_secs: 15,
+    },
+  ],
 };
 
 function stubBoth() {
   const fetchMock = vi.fn((url: string) => {
     if (url === "/api/fleet/presence") {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(presence) });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(presence),
+      });
     }
     if (url === "/api/consistency") {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(consistency) });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(consistency),
+      });
     }
     return Promise.reject(new Error(`unexpected fetch ${url}`));
   });
@@ -89,13 +109,17 @@ describe("when two hosts report and one diverged", () => {
     expect(a).toHaveTextContent("self");
     expect(a).toHaveTextContent("5 s ago");
     expect(a).toHaveTextContent("aaa111");
-    expect(a.querySelector("[data-testid='fleet-dot']")?.getAttribute("data-level")).toBe("ok");
+    expect(
+      a.querySelector("[data-testid='fleet-dot']")?.getAttribute("data-level"),
+    ).toBe("ok");
     expect(a.querySelectorAll("[data-testid='fleet-finding']").length).toBe(0);
 
     const b = screen.getByTestId("fleet-host-node-b");
     expect(b).toHaveTextContent("15 s ago");
     expect(b).toHaveTextContent("bbb222");
-    expect(b.querySelector("[data-testid='fleet-dot']")?.getAttribute("data-level")).toBe("warn");
+    expect(
+      b.querySelector("[data-testid='fleet-dot']")?.getAttribute("data-level"),
+    ).toBe("warn");
     const findings = b.querySelectorAll("[data-testid='fleet-finding']");
     expect(findings.length).toBe(1);
     expect(findings[0]).toHaveTextContent("diverged:node-b");
@@ -111,9 +135,16 @@ describe("when two hosts report and one diverged", () => {
 
 describe("when the endpoints are unreachable", () => {
   it("should say so and keep the tab", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("connection refused"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("connection refused"))),
+    );
     render(<FleetMap />);
-    await waitFor(() => expect(screen.getByTestId("fleet-map")).toHaveTextContent("connection refused"));
+    await waitFor(() =>
+      expect(screen.getByTestId("fleet-map")).toHaveTextContent(
+        "connection refused",
+      ),
+    );
   });
 });
 
@@ -123,6 +154,8 @@ describe("when the Fleet tab is opened", () => {
     expect(screen.getByTestId("tab-fleet")).toHaveTextContent("Fleet");
     expect(parseHash("#/fleet")).toEqual({ view: "fleet" });
     expect(buildHash({ view: "fleet" })).toBe("#/fleet");
-    expect(switchTabRoute({ view: "live", sessionId: "s1" }, "fleet")).toEqual({ view: "fleet" });
+    expect(switchTabRoute({ view: "live", sessionId: "s1" }, "fleet")).toEqual({
+      view: "fleet",
+    });
   });
 });

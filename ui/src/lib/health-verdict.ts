@@ -43,6 +43,11 @@ export interface HealthBody {
   readonly streams?: readonly Stream[];
   readonly consumers?: Readonly<Record<string, Consumer>>;
   readonly watchers_detail?: readonly Watcher[];
+  /** The node's own verdict (M-01), carried since the node computes it. */
+  readonly verdict?: {
+    readonly level?: string;
+    readonly findings?: readonly { readonly id: string; readonly level: HealthLevel; readonly text: string }[];
+  };
 }
 
 const RANK: Record<HealthLevel, number> = { ok: 0, warn: 1, critical: 2 };

@@ -15,6 +15,7 @@ import { ReelsView } from "@/components/reels/ReelsView";
 import { AskView } from "@/components/ask/AskView";
 import { UsersView } from "@/components/users/UsersView";
 import { AdminView } from "@/components/admin/AdminView";
+import { FleetMap } from "@/components/fleet/FleetMap";
 import { SessionHeader, useSessionHeaderInfo } from "@/components/SessionHeader";
 import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionsList } from "@/hooks/use-sessions-list";
@@ -664,6 +665,9 @@ export function App() {
 
       {/* Admin tab */}
       {viewMode === "admin" && <AdminView />}
+
+      {/* Fleet tab — every node's beat and the consistency report (C-07) */}
+      {viewMode === "fleet" && <FleetMap />}
 
       {/* Event Spotlight — presentation mode over everything (Esc / click closes) */}
       {spotlight && (

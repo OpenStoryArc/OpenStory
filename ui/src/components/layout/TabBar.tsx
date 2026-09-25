@@ -17,6 +17,7 @@ const TABS: { mode: ViewMode; label: string }[] = [
   { mode: "ask", label: "Ask" },
   { mode: "users", label: "Users" },
   { mode: "admin", label: "Admin" },
+  { mode: "fleet", label: "Fleet" },
 ];
 
 export function TabBar({ active, onSwitch }: TabBarProps) {
