@@ -754,9 +754,23 @@ mod when_consistency_report_is_called {
             .iter()
             .find(|t| t.name == "consistency_report")
             .expect("consistency_report registered");
-        assert!(def.description.contains("MOTION: diagnose"), "{}", def.description);
-        for id in ["diverged:", "behind:", "lag:", "unverified", "stale_snapshot:"] {
-            assert!(def.description.contains(id), "names {id}: {}", def.description);
+        assert!(
+            def.description.contains("MOTION: diagnose"),
+            "{}",
+            def.description
+        );
+        for id in [
+            "diverged:",
+            "behind:",
+            "lag:",
+            "unverified",
+            "stale_snapshot:",
+        ] {
+            assert!(
+                def.description.contains(id),
+                "names {id}: {}",
+                def.description
+            );
         }
         let schema = (def.input_schema)();
         assert_eq!(schema["type"], "object");

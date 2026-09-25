@@ -122,6 +122,14 @@ pub async fn fleet_presence(api_base: &str, _args: Value) -> Result<Value, Strin
     get_json(&format!("{base}/api/fleet/presence"), "fleet_presence").await
 }
 
+/// `consistency_report {}` — this node against every peer's beat (C-03),
+/// in the verdict's shape: `diverged:<host>`, `behind:<host>`,
+/// `lag:<consumer>`, `unverified`, `stale_snapshot:<host>`.
+pub async fn consistency_report(api_base: &str, _args: Value) -> Result<Value, String> {
+    let base = require_api_base(api_base, "consistency_report")?;
+    get_json(&format!("{base}/api/consistency"), "consistency_report").await
+}
+
 pub fn subscribe_health_schema() -> Value {
     json!({
         "type": "object",

@@ -56,3 +56,27 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
   `test_health::when_leaf_is_configured_but_down` fails on this machine
   before and after the change because the live node's NATS monitor answers
   on :8222 (pid 8953) and reports a real leaf link; not touched.
+- **2026-09-25 15:09 UTC.** C-03 GREEN. Red `66f02cd`, green: this commit.
+  `consistency::Snapshot` (host, rollup, watermarks, verify, consumer
+  lags, stale, age) reads from a health body or a fleet-presence node;
+  `consistency::report(local, peers, interval_secs)` answers in the
+  verdict's shape. Thresholds chosen where the plan left them open:
+  `diverged` is critical when more than half of the union of (host,
+  project) pairs differ, warn otherwise; `behind` when a peer's watermark
+  for us trails ours by more than two beats; `lag` past one queued batch.
+  `GET /api/consistency` compares the health body against every other
+  node's latest beat (our own beat is never a peer); MCP
+  `consistency_report {}` (tier 0, diagnose) reads it, and the OPS
+  block names the five finding ids. Adjustment against the plan: the
+  Snapshot's `watermarks` are RFC 3339 times per origin host, not bus
+  sequences, because the persist consumer never sees a subject or a
+  sequence (ephemeral push consumers, acked in the bus's pump task before
+  persistence); C-02 fills them from the sessions table. Measured: 8 pure
+  specs, one API spec, two MCP specs; a peer sharing our one project and
+  holding one more reads warn on 1 of 2, a peer sharing nothing reads
+  critical.
+- C-01 gate note: `just test` on this machine fails only in
+  `test_health::when_leaf_is_configured_but_down` (the live node's NATS
+  monitor on :8222 reports a real leaf link; environmental, untouched); the
+  remaining recipe steps (four audits, workspace clippy, 2082 UI specs)
+  were run by hand and are green.

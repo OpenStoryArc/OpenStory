@@ -300,6 +300,15 @@ pub const TOOLS: &[ToolDef] = &[
         input_schema: ops::empty_schema,
     },
     ToolDef {
+        name: "consistency_report",
+        description: "WHEN: you suspect two nodes disagree, or before a converge proposal. MOTION: diagnose. \
+                      CALL: {}. RETURNS: {host, level, findings[{id, level, text}], peers[{host, compared, differing_projects, stale}]} \
+                      against every other node's latest beat. Finding ids: diverged:<host> (roll-ups differ; critical past half the \
+                      projects), behind:<host> (a peer's watermark for us trails ours), lag:<consumer> (batches queued), \
+                      unverified (store and JSONL backup disagree), stale_snapshot:<host> (beat older than three intervals). Read-only.",
+        input_schema: ops::empty_schema,
+    },
+    ToolDef {
         name: "subscribe_health",
         description: "WHEN: you are watching a node and want to hear only when its verdict moves. MOTION: watch. \\
                       CALL: { interval_secs? (default 15) }. RETURNS: started with the current verdict, then \\
@@ -389,6 +398,7 @@ pub async fn dispatch_query_tool<S: Subscribe>(
         "node_logs" => ops::node_logs(&server.api_base, args).await,
         "node_streams" => ops::node_streams(&server.api_base, args).await,
         "fleet_presence" => ops::fleet_presence(&server.api_base, args).await,
+        "consistency_report" => ops::consistency_report(&server.api_base, args).await,
         "node_reproject" => ops::tier_one(server, "reproject", args).await,
         "node_verify" => ops::tier_one(server, "verify", args).await,
         "node_catch_up" => ops::tier_one(server, "catch_up", args).await,

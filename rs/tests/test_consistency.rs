@@ -317,9 +317,12 @@ mod when_the_report_is_computed {
     #[test]
     fn it_is_all_clear_when_sets_and_watermarks_agree() {
         let mut local = snap("node-a", &fleet());
-        local.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        local
+            .watermarks
+            .insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
         let mut peer = snap("node-b", &fleet());
-        peer.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        peer.watermarks
+            .insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
         let v = report(&local, &[peer], 15);
         assert_eq!(v["level"], "ok", "{v}");
         assert_eq!(v["findings"], json!([]));
@@ -364,16 +367,24 @@ mod when_the_report_is_computed {
         let mut bare = snap("node-d", &fleet());
         bare.rollup = None;
         let v = report(&local, &[bare], 15);
-        assert_eq!(v["findings"], json!([]), "nothing to compare, nothing claimed");
+        assert_eq!(
+            v["findings"],
+            json!([]),
+            "nothing to compare, nothing claimed"
+        );
         assert_eq!(v["peers"][0]["compared"], false);
     }
 
     #[test]
     fn it_names_a_peer_behind_us_with_the_gap() {
         let mut local = snap("node-a", &fleet());
-        local.watermarks.insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
+        local
+            .watermarks
+            .insert("node-a".into(), "2026-09-25T10:00:00.000Z".into());
         let mut behind = snap("node-b", &fleet());
-        behind.watermarks.insert("node-a".into(), "2026-09-25T09:58:00.000Z".into());
+        behind
+            .watermarks
+            .insert("node-a".into(), "2026-09-25T09:58:00.000Z".into());
         let v = report(&local, &[behind], 15);
         assert_eq!(finding_ids(&v), ["behind:node-b"], "{v}");
         let f = finding(&v, "behind:node-b");
@@ -382,7 +393,9 @@ mod when_the_report_is_computed {
 
         // Within two beats is the ordinary lag of a 15 s beat, not a finding.
         let mut close = snap("node-b", &fleet());
-        close.watermarks.insert("node-a".into(), "2026-09-25T09:59:45.000Z".into());
+        close
+            .watermarks
+            .insert("node-a".into(), "2026-09-25T09:59:45.000Z".into());
         let v = report(&local, &[close], 15);
         assert_eq!(v["findings"], json!([]), "{v}");
 
@@ -427,7 +440,11 @@ mod when_the_report_is_computed {
         let mut local_bad = local.clone();
         local_bad.verify = Some(json!({"agree": false}));
         let v = report(&local_bad, &[stale], 15);
-        assert_eq!(finding_ids(&v), ["unverified", "stale_snapshot:node-b"], "{v}");
+        assert_eq!(
+            finding_ids(&v),
+            ["unverified", "stale_snapshot:node-b"],
+            "{v}"
+        );
         let f = finding(&v, "stale_snapshot:node-b");
         assert_eq!(f["level"], "warn");
         assert!(f["text"].as_str().unwrap().contains("600 s"), "{f}");
@@ -481,11 +498,16 @@ mod when_consistency_is_read {
         assert_eq!(body["host"], me);
         assert_eq!(body["findings"], json!([]));
 
-        // A peer whose beat carries a different roll-up, and our own beat
-        // (which is never a peer).
+        // A peer that holds our session and one more (one of two projects
+        // differs: warn), and our own beat (which is never a peer).
         let store = state.read().await.store.event_store.clone();
-        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let other = rollup(&[placed("node-b", "proj-1", "sess-b", &["x"])]);
+        let now = chrono::Utc::now()
+            .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            .to_string();
+        let other = rollup(&[
+            placed(me, "proj-1", "sess-1", &["sess-1-e0", "sess-1-e1"]),
+            placed("node-b", "proj-1", "sess-b", &["x"]),
+        ]);
         for (host, r) in [("node-b", other), (me, rollup(&[]))] {
             store
                 .upsert_presence(&PresenceRow {

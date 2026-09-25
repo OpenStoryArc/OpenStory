@@ -779,6 +779,33 @@ pub async fn ops_hand(
     (status, Json(body))
 }
 
+/// `GET /api/consistency` — this node against every other node's latest
+/// beat (C-03): the report in the verdict's shape. Our own beat is never a
+/// peer; the local snapshot is the health body itself.
+pub async fn get_consistency(State(state): State<SharedState>) -> Result<Json<Value>, StatusCode> {
+    let (_status, health) = health_body(&state).await;
+    let local = crate::consistency::Snapshot::from_health(&health);
+    let (store, interval_secs) = {
+        let s = state.read().await;
+        (s.store.event_store.clone(), s.config.presence_interval_secs)
+    };
+    let rows = store.latest_presence().await.map_err(|e| {
+        crate::logging::failed("consistency_presence_read", &format!("{e:#}"));
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let peers: Vec<crate::consistency::Snapshot> =
+        crate::presence::fleet_view(&rows, chrono::Utc::now(), interval_secs)
+            .iter()
+            .map(crate::consistency::Snapshot::from_presence)
+            .filter(|p| p.host != local.host)
+            .collect();
+    Ok(Json(crate::consistency::report(
+        &local,
+        &peers,
+        interval_secs,
+    )))
+}
+
 /// `GET /api/fleet/presence` — every node's latest beat with its age and
 /// whether it has gone stale (P-03). The local node is in here too, read
 /// through the same table as everyone else.
