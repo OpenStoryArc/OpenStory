@@ -228,6 +228,31 @@ pub fn differing_projects(a: &DigestRollup, b: &DigestRollup) -> Vec<(String, St
         .collect()
 }
 
+// ── Watermarks (consistency C-02) ───────────────────────────────────────────
+
+/// Per origin host, the newest event time this node has persisted, folded
+/// from the sessions table: the persist consumer writes a session's row
+/// only after its events are durable, and `last_event` merges with MAX,
+/// so this is the consumer's acknowledged position keyed by origin, and it
+/// survives a restart because it is read, not remembered. Unplaced rows
+/// count under `unknown`; a row with no time contributes nothing. Pure.
+pub fn watermarks(rows: &[open_story_store::event_store::SessionRow]) -> BTreeMap<String, String> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for row in rows {
+        let Some(last) = row.last_event.as_deref().filter(|t| !t.is_empty()) else {
+            continue;
+        };
+        let host = place(row.host.as_deref().unwrap_or("")).to_string();
+        match out.get(&host) {
+            Some(have) if have.as_str() >= last => {}
+            _ => {
+                out.insert(host, last.to_string());
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

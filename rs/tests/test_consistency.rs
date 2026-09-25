@@ -558,7 +558,12 @@ mod when_batches_from_two_hosts_are_persisted {
     use open_story::server::presence;
     use open_story_server::fleet::watermarks;
 
-    fn stamped(host: &str, session: &str, id: &str, time: &str) -> open_story::cloud_event::CloudEvent {
+    fn stamped(
+        host: &str,
+        session: &str,
+        id: &str,
+        time: &str,
+    ) -> open_story::cloud_event::CloudEvent {
         let mut ce = make_event_with_time("io.arc.event", session, time);
         ce.id = id.to_string();
         ce.with_host(host)
@@ -592,7 +597,10 @@ mod when_batches_from_two_hosts_are_persisted {
         let w = watermarks(&rows);
         assert_eq!(w["node-a"], "2026-09-25T10:00:05.000Z", "{w:?}");
         assert_eq!(w["node-b"], "2026-09-25T09:00:00.000Z");
-        assert_eq!(w["unknown"], "2026-09-25T08:00:00.000Z", "an unplaced row counts");
+        assert_eq!(
+            w["unknown"], "2026-09-25T08:00:00.000Z",
+            "an unplaced row counts"
+        );
         assert_eq!(w.len(), 3);
         assert!(watermarks(&[]).is_empty());
     }
@@ -606,21 +614,36 @@ mod when_batches_from_two_hosts_are_persisted {
         actors
             .drive_batch(
                 "sess-a",
-                &[stamped("node-a", "sess-a", "a-2", "2026-09-25T10:00:05.000Z")],
+                &[stamped(
+                    "node-a",
+                    "sess-a",
+                    "a-2",
+                    "2026-09-25T10:00:05.000Z",
+                )],
                 Some("proj-1"),
             )
             .await;
         actors
             .drive_batch(
                 "sess-a",
-                &[stamped("node-a", "sess-a", "a-1", "2026-09-25T10:00:00.000Z")],
+                &[stamped(
+                    "node-a",
+                    "sess-a",
+                    "a-1",
+                    "2026-09-25T10:00:00.000Z",
+                )],
                 Some("proj-1"),
             )
             .await;
         actors
             .drive_batch(
                 "sess-b",
-                &[stamped("node-b", "sess-b", "b-1", "2026-09-25T09:00:00.000Z")],
+                &[stamped(
+                    "node-b",
+                    "sess-b",
+                    "b-1",
+                    "2026-09-25T09:00:00.000Z",
+                )],
                 Some("proj-1"),
             )
             .await;

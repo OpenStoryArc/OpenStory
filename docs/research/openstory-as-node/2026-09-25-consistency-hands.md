@@ -80,3 +80,19 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
   monitor on :8222 reports a real leaf link; environmental, untouched); the
   remaining recipe steps (four audits, workspace clippy, 2082 UI specs)
   were run by hand and are green.
+- **2026-09-25 15:16 UTC.** C-02 GREEN. Red `d9f83fa`, green: this commit.
+  `fleet::watermarks(rows)` folds the sessions table to the newest
+  `last_event` per origin host (MAX on upsert keeps it monotone); the
+  health body and so the beat carry `watermarks: {host: time}`. What the
+  plan got wrong: it asked for the persist consumer's acknowledged NATS
+  sequence per host and said a restart resumes from it under durable
+  consumer semantics; in the code the bus's pump task acks every message
+  before the consumer sees it, consumers are ephemeral
+  (`DeliverPolicy::All`), and `IngestBatch` carries neither subject nor
+  sequence. The sessions row is the persist consumer's acknowledged
+  position (written after the events are durable), so the watermark is
+  read from the store and survives a restart by construction. Measured:
+  two hosts' batches, the newer event arriving before the older, give
+  `node-a = 10:00:05`, `node-b = 09:00:00`; a fresh AppState over the same
+  data dir answers identically; the beat and the consistency Snapshot
+  carry the same map.

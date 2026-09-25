@@ -473,6 +473,8 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         "presence": crate::presence::stats_json(s.config.presence_interval_secs),
         // C-01: what this node holds, folded, so a peer's beat is comparable.
         "rollup": rollup,
+        // C-02: per origin host, the newest event time persisted here.
+        "watermarks": crate::fleet::watermarks(&session_rows),
         // H-06: the leaf link and per-watcher detail.
         "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
         "watchers_detail": crate::node_health::watcher_detail(
