@@ -30,6 +30,28 @@ pub struct PresenceRow {
     pub body: Value,
 }
 
+/// The two facts the boot pass needs from a session, and nothing else
+/// (boot-pass plan, row B-01): who its parent is, when it is a subagent,
+/// and the working directory that names its project. Both sit in a
+/// session's first few events in practice, so a backend answers from a
+/// bounded window (`BootFacts::WINDOW` events by time) and no event body
+/// crosses the trait.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BootFacts {
+    /// `data.session_id` of the first event where it differs from the
+    /// session's own id — the subagent → parent convention
+    /// (`crate::state::detect_subagent_relationship`).
+    pub parent_session: Option<String>,
+    /// The first working directory any event carries
+    /// (`crate::analysis::extract_cwd`).
+    pub cwd: Option<String>,
+}
+
+impl BootFacts {
+    /// How many events, by time, a backend looks at.
+    pub const WINDOW: usize = 32;
+}
+
 /// Summary row for a session — materialized from SessionProjection.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionRow {
@@ -125,6 +147,16 @@ pub trait EventStore: Send + Sync {
 
     /// Load all events for a session, ordered by timestamp.
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>>;
+
+    /// The boot pass's two facts for a session, from its first
+    /// `BootFacts::WINDOW` events by time. Backends answer this with a
+    /// projection and a limit; no event body crosses the trait.
+    async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
+        let _ = session_id;
+        Err(anyhow::anyhow!(
+            "session_boot_facts: not implemented by this backend"
+        ))
+    }
 
     /// The most-recent `limit` events with `data.seq < before_seq` (all when
     /// `before_seq` is None), returned oldest-first by seq. This is the

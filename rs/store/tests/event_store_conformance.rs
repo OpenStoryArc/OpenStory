@@ -25,7 +25,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
-use open_story_store::event_store::{EventStore, PresenceRow, SessionRow};
+use open_story_store::event_store::{BootFacts, EventStore, PresenceRow, SessionRow};
 // Analytics output struct imports get added back as new helpers are
 // written. Keeping the import list minimal to silence unused-import
 // warnings during the Phase 5 TDD walk.
@@ -2122,6 +2122,135 @@ pub async fn it_returns_file_impact_with_reads_and_writes(store: Arc<dyn EventSt
 // its own #[tokio::test]. When MongoStore lands, add a parallel `mod
 // mongo_backend` with the same shape — every test must pass against
 // both backends or the trait contract is wrong.
+// ───────────────────────────────────────────────────────────────────────
+// Boot facts — row B-01 of the boot-pass plan
+// (docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md).
+// The boot pass asks each session for two facts and nothing else.
+// ───────────────────────────────────────────────────────────────────────
+
+/// A translated event whose `data` is exactly `data` plus the seq.
+fn boot_event(id: &str, session_id: &str, timestamp: &str, seq: u64, mut data: Value) -> Value {
+    data["seq"] = json!(seq);
+    json!({
+        "id": id,
+        "type": "io.arc.event",
+        "subtype": "message.user.prompt",
+        "source": format!("arc://transcript/{session_id}"),
+        "time": timestamp,
+        "data": data,
+    })
+}
+
+pub async fn it_answers_boot_facts_from_the_first_events(store: Arc<dyn EventStore>) {
+    // Event 1 carries the parent link (a subagent's events name the parent
+    // in data.session_id); event 3 carries the cwd; event 2 carries neither.
+    // Inserted out of time order so the answer proves it reads by time.
+    let e3 = boot_event(
+        "bf-3",
+        "child-1",
+        "2025-01-14T00:00:03Z",
+        3,
+        json!({"session_id": "child-1", "raw": {"cwd": "/work/proj-a"}}),
+    );
+    let e1 = boot_event(
+        "bf-1",
+        "child-1",
+        "2025-01-14T00:00:01Z",
+        1,
+        json!({"session_id": "parent-1"}),
+    );
+    let e2 = boot_event(
+        "bf-2",
+        "child-1",
+        "2025-01-14T00:00:02Z",
+        2,
+        json!({"text": "nothing to see"}),
+    );
+    store.insert_batch("child-1", &[e3, e1, e2]).await.unwrap();
+
+    let facts = store.session_boot_facts("child-1").await.unwrap();
+    assert_eq!(
+        facts,
+        BootFacts {
+            parent_session: Some("parent-1".to_string()),
+            cwd: Some("/work/proj-a".to_string()),
+        }
+    );
+}
+
+pub async fn it_answers_none_boot_facts_for_a_session_with_neither(store: Arc<dyn EventStore>) {
+    // Its own id in data.session_id is not a parent link, and no cwd anywhere.
+    let events: Vec<Value> = (1..=3)
+        .map(|i| {
+            boot_event(
+                &format!("bn-{i}"),
+                "solo-1",
+                &format!("2025-01-14T00:00:0{i}Z"),
+                i,
+                json!({"session_id": "solo-1", "raw": {"type": "user"}}),
+            )
+        })
+        .collect();
+    store.insert_batch("solo-1", &events).await.unwrap();
+
+    let facts = store.session_boot_facts("solo-1").await.unwrap();
+    assert_eq!(facts, BootFacts::default());
+
+    let unknown = store.session_boot_facts("never-seen").await.unwrap();
+    assert_eq!(
+        unknown,
+        BootFacts::default(),
+        "an unknown session answers None, not an error"
+    );
+}
+
+pub async fn it_answers_boot_facts_for_a_5000_event_session_in_under_5ms(
+    store: Arc<dyn EventStore>,
+) {
+    // Shaped like a real agent session: every event carries the parent link
+    // and the cwd, so the answer is complete after the first event and the
+    // other 4999 must not be read.
+    let events: Vec<Value> = (1..=5000u64)
+        .map(|i| {
+            boot_event(
+                &format!("big-{i}"),
+                "big-child",
+                &format!(
+                    "2025-01-14T{:02}:{:02}:{:02}Z",
+                    i / 3600,
+                    (i / 60) % 60,
+                    i % 60
+                ),
+                i,
+                json!({
+                    "session_id": "big-parent",
+                    "raw": {"cwd": "/work/big", "message": {"content": "x".repeat(2000)}}
+                }),
+            )
+        })
+        .collect();
+    let inserted = store.insert_batch("big-child", &events).await.unwrap();
+    assert_eq!(inserted, 5000);
+
+    let mut best = std::time::Duration::MAX;
+    let mut facts = BootFacts::default();
+    for _ in 0..5 {
+        let t0 = std::time::Instant::now();
+        facts = store.session_boot_facts("big-child").await.unwrap();
+        best = best.min(t0.elapsed());
+    }
+    assert_eq!(
+        facts,
+        BootFacts {
+            parent_session: Some("big-parent".to_string()),
+            cwd: Some("/work/big".to_string()),
+        }
+    );
+    assert!(
+        best < std::time::Duration::from_millis(5),
+        "best of 5 calls took {best:?}; the query must stop at the window, not read 5000 events"
+    );
+}
 
 /// All conformance test names — single source of truth for both backends.
 ///
@@ -2207,6 +2336,10 @@ macro_rules! for_each_conformance_test {
         $macro!(it_returns_token_usage_for_a_specific_session);
         $macro!(it_returns_zero_token_summary_when_no_sessions_match);
         $macro!(it_returns_daily_token_usage_bucketed_by_date);
+        // Boot facts — B-01
+        $macro!(it_answers_boot_facts_from_the_first_events);
+        $macro!(it_answers_none_boot_facts_for_a_session_with_neither);
+        $macro!(it_answers_boot_facts_for_a_5000_event_session_in_under_5ms);
     };
 }
 
