@@ -249,6 +249,9 @@ check). Surfaced 2026-06-23 in the PR #58 deep review.
 
 ---
 
+## Federation — three hubs as a mesh of JetStream domains
+The fleet runs NATS on leaf-link fan-out only: live forwarding, no replay, which is why a peer dark for two days got no backfill. JetStream domains with sources and mirrors give per-origin, cursor-based replay inside the broker, and the node code for it is on the branch; only the deployed NATS configs lack a domain name. The Hetzner box, the mini, and a1 become three hubs as a mesh of domains, each aggregate sourcing the other two, leaves attaching to the nearest. No Raft: the store is a set of immutable events and union is the merge. Rows F-01..F-07 with the lab-test gate: `docs/research/openstory-as-node/2026-09-25-three-hubs.md`.
+
 ## Boot pass memory — bounded boot (recurring since 2026-04)
 
 ### Streaming Boot Replay (bounded-memory), restored
