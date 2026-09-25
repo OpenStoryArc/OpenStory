@@ -124,7 +124,7 @@ MOTIONS (need → first tools):
   stuck        openstory_help { need | topic }
 
 OPS (the node you are reading from; ", tier_rule!(), "):
-  watch        subscribe_health | fleet_presence
+  watch        subscribe_health | fleet_presence | subscribe_convergence (the consistency report, on transitions)
   diagnose     node_health (verdict + finding ids) → node_logs {actor} | node_streams
                consistency_report (this node against every peer's beat: diverged:<host>, behind:<host>, \
 lag:<consumer>, unverified, stale_snapshot:<host>)

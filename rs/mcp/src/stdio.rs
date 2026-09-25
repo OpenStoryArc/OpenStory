@@ -131,7 +131,10 @@ async fn handle_line<S: Subscribe>(
                 handle_subscribe_ui_state(parsed, server, out, subs).await;
             }
             "subscribe_health" => {
-                handle_subscribe_health(parsed, server, out, subs).await;
+                handle_subscribe_pump(parsed, server, out, subs, &HEALTH_PUMP).await;
+            }
+            "subscribe_convergence" => {
+                handle_subscribe_pump(parsed, server, out, subs, &CONVERGENCE_PUMP).await;
             }
             _ => {
                 let result = crate::tools::dispatch_query_tool(server, name, args).await;
@@ -296,12 +299,51 @@ async fn handle_subscribe_ui_state<S: Subscribe>(
     subs.lock().await.insert(id_key, handle);
 }
 
-/// M-05: poll the node's verdict and tell the client only when it moves.
-async fn handle_subscribe_health<S: Subscribe>(
+/// A verdict-shaped body polled on an interval and spoken only on
+/// transitions (M-05, C-04): which hand, what it reads, what it says.
+struct Pump {
+    tool: &'static str,
+    /// The key the body rides under in the ack and in each notification.
+    key: &'static str,
+    method: &'static str,
+    following: &'static str,
+    read: fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>>,
+}
+
+fn read_verdict(base: &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>> {
+    let base = base.to_string();
+    Box::pin(async move { crate::tools::ops::read_verdict(&base).await })
+}
+
+fn read_report(base: &str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send>> {
+    let base = base.to_string();
+    Box::pin(async move { crate::tools::ops::read_report(&base).await })
+}
+
+static HEALTH_PUMP: Pump = Pump {
+    tool: "subscribe_health",
+    key: "verdict",
+    method: "notifications/openstory/health",
+    following: "health — verdict transitions and findings added or cleared",
+    read: read_verdict,
+};
+
+static CONVERGENCE_PUMP: Pump = Pump {
+    tool: "subscribe_convergence",
+    key: "report",
+    method: "notifications/openstory/convergence",
+    following:
+        "convergence — the consistency report's level and findings, spoken only on transitions",
+    read: read_report,
+};
+
+/// Poll the pump's body and tell the client only when it moves.
+async fn handle_subscribe_pump<S: Subscribe>(
     parsed: Value,
     server: &Server<S>,
     out: &mpsc::Sender<String>,
     subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    pump: &'static Pump,
 ) {
     let id = parsed.get("id").cloned().unwrap_or(Value::Null);
     let id_key = id_as_key(&id);
@@ -310,7 +352,10 @@ async fn handle_subscribe_health<S: Subscribe>(
         let resp = crate::protocol::JsonRpcResponse::failure(
             id,
             crate::protocol::error_code::INTERNAL_ERROR,
-            "subscribe_health unavailable: the MCP has no API base configured (set OPENSTORY_API_URL)",
+            &format!(
+                "{} unavailable: the MCP has no API base configured (set OPENSTORY_API_URL)",
+                pump.tool
+            ),
         );
         let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
         return;
@@ -325,7 +370,7 @@ async fn handle_subscribe_health<S: Subscribe>(
     let interval = std::time::Duration::from_secs_f64(interval_secs);
     let stream_id = uuid::Uuid::new_v4().to_string();
 
-    let mut last = crate::tools::ops::read_verdict(&api_base).await;
+    let mut last = (pump.read)(&api_base).await;
     let result = json!({
         "isError": false,
         "content": [{
@@ -333,9 +378,9 @@ async fn handle_subscribe_health<S: Subscribe>(
             "text": serde_json::to_string(&json!({
                 "stream_id": stream_id,
                 "status": "started",
-                "following": "health — verdict transitions and findings added or cleared",
+                "following": pump.following,
                 "interval_secs": interval_secs,
-                "verdict": last,
+                pump.key: last,
             })).unwrap(),
         }]
     });
@@ -351,14 +396,14 @@ async fn handle_subscribe_health<S: Subscribe>(
         tick.tick().await; // the first tick is immediate; the ack already read once
         loop {
             tick.tick().await;
-            let next = crate::tools::ops::read_verdict(&api_base).await;
-            if let Some(mut change) = crate::tools::ops::health_transition(&last, &next) {
+            let next = (pump.read)(&api_base).await;
+            if let Some(mut change) = crate::tools::ops::transition(&last, &next, pump.key) {
                 seq += 1;
                 change["stream_id"] = json!(pump_stream_id);
                 change["seq"] = json!(seq);
                 let notif = json!({
                     "jsonrpc": "2.0",
-                    "method": "notifications/openstory/health",
+                    "method": pump.method,
                     "params": change,
                 });
                 if pump_out

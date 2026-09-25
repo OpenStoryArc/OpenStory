@@ -316,6 +316,15 @@ pub const TOOLS: &[ToolDef] = &[
                       silence means nothing changed. Cancel via notifications/cancelled.",
         input_schema: ops::subscribe_health_schema,
     },
+    ToolDef {
+        name: "subscribe_convergence",
+        description: "WHEN: you are watching the fleet converge and want to hear only when the consistency report moves. \
+                      MOTION: watch. CALL: { interval_secs? (default 15) }. RETURNS: started with the current report \
+                      (what consistency_report {} answers), then notifications/openstory/convergence \
+                      {from, to, added, cleared, report, seq} on every transition; silence means nothing changed. \
+                      Cancel via notifications/cancelled.",
+        input_schema: ops::subscribe_health_schema,
+    },
     // Ops hands, tier 1 (M-06): change only what is derived; propose first.
     ToolDef {
         name: "node_reproject",

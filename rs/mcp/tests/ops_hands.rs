@@ -808,7 +808,11 @@ mod when_convergence_flips_to_agreed {
                 let calls = calls.clone();
                 async move {
                     let n = calls.fetch_add(1, Ordering::SeqCst);
-                    Json(if n < 2 { consistency_body() } else { agreed_body() })
+                    Json(if n < 2 {
+                        consistency_body()
+                    } else {
+                        agreed_body()
+                    })
                 }
             }),
         )
@@ -901,8 +905,15 @@ mod when_convergence_flips_to_agreed {
             .iter()
             .find(|t| t.name == "subscribe_convergence")
             .expect("subscribe_convergence registered");
-        assert!(def.description.contains("MOTION: watch"), "{}", def.description);
-        assert!(def.description.contains("consistency_report"), "names the one-shot hand");
+        assert!(
+            def.description.contains("MOTION: watch"),
+            "{}",
+            def.description
+        );
+        assert!(
+            def.description.contains("consistency_report"),
+            "names the one-shot hand"
+        );
         let schema = (def.input_schema)();
         assert!(
             schema["properties"].get("interval_secs").is_some(),

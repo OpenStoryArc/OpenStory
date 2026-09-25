@@ -96,3 +96,15 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
   `node-a = 10:00:05`, `node-b = 09:00:00`; a fresh AppState over the same
   data dir answers identically; the beat and the consistency Snapshot
   carry the same map.
+- **2026-09-25 15:21 UTC.** C-04 GREEN. Red `6a3357a`, green: this commit.
+  `stdio::handle_subscribe_pump` is the one pump behind `subscribe_health`
+  and `subscribe_convergence`, parameterised by what it reads
+  (`ops::read_verdict` / `ops::read_report`), the key the body rides
+  under, and the notification method; `ops::transition(prev, next, key)`
+  is the health transition the plan named, with `health_transition` kept
+  as its `verdict` case. An unreachable node reads as
+  `consistency_unreachable`, so an outage is itself a transition. Measured:
+  a mock that answers diverged twice then agreed yields exactly one
+  `notifications/openstory/convergence` (`from: warn, to: ok, cleared:
+  [diverged:node-b], seq: 1`) and 400 ms of silence after, while polling
+  continued (4+ reads).

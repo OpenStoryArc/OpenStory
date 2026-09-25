@@ -151,10 +151,10 @@ fn finding_ids(verdict: &Value) -> Vec<String> {
     ids
 }
 
-/// What changed between two verdicts (M-05): the level moved, or a
+/// What changed between two verdict-shaped bodies: the level moved, or a
 /// finding appeared or cleared. `None` when nothing did, so a subscriber
-/// hears only transitions. Pure.
-pub fn health_transition(prev: &Value, next: &Value) -> Option<Value> {
+/// hears only transitions. The new body rides under `key`. Pure.
+pub fn transition(prev: &Value, next: &Value, key: &str) -> Option<Value> {
     let from = prev["level"].as_str().unwrap_or("unknown");
     let to = next["level"].as_str().unwrap_or("unknown");
     let before = finding_ids(prev);
@@ -169,8 +169,13 @@ pub fn health_transition(prev: &Value, next: &Value) -> Option<Value> {
         "to": to,
         "added": added,
         "cleared": cleared,
-        "verdict": next,
+        key: next,
     }))
+}
+
+/// M-05: the health verdict's transition, under `verdict`.
+pub fn health_transition(prev: &Value, next: &Value) -> Option<Value> {
+    transition(prev, next, "verdict")
 }
 
 /// The verdict on a health body, or an `unknown` verdict naming the error
@@ -182,6 +187,18 @@ pub async fn read_verdict(api_base: &str) -> Value {
             {"id": "no_verdict", "level": "warn", "text": "health has no verdict on this build"}]}),
         Err(e) => json!({"level": "unknown", "findings": [
             {"id": "health_unreachable", "level": "critical", "text": e}]}),
+    }
+}
+
+/// The consistency report (C-04), or an `unknown` report naming the error
+/// when the node cannot be read, so an outage is itself a transition.
+pub async fn read_report(api_base: &str) -> Value {
+    match consistency_report(api_base, Value::Null).await {
+        Ok(body) if body.get("level").is_some() => body,
+        Ok(_) => json!({"level": "unknown", "findings": [
+            {"id": "no_report", "level": "warn", "text": "the node serves no consistency report on this build"}]}),
+        Err(e) => json!({"level": "unknown", "findings": [
+            {"id": "consistency_unreachable", "level": "critical", "text": e}]}),
     }
 }
 
