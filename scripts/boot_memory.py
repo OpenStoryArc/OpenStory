@@ -412,7 +412,7 @@ def docker_run_args(image: str, root: Path, name: str, nats_name: str, port: int
 def allocator_of(body: dict | None) -> str | None:
     """`process.allocator` from a health body (B-06): "jemalloc" or "system";
     None for a node older than the field."""
-    raise NotImplementedError
+    return ((body or {}).get("process") or {}).get("allocator")
 
 
 def consumer_summary(body: dict | None) -> dict[str, int]:
@@ -530,6 +530,7 @@ def boot_and_sample(
     serving_at: float | None = None
     exit_code: int | None = None
     timed_out = False
+    allocator: str | None = None
     last_print = ""
     try:
         while True:
@@ -541,6 +542,7 @@ def boot_and_sample(
                 break
             status, body = fetch_health(url)
             phase = classify(status, body)
+            allocator = allocator_of(body) or allocator
             if serving_at is not None and tick - serving_at >= settle_secs:
                 phase = "settle"
             samples.append({"t": t, "rss_bytes": rss, "phase": phase, "consumers": consumer_summary(body), "replay": (body or {}).get("boot", {}).get("replay")})
@@ -563,6 +565,7 @@ def boot_and_sample(
     first_running = next((s["t"] for s in samples if s["consumers"] and set(s["consumers"]) == {"running"}), None)
     return {
         "db_existed_before": db_existed,
+        "allocator": allocator,
         "phases": peaks,
         "consumers_running_after_secs": first_running,
         "peak_rss_bytes": max((s["rss_bytes"] for s in samples), default=0),
@@ -642,6 +645,7 @@ def docker_boot_and_sample(
     exit_code: int | None = None
     timed_out = False
     oom_killed = False
+    allocator: str | None = None
     last_print = ""
     try:
         while True:
@@ -660,6 +664,7 @@ def docker_boot_and_sample(
             rss = parse_vmrss(files.stdout)
             status, body = fetch_health(url)
             phase = classify(status, body)
+            allocator = allocator_of(body) or allocator
             if serving_at is not None and tick - serving_at >= settle_secs:
                 phase = "settle"
             samples.append(
@@ -706,6 +711,7 @@ def docker_boot_and_sample(
         "image": image,
         "memory_limit": memory,
         "db_existed_before": db_existed,
+        "allocator": allocator,
         "phases": peaks,
         "peak_rss_bytes": max((s["rss_bytes"] for s in samples), default=0),
         "peak_usage_bytes": max(((s["usage_bytes"] or 0) for s in samples), default=0),
@@ -730,7 +736,7 @@ def print_report(result: dict) -> None:
         ended = "timed out" if b["timed_out"] else (f"exited {b['exit_code']}" if b["exit_code"] is not None else "stopped by harness")
         serving = f"serving after {b['serving_after_secs']} s" if b["serving_after_secs"] is not None else "never served"
         print()
-        print(f"boot {b['index']} ({role})  db existed before: {'yes' if b['db_existed_before'] else 'no'}  {serving}  {ended}")
+        print(f"boot {b['index']} ({role})  db existed before: {'yes' if b['db_existed_before'] else 'no'}  allocator: {b.get('allocator') or '?'}  {serving}  {ended}")
         if b.get("mode") == "docker":
             print(f"  image {b['image']}  --memory {b['memory_limit']}  oom_killed: {b['oom_killed']}  consumers all running at: {b['consumers_running_after_secs']} s")
             print(f"  {'phase':<10} {'peak RSS':>12} {'usage':>12} {'anon':>12} {'file':>11}  {'samples':>7}  window")
