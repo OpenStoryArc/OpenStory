@@ -1,6 +1,6 @@
 # Consistency hands
 
-**Date:** 2026-09-25 · **Status:** building · **Branch:** `feat/consistency-hands` (stacked on `feat/reel-chart-beats-kindle`) · **Worktree:** `~/projects/openstory-wt-consistency`
+**Date:** 2026-09-25 · **Status:** rows C-01 to C-07 green (loop log below) · **Branch:** `feat/consistency-hands` (stacked on `feat/reel-chart-beats-kindle`) · **Worktree:** `~/projects/openstory-wt-consistency`
 
 ## The claim
 
