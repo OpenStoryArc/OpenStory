@@ -5,19 +5,31 @@
 #
 # Prerequisites:
 #   - Tailscale connected to same tailnet as the VPS
-#   - Edit deploy/nats-leaf.conf with your hub's Tailscale host and token
+#   - A gitignored .env next to this file with:
+#       NATS_LEAF_URL=nats://<token>@<hub-tailscale-ip>:7422
+#       OPEN_STORY_HOST=<this-machine>   OPEN_STORY_USER=<you>
+#     Use the hub's Tailscale IP: MagicDNS names usually don't resolve
+#     inside Docker Desktop containers.
 #   - Build Open Story image: docker build -f Dockerfile.prod -t open-story:prod .
 #
 # Usage:
-#   docker compose -f docker-compose.leaf.yml up -d
+#   docker compose -f docker-compose.leaf.yml up -d     (or: just leaf-up)
 #
 # Local UI: http://localhost:3002
 # Common UI: https://<vps-tailscale-hostname> (via Caddy on VPS)
+#
+# Invariants checked by scripts/check_leaf_compose.py.
 
 services:
   nats:
     image: nats:2-alpine
-    command: ["-c", "/etc/nats/nats-leaf.conf"]
+    # nats-leaf.conf listens on 127.0.0.1 (right for a native install);
+    # in a container that hides NATS from open-story, so bind all
+    # interfaces here. Host ports below stay 127.0.0.1-only.
+    command: ["-c", "/etc/nats/nats-leaf.conf", "-a", "0.0.0.0"]
+    environment:
+      # nats-leaf.conf reads `url: $NATS_LEAF_URL` from the container env.
+      - NATS_LEAF_URL=${NATS_LEAF_URL:?set NATS_LEAF_URL in .env (see header)}
     ports:
       - "127.0.0.1:4222:4222"
       - "127.0.0.1:8222:8222"
@@ -40,6 +52,9 @@ services:
       - ${CLAUDE_PROJECTS_DIR:-~/.claude/projects}:/watch:ro
     environment:
       - NATS_URL=nats://nats:4222
+      # Hub discovery for /api/admin/topology reads the NATS monitor; the
+      # default localhost:8222 is this container, not the nats one.
+      - OPEN_STORY_NATS_MONITOR_URL=http://nats:8222
       - OPEN_STORY_WATCH_DIR=/watch
       - OPEN_STORY_API_TOKEN=${OPEN_STORY_API_TOKEN:-}
       - OPEN_STORY_METRICS_ENABLED=${OPEN_STORY_METRICS_ENABLED:-false}
