@@ -75,6 +75,44 @@ pub fn watcher_detail(
         .collect()
 }
 
+/// The monitoring base for the NATS behind `nats_url`: the configured
+/// `nats_monitor_url` when set, else the 8222 derivation.
+pub fn monitor_base(nats_monitor_url: &str, nats_url: &str) -> String {
+    let configured = nats_monitor_url.trim().trim_end_matches('/');
+    if configured.is_empty() {
+        monitor_url(nats_url)
+    } else {
+        configured.to_string()
+    }
+}
+
+/// The `jetstream` block of the health body (F-01): the server's file
+/// store size and domain, with where the number came from. The account
+/// info (`from_bus`) wins when it carries a storage limit; else the
+/// monitor's `/jsz` (`config.max_storage`); else the configured size
+/// (0 = unknown). The domain is the bus's, else `/jsz`'s.
+pub fn jetstream_report(
+    from_bus: Option<&open_story_bus::JetStreamLimits>,
+    jsz: Option<&Value>,
+    configured_max_file: i64,
+) -> Value {
+    let domain = from_bus
+        .and_then(|l| l.domain.clone())
+        .or_else(|| jsz.and_then(|j| j["config"]["domain"].as_str().map(String::from)));
+    let (max_file, source) = match from_bus.and_then(|l| l.max_file) {
+        Some(n) => (Some(n), "bus"),
+        None => match jsz
+            .and_then(|j| j["config"]["max_storage"].as_i64())
+            .filter(|n| *n > 0)
+        {
+            Some(n) => (Some(n), "monitor"),
+            None if configured_max_file > 0 => (Some(configured_max_file), "config"),
+            None => (None, "unknown"),
+        },
+    };
+    json!({ "max_file": max_file, "domain": domain, "source": source })
+}
+
 // ── Verdict (M-01) ───────────────────────────────────────────────────────────
 
 /// Stream fill that warns, and the fill that is critical.
@@ -140,22 +178,47 @@ pub fn verdict(body: &Value) -> Value {
             ),
         ));
     }
+    let max_file = body["jetstream"]["max_file"].as_i64().filter(|n| *n > 0);
     for s in body["streams"].as_array().into_iter().flatten() {
         let name = s["name"].as_str().unwrap_or("?");
-        if let Some(pct) = s["percent"].as_f64() {
-            let level = if pct >= STREAM_CRIT {
-                "critical"
+        let fill = s["percent"].as_f64();
+        // F-01: an aggregate is sized from the leaves, so its cap, not
+        // only its fill, is measured against the server's file store.
+        let claim = match (max_file, s["max_bytes"].as_i64()) {
+            (Some(file), Some(cap)) if name.ends_with("-agg") && cap > 0 => {
+                Some(cap as f64 / file as f64)
+            }
+            _ => None,
+        };
+        let level_of = |pct: f64| {
+            if pct >= STREAM_CRIT {
+                Some("critical")
             } else if pct >= STREAM_WARN {
-                "warn"
+                Some("warn")
             } else {
-                continue;
-            };
-            findings.push(finding(
-                level,
-                format!("stream_cap:{name}"),
-                format!("stream {name} is at {:.0}% of its cap", pct * 100.0),
-            ));
-        }
+                None
+            }
+        };
+        let fill_level = fill.and_then(level_of);
+        let claim_level = claim.and_then(level_of);
+        let (level, text) = match (claim_level, fill_level) {
+            (Some(c), f) if rank(c) >= f.map(rank).unwrap_or(0) => (
+                c,
+                format!(
+                    "aggregate {name} claims {:.0}% of the server max_file",
+                    claim.unwrap_or(0.0) * 100.0
+                ),
+            ),
+            (_, Some(f)) => (
+                f,
+                format!(
+                    "stream {name} is at {:.0}% of its cap",
+                    fill.unwrap_or(0.0) * 100.0
+                ),
+            ),
+            _ => continue,
+        };
+        findings.push(finding(level, format!("stream_cap:{name}"), text));
     }
     if let Some(consumers) = body["consumers"].as_object() {
         let mut names: Vec<&String> = consumers.keys().collect();
@@ -271,6 +334,63 @@ mod tests {
                 "http://127.0.0.1:8222"
             );
             assert_eq!(monitor_url("nats://10.0.0.5:4322"), "http://10.0.0.5:8222");
+        }
+
+        #[test]
+        fn it_prefers_a_configured_monitor() {
+            assert_eq!(
+                monitor_base("http://127.0.0.1:8511/", "nats://127.0.0.1:4511"),
+                "http://127.0.0.1:8511"
+            );
+            assert_eq!(
+                monitor_base("  ", "nats://127.0.0.1:4511"),
+                "http://127.0.0.1:8222"
+            );
+        }
+    }
+
+    mod when_the_file_store_size_is_reported {
+        use super::*;
+        use open_story_bus::JetStreamLimits;
+
+        #[test]
+        fn it_takes_the_account_limit_then_the_monitor_then_config() {
+            let bus = JetStreamLimits {
+                max_file: Some(10),
+                domain: Some("hub".into()),
+            };
+            let jsz = json!({"config": {"max_storage": 20, "domain": "monitor-says"}});
+            let r = jetstream_report(Some(&bus), Some(&jsz), 30);
+            assert_eq!(r, json!({"max_file": 10, "domain": "hub", "source": "bus"}));
+
+            let limitless = JetStreamLimits {
+                max_file: None,
+                domain: Some("hub".into()),
+            };
+            let r = jetstream_report(Some(&limitless), Some(&jsz), 30);
+            assert_eq!(
+                r,
+                json!({"max_file": 20, "domain": "hub", "source": "monitor"})
+            );
+
+            let r = jetstream_report(None, Some(&jsz), 30);
+            assert_eq!(r["max_file"], 20);
+            assert_eq!(
+                r["domain"], "monitor-says",
+                "the monitor names the domain too"
+            );
+
+            let r = jetstream_report(Some(&limitless), None, 30);
+            assert_eq!(
+                r,
+                json!({"max_file": 30, "domain": "hub", "source": "config"})
+            );
+
+            let r = jetstream_report(None, None, 0);
+            assert_eq!(
+                r,
+                json!({"max_file": null, "domain": null, "source": "unknown"})
+            );
         }
     }
 }

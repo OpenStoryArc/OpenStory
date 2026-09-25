@@ -597,6 +597,19 @@ async fn main() -> Result<()> {
                     config.advertise_url = v;
                 }
             }
+            if config.nats_monitor_url.is_empty() {
+                if let Ok(v) = std::env::var("OPEN_STORY_NATS_MONITOR_URL") {
+                    config.nats_monitor_url = v;
+                }
+            }
+            if config.jetstream_max_file == 0 {
+                if let Some(v) = std::env::var("OPEN_STORY_JETSTREAM_MAX_FILE")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<i64>().ok())
+                {
+                    config.jetstream_max_file = v;
+                }
+            }
             if let Ok(v) = std::env::var("OPEN_STORY_PUBLISH_SESSIONS") {
                 // Accept 1/true/yes/on (any case) as true; anything else false.
                 let v = v.trim().to_ascii_lowercase();

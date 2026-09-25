@@ -597,6 +597,17 @@ impl Bus for NatsBus {
         Ok(all)
     }
 
+    /// The server's `max_file` and domain from `$JS.API.INFO` (F-01). A
+    /// server without account limits reports its own file store size as
+    /// the account's `max_storage`; unlimited comes back `None`.
+    async fn jetstream_limits(&self) -> Option<crate::JetStreamLimits> {
+        let account = self.jetstream.query_account().await.ok()?;
+        Some(crate::JetStreamLimits {
+            max_file: account.limits.max_storage,
+            domain: account.domain,
+        })
+    }
+
     fn jetstream(&self) -> Option<&async_nats::jetstream::Context> {
         Some(&self.jetstream)
     }

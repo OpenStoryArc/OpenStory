@@ -375,6 +375,23 @@ pub async fn delete_annotation(
     }
 }
 
+/// One monitoring read (`/leafz`, `/jsz`) with a short timeout; `None`
+/// when the monitor is unreachable or does not answer JSON.
+async fn monitor_get(monitor: &str, path: &str) -> Option<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .ok()?;
+    client
+        .get(format!("{monitor}/{path}"))
+        .send()
+        .await
+        .ok()?
+        .json::<Value>()
+        .await
+        .ok()
+}
+
 pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
     let (status, body) = health_body(&state).await;
     (status, Json(body))
@@ -390,23 +407,17 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         let s = state.read().await;
         (
             s.config.nats_leaf_url.clone(),
-            crate::node_health::monitor_url(&s.config.nats_url),
+            crate::node_health::monitor_base(&s.config.nats_monitor_url, &s.config.nats_url),
         )
     };
     let leafz: Option<Value> = if leaf_url.trim().is_empty() {
         None
     } else {
-        match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(500))
-            .build()
-        {
-            Ok(c) => match c.get(format!("{monitor}/leafz")).send().await {
-                Ok(r) => r.json::<Value>().await.ok(),
-                Err(_) => None,
-            },
-            Err(_) => None,
-        }
+        monitor_get(&monitor, "leafz").await
     };
+    // F-01: the server's file store size and domain from `/jsz`, for the
+    // aggregate-size finding. Unreachable is simply absent.
+    let jsz: Option<Value> = monitor_get(&monitor, "jsz").await;
     let s = state.read().await;
     let session_rows = s
         .store
@@ -475,6 +486,13 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         "consumers": crate::consumers::supervision::stats().snapshot(),
         // H-04: per-stream bytes against the configured caps, from JetStream.
         "streams": s.bus.stream_stats().await,
+        // F-01: the server's file store size and domain, so an aggregate's
+        // cap can be read against what the server can hold.
+        "jetstream": crate::node_health::jetstream_report(
+            s.bus.jetstream_limits().await.as_ref(),
+            jsz.as_ref(),
+            s.config.jetstream_max_file,
+        ),
         // P-06: the beat's own bookkeeping.
         "presence": crate::presence::stats_json(s.config.presence_interval_secs),
         // C-01: what this node holds, folded, so a peer's beat is comparable.

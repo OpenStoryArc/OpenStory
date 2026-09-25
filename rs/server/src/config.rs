@@ -315,6 +315,15 @@ pub struct Config {
     /// node is still reported by presence, never attempted. Env:
     /// `OPEN_STORY_ADVERTISE_URL`.
     pub advertise_url: String,
+    /// The JetStream file store size (`max_file`) of the NATS this node
+    /// uses, in bytes, for the health body's `jetstream.max_file` when the
+    /// bus cannot read it from the server (F-01). 0 = unknown. Env:
+    /// `OPEN_STORY_JETSTREAM_MAX_FILE`.
+    pub jetstream_max_file: i64,
+    /// The NATS monitoring endpoint (`http_port`) health reads `/leafz`
+    /// and `/jsz` from. Empty derives `http://<nats host>:8222`, what the
+    /// managed leaf config sets. Env: `OPEN_STORY_NATS_MONITOR_URL`.
+    pub nats_monitor_url: String,
 
     // ── person ──
     /// Person + fleet identity for stamping events with `person_id` and
@@ -424,6 +433,8 @@ impl Default for Config {
             trace_sample_rate: 0.01,
             retention_days: 0,
             advertise_url: String::new(),
+            jetstream_max_file: 0,
+            nats_monitor_url: String::new(),
             person: None,
         }
     }
@@ -653,6 +664,14 @@ impl Config {
 # so a peer's converge can find us. Empty = unadvertised (reported, never
 # attempted).
 # advertise_url = ""
+
+# The JetStream file store size (max_file) of the NATS this node uses, in
+# bytes, for the aggregate-size finding when the bus cannot read it from the
+# server. 0 = unknown. Also via OPEN_STORY_JETSTREAM_MAX_FILE.
+# jetstream_max_file = 0
+# The NATS monitoring endpoint health reads /leafz and /jsz from. Empty
+# derives http://<nats host>:8222. Also via OPEN_STORY_NATS_MONITOR_URL.
+# nats_monitor_url = ""
 
 # ── Person ──
 # OpenStory's identity model — your sovereign self plus the fleet of
@@ -941,6 +960,8 @@ mod tests {
             trace_sample_rate: 0.01,
             retention_days: 90,
             advertise_url: String::new(),
+            jetstream_max_file: 0,
+            nats_monitor_url: String::new(),
             person: None,
         };
         let toml_str = toml::to_string(&config).unwrap();

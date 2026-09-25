@@ -130,8 +130,13 @@ mod when_leaf_is_configured_but_down {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(&tmp);
         boot::set_serving();
-        state.write().await.config.nats_leaf_url =
-            "nats://secret-token@hub.example:7422".to_string();
+        {
+            let mut s = state.write().await;
+            s.config.nats_leaf_url = "nats://secret-token@hub.example:7422".to_string();
+            // A laptop running the real node has a live monitor on :8222
+            // with a leaf link; point this spec at a port nothing answers.
+            s.config.nats_monitor_url = "http://127.0.0.1:1".to_string();
+        }
 
         let body = body_json(
             send_request(
@@ -289,7 +294,11 @@ mod when_the_verdict_is_computed {
         b["consumers"]["persist"]["restarts"] = json!(3);
         let v = verdict(&b);
         assert_eq!(v["level"], "critical");
-        assert_eq!(ids(&v), ["consumer_dead:persist"], "a dead consumer is one finding, not two");
+        assert_eq!(
+            ids(&v),
+            ["consumer_dead:persist"],
+            "a dead consumer is one finding, not two"
+        );
 
         let mut b = healthy();
         b["consumers"]["persist"]["restarts"] = json!(2);
@@ -311,7 +320,10 @@ mod when_the_verdict_is_computed {
         b["boot"]["replay"]["done"] = json!(1);
         let v = verdict(&b);
         assert_eq!(ids(&v), ["replaying"]);
-        assert!(v["findings"][0]["text"].as_str().unwrap().contains("1 of 3"));
+        assert!(v["findings"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("1 of 3"));
 
         let mut b = healthy();
         b["projections"]["fresh"] = json!(false);
@@ -396,7 +408,10 @@ mod when_an_aggregate_nears_the_file_store {
         assert_eq!(v["level"], "warn", "{v}");
         assert_eq!(ids(&v), ["stream_cap:events-agg"]);
         let text = v["findings"][0]["text"].as_str().unwrap();
-        assert!(text.contains("max_file"), "the text says what it is against: {text}");
+        assert!(
+            text.contains("max_file"),
+            "the text says what it is against: {text}"
+        );
 
         // At 90 % of the file store it is critical.
         let v = verdict(&body_with(900, 10, 1000));
@@ -422,12 +437,21 @@ mod when_an_aggregate_nears_the_file_store {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(&tmp);
         boot::set_serving();
-        // The NoopBus has no JetStream behind it, so the body falls back
-        // to the configured file store size.
-        state.write().await.config.jetstream_max_file = 4_294_967_296;
+        // The NoopBus has no JetStream behind it and no monitor answers
+        // (a dead port, not the laptop's live :8222), so the body falls
+        // back to the configured file store size.
+        {
+            let mut s = state.write().await;
+            s.config.nats_monitor_url = "http://127.0.0.1:1".to_string();
+            s.config.jetstream_max_file = 4_294_967_296;
+        }
         let req = Request::get("/api/health").body(Body::empty()).unwrap();
         let body = body_json(send_request(state.clone(), req).await).await;
-        assert_eq!(body["jetstream"]["max_file"], 4_294_967_296_i64, "{}", body["jetstream"]);
+        assert_eq!(
+            body["jetstream"]["max_file"], 4_294_967_296_i64,
+            "{}",
+            body["jetstream"]
+        );
         assert_eq!(body["jetstream"]["source"], "config");
 
         // Unconfigured and unreadable: honest null, source unknown.
@@ -436,5 +460,41 @@ mod when_an_aggregate_nears_the_file_store {
         let body = body_json(send_request(state, req).await).await;
         assert_eq!(body["jetstream"]["max_file"], serde_json::Value::Null);
         assert_eq!(body["jetstream"]["source"], "unknown");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reads_max_file_from_the_monitor_before_config() {
+        let _serial = serial();
+        // A stand-in for the NATS monitoring port answering /jsz.
+        let router = axum::Router::new().route(
+            "/jsz",
+            axum::routing::get(|| async {
+                axum::Json(json!({"config": {"max_storage": 268_435_456, "domain": "leaf-a"}}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let monitor = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        {
+            let mut s = state.write().await;
+            s.config.nats_monitor_url = monitor;
+            s.config.jetstream_max_file = 4_294_967_296;
+        }
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        assert_eq!(
+            body["jetstream"]["max_file"], 268_435_456,
+            "{}",
+            body["jetstream"]
+        );
+        assert_eq!(body["jetstream"]["domain"], "leaf-a");
+        assert_eq!(body["jetstream"]["source"], "monitor");
     }
 }

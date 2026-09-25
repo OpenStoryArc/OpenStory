@@ -53,6 +53,16 @@ impl StreamStats {
     }
 }
 
+/// What the JetStream server behind a bus allows (F-01): its file store
+/// size and the domain it serves, as the account info reports them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JetStreamLimits {
+    /// The server's `max_file` in bytes; `None` when unlimited or unknown.
+    pub max_file: Option<i64>,
+    /// The server's JetStream domain, when it has one.
+    pub domain: Option<String>,
+}
+
 /// A batch of events to publish or received from the bus.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IngestBatch {
@@ -112,6 +122,13 @@ pub trait Bus: Send + Sync + 'static {
     /// Empty for a bus with no JetStream behind it.
     async fn stream_stats(&self) -> Vec<StreamStats> {
         vec![]
+    }
+
+    /// The JetStream server's file store size and domain (F-01), read from
+    /// the account info. `None` for a bus with no JetStream behind it or
+    /// when the server does not answer.
+    async fn jetstream_limits(&self) -> Option<JetStreamLimits> {
+        None
     }
 
     /// Optional JetStream context handle for admin/introspection use.

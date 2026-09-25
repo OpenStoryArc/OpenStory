@@ -178,10 +178,11 @@ mod when_streams_exist {
     }
 }
 
-// F-01 (three hubs): the server's JetStream file store size and domain,
-// read through the account info the server answers on `$JS.API.INFO`, so
-// the health body can say how much of the file store an aggregate claims
-// without an http monitor port.
+// F-01 (three hubs): the JetStream domain and, when the account carries a
+// storage limit, the file store size, read through the account info the
+// server answers on `$JS.API.INFO`. An account without limits answers -1
+// (unlimited): then `max_file` is the monitor's `/jsz` to say, and the
+// health body falls through to it.
 mod when_limits_are_read {
     use super::*;
     use std::io::Write;
@@ -224,7 +225,7 @@ mod when_limits_are_read {
     }
 
     #[tokio::test]
-    async fn it_reports_the_servers_max_file_and_domain() {
+    async fn it_reports_the_domain_and_no_limit_for_a_limitless_account() {
         let Some(_server) = start_with_config() else {
             eprintln!("skipping: nats-server not on PATH");
             return;
@@ -236,7 +237,10 @@ mod when_limits_are_read {
             .jetstream_limits()
             .await
             .expect("a JetStream bus answers its limits");
-        assert_eq!(limits.max_file, Some(536_870_912), "{limits:?}");
         assert_eq!(limits.domain.as_deref(), Some("probe"), "{limits:?}");
+        assert_eq!(
+            limits.max_file, None,
+            "no account limit means unlimited, never the server's max_file: {limits:?}"
+        );
     }
 }

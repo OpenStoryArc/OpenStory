@@ -351,6 +351,20 @@ mod tests {
 
 // ── Aggregate sizing (three hubs F-01) ──────────────────────────────────────
 
+/// The bytes a hub aggregate needs to hold every leaf's window plus
+/// `headroom_pct` more, rounded up. Uncapped leaves (JetStream's -1 or
+/// 0) add nothing: a window the leaf does not bound cannot be sized for.
+/// No leaves is 0. Pure.
+pub fn aggregate_cap(leaf_caps: &[i64], headroom_pct: u64) -> i64 {
+    let sum: i128 = leaf_caps
+        .iter()
+        .filter(|c| **c > 0)
+        .map(|c| *c as i128)
+        .sum();
+    let scaled = sum * (100 + headroom_pct as i128);
+    ((scaled + 99) / 100).min(i64::MAX as i128) as i64
+}
+
 #[cfg(test)]
 mod aggregate_cap_tests {
     use super::*;
