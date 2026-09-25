@@ -328,6 +328,10 @@ download-model:
 token-usage *ARGS:
     PYTHONIOENCODING=utf-8 uv run python scripts/token_usage.py {{ARGS}}
 
+# Boot-memory harness (B-00): synthetic store, two boots, peak RSS per phase; --test for specs
+boot-memory *ARGS:
+    python3 scripts/boot_memory.py {{ARGS}}
+
 # Backfill semantic embeddings for all existing events
 backfill:
     ORT_DYLIB_PATH=data/models/{{ort_lib}} cargo run --manifest-path rs/cli/Cargo.toml -- backfill --data-dir ./data
