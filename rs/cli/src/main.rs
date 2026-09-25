@@ -21,6 +21,7 @@ use open_story_bus::nats_bus::{Federation, FederationPeers, NatsBus};
 use open_story_bus::Bus;
 use open_story_store::sqlite_store::SqliteStore;
 
+mod alloc;
 mod init;
 mod managed_nats;
 
