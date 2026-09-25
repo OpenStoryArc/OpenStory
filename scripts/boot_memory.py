@@ -338,6 +338,15 @@ def session_lines(plan: dict, rng: random.Random):
         yield json.dumps(make_event(rng, plan, seq, kind, at, out_bytes), separators=(",", ":"))
 
 
+NODE_OWN_JSONL = ("events.jsonl", "presence.jsonl")
+
+
+def is_session_file(name: str) -> bool:
+    """A fixture session file, as opposed to the JSONL the node itself writes
+    into its data dir on boot (`events.jsonl`, `presence.jsonl`)."""
+    return name.endswith(".jsonl") and name not in NODE_OWN_JSONL
+
+
 def gate_passes(peak_rss_bytes: int, gate_gb: float) -> bool:
     return peak_rss_bytes < gate_gb * 1_000_000_000
 
@@ -364,7 +373,8 @@ def write_fixture(root: Path, args: argparse.Namespace) -> dict:
     }
     if manifest_path.exists():
         have = json.loads(manifest_path.read_text())
-        if {k: have.get(k) for k in params} == params and len(list(data.glob("*.jsonl"))) == have.get("files"):
+        n_files = sum(1 for f in data.iterdir() if is_session_file(f.name))
+        if {k: have.get(k) for k in params} == params and n_files == have.get("files"):
             print(f"fixture: reusing {data} ({have['files']} files, {have['jsonl_bytes'] / 1e9:.2f} GB JSONL)")
             have["root"] = str(root)
             return have
@@ -660,6 +670,13 @@ def test_when_session_lines_are_written_they_meet_the_byte_target():
     assert times == sorted(times)
     kinds = [json.loads(l)["subtype"] for l in lines]
     assert kinds[: len(TURN)] == list(TURN)
+
+
+def test_when_the_node_wrote_its_own_jsonl_they_are_not_session_files():
+    assert is_session_file("0c1d5e6a-1b2c-4d3e-8f90-0a1b2c3d4e5f.jsonl")
+    assert not is_session_file("events.jsonl")
+    assert not is_session_file("presence.jsonl")
+    assert not is_session_file("manifest.json")
 
 
 def test_when_the_gate_is_evaluated_it_compares_bytes_to_gigabytes():
