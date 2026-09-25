@@ -64,7 +64,14 @@ fn port_open(port: u16) -> bool {
 fn start_nats(store: &std::path::Path) -> Option<ScratchNats> {
     let bin = nats_bin()?;
     let child = Command::new(bin)
-        .args(["-a", "127.0.0.1", "-p", &NATS_PORT.to_string(), "-js", "-sd"])
+        .args([
+            "-a",
+            "127.0.0.1",
+            "-p",
+            &NATS_PORT.to_string(),
+            "-js",
+            "-sd",
+        ])
         .arg(store)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -93,7 +100,7 @@ fn scratch_root() -> tempfile::TempDir {
 }
 
 async fn consumer_names(bus: &NatsBus, stream: &str) -> Vec<String> {
-    let mut s = bus.jetstream().get_stream(stream).await.expect("stream");
+    let s = bus.jetstream().get_stream(stream).await.expect("stream");
     let mut names = Vec::new();
     let mut listed = s.consumer_names();
     while let Some(Ok(n)) = listed.next().await {
@@ -115,7 +122,9 @@ async fn health(client: &reqwest::Client) -> Option<serde_json::Value> {
 
 async fn session_event_ids(client: &reqwest::Client, sid: &str) -> Vec<String> {
     let Ok(r) = client
-        .get(format!("http://127.0.0.1:{API_PORT}/api/sessions/{sid}/events"))
+        .get(format!(
+            "http://127.0.0.1:{API_PORT}/api/sessions/{sid}/events"
+        ))
         .send()
         .await
     else {
@@ -239,6 +248,11 @@ mod when_the_node_loses_its_jetstream_consumers_after_serving {
         assert!(!events_before.is_empty(), "consumers exist on events");
         assert!(!presence_before.is_empty(), "a consumer exists on presence");
 
+        // Let the actors go quiet first: an idle subscription is the case a
+        // client-side heartbeat check misses (the last thing it read was a
+        // heartbeat, and nothing re-arms the timer).
+        tokio::time::sleep(Duration::from_secs(7)).await;
+
         // What the server does to ephemeral push consumers whose connection
         // lost interest past the inactivity threshold.
         for stream in ["events", "local", "presence"] {
@@ -251,9 +265,17 @@ mod when_the_node_loses_its_jetstream_consumers_after_serving {
 
         // The actors must notice, resubscribe, and the store keep advancing.
         let landed = lands(&probe, &client, "regress-after", Duration::from_secs(20)).await;
+        // Every actor re-attaches, not only the one that carried the event.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let (events_after, presence_after) = loop {
+            let e = consumer_names(&probe, "events").await;
+            let p = consumer_names(&probe, "presence").await;
+            if (e.len() >= events_before.len() && !p.is_empty()) || Instant::now() > deadline {
+                break (e, p);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
         let h = health(&client).await.unwrap_or_default();
-        let events_after = consumer_names(&probe, "events").await;
-        let presence_after = consumer_names(&probe, "presence").await;
         server.abort();
         assert!(
             landed,
@@ -262,9 +284,10 @@ mod when_the_node_loses_its_jetstream_consumers_after_serving {
              health consumers={}",
             h["consumers"]
         );
-        assert!(
-            !events_after.is_empty(),
-            "consumers re-attached on events"
+        assert_eq!(
+            events_after.len(),
+            events_before.len(),
+            "every actor re-attached on events: {events_after:?}"
         );
         assert!(
             !presence_after.is_empty(),

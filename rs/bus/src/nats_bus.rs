@@ -4,6 +4,7 @@
 //! stream history for boot recovery.
 
 use anyhow::{Context, Result};
+use async_nats::jetstream::context::ConsumerInfoErrorKind;
 use async_nats::jetstream::{self, stream};
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -367,7 +368,7 @@ impl NatsBus {
         tx: mpsc::Sender<IngestBatch>,
         stream_name: &str,
         pattern: &str,
-    ) -> Result<()> {
+    ) -> Result<tokio::task::JoinHandle<()>> {
         let stream = self
             .jetstream
             .get_stream(stream_name)
@@ -396,8 +397,45 @@ impl NatsBus {
             .with_context(|| format!("failed to get message stream on '{stream_name}'"))?;
 
         let label = stream_name.to_string();
-        tokio::spawn(async move {
-            while let Some(Ok(msg)) = messages.next().await {
+        Ok(tokio::spawn(async move {
+            loop {
+                // The server deletes an ephemeral push consumer whose
+                // connection lost interest past its inactivity threshold (a
+                // stall, a slow-consumer disconnect). The subscription then
+                // just goes quiet, forever, and the actor looks alive. So
+                // after a quiet spell ask whether the consumer still exists;
+                // if the server says it is gone, end, and the actor's
+                // supervisor subscribes afresh. A transient error (NATS
+                // reconnecting) keeps waiting: re-delivering the stream is
+                // not free.
+                let next = match tokio::time::timeout(CONSUMER_QUIET_PROBE, messages.next()).await {
+                    Ok(next) => next,
+                    Err(_quiet) => match consumer.get_info().await {
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                ConsumerInfoErrorKind::NotFound
+                                    | ConsumerInfoErrorKind::StreamNotFound
+                            ) =>
+                        {
+                            eprintln!(
+                                "bus[{label}]: event=bus_consumer_lost error={e}; ending the subscription"
+                            );
+                            break;
+                        }
+                        _ => continue,
+                    },
+                };
+                let msg = match next {
+                    Some(Ok(msg)) => msg,
+                    Some(Err(e)) => {
+                        eprintln!(
+                            "bus[{label}]: event=bus_consumer_lost error={e}; ending the subscription"
+                        );
+                        break;
+                    }
+                    None => break,
+                };
                 match serde_json::from_slice::<IngestBatch>(&msg.payload) {
                     Ok(batch) => {
                         if tx.send(batch).await.is_err() {
@@ -412,8 +450,7 @@ impl NatsBus {
                     eprintln!("bus[{label}]: failed to ack message: {e}");
                 }
             }
-        });
-        Ok(())
+        }))
     }
 
     /// Subscribe to a named stream filtered by `pattern`, yielding typed
@@ -430,9 +467,37 @@ impl NatsBus {
         pattern: &str,
     ) -> Result<mpsc::Receiver<IngestBatch>> {
         let (tx, rx) = mpsc::channel(256);
-        self.spawn_consumer(tx, stream_name, pattern).await?;
+        let _forwarder = self.spawn_consumer(tx, stream_name, pattern).await?;
         Ok(rx)
     }
+}
+
+/// How long a forwarder's subscription may stay quiet before it asks the
+/// server whether its consumer still exists (one API call per quiet spell).
+const CONSUMER_QUIET_PROBE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// One subscription's forwarders share one channel: when any of them ends
+/// (its consumer was deleted, the receiver dropped), stop the rest, so the
+/// channel closes and the actor sees the subscription end instead of
+/// waiting on the survivors forever.
+fn link_forwarders(forwarders: Vec<tokio::task::JoinHandle<()>>) {
+    tokio::spawn(async move {
+        let (_, _, rest) = futures::future::select_all(forwarders).await;
+        for f in rest {
+            f.abort();
+        }
+    });
+}
+
+/// A failed spawn part-way through a subscription stops the forwarders
+/// already started for it, so no orphan keeps reading for nobody.
+fn abort_on_err<T>(spawned: Result<T>, started: &[tokio::task::JoinHandle<()>]) -> Result<T> {
+    if spawned.is_err() {
+        for f in started {
+            f.abort();
+        }
+    }
+    spawned
 }
 
 /// Streams that have a `{name}-mirror` twin under federation (P-04).
@@ -545,37 +610,47 @@ impl Bus for NatsBus {
         // from the hub aggregate). Both pump into one shared mpsc so callers
         // see a single unified stream.
         let (tx, rx) = mpsc::channel(256);
-        self.spawn_consumer(tx.clone(), "events", pattern)
+        let mut forwarders = vec![self
+            .spawn_consumer(tx.clone(), "events", pattern)
             .await
-            .context("failed to spawn 'events' consumer")?;
+            .context("failed to spawn 'events' consumer")?];
         // Own local-only events (`publish_sessions = false`) live in the
         // `local` stream, which federation never sources — read it too so a
         // node always sees its own sessions, published or not. Filter to
         // `local.>` so the `events.>`-shaped `pattern` doesn't exclude them.
-        self.spawn_consumer(tx.clone(), "local", "local.>")
+        let local = self
+            .spawn_consumer(tx.clone(), "local", "local.>")
             .await
-            .context("failed to spawn 'local' consumer")?;
+            .context("failed to spawn 'local' consumer");
+        forwarders.push(abort_on_err(local, &forwarders)?);
         if self.federation.is_some() {
-            self.spawn_consumer(tx, "events-mirror", pattern)
+            let mirror = self
+                .spawn_consumer(tx, "events-mirror", pattern)
                 .await
-                .context("failed to spawn 'events-mirror' consumer")?;
+                .context("failed to spawn 'events-mirror' consumer");
+            forwarders.push(abort_on_err(mirror, &forwarders)?);
         }
+        link_forwarders(forwarders);
         Ok(BusSubscription { receiver: rx })
     }
 
     async fn subscribe_stream(&self, stream: &str, pattern: &str) -> Result<BusSubscription> {
         let (tx, rx) = mpsc::channel(256);
-        self.spawn_consumer(tx.clone(), stream, pattern)
+        let mut forwarders = vec![self
+            .spawn_consumer(tx.clone(), stream, pattern)
             .await
-            .with_context(|| format!("failed to spawn '{stream}' consumer"))?;
+            .with_context(|| format!("failed to spawn '{stream}' consumer"))?];
         // P-04: a mirrored family reads the fleet's copy too when federated,
         // so the presence table sees every node, not just this one.
         if self.federation.is_some() && MIRRORED_STREAMS.contains(&stream) {
             let mirror = format!("{stream}-mirror");
-            self.spawn_consumer(tx, &mirror, pattern)
+            let spawned = self
+                .spawn_consumer(tx, &mirror, pattern)
                 .await
-                .with_context(|| format!("failed to spawn '{mirror}' consumer"))?;
+                .with_context(|| format!("failed to spawn '{mirror}' consumer"));
+            forwarders.push(abort_on_err(spawned, &forwarders)?);
         }
+        link_forwarders(forwarders);
         Ok(BusSubscription { receiver: rx })
     }
 
