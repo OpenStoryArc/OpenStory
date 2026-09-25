@@ -434,6 +434,15 @@ fn assert_gate(label: &str, b: &Boot, fixture: &Fixture) {
     );
 
     for (when, body) in [("serving", serving), ("settled", settled)] {
+        // The rule can only see pressure it can measure: rss must be a
+        // number inside the image (B-07's `ps` is not in debian-slim).
+        let rss = body["process"]["rss_bytes"].as_u64().unwrap_or_else(|| {
+            panic!(
+                "{label}: process.rss_bytes must be a number at {when}, got {}",
+                body["process"]
+            )
+        });
+        assert!(rss > 0, "{label}: rss_bytes {rss} at {when}");
         let ids = finding_ids(body);
         assert!(
             !ids.iter().any(|id| id == "memory_pressure"),

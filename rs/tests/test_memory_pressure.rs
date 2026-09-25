@@ -52,8 +52,36 @@ mod when_the_verdict_sees_memory_pressure {
 
     #[test]
     fn it_says_nothing_below_the_threshold_or_without_a_limit() {
-        assert_eq!(verdict(&body(3_000_000_000, Some(5_000_000_000)))["level"], "ok");
+        assert_eq!(
+            verdict(&body(3_000_000_000, Some(5_000_000_000)))["level"],
+            "ok"
+        );
         assert_eq!(verdict(&body(4_900_000_000, None))["level"], "ok");
+    }
+}
+
+/// B-10 found the field null inside the production image: `rss_bytes`
+/// shelled out to `ps`, which debian-slim does not ship, so the verdict
+/// could not see pressure on the very nodes the rule was written for. On
+/// Linux the number is in `/proc/self/status`.
+mod when_rss_is_read_from_proc {
+    use super::*;
+
+    #[test]
+    fn it_parses_vmrss_kilobytes_into_bytes() {
+        let status = "Name:\topen-story\nVmPeak:\t 900000 kB\nVmRSS:\t  123456 kB\nThreads:\t9\n";
+        assert_eq!(
+            node_health::rss_from_proc_status(status),
+            Some(123_456 * 1024)
+        );
+        assert_eq!(node_health::rss_from_proc_status("Name:\tx\n"), None);
+        assert_eq!(node_health::rss_from_proc_status(""), None);
+    }
+
+    #[test]
+    fn it_is_a_number_on_this_host_without_ps() {
+        // Whatever the host, the process can measure itself.
+        assert!(node_health::process_rss_bytes().unwrap_or(0) > 0);
     }
 }
 
@@ -82,7 +110,10 @@ mod when_the_limit_is_read_from_the_cgroup {
             "present, null outside a cgroup: {body}"
         );
         assert!(
-            body["process"].as_object().unwrap().contains_key("memory_limit_bytes"),
+            body["process"]
+                .as_object()
+                .unwrap()
+                .contains_key("memory_limit_bytes"),
             "{body}"
         );
     }

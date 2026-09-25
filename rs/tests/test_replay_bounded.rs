@@ -258,4 +258,29 @@ mod when_the_configured_budget_exceeds_the_box {
         // No limit known: the configured value stands.
         assert_eq!(effective_projection_budget(4 * gb, None), 4 * gb);
     }
+
+    /// B-10: the payload cache is the other resident cache replay fills;
+    /// its 256 MB default is half of a 512 MiB box. Same rule, its own
+    /// share: 10 % of the limit, so the two caches together never take
+    /// more than half of the box.
+    #[test]
+    fn it_clamps_the_payload_cache_to_its_own_share() {
+        use open_story::server::effective_payload_budget;
+        let mib512 = 536_870_912u64;
+        assert_eq!(
+            effective_payload_budget(256_000_000, Some(mib512)),
+            mib512 / 10
+        );
+        // A 5 GiB box keeps the default.
+        assert_eq!(
+            effective_payload_budget(256_000_000, Some(5 * 1_073_741_824)),
+            256_000_000
+        );
+        // An operator's smaller setting is kept; no limit known, the value stands.
+        assert_eq!(
+            effective_payload_budget(20_000_000, Some(mib512)),
+            20_000_000
+        );
+        assert_eq!(effective_payload_budget(256_000_000, None), 256_000_000);
+    }
 }
