@@ -10,7 +10,7 @@ use tokio::sync::{broadcast as tokio_broadcast, RwLock};
 use open_story_bus::Bus;
 use open_story_store::state::{BackendChoice, StoreState};
 
-use open_story_store::analysis::{self, extract_cwd_from_events};
+use open_story_store::analysis;
 
 use crate::broadcast::BroadcastMessage;
 use crate::config::{Config, DataBackend};
@@ -441,6 +441,13 @@ pub(crate) fn person_account_name(person_id: &str) -> String {
 }
 
 /// Boot from SQLite — sessions already in the DB.
+///
+/// The boot pass needs two facts per session — a subagent's parent and the
+/// cwd that names its project — and asks the store for exactly those
+/// (`EventStore::session_boot_facts`, answered from a 32-event window by a
+/// projected query). It never loads a session's event list: on a fleet
+/// store that alone drove memory past 3 GB before replay began (row B-02,
+/// `docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md`).
 async fn boot_from_sqlite(
     store: &mut StoreState,
     sqlite_sessions: &[open_story_store::event_store::SessionRow],
@@ -450,24 +457,23 @@ async fn boot_from_sqlite(
         sqlite_sessions.len()
     );
     for row in sqlite_sessions {
-        let events = store
-            .event_store
-            .session_events(&row.id)
-            .await
-            .unwrap_or_default();
-        // Detect subagent → parent relationships from the boot-loaded events
-        // (shared helper). Dedup is the EventStore PK's job.
-        for event in &events {
-            open_story_store::state::detect_subagent_relationship(
-                event,
+        let facts = match store.event_store.session_boot_facts(&row.id).await {
+            Ok(facts) => facts,
+            Err(e) => {
+                crate::logging::failed("boot_facts", &e);
+                continue;
+            }
+        };
+        // Subagent → parent, recorded the way live ingest records it.
+        if let Some(parent) = facts.parent_session {
+            open_story_store::state::record_subagent_parent(
                 &row.id,
+                parent,
                 &store.subagent_parents,
                 &store.session_children,
             );
         }
-        // Derive project_id / project_name from cwd in the SAME pass, reusing
-        // the events we already loaded rather than re-scanning every session.
-        if let Some(cwd) = extract_cwd_from_events(&events) {
+        if let Some(cwd) = facts.cwd {
             let resolved = analysis::resolve_project(&cwd, &store.watch_dir_entries);
             store
                 .session_projects
