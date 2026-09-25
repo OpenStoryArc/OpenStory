@@ -79,7 +79,7 @@ PHASE_ORDER = ("no-listen", "starting", "replaying", "serving", "settle")
 
 def fmt_ts(dt: datetime) -> str:
     """The translator's timestamp format: millisecond precision, `Z`."""
-    raise NotImplementedError
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
 def classify(status: int | None, body: dict | None) -> str:
@@ -89,17 +89,42 @@ def classify(status: int | None, body: dict | None) -> str:
     503 → the body's `boot.phase` (`starting` / `replaying`); anything
     else → `other-<status>`.
     """
-    raise NotImplementedError
+    if status is None:
+        return "no-answer" if body and body.get("timeout") else "no-listen"
+    if status == 200:
+        return "serving"
+    if status == 503:
+        phase = (body or {}).get("boot", {}).get("phase")
+        return phase if phase in ("starting", "replaying") else "replaying"
+    return f"other-{status}"
 
 
 def rss_bytes_from_ps(text: str) -> int | None:
     """`ps -o rss= -p PID` prints kilobytes; None when the process is gone."""
-    raise NotImplementedError
+    text = text.strip()
+    if not text:
+        return None
+    return int(text.split()[0]) * 1024
 
 
 def phase_peaks(samples: list[dict]) -> dict[str, dict]:
     """Peak RSS per phase over 1 Hz samples of `{t, rss_bytes, phase}`."""
-    raise NotImplementedError
+    seen: dict[str, dict] = {}
+    for s in samples:
+        cur = seen.get(s["phase"])
+        if cur is None:
+            seen[s["phase"]] = {
+                "peak_rss_bytes": s["rss_bytes"],
+                "samples": 1,
+                "first_t": s["t"],
+                "last_t": s["t"],
+            }
+        else:
+            cur["peak_rss_bytes"] = max(cur["peak_rss_bytes"], s["rss_bytes"])
+            cur["samples"] += 1
+            cur["last_t"] = s["t"]
+    ordered = [p for p in PHASE_ORDER if p in seen] + [p for p in seen if p not in PHASE_ORDER]
+    return {p: seen[p] for p in ordered}
 
 
 def plan_sessions(
@@ -118,7 +143,34 @@ def plan_sessions(
     Start times spread over the last 180 days; the last twenty land inside
     the last five days so the working-set reproject has something to do.
     """
-    raise NotImplementedError
+    n_small = n_sessions - n_large
+    large_each = int(LARGE_SHARE * total_bytes / n_large) if n_large else 0
+    small_each = int((total_bytes - large_each * n_large) / n_small) if n_small else 0
+    large_idx = set(rng.sample(range(n_sessions), n_large))
+    ids = [str(uuid.UUID(int=rng.getrandbits(128), version=4)) for _ in range(n_sessions)]
+    plans: list[dict] = []
+    for i, sid in enumerate(ids):
+        is_large = i in large_idx
+        target = large_each if is_large else small_each
+        # A subagent's file carries its own id; its events carry the parent's.
+        is_sub = i % 10 == 5 and i > 0
+        parent_id = None
+        if is_sub:
+            candidates = [j for j in range(max(0, i - 40), i) if j % 10 != 5]
+            parent_id = ids[rng.choice(candidates)]
+        days_ago = rng.uniform(0, 5) if i >= n_sessions - 20 else rng.uniform(5, 180)
+        plans.append(
+            {
+                "id": sid,
+                "parent_id": parent_id,
+                "cwd": f"/home/bm/projects/proj-{rng.randrange(60)}",
+                "start": now - timedelta(days=days_ago),
+                "events": large_events if is_large else max(len(TURN), round(target / 2600)),
+                "target_bytes": target,
+                "large": is_large,
+            }
+        )
+    return plans
 
 
 def make_event(
@@ -130,37 +182,368 @@ def make_event(
     output_bytes: int,
 ) -> dict:
     """One translated CloudEvent (field names only; every string synthetic)."""
-    raise NotImplementedError
+    own = plan["id"]
+    ts = fmt_ts(at)
+    role = "user" if subtype.startswith("message.user") else "assistant" if subtype.startswith("message.assistant") else "system"
+    is_sidechain = plan["parent_id"] is not None
+    raw: dict = {
+        "cwd": plan["cwd"],
+        "entrypoint": "cli",
+        "gitBranch": "main",
+        "isSidechain": is_sidechain,
+        "parentUuid": None if seq == 1 else _uuid(rng),
+        "sessionId": own,
+        "timestamp": ts,
+        "type": role,
+        "userType": "external",
+        "uuid": _uuid(rng),
+        "version": "2.1.0",
+    }
+    payload: dict = {
+        "_variant": AGENT,
+        "meta": {"agent": AGENT},
+        "cwd": plan["cwd"],
+        "git_branch": "main",
+        "is_sidechain": is_sidechain,
+        "timestamp": ts,
+        "uuid": raw["uuid"],
+        "version": "2.1.0",
+    }
+    if subtype == "message.user.prompt":
+        text = words(rng, 14)
+        raw["message"] = {"role": "user", "content": text}
+        raw["promptId"] = _uuid(rng)
+        payload["text"] = text
+        payload["user_type"] = "external"
+    elif subtype == "message.assistant.thinking":
+        text = words(rng, 40)
+        _assistant(rng, raw, payload, [{"type": "thinking", "thinking": text, "signature": hexs(rng, 200)}])
+        payload["content_types"] = ["thinking"]
+    elif subtype == "message.assistant.text":
+        text = words(rng, 60)
+        _assistant(rng, raw, payload, [{"type": "text", "text": text}])
+        payload["content_types"] = ["text"]
+    elif subtype == "message.assistant.tool_use":
+        cmd = "cargo test -p crate-" + hexs(rng, 6) + " -- " + words(rng, 3)
+        tool_id = "toolu_" + hexs(rng, 24)
+        _assistant(rng, raw, payload, [{"type": "tool_use", "id": tool_id, "name": "Bash", "input": {"command": cmd, "description": words(rng, 5)}}])
+        payload["content_types"] = ["tool_use"]
+        payload["tool"] = "Bash"
+        payload["args"] = {"command": cmd, "description": words(rng, 5)}
+    elif subtype == TOOL_RESULT:
+        out = output_text(rng, output_bytes)
+        tool_id = "toolu_" + hexs(rng, 24)
+        raw["message"] = {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_id, "content": out, "is_error": False}]}
+        raw["toolUseResult"] = {"stdout": out, "stderr": "", "interrupted": False, "isImage": False}
+        raw["sourceToolAssistantUUID"] = _uuid(rng)
+        payload["text"] = out
+        payload["parent_uuid"] = raw["parentUuid"]
+        payload["tool_outcome"] = {"type": "bash", "command": "cargo test", "succeeded": True}
+        payload["user_type"] = "external"
+    else:  # system.turn.complete and anything else: the envelope alone
+        raw["subtype"] = subtype.rsplit(".", 1)[-1]
+    return {
+        "specversion": "1.0",
+        "id": _uuid(rng),
+        "source": f"arc://transcript/{own}",
+        "type": EVENT_TYPE,
+        "subtype": subtype,
+        "time": ts,
+        "datacontenttype": "application/json",
+        "agent": AGENT,
+        "host": "bm",
+        "user": "bm",
+        "data": {
+            "seq": seq,
+            "session_id": plan["parent_id"] or own,
+            "raw": raw,
+            "agent_payload": payload,
+        },
+    }
+
+
+def _uuid(rng: random.Random) -> str:
+    return str(uuid.UUID(int=rng.getrandbits(128), version=4))
+
+
+SYLLABLES = ("ka", "to", "mi", "re", "sol", "ven", "dor", "lin", "ash", "quo", "zen", "pal", "ur", "ith", "ova")
+
+
+def words(rng: random.Random, n: int) -> str:
+    return " ".join("".join(rng.choice(SYLLABLES) for _ in range(rng.randint(1, 3))) for _ in range(n))
+
+
+def hexs(rng: random.Random, n: int) -> str:
+    return "%0*x" % (n, rng.getrandbits(4 * n))
+
+
+def output_text(rng: random.Random, n: int) -> str:
+    """`n` bytes of tool output: numbered lines of plain ASCII (JSON-safe, so
+    its JSON length equals `n`)."""
+    if n <= 0:
+        return ""
+    lines = []
+    size = 0
+    i = 0
+    while size < n:
+        line = f"{i:6d}  src/module_{i % 97}.rs:{rng.randrange(1, 900)}: {words(rng, 6)}\n"
+        lines.append(line)
+        size += len(line)
+        i += 1
+    return "".join(lines)[:n]
+
+
+def _usage(rng: random.Random) -> dict:
+    return {
+        "input_tokens": rng.randrange(1, 40),
+        "output_tokens": rng.randrange(20, 900),
+        "cache_creation_input_tokens": rng.randrange(0, 4000),
+        "cache_read_input_tokens": rng.randrange(10000, 90000),
+        "service_tier": "standard",
+    }
+
+
+def _assistant(rng: random.Random, raw: dict, payload: dict, content: list) -> None:
+    msg_id = "msg_" + hexs(rng, 24)
+    usage = _usage(rng)
+    raw["message"] = {
+        "id": msg_id,
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-synthetic-1",
+        "content": content,
+        "stop_reason": "end_turn",
+        "usage": usage,
+    }
+    raw["requestId"] = "req_" + hexs(rng, 24)
+    payload["message_id"] = msg_id
+    payload["model"] = "claude-synthetic-1"
+    payload["stop_reason"] = "end_turn"
+    payload["token_usage"] = usage
+    payload["parent_uuid"] = raw["parentUuid"]
 
 
 def session_lines(plan: dict, rng: random.Random):
     """Yield the JSONL lines of one session, sized to the plan's byte target."""
-    raise NotImplementedError
+    n = plan["events"]
+    kinds = [TURN[i % len(TURN)] for i in range(n)]
+    probe = random.Random(rng.getrandbits(32))
+    base = {k: len(json.dumps(make_event(probe, plan, 1, k, plan["start"], 0), separators=(",", ":"))) + 1 for k in set(kinds)}
+    total_base = sum(base[k] for k in kinds)
+    n_out = kinds.count(TOOL_RESULT)
+    out_bytes = max(0, (plan["target_bytes"] - total_base) // (n_out * OUTPUT_COPIES)) if n_out else 0
+    at = plan["start"]
+    for seq, kind in enumerate(kinds, 1):
+        at = at + timedelta(seconds=rng.uniform(1, 30))
+        yield json.dumps(make_event(rng, plan, seq, kind, at, out_bytes), separators=(",", ":"))
 
 
 def gate_passes(peak_rss_bytes: int, gate_gb: float) -> bool:
-    raise NotImplementedError
+    return peak_rss_bytes < gate_gb * 1_000_000_000
 
 
 # ── Side effects: fixture on disk, the boot, the samples ──────────────────
 
 
 def write_fixture(root: Path, args: argparse.Namespace) -> dict:
-    raise NotImplementedError
+    """Build `root/data/*.jsonl` + `root/watch/` once; reuse when the manifest
+    matches. Never deletes: a mismatching manifest is an error, pick a new dir."""
+    root.mkdir(parents=True, exist_ok=True)
+    data = root / "data"
+    watch = root / "watch"
+    data.mkdir(exist_ok=True)
+    watch.mkdir(exist_ok=True)
+    manifest_path = root / "manifest.json"
+    params = {
+        "version": 1,
+        "sessions": args.sessions,
+        "large": args.large,
+        "large_events": args.large_events,
+        "total_bytes": int(args.total_gb * 1_000_000_000),
+        "seed": args.seed,
+    }
+    if manifest_path.exists():
+        have = json.loads(manifest_path.read_text())
+        if {k: have.get(k) for k in params} == params and len(list(data.glob("*.jsonl"))) == have.get("files"):
+            print(f"fixture: reusing {data} ({have['files']} files, {have['jsonl_bytes'] / 1e9:.2f} GB JSONL)")
+            have["root"] = str(root)
+            return have
+        raise SystemExit(f"fixture: {manifest_path} does not match these parameters; use a fresh --fixture dir")
+    if list(data.glob("*.jsonl")):
+        raise SystemExit(f"fixture: {data} already holds JSONL without a manifest; use a fresh --fixture dir")
+    rng = random.Random(args.seed)
+    now = datetime.now(timezone.utc)
+    plans = plan_sessions(args.sessions, args.large, params["total_bytes"], args.large_events, rng, now)
+    t0 = time.monotonic()
+    written = 0
+    for i, plan in enumerate(plans, 1):
+        srng = random.Random(rng.getrandbits(64))
+        with open(data / f"{plan['id']}.jsonl", "w", encoding="utf-8") as fh:
+            for line in session_lines(plan, srng):
+                fh.write(line)
+                fh.write("\n")
+                written += len(line) + 1
+        if i % 100 == 0 or i == len(plans):
+            print(f"fixture: {i}/{len(plans)} sessions, {written / 1e9:.2f} GB, {time.monotonic() - t0:.0f} s", flush=True)
+    manifest = dict(params)
+    manifest.update(
+        {
+            "files": len(plans),
+            "jsonl_bytes": written,
+            "events": sum(p["events"] for p in plans),
+            "subagents": sum(1 for p in plans if p["parent_id"]),
+            "built_at": now.isoformat(),
+            "build_secs": round(time.monotonic() - t0, 1),
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest["root"] = str(root)
+    return manifest
 
 
 def free_port(start: int) -> int:
-    raise NotImplementedError
+    """First port at or above `start` that nothing listens on (lsof)."""
+    port = start
+    while port < start + 200:
+        if port not in (3002, 4222, 5173, 8222):
+            r = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+            if r.returncode != 0 and not r.stdout.strip():
+                return port
+        port += 1
+    raise SystemExit(f"no free port in {start}..{start + 200}")
 
 
 def boot_and_sample(
     binary: str, fixture: dict, port: int, nats_port: int, settle_secs: int, timeout_secs: int, log_path: Path
 ) -> dict:
-    raise NotImplementedError
+    root = Path(fixture["root"])
+    data = root / "data"
+    watch = root / "watch"
+    db_existed = (data / "open-story.db").exists()
+    env = os.environ.copy()
+    env.update(
+        {
+            "OPEN_STORY_CLAUDE_WATCH_DIR": str(watch),
+            "OPEN_STORY_CODEX_WATCH_DIR": str(watch),
+            "OPEN_STORY_GROK_WATCH_DIR": str(watch),
+            "OPEN_STORY_PI_WATCH_DIR": "",
+            "OPEN_STORY_HERMES_WATCH_DIR": "",
+            "OPEN_STORY_LOG_FORMAT": "text",
+        }
+    )
+    cmd = [
+        binary, "serve", "--manage-nats",
+        "--host", "127.0.0.1", "--port", str(port),
+        "--data-dir", str(data), "--watch-dir", str(watch),
+        "--nats-url", f"nats://127.0.0.1:{nats_port}",
+    ]
+    print(f"boot: {' '.join(cmd)}", flush=True)
+    log = open(log_path, "w", encoding="utf-8")
+    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+    url = f"http://127.0.0.1:{port}/api/health"
+    samples: list[dict] = []
+    t0 = time.monotonic()
+    serving_at: float | None = None
+    exit_code: int | None = None
+    timed_out = False
+    last_print = ""
+    try:
+        while True:
+            tick = time.monotonic()
+            t = int(round(tick - t0))
+            rss = rss_bytes_from_ps(subprocess.run(["ps", "-o", "rss=", "-p", str(proc.pid)], capture_output=True, text=True).stdout)
+            if rss is None or proc.poll() is not None:
+                exit_code = proc.wait()
+                break
+            status, body = fetch_health(url)
+            phase = classify(status, body)
+            if serving_at is not None and tick - serving_at >= settle_secs:
+                phase = "settle"
+            samples.append({"t": t, "rss_bytes": rss, "phase": phase, "replay": (body or {}).get("boot", {}).get("replay")})
+            line = f"  t={t:5d}s  rss={rss / 1e6:8.1f} MB  {phase}"
+            if line[-24:] != last_print[-24:] or t % 15 == 0:
+                print(line, flush=True)
+            last_print = line
+            if phase == "settle":
+                break
+            if phase == "serving" and serving_at is None:
+                serving_at = tick
+            if tick - t0 > timeout_secs:
+                timed_out = True
+                break
+            time.sleep(max(0.0, 1.0 - (time.monotonic() - tick)))
+    finally:
+        stop_process_group(proc)
+        log.close()
+    peaks = phase_peaks(samples)
+    return {
+        "db_existed_before": db_existed,
+        "phases": peaks,
+        "peak_rss_bytes": max((s["rss_bytes"] for s in samples), default=0),
+        "serving_after_secs": None if serving_at is None else int(round(serving_at - t0)),
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "samples": len(samples),
+        "log": str(log_path),
+    }
+
+
+def fetch_health(url: str) -> tuple[int | None, dict | None]:
+    try:
+        with urllib.request.urlopen(url, timeout=0.8) as r:
+            return r.status, json.loads(r.read().decode("utf-8", "replace") or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8", "replace") or "{}")
+        except ValueError:
+            body = {}
+        return e.code, body
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, TimeoutError) or "timed out" in str(e.reason):
+            return None, {"timeout": True}
+        return None, None
+    except (TimeoutError, OSError):
+        return None, {"timeout": True}
+
+
+def stop_process_group(proc: subprocess.Popen) -> None:
+    """SIGTERM the server and its managed nats child (same process group);
+    SIGKILL what is left after 15 s."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + 15
+    while proc.poll() is None and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if proc.poll() is None:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
 
 
 def print_report(result: dict) -> None:
-    raise NotImplementedError
+    fx = result["fixture"]
+    print()
+    print(f"fixture   {fx['files']} sessions, {fx['events']} events, {fx['jsonl_bytes'] / 1e9:.2f} GB JSONL, {fx['subagents']} subagents, seed {fx['seed']}")
+    print(f"binary    {result['binary']}")
+    for b in result["boots"]:
+        role = "measured" if b["index"] == result["measured_boot"] else "ingest"
+        ended = "timed out" if b["timed_out"] else (f"exited {b['exit_code']}" if b["exit_code"] is not None else "stopped by harness")
+        serving = f"serving after {b['serving_after_secs']} s" if b["serving_after_secs"] is not None else "never served"
+        print()
+        print(f"boot {b['index']} ({role})  db existed before: {'yes' if b['db_existed_before'] else 'no'}  {serving}  {ended}")
+        print(f"  {'phase':<10} {'peak RSS':>12}  {'samples':>7}  window")
+        for name, p in b["phases"].items():
+            print(f"  {name:<10} {p['peak_rss_bytes'] / 1e6:>9.1f} MB  {p['samples']:>7}  {p['first_t']}-{p['last_t']} s")
+        print(f"  {'peak':<10} {b['peak_rss_bytes'] / 1e6:>9.1f} MB")
+    print()
+    verdict = "PASS" if result["pass"] else "FAIL"
+    print(f"gate      peak {result['peak_rss_bytes'] / 1e9:.3f} GB {'<' if result['pass'] else '>='} {result['gate_gb']} GB  → {verdict}")
 
 
 # ── Specs ──────────────────────────────────────────────────────────────────
@@ -182,6 +565,10 @@ def test_when_health_is_200_it_is_serving():
 
 def test_when_health_is_another_status_it_names_it():
     assert classify(502, None) == "other-502"
+
+
+def test_when_health_times_out_it_is_no_answer_not_no_listen():
+    assert classify(None, {"timeout": True}) == "no-answer"
 
 
 def test_when_ps_prints_kilobytes_it_returns_bytes():
@@ -320,7 +707,38 @@ def main() -> int:
         return run_tests()
     if not args.fixture:
         ap.error("--fixture DIR is required (or --test)")
-    raise NotImplementedError
+    if args.port <= 3200 or args.nats_port <= 4300 - 1:
+        ap.error("--port must be above 3200 and --nats-port at or above 4300 (the live node owns 3002/4222)")
+
+    fixture = write_fixture(Path(args.fixture), args)
+    port = free_port(args.port)
+    nats_port = free_port(args.nats_port)
+    print(f"ports: http {port}, nats {nats_port}")
+    boots = []
+    for i in range(1, args.boots + 1):
+        log_path = Path(args.fixture) / f"boot-{i}.log"
+        b = boot_and_sample(args.binary, fixture, port, nats_port, args.settle_secs, args.timeout_secs, log_path)
+        b["index"] = i
+        boots.append(b)
+        if b["serving_after_secs"] is None:
+            print(f"boot {i}: never reached serving (see {log_path}); stopping", flush=True)
+            break
+    measured = boots[-1]
+    result = {
+        "measured_at": datetime.now(timezone.utc).isoformat(),
+        "binary": args.binary,
+        "fixture": fixture,
+        "boots": boots,
+        "measured_boot": measured["index"],
+        "peak_rss_bytes": measured["peak_rss_bytes"],
+        "gate_gb": args.gate_gb,
+        "pass": measured["serving_after_secs"] is not None and gate_passes(measured["peak_rss_bytes"], args.gate_gb),
+    }
+    print_report(result)
+    if args.json_path:
+        Path(args.json_path).write_text(json.dumps(result, indent=2, default=str))
+        print(f"json      {args.json_path}")
+    return 0 if result["pass"] else 1
 
 
 if __name__ == "__main__":
