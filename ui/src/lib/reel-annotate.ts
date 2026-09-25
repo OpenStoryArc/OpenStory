@@ -5,7 +5,9 @@
  * not a global pen floating across the app. Coordinates are unit stage space
  * (0..1), same language as diagram beats / agent pen.
  *
- * Never observed history (events.*). Client-local ui.* only for v1.
+ * Never observed history (events.*). Cached in localStorage for instant
+ * replay; the copy that travels lives on the reel record (see streams/
+ * reel-annotate.ts write-through and PUT /api/reels/{id}/ink/{beat}).
  */
 
 import {
@@ -209,6 +211,37 @@ export function saveBeatInkStore(
   } catch {
     return false;
   }
+}
+
+/**
+ * Pure: take the server's copy of a reel's ink as truth for that reel.
+ * Every local entry for `reel.id` is replaced by `reel.beatInk` (a reel the
+ * server says has no ink loses its stale local ink); other reels are left
+ * alone. Malformed strokes and non-numeric beat keys are dropped.
+ */
+export function hydrateBeatInkFromReel(
+  store: BeatInkStore,
+  reel: { readonly id: string; readonly beatInk?: Readonly<Record<string, unknown>> },
+): BeatInkStore {
+  const byKey: Record<string, BeatInk> = {};
+  for (const [k, ink] of Object.entries(store.byKey)) {
+    if (ink.reelId !== reel.id) byKey[k] = ink;
+  }
+  for (const [beat, raw] of Object.entries(reel.beatInk ?? {})) {
+    const beatIndex = Number(beat);
+    if (!Number.isInteger(beatIndex) || beatIndex < 0 || !raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const strokes = normalizeStrokes(row.strokes);
+    if (strokes.length === 0) continue;
+    const key: BeatKey = { reelId: reel.id, beatIndex };
+    byKey[beatKeyString(key)] = {
+      reelId: reel.id,
+      beatIndex,
+      strokes,
+      updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : "",
+    };
+  }
+  return { v: REEL_ANNOTATE_VERSION, byKey };
 }
 
 /** Wire snapshot for ui-state / pen eyes style reporting. */

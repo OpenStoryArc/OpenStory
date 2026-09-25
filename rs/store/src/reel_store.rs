@@ -5,6 +5,7 @@
 //! format IS the file format (camelCase), so the files are portable and
 //! useful without the tool. Mirrors PlanStore: Clone-cheap, all state on disk.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -75,6 +76,20 @@ impl ReelStop {
     }
 }
 
+/// Marginalia on one beat (slide) of a reel. Strokes are stored verbatim as
+/// the client sent them (unit-space `DrawStroke` JSON) — the server never
+/// interprets geometry, it only keeps it with the reel so ink follows the
+/// reel to other devices, exports, and agents instead of living in one
+/// browser's localStorage.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeatInk {
+    #[serde(default)]
+    pub strokes: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reel {
@@ -91,6 +106,11 @@ pub struct Reel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closer: Option<String>,
     pub stops: Vec<ReelStop>,
+    /// Ink per beat, keyed by slide index (opener = 0, then stops, then
+    /// closer — the same index space the player and `BeatInkLayer` use).
+    /// String keys so the on-disk JSON stays a plain object.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub beat_ink: BTreeMap<String, BeatInk>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -176,6 +196,29 @@ impl ReelStore {
         serde_json::from_str(&text).ok()
     }
 
+    /// Replace the ink on one beat of a saved reel. Empty `strokes` forgets
+    /// that beat. Returns `Ok(None)` when the reel does not exist (or the id
+    /// is invalid) so the caller can 404 instead of creating anything.
+    pub fn set_beat_ink(
+        &self,
+        id: &str,
+        beat_index: usize,
+        strokes: Vec<serde_json::Value>,
+        updated_at: &str,
+    ) -> Result<Option<Reel>> {
+        let Some(mut reel) = self.load(id) else {
+            return Ok(None);
+        };
+        let key = beat_index.to_string();
+        if strokes.is_empty() {
+            reel.beat_ink.remove(&key);
+        } else {
+            reel.beat_ink.insert(key, BeatInk { strokes, updated_at: updated_at.to_string() });
+        }
+        self.save(&mut reel)?;
+        Ok(Some(reel))
+    }
+
     pub fn delete(&self, id: &str) -> bool {
         if !valid_reel_id(id) {
             return false;
@@ -205,6 +248,7 @@ mod tests {
                 kind: ReelStopKind::Spotlight,
                 visual: None,
             }],
+            beat_ink: BTreeMap::new(),
         }
     }
 
@@ -330,6 +374,69 @@ mod tests {
         std::fs::write(tmp.path().join("notes.txt"), "not a reel").unwrap();
         assert!(store.load("nope").is_none());
         assert!(store.list().is_empty());
+    }
+
+    // ── Beat ink: marginalia persisted ON the reel ─────────────────────
+
+    #[test]
+    fn reel_without_beat_ink_loads_with_empty_map_and_omits_it_on_disk() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let mut reel = sample("");
+        let id = store.save(&mut reel).unwrap();
+        let raw = std::fs::read_to_string(tmp.path().join(format!("{id}.json"))).unwrap();
+        assert!(!raw.contains("beatInk"), "no ink → no beatInk key on disk: {raw}");
+        assert!(store.load(&id).unwrap().beat_ink.is_empty());
+    }
+
+    #[test]
+    fn set_beat_ink_round_trips_strokes_keyed_by_beat_index() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let mut reel = sample("");
+        let id = store.save(&mut reel).unwrap();
+        let strokes = vec![serde_json::json!({
+            "type": "path",
+            "points": [{"x": 0.1, "y": 0.2}, {"x": 0.3, "y": 0.4}],
+            "stroke": "#facc15"
+        })];
+        let updated = store
+            .set_beat_ink(&id, 1, strokes.clone(), "2026-09-25T00:32:33Z")
+            .unwrap()
+            .expect("reel exists");
+        assert_eq!(updated.beat_ink.len(), 1);
+
+        let loaded = store.load(&id).unwrap();
+        let ink = loaded.beat_ink.get("1").expect("ink keyed by beat index");
+        assert_eq!(ink.strokes, strokes, "strokes stored verbatim — raw preserved");
+        assert_eq!(ink.updated_at, "2026-09-25T00:32:33Z");
+        // Wire format = file format: camelCase on disk.
+        let raw = std::fs::read_to_string(tmp.path().join(format!("{id}.json"))).unwrap();
+        assert!(raw.contains("\"beatInk\""), "{raw}");
+        assert!(raw.contains("\"updatedAt\""), "{raw}");
+    }
+
+    #[test]
+    fn set_beat_ink_with_empty_strokes_removes_that_beat_only() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        let mut reel = sample("");
+        let id = store.save(&mut reel).unwrap();
+        let s = vec![serde_json::json!({"type": "path", "points": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]})];
+        store.set_beat_ink(&id, 0, s.clone(), "t0").unwrap();
+        store.set_beat_ink(&id, 2, s, "t2").unwrap();
+        let after = store.set_beat_ink(&id, 0, vec![], "t3").unwrap().unwrap();
+        assert!(!after.beat_ink.contains_key("0"), "empty strokes clear the beat");
+        assert!(after.beat_ink.contains_key("2"), "other beats untouched");
+        assert_eq!(store.load(&id).unwrap().beat_ink.len(), 1);
+    }
+
+    #[test]
+    fn set_beat_ink_on_missing_or_invalid_reel_is_none() {
+        let tmp = TempDir::new().unwrap();
+        let store = ReelStore::new(tmp.path()).unwrap();
+        assert!(store.set_beat_ink("reel-0000", 0, vec![], "t").unwrap().is_none());
+        assert!(store.set_beat_ink("../x", 0, vec![], "t").unwrap().is_none());
     }
 
     // ── Path traversal via client-supplied id (FINDING 1) ──────────────

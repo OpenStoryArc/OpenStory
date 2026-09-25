@@ -29,6 +29,7 @@ import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
 import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
+import { hydrateFromReel } from "@/streams/reel-annotate";
 import { ExportReelDialog } from "@/components/reels/ExportReelDialog";
 import { normalizeStopKind } from "@/lib/reel-visual";
 import { normalizeReelToSlides, playerToSlideIndex, captionFor } from "@/lib/reel-slide";
@@ -204,7 +205,9 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     let cancelled = false;
     setReel(undefined);
     fetchReel(reelId).then((r) => {
-      if (!cancelled) setReel(r);
+      if (cancelled) return;
+      if (r) hydrateFromReel(r);
+      setReel(r);
     });
     return () => {
       cancelled = true;

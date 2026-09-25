@@ -190,6 +190,10 @@ pub fn build_router(state: SharedState, static_dir: Option<&Path>, config: &Conf
             axum::routing::get(crate::api::get_reel).delete(crate::api::delete_reel),
         )
         .route(
+            "/api/reels/{reel_id}/ink/{beat_index}",
+            axum::routing::put(crate::api::put_reel_beat_ink),
+        )
+        .route(
             "/api/tool-schemas",
             axum::routing::get(crate::api::get_tool_schemas),
         )
