@@ -47,6 +47,8 @@ mongo = ["open-story-store/mongo"]
 hermes_container = []
 
 [dev-dependencies]
+# The lab calls the MCP's ops hands against in-process nodes (F-02).
+open-story-mcp = { path = "mcp" }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 filetime = "0.2"
 rusqlite = "0.35"

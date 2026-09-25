@@ -511,6 +511,38 @@ mod tests {
         assert_eq!(redact_url("nats://hub:7422"), "nats://hub:7422");
     }
 
+    // F-02 (three hubs): a federated node's managed NATS must serve the
+    // JetStream domain the bus pins (`$JS.<domain>.API`), or the leaf's
+    // sources and self-registration reach nothing. Solo stays domainless.
+    mod when_a_domain_is_given {
+        use super::super::*;
+
+        #[test]
+        fn it_renders_the_domain_in_both_shapes() {
+            let leaf = render_leaf_config(
+                "127.0.0.1",
+                4222,
+                Path::new("/tmp/x"),
+                "nats://h:7422",
+                Some("maxs-air"),
+            );
+            assert!(leaf.contains("domain: \"maxs-air\""), "{leaf}");
+            let solo = render_standalone_config("127.0.0.1", 4322, Path::new("/tmp/x"), Some("hub"));
+            assert!(solo.contains("domain: \"hub\""), "{solo}");
+            let none = render_standalone_config("127.0.0.1", 4322, Path::new("/tmp/x"), None);
+            assert!(!none.contains("domain"), "solo renders no domain: {none}");
+        }
+
+        #[test]
+        fn it_is_the_hub_domain_on_a_hub_and_the_host_on_a_leaf() {
+            // The domain the bus will pin, from the same env the CLI reads.
+            assert_eq!(local_domain(Some("hub"), true, false, "maxs-air").as_deref(), Some("hub"));
+            assert_eq!(local_domain(Some("hub"), false, false, "maxs-air").as_deref(), Some("maxs-air"));
+            assert_eq!(local_domain(None, false, true, "maxs-air").as_deref(), Some("maxs-air"));
+            assert_eq!(local_domain(None, false, false, "maxs-air"), None);
+        }
+    }
+
     // L-05: the child's output is never discarded. It lands in
     // <store_dir>/nats.log, rotated once past a byte limit.
     mod when_child_writes_stderr {

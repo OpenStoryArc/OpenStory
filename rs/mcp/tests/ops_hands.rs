@@ -983,3 +983,45 @@ mod when_convergence_flips_to_agreed {
         assert_eq!(t["added"], json!(["consistency_unreachable"]));
     }
 }
+
+// F-02 (three hubs): a federated node's health lists its mirror and the
+// aggregate with their sources; node_streams carries them through.
+mod when_node_streams_lists_a_mirror_and_an_aggregate {
+    use super::*;
+
+    fn federated_health() -> Value {
+        json!({
+            "status": "ok",
+            "host": "leaf-a",
+            "jetstream": {"max_file": 134217728, "domain": "leaf-a", "source": "monitor"},
+            "streams": [
+                {"name": "events", "bytes": 10, "messages": 1, "max_bytes": 1000, "percent": 0.01, "sources": []},
+                {"name": "events-mirror", "bytes": 30, "messages": 3, "max_bytes": 1000, "percent": 0.03,
+                 "sources": [{"name": "events-agg", "domain": "hub", "lag": 0, "active_secs": 1}]},
+                {"name": "events-agg", "bytes": 50, "messages": 5, "max_bytes": 1000, "percent": 0.05,
+                 "sources": [{"name": "events", "domain": "leaf-a", "lag": 0, "active_secs": 1},
+                             {"name": "events", "domain": "leaf-b", "lag": 2, "active_secs": 4}]}
+            ],
+            "verdict": {"level": "ok", "findings": []}
+        })
+    }
+
+    #[tokio::test]
+    async fn it_carries_each_streams_sources() {
+        let router = Router::new().route("/api/health", get(|| async { Json(federated_health()) }));
+        let base = spawn_mock(router).await;
+        let (server, _sub, _dir) = make_test_server();
+        let server = server.with_api_base(base);
+        let resp = call_tool(server, "node_streams", json!({})).await;
+        let v = unwrap_tool_result(&resp).expect("node_streams succeeds");
+        let streams = v["streams"].as_array().expect("streams array");
+        let mirror = streams.iter().find(|s| s["name"] == "events-mirror").expect("the mirror");
+        assert_eq!(mirror["sources"], json!([{"name": "events-agg", "domain": "hub", "lag": 0, "active_secs": 1}]), "{v}");
+        let agg = streams.iter().find(|s| s["name"] == "events-agg").expect("the aggregate");
+        assert_eq!(agg["sources"].as_array().map(|a| a.len()), Some(2), "{v}");
+        assert_eq!(agg["sources"][1]["lag"], 2);
+        assert_eq!(streams[0]["sources"], json!([]), "a plain stream has none");
+        assert_eq!(v["jetstream"]["domain"], "leaf-a", "the node's domain and max_file ride along: {v}");
+        assert_eq!(v["jetstream"]["max_file"], 134217728);
+    }
+}
