@@ -348,3 +348,35 @@ mod tests {
         assert_eq!(d.diverged, vec!["shared-diff".to_string()]);
     }
 }
+
+// ── Aggregate sizing (three hubs F-01) ──────────────────────────────────────
+
+#[cfg(test)]
+mod aggregate_cap_tests {
+    use super::*;
+
+    mod when_the_aggregate_is_sized {
+        use super::*;
+
+        #[test]
+        fn it_sums_the_leaf_caps_with_headroom() {
+            // Three leaves at 1 GiB each plus 25 % headroom: the hub must
+            // hold every leaf's window and a quarter more for a late one.
+            let gib = 1_073_741_824;
+            assert_eq!(aggregate_cap(&[gib, gib, gib], 25), 4_026_531_840);
+            // No headroom is the plain sum.
+            assert_eq!(aggregate_cap(&[100, 200], 0), 300);
+            // Headroom rounds up so a cap is never a byte short.
+            assert_eq!(aggregate_cap(&[10], 5), 11);
+        }
+
+        #[test]
+        fn it_ignores_uncapped_leaves_and_has_no_floor_below_one_leaf() {
+            // An uncapped leaf (-1 or 0, JetStream's "no limit") adds
+            // nothing: the hub cannot size for a window it cannot know.
+            assert_eq!(aggregate_cap(&[-1, 0, 500], 10), 550);
+            // No leaves: nothing to hold.
+            assert_eq!(aggregate_cap(&[], 50), 0);
+        }
+    }
+}

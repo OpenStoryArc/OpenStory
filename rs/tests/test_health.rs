@@ -350,3 +350,91 @@ mod when_the_verdict_is_computed {
         assert!(ids.contains(&"bus_disconnected"), "{ids:?}");
     }
 }
+
+/// F-01 (three hubs): an aggregate stream is sized from the leaves, so the
+/// verdict must say when that size, not just its fill, presses on the
+/// server's file store. The body carries the server's `max_file`, read
+/// from the bus when it can, else from config.
+mod when_an_aggregate_nears_the_file_store {
+    use super::*;
+    use open_story_server::node_health::verdict;
+    use serde_json::json;
+
+    fn body_with(agg_max: i64, agg_bytes: u64, max_file: i64) -> serde_json::Value {
+        json!({
+            "boot": {"phase": "serving", "replay": {"done": 1, "total": 1, "elapsed_ms": 1}},
+            "bus": {"connected": true},
+            "leaf": {"configured": false, "connected": false, "hub": null},
+            "projections": {"count": 1, "sessions": 1, "fresh": true},
+            "jetstream": {"max_file": max_file, "domain": "hub", "source": "bus"},
+            "streams": [
+                {"name": "events", "bytes": 10, "messages": 1, "max_bytes": 1000, "percent": 0.01},
+                {"name": "events-agg", "bytes": agg_bytes, "messages": 1, "max_bytes": agg_max,
+                 "percent": agg_bytes as f64 / agg_max as f64}
+            ],
+            "consumers": {},
+            "watchers_detail": [],
+            "presence": {"beats": 1, "failures": 0, "last_error": null, "interval_secs": 15},
+        })
+    }
+
+    fn ids(v: &serde_json::Value) -> Vec<String> {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn it_names_the_aggregate_against_max_file() {
+        // The aggregate is nearly empty, but its cap is 75 % of the file
+        // store: a warn that names the aggregate, once, not a second
+        // finding.
+        let v = verdict(&body_with(750, 10, 1000));
+        assert_eq!(v["level"], "warn", "{v}");
+        assert_eq!(ids(&v), ["stream_cap:events-agg"]);
+        let text = v["findings"][0]["text"].as_str().unwrap();
+        assert!(text.contains("max_file"), "the text says what it is against: {text}");
+
+        // At 90 % of the file store it is critical.
+        let v = verdict(&body_with(900, 10, 1000));
+        assert_eq!(v["level"], "critical", "{v}");
+        assert_eq!(ids(&v), ["stream_cap:events-agg"]);
+
+        // A small aggregate on a big store raises nothing.
+        let v = verdict(&body_with(100, 10, 1000));
+        assert_eq!(v["level"], "ok", "{v}");
+
+        // Without a known max_file the rule is silent (fill still counts).
+        let mut b = body_with(750, 10, 1000);
+        b["jetstream"]["max_file"] = json!(null);
+        assert_eq!(verdict(&b)["level"], "ok", "{}", verdict(&b));
+        b["streams"][1]["percent"] = json!(0.8);
+        assert_eq!(ids(&verdict(&b)), ["stream_cap:events-agg"]);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_stamps_max_file_from_config_when_the_bus_cannot_say() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        // The NoopBus has no JetStream behind it, so the body falls back
+        // to the configured file store size.
+        state.write().await.config.jetstream_max_file = 4_294_967_296;
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state.clone(), req).await).await;
+        assert_eq!(body["jetstream"]["max_file"], 4_294_967_296_i64, "{}", body["jetstream"]);
+        assert_eq!(body["jetstream"]["source"], "config");
+
+        // Unconfigured and unreadable: honest null, source unknown.
+        state.write().await.config.jetstream_max_file = 0;
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        assert_eq!(body["jetstream"]["max_file"], serde_json::Value::Null);
+        assert_eq!(body["jetstream"]["source"], "unknown");
+    }
+}

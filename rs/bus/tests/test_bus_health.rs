@@ -177,3 +177,66 @@ mod when_streams_exist {
         );
     }
 }
+
+// F-01 (three hubs): the server's JetStream file store size and domain,
+// read through the account info the server answers on `$JS.API.INFO`, so
+// the health body can say how much of the file store an aggregate claims
+// without an http monitor port.
+mod when_limits_are_read {
+    use super::*;
+    use std::io::Write;
+
+    const PORT: u16 = 4501;
+
+    /// A scratch server from a config file: a 512 MB file store and a
+    /// named domain, the two facts the spec reads back.
+    fn start_with_config() -> Option<Scratch> {
+        let bin = which("nats-server")?;
+        let dir = tempfile::tempdir().ok()?;
+        let conf = dir.path().join("nats.conf");
+        let mut f = std::fs::File::create(&conf).ok()?;
+        write!(
+            f,
+            "listen: 127.0.0.1:{PORT}\njetstream {{ store_dir: \"{}\", max_mem: 64MB, max_file: 512MB, domain: probe }}\n",
+            dir.path().join("js").display()
+        )
+        .ok()?;
+        let child = Command::new(bin)
+            .args(["-c"])
+            .arg(&conf)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if TcpStream::connect_timeout(
+                &([127, 0, 0, 1], PORT).into(),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+            {
+                return Some(Scratch { child, _dir: dir });
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn it_reports_the_servers_max_file_and_domain() {
+        let Some(_server) = start_with_config() else {
+            eprintln!("skipping: nats-server not on PATH");
+            return;
+        };
+        let bus = NatsBus::connect_hub(&format!("nats://127.0.0.1:{PORT}"), "probe")
+            .await
+            .expect("connect to the scratch server");
+        let limits = bus
+            .jetstream_limits()
+            .await
+            .expect("a JetStream bus answers its limits");
+        assert_eq!(limits.max_file, Some(536_870_912), "{limits:?}");
+        assert_eq!(limits.domain.as_deref(), Some("probe"), "{limits:?}");
+    }
+}
