@@ -249,6 +249,11 @@ check). Surfaced 2026-06-23 in the PR #58 deep review.
 
 ---
 
+## Boot pass memory — bounded boot (recurring since 2026-04)
+
+### Streaming Boot Replay (bounded-memory), restored
+The node loads every session's full event list at boot to read two small fields (subagent parent, working directory), then walks every session again for the async replay, with the consumer actors draining their backlog at the same time. On the fleet hub (3050 sessions) that is 3.4 GB of heap before replay starts and a kernel kill at 4 GB and at 5 GB; on a 1259-session mini it is a kill at 2 GB and at 3 GB. This was first named in April 2026 ("the server loads its entire event history into memory at boot"), and every round since bounded what is kept or raised the box instead of changing how the node reads. Plan with rows B-00..B-08, the record, and the gate (a 1259-session fixture boots under 2 GB): `docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md`.
+
 ## Actor pipeline — follow-ups from Phase 1.4.5 (async boot replay)
 
 ### Self-reporting `/api/health` endpoint (silent-state-mismatch detector)
