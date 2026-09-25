@@ -440,6 +440,8 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
             "uptime_secs": crate::node_health::uptime_secs(),
             // B-06: which allocator this binary runs (jemalloc / system).
             "allocator": crate::node_health::allocator(),
+            // B-07: cgroup v2 memory.max, null when unlimited or not in a cgroup.
+            "memory_limit_bytes": crate::node_health::process_memory_limit_bytes(),
         },
         "store": {
             "backend": s.config.data_backend.to_string(),

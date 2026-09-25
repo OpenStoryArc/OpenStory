@@ -44,6 +44,8 @@ DEFAULT_CAPS = {
 }
 STREAM_WARN_PCT = 70.0
 STREAM_CRIT_PCT = 90.0
+MEMORY_WARN_PCT = 75.0  # B-07: share of the cgroup limit (rs/server/src/node_health.rs MEMORY_WARN)
+MEMORY_CRIT_PCT = 90.0
 WATCHER_WARN_SECS = 300  # config stale_threshold_secs default
 WATCHER_CRIT_SECS = 3600
 
@@ -293,6 +295,19 @@ def parse_config(text: str | None) -> dict:
     return cfg
 
 
+def memory_pressure_finding(rss_bytes: int | None, limit_bytes: int | None) -> dict | None:
+    """B-07: rss against the cgroup limit; warn at 75 %, critical at 90 %,
+    phrased as the node's own verdict phrases it."""
+    if not rss_bytes or not limit_bytes:
+        return None
+    pct = rss_bytes / limit_bytes * 100.0
+    level = "critical" if pct >= MEMORY_CRIT_PCT else "warn" if pct >= MEMORY_WARN_PCT else None
+    if level is None:
+        return None
+    return finding(level, "memory_pressure", f"memory at {pct:.0f}% of its {limit_bytes / 1e9:.1f} GB limit",
+                   rss_bytes=rss_bytes, limit_bytes=limit_bytes)
+
+
 def verdict(findings: list[dict]) -> str:
     worst = 0
     for f in findings:
@@ -352,6 +367,10 @@ def assess(
         proj = api_health.get("projections") or {}
         if proj.get("fresh") is False:
             findings.append(finding("warn", "projections_stale", f"projections {proj.get('count')} < sessions {proj.get('sessions')}; run reproject"))
+        proc = api_health.get("process") or {}
+        mp = memory_pressure_finding(proc.get("rss_bytes"), proc.get("memory_limit_bytes"))
+        if mp:
+            findings.append(mp)
 
     nats_mem = varz.get("mem") if varz else None
     slow = varz.get("slow_consumers") if varz else None
@@ -370,6 +389,8 @@ def assess(
             "bus_connected": ((api_health or {}).get("bus") or {}).get("connected"),
             "projections": (api_health or {}).get("projections"),
             "rss_kb": server_rss_kb,
+            "memory_limit_bytes": ((api_health or {}).get("process") or {}).get("memory_limit_bytes"),
+            "allocator": ((api_health or {}).get("process") or {}).get("allocator"),
             "metrics_lines": len(metrics_text.splitlines()) if metrics_text else 0,
         },
         "watchers": watchers,

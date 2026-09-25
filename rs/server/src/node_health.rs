@@ -130,6 +130,12 @@ pub fn verdict(body: &Value) -> Value {
             findings.push(finding("warn", "replaying".into(), text));
         }
     }
+    // B-07: say it before the kernel does.
+    if let Some(rss) = body["process"]["rss_bytes"].as_u64() {
+        if let Some(f) = memory_pressure(rss, body["process"]["memory_limit_bytes"].as_u64()) {
+            findings.push(f);
+        }
+    }
     if body["projections"]["fresh"] == json!(false) {
         findings.push(finding(
             "warn",
@@ -326,6 +332,49 @@ pub fn store_size_bytes(data_dir: &std::path::Path) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .sum()
+}
+
+/// B-07: memory pressure thresholds, as a share of the cgroup limit. The
+/// probe script and the dashboard use the same two numbers.
+pub const MEMORY_WARN: f64 = 0.75;
+pub const MEMORY_CRIT: f64 = 0.90;
+
+/// cgroup v2 `memory.max` as a byte count; "max" (or anything unreadable)
+/// is no limit.
+pub fn memory_limit_from_cgroup(text: &str) -> Option<u64> {
+    text.trim().parse::<u64>().ok()
+}
+
+/// This process's memory limit from cgroup v2 (`/sys/fs/cgroup/memory.max`
+/// inside a container or a systemd slice), else None.
+pub fn process_memory_limit_bytes() -> Option<u64> {
+    std::fs::read_to_string("/sys/fs/cgroup/memory.max")
+        .ok()
+        .and_then(|t| memory_limit_from_cgroup(&t))
+}
+
+/// The memory-pressure finding for `rss` against `limit`, if any: warn at
+/// 75 %, critical at 90 %. Pure; the verdict, the probe, and the dashboard
+/// phrase it the same way.
+pub fn memory_pressure(rss: u64, limit: Option<u64>) -> Option<Value> {
+    let limit = limit.filter(|l| *l > 0)?;
+    let share = rss as f64 / limit as f64;
+    let level = if share >= MEMORY_CRIT {
+        "critical"
+    } else if share >= MEMORY_WARN {
+        "warn"
+    } else {
+        return None;
+    };
+    Some(finding(
+        level,
+        "memory_pressure".into(),
+        format!(
+            "memory at {:.0}% of its {:.1} GB limit",
+            share * 100.0,
+            limit as f64 / 1e9
+        ),
+    ))
 }
 
 /// The allocator the running binary installed (B-06): "jemalloc" or
