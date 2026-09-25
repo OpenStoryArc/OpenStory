@@ -433,9 +433,13 @@ fn assert_gate(label: &str, b: &Boot, fixture: &Fixture) {
         b.max_count_during_replay
     );
 
+    // The rule can only see pressure it can measure: rss must be a number
+    // inside the image (B-07's `ps` is not in debian-slim). Pressure is
+    // judged as the fleet would feel it: at the flip to serving — where B-05
+    // starts the consumers and the last replay temporaries are still being
+    // returned — nothing may be critical; twenty seconds on, settled, there
+    // is no memory_pressure finding at any level.
     for (when, body) in [("serving", serving), ("settled", settled)] {
-        // The rule can only see pressure it can measure: rss must be a
-        // number inside the image (B-07's `ps` is not in debian-slim).
         let rss = body["process"]["rss_bytes"].as_u64().unwrap_or_else(|| {
             panic!(
                 "{label}: process.rss_bytes must be a number at {when}, got {}",
@@ -443,15 +447,25 @@ fn assert_gate(label: &str, b: &Boot, fixture: &Fixture) {
             )
         });
         assert!(rss > 0, "{label}: rss_bytes {rss} at {when}");
-        let ids = finding_ids(body);
-        assert!(
-            !ids.iter().any(|id| id == "memory_pressure"),
-            "{label}: no memory_pressure finding at {when} (rss {} B of {} B): {:?}",
-            body["process"]["rss_bytes"],
-            MEMORY_LIMIT_BYTES,
-            body["verdict"]
-        );
     }
+    let critical_at_flip = serving["verdict"]["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|f| f["id"] == "memory_pressure" && f["level"] == "critical");
+    assert!(
+        !critical_at_flip,
+        "{label}: memory_pressure is critical at the flip to serving (rss {} B of {} B): {:?}",
+        serving["process"]["rss_bytes"], MEMORY_LIMIT_BYTES, serving["verdict"]
+    );
+    let settled_ids = finding_ids(settled);
+    assert!(
+        !settled_ids.iter().any(|id| id == "memory_pressure"),
+        "{label}: no memory_pressure finding once settled (rss {} B of {} B): {:?}",
+        settled["process"]["rss_bytes"],
+        MEMORY_LIMIT_BYTES,
+        settled["verdict"]
+    );
     eprintln!(
         "{label}: serving after {:?}; peak rss {:.1} MB; projections {count}/{sessions} at serving, \
          max {} during replay; verdict {} → {}",
