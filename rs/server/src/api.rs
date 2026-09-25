@@ -453,10 +453,13 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         "projections": {
             "count": projections,
             "sessions": sessions,
-            // count covers every session ⇒ the read model is rehydrated.
-            // Goes false when a restart leaves projections un-rebuilt for
-            // source-less sessions (run `reproject`).
-            "fresh": projections >= sessions,
+            // The read model is rehydrated: the boot replay has walked every
+            // session (B-09 bounds what stays resident afterwards — an
+            // evicted projection rebuilds losslessly on access), or every
+            // session is resident. Goes false while a replay is still
+            // running or a restart left projections un-rebuilt (run
+            // `reproject`).
+            "fresh": crate::boot::is_serving() || projections >= sessions,
         },
         "watchers": s.watcher_diagnostics.snapshots().len(),
         // E-05: publish failures across all watchers since boot.

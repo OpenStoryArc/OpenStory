@@ -472,6 +472,12 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             continue;
         }
 
+        // B-09: the walk is pinned while it runs (a half-built projection is
+        // never an eviction victim) and never counts as an access, so once
+        // unpinned an out-of-window session is evictable the moment the
+        // budget says so; a session inside the window stays by its own
+        // timestamps. Everything evicted rebuilds losslessly on first access.
+        ctx.projections.pin_live(sid);
         for val in &events {
             open_story_store::state::detect_subagent_relationship(
                 val,
@@ -481,7 +487,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             );
 
             ctx.projections
-                .append_or_insert(sid, |proj| proj.append(val));
+                .append_untouched(sid, |proj| proj.append(val));
 
             let view_records = match serde_json::from_value::<
                 open_story_core::cloud_event::CloudEvent,
@@ -524,7 +530,9 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
         // Dual-write the session projection to SQLite. Assembles a
         // SessionRow from the projection + the project_id / project_name
         // snapshot; no access to the live StoreState needed.
-        if let Some(proj) = ctx.projections.get(sid) {
+        // `peek`, not `get`: this read is the replay's own bookkeeping, not
+        // an access that should keep the session resident (B-09).
+        if let Some(proj) = ctx.projections.peek(sid) {
             let p = proj.value();
             let rows = p.timeline_rows();
             let first_event = rows.first().map(|r| r.timestamp.clone());
@@ -561,6 +569,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             // reconciler. See `Subtype::time_is_synthesized`.
             let _ = ctx.event_store.recompute_session_bounds(sid).await;
         }
+        ctx.projections.unpin_live(sid);
     }
 
     let fts_indexed = if fts_needs_backfill {

@@ -174,7 +174,14 @@ mod when_replay_walks_a_store_larger_than_the_budget {
         assert!(
             resident <= ceiling,
             "after replay {resident} projections are resident; at most {ceiling} \
-             (10 in the window + a {BUDGET_SESSIONS}-session budget) may be"
+             (10 in the window + a {BUDGET_SESSIONS}-session budget) may be; \
+             evictions {} resident_bytes {} max_bytes {} per_session {per_session}; \
+             old-000 last_event_at {:?} working_set_days {}",
+            cache.evictions(),
+            cache.resident_bytes(),
+            cache.max_bytes(),
+            cache.get(&old_id(0)).and_then(|p| p.last_event_at()),
+            s.config.working_set_days
         );
         assert!(resident >= RECENT, "{resident} resident");
         assert!(
