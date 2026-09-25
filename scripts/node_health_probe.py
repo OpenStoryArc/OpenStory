@@ -625,6 +625,16 @@ def run_tests() -> int:
     ok(pct_of_cap(60813334, 268435456) == 22.65, "patterns 60813334/256 MiB = 22.65%")
     ok(pct_of_cap(1, 0) == 0.0 and pct_of_cap(1, None) == 0.0, "cap 0/None = unlimited = 0%")
 
+    # 1b. B-07 memory pressure from /api/health process.rss_bytes vs memory_limit_bytes
+    mp = memory_pressure_finding(4_600_000_000, 5_000_000_000)
+    ok(mp is not None and mp["level"] == "critical" and mp["code"] == "memory_pressure", "rss 4.6G of 5G -> critical memory_pressure")
+    ok(memory_pressure_finding(3_800_000_000, 5_000_000_000)["level"] == "warn", "76% -> warn")
+    ok(memory_pressure_finding(3_000_000_000, 5_000_000_000) is None, "60% -> nothing")
+    ok(memory_pressure_finding(4_900_000_000, None) is None, "no limit -> nothing")
+    r_mem = assess(**_base_kwargs(api_health={**FIX_API_HEALTH, "process": {"rss_bytes": 4_600_000_000, "memory_limit_bytes": 5_000_000_000}}))
+    ok(any(f["code"] == "memory_pressure" and f["level"] == "critical" for f in r_mem["findings"]), "assess raises memory_pressure from the health body")
+    ok(r_mem["server"]["memory_limit_bytes"] == 5_000_000_000, "assess carries the limit")
+
     # 2. stream thresholds
     ok(level_for_pct(69.99) == "ok" and level_for_pct(70.0) == "warn" and level_for_pct(90.0) == "critical",
        "stream levels: <70 ok, 70 warn, 90 critical")
