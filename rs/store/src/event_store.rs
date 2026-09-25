@@ -50,6 +50,51 @@ pub struct BootFacts {
 impl BootFacts {
     /// How many events, by time, a backend looks at.
     pub const WINDOW: usize = 32;
+
+    /// Fold projected rows — `(data.session_id, cwd)` per event, oldest
+    /// first — into the facts: the first parent link and the first cwd.
+    /// Stops as soon as both are known.
+    pub fn fold<I, S, C>(own_session_id: &str, rows: I) -> BootFacts
+    where
+        I: IntoIterator<Item = (Option<S>, Option<C>)>,
+        S: AsRef<str>,
+        C: Into<String>,
+    {
+        let mut facts = BootFacts::default();
+        for (data_sid, cwd) in rows {
+            if facts.parent_session.is_none() {
+                facts.parent_session = crate::state::parent_from_data_session_id(
+                    own_session_id,
+                    data_sid.as_ref().map(AsRef::as_ref),
+                );
+            }
+            if facts.cwd.is_none() {
+                facts.cwd = cwd.map(Into::into);
+            }
+            if facts.parent_session.is_some() && facts.cwd.is_some() {
+                break;
+            }
+        }
+        facts
+    }
+
+    /// The facts from event bodies (the first `WINDOW`, oldest first) —
+    /// the in-memory reading a projected query must agree with.
+    pub fn from_events<'a>(
+        own_session_id: &str,
+        events: impl IntoIterator<Item = &'a Value>,
+    ) -> BootFacts {
+        Self::fold(
+            own_session_id,
+            events.into_iter().take(Self::WINDOW).map(|e| {
+                (
+                    crate::analysis::value_at(e, &crate::state::SESSION_ID_FIELD_PATH)
+                        .and_then(|v| v.as_str()),
+                    crate::analysis::extract_cwd(e),
+                )
+            }),
+        )
+    }
 }
 
 /// Summary row for a session — materialized from SessionProjection.
@@ -151,11 +196,14 @@ pub trait EventStore: Send + Sync {
     /// The boot pass's two facts for a session, from its first
     /// `BootFacts::WINDOW` events by time. Backends answer this with a
     /// projection and a limit; no event body crosses the trait.
+    ///
+    /// The default loads the session and reads the window in memory —
+    /// correct for every backend, and what the degraded JSONL store and
+    /// the MCP's HTTP store get. SQLite and Mongo override it with a
+    /// native query.
     async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
-        let _ = session_id;
-        Err(anyhow::anyhow!(
-            "session_boot_facts: not implemented by this backend"
-        ))
+        let events = self.session_events(session_id).await?;
+        Ok(BootFacts::from_events(session_id, &events))
     }
 
     /// The most-recent `limit` events with `data.seq < before_seq` (all when

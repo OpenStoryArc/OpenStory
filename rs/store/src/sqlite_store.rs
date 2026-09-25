@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
-use crate::event_store::{EventStore, PresenceRow, SessionRow};
+use crate::event_store::{BootFacts, EventStore, PresenceRow, SessionRow};
 use crate::queries::FtsSearchResult;
 
 /// SQLite-backed event store. Default persistence layer.
@@ -467,6 +467,40 @@ impl EventStore for SqliteStore {
             }
         }
         Ok(events)
+    }
+
+    /// One index range scan on `idx_events_session` (session_id, timestamp)
+    /// that stops at the window; `json_extract` projects the two fields
+    /// from the stored payload so no event body is deserialized.
+    async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
+        let cwd_expr = crate::analysis::CWD_FIELD_PATHS
+            .iter()
+            .map(|path| {
+                format!(
+                    "json_extract(payload, '{}')",
+                    crate::analysis::json_path(path)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT json_extract(payload, '{}'), COALESCE({cwd_expr}) \
+             FROM events WHERE session_id = ?1 ORDER BY timestamp ASC LIMIT ?2",
+            crate::analysis::json_path(&crate::state::SESSION_ID_FIELD_PATH),
+        );
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params![session_id, BootFacts::WINDOW as i64],
+                |row| {
+                    let data_sid: Option<String> = row.get(0)?;
+                    let cwd: Option<String> = row.get(1)?;
+                    Ok((data_sid, cwd))
+                },
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(BootFacts::fold(session_id, rows))
     }
 
     async fn session_events_before(

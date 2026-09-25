@@ -223,37 +223,37 @@ fn extract_tool_names(event: &Value) -> Vec<String> {
     tools
 }
 
+/// Where a translated event carries its working directory, in precedence
+/// order: hook format (`data.meta.cwd`, `data.cwd`), monadic format
+/// (`data.agent_payload.cwd`), transcript format (`data.raw.cwd`).
+///
+/// `extract_cwd` walks this list in memory; the store backends project the
+/// same paths (`json_path`) so a boot fact answered by SQL or a Mongo
+/// projection agrees with one answered from the event body.
+pub const CWD_FIELD_PATHS: [&[&str]; 4] = [
+    &["data", "meta", "cwd"],
+    &["data", "cwd"],
+    &["data", "agent_payload", "cwd"],
+    &["data", "raw", "cwd"],
+];
+
+/// A field path as SQLite's `json_extract` spells it: `$.data.raw.cwd`.
+pub fn json_path(path: &[&str]) -> String {
+    format!("$.{}", path.join("."))
+}
+
+/// The value at a field path, when every segment is present.
+pub fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    path.iter().try_fold(value, |cur, key| cur.get(key))
+}
+
 /// Extract CWD from event data, supporting both formats.
 pub fn extract_cwd(event: &Value) -> Option<String> {
-    let data = event.get("data")?;
-    // Hook format: data.meta.cwd or data.cwd
-    if let Some(cwd) = data
-        .get("meta")
-        .and_then(|m| m.get("cwd"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(cwd.to_string());
-    }
-    if let Some(cwd) = data.get("cwd").and_then(|v| v.as_str()) {
-        return Some(cwd.to_string());
-    }
-    // Monadic format: data.agent_payload.cwd
-    if let Some(cwd) = data
-        .get("agent_payload")
-        .and_then(|ap| ap.get("cwd"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(cwd.to_string());
-    }
-    // Transcript format: data.raw.cwd
-    if let Some(cwd) = data
-        .get("raw")
-        .and_then(|r| r.get("cwd"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(cwd.to_string());
-    }
-    None
+    CWD_FIELD_PATHS.iter().find_map(|path| {
+        value_at(event, path)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
 }
 
 /// Derive project_id from a cwd path (last non-empty path segment).

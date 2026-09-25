@@ -37,7 +37,7 @@ use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
-use crate::event_store::{EventStore, PresenceRow, SessionRow};
+use crate::event_store::{BootFacts, EventStore, PresenceRow, SessionRow};
 
 // Collection names — kept as const so any rename happens in one place.
 const COLL_EVENTS: &str = "events";
@@ -656,6 +656,41 @@ impl EventStore for MongoStore {
             }
         }
         Ok(out)
+    }
+
+    /// The window by `timestamp` with a projection down to the two fields'
+    /// paths inside `payload`, so no event body leaves the server; the
+    /// projected sub-document is read with the same functions the
+    /// in-memory path uses.
+    async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let mut projection = doc! {
+            format!("payload.{}", crate::state::SESSION_ID_FIELD_PATH.join(".")): 1,
+        };
+        for path in crate::analysis::CWD_FIELD_PATHS {
+            projection.insert(format!("payload.{}", path.join(".")), 1);
+        }
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "timestamp": 1 })
+            .limit(BootFacts::WINDOW as i64)
+            .projection(projection)
+            .build();
+        let mut cursor = coll
+            .find(doc! { "session_id": session_id })
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo session_boot_facts find: {e}"))?;
+        let mut projected = Vec::with_capacity(BootFacts::WINDOW);
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo session_boot_facts cursor: {e}"))?;
+            if let Some(payload) = doc.get("payload") {
+                let value: Value = bson::from_bson(payload.clone())
+                    .map_err(|e| anyhow!("projected payload bson → value: {e}"))?;
+                projected.push(value);
+            }
+        }
+        Ok(BootFacts::from_events(session_id, &projected))
     }
 
     /// List all session metadata rows, sorted by `last_event` DESC to match
