@@ -40,6 +40,13 @@ scripts/deploy_gate.sh --api http://127.0.0.1:3002 \
 
 Add `--dry-run` to print the steps without running them.
 
+Before a build rolls anywhere, the boot-memory gate must be green: `just
+test-container` runs `rs/tests/test_boot_memory_gate.rs`, which boots the
+production image against a synthetic store inside a 512 MiB cgroup with a
+NATS sidecar and asserts it serves with the read model bounded, no OOM kill,
+and no `memory_pressure` finding (row B-10 in
+`docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md`).
+
 ## Rollback per host shape
 
 Each shape's rollback is one command once the previous build is at hand.
