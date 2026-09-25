@@ -24,6 +24,9 @@
 //!    caps and sources, and the node's `jetstream` block names its domain
 //!    and the server's `max_file`; `node_streams` through the MCP shows
 //!    the same;
+//! 3b. the hub's own history (a hub that also watches, like the box with
+//!    Bobby and Katie) reaches the aggregate through a local source
+//!    filtered to its host, and from there the leaf's mirror;
 //! 4. after the leaf's nats-server is killed and restarted from the same
 //!    store, the mirror refills the gap by cursor with no catch-up: no
 //!    `OPEN_STORY_CATCH_UP_PEER`, and the `ops` stream stays empty.
@@ -371,6 +374,10 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         );
         hub_bus.ensure_streams().await.expect("hub streams");
         hub_bus.ensure_aggregate(&[]).await.expect("hub aggregate");
+        hub_bus
+            .register_own_on_aggregate("hub-box")
+            .await
+            .expect("the hub's own events and presence on its aggregates");
         let hub = boot_node(
             hub_bus.clone(),
             &hub_url,
@@ -425,9 +432,17 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         domains.sort();
         assert_eq!(
             domains,
-            ["leaf-a", "leaf-b"],
-            "self-registration named both leaves: {agg}"
+            ["", "leaf-a", "leaf-b"],
+            "the hub's own local source and one per leaf: {agg}"
         );
+        let own = agg["sources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|s| s["external"].is_null())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(own["filter_subject"], "events.hub-box.>", "{agg}");
 
         publish(&leaf_b_bus, "leaf-b", "sess-b", 0, 3).await;
         eventually("events-agg holds leaf-b's 3 with lag 0", 30, || async {
@@ -519,6 +534,33 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         )
         .await;
 
+        // ── 3b. the hub's own history reaches the leaf by cursor ──
+        publish(&hub_bus, "hub-box", "sess-h", 0, 2).await;
+        eventually("events-agg holds the hub's own 2 (7 in all)", 30, || async {
+            let agg = stream_info(&hub_bus, "events-agg").await;
+            if messages(&agg) == 7 {
+                Ok(())
+            } else {
+                Err(format!("messages={} sources={:?}", messages(&agg), sources(&agg)))
+            }
+        })
+        .await;
+        eventually("the leaf node holds sess-h through its mirror", 30, || async {
+            let s = get(&leaf_a, "/api/digests").await;
+            let n = s["sessions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|x| x["session_id"] == "sess-h")
+                .and_then(|x| x["count"].as_u64());
+            if n == Some(2) {
+                Ok(())
+            } else {
+                Err(format!("sess-h count={n:?}"))
+            }
+        })
+        .await;
+
         // ── 3. health on both nodes lists the mirror and the aggregate with caps and sources ──
         let hub_health = get(&hub, "/api/health").await;
         let agg_h = stream_named(&hub_health, "events-agg")
@@ -588,14 +630,14 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
             .expect("node_streams");
         let a = stream_named(&ns, "events-agg")
             .unwrap_or_else(|| panic!("node_streams lists the aggregate: {ns}"));
-        assert_eq!(a["sources"].as_array().map(|v| v.len()), Some(2), "{a}");
+        assert_eq!(a["sources"].as_array().map(|v| v.len()), Some(3), "two leaves and the hub itself: {a}");
 
         // ── 4. a leaf outage: the mirror refills the gap by cursor, no catch-up ──
         leaf_a_nats.kill();
         publish(&leaf_b_bus, "leaf-b", "sess-b", 3, 4).await;
-        eventually("events-agg holds 9 while leaf-a is dark", 30, || async {
+        eventually("events-agg holds 11 while leaf-a is dark", 30, || async {
             let agg = stream_info(&hub_bus, "events-agg").await;
-            if messages(&agg) == 9 {
+            if messages(&agg) == 11 {
                 Ok(())
             } else {
                 Err(format!("messages={}", messages(&agg)))
@@ -604,11 +646,11 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         .await;
         leaf_a_nats.launch();
         eventually(
-            "events-mirror on leaf-a refills to 9 by cursor",
+            "events-mirror on leaf-a refills to 11 by cursor",
             60,
             || async {
                 let m = stream_info(&leaf_a_bus, "events-mirror").await;
-                if messages(&m) == 9 {
+                if messages(&m) == 11 {
                     Ok(())
                 } else {
                     Err(format!("messages={}", messages(&m)))
@@ -618,13 +660,13 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         .await;
         // And the aggregate keeps sourcing the returned leaf.
         publish(&leaf_a_bus, "leaf-a", "sess-a", 2, 1).await;
-        eventually("events-agg holds 10 after leaf-a returns", 30, || async {
+        eventually("events-agg holds 12 after leaf-a returns", 30, || async {
             let agg = stream_info(&hub_bus, "events-agg").await;
             let lag_a = sources(&agg)
                 .into_iter()
                 .find(|(d, _)| d == "leaf-a")
                 .map(|(_, l)| l);
-            if messages(&agg) == 10 && lag_a == Some(0) {
+            if messages(&agg) == 12 && lag_a == Some(0) {
                 Ok(())
             } else {
                 Err(format!(

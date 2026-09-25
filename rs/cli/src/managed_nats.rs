@@ -592,6 +592,17 @@ mod tests {
         }
 
         #[test]
+        fn it_takes_a_full_role_hub_by_its_jetstream_domain() {
+            // The box runs `full` (it watches Bobby and Katie), so role
+            // alone cannot say it is the hub; its NATS domain can.
+            assert!(is_hub_node(Some("hub"), None, true), "a consumer hub");
+            assert!(is_hub_node(Some("hub"), Some("hub"), false), "a full hub");
+            assert!(!is_hub_node(Some("hub"), None, false), "a full leaf");
+            assert!(!is_hub_node(Some("hub"), Some("maxs-air"), false), "a leaf naming its own domain");
+            assert!(!is_hub_node(None, Some("hub"), true), "no hub domain, no hub");
+        }
+
+        #[test]
         fn it_is_the_hub_domain_on_a_hub_and_the_host_on_a_leaf() {
             // The domain the bus will pin, from the same env the CLI reads.
             assert_eq!(

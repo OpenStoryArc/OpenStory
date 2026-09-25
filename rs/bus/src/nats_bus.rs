@@ -1282,6 +1282,27 @@ mod federation_config_tests {
     // function MUST be a faithful inverse of `js_api_prefix(domain)`.
 
     #[test]
+    fn own_source_is_local_and_filtered_to_this_hosts_namespace() {
+        // F-02: a hub that also watches (the box runs Bobby and Katie)
+        // puts its own history on the aggregate through a same-domain
+        // source filtered to its host, so leaf events that reached the
+        // hub's `events.>` stream by core propagation are not sourced twice.
+        let src = own_source("events", "hub-box");
+        assert_eq!(src.name, "events");
+        assert!(src.external.is_none(), "same domain: no api prefix");
+        assert_eq!(src.filter_subject.as_deref(), Some("events.hub-box.>"));
+
+        let mut sources = vec![external_source("events", "leaf-a")];
+        assert!(ensure_own_source(&mut sources, "events", "hub-box"));
+        assert!(!ensure_own_source(&mut sources, "events", "hub-box"), "idempotent");
+        assert_eq!(sources.len(), 2, "the leaf's source is kept");
+        assert_eq!(
+            sources[0].external.as_ref().map(|e| e.api_prefix.as_str()),
+            Some("$JS.leaf-a.API")
+        );
+    }
+
+    #[test]
     fn source_stats_reads_domain_lag_and_activity_from_raw_info() {
         let info = serde_json::json!({
             "config": {"name": "events-agg"},
