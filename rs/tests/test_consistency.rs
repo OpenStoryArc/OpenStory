@@ -541,3 +541,111 @@ mod when_consistency_is_read {
         assert_eq!(peers, ["node-b"], "our own beat is not a peer: {body}");
     }
 }
+
+// ── C-02: watermarks ───────────────────────────────────────────────────────
+//
+// Per origin host, the newest event time this node has persisted. The
+// persist consumer writes the sessions row only after the events are
+// durable, and `last_event` merges with MAX, so folding the rows by host
+// is the consumer's acknowledged position, keyed by origin, and it
+// survives a restart by construction. (Not a bus sequence: the persist
+// consumer never sees a subject or a sequence; see the loop log.)
+
+mod when_batches_from_two_hosts_are_persisted {
+    use super::*;
+    use helpers::bus::TestActors;
+    use helpers::make_event_with_time;
+    use open_story::server::presence;
+    use open_story_server::fleet::watermarks;
+
+    fn stamped(host: &str, session: &str, id: &str, time: &str) -> open_story::cloud_event::CloudEvent {
+        let mut ce = make_event_with_time("io.arc.event", session, time);
+        ce.id = id.to_string();
+        ce.with_host(host)
+    }
+
+    #[test]
+    fn it_folds_rows_to_the_newest_time_per_host() {
+        let row = |id: &str, host: Option<&str>, last: Option<&str>| SessionRow {
+            id: id.to_string(),
+            project_id: None,
+            project_name: None,
+            label: None,
+            custom_label: None,
+            branch: None,
+            event_count: 1,
+            first_event: None,
+            last_event: last.map(str::to_string),
+            host: host.map(str::to_string),
+            user: None,
+            origin_agent: None,
+            person_id: None,
+            principal_id: None,
+        };
+        let rows = vec![
+            row("s1", Some("node-a"), Some("2026-09-25T10:00:00.000Z")),
+            row("s2", Some("node-a"), Some("2026-09-25T10:00:05.000Z")),
+            row("s3", Some("node-b"), Some("2026-09-25T09:00:00.000Z")),
+            row("s4", Some("node-b"), None),
+            row("s5", None, Some("2026-09-25T08:00:00.000Z")),
+        ];
+        let w = watermarks(&rows);
+        assert_eq!(w["node-a"], "2026-09-25T10:00:05.000Z", "{w:?}");
+        assert_eq!(w["node-b"], "2026-09-25T09:00:00.000Z");
+        assert_eq!(w["unknown"], "2026-09-25T08:00:00.000Z", "an unplaced row counts");
+        assert_eq!(w.len(), 3);
+        assert!(watermarks(&[]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn it_marks_the_newest_time_per_host_and_a_restart_resumes_from_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut actors = TestActors::new(&tmp).await;
+        // node-a's newer event lands first, its older one second: the
+        // watermark is the newest persisted, not the last arrived.
+        actors
+            .drive_batch(
+                "sess-a",
+                &[stamped("node-a", "sess-a", "a-2", "2026-09-25T10:00:05.000Z")],
+                Some("proj-1"),
+            )
+            .await;
+        actors
+            .drive_batch(
+                "sess-a",
+                &[stamped("node-a", "sess-a", "a-1", "2026-09-25T10:00:00.000Z")],
+                Some("proj-1"),
+            )
+            .await;
+        actors
+            .drive_batch(
+                "sess-b",
+                &[stamped("node-b", "sess-b", "b-1", "2026-09-25T09:00:00.000Z")],
+                Some("proj-1"),
+            )
+            .await;
+
+        let (status, health) = get(&actors.state, "/api/health").await;
+        assert_eq!(status, 200, "{health}");
+        let w = &health["watermarks"];
+        assert_eq!(w["node-a"], "2026-09-25T10:00:05.000Z", "{w}");
+        assert_eq!(w["node-b"], "2026-09-25T09:00:00.000Z");
+        assert_eq!(w.as_object().unwrap().len(), 2);
+
+        // A restart: a fresh node over the same data dir answers the same,
+        // with nothing re-ingested.
+        let bus = Arc::new(RecordingBus::default());
+        let restarted = test_state_with_bus(&tmp, bus.clone());
+        let (_, after) = get(&restarted, "/api/health").await;
+        assert_eq!(after["watermarks"], *w, "the watermark is durable: {after}");
+
+        // The beat carries it, being the health body.
+        presence::publish_once(&restarted).await.expect("one beat");
+        let beat = &bus.under("presence.")[0].1.events[0].data.raw;
+        assert_eq!(beat["watermarks"], *w, "{beat}");
+
+        // And the consistency snapshot reads it, so `behind` can be judged.
+        let snap = open_story_server::consistency::Snapshot::from_health(&after);
+        assert_eq!(snap.watermarks["node-a"], "2026-09-25T10:00:05.000Z");
+    }
+}
