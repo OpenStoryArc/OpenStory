@@ -49,6 +49,9 @@ pub enum FederationPeers {
 pub struct NatsBus {
     /// The events cap in bytes (K-08), from OPEN_STORY_EVENTS_MAX_BYTES.
     events_cap: i64,
+    /// The hub aggregate's cap (F-01), from OPEN_STORY_EVENTS_AGG_MAX_BYTES:
+    /// what `fleet::aggregate_cap` computes for the leaves it holds.
+    aggregate_cap: i64,
     /// JetStream context for *this node's own NATS*. In solo mode this is a
     /// vanilla context (`$JS.API.>`); in federation mode it's pinned to the
     /// node's local JetStream domain (`$JS.{host_or_hub}.API.>`) — the
@@ -138,6 +141,11 @@ impl NatsBus {
             // K-08: the cap is a knob at the edge; the builders stay pure.
             events_cap: events_cap_from(
                 std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
+            ),
+            aggregate_cap: events_cap_from(
+                std::env::var("OPEN_STORY_EVENTS_AGG_MAX_BYTES")
+                    .ok()
+                    .as_deref(),
             ),
         })
     }
@@ -329,7 +337,7 @@ impl NatsBus {
     /// subject namespacing — a given event has exactly one origin host.
     pub async fn ensure_aggregate(&self, peer_hub_domains: &[String]) -> Result<()> {
         self.jetstream
-            .get_or_create_stream(events_aggregate_config())
+            .get_or_create_stream(events_aggregate_config(self.aggregate_cap))
             .await
             .context("failed to create/get 'events-agg' JetStream stream")?;
         self.jetstream
@@ -1098,12 +1106,12 @@ pub(crate) fn ensure_own_source(
 /// The hub aggregate that leaves self-register into (decentralized enumeration
 /// — Option 3). Source-only; each leaf adds its own `events` stream as a source
 /// via the cross-domain API. Created empty here.
-pub(crate) fn events_aggregate_config() -> stream::Config {
+pub(crate) fn events_aggregate_config(cap: i64) -> stream::Config {
     stream::Config {
         name: "events-agg".to_string(),
         subjects: vec![],
         retention: stream::RetentionPolicy::Limits,
-        max_bytes: EVENTS_MAX_BYTES,
+        max_bytes: cap,
         ..Default::default()
     }
 }
@@ -1615,7 +1623,7 @@ mod federation_config_tests {
     fn aggregate_config_is_source_only_with_no_subjects() {
         // The hub aggregate the leaves self-register into: source-only, named
         // events-agg, no direct subjects.
-        let cfg = events_aggregate_config();
+        let cfg = events_aggregate_config(EVENTS_MAX_BYTES);
         assert_eq!(cfg.name, "events-agg");
         assert!(cfg.subjects.is_empty());
     }
@@ -1825,7 +1833,10 @@ mod events_cap_tests {
         // F-01: the hub aggregate is sized from the leaves
         // (fleet::aggregate_cap), so it has its own knob,
         // OPEN_STORY_EVENTS_AGG_MAX_BYTES, parsed like the events cap.
-        assert_eq!(events_aggregate_config(3_221_225_472).max_bytes, 3_221_225_472);
+        assert_eq!(
+            events_aggregate_config(3_221_225_472).max_bytes,
+            3_221_225_472
+        );
         assert_eq!(
             events_aggregate_config(events_cap_from(None)).max_bytes,
             EVENTS_MAX_BYTES,
