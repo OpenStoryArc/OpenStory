@@ -23,6 +23,7 @@ Usage:
   python3 scripts/boot_memory.py --fixture DIR --json out.json --gate-gb 2.0
   python3 scripts/boot_memory.py --fixture DIR --sessions 1259 --large 40 --total-gb 3.0
   python3 scripts/boot_memory.py --fixture DIR --docker open-story:boot-memory --memory 2g --boots 1
+  python3 scripts/boot_memory.py --fixture DIR --sessions 150 --build-only   # the store only (B-10's gate)
   python3 scripts/boot_memory.py --test                     # pure-function specs only
 
 The fixture is synthetic: field names follow the translator's CloudEvent
@@ -977,6 +978,7 @@ def main() -> int:
     ap.add_argument("--json", dest="json_path", help="write the result as JSON here")
     ap.add_argument("--docker", metavar="IMAGE", help="Linux mode: boot inside a container from IMAGE (built from Dockerfile.prod)")
     ap.add_argument("--memory", default="2g", help="cgroup memory limit for the container (with --docker)")
+    ap.add_argument("--build-only", action="store_true", help="build (or reuse) the fixture and exit; no boot")
     args = ap.parse_args()
 
     if args.test:
@@ -987,6 +989,9 @@ def main() -> int:
         ap.error("--port must be above 3200 and --nats-port at or above 4300 (the live node owns 3002/4222)")
 
     fixture = write_fixture(Path(args.fixture), args)
+    if args.build_only:
+        print(f"fixture: {fixture['files']} sessions, {fixture['events']} events, {fixture['jsonl_bytes'] / 1e9:.2f} GB JSONL at {fixture['root']}")
+        return 0
     port = free_port(args.port)
     nats_port = free_port(args.nats_port)
     print(f"ports: http {port}, nats {nats_port}")

@@ -390,9 +390,27 @@ pub fn set_allocator(name: &'static str) {
     let _ = ALLOCATOR.set(name);
 }
 
-/// Resident set size of this process, via `ps` (macOS and Linux agree on
-/// `-o rss=` in kilobytes). None when `ps` is unavailable.
+/// `VmRSS:` from `/proc/<pid>/status` (kilobytes) as bytes. Pure.
+pub fn rss_from_proc_status(text: &str) -> Option<u64> {
+    text.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|kb| kb.parse::<u64>().ok())
+        .map(|kb| kb * 1024)
+}
+
+/// Resident set size of this process: `/proc/self/status` where there is
+/// one (Linux, including the production image, which ships no `ps`), else
+/// `ps -o rss=` (macOS agrees on kilobytes). None when neither answers —
+/// B-10 found the field null inside the container, and a verdict cannot
+/// see pressure it cannot measure.
 pub fn process_rss_bytes() -> Option<u64> {
+    if let Some(rss) = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|t| rss_from_proc_status(&t))
+    {
+        return Some(rss);
+    }
     let out = std::process::Command::new("ps")
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
         .output()

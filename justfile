@@ -348,9 +348,10 @@ compose:
 docker-build:
     cd rs && docker build -t open-story:test .
 
-# Run container tests (local mode, no NATS)
+# Run container tests (local mode, no NATS) and the boot-memory gate
+# (B-10: the production image under a 512 MiB cgroup with a NATS sidecar)
 test-container: docker-build
-    cargo test --manifest-path rs/Cargo.toml -p open-story --test test_container
+    cargo test --manifest-path rs/Cargo.toml -p open-story --test test_container --test test_boot_memory_gate
 
 # Run compose tests (full NATS bus path)
 test-compose: docker-build

@@ -43,8 +43,9 @@ pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
 pub use state::{
-    create_state, create_state_with_store, create_state_with_watch_dirs,
-    effective_projection_budget, AppState, SharedState, PROJECTION_BUDGET_SHARE_PCT,
+    create_state, create_state_with_store, create_state_with_watch_dirs, effective_payload_budget,
+    effective_projection_budget, AppState, SharedState, PAYLOAD_BUDGET_SHARE_PCT,
+    PROJECTION_BUDGET_SHARE_PCT,
 };
 
 fn agent_for_watch_dir(

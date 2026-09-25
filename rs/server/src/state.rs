@@ -143,11 +143,23 @@ pub async fn create_state_with_store(
             projection_budget
         );
     }
-    store.set_cache_budget(
-        projection_budget,
-        config.working_set_days,
-        config.payload_cache_bytes,
-    );
+    // B-10: the payload cache is the other cache replay fills; its default
+    // is half of a 512 MiB box, so it takes its own share of the limit.
+    let payload_budget = effective_payload_budget(config.payload_cache_bytes, memory_limit);
+    if payload_budget != config.payload_cache_bytes {
+        tracing::info!(
+            event = "payload_budget_clamped",
+            configured = config.payload_cache_bytes,
+            memory_limit_bytes = memory_limit.unwrap_or(0),
+            effective = payload_budget,
+            "payload cache budget {} B exceeds {}% of the {} B memory limit; using {} B",
+            config.payload_cache_bytes,
+            PAYLOAD_BUDGET_SHARE_PCT,
+            memory_limit.unwrap_or(0),
+            payload_budget
+        );
+    }
+    store.set_cache_budget(projection_budget, config.working_set_days, payload_budget);
 
     // Reconciler — ensure the EventStore contains every event present in
     // JSONL on disk. Idempotent (PK dedup); no-op when data_dir is empty
@@ -457,10 +469,11 @@ pub(crate) fn person_account_name(person_id: &str) -> String {
     format!("PERSON_{}", person_id.to_uppercase().replace('-', "_"))
 }
 
-/// The share of a cgroup memory limit the projection cache may use (B-09 c).
-/// Replay, the payload cache, the log ring, NATS client buffers, and the
-/// allocator's own slack share the rest.
-pub const PROJECTION_BUDGET_SHARE_PCT: u64 = 40;
+/// The share of a cgroup memory limit the projection cache may use (B-09 c;
+/// 40 % until B-10 measured the node's non-cache floor at ~137 MB, 27 % of a
+/// 512 MiB box, and lowered it). Replay, the payload cache's own share, the
+/// log ring, NATS client buffers, and the allocator's slack share the rest.
+pub const PROJECTION_BUDGET_SHARE_PCT: u64 = 30;
 
 /// The projection budget the node runs with: the configured bytes, unless a
 /// cgroup memory limit is known and the configured value exceeds
@@ -468,6 +481,20 @@ pub const PROJECTION_BUDGET_SHARE_PCT: u64 = 40;
 pub fn effective_projection_budget(configured: u64, memory_limit: Option<u64>) -> u64 {
     match memory_limit {
         Some(limit) if limit > 0 => configured.min(limit * PROJECTION_BUDGET_SHARE_PCT / 100),
+        _ => configured,
+    }
+}
+
+/// The share of a cgroup memory limit the payload cache may use (B-10). With
+/// the projection share, the two resident caches take at most half the box.
+pub const PAYLOAD_BUDGET_SHARE_PCT: u64 = 10;
+
+/// The payload cache budget the node runs with: the configured bytes, unless
+/// a cgroup memory limit is known and the configured value exceeds
+/// `PAYLOAD_BUDGET_SHARE_PCT` of it — then that share. Pure.
+pub fn effective_payload_budget(configured: u64, memory_limit: Option<u64>) -> u64 {
+    match memory_limit {
+        Some(limit) if limit > 0 => configured.min(limit * PAYLOAD_BUDGET_SHARE_PCT / 100),
         _ => configured,
     }
 }
