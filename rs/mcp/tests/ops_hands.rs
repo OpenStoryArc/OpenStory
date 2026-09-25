@@ -679,6 +679,7 @@ mod when_node_reproject_is_called {
             "node_verify",
             "node_catch_up",
             "node_prune",
+            "node_converge",
         ] {
             let def = open_story_mcp::tools::TOOLS
                 .iter()
@@ -696,6 +697,54 @@ mod when_node_reproject_is_called {
         }
     }
 
+    /// C-05 (MCP half): `node_converge {peers?, max_rounds?}` proposes
+    /// `ops.proposal.converge` with one key for the whole run, then POSTs
+    /// `/api/ops/converge`, and hands back the per-round record.
+    mod when_node_converge_is_called {
+        use super::*;
+
+        #[tokio::test]
+        async fn it_proposes_once_for_the_whole_run_then_acts() {
+            let (server, seen, _dir) = server_with("serving").await;
+            let resp = call_tool(
+                server,
+                "node_converge",
+                json!({"peers": ["http://peer.example"], "max_rounds": 2, "evidence": ["diverged:node-b"]}),
+            )
+            .await;
+            let v = unwrap_tool_result(&resp).expect("node_converge succeeds");
+            assert_eq!(v["proposal"]["subject"], "ops.proposal.converge", "{v}");
+            assert_eq!(v["proposal"]["evidence"], json!(["diverged:node-b"]));
+            assert_eq!(v["command_subject"], "ops.command.converge");
+            let proposals = seen.subscriber.proposals();
+            assert_eq!(proposals.len(), 1, "one proposal for the whole run: {proposals:?}");
+            let ce = &proposals[0].1.events[0];
+            assert_eq!(ce.data.raw["args"]["peers"], json!(["http://peer.example"]));
+            assert_eq!(ce.data.raw["args"]["max_rounds"], 2);
+            let calls = seen.calls.lock().unwrap().clone();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, "converge");
+            assert_eq!(calls[0].1["peers"], json!(["http://peer.example"]));
+            assert_eq!(calls[0].1["max_rounds"], 2);
+            assert_eq!(
+                calls[0].1["idempotency_key"], ce.data.raw["idempotency_key"],
+                "the run's one key reaches the node"
+            );
+        }
+
+        #[test]
+        fn its_schema_takes_peers_and_max_rounds() {
+            let def = open_story_mcp::tools::TOOLS
+                .iter()
+                .find(|t| t.name == "node_converge")
+                .expect("node_converge registered");
+            let schema = (def.input_schema)();
+            assert_eq!(schema["properties"]["peers"]["type"], "array", "{schema}");
+            assert_eq!(schema["properties"]["max_rounds"]["type"], "integer");
+            assert!(def.description.contains("union"), "says what converge is: {}", def.description);
+        }
+    }
+
     mod when_replaying {
         use super::*;
 
@@ -706,6 +755,7 @@ mod when_node_reproject_is_called {
                 ("node_verify", json!({"session_id": "s"})),
                 ("node_catch_up", json!({})),
                 ("node_prune", json!({"older_than_days": 30})),
+                ("node_converge", json!({"peers": ["http://peer.example"]})),
             ] {
                 let (server, seen, _dir) = server_with("replaying").await;
                 let resp = call_tool(server, hand, args).await;
