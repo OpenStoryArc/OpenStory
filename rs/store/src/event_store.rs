@@ -193,6 +193,18 @@ pub trait EventStore: Send + Sync {
     /// Load all events for a session, ordered by timestamp.
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>>;
 
+    /// Only the event ids of a session, for digests (consistency C-01).
+    /// The default reads the whole session; SQLite answers from the
+    /// `events` primary key without deserializing a payload.
+    async fn session_event_ids(&self, session_id: &str) -> Result<Vec<String>> {
+        Ok(self
+            .session_events(session_id)
+            .await?
+            .iter()
+            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
+            .collect())
+    }
+
     /// The boot pass's two facts for a session, from its first
     /// `BootFacts::WINDOW` events by time. Backends answer this with a
     /// projection and a limit; no event body crosses the trait.

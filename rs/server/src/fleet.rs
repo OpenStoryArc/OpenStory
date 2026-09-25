@@ -16,9 +16,9 @@
 //! `docs/research/node-and-network-health.md` and
 //! `docs/research/state-management-interface.md`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -90,6 +90,142 @@ pub fn diff_digests(local: &[SessionDigest], remote: &[SessionDigest]) -> FleetD
     diff.converged =
         diff.missing_here.is_empty() && diff.missing_there.is_empty() && diff.diverged.is_empty();
     diff
+}
+
+// ── Roll-ups (consistency C-01) ─────────────────────────────────────────────
+
+/// A session digest placed in the fleet: the host that produced the session
+/// and the project it belongs to. Unplaced sessions read `unknown`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacedDigest {
+    pub host: String,
+    pub project: String,
+    pub session_id: String,
+    pub count: usize,
+    pub digest: String,
+}
+
+/// One project's sessions folded: how many, how many events, one digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRollup {
+    pub sessions: usize,
+    pub events: usize,
+    pub digest: String,
+}
+
+/// One host's projects folded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostRollup {
+    pub projects: BTreeMap<String, ProjectRollup>,
+    pub sessions: usize,
+    pub events: usize,
+    pub digest: String,
+}
+
+/// The whole store folded: hosts → projects → sessions, each level a hash
+/// of its children in sorted key order. Equal sets give equal roll-ups
+/// whatever the arrival order; one added event moves every digest above
+/// it. Small enough to ride on a presence beat (no per-session rows).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DigestRollup {
+    pub hosts: BTreeMap<String, HostRollup>,
+    pub sessions: usize,
+    pub events: usize,
+    pub digest: String,
+}
+
+const UNPLACED: &str = "unknown";
+
+fn place(raw: &str) -> &str {
+    if raw.trim().is_empty() {
+        UNPLACED
+    } else {
+        raw
+    }
+}
+
+/// A digest of children keyed by name: `key␟digest` per child, hashed in
+/// key order. The unit separator keeps `a`+`bc` apart from `ab`+`c`.
+fn digest_children<'a>(children: impl Iterator<Item = (&'a str, &'a str)>) -> String {
+    let parts: Vec<String> = children.map(|(k, d)| format!("{k}\u{1f}{d}")).collect();
+    digest_event_ids(&parts)
+}
+
+/// Fold placed session digests up to host, project, and root. Pure.
+pub fn rollup(digests: &[PlacedDigest]) -> DigestRollup {
+    let mut tree: BTreeMap<&str, BTreeMap<&str, Vec<&PlacedDigest>>> = BTreeMap::new();
+    for d in digests {
+        tree.entry(place(&d.host))
+            .or_default()
+            .entry(place(&d.project))
+            .or_default()
+            .push(d);
+    }
+    let mut hosts = BTreeMap::new();
+    for (host, projects_in) in tree {
+        let mut projects = BTreeMap::new();
+        for (project, sessions) in projects_in {
+            projects.insert(
+                project.to_string(),
+                ProjectRollup {
+                    sessions: sessions.len(),
+                    events: sessions.iter().map(|s| s.count).sum(),
+                    digest: digest_children(
+                        sessions
+                            .iter()
+                            .map(|s| (s.session_id.as_str(), s.digest.as_str())),
+                    ),
+                },
+            );
+        }
+        let digest = digest_children(
+            projects
+                .iter()
+                .map(|(k, p)| (k.as_str(), p.digest.as_str())),
+        );
+        hosts.insert(
+            host.to_string(),
+            HostRollup {
+                sessions: projects.values().map(|p| p.sessions).sum(),
+                events: projects.values().map(|p| p.events).sum(),
+                projects,
+                digest,
+            },
+        );
+    }
+    let digest = digest_children(hosts.iter().map(|(k, h)| (k.as_str(), h.digest.as_str())));
+    DigestRollup {
+        sessions: hosts.values().map(|h| h.sessions).sum(),
+        events: hosts.values().map(|h| h.events).sum(),
+        hosts,
+        digest,
+    }
+}
+
+/// The session ids that differ between two roll-ups, by host then project:
+/// each `(host, project)` whose digest differs or exists on one side only.
+/// What a `diverged` finding counts.
+pub fn differing_projects(a: &DigestRollup, b: &DigestRollup) -> Vec<(String, String)> {
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for (host, h) in a.hosts.iter().chain(b.hosts.iter()) {
+        for project in h.projects.keys() {
+            let key = (host.clone(), project.clone());
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+    }
+    keys.sort();
+    keys.into_iter()
+        .filter(|(host, project)| {
+            let da = a.hosts.get(host).and_then(|h| h.projects.get(project));
+            let db = b.hosts.get(host).and_then(|h| h.projects.get(project));
+            match (da, db) {
+                (Some(x), Some(y)) => x.digest != y.digest,
+                _ => true,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

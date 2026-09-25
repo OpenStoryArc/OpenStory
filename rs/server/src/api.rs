@@ -408,14 +408,16 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         }
     };
     let s = state.read().await;
-    let sessions = s
+    let session_rows = s
         .store
         .event_store
         .list_sessions()
         .await
-        .map(|v| v.len())
-        .unwrap_or(0);
+        .unwrap_or_default();
+    let sessions = session_rows.len();
     let projections = s.store.projections.resident_sessions();
+    // C-01: the store folded to host, project, and root digests.
+    let rollup = rollup_for_health(&s.store.event_store, &s.store.data_dir, &session_rows).await;
 
     // H-02 / H-03: the boot phase with replay progress; readiness is 503
     // until the node serves, and the body still explains itself.
@@ -469,6 +471,8 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         "streams": s.bus.stream_stats().await,
         // P-06: the beat's own bookkeeping.
         "presence": crate::presence::stats_json(s.config.presence_interval_secs),
+        // C-01: what this node holds, folded, so a peer's beat is comparable.
+        "rollup": rollup,
         // H-06: the leaf link and per-watcher detail.
         "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
         "watchers_detail": crate::node_health::watcher_detail(
@@ -486,35 +490,59 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
 /// stable event-id hash)`; a peer fetches this and diffs it against its own
 /// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
 /// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
-pub async fn session_digests(State(state): State<SharedState>) -> Result<Json<Value>, StatusCode> {
-    let s = state.read().await;
-    let sessions = s
-        .store
-        .event_store
-        .list_sessions()
-        .await
-        .unwrap_or_default();
-
-    let mut digests = Vec::with_capacity(sessions.len());
-    for row in &sessions {
-        let events = s
-            .store
-            .event_store
-            .session_events(&row.id)
-            .await
-            .unwrap_or_default();
-        let ids: Vec<String> = events
-            .iter()
-            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        digests.push(crate::fleet::SessionDigest {
-            count: ids.len(),
-            digest: crate::fleet::digest_event_ids(&ids),
-            session_id: row.id.clone(),
-        });
+///
+/// `?rollup=1` adds the fold up to host, project, and root (C-01): the
+/// same `DigestRollup` the presence beat carries, so a peer can compare
+/// the whole store in one read before asking for sessions.
+pub async fn session_digests(
+    State(state): State<SharedState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    let store = state.read().await.store.event_store.clone();
+    let placed = crate::catch_up::placed_digests(&store).await;
+    let mut body = json!({ "sessions": crate::catch_up::session_digests(&placed) });
+    if q.get("rollup").is_some_and(|v| v == "1" || v == "true") {
+        body["rollup"] = serde_json::to_value(crate::fleet::rollup(&placed)).unwrap_or(Value::Null);
     }
+    Ok(Json(body))
+}
 
-    Ok(Json(json!({ "sessions": digests })))
+/// The roll-up for the health body and the beat, recomputed only when the
+/// sessions table has moved (rows, events, or the newest event time). A
+/// fleet store holds thousands of sessions; folding it on every 15 s beat
+/// when nothing changed would be the boot pass all over again.
+/// (data dir, sessions, events, newest last_event): what a recompute keys on.
+type RollupKey = (String, usize, u64, String);
+static ROLLUP_CACHE: std::sync::Mutex<Option<(RollupKey, Value)>> = std::sync::Mutex::new(None);
+
+async fn rollup_for_health(
+    store: &std::sync::Arc<dyn open_story_store::event_store::EventStore>,
+    data_dir: &Path,
+    rows: &[open_story_store::event_store::SessionRow],
+) -> Value {
+    let key = (
+        data_dir.to_string_lossy().to_string(),
+        rows.len(),
+        rows.iter().map(|r| r.event_count).sum::<u64>(),
+        rows.iter()
+            .filter_map(|r| r.last_event.as_deref())
+            .max()
+            .unwrap_or("")
+            .to_string(),
+    );
+    if let Some((k, v)) = ROLLUP_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        if *k == key {
+            return v.clone();
+        }
+    }
+    let placed = crate::catch_up::placed_digests(store).await;
+    let value = serde_json::to_value(crate::fleet::rollup(&placed)).unwrap_or(Value::Null);
+    *ROLLUP_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, value.clone()));
+    value
 }
 
 pub async fn list_sessions(

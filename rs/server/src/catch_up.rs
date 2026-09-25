@@ -24,28 +24,47 @@ use open_story_core::cloud_event::CloudEvent;
 use open_story_store::event_store::EventStore;
 use serde_json::Value;
 
-use crate::fleet::{diff_digests, digest_event_ids, SessionDigest};
+use crate::fleet::{diff_digests, digest_event_ids, PlacedDigest, SessionDigest};
 
 const CATCH_UP_INTERVAL: Duration = Duration::from_secs(10);
 
-/// This node's per-session digests (same shape `/api/digests` serves).
-async fn local_digests(event_store: &Arc<dyn EventStore>) -> Vec<SessionDigest> {
+/// This node's per-session digests, each placed under the host that
+/// produced the session and its project (from the sessions table). The one
+/// read behind `/api/digests`, the roll-up on the beat, and catch-up. Ids
+/// only cross the store boundary; no event body is deserialized.
+pub async fn placed_digests(event_store: &Arc<dyn EventStore>) -> Vec<PlacedDigest> {
     let mut out = Vec::new();
     for row in event_store.list_sessions().await.unwrap_or_default() {
-        let ids: Vec<String> = event_store
-            .session_events(&row.id)
+        let ids = event_store
+            .session_event_ids(&row.id)
             .await
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|e| e.get("id").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        out.push(SessionDigest {
+            .unwrap_or_default();
+        out.push(PlacedDigest {
+            host: row.host.unwrap_or_default(),
+            project: row.project_id.unwrap_or_default(),
             count: ids.len(),
             digest: digest_event_ids(&ids),
             session_id: row.id,
         });
     }
     out
+}
+
+/// The per-session view of `placed_digests` (what `diff_digests` takes).
+pub fn session_digests(placed: &[PlacedDigest]) -> Vec<SessionDigest> {
+    placed
+        .iter()
+        .map(|d| SessionDigest {
+            session_id: d.session_id.clone(),
+            count: d.count,
+            digest: d.digest.clone(),
+        })
+        .collect()
+}
+
+/// This node's per-session digests (same shape `/api/digests` serves).
+async fn local_digests(event_store: &Arc<dyn EventStore>) -> Vec<SessionDigest> {
+    session_digests(&placed_digests(event_store).await)
 }
 
 fn parse_remote_digests(body: &Value) -> Vec<SessionDigest> {
@@ -116,7 +135,10 @@ pub async fn catch_up_once(
 
 /// Spawn a background loop reconciling this node against `peer` forever.
 pub fn spawn_catch_up(event_store: Arc<dyn EventStore>, bus: Arc<dyn Bus>, peer: String) {
-    eprintln!("  \x1b[36mcatch-up: reconciling against peer {peer} every {}s\x1b[0m", CATCH_UP_INTERVAL.as_secs());
+    eprintln!(
+        "  \x1b[36mcatch-up: reconciling against peer {peer} every {}s\x1b[0m",
+        CATCH_UP_INTERVAL.as_secs()
+    );
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         loop {

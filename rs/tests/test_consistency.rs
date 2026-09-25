@@ -21,7 +21,7 @@ use helpers::{body_json, make_event, send_request, test_state};
 use open_story::server::SharedState;
 use open_story_server::fleet::{digest_event_ids, rollup, PlacedDigest};
 use open_story_store::event_store::SessionRow;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 fn ids(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
@@ -120,12 +120,21 @@ mod when_two_nodes_hold_equal_sets {
         assert_eq!(rollup(&node_a), rollup(&node_b));
 
         // Node B lacks s4: only node-b's subtree and the root differ.
-        let short: Vec<PlacedDigest> = fleet().into_iter().filter(|d| d.session_id != "s4").collect();
+        let short: Vec<PlacedDigest> = fleet()
+            .into_iter()
+            .filter(|d| d.session_id != "s4")
+            .collect();
         let a = rollup(&node_a);
         let b = rollup(&short);
         assert_ne!(a.digest, b.digest);
-        assert_eq!(a.hosts["node-a"], b.hosts["node-a"], "node-a's subtree agrees");
-        assert!(!b.hosts.contains_key("node-b"), "no sessions, no host entry: {b:?}");
+        assert_eq!(
+            a.hosts["node-a"], b.hosts["node-a"],
+            "node-a's subtree agrees"
+        );
+        assert!(
+            !b.hosts.contains_key("node-b"),
+            "no sessions, no host entry: {b:?}"
+        );
 
         // An unplaced session (no host, no project) still counts, under `unknown`.
         let mut unplaced = placed("", "", "s9", &["e9"]);
@@ -260,6 +269,10 @@ mod when_the_node_beats {
 
         // And `/api/health` carries it too, since the beat is the health body.
         let (_, health) = get(&state, "/api/health").await;
-        assert_eq!(health["rollup"]["digest"], r["digest"], "{}", health["rollup"]);
+        assert_eq!(
+            health["rollup"]["digest"], r["digest"],
+            "{}",
+            health["rollup"]
+        );
     }
 }

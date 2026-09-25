@@ -469,6 +469,18 @@ impl EventStore for SqliteStore {
         Ok(events)
     }
 
+    /// Ids only, off the primary key: no payload leaves the page cache.
+    async fn session_event_ids(&self, session_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn.prepare("SELECT id FROM events WHERE session_id = ?1")?;
+        let rows = stmt.query_map([session_id], |row| row.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row?);
+        }
+        Ok(ids)
+    }
+
     /// One index range scan on `idx_events_session` (session_id, timestamp)
     /// that stops at the window; `json_extract` projects the two fields
     /// from the stored payload so no event body is deserialized.

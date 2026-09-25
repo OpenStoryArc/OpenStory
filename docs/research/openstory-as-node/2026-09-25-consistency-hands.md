@@ -39,3 +39,20 @@ C-01 and C-03 first: the roll-up and the report are the spine, and the report ca
 No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. There is no conflict resolution because there are no conflicts. Nothing here restarts anything.
 
 ## Loop log
+
+- **2026-09-25 14:59 UTC.** C-01 GREEN. Red `3f622aa` (test(server): C-01 red, digest
+  roll-up specs), green: this commit. `fleet::rollup` folds `PlacedDigest`
+  rows (host, project, session, count, digest) to project, host, and root,
+  each level FNV-1a over `key␟digest` pairs in key order;
+  `fleet::differing_projects` names the (host, project) pairs two roll-ups
+  disagree on. `EventStore::session_event_ids` (default over
+  `session_events`, SQLite reads the primary key only) feeds
+  `catch_up::placed_digests`, which `/api/digests`, `?rollup=1`, and the
+  health body share. The health body carries `rollup` recomputed only when
+  the sessions table moves (rows, event sum, newest last_event, keyed by
+  data dir), so a 15 s beat on a fleet store does not re-read the store.
+  Measured: 5 specs; a reversed fleet folds to the same digest, one added
+  event moves exactly the project, host, and root above it. Note:
+  `test_health::when_leaf_is_configured_but_down` fails on this machine
+  before and after the change because the live node's NATS monitor answers
+  on :8222 (pid 8953) and reports a real leaf link; not touched.
