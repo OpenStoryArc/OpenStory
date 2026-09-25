@@ -18,6 +18,8 @@ pub mod openclaw;
 pub mod recording_bus;
 #[allow(dead_code)]
 pub mod synth;
+#[allow(dead_code)]
+pub mod two_nodes;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
