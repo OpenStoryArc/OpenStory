@@ -1821,6 +1821,19 @@ mod events_cap_tests {
     }
 
     #[test]
+    fn the_aggregate_takes_its_own_cap() {
+        // F-01: the hub aggregate is sized from the leaves
+        // (fleet::aggregate_cap), so it has its own knob,
+        // OPEN_STORY_EVENTS_AGG_MAX_BYTES, parsed like the events cap.
+        assert_eq!(events_aggregate_config(3_221_225_472).max_bytes, 3_221_225_472);
+        assert_eq!(
+            events_aggregate_config(events_cap_from(None)).max_bytes,
+            EVENTS_MAX_BYTES,
+            "unset: the events default"
+        );
+    }
+
+    #[test]
     fn the_events_streams_take_the_cap() {
         assert_eq!(events_stream_config("h", false, 524_288).max_bytes, 524_288);
         assert_eq!(events_stream_config("h", true, 524_288).max_bytes, 524_288);
