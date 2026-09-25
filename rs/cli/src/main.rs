@@ -345,6 +345,8 @@ fn dirs_path() -> Option<PathBuf> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // B-06: tell health which allocator this binary runs.
+    open_story_server::node_health::set_allocator(alloc::describe());
     let cli = Cli::parse();
 
     match cli.command {
@@ -611,6 +613,28 @@ async fn main() -> Result<()> {
                 .parse()
                 .map_err(|e: String| anyhow::anyhow!(e))?;
             open_story_server::logging::init(log_format);
+            // B-06: which allocator this binary runs, and jemalloc's effective
+            // decay options, on the first log lines so a fleet log says it.
+            match alloc::options() {
+                Some(o) => tracing::info!(
+                    event = "allocator",
+                    name = alloc::describe(),
+                    background_thread = o.background_thread,
+                    dirty_decay_ms = o.dirty_decay_ms,
+                    muzzy_decay_ms = o.muzzy_decay_ms,
+                    "allocator {} (background_thread={}, dirty_decay_ms={}, muzzy_decay_ms={})",
+                    alloc::describe(),
+                    o.background_thread,
+                    o.dirty_decay_ms,
+                    o.muzzy_decay_ms
+                ),
+                None => tracing::info!(
+                    event = "allocator",
+                    name = alloc::describe(),
+                    "allocator {}",
+                    alloc::describe()
+                ),
+            }
             // O-03: the per-stage span sample rate, from config or env.
             if let Ok(v) = std::env::var("OPEN_STORY_TRACE_SAMPLE_RATE") {
                 if let Ok(rate) = v.trim().parse::<f64>() {

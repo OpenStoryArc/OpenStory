@@ -438,6 +438,8 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
             "pid": std::process::id(),
             "rss_bytes": crate::node_health::process_rss_bytes(),
             "uptime_secs": crate::node_health::uptime_secs(),
+            // B-06: which allocator this binary runs (jemalloc / system).
+            "allocator": crate::node_health::allocator(),
         },
         "store": {
             "backend": s.config.data_backend.to_string(),

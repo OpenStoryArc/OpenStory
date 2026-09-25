@@ -328,6 +328,19 @@ pub fn store_size_bytes(data_dir: &std::path::Path) -> u64 {
         .sum()
 }
 
+/// The allocator the running binary installed (B-06): "jemalloc" or
+/// "system". The CLI sets it at start; the library default is "system".
+pub fn allocator() -> &'static str {
+    ALLOCATOR.get().copied().unwrap_or("system")
+}
+
+static ALLOCATOR: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Record the allocator name once; later calls keep the first.
+pub fn set_allocator(name: &'static str) {
+    let _ = ALLOCATOR.set(name);
+}
+
 /// Resident set size of this process, via `ps` (macOS and Linux agree on
 /// `-o rss=` in kilobytes). None when `ps` is unavailable.
 pub fn process_rss_bytes() -> Option<u64> {
