@@ -392,6 +392,7 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
 | `metrics_enabled` | `true` | Serve Prometheus `/metrics` (node gauges, cache gauges); set `false` to turn it off |
 | `retention_days` | `0` (no cleanup) | Auto-delete sessions older than N days on boot |
+| `consumers_start` | `serving` | When the consumer actors subscribe: `serving` (after the boot replay, so replay and the backlog never grow the heap at once) or `boot` (at once). Health shows `consumers.<name>.state = pending_start` while held. Env: `OPEN_STORY_CONSUMERS_START` |
 
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).
 

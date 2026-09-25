@@ -65,3 +65,41 @@ describe("when a consumer is dead or a watcher is stale", () => {
     expect(v.findings).toContain("watcher grok has 2 publish failures since boot");
   });
 });
+
+describe("when a consumer is held until the node serves (B-05)", () => {
+  it("should not call a pending consumer dead while replaying", () => {
+    const v = verdictFor({
+      ...healthy,
+      boot: { phase: "replaying", replay: { done: 1, total: 4, elapsed_ms: 9 } },
+      consumers: {
+        persist: { alive: false, state: "pending_start", restarts: 0, lag: 0 },
+        patterns: { alive: false, state: "backoff", restarts: 2, lag: 0 },
+      },
+    });
+    expect(v.level).toBe("critical");
+    expect(v.findings).toContain("consumer patterns is not alive (2 restarts)");
+    expect(v.findings.some((f) => f.includes("persist"))).toBe(false);
+  });
+
+  it("should warn about a consumer still pending once the node serves", () => {
+    const v = verdictFor({
+      ...healthy,
+      consumers: { persist: { alive: false, state: "pending_start", restarts: 0, lag: 0 } },
+    });
+    expect(v).toEqual({ level: "warn", findings: ["consumer persist has not started yet"] });
+  });
+});
+
+describe("when the process nears its memory limit (B-07)", () => {
+  it("should be critical at 90 percent and warn at 75", () => {
+    const at = (rss: number, limit: number | null) =>
+      verdictFor({ ...healthy, process: { rss_bytes: rss, memory_limit_bytes: limit } });
+    expect(at(4_600_000_000, 5_000_000_000)).toEqual({
+      level: "critical",
+      findings: ["memory at 92% of its 5.0 GB limit"],
+    });
+    expect(at(3_800_000_000, 5_000_000_000).level).toBe("warn");
+    expect(at(3_000_000_000, 5_000_000_000).level).toBe("ok");
+    expect(at(4_900_000_000, null).level).toBe("ok");
+  });
+});

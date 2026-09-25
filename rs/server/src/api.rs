@@ -446,6 +446,10 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
             "pid": std::process::id(),
             "rss_bytes": crate::node_health::process_rss_bytes(),
             "uptime_secs": crate::node_health::uptime_secs(),
+            // B-06: which allocator this binary runs (jemalloc / system).
+            "allocator": crate::node_health::allocator(),
+            // B-07: cgroup v2 memory.max, null when unlimited or not in a cgroup.
+            "memory_limit_bytes": crate::node_health::process_memory_limit_bytes(),
         },
         "store": {
             "backend": s.config.data_backend.to_string(),
@@ -457,10 +461,13 @@ pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
         "projections": {
             "count": projections,
             "sessions": sessions,
-            // count covers every session ⇒ the read model is rehydrated.
-            // Goes false when a restart leaves projections un-rebuilt for
-            // source-less sessions (run `reproject`).
-            "fresh": projections >= sessions,
+            // The read model is rehydrated: the boot replay has walked every
+            // session (B-09 bounds what stays resident afterwards — an
+            // evicted projection rebuilds losslessly on access), or every
+            // session is resident. Goes false while a replay is still
+            // running or a restart left projections un-rebuilt (run
+            // `reproject`).
+            "fresh": crate::boot::is_serving() || projections >= sessions,
         },
         "watchers": s.watcher_diagnostics.snapshots().len(),
         // E-05: publish failures across all watchers since boot.

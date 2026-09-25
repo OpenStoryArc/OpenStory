@@ -44,6 +44,8 @@ DEFAULT_CAPS = {
 }
 STREAM_WARN_PCT = 70.0
 STREAM_CRIT_PCT = 90.0
+MEMORY_WARN_PCT = 75.0  # B-07: share of the cgroup limit (rs/server/src/node_health.rs MEMORY_WARN)
+MEMORY_CRIT_PCT = 90.0
 WATCHER_WARN_SECS = 300  # config stale_threshold_secs default
 WATCHER_CRIT_SECS = 3600
 
@@ -293,6 +295,19 @@ def parse_config(text: str | None) -> dict:
     return cfg
 
 
+def memory_pressure_finding(rss_bytes: int | None, limit_bytes: int | None) -> dict | None:
+    """B-07: rss against the cgroup limit; warn at 75 %, critical at 90 %,
+    phrased as the node's own verdict phrases it."""
+    if not rss_bytes or not limit_bytes:
+        return None
+    pct = rss_bytes / limit_bytes * 100.0
+    level = "critical" if pct >= MEMORY_CRIT_PCT else "warn" if pct >= MEMORY_WARN_PCT else None
+    if level is None:
+        return None
+    return finding(level, "memory_pressure", f"memory at {pct:.0f}% of its {limit_bytes / 1e9:.1f} GB limit",
+                   rss_bytes=rss_bytes, limit_bytes=limit_bytes)
+
+
 def verdict(findings: list[dict]) -> str:
     worst = 0
     for f in findings:
@@ -352,6 +367,10 @@ def assess(
         proj = api_health.get("projections") or {}
         if proj.get("fresh") is False:
             findings.append(finding("warn", "projections_stale", f"projections {proj.get('count')} < sessions {proj.get('sessions')}; run reproject"))
+        proc = api_health.get("process") or {}
+        mp = memory_pressure_finding(proc.get("rss_bytes"), proc.get("memory_limit_bytes"))
+        if mp:
+            findings.append(mp)
 
     nats_mem = varz.get("mem") if varz else None
     slow = varz.get("slow_consumers") if varz else None
@@ -370,6 +389,8 @@ def assess(
             "bus_connected": ((api_health or {}).get("bus") or {}).get("connected"),
             "projections": (api_health or {}).get("projections"),
             "rss_kb": server_rss_kb,
+            "memory_limit_bytes": ((api_health or {}).get("process") or {}).get("memory_limit_bytes"),
+            "allocator": ((api_health or {}).get("process") or {}).get("allocator"),
             "metrics_lines": len(metrics_text.splitlines()) if metrics_text else 0,
         },
         "watchers": watchers,
@@ -624,6 +645,16 @@ def run_tests() -> int:
     ok(abs(p - 99.99) < 0.01, f"events 1073700552/1 GiB = {p}%")
     ok(pct_of_cap(60813334, 268435456) == 22.65, "patterns 60813334/256 MiB = 22.65%")
     ok(pct_of_cap(1, 0) == 0.0 and pct_of_cap(1, None) == 0.0, "cap 0/None = unlimited = 0%")
+
+    # 1b. B-07 memory pressure from /api/health process.rss_bytes vs memory_limit_bytes
+    mp = memory_pressure_finding(4_600_000_000, 5_000_000_000)
+    ok(mp is not None and mp["level"] == "critical" and mp["code"] == "memory_pressure", "rss 4.6G of 5G -> critical memory_pressure")
+    ok(memory_pressure_finding(3_800_000_000, 5_000_000_000)["level"] == "warn", "76% -> warn")
+    ok(memory_pressure_finding(3_000_000_000, 5_000_000_000) is None, "60% -> nothing")
+    ok(memory_pressure_finding(4_900_000_000, None) is None, "no limit -> nothing")
+    r_mem = assess(**_base_kwargs(api_health={**FIX_API_HEALTH, "process": {"rss_bytes": 4_600_000_000, "memory_limit_bytes": 5_000_000_000}}))
+    ok(any(f["code"] == "memory_pressure" and f["level"] == "critical" for f in r_mem["findings"]), "assess raises memory_pressure from the health body")
+    ok(r_mem["server"]["memory_limit_bytes"] == 5_000_000_000, "assess carries the limit")
 
     # 2. stream thresholds
     ok(level_for_pct(69.99) == "ok" and level_for_pct(70.0) == "warn" and level_for_pct(90.0) == "critical",

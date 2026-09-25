@@ -42,7 +42,10 @@ pub use open_story_server::presence;
 pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
-pub use state::{create_state, create_state_with_watch_dirs, AppState, SharedState};
+pub use state::{
+    create_state, create_state_with_store, create_state_with_watch_dirs,
+    effective_projection_budget, AppState, SharedState, PROJECTION_BUDGET_SHARE_PCT,
+};
 
 fn agent_for_watch_dir(
     path: &Path,
@@ -105,6 +108,7 @@ pub async fn run_server(
     let claude_watch_dir = config.claude_watch_dir.clone();
     let codex_watch_dir = config.codex_watch_dir.clone();
     let grok_watch_dir = config.grok_watch_dir.clone();
+    let consumers_start_raw = config.consumers_start.clone();
 
     let primary_watch_dir = watch_dirs
         .first()
@@ -193,6 +197,20 @@ pub async fn run_server(
     // redundant (it processed the same events the actors would have
     // received) and has been deleted. The Actor 1/2/3/4 subscriptions
     // below are the sole ingestion route.
+    // B-05: when the actors may subscribe. Parsed once; an unknown value
+    // stops the boot with the two accepted words rather than picking one.
+    let consumers_start: open_story_server::boot::ConsumersStart = consumers_start_raw
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
+    if is_consumer && consumers_start == open_story_server::boot::ConsumersStart::Serving {
+        tracing::info!(
+            event = "consumers_held",
+            mode = "serving",
+            "consumers subscribe once the boot replay finishes (consumers_start = \"serving\")"
+        );
+    }
+    let gate = || open_story_server::boot::consumer_gate(consumers_start);
+
     if is_consumer {
         // ── Actor 1: persist consumer (owns dedup + storage + session row) ──
         //
@@ -222,8 +240,9 @@ pub async fn run_server(
             tokio::spawn(tracing::Instrument::instrument(
                 // E-03: supervised. The factory clones what a run needs; a run that
                 // dies is restarted with backoff and logged (consumer_restarted).
-                consumers::supervision::supervise(
+                consumers::supervision::supervise_after(
                     "persist",
+                    gate(),
                     move || {
                         let event_store = event_store.clone();
                         let data_dir = data_dir.clone();
@@ -293,8 +312,9 @@ pub async fn run_server(
             let presence_bus = bus.clone();
             let presence_dir = state.read().await.store.data_dir.clone();
             tokio::spawn(tracing::Instrument::instrument(
-                consumers::supervision::supervise(
+                consumers::supervision::supervise_after(
                     "presence",
+                    gate(),
                     move || {
                         let event_store = event_store.clone();
                         let presence_bus = presence_bus.clone();
@@ -349,8 +369,9 @@ pub async fn run_server(
             tokio::spawn(tracing::Instrument::instrument(
                 // E-03: supervised. The factory clones what a run needs; a run that
                 // dies is restarted with backoff and logged (consumer_restarted).
-                consumers::supervision::supervise(
+                consumers::supervision::supervise_after(
                     "patterns",
+                    gate(),
                     move || {
                         let event_store = event_store.clone();
                         let patterns_bus = patterns_bus.clone();
@@ -482,8 +503,9 @@ pub async fn run_server(
             tokio::spawn(tracing::Instrument::instrument(
                 // E-03: supervised. The factory clones what a run needs; a run that
                 // dies is restarted with backoff and logged (consumer_restarted).
-                consumers::supervision::supervise(
+                consumers::supervision::supervise_after(
                     "projections",
+                    gate(),
                     move || {
                         let projections_bus = projections_bus.clone();
                         let shared_event_store = shared_event_store.clone();
@@ -537,8 +559,9 @@ pub async fn run_server(
             tokio::spawn(tracing::Instrument::instrument(
                 // E-03: supervised. The factory clones what a run needs; a run that
                 // dies is restarted with backoff and logged (consumer_restarted).
-                consumers::supervision::supervise(
+                consumers::supervision::supervise_after(
                     "broadcast",
+                    gate(),
                     move || {
                         let broadcast_state = broadcast_state.clone();
                         let broadcast_bus = broadcast_bus.clone();

@@ -102,10 +102,23 @@ pub fn backoff(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_secs(secs.min(30))
 }
 
+/// Where a supervised consumer is in its life (B-05): held before its
+/// first run, running, waiting out a backoff, or finished on purpose.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsumerState {
+    #[default]
+    PendingStart,
+    Running,
+    Backoff,
+    Finished,
+}
+
 /// What health reports per supervised consumer (E-04, H-05).
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct ConsumerHealth {
     pub alive: bool,
+    pub state: ConsumerState,
     pub restarts: u32,
     pub last_restart: Option<String>,
     pub last_exit: Option<String>,
@@ -144,19 +157,41 @@ pub type ConsumerRun =
 /// and the reason, wait (via `sleep`, injectable for tests), and run it
 /// again. A run that returns `Ok(())` ended on purpose and is not
 /// restarted. Restart counts and timestamps land in `stats()`.
-pub async fn supervise<F, S, SF>(actor: &'static str, mut start: F, sleep: S)
+pub async fn supervise<F, S, SF>(actor: &'static str, start: F, sleep: S)
 where
     F: FnMut() -> ConsumerRun + Send,
     S: Fn(std::time::Duration) -> SF + Send,
     SF: std::future::Future<Output = ()> + Send,
 {
+    supervise_after(actor, std::future::ready(()), start, sleep).await
+}
+
+/// `supervise`, held until `gate` resolves (B-05: the boot phase flipping
+/// to serving). While held, health shows the actor as `pending_start` and
+/// not alive; nothing has subscribed yet.
+pub async fn supervise_after<G, F, S, SF>(actor: &'static str, gate: G, mut start: F, sleep: S)
+where
+    G: std::future::Future<Output = ()> + Send,
+    F: FnMut() -> ConsumerRun + Send,
+    S: Fn(std::time::Duration) -> SF + Send,
+    SF: std::future::Future<Output = ()> + Send,
+{
+    stats().update(actor, |h| {
+        h.alive = false;
+        h.state = ConsumerState::PendingStart;
+    });
+    gate.await;
     let mut attempt: u32 = 0;
     loop {
-        stats().update(actor, |h| h.alive = true);
+        stats().update(actor, |h| {
+            h.alive = true;
+            h.state = ConsumerState::Running;
+        });
         let result = start().await;
         stats().update(actor, |h| h.alive = false);
         match result {
             Ok(()) => {
+                stats().update(actor, |h| h.state = ConsumerState::Finished);
                 tracing::info!(
                     event = "consumer_finished",
                     actor,
@@ -178,6 +213,7 @@ where
                     delay.as_secs()
                 );
                 stats().update(actor, |h| {
+                    h.state = ConsumerState::Backoff;
                     h.restarts = attempt;
                     h.last_restart = Some(chrono::Utc::now().to_rfc3339());
                     h.last_exit = Some(reason.clone());

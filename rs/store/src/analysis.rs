@@ -491,6 +491,23 @@ impl SummaryAccumulator {
         Self::default()
     }
 
+    /// Heap this fold owns: its strings and the tools-seen map (B-09 a).
+    pub fn heap_bytes(&self) -> u64 {
+        let opt = |o: &Option<String>| o.as_ref().map_or(0, |s| s.capacity() as u64);
+        self.session_id.capacity() as u64
+            + opt(&self.start_time)
+            + opt(&self.model)
+            + opt(&self.first_prompt)
+            + opt(&self.cwd)
+            + opt(&self.end_status)
+            + opt(&self.last_subtype)
+            + self
+                .tools_seen
+                .keys()
+                .map(|k| k.capacity() as u64 + 48)
+                .sum::<u64>()
+    }
+
     pub fn absorb(&mut self, e: &Value) {
         self.event_count += 1;
         self.last_subtype = e

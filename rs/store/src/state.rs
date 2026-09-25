@@ -54,9 +54,21 @@ pub fn detect_subagent_relationship(
     parents: &DashMap<String, String>,
     children: &DashMap<String, Vec<String>>,
 ) {
-    let Some(parent) = parent_session_of(event, own_session_id) else {
-        return;
-    };
+    if let Some(parent) = parent_session_of(event, own_session_id) {
+        record_subagent_parent(own_session_id, parent, parents, children);
+    }
+}
+
+/// Record `own_session_id` as a subagent of `parent`, once: the first
+/// parent seen wins, and the child is listed under the parent once. The
+/// boot pass (`session_boot_facts`) and live ingest
+/// (`detect_subagent_relationship`) both land here.
+pub fn record_subagent_parent(
+    own_session_id: &str,
+    parent: String,
+    parents: &DashMap<String, String>,
+    children: &DashMap<String, Vec<String>>,
+) {
     if !parents.contains_key(own_session_id) {
         parents.insert(own_session_id.to_string(), parent.clone());
         children

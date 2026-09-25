@@ -303,6 +303,10 @@ pub struct Config {
     /// Seconds between presence beats on `presence.{host}.{principal}`
     /// (P-01). Default 15. Env: `OPEN_STORY_PRESENCE_INTERVAL_SECS`.
     pub presence_interval_secs: u64,
+    /// When the consumer actors subscribe (B-05): "serving" (default —
+    /// after the boot replay, so the two heaps never grow at once) or
+    /// "boot" (at once). Env: `OPEN_STORY_CONSUMERS_START`.
+    pub consumers_start: String,
     /// Share of events that carry a span per stage (O-03), 0 to 1.
     /// Default 0.01; everything under `RUST_LOG=trace`. Env:
     /// `OPEN_STORY_TRACE_SAMPLE_RATE`.
@@ -421,6 +425,7 @@ impl Default for Config {
             metrics_enabled: true,
             log_format: "text".to_string(),
             presence_interval_secs: 15,
+            consumers_start: "serving".to_string(),
             trace_sample_rate: 0.01,
             retention_days: 0,
             advertise_url: String::new(),
@@ -641,6 +646,10 @@ impl Config {
 
 # Seconds between presence beats on the bus (P-01).
 # presence_interval_secs = 15
+
+# When the consumer actors subscribe: "serving" (after the boot replay,
+# the default) or "boot" (at once).
+# consumers_start = "serving"
 
 # Share of events that carry a span per stage (O-03); all under RUST_LOG=trace.
 # trace_sample_rate = 0.01
@@ -938,6 +947,7 @@ mod tests {
             metrics_enabled: true,
             log_format: "text".into(),
             presence_interval_secs: 15,
+            consumers_start: "serving".into(),
             trace_sample_rate: 0.01,
             retention_days: 90,
             advertise_url: String::new(),

@@ -130,6 +130,12 @@ pub fn verdict(body: &Value) -> Value {
             findings.push(finding("warn", "replaying".into(), text));
         }
     }
+    // B-07: say it before the kernel does.
+    if let Some(rss) = body["process"]["rss_bytes"].as_u64() {
+        if let Some(f) = memory_pressure(rss, body["process"]["memory_limit_bytes"].as_u64()) {
+            findings.push(f);
+        }
+    }
     if body["projections"]["fresh"] == json!(false) {
         findings.push(finding(
             "warn",
@@ -157,13 +163,26 @@ pub fn verdict(body: &Value) -> Value {
             ));
         }
     }
+    let serving = body["boot"]["phase"]
+        .as_str()
+        .is_none_or(|p| p == "serving");
     if let Some(consumers) = body["consumers"].as_object() {
         let mut names: Vec<&String> = consumers.keys().collect();
         names.sort();
         for name in names {
             let c = &consumers[name];
             let restarts = c["restarts"].as_u64().unwrap_or(0);
-            if c["alive"] == json!(false) {
+            if c["state"] == json!("pending_start") {
+                // B-05: held until the node serves; not dead. Still pending
+                // once it serves is worth a look.
+                if serving {
+                    findings.push(finding(
+                        "warn",
+                        format!("consumer_pending:{name}"),
+                        format!("consumer {name} has not started yet"),
+                    ));
+                }
+            } else if c["alive"] == json!(false) {
                 findings.push(finding(
                     "critical",
                     format!("consumer_dead:{name}"),
@@ -313,6 +332,62 @@ pub fn store_size_bytes(data_dir: &std::path::Path) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .sum()
+}
+
+/// B-07: memory pressure thresholds, as a share of the cgroup limit. The
+/// probe script and the dashboard use the same two numbers.
+pub const MEMORY_WARN: f64 = 0.75;
+pub const MEMORY_CRIT: f64 = 0.90;
+
+/// cgroup v2 `memory.max` as a byte count; "max" (or anything unreadable)
+/// is no limit.
+pub fn memory_limit_from_cgroup(text: &str) -> Option<u64> {
+    text.trim().parse::<u64>().ok()
+}
+
+/// This process's memory limit from cgroup v2 (`/sys/fs/cgroup/memory.max`
+/// inside a container or a systemd slice), else None.
+pub fn process_memory_limit_bytes() -> Option<u64> {
+    std::fs::read_to_string("/sys/fs/cgroup/memory.max")
+        .ok()
+        .and_then(|t| memory_limit_from_cgroup(&t))
+}
+
+/// The memory-pressure finding for `rss` against `limit`, if any: warn at
+/// 75 %, critical at 90 %. Pure; the verdict, the probe, and the dashboard
+/// phrase it the same way.
+pub fn memory_pressure(rss: u64, limit: Option<u64>) -> Option<Value> {
+    let limit = limit.filter(|l| *l > 0)?;
+    let share = rss as f64 / limit as f64;
+    let level = if share >= MEMORY_CRIT {
+        "critical"
+    } else if share >= MEMORY_WARN {
+        "warn"
+    } else {
+        return None;
+    };
+    Some(finding(
+        level,
+        "memory_pressure".into(),
+        format!(
+            "memory at {:.0}% of its {:.1} GB limit",
+            share * 100.0,
+            limit as f64 / 1e9
+        ),
+    ))
+}
+
+/// The allocator the running binary installed (B-06): "jemalloc" or
+/// "system". The CLI sets it at start; the library default is "system".
+pub fn allocator() -> &'static str {
+    ALLOCATOR.get().copied().unwrap_or("system")
+}
+
+static ALLOCATOR: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Record the allocator name once; later calls keep the first.
+pub fn set_allocator(name: &'static str) {
+    let _ = ALLOCATOR.set(name);
 }
 
 /// Resident set size of this process, via `ps` (macOS and Linux agree on

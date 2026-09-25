@@ -22,6 +22,7 @@ Usage:
   python3 scripts/boot_memory.py --fixture DIR              # build (if needed), boot twice, report
   python3 scripts/boot_memory.py --fixture DIR --json out.json --gate-gb 2.0
   python3 scripts/boot_memory.py --fixture DIR --sessions 1259 --large 40 --total-gb 3.0
+  python3 scripts/boot_memory.py --fixture DIR --docker open-story:boot-memory --memory 2g --boots 1
   python3 scripts/boot_memory.py --test                     # pure-function specs only
 
 The fixture is synthetic: field names follow the translator's CloudEvent
@@ -338,8 +339,90 @@ def session_lines(plan: dict, rng: random.Random):
         yield json.dumps(make_event(rng, plan, seq, kind, at, out_bytes), separators=(",", ":"))
 
 
+NODE_OWN_JSONL = ("events.jsonl", "presence.jsonl")
+
+
+def is_session_file(name: str) -> bool:
+    """A fixture session file, as opposed to the JSONL the node itself writes
+    into its data dir on boot (`events.jsonl`, `presence.jsonl`)."""
+    return name.endswith(".jsonl") and name not in NODE_OWN_JSONL
+
+
 def gate_passes(peak_rss_bytes: int, gate_gb: float) -> bool:
     return peak_rss_bytes < gate_gb * 1_000_000_000
+
+
+# ── Linux mode (--docker): the same boot inside a container ───────────────
+
+DOCKER_NET = "boot-memory-net"
+
+
+def parse_docker_stats_mem(text: str) -> int | None:
+    """`docker stats --format {{.MemUsage}}` prints `1.234GiB / 2GiB`; the
+    used part in bytes, or None when the container is gone."""
+    used = text.strip().split("/")[0].strip()
+    if not used:
+        return None
+    units = {"B": 1, "kB": 1000, "MB": 1000**2, "GB": 1000**3, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3}
+    for unit in sorted(units, key=len, reverse=True):
+        if used.endswith(unit):
+            return int(float(used[: -len(unit)]) * units[unit])
+    return None
+
+
+def parse_memory_stat(text: str) -> dict[str, int]:
+    """cgroup v2 `memory.stat` lines (`anon 123`, `file 456`, ...) → {name: bytes}."""
+    out: dict[str, int] = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            out[parts[0]] = int(parts[1])
+    return out
+
+
+def parse_vmrss(status_text: str) -> int | None:
+    """`VmRSS:\t  123456 kB` from /proc/<pid>/status → bytes."""
+    for line in status_text.splitlines():
+        if line.startswith("VmRSS:"):
+            fields = line.split()
+            if len(fields) >= 2 and fields[1].isdigit():
+                return int(fields[1]) * 1024
+    return None
+
+
+def docker_run_args(image: str, root: Path, name: str, nats_name: str, port: int, memory: str) -> list[str]:
+    """The `docker run` argv for the measured container: detached, named,
+    on DOCKER_NET, memory-limited, the fixture's data dir at /data, an
+    empty dir at /watch, port 3002 published on 127.0.0.1:<port>, every
+    watcher root pointed at /watch, the bus at the sidecar nats."""
+    return [
+        "docker", "run", "-d", "--name", name, "--network", DOCKER_NET,
+        "--memory", memory, "--memory-swap", memory,
+        "-v", f"{root}/data:/data", "-v", f"{root}/watch:/watch",
+        "-p", f"127.0.0.1:{port}:3002",
+        "-e", "OPEN_STORY_CLAUDE_WATCH_DIR=/watch", "-e", "OPEN_STORY_CODEX_WATCH_DIR=/watch",
+        "-e", "OPEN_STORY_GROK_WATCH_DIR=/watch", "-e", "OPEN_STORY_PI_WATCH_DIR=",
+        "-e", "OPEN_STORY_HERMES_WATCH_DIR=", "-e", "OPEN_STORY_LOG_FORMAT=text",
+        image,
+        "serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data",
+        "--watch-dir", "/watch", "--nats-url", f"nats://{nats_name}:4222",
+    ]
+
+
+def allocator_of(body: dict | None) -> str | None:
+    """`process.allocator` from a health body (B-06): "jemalloc" or "system";
+    None for a node older than the field."""
+    return ((body or {}).get("process") or {}).get("allocator")
+
+
+def consumer_summary(body: dict | None) -> dict[str, int]:
+    """How many consumers sit in each `state` in a health body (B-05):
+    e.g. {"pending_start": 5} while replaying, {"running": 5} after."""
+    counts: dict[str, int] = {}
+    for c in ((body or {}).get("consumers") or {}).values():
+        state = c.get("state") or ("alive" if c.get("alive") else "down")
+        counts[state] = counts.get(state, 0) + 1
+    return counts
 
 
 # ── Side effects: fixture on disk, the boot, the samples ──────────────────
@@ -364,7 +447,8 @@ def write_fixture(root: Path, args: argparse.Namespace) -> dict:
     }
     if manifest_path.exists():
         have = json.loads(manifest_path.read_text())
-        if {k: have.get(k) for k in params} == params and len(list(data.glob("*.jsonl"))) == have.get("files"):
+        n_files = sum(1 for f in data.iterdir() if is_session_file(f.name))
+        if {k: have.get(k) for k in params} == params and n_files == have.get("files"):
             print(f"fixture: reusing {data} ({have['files']} files, {have['jsonl_bytes'] / 1e9:.2f} GB JSONL)")
             have["root"] = str(root)
             return have
@@ -446,6 +530,7 @@ def boot_and_sample(
     serving_at: float | None = None
     exit_code: int | None = None
     timed_out = False
+    allocator: str | None = None
     last_print = ""
     try:
         while True:
@@ -457,9 +542,10 @@ def boot_and_sample(
                 break
             status, body = fetch_health(url)
             phase = classify(status, body)
+            allocator = allocator_of(body) or allocator
             if serving_at is not None and tick - serving_at >= settle_secs:
                 phase = "settle"
-            samples.append({"t": t, "rss_bytes": rss, "phase": phase, "replay": (body or {}).get("boot", {}).get("replay")})
+            samples.append({"t": t, "rss_bytes": rss, "phase": phase, "consumers": consumer_summary(body), "replay": (body or {}).get("boot", {}).get("replay")})
             line = f"  t={t:5d}s  rss={rss / 1e6:8.1f} MB  {phase}"
             if line[-24:] != last_print[-24:] or t % 15 == 0:
                 print(line, flush=True)
@@ -476,9 +562,12 @@ def boot_and_sample(
         stop_process_group(proc)
         log.close()
     peaks = phase_peaks(samples)
+    first_running = next((s["t"] for s in samples if s["consumers"] and set(s["consumers"]) == {"running"}), None)
     return {
         "db_existed_before": db_existed,
+        "allocator": allocator,
         "phases": peaks,
+        "consumers_running_after_secs": first_running,
         "peak_rss_bytes": max((s["rss_bytes"] for s in samples), default=0),
         "serving_after_secs": None if serving_at is None else int(round(serving_at - t0)),
         "exit_code": exit_code,
@@ -508,22 +597,134 @@ def fetch_health(url: str) -> tuple[int | None, dict | None]:
 
 def stop_process_group(proc: subprocess.Popen) -> None:
     """SIGTERM the server and its managed nats child (same process group);
-    SIGKILL what is left after 15 s."""
-    if proc.poll() is not None:
-        return
+    SIGKILL what is left after 15 s. Runs even when the server has already
+    exited: a crashed server leaves its nats child alive in the group."""
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        os.killpg(proc.pid, signal.SIGTERM)  # start_new_session: pgid == pid
     except ProcessLookupError:
+        return
+    if proc.poll() is not None:
         return
     deadline = time.monotonic() + 15
     while proc.poll() is None and time.monotonic() < deadline:
         time.sleep(0.2)
     if proc.poll() is None:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         proc.wait()
+
+
+def docker(*args: str, check: bool = True, timeout: float = 120) -> subprocess.CompletedProcess:
+    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout, check=check)
+
+
+def docker_boot_and_sample(
+    image: str, fixture: dict, port: int, memory: str, settle_secs: int, timeout_secs: int, log_path: Path
+) -> dict:
+    """The measured boot inside a container: a `nats:2-alpine` sidecar with
+    JetStream and the node from `image`, both on DOCKER_NET, only the node
+    memory-limited. Samples about every two seconds: docker stats usage,
+    cgroup v2 memory.stat anon/file, /proc/1/status VmRSS, and the health
+    body (phase, consumer states). Tears both containers down at the end."""
+    root = Path(fixture["root"])
+    (root / "watch").mkdir(exist_ok=True)
+    db_existed = (root / "data" / "open-story.db").exists()
+    name, nats_name = f"bm-os-{port}", f"bm-nats-{port}"
+    docker("network", "create", DOCKER_NET, check=False)
+    for stale in (name, nats_name):
+        docker("rm", "-f", stale, check=False)
+    docker("run", "-d", "--name", nats_name, "--network", DOCKER_NET, "nats:2-alpine", "--jetstream", "--store_dir", "/tmp/js")
+    args = docker_run_args(image, root, name, nats_name, port, memory)
+    print(f"boot: {' '.join(args)}", flush=True)
+    docker(*args[1:])
+    url = f"http://127.0.0.1:{port}/api/health"
+    samples: list[dict] = []
+    t0 = time.monotonic()
+    serving_at: float | None = None
+    exit_code: int | None = None
+    timed_out = False
+    oom_killed = False
+    allocator: str | None = None
+    last_print = ""
+    try:
+        while True:
+            tick = time.monotonic()
+            t = int(round(tick - t0))
+            inspect = docker("inspect", "-f", "{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}", name, check=False)
+            running, code, oom = (inspect.stdout.split() + ["false", "0", "false"])[:3]
+            if running != "true":
+                exit_code = int(code)
+                oom_killed = oom == "true"
+                break
+            stats = docker("stats", "--no-stream", "--format", "{{.MemUsage}}", name, check=False)
+            usage = parse_docker_stats_mem(stats.stdout)
+            files = docker("exec", name, "cat", "/sys/fs/cgroup/memory.stat", "/sys/fs/cgroup/memory.current", "/proc/1/status", check=False)
+            mstat = parse_memory_stat(files.stdout)
+            rss = parse_vmrss(files.stdout)
+            status, body = fetch_health(url)
+            phase = classify(status, body)
+            allocator = allocator_of(body) or allocator
+            if serving_at is not None and tick - serving_at >= settle_secs:
+                phase = "settle"
+            samples.append(
+                {
+                    "t": t,
+                    "rss_bytes": rss if rss is not None else (usage or 0),
+                    "usage_bytes": usage,
+                    "anon_bytes": mstat.get("anon"),
+                    "file_bytes": mstat.get("file"),
+                    "phase": phase,
+                    "consumers": consumer_summary(body),
+                    "replay": (body or {}).get("boot", {}).get("replay"),
+                }
+            )
+            line = (
+                f"  t={t:5d}s  rss={(rss or 0) / 1e6:8.1f} MB  usage={(usage or 0) / 1e6:8.1f} MB"
+                f"  anon={(mstat.get('anon') or 0) / 1e6:8.1f} MB  file={(mstat.get('file') or 0) / 1e6:7.1f} MB  {phase} {consumer_summary(body) or ''}"
+            )
+            if line[-40:] != last_print[-40:] or t % 20 == 0:
+                print(line, flush=True)
+            last_print = line
+            if phase == "settle":
+                break
+            if phase == "serving" and serving_at is None:
+                serving_at = tick
+            if tick - t0 > timeout_secs:
+                timed_out = True
+                break
+            time.sleep(max(0.0, 1.0 - (time.monotonic() - tick)))
+    finally:
+        logs = docker("logs", name, check=False)
+        log_path.write_text(logs.stdout + logs.stderr)
+        docker("rm", "-f", name, check=False)
+        docker("rm", "-f", nats_name, check=False)
+    peaks = phase_peaks(samples)
+    for p in peaks:
+        rows = [s for s in samples if s["phase"] == p]
+        peaks[p]["peak_usage_bytes"] = max((s["usage_bytes"] or 0) for s in rows)
+        peaks[p]["peak_anon_bytes"] = max((s["anon_bytes"] or 0) for s in rows)
+        peaks[p]["peak_file_bytes"] = max((s["file_bytes"] or 0) for s in rows)
+    first_running = next((s["t"] for s in samples if s["consumers"] and set(s["consumers"]) == {"running"}), None)
+    return {
+        "mode": "docker",
+        "image": image,
+        "memory_limit": memory,
+        "db_existed_before": db_existed,
+        "allocator": allocator,
+        "phases": peaks,
+        "peak_rss_bytes": max((s["rss_bytes"] for s in samples), default=0),
+        "peak_usage_bytes": max(((s["usage_bytes"] or 0) for s in samples), default=0),
+        "peak_anon_bytes": max(((s["anon_bytes"] or 0) for s in samples), default=0),
+        "serving_after_secs": None if serving_at is None else int(round(serving_at - t0)),
+        "consumers_running_after_secs": first_running,
+        "exit_code": exit_code,
+        "oom_killed": oom_killed,
+        "timed_out": timed_out,
+        "samples": len(samples),
+        "log": str(log_path),
+    }
 
 
 def print_report(result: dict) -> None:
@@ -536,11 +737,21 @@ def print_report(result: dict) -> None:
         ended = "timed out" if b["timed_out"] else (f"exited {b['exit_code']}" if b["exit_code"] is not None else "stopped by harness")
         serving = f"serving after {b['serving_after_secs']} s" if b["serving_after_secs"] is not None else "never served"
         print()
-        print(f"boot {b['index']} ({role})  db existed before: {'yes' if b['db_existed_before'] else 'no'}  {serving}  {ended}")
-        print(f"  {'phase':<10} {'peak RSS':>12}  {'samples':>7}  window")
-        for name, p in b["phases"].items():
-            print(f"  {name:<10} {p['peak_rss_bytes'] / 1e6:>9.1f} MB  {p['samples']:>7}  {p['first_t']}-{p['last_t']} s")
-        print(f"  {'peak':<10} {b['peak_rss_bytes'] / 1e6:>9.1f} MB")
+        print(f"boot {b['index']} ({role})  db existed before: {'yes' if b['db_existed_before'] else 'no'}  allocator: {b.get('allocator') or '?'}  {serving}  {ended}")
+        if b.get("mode") == "docker":
+            print(f"  image {b['image']}  --memory {b['memory_limit']}  oom_killed: {b['oom_killed']}  consumers all running at: {b['consumers_running_after_secs']} s")
+            print(f"  {'phase':<10} {'peak RSS':>12} {'usage':>12} {'anon':>12} {'file':>11}  {'samples':>7}  window")
+            for name, p in b["phases"].items():
+                print(
+                    f"  {name:<10} {p['peak_rss_bytes'] / 1e6:>9.1f} MB {p['peak_usage_bytes'] / 1e6:>9.1f} MB"
+                    f" {p['peak_anon_bytes'] / 1e6:>9.1f} MB {p['peak_file_bytes'] / 1e6:>8.1f} MB  {p['samples']:>7}  {p['first_t']}-{p['last_t']} s"
+                )
+            print(f"  {'peak':<10} {b['peak_rss_bytes'] / 1e6:>9.1f} MB {b['peak_usage_bytes'] / 1e6:>9.1f} MB {b['peak_anon_bytes'] / 1e6:>9.1f} MB")
+        else:
+            print(f"  {'phase':<10} {'peak RSS':>12}  {'samples':>7}  window")
+            for name, p in b["phases"].items():
+                print(f"  {name:<10} {p['peak_rss_bytes'] / 1e6:>9.1f} MB  {p['samples']:>7}  {p['first_t']}-{p['last_t']} s")
+            print(f"  {'peak':<10} {b['peak_rss_bytes'] / 1e6:>9.1f} MB")
     print()
     verdict = "PASS" if result["pass"] else "FAIL"
     print(f"gate      peak {result['peak_rss_bytes'] / 1e9:.3f} GB {'<' if result['pass'] else '>='} {result['gate_gb']} GB  → {verdict}")
@@ -662,6 +873,69 @@ def test_when_session_lines_are_written_they_meet_the_byte_target():
     assert kinds[: len(TURN)] == list(TURN)
 
 
+def test_when_the_node_wrote_its_own_jsonl_they_are_not_session_files():
+    assert is_session_file("0c1d5e6a-1b2c-4d3e-8f90-0a1b2c3d4e5f.jsonl")
+    assert not is_session_file("events.jsonl")
+    assert not is_session_file("presence.jsonl")
+    assert not is_session_file("manifest.json")
+
+
+def test_when_docker_stats_prints_mem_usage_it_returns_used_bytes():
+    assert parse_docker_stats_mem("1.5GiB / 2GiB\n") == int(1.5 * 1024**3)
+    assert parse_docker_stats_mem("512MiB / 2GiB") == 512 * 1024**2
+    assert parse_docker_stats_mem("900kB / 2GiB") == 900_000
+    assert parse_docker_stats_mem("") is None
+
+
+def test_when_memory_stat_is_read_it_maps_names_to_bytes():
+    text = "anon 4177920000\nfile 1048576000\nkernel 1234\nfile_mapped 5\n"
+    stat = parse_memory_stat(text)
+    assert stat["anon"] == 4177920000
+    assert stat["file"] == 1048576000
+    assert stat["file_mapped"] == 5
+
+
+def test_when_proc_status_is_read_it_returns_vmrss_bytes():
+    assert parse_vmrss("Name:\topen-story\nVmRSS:\t  123456 kB\nThreads:\t9\n") == 123456 * 1024
+    assert parse_vmrss("Name:\tx\n") is None
+
+
+def test_when_the_container_is_planned_its_argv_is_bounded_and_isolated():
+    args = docker_run_args("open-story:boot-memory", Path("/fx"), "bm-os-3300", "bm-nats-3300", 3300, "2g")
+    joined = " ".join(args)
+    assert args[:3] == ["docker", "run", "-d"]
+    assert "--name bm-os-3300" in joined
+    assert f"--network {DOCKER_NET}" in joined
+    assert "--memory 2g" in joined and "--memory-swap 2g" in joined
+    assert "-v /fx/data:/data" in joined
+    assert "-v /fx/watch:/watch" in joined
+    assert "-p 127.0.0.1:3300:3002" in joined
+    for var in ("OPEN_STORY_CLAUDE_WATCH_DIR", "OPEN_STORY_CODEX_WATCH_DIR", "OPEN_STORY_GROK_WATCH_DIR"):
+        assert f"-e {var}=/watch" in joined
+    assert "-e OPEN_STORY_PI_WATCH_DIR=" in joined and "-e OPEN_STORY_HERMES_WATCH_DIR=" in joined
+    assert args[args.index("open-story:boot-memory") + 1 :] == [
+        "serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data",
+        "--watch-dir", "/watch", "--nats-url", "nats://bm-nats-3300:4222",
+    ]
+
+
+def test_when_health_names_the_allocator_the_report_carries_it():
+    assert allocator_of({"process": {"allocator": "jemalloc", "rss_bytes": 1}}) == "jemalloc"
+    assert allocator_of({"process": {"rss_bytes": 1}}) is None
+    assert allocator_of(None) is None
+
+
+def test_when_consumers_are_summarised_states_are_counted():
+    body = {"consumers": {
+        "persist": {"alive": False, "state": "pending_start"},
+        "patterns": {"alive": False, "state": "pending_start"},
+        "broadcast": {"alive": True, "state": "running"},
+    }}
+    assert consumer_summary(body) == {"pending_start": 2, "running": 1}
+    assert consumer_summary({"consumers": {"old": {"alive": True}}}) == {"alive": 1}
+    assert consumer_summary(None) == {}
+
+
 def test_when_the_gate_is_evaluated_it_compares_bytes_to_gigabytes():
     assert gate_passes(1_999_999_999, 2.0)
     assert not gate_passes(2_000_000_001, 2.0)
@@ -701,6 +975,8 @@ def main() -> int:
     ap.add_argument("--boots", type=int, default=2, help="1 = ingest only; 2 = ingest then measure")
     ap.add_argument("--gate-gb", type=float, default=2.0)
     ap.add_argument("--json", dest="json_path", help="write the result as JSON here")
+    ap.add_argument("--docker", metavar="IMAGE", help="Linux mode: boot inside a container from IMAGE (built from Dockerfile.prod)")
+    ap.add_argument("--memory", default="2g", help="cgroup memory limit for the container (with --docker)")
     args = ap.parse_args()
 
     if args.test:
@@ -716,8 +992,11 @@ def main() -> int:
     print(f"ports: http {port}, nats {nats_port}")
     boots = []
     for i in range(1, args.boots + 1):
-        log_path = Path(args.fixture) / f"boot-{i}.log"
-        b = boot_and_sample(args.binary, fixture, port, nats_port, args.settle_secs, args.timeout_secs, log_path)
+        log_path = Path(args.fixture) / f"boot-{'docker-' if args.docker else ''}{i}.log"
+        if args.docker:
+            b = docker_boot_and_sample(args.docker, fixture, port, args.memory, args.settle_secs, args.timeout_secs, log_path)
+        else:
+            b = boot_and_sample(args.binary, fixture, port, nats_port, args.settle_secs, args.timeout_secs, log_path)
         b["index"] = i
         boots.append(b)
         if b["serving_after_secs"] is None:
@@ -726,7 +1005,7 @@ def main() -> int:
     measured = boots[-1]
     result = {
         "measured_at": datetime.now(timezone.utc).isoformat(),
-        "binary": args.binary,
+        "binary": args.docker or args.binary,
         "fixture": fixture,
         "boots": boots,
         "measured_boot": measured["index"],

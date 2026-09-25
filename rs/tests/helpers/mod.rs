@@ -17,6 +17,8 @@ pub mod openclaw;
 #[allow(dead_code)]
 pub mod recording_bus;
 #[allow(dead_code)]
+pub mod recording_store;
+#[allow(dead_code)]
 pub mod synth;
 #[allow(dead_code)]
 pub mod two_nodes;

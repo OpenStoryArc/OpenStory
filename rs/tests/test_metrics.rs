@@ -14,7 +14,7 @@ use axum::body::Body;
 use axum::http::Request;
 use helpers::bus::TestActors;
 use helpers::{make_event, test_router_with};
-use open_story::server::consumers::supervision::{ConsumerHealth, Driven};
+use open_story::server::consumers::supervision::{ConsumerHealth, ConsumerState, Driven};
 use open_story::server::{presence, AppState, Config, SharedState};
 use open_story_bus::{Bus, BusSubscription, IngestBatch, StreamStats};
 use open_story_server::metrics;
@@ -96,6 +96,7 @@ mod when_node_metrics_are_rendered {
             "persist",
             ConsumerHealth {
                 alive: true,
+                state: ConsumerState::Running,
                 restarts: 2,
                 last_restart: None,
                 last_exit: None,
