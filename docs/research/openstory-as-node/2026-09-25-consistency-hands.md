@@ -134,3 +134,24 @@ No hand writes to `events.*` or `local.*`. Converge is a union and a re-fold. Th
 - Gate note: the UI bench `timeline-bench > toTimelineRows < 15ms`
   now fails on this machine even idle (load average 50, another worktree
   building); zero UI files changed on this branch.
+- **2026-09-25 15:48 UTC.** C-06 GREEN. Red `54ea861`, green: this commit. The
+  property (`rs/tests/test_convergence_property.rs`): `synth_origin.jsonl`
+  (221 lines) through the real translator, two in-memory nodes
+  (`helpers::two_nodes`), A observing the first two thirds in order and
+  B the last two thirds newest batch first, partitioned; heal; converge
+  each way. What it proved: the roll-ups were equal after the first run
+  but the projections were not (`start_time` was the first event each
+  node received; `status` followed), so the streaming fold is a function
+  of arrival order, and "union and re-fold" needs the re-fold literally:
+  converge now rebuilds every session the union touched from the store
+  (`refolded` per round), and `session_events` orders by `(timestamp, id)`
+  on SQLite and `(timestamp, _id)` on Mongo so a rebuild is a function of
+  the set and not of insertion order (mongo feature type-checked offline).
+  With that, the projections agree, the report reads `ok` under a fake
+  clock at beat+5 s and `stale_snapshot:node-b` at beat+60 s, both
+  watermarks agree, every `events.*` publish carries only recorded ids
+  under the recording's project, ops history is under `ops.*` only, and
+  the spec runs `scripts/subject_publishers.py` and requires it green.
+  Note: the plan's "fake clock" is the explicit `now` given to
+  `fleet_view` and to `summary`; nothing else in the checked properties
+  reads a clock.

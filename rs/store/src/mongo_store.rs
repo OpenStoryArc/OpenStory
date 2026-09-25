@@ -637,7 +637,8 @@ impl EventStore for MongoStore {
         use futures::StreamExt;
         let coll: Collection<Document> = self.db.collection(COLL_EVENTS);
         let opts = mongodb::options::FindOptions::builder()
-            .sort(doc! { "timestamp": 1 })
+            // Time, then id: a rebuild must be a function of the set (C-06).
+            .sort(doc! { "timestamp": 1, "_id": 1 })
             .build();
         let mut cursor = coll
             .find(doc! { "session_id": session_id })

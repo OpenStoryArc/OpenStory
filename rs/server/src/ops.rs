@@ -301,6 +301,21 @@ async fn reproject_stale(state: &SharedState) -> usize {
     n
 }
 
+/// Rebuild each of `sessions` from the store, replacing what streamed in.
+async fn refold(state: &SharedState, sessions: &[String]) -> usize {
+    let s = state.read().await;
+    let mut n = 0;
+    for sid in sessions {
+        if let Some(proj) =
+            open_story_store::rebuild::rebuild_session(s.store.event_store.as_ref(), sid).await
+        {
+            s.store.projections.insert(sid.clone(), proj);
+            n += 1;
+        }
+    }
+    n
+}
+
 /// Do the store and the JSONL backup agree on each of `sessions`?
 async fn verify_sessions(state: &SharedState, sessions: &[String]) -> Value {
     let (store, data_dir) = {
@@ -416,6 +431,14 @@ async fn converge(state: &SharedState, body: &Value) -> Result<Value, (StatusCod
         if round_changed && settle_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(settle_ms)).await;
         }
+        // The re-fold: a session the union touched is rebuilt from the
+        // store, in the store's order, so its projection is a function of
+        // the set and not of the order the two halves arrived in.
+        let refolded = if pulled_events > 0 {
+            refold(state, &touched).await
+        } else {
+            0
+        };
         let verify = verify_sessions(state, &touched).await;
 
         let mine = crate::fleet::rollup(&crate::catch_up::placed_digests(&store).await).digest;
@@ -429,6 +452,7 @@ async fn converge(state: &SharedState, body: &Value) -> Result<Value, (StatusCod
         rounds.push(json!({
             "round": round,
             "reprojected": reprojected,
+            "refolded": refolded,
             "healed": healed,
             "pulled_events": pulled_events,
             "deleted": deleted,

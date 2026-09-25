@@ -451,10 +451,14 @@ impl EventStore for SqliteStore {
         Ok(flags)
     }
 
+    /// Ordered by time, then id: a rebuild from the store must be a
+    /// function of the event set, not of insertion order, or two nodes
+    /// holding equal sets fold to different projections (consistency C-06).
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = conn
-            .prepare("SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC")?;
+        let mut stmt = conn.prepare(
+            "SELECT payload FROM events WHERE session_id = ?1 ORDER BY timestamp ASC, id ASC",
+        )?;
         let rows = stmt.query_map([session_id], |row| {
             let payload: String = row.get(0)?;
             Ok(payload)
