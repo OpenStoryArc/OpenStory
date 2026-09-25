@@ -351,6 +351,41 @@ def gate_passes(peak_rss_bytes: int, gate_gb: float) -> bool:
     return peak_rss_bytes < gate_gb * 1_000_000_000
 
 
+# ── Linux mode (--docker): the same boot inside a container ───────────────
+
+DOCKER_NET = "boot-memory-net"
+
+
+def parse_docker_stats_mem(text: str) -> int | None:
+    """`docker stats --format {{.MemUsage}}` prints `1.234GiB / 2GiB`; the
+    used part in bytes, or None when the container is gone."""
+    raise NotImplementedError
+
+
+def parse_memory_stat(text: str) -> dict[str, int]:
+    """cgroup v2 `memory.stat` lines (`anon 123`, `file 456`, ...) → {name: bytes}."""
+    raise NotImplementedError
+
+
+def parse_vmrss(status_text: str) -> int | None:
+    """`VmRSS:\t  123456 kB` from /proc/<pid>/status → bytes."""
+    raise NotImplementedError
+
+
+def docker_run_args(image: str, root: Path, name: str, nats_name: str, port: int, memory: str) -> list[str]:
+    """The `docker run` argv for the measured container: detached, named,
+    on DOCKER_NET, memory-limited, the fixture's data dir at /data, an
+    empty dir at /watch, port 3002 published on 127.0.0.1:<port>, every
+    watcher root pointed at /watch, the bus at the sidecar nats."""
+    raise NotImplementedError
+
+
+def consumer_summary(body: dict | None) -> dict[str, int]:
+    """How many consumers sit in each `state` in a health body (B-05):
+    e.g. {"pending_start": 5} while replaying, {"running": 5} after."""
+    raise NotImplementedError
+
+
 # ── Side effects: fixture on disk, the boot, the samples ──────────────────
 
 
@@ -677,6 +712,56 @@ def test_when_the_node_wrote_its_own_jsonl_they_are_not_session_files():
     assert not is_session_file("events.jsonl")
     assert not is_session_file("presence.jsonl")
     assert not is_session_file("manifest.json")
+
+
+def test_when_docker_stats_prints_mem_usage_it_returns_used_bytes():
+    assert parse_docker_stats_mem("1.5GiB / 2GiB\n") == int(1.5 * 1024**3)
+    assert parse_docker_stats_mem("512MiB / 2GiB") == 512 * 1024**2
+    assert parse_docker_stats_mem("900kB / 2GiB") == 900_000
+    assert parse_docker_stats_mem("") is None
+
+
+def test_when_memory_stat_is_read_it_maps_names_to_bytes():
+    text = "anon 4177920000\nfile 1048576000\nkernel 1234\nfile_mapped 5\n"
+    stat = parse_memory_stat(text)
+    assert stat["anon"] == 4177920000
+    assert stat["file"] == 1048576000
+    assert stat["file_mapped"] == 5
+
+
+def test_when_proc_status_is_read_it_returns_vmrss_bytes():
+    assert parse_vmrss("Name:\topen-story\nVmRSS:\t  123456 kB\nThreads:\t9\n") == 123456 * 1024
+    assert parse_vmrss("Name:\tx\n") is None
+
+
+def test_when_the_container_is_planned_its_argv_is_bounded_and_isolated():
+    args = docker_run_args("open-story:boot-memory", Path("/fx"), "bm-os-3300", "bm-nats-3300", 3300, "2g")
+    joined = " ".join(args)
+    assert args[:3] == ["docker", "run", "-d"]
+    assert "--name bm-os-3300" in joined
+    assert f"--network {DOCKER_NET}" in joined
+    assert "--memory 2g" in joined and "--memory-swap 2g" in joined
+    assert "-v /fx/data:/data" in joined
+    assert "-v /fx/watch:/watch" in joined
+    assert "-p 127.0.0.1:3300:3002" in joined
+    for var in ("OPEN_STORY_CLAUDE_WATCH_DIR", "OPEN_STORY_CODEX_WATCH_DIR", "OPEN_STORY_GROK_WATCH_DIR"):
+        assert f"-e {var}=/watch" in joined
+    assert "-e OPEN_STORY_PI_WATCH_DIR=" in joined and "-e OPEN_STORY_HERMES_WATCH_DIR=" in joined
+    assert args[args.index("open-story:boot-memory") + 1 :] == [
+        "serve", "--host", "0.0.0.0", "--port", "3002", "--data-dir", "/data",
+        "--watch-dir", "/watch", "--nats-url", "nats://bm-nats-3300:4222",
+    ]
+
+
+def test_when_consumers_are_summarised_states_are_counted():
+    body = {"consumers": {
+        "persist": {"alive": False, "state": "pending_start"},
+        "patterns": {"alive": False, "state": "pending_start"},
+        "broadcast": {"alive": True, "state": "running"},
+    }}
+    assert consumer_summary(body) == {"pending_start": 2, "running": 1}
+    assert consumer_summary({"consumers": {"old": {"alive": True}}}) == {"alive": 1}
+    assert consumer_summary(None) == {}
 
 
 def test_when_the_gate_is_evaluated_it_compares_bytes_to_gigabytes():
