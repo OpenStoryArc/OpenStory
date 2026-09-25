@@ -597,19 +597,20 @@ def fetch_health(url: str) -> tuple[int | None, dict | None]:
 
 def stop_process_group(proc: subprocess.Popen) -> None:
     """SIGTERM the server and its managed nats child (same process group);
-    SIGKILL what is left after 15 s."""
-    if proc.poll() is not None:
-        return
+    SIGKILL what is left after 15 s. Runs even when the server has already
+    exited: a crashed server leaves its nats child alive in the group."""
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        os.killpg(proc.pid, signal.SIGTERM)  # start_new_session: pgid == pid
     except ProcessLookupError:
+        return
+    if proc.poll() is not None:
         return
     deadline = time.monotonic() + 15
     while proc.poll() is None and time.monotonic() < deadline:
         time.sleep(0.2)
     if proc.poll() is None:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         proc.wait()
