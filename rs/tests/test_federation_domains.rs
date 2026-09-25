@@ -121,7 +121,11 @@ impl ScratchNats {
         std::fs::create_dir_all(&root).unwrap();
         let conf_path = root.join("nats.conf");
         std::fs::write(&conf_path, conf).unwrap();
-        let mut s = ScratchNats { conf: conf_path, port, child: None };
+        let mut s = ScratchNats {
+            conf: conf_path,
+            port,
+            child: None,
+        };
         s.launch();
         s
     }
@@ -195,7 +199,10 @@ async fn boot_node(bus: Arc<dyn Bus>, nats_url: &str, monitor: u16, data_dir: &P
                 return base;
             }
         }
-        assert!(Instant::now() < deadline, "node on {port} never answered /health");
+        assert!(
+            Instant::now() < deadline,
+            "node on {port} never answered /health"
+        );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
@@ -216,9 +223,12 @@ fn batch(host: &str, session: &str, i: usize) -> IngestBatch {
 
 async fn publish(bus: &NatsBus, host: &str, session: &str, from: usize, n: usize) {
     for i in from..from + n {
-        bus.publish(&format!("events.{host}.lab.{session}.main"), &batch(host, session, i))
-            .await
-            .unwrap_or_else(|e| panic!("publish {i} on {host}: {e}"));
+        bus.publish(
+            &format!("events.{host}.lab.{session}.main"),
+            &batch(host, session, i),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("publish {i} on {host}: {e}"));
     }
 }
 
@@ -267,7 +277,10 @@ where
             Ok(()) => return,
             Err(e) => e,
         };
-        assert!(Instant::now() < deadline, "{what} never held within {secs}s; last: {last}");
+        assert!(
+            Instant::now() < deadline,
+            "{what} never held within {secs}s; last: {last}"
+        );
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
 }
@@ -299,7 +312,15 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         // The leaf node's host token (subjects and the leaf domain).
         std::env::set_var("OPEN_STORY_HOST", "leaf-a");
         std::env::remove_var("OPEN_STORY_CATCH_UP_PEER");
-        for p in [HUB_PORT, HUB_LEAF_PORT, HUB_MONITOR, LEAF_A_PORT, LEAF_A_MONITOR, LEAF_B_PORT, LEAF_B_MONITOR] {
+        for p in [
+            HUB_PORT,
+            HUB_LEAF_PORT,
+            HUB_MONITOR,
+            LEAF_A_PORT,
+            LEAF_A_MONITOR,
+            LEAF_B_PORT,
+            LEAF_B_MONITOR,
+        ] {
             assert!(port_free(p), "port {p} is taken; the lab needs it");
         }
         let tmp = tempfile::tempdir().unwrap();
@@ -310,45 +331,89 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         std::fs::create_dir_all(&lab).unwrap();
         eprintln!("  lab dir: {}", lab.display());
 
-        let _hub_nats = ScratchNats::start(&lab, "nats-hub", HUB_PORT, hub_conf(&lab.join("nats-hub/js")));
+        let _hub_nats = ScratchNats::start(
+            &lab,
+            "nats-hub",
+            HUB_PORT,
+            hub_conf(&lab.join("nats-hub/js")),
+        );
         let mut leaf_a_nats = ScratchNats::start(
             &lab,
             "nats-leaf-a",
             LEAF_A_PORT,
-            leaf_conf(LEAF_A_PORT, LEAF_A_MONITOR, "leaf-a", &lab.join("nats-leaf-a/js")),
+            leaf_conf(
+                LEAF_A_PORT,
+                LEAF_A_MONITOR,
+                "leaf-a",
+                &lab.join("nats-leaf-a/js"),
+            ),
         );
         let _leaf_b_nats = ScratchNats::start(
             &lab,
             "nats-leaf-b",
             LEAF_B_PORT,
-            leaf_conf(LEAF_B_PORT, LEAF_B_MONITOR, "leaf-b", &lab.join("nats-leaf-b/js")),
+            leaf_conf(
+                LEAF_B_PORT,
+                LEAF_B_MONITOR,
+                "leaf-b",
+                &lab.join("nats-leaf-b/js"),
+            ),
         );
         let hub_url = format!("nats://127.0.0.1:{HUB_PORT}");
         let leaf_a_url = format!("nats://127.0.0.1:{LEAF_A_PORT}");
         let leaf_b_url = format!("nats://127.0.0.1:{LEAF_B_PORT}");
 
         // The hub node: OPEN_STORY_HUB_DOMAIN=hub on a consumer, as the CLI wires it.
-        let hub_bus = Arc::new(NatsBus::connect_hub(&hub_url, "hub").await.expect("hub connect"));
+        let hub_bus = Arc::new(
+            NatsBus::connect_hub(&hub_url, "hub")
+                .await
+                .expect("hub connect"),
+        );
         hub_bus.ensure_streams().await.expect("hub streams");
         hub_bus.ensure_aggregate(&[]).await.expect("hub aggregate");
-        let hub = boot_node(hub_bus.clone(), &hub_url, HUB_MONITOR, &lab.join("node-hub")).await;
+        let hub = boot_node(
+            hub_bus.clone(),
+            &hub_url,
+            HUB_MONITOR,
+            &lab.join("node-hub"),
+        )
+        .await;
 
         // The leaf node: OPEN_STORY_HUB_DOMAIN=hub on a leaf whose NATS has domain leaf-a.
         let leaf_a_bus = Arc::new(
             NatsBus::connect_federation(
                 &leaf_a_url,
-                Federation { host: "leaf-a".into(), peers: FederationPeers::Hub { hub_domain: "hub".into() } },
+                Federation {
+                    host: "leaf-a".into(),
+                    peers: FederationPeers::Hub {
+                        hub_domain: "hub".into(),
+                    },
+                },
             )
             .await
             .expect("leaf-a connect"),
         );
-        leaf_a_bus.ensure_streams().await.expect("leaf-a streams (mirror + self-registration)");
-        let leaf_a = boot_node(leaf_a_bus.clone(), &leaf_a_url, LEAF_A_MONITOR, &lab.join("node-leaf-a")).await;
+        leaf_a_bus
+            .ensure_streams()
+            .await
+            .expect("leaf-a streams (mirror + self-registration)");
+        let leaf_a = boot_node(
+            leaf_a_bus.clone(),
+            &leaf_a_url,
+            LEAF_A_MONITOR,
+            &lab.join("node-leaf-a"),
+        )
+        .await;
 
         // The second leaf: a bare bus, no node; it only publishes.
         let leaf_b_bus = NatsBus::connect_federation(
             &leaf_b_url,
-            Federation { host: "leaf-b".into(), peers: FederationPeers::Hub { hub_domain: "hub".into() } },
+            Federation {
+                host: "leaf-b".into(),
+                peers: FederationPeers::Hub {
+                    hub_domain: "hub".into(),
+                },
+            },
         )
         .await
         .expect("leaf-b connect");
@@ -358,65 +423,171 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         let agg = stream_info(&hub_bus, "events-agg").await;
         let mut domains: Vec<String> = sources(&agg).into_iter().map(|(d, _)| d).collect();
         domains.sort();
-        assert_eq!(domains, ["leaf-a", "leaf-b"], "self-registration named both leaves: {agg}");
+        assert_eq!(
+            domains,
+            ["leaf-a", "leaf-b"],
+            "self-registration named both leaves: {agg}"
+        );
 
         publish(&leaf_b_bus, "leaf-b", "sess-b", 0, 3).await;
         eventually("events-agg holds leaf-b's 3 with lag 0", 30, || async {
             let agg = stream_info(&hub_bus, "events-agg").await;
-            let lag_b = sources(&agg).into_iter().find(|(d, _)| d == "leaf-b").map(|(_, l)| l);
-            if messages(&agg) == 3 && lag_b == Some(0) { Ok(()) } else { Err(format!("messages={} sources={:?}", messages(&agg), sources(&agg))) }
+            let lag_b = sources(&agg)
+                .into_iter()
+                .find(|(d, _)| d == "leaf-b")
+                .map(|(_, l)| l);
+            if messages(&agg) == 3 && lag_b == Some(0) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "messages={} sources={:?}",
+                    messages(&agg),
+                    sources(&agg)
+                ))
+            }
         })
         .await;
         publish(&leaf_a_bus, "leaf-a", "sess-a", 0, 2).await;
-        eventually("events-agg holds 5 with leaf-a's cursor caught up", 30, || async {
-            let agg = stream_info(&hub_bus, "events-agg").await;
-            let lag_a = sources(&agg).into_iter().find(|(d, _)| d == "leaf-a").map(|(_, l)| l);
-            if messages(&agg) == 5 && lag_a == Some(0) { Ok(()) } else { Err(format!("messages={} sources={:?}", messages(&agg), sources(&agg))) }
-        })
+        eventually(
+            "events-agg holds 5 with leaf-a's cursor caught up",
+            30,
+            || async {
+                let agg = stream_info(&hub_bus, "events-agg").await;
+                let lag_a = sources(&agg)
+                    .into_iter()
+                    .find(|(d, _)| d == "leaf-a")
+                    .map(|(_, l)| l);
+                if messages(&agg) == 5 && lag_a == Some(0) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "messages={} sources={:?}",
+                        messages(&agg),
+                        sources(&agg)
+                    ))
+                }
+            },
+        )
         .await;
 
         // ── 2. the leaf's mirror fills from the hub: both leaves' events, own included ──
-        eventually("events-mirror on leaf-a holds the aggregate's 5", 30, || async {
-            let m = stream_info(&leaf_a_bus, "events-mirror").await;
-            if messages(&m) == 5 { Ok(()) } else { Err(format!("messages={}", messages(&m))) }
-        })
+        eventually(
+            "events-mirror on leaf-a holds the aggregate's 5",
+            30,
+            || async {
+                let m = stream_info(&leaf_a_bus, "events-mirror").await;
+                if messages(&m) == 5 {
+                    Ok(())
+                } else {
+                    Err(format!("messages={}", messages(&m)))
+                }
+            },
+        )
         .await;
         let mirror = stream_info(&leaf_a_bus, "events-mirror").await;
-        assert_eq!(sources(&mirror).into_iter().map(|(d, _)| d).collect::<Vec<_>>(), ["hub"], "{mirror}");
-        eventually("the leaf node lists sess-b through its mirror, sess-a once", 30, || async {
-            let s = get(&leaf_a, "/api/digests").await;
-            let count = |id: &str| s["sessions"].as_array().into_iter().flatten().find(|x| x["session_id"] == id).and_then(|x| x["count"].as_u64());
-            if count("sess-b") == Some(3) && count("sess-a") == Some(2) { Ok(()) } else { Err(format!("sess-b={:?} sess-a={:?}", count("sess-b"), count("sess-a"))) }
-        })
+        assert_eq!(
+            sources(&mirror)
+                .into_iter()
+                .map(|(d, _)| d)
+                .collect::<Vec<_>>(),
+            ["hub"],
+            "{mirror}"
+        );
+        eventually(
+            "the leaf node lists sess-b through its mirror, sess-a once",
+            30,
+            || async {
+                let s = get(&leaf_a, "/api/digests").await;
+                let count = |id: &str| {
+                    s["sessions"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|x| x["session_id"] == id)
+                        .and_then(|x| x["count"].as_u64())
+                };
+                if count("sess-b") == Some(3) && count("sess-a") == Some(2) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "sess-b={:?} sess-a={:?}",
+                        count("sess-b"),
+                        count("sess-a")
+                    ))
+                }
+            },
+        )
         .await;
 
         // ── 3. health on both nodes lists the mirror and the aggregate with caps and sources ──
         let hub_health = get(&hub, "/api/health").await;
-        let agg_h = stream_named(&hub_health, "events-agg").unwrap_or_else(|| panic!("hub health lists events-agg: {hub_health}"));
-        assert!(agg_h["max_bytes"].as_i64().unwrap_or(0) > 0, "the aggregate has a cap: {agg_h}");
-        let mut agg_src: Vec<&str> = agg_h["sources"].as_array().into_iter().flatten().filter_map(|s| s["domain"].as_str()).collect();
+        let agg_h = stream_named(&hub_health, "events-agg")
+            .unwrap_or_else(|| panic!("hub health lists events-agg: {hub_health}"));
+        assert!(
+            agg_h["max_bytes"].as_i64().unwrap_or(0) > 0,
+            "the aggregate has a cap: {agg_h}"
+        );
+        let mut agg_src: Vec<&str> = agg_h["sources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s["domain"].as_str())
+            .collect();
         agg_src.sort();
         assert_eq!(agg_src, ["leaf-a", "leaf-b"], "{agg_h}");
-        assert!(agg_h["sources"][0]["lag"].is_u64(), "each source carries its lag: {agg_h}");
-        assert_eq!(hub_health["jetstream"]["domain"], "hub", "{}", hub_health["jetstream"]);
-        assert_eq!(hub_health["jetstream"]["max_file"], HUB_MAX_FILE, "{}", hub_health["jetstream"]);
+        assert!(
+            agg_h["sources"][0]["lag"].is_u64(),
+            "each source carries its lag: {agg_h}"
+        );
+        assert_eq!(
+            hub_health["jetstream"]["domain"], "hub",
+            "{}",
+            hub_health["jetstream"]
+        );
+        assert_eq!(
+            hub_health["jetstream"]["max_file"], HUB_MAX_FILE,
+            "{}",
+            hub_health["jetstream"]
+        );
 
         let leaf_health = get(&leaf_a, "/api/health").await;
-        let mirror_h = stream_named(&leaf_health, "events-mirror").unwrap_or_else(|| panic!("leaf health lists events-mirror: {leaf_health}"));
-        assert!(mirror_h["max_bytes"].as_i64().unwrap_or(0) > 0, "{mirror_h}");
+        let mirror_h = stream_named(&leaf_health, "events-mirror")
+            .unwrap_or_else(|| panic!("leaf health lists events-mirror: {leaf_health}"));
+        assert!(
+            mirror_h["max_bytes"].as_i64().unwrap_or(0) > 0,
+            "{mirror_h}"
+        );
         assert_eq!(mirror_h["sources"][0]["name"], "events-agg", "{mirror_h}");
         assert_eq!(mirror_h["sources"][0]["domain"], "hub", "{mirror_h}");
-        assert_eq!(leaf_health["jetstream"]["domain"], "leaf-a", "{}", leaf_health["jetstream"]);
-        assert_eq!(leaf_health["jetstream"]["max_file"], LEAF_MAX_FILE, "{}", leaf_health["jetstream"]);
-        assert_eq!(leaf_health["verdict"]["level"], "ok", "a healthy federated leaf: {}", leaf_health["verdict"]);
+        assert_eq!(
+            leaf_health["jetstream"]["domain"], "leaf-a",
+            "{}",
+            leaf_health["jetstream"]
+        );
+        assert_eq!(
+            leaf_health["jetstream"]["max_file"], LEAF_MAX_FILE,
+            "{}",
+            leaf_health["jetstream"]
+        );
+        assert_eq!(
+            leaf_health["verdict"]["level"], "ok",
+            "a healthy federated leaf: {}",
+            leaf_health["verdict"]
+        );
 
         // node_streams through the MCP shows the same streams with their sources.
-        let ns = open_story_mcp::tools::ops::node_streams(&leaf_a, json!({})).await.expect("node_streams");
-        let m = stream_named(&ns, "events-mirror").unwrap_or_else(|| panic!("node_streams lists the mirror: {ns}"));
+        let ns = open_story_mcp::tools::ops::node_streams(&leaf_a, json!({}))
+            .await
+            .expect("node_streams");
+        let m = stream_named(&ns, "events-mirror")
+            .unwrap_or_else(|| panic!("node_streams lists the mirror: {ns}"));
         assert_eq!(m["level"], "ok", "{m}");
         assert_eq!(m["sources"][0]["domain"], "hub", "{m}");
-        let ns = open_story_mcp::tools::ops::node_streams(&hub, json!({})).await.expect("node_streams");
-        let a = stream_named(&ns, "events-agg").unwrap_or_else(|| panic!("node_streams lists the aggregate: {ns}"));
+        let ns = open_story_mcp::tools::ops::node_streams(&hub, json!({}))
+            .await
+            .expect("node_streams");
+        let a = stream_named(&ns, "events-agg")
+            .unwrap_or_else(|| panic!("node_streams lists the aggregate: {ns}"));
         assert_eq!(a["sources"].as_array().map(|v| v.len()), Some(2), "{a}");
 
         // ── 4. a leaf outage: the mirror refills the gap by cursor, no catch-up ──
@@ -424,37 +595,82 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
         publish(&leaf_b_bus, "leaf-b", "sess-b", 3, 4).await;
         eventually("events-agg holds 9 while leaf-a is dark", 30, || async {
             let agg = stream_info(&hub_bus, "events-agg").await;
-            if messages(&agg) == 9 { Ok(()) } else { Err(format!("messages={}", messages(&agg))) }
+            if messages(&agg) == 9 {
+                Ok(())
+            } else {
+                Err(format!("messages={}", messages(&agg)))
+            }
         })
         .await;
         leaf_a_nats.launch();
-        eventually("events-mirror on leaf-a refills to 9 by cursor", 60, || async {
-            let m = stream_info(&leaf_a_bus, "events-mirror").await;
-            if messages(&m) == 9 { Ok(()) } else { Err(format!("messages={}", messages(&m))) }
-        })
+        eventually(
+            "events-mirror on leaf-a refills to 9 by cursor",
+            60,
+            || async {
+                let m = stream_info(&leaf_a_bus, "events-mirror").await;
+                if messages(&m) == 9 {
+                    Ok(())
+                } else {
+                    Err(format!("messages={}", messages(&m)))
+                }
+            },
+        )
         .await;
         // And the aggregate keeps sourcing the returned leaf.
         publish(&leaf_a_bus, "leaf-a", "sess-a", 2, 1).await;
         eventually("events-agg holds 10 after leaf-a returns", 30, || async {
             let agg = stream_info(&hub_bus, "events-agg").await;
-            let lag_a = sources(&agg).into_iter().find(|(d, _)| d == "leaf-a").map(|(_, l)| l);
-            if messages(&agg) == 10 && lag_a == Some(0) { Ok(()) } else { Err(format!("messages={} sources={:?}", messages(&agg), sources(&agg))) }
+            let lag_a = sources(&agg)
+                .into_iter()
+                .find(|(d, _)| d == "leaf-a")
+                .map(|(_, l)| l);
+            if messages(&agg) == 10 && lag_a == Some(0) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "messages={} sources={:?}",
+                    messages(&agg),
+                    sources(&agg)
+                ))
+            }
         })
         .await;
         // No hand ran: nothing on either node's ops stream.
         for (name, base) in [("hub", &hub), ("leaf-a", &leaf_a)] {
             let h = get(base, "/api/health").await;
             let ops = stream_named(&h, "ops").unwrap_or_else(|| panic!("{name} lists ops: {h}"));
-            assert_eq!(ops["messages"], 0, "no catch-up or other hand ran on {name}: {ops}");
+            assert_eq!(
+                ops["messages"], 0,
+                "no catch-up or other hand ran on {name}: {ops}"
+            );
         }
         // The leaf node read the refilled gap: sess-b has all 7 events, and
         // sess-a's own 3 are counted once though they came back through
         // the mirror too.
-        eventually("the leaf node holds sess-b's 7 and sess-a's 3 after the outage", 60, || async {
-            let s = get(&leaf_a, "/api/digests").await;
-            let count = |id: &str| s["sessions"].as_array().into_iter().flatten().find(|x| x["session_id"] == id).and_then(|x| x["count"].as_u64());
-            if count("sess-b") == Some(7) && count("sess-a") == Some(3) { Ok(()) } else { Err(format!("sess-b={:?} sess-a={:?}", count("sess-b"), count("sess-a"))) }
-        })
+        eventually(
+            "the leaf node holds sess-b's 7 and sess-a's 3 after the outage",
+            60,
+            || async {
+                let s = get(&leaf_a, "/api/digests").await;
+                let count = |id: &str| {
+                    s["sessions"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|x| x["session_id"] == id)
+                        .and_then(|x| x["count"].as_u64())
+                };
+                if count("sess-b") == Some(7) && count("sess-a") == Some(3) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "sess-b={:?} sess-a={:?}",
+                        count("sess-b"),
+                        count("sess-a")
+                    ))
+                }
+            },
+        )
         .await;
     }
 }

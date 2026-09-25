@@ -491,18 +491,30 @@ impl Bus for NatsBus {
             "presence-mirror",
             "presence-agg",
         ] {
-            let Ok(mut stream) = self.jetstream.get_stream(name).await else {
+            // The raw info: the typed SourceInfo drops `external`, and the
+            // domain of a source lives there.
+            let Ok(info) = self
+                .jetstream
+                .request::<_, _, serde_json::Value>(
+                    format!("STREAM.INFO.{name}"),
+                    &serde_json::json!({}),
+                )
+                .await
+            else {
                 continue;
             };
-            let Ok(info) = stream.info().await else {
+            if info.get("error").is_some() || info.get("state").is_none() {
                 continue;
-            };
-            out.push(crate::StreamStats::new(
-                name,
-                info.state.bytes,
-                info.state.messages,
-                info.config.max_bytes,
-            ));
+            }
+            out.push(
+                crate::StreamStats::new(
+                    name,
+                    info["state"]["bytes"].as_u64().unwrap_or(0),
+                    info["state"]["messages"].as_u64().unwrap_or(0),
+                    info["config"]["max_bytes"].as_i64().unwrap_or(-1),
+                )
+                .with_sources(source_stats(&info)),
+            );
         }
         out
     }
@@ -839,6 +851,27 @@ pub(crate) fn events_mirror_config(hub_domain: &str, cap: i64) -> stream::Config
         }]),
         ..Default::default()
     }
+}
+
+/// The sources of a stream from its raw `STREAM.INFO` (F-02): name, the
+/// domain read back from `external.api`, the cursor's lag, and seconds
+/// since last active (`active` is nanoseconds; negative means never).
+/// Pure over the JSON.
+pub fn source_stats(info: &serde_json::Value) -> Vec<crate::SourceStats> {
+    info["sources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| crate::SourceStats {
+            name: s["name"].as_str().unwrap_or("").to_string(),
+            domain: s["external"]["api"].as_str().and_then(parse_js_api_prefix),
+            lag: s["lag"].as_u64().unwrap_or(0),
+            active_secs: s["active"]
+                .as_i64()
+                .filter(|n| *n >= 0)
+                .map(|ns| (ns / 1_000_000_000) as u64),
+        })
+        .collect()
 }
 
 /// `$JS.<domain>.API` — the JetStream API prefix for a named domain. This is
@@ -1247,6 +1280,27 @@ mod federation_config_tests {
     // off `events-agg` and want to surface "which leaf is this source from",
     // we parse `external.api_prefix` back into the leaf's domain. The
     // function MUST be a faithful inverse of `js_api_prefix(domain)`.
+
+    #[test]
+    fn source_stats_reads_domain_lag_and_activity_from_raw_info() {
+        let info = serde_json::json!({
+            "config": {"name": "events-agg"},
+            "state": {"messages": 5},
+            "sources": [
+                {"name": "events", "lag": 0, "active": 1_500_000_000i64, "external": {"api": "$JS.leaf-a.API"}},
+                {"name": "events", "lag": 2, "active": -1, "external": {"api": "$JS.leaf-b.API"}},
+                {"name": "local-src", "lag": 0, "active": 0}
+            ]
+        });
+        let got = source_stats(&info);
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0].domain.as_deref(), Some("leaf-a"));
+        assert_eq!(got[0].active_secs, Some(1));
+        assert_eq!(got[1].lag, 2);
+        assert_eq!(got[1].active_secs, None, "never active reads as None");
+        assert_eq!(got[2].domain, None, "a same-domain source has no domain");
+        assert!(source_stats(&serde_json::json!({"state": {}})).is_empty());
+    }
 
     #[test]
     fn parse_js_api_prefix_returns_domain_for_leaf_api() {

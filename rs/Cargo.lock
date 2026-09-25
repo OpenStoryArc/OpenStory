@@ -2946,6 +2946,7 @@ dependencies = [
  "notify",
  "open-story-bus",
  "open-story-core",
+ "open-story-mcp",
  "open-story-patterns",
  "open-story-server",
  "open-story-store",

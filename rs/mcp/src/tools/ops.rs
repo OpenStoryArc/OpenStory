@@ -110,10 +110,14 @@ pub async fn node_streams(api_base: &str, _args: Value) -> Result<Value, String>
                 "max_bytes": s["max_bytes"],
                 "percent": percent,
                 "level": stream_level(percent),
+                // F-02: a mirror's or aggregate's sources with their cursors.
+                "sources": s.get("sources").cloned().unwrap_or_else(|| json!([])),
             })
         })
         .collect();
-    Ok(json!({ "streams": streams }))
+    // The node's domain and the server's file store, so an aggregate's cap
+    // can be read against what the server holds (F-01).
+    Ok(json!({ "streams": streams, "jetstream": health["jetstream"] }))
 }
 
 /// `fleet_presence {}` — every node's latest beat with staleness (P-03).

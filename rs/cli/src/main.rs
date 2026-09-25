@@ -645,11 +645,24 @@ async fn main() -> Result<()> {
             let nats_guard = if cli_manage_nats {
                 let leaf_url =
                     (!config.nats_leaf_url.is_empty()).then_some(config.nats_leaf_url.as_str());
+                // F-02: the managed server serves the domain the bus below
+                // pins, from the same env the federation branch reads.
+                let env_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok();
+                let mesh = std::env::var("OPEN_STORY_PEER_DOMAINS")
+                    .ok()
+                    .is_some_and(|s| !s.trim().is_empty());
+                let managed_domain = managed_nats::local_domain(
+                    env_domain.as_deref(),
+                    matches!(config.role, Role::Consumer),
+                    mesh,
+                    open_story_core::host::host(),
+                );
                 Some(managed_nats::ensure_nats(
                     &nats_url,
                     &data_dir.join("nats"),
                     cli_nats_bin.as_deref(),
                     leaf_url,
+                    managed_domain.as_deref(),
                 )?)
             } else {
                 None

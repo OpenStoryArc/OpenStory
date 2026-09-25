@@ -717,7 +717,11 @@ mod when_node_reproject_is_called {
             assert_eq!(v["proposal"]["evidence"], json!(["diverged:node-b"]));
             assert_eq!(v["command_subject"], "ops.command.converge");
             let proposals = seen.subscriber.proposals();
-            assert_eq!(proposals.len(), 1, "one proposal for the whole run: {proposals:?}");
+            assert_eq!(
+                proposals.len(),
+                1,
+                "one proposal for the whole run: {proposals:?}"
+            );
             let ce = &proposals[0].1.events[0];
             assert_eq!(ce.data.raw["args"]["peers"], json!(["http://peer.example"]));
             assert_eq!(ce.data.raw["args"]["max_rounds"], 2);
@@ -741,7 +745,11 @@ mod when_node_reproject_is_called {
             let schema = (def.input_schema)();
             assert_eq!(schema["properties"]["peers"]["type"], "array", "{schema}");
             assert_eq!(schema["properties"]["max_rounds"]["type"], "integer");
-            assert!(def.description.contains("union"), "says what converge is: {}", def.description);
+            assert!(
+                def.description.contains("union"),
+                "says what converge is: {}",
+                def.description
+            );
         }
     }
 
@@ -1015,13 +1023,26 @@ mod when_node_streams_lists_a_mirror_and_an_aggregate {
         let resp = call_tool(server, "node_streams", json!({})).await;
         let v = unwrap_tool_result(&resp).expect("node_streams succeeds");
         let streams = v["streams"].as_array().expect("streams array");
-        let mirror = streams.iter().find(|s| s["name"] == "events-mirror").expect("the mirror");
-        assert_eq!(mirror["sources"], json!([{"name": "events-agg", "domain": "hub", "lag": 0, "active_secs": 1}]), "{v}");
-        let agg = streams.iter().find(|s| s["name"] == "events-agg").expect("the aggregate");
+        let mirror = streams
+            .iter()
+            .find(|s| s["name"] == "events-mirror")
+            .expect("the mirror");
+        assert_eq!(
+            mirror["sources"],
+            json!([{"name": "events-agg", "domain": "hub", "lag": 0, "active_secs": 1}]),
+            "{v}"
+        );
+        let agg = streams
+            .iter()
+            .find(|s| s["name"] == "events-agg")
+            .expect("the aggregate");
         assert_eq!(agg["sources"].as_array().map(|a| a.len()), Some(2), "{v}");
         assert_eq!(agg["sources"][1]["lag"], 2);
         assert_eq!(streams[0]["sources"], json!([]), "a plain stream has none");
-        assert_eq!(v["jetstream"]["domain"], "leaf-a", "the node's domain and max_file ride along: {v}");
+        assert_eq!(
+            v["jetstream"]["domain"], "leaf-a",
+            "the node's domain and max_file ride along: {v}"
+        );
         assert_eq!(v["jetstream"]["max_file"], 134217728);
     }
 }

@@ -33,6 +33,22 @@ pub struct StreamStats {
     pub max_bytes: Option<i64>,
     /// `bytes / max_bytes`, `None` when uncapped.
     pub percent: Option<f64>,
+    /// Where a mirror or aggregate pulls from (F-02): one entry per
+    /// configured source with its cursor's lag. Empty for a plain stream.
+    #[serde(default)]
+    pub sources: Vec<SourceStats>,
+}
+
+/// One source of a stream: the remote stream's name, its JetStream domain
+/// when it is external, how many messages the cursor is behind, and how
+/// long since the source was last seen active.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceStats {
+    pub name: String,
+    pub domain: Option<String>,
+    pub lag: u64,
+    /// Seconds since the source was last active; `None` when never.
+    pub active_secs: Option<u64>,
 }
 
 impl StreamStats {
@@ -45,7 +61,13 @@ impl StreamStats {
             messages,
             max_bytes: cap,
             percent,
+            sources: Vec::new(),
         }
+    }
+
+    pub fn with_sources(mut self, sources: Vec<SourceStats>) -> Self {
+        self.sources = sources;
+        self
     }
 
     pub fn percent(&self) -> Option<f64> {

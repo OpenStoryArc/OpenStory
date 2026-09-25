@@ -139,7 +139,7 @@ Silence from subscribe_health means nothing changed. {TIER_RULE}"#
             r#"# Motion: diagnose (the node)
 node_health {{}} → the health body with the node's verdict: level and findings, each with an id
 node_logs {{ since?, actor?, level?, limit? }} → the log ring; pass next back as since
-node_streams {{}} → bytes against caps; warn at 70 %, critical at 90 %
+node_streams {{}} → bytes against caps, with each mirror's or aggregate's sources (domain, lag); warn at 70 %, critical at 90 %
 Cite finding ids as evidence. {TIER_RULE}"#
         ),
         "propose" | "proposal" | "fix" => format!(
