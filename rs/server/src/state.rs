@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::sync::{RwLock, broadcast as tokio_broadcast};
+use tokio::sync::{broadcast as tokio_broadcast, RwLock};
 
 use open_story_bus::Bus;
 use open_story_store::state::{BackendChoice, StoreState};
@@ -55,8 +55,7 @@ pub struct AppState {
     /// nats-server to reread its conf so new exports/imports take effect
     /// without a server restart. `None` skips the reload (useful for tests
     /// that only care about the disk write).
-    pub account_config_reloader:
-        Option<Arc<dyn crate::account_config::NatsReloader>>,
+    pub account_config_reloader: Option<Arc<dyn crate::account_config::NatsReloader>>,
 
     /// Phase 6.5 — role lookup for the local principal. Defaults to
     /// `NoopRoleDirectory`, which fails-closed on every role-gated route.
@@ -92,10 +91,6 @@ pub async fn create_state_with_watch_dirs(
     bus: Arc<dyn Bus>,
     config: Config,
 ) -> Result<SharedState> {
-    let watch_dir = watch_dirs
-        .first()
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from(&config.watch_dir));
     let db_key = if config.db_key.is_empty() {
         None
     } else {
@@ -108,7 +103,25 @@ pub async fn create_state_with_watch_dirs(
             db_name: config.mongo_db.clone(),
         },
     };
-    let mut store = StoreState::with_backend(data_dir, db_key, backend).await?;
+    let store = StoreState::with_backend(data_dir, db_key, backend).await?;
+    create_state_with_store(store, data_dir, watch_dirs, bus, config).await
+}
+
+/// Boot the AppState around an already-built store. The seam a spec uses
+/// to wrap the `EventStore` and see what the boot asks it for
+/// (`tests/test_boot_pass.rs`); production goes through
+/// `create_state_with_watch_dirs`, which builds the store from `Config`.
+pub async fn create_state_with_store(
+    mut store: StoreState,
+    data_dir: &Path,
+    watch_dirs: &[PathBuf],
+    bus: Arc<dyn Bus>,
+    config: Config,
+) -> Result<SharedState> {
+    let watch_dir = watch_dirs
+        .first()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from(&config.watch_dir));
     // Size the bounded read-through caches from the parsed config, before
     // reconcile/reproject populate them. The store crate bakes in defaults; the
     // operator's `projection_cache_bytes` / `working_set_days` /
@@ -208,8 +221,7 @@ pub async fn create_state_with_watch_dirs(
         // BEFORE appending the new event (so a cold session never yields a
         // partial projection). The only cost is some rebuild churn; operators
         // wanting live sessions always-resident should keep `working_set_days > 0`.
-        let report =
-            crate::reproject::reproject_working_set(&store, config.working_set_days).await;
+        let report = crate::reproject::reproject_working_set(&store, config.working_set_days).await;
         if report.sessions_reprojected > 0 {
             eprintln!(
                 "  \x1b[32mReprojected {} working-set sessions ({} events) from store\x1b[0m",
@@ -252,8 +264,7 @@ pub async fn create_state_with_watch_dirs(
     // when the operator has opted in via `nats_accounts_conf_path` + a
     // `[person]` block. Without both, multi-account mode stays off and
     // POST /api/admin/share-with-person returns 503.
-    let (account_config_writer, account_config_reloader) =
-        build_account_config(&config);
+    let (account_config_writer, account_config_reloader) = build_account_config(&config);
 
     // ── Phase 6.5 boot-wire: role directory.
     // Defaults to {data_dir}/openstory-roles.db so a CLI `grant-role` is
@@ -365,8 +376,7 @@ fn build_account_config(
     Option<Arc<dyn crate::account_config::NatsReloader>>,
 ) {
     use crate::account_config::{
-        AccountConfigWriter, NatsReloader, ShellCommandReloader,
-        DEFAULT_NATS_STATIC_PREFIX,
+        AccountConfigWriter, NatsReloader, ShellCommandReloader, DEFAULT_NATS_STATIC_PREFIX,
     };
     use open_story_bus::accounts::{AccountSpec, UserSpec};
 
@@ -411,10 +421,7 @@ fn build_account_config(
         );
     }
 
-    let reloader: Option<Arc<dyn NatsReloader>> = if config
-        .nats_reload_command
-        .is_empty()
-    {
+    let reloader: Option<Arc<dyn NatsReloader>> = if config.nats_reload_command.is_empty() {
         None
     } else {
         Some(Arc::new(ShellCommandReloader {
@@ -493,14 +500,13 @@ mod tests {
             .await
             .unwrap();
         let s = state.read().await;
-        assert!(
-            s.store
-                .event_store
-                .list_sessions()
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(s
+            .store
+            .event_store
+            .list_sessions()
+            .await
+            .unwrap()
+            .is_empty());
         assert!(s.store.projections.is_empty());
     }
 
@@ -529,16 +535,14 @@ mod tests {
             .unwrap();
         let s = state.read().await;
         assert_eq!(s.store.watch_dir_entries.len(), 2);
-        assert!(
-            s.store
-                .watch_dir_entries
-                .contains(&"my-project".to_string())
-        );
-        assert!(
-            s.store
-                .watch_dir_entries
-                .contains(&"other-project".to_string())
-        );
+        assert!(s
+            .store
+            .watch_dir_entries
+            .contains(&"my-project".to_string()));
+        assert!(s
+            .store
+            .watch_dir_entries
+            .contains(&"other-project".to_string()));
     }
 
     #[tokio::test]
@@ -561,11 +565,10 @@ mod tests {
         .unwrap();
 
         let s = state.read().await;
-        assert!(
-            s.store
-                .watch_dir_entries
-                .contains(&"-Users-maxglassie-projects-OpenStory".to_string())
-        );
+        assert!(s
+            .store
+            .watch_dir_entries
+            .contains(&"-Users-maxglassie-projects-OpenStory".to_string()));
         assert!(s.store.watch_dir_entries.contains(&"2026".to_string()));
     }
 
@@ -834,14 +837,13 @@ mod tests {
                 .is_empty(),
             "SQLite boot should load all sessions, including old ones"
         );
-        assert!(
-            !s.store
-                .event_store
-                .session_events("new-session")
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(!s
+            .store
+            .event_store
+            .session_events("new-session")
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     /// Simulate a restart: first boot pre-populates SQLite directly (via
@@ -1162,6 +1164,9 @@ mod tests {
     fn person_account_name_normalizes_case_and_hyphens() {
         assert_eq!(person_account_name("max"), "PERSON_MAX");
         assert_eq!(person_account_name("Katie"), "PERSON_KATIE");
-        assert_eq!(person_account_name("uuid-with-hyphens"), "PERSON_UUID_WITH_HYPHENS");
+        assert_eq!(
+            person_account_name("uuid-with-hyphens"),
+            "PERSON_UUID_WITH_HYPHENS"
+        );
     }
 }
