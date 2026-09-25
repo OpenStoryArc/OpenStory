@@ -777,3 +777,148 @@ mod when_consistency_report_is_called {
         assert_eq!(schema["properties"], json!({}), "takes nothing: {schema}");
     }
 }
+
+/// C-04: `subscribe_convergence {interval_secs?}` is the health pump pointed
+/// at `/api/consistency`: it speaks only on transitions (`from, to, added,
+/// cleared, seq`), so a diverged→agreed edge is heard once and silence
+/// follows while nothing moves.
+mod when_convergence_flips_to_agreed {
+    use super::*;
+    use open_story_mcp::stdio;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::time::timeout;
+
+    fn agreed_body() -> Value {
+        json!({
+            "host": "node-a",
+            "level": "ok",
+            "findings": [],
+            "peers": [{"host": "node-b", "compared": true, "differing_projects": 0, "stale": false}]
+        })
+    }
+
+    /// Diverged for the first two reads, then agreed for good.
+    fn healing_router(calls: Arc<AtomicUsize>) -> Router {
+        Router::new().route(
+            "/api/consistency",
+            get(move || {
+                let calls = calls.clone();
+                async move {
+                    let n = calls.fetch_add(1, Ordering::SeqCst);
+                    Json(if n < 2 { consistency_body() } else { agreed_body() })
+                }
+            }),
+        )
+    }
+
+    #[tokio::test]
+    async fn it_notifies_once_then_stays_silent() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let base = spawn_mock(healing_router(calls.clone())).await;
+        let (server, _sub, _dir) = make_test_server();
+        let server = server.with_api_base(base);
+
+        let (mut client_w, server_r) = tokio::io::duplex(64 * 1024);
+        let (server_w, client_r) = tokio::io::duplex(64 * 1024);
+        let task = tokio::spawn(async move { stdio::run(server_r, server_w, server).await });
+
+        let req = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "subscribe_convergence", "arguments": {"interval_secs": 0.05}}});
+        client_w
+            .write_all(format!("{}\n", serde_json::to_string(&req).unwrap()).as_bytes())
+            .await
+            .unwrap();
+        let mut reader = BufReader::new(client_r).lines();
+
+        let ack: Value = serde_json::from_str(
+            &timeout(Duration::from_secs(2), reader.next_line())
+                .await
+                .expect("ack within 2 s")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ack["id"], 1);
+        let text: Value =
+            serde_json::from_str(ack["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(text["status"], "started", "{text}");
+        assert!(
+            text["following"].as_str().unwrap().contains("convergence"),
+            "{text}"
+        );
+        assert_eq!(
+            text["report"]["level"], "warn",
+            "the ack carries the current report: {text}"
+        );
+        let stream_id = text["stream_id"].as_str().unwrap().to_string();
+
+        let notif: Value = serde_json::from_str(
+            &timeout(Duration::from_secs(3), reader.next_line())
+                .await
+                .expect("the transition within 3 s")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            notif["method"], "notifications/openstory/convergence",
+            "{notif}"
+        );
+        let p = &notif["params"];
+        assert_eq!(p["stream_id"], stream_id);
+        assert_eq!(p["from"], "warn");
+        assert_eq!(p["to"], "ok");
+        assert_eq!(p["added"], json!([]));
+        assert_eq!(p["cleared"], json!(["diverged:node-b"]), "{p}");
+        assert_eq!(p["report"]["level"], "ok");
+        assert_eq!(p["seq"], 1);
+
+        // Still agreed: nothing more is said.
+        let silence = timeout(Duration::from_millis(400), reader.next_line()).await;
+        assert!(
+            silence.is_err(),
+            "no notification while nothing changes: {silence:?}"
+        );
+        assert!(
+            calls.load(Ordering::SeqCst) >= 4,
+            "it kept polling meanwhile"
+        );
+
+        drop(client_w);
+        timeout(Duration::from_secs(2), task)
+            .await
+            .expect("server exits when stdin closes")
+            .unwrap()
+            .unwrap();
+    }
+
+    #[test]
+    fn it_is_registered_under_watch_with_an_interval() {
+        let def = open_story_mcp::tools::TOOLS
+            .iter()
+            .find(|t| t.name == "subscribe_convergence")
+            .expect("subscribe_convergence registered");
+        assert!(def.description.contains("MOTION: watch"), "{}", def.description);
+        assert!(def.description.contains("consistency_report"), "names the one-shot hand");
+        let schema = (def.input_schema)();
+        assert!(
+            schema["properties"].get("interval_secs").is_some(),
+            "{schema}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_node_is_itself_a_transition() {
+        use open_story_mcp::tools::ops::{health_transition, read_report};
+        let r = read_report("http://127.0.0.1:9").await;
+        assert_eq!(r["level"], "unknown", "{r}");
+        assert_eq!(r["findings"][0]["id"], "consistency_unreachable");
+        let t = health_transition(&agreed_body(), &r).unwrap();
+        assert_eq!(t["from"], "ok");
+        assert_eq!(t["to"], "unknown");
+        assert_eq!(t["added"], json!(["consistency_unreachable"]));
+    }
+}
