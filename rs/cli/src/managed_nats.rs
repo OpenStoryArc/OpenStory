@@ -293,6 +293,23 @@ pub fn local_domain(
     }
 }
 
+/// Whether this node is the hub of its federation (F-02b): a hub domain is
+/// set and either the role is `consumer` (the lab's dashboard hub) or the
+/// node's NATS serves that domain (`OPEN_STORY_JETSTREAM_DOMAIN`), which
+/// is how a `full` hub that also watches, like the box, says so. Pure.
+pub fn is_hub_node(
+    hub_domain: Option<&str>,
+    jetstream_domain: Option<&str>,
+    role_is_consumer: bool,
+) -> bool {
+    let hub = hub_domain.map(str::trim).filter(|d| !d.is_empty());
+    let own = jetstream_domain.map(str::trim).filter(|d| !d.is_empty());
+    match hub {
+        None => false,
+        Some(hub) => role_is_consumer || own == Some(hub),
+    }
+}
+
 /// The `domain: "<d>"` line inside `jetstream { }`, or nothing.
 fn domain_line(domain: Option<&str>) -> String {
     match domain {
@@ -598,8 +615,14 @@ mod tests {
             assert!(is_hub_node(Some("hub"), None, true), "a consumer hub");
             assert!(is_hub_node(Some("hub"), Some("hub"), false), "a full hub");
             assert!(!is_hub_node(Some("hub"), None, false), "a full leaf");
-            assert!(!is_hub_node(Some("hub"), Some("maxs-air"), false), "a leaf naming its own domain");
-            assert!(!is_hub_node(None, Some("hub"), true), "no hub domain, no hub");
+            assert!(
+                !is_hub_node(Some("hub"), Some("maxs-air"), false),
+                "a leaf naming its own domain"
+            );
+            assert!(
+                !is_hub_node(None, Some("hub"), true),
+                "no hub domain, no hub"
+            );
         }
 
         #[test]

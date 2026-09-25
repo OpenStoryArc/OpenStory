@@ -347,6 +347,60 @@ impl NatsBus {
         Ok(())
     }
 
+    /// On a hub that also watches (F-02b), register this node's own
+    /// `events` and `presence` on the aggregates as same-domain sources
+    /// filtered to `<stream>.<host>.>`, so the hub's own history reaches
+    /// every leaf by cursor. The filter keeps leaf events that reached the
+    /// hub's `events.>` stream by core propagation from being sourced a
+    /// second time. Idempotent; call after `ensure_aggregate`.
+    pub async fn register_own_on_aggregate(&self, host: &str) -> Result<()> {
+        for (agg_name, stream_name) in [("events-agg", "events"), ("presence-agg", "presence")] {
+            let mut last_err: Option<anyhow::Error> = None;
+            let mut done = false;
+            for attempt in 0..5u32 {
+                let mut agg = self
+                    .jetstream
+                    .get_stream(agg_name)
+                    .await
+                    .with_context(|| format!("get_stream({agg_name}) failed"))?;
+                let mut cfg = agg
+                    .info()
+                    .await
+                    .with_context(|| format!("info({agg_name}) failed"))?
+                    .config
+                    .clone();
+                let mut sources = cfg.sources.unwrap_or_default();
+                if !ensure_own_source(&mut sources, stream_name, host) {
+                    done = true;
+                    break;
+                }
+                cfg.sources = Some(sources);
+                match self.jetstream.update_stream(&cfg).await {
+                    Ok(_) => {
+                        done = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(anyhow::anyhow!("update_stream({agg_name}) failed: {e}"));
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            50 * (1u64 << attempt),
+                        ))
+                        .await;
+                    }
+                }
+            }
+            if !done {
+                return Err(
+                    last_err.unwrap_or_else(|| anyhow::anyhow!("own-source registration failed"))
+                )
+                .with_context(|| {
+                    format!("own-source registration on {agg_name} exhausted retries")
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// The JetStream domain this bus's local context is pinned to, if any.
     /// Used by `ensure_aggregate` for T3 cross-domain access into our own
     /// `events-agg`.
@@ -1014,6 +1068,33 @@ pub(crate) fn ensure_named_source(
     true
 }
 
+/// A hub's own stream as a source on its aggregate (F-02b): same domain
+/// (no external prefix), filtered to this host's namespace. Pure.
+pub(crate) fn own_source(stream: &str, host: &str) -> stream::Source {
+    stream::Source {
+        name: stream.to_string(),
+        filter_subject: Some(format!("{stream}.{host}.>")),
+        ..Default::default()
+    }
+}
+
+/// Add [`own_source`] unless a same-domain source of that stream is
+/// already present. Additive; returns whether it added. Pure.
+pub(crate) fn ensure_own_source(
+    sources: &mut Vec<stream::Source>,
+    stream: &str,
+    host: &str,
+) -> bool {
+    if sources
+        .iter()
+        .any(|s| s.name == stream && s.external.is_none())
+    {
+        return false;
+    }
+    sources.push(own_source(stream, host));
+    true
+}
+
 /// The hub aggregate that leaves self-register into (decentralized enumeration
 /// — Option 3). Source-only; each leaf adds its own `events` stream as a source
 /// via the cross-domain API. Created empty here.
@@ -1294,7 +1375,10 @@ mod federation_config_tests {
 
         let mut sources = vec![external_source("events", "leaf-a")];
         assert!(ensure_own_source(&mut sources, "events", "hub-box"));
-        assert!(!ensure_own_source(&mut sources, "events", "hub-box"), "idempotent");
+        assert!(
+            !ensure_own_source(&mut sources, "events", "hub-box"),
+            "idempotent"
+        );
         assert_eq!(sources.len(), 2, "the leaf's source is kept");
         assert_eq!(
             sources[0].external.as_ref().map(|e| e.api_prefix.as_str()),

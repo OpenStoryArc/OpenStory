@@ -536,29 +536,41 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
 
         // ── 3b. the hub's own history reaches the leaf by cursor ──
         publish(&hub_bus, "hub-box", "sess-h", 0, 2).await;
-        eventually("events-agg holds the hub's own 2 (7 in all)", 30, || async {
-            let agg = stream_info(&hub_bus, "events-agg").await;
-            if messages(&agg) == 7 {
-                Ok(())
-            } else {
-                Err(format!("messages={} sources={:?}", messages(&agg), sources(&agg)))
-            }
-        })
+        eventually(
+            "events-agg holds the hub's own 2 (7 in all)",
+            30,
+            || async {
+                let agg = stream_info(&hub_bus, "events-agg").await;
+                if messages(&agg) == 7 {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "messages={} sources={:?}",
+                        messages(&agg),
+                        sources(&agg)
+                    ))
+                }
+            },
+        )
         .await;
-        eventually("the leaf node holds sess-h through its mirror", 30, || async {
-            let s = get(&leaf_a, "/api/digests").await;
-            let n = s["sessions"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|x| x["session_id"] == "sess-h")
-                .and_then(|x| x["count"].as_u64());
-            if n == Some(2) {
-                Ok(())
-            } else {
-                Err(format!("sess-h count={n:?}"))
-            }
-        })
+        eventually(
+            "the leaf node holds sess-h through its mirror",
+            30,
+            || async {
+                let s = get(&leaf_a, "/api/digests").await;
+                let n = s["sessions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|x| x["session_id"] == "sess-h")
+                    .and_then(|x| x["count"].as_u64());
+                if n == Some(2) {
+                    Ok(())
+                } else {
+                    Err(format!("sess-h count={n:?}"))
+                }
+            },
+        )
         .await;
 
         // ── 3. health on both nodes lists the mirror and the aggregate with caps and sources ──
@@ -630,7 +642,11 @@ mod when_a_leaf_and_a_hub_run_their_own_domains {
             .expect("node_streams");
         let a = stream_named(&ns, "events-agg")
             .unwrap_or_else(|| panic!("node_streams lists the aggregate: {ns}"));
-        assert_eq!(a["sources"].as_array().map(|v| v.len()), Some(3), "two leaves and the hub itself: {a}");
+        assert_eq!(
+            a["sources"].as_array().map(|v| v.len()),
+            Some(3),
+            "two leaves and the hub itself: {a}"
+        );
 
         // ── 4. a leaf outage: the mirror refills the gap by cursor, no catch-up ──
         leaf_a_nats.kill();

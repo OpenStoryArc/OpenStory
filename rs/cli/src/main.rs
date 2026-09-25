@@ -648,12 +648,17 @@ async fn main() -> Result<()> {
                 // F-02: the managed server serves the domain the bus below
                 // pins, from the same env the federation branch reads.
                 let env_domain = std::env::var("OPEN_STORY_HUB_DOMAIN").ok();
+                let js_domain = std::env::var("OPEN_STORY_JETSTREAM_DOMAIN").ok();
                 let mesh = std::env::var("OPEN_STORY_PEER_DOMAINS")
                     .ok()
                     .is_some_and(|s| !s.trim().is_empty());
                 let managed_domain = managed_nats::local_domain(
                     env_domain.as_deref(),
-                    matches!(config.role, Role::Consumer),
+                    managed_nats::is_hub_node(
+                        env_domain.as_deref(),
+                        js_domain.as_deref(),
+                        matches!(config.role, Role::Consumer),
+                    ),
                     mesh,
                     open_story_core::host::host(),
                 );
@@ -697,7 +702,13 @@ async fn main() -> Result<()> {
                     .filter(|p| !p.is_empty())
                     .collect()
             });
-            let is_hub = matches!(config.role, Role::Consumer) && hub_domain.is_some();
+            // F-02b: a `full` hub (the box watches Bobby and Katie) says
+            // so by naming its NATS domain; a consumer is a hub as before.
+            let is_hub = managed_nats::is_hub_node(
+                hub_domain.as_deref(),
+                std::env::var("OPEN_STORY_JETSTREAM_DOMAIN").ok().as_deref(),
+                matches!(config.role, Role::Consumer),
+            );
 
             // T3 multi-hub mesh: a hub also sources peer hubs' aggregates.
             let peer_hub_domains: Vec<String> = std::env::var("OPEN_STORY_PEER_HUB_DOMAINS")
@@ -725,6 +736,11 @@ async fn main() -> Result<()> {
                             .ensure_aggregate(&peer_hub_domains)
                             .await
                             .with_context(|| "NATS events-agg setup (hub) failed")?;
+                        // F-02b: the hub's own history on its aggregates.
+                        nats_bus
+                            .register_own_on_aggregate(open_story_core::host::host())
+                            .await
+                            .with_context(|| "NATS own-source registration (hub) failed")?;
                         let peer_label = if peer_hub_domains.is_empty() {
                             String::new()
                         } else {
